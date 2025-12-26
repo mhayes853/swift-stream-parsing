@@ -1,5 +1,17 @@
-extension AsyncSequence where Element: StreamParseable {
-  public func partials<Parser>(from parser: Parser) -> AsyncPartialsSequence<Element, Parser> {
+extension AsyncSequence where Element == UInt8 {
+  public func partials<Parseable, Parser>(
+    of parseable: Parseable.Type,
+    from parser: Parser
+  ) -> AsyncPartialsSequence<Parseable, Parser> {
+    AsyncPartialsSequence(parser: parser)
+  }
+}
+
+extension AsyncSequence where Element: Sequence<UInt8> {
+  public func partials<Parseable, Parser>(
+    of parseable: Parseable.Type,
+    from parser: Parser
+  ) -> AsyncPartialsSequence<Parseable, Parser> {
     AsyncPartialsSequence(parser: parser)
   }
 }
