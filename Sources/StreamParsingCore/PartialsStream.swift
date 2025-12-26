@@ -7,13 +7,13 @@ public struct PartialsStream<Value: StreamParseable, Parser: StreamParser> {
   }
 
   @discardableResult
-  public mutating func next(_ byte: UInt8) -> Value.Partial? {
-    nil
+  public mutating func next(_ byte: UInt8) throws -> Value.Partial {
+    try self.next(CollectionOfOne(byte))
   }
 
   @discardableResult
-  public mutating func next(_ bytes: some Sequence<UInt8>) -> Value.Partial? {
-    nil
+  public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value.Partial {
+    self.current
   }
 }
 

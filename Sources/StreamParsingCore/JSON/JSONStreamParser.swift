@@ -4,6 +4,10 @@ public struct JSONStreamParser: StreamParser {
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
   }
+
+  public func next(_ bytes: some Sequence<UInt8>) throws -> StreamParserValue {
+    .single(.null)
+  }
 }
 
 extension StreamParser where Self == JSONStreamParser {
