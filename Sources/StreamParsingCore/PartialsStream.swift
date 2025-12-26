@@ -1,3 +1,5 @@
+// MARK: - PartialsStream
+
 public struct PartialsStream<Value: StreamParseable, Parser: StreamParser> {
   private var parser: Parser
   public private(set) var current = Value.Partial()
@@ -19,3 +21,17 @@ public struct PartialsStream<Value: StreamParseable, Parser: StreamParser> {
 
 extension PartialsStream: Sendable
 where Value: Sendable, Value.Partial: Sendable, Parser: Sendable {}
+
+// MARK: - StreamParseable
+
+public protocol StreamParseable {
+  associatedtype Partial: StreamPartial
+}
+
+// MARK: - StreamPartial
+
+public protocol StreamPartial {
+  init()
+
+  mutating func next(value: StreamParserValue) throws
+}
