@@ -1,7 +1,7 @@
 // MARK: - StreamParser
 
 public protocol StreamParser {
-  func next(_ bytes: some Sequence<UInt8>) throws -> StreamParserValue
+  mutating func next(_ bytes: some Sequence<UInt8>) throws -> StreamParserValue
 }
 
 // MARK: - StreamedValue
