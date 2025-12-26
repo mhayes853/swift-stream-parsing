@@ -14,7 +14,8 @@ let package = Package(
     .package(url: "https://github.com/swiftlang/swift-syntax", "600.0.0"..<"603.0.0")
   ],
   targets: [
-    .target(name: "StreamParsing"),
+    .target(name: "StreamParsing", dependencies: ["StreamParsingCore", "StreamParsingMacros"]),
+    .target(name: "StreamParsingCore"),
     .macro(
       name: "StreamParsingMacros",
       dependencies: [
