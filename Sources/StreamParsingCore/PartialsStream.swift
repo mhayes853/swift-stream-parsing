@@ -33,5 +33,5 @@ public protocol StreamParseable {
 public protocol StreamPartial {
   init()
 
-  mutating func next(value: StreamParserValue) throws
+  mutating func reduce(action: StreamParserAction) throws
 }

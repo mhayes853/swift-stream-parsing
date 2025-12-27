@@ -1,7 +1,7 @@
 // MARK: - StreamParser
 
 public protocol StreamParser {
-  mutating func next(_ bytes: some Sequence<UInt8>) throws -> StreamParserValue
+  mutating func reduce(bytes: some Sequence<UInt8>, into partial: inout some StreamPartial) throws
 }
 
 // MARK: - StreamedValue
@@ -71,8 +71,8 @@ extension StreamedValue: ExpressibleByNilLiteral {
 
 // MARK: - StreamParserValue
 
-public indirect enum StreamParserValue {
-  case single(StreamedValue)
-  case unkeyed(index: Int, Self)
-  case keyed(key: String, Self)
+public indirect enum StreamParserAction {
+  case setValue(StreamedValue)
+  case setUnkeyed(index: Int, Self)
+  case setKeyed(key: String, Self)
 }

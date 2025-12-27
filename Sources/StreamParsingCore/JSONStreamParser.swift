@@ -7,8 +7,10 @@ public struct JSONStreamParser: StreamParser {
     self.configuration = configuration
   }
 
-  public mutating func next(_ bytes: some Sequence<UInt8>) throws -> StreamParserValue {
-    .single(.null)
+  public mutating func reduce(
+    bytes: some Sequence<UInt8>,
+    into partial: inout some StreamPartial
+  ) throws {
   }
 }
 
