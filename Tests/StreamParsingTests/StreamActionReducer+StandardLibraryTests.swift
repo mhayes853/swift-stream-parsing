@@ -1,0 +1,203 @@
+import CustomDump
+import StreamParsing
+import Testing
+
+@Suite
+struct `StreamActionReducer+StandardLibrary tests` {
+  @Test
+  func `Sets String From SetValue`() throws {
+    try expectSetValue(initial: "", expected: "hello", streamedValue: .string("hello"))
+  }
+
+  @Test
+  func `Throws For Non SetValue String Action`() {
+    expectThrowsOnNonSetValue(initial: "")
+  }
+
+  @Test
+  func `Sets Double From SetValue`() throws {
+    try expectSetValue(initial: 0.0, expected: 12.5, streamedValue: .double(12.5))
+  }
+
+  @Test
+  func `Throws For Non SetValue Double Action`() {
+    expectThrowsOnNonSetValue(initial: 0.0)
+  }
+
+  @Test
+  func `Sets Float From SetValue`() throws {
+    try expectSetValue(initial: Float(0), expected: Float(3.5), streamedValue: .float(3.5))
+  }
+
+  @Test
+  func `Throws For Non SetValue Float Action`() {
+    expectThrowsOnNonSetValue(initial: Float(0))
+  }
+
+  @Test
+  func `Sets Boolean From SetValue`() throws {
+    try expectSetValue(initial: false, expected: true, streamedValue: .boolean(true))
+  }
+
+  @Test
+  func `Throws For Non SetValue Boolean Action`() {
+    expectThrowsOnNonSetValue(initial: false)
+  }
+
+  @Test
+  func `Sets Int8 From SetValue`() throws {
+    try expectSetValue(initial: Int8(0), expected: Int8(8), streamedValue: .int8(8))
+  }
+
+  @Test
+  func `Throws For Non SetValue Int8 Action`() {
+    expectThrowsOnNonSetValue(initial: Int8(0))
+  }
+
+  @Test
+  func `Sets Int16 From SetValue`() throws {
+    try expectSetValue(initial: Int16(0), expected: Int16(16), streamedValue: .int16(16))
+  }
+
+  @Test
+  func `Throws For Non SetValue Int16 Action`() {
+    expectThrowsOnNonSetValue(initial: Int16(0))
+  }
+
+  @Test
+  func `Sets Int32 From SetValue`() throws {
+    try expectSetValue(initial: Int32(0), expected: Int32(32), streamedValue: .int32(32))
+  }
+
+  @Test
+  func `Throws For Non SetValue Int32 Action`() {
+    expectThrowsOnNonSetValue(initial: Int32(0))
+  }
+
+  @Test
+  func `Sets Int64 From SetValue`() throws {
+    try expectSetValue(initial: Int64(0), expected: Int64(64), streamedValue: .int64(64))
+  }
+
+  @Test
+  func `Throws For Non SetValue Int64 Action`() {
+    expectThrowsOnNonSetValue(initial: Int64(0))
+  }
+
+  @Test
+  func `Sets Int From SetValue`() throws {
+    try expectSetValue(initial: 0, expected: 128, streamedValue: .int(128))
+  }
+
+  @Test
+  func `Throws For Non SetValue Int Action`() {
+    expectThrowsOnNonSetValue(initial: 0)
+  }
+
+  @Test
+  func `Sets UInt8 From SetValue`() throws {
+    try expectSetValue(initial: UInt8(0), expected: UInt8(8), streamedValue: .uint8(8))
+  }
+
+  @Test
+  func `Throws For Non SetValue UInt8 Action`() {
+    expectThrowsOnNonSetValue(initial: UInt8(0))
+  }
+
+  @Test
+  func `Sets UInt16 From SetValue`() throws {
+    try expectSetValue(initial: UInt16(0), expected: UInt16(16), streamedValue: .uint16(16))
+  }
+
+  @Test
+  func `Throws For Non SetValue UInt16 Action`() {
+    expectThrowsOnNonSetValue(initial: UInt16(0))
+  }
+
+  @Test
+  func `Sets UInt32 From SetValue`() throws {
+    try expectSetValue(initial: UInt32(0), expected: UInt32(32), streamedValue: .uint32(32))
+  }
+
+  @Test
+  func `Throws For Non SetValue UInt32 Action`() {
+    expectThrowsOnNonSetValue(initial: UInt32(0))
+  }
+
+  @Test
+  func `Sets UInt64 From SetValue`() throws {
+    try expectSetValue(initial: UInt64(0), expected: UInt64(64), streamedValue: .uint64(64))
+  }
+
+  @Test
+  func `Throws For Non SetValue UInt64 Action`() {
+    expectThrowsOnNonSetValue(initial: UInt64(0))
+  }
+
+  @Test
+  func `Sets UInt From SetValue`() throws {
+    try expectSetValue(initial: UInt(0), expected: UInt(128), streamedValue: .uint(128))
+  }
+
+  @Test
+  func `Throws For Non SetValue UInt Action`() {
+    expectThrowsOnNonSetValue(initial: UInt(0))
+  }
+
+  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @Test
+  func `Sets Int128 From SetValue`() throws {
+    let initial: Int128 = 0
+    let expected: Int128 = 256
+    try expectSetValue(
+      initial: initial,
+      expected: expected,
+      streamedValue: .int128(expected)
+    )
+  }
+
+  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @Test
+  func `Throws For Non SetValue Int128 Action`() {
+    let initial: Int128 = 0
+    expectThrowsOnNonSetValue(initial: initial)
+  }
+
+  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @Test
+  func `Sets UInt128 From SetValue`() throws {
+    let initial: UInt128 = 0
+    let expected: UInt128 = 512
+    try expectSetValue(
+      initial: initial,
+      expected: expected,
+      streamedValue: .uint128(expected)
+    )
+  }
+
+  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @Test
+  func `Throws For Non SetValue UInt128 Action`() {
+    let initial: UInt128 = 0
+    expectThrowsOnNonSetValue(initial: initial)
+  }
+}
+
+private func expectSetValue<T: StreamActionReducer & Equatable>(
+  initial: T,
+  expected: T,
+  streamedValue: StreamedValue
+) throws where T.Action == DefaultStreamParserAction {
+  var reducer = initial
+  try reducer.reduce(action: .setValue(streamedValue))
+  expectNoDifference(reducer, expected)
+}
+
+private func expectThrowsOnNonSetValue<T: StreamActionReducer>(
+  initial: T
+) where T.Action == DefaultStreamParserAction {
+  var reducer = initial
+  #expect(throws: Error.self) {
+    try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
+  }
+}
