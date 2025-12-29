@@ -144,6 +144,47 @@ struct `StreamActionReducer+StandardLibrary tests` {
     expectThrowsOnNonSetValue(initial: UInt(0))
   }
 
+  @Test
+  func `Sets Optional String From SetValue`() throws {
+    var reducer: String? = nil
+    try reducer.reduce(action: .setValue(.string("hello")))
+    expectNoDifference(reducer, "hello")
+  }
+
+  @Test
+  func `Sets Optional String To Nil From Null SetValue`() throws {
+    var reducer: String? = "hello"
+    try reducer.reduce(action: .setValue(.null))
+    expectNoDifference(reducer, nil)
+  }
+
+  @Test
+  func `Reduces Optional Wrapped For Non SetValue Actions`() throws {
+    var reducer: MockPartial? = MockPartial()
+    let action = DefaultStreamParserAction.delegateKeyed(
+      key: "metadata",
+      .setValue("value")
+    )
+    try reducer.reduce(action: action)
+    expectNoDifference(reducer?.commands, [action])
+  }
+
+  @Test
+  func `Throws When Optional Wrapped Does Not Support Non SetValue Actions`() {
+    var reducer: String? = "hello"
+    #expect(throws: Error.self) {
+      try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
+    }
+  }
+
+  @Test
+  func `Throws When Optional Is Nil For Non SetValue Actions`() {
+    var reducer: String? = nil
+    #expect(throws: Error.self) {
+      try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
+    }
+  }
+
   @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
   @Test
   func `Sets Int128 From SetValue`() throws {

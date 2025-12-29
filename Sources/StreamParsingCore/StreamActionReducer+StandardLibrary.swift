@@ -4,10 +4,7 @@ extension String: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "String") { streamedValue in
-      guard case .string(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: String.self)
   }
 }
 
@@ -17,10 +14,7 @@ extension Double: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Double") { streamedValue in
-      guard case .double(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Double.self)
   }
 }
 
@@ -30,10 +24,7 @@ extension Float: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Float") { streamedValue in
-      guard case .float(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Float.self)
   }
 }
 
@@ -43,10 +34,7 @@ extension Bool: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Bool") { streamedValue in
-      guard case .boolean(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Bool.self)
   }
 }
 
@@ -56,10 +44,7 @@ extension Int8: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int8") { streamedValue in
-      guard case .int8(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Int8.self)
   }
 }
 
@@ -69,10 +54,7 @@ extension Int16: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int16") { streamedValue in
-      guard case .int16(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Int16.self)
   }
 }
 
@@ -82,10 +64,7 @@ extension Int32: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int32") { streamedValue in
-      guard case .int32(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Int32.self)
   }
 }
 
@@ -95,10 +74,7 @@ extension Int64: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int64") { streamedValue in
-      guard case .int64(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Int64.self)
   }
 }
 
@@ -108,10 +84,7 @@ extension Int: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int") { streamedValue in
-      guard case .int(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: Int.self)
   }
 }
 
@@ -121,10 +94,7 @@ extension UInt8: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt8") { streamedValue in
-      guard case .uint8(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: UInt8.self)
   }
 }
 
@@ -134,10 +104,7 @@ extension UInt16: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt16") { streamedValue in
-      guard case .uint16(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: UInt16.self)
   }
 }
 
@@ -147,10 +114,7 @@ extension UInt32: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt32") { streamedValue in
-      guard case .uint32(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: UInt32.self)
   }
 }
 
@@ -160,10 +124,7 @@ extension UInt64: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt64") { streamedValue in
-      guard case .uint64(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: UInt64.self)
   }
 }
 
@@ -173,10 +134,7 @@ extension UInt: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt") { streamedValue in
-      guard case .uint(let value) = streamedValue else { return nil }
-      return value
-    }
+    self = try action.standardLibraryValue(as: UInt.self)
   }
 }
 
@@ -187,10 +145,7 @@ extension Int128: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "Int128") { streamedValue in
-      guard case .int128(high: let high, low: let low) = streamedValue else { return nil }
-      return Int128(_low: low, _high: high)
-    }
+    self = try action.standardLibraryValue(as: Int128.self)
   }
 }
 
@@ -201,9 +156,41 @@ extension UInt128: StreamActionReducer {
   public typealias Action = DefaultStreamParserAction
 
   public mutating func reduce(action: DefaultStreamParserAction) throws {
-    self = try reduceToValue(action: action, expectedType: "UInt128") { streamedValue in
-      guard case .uint128(high: let high, low: let low) = streamedValue else { return nil }
-      return UInt128(_low: low, _high: high)
+    self = try action.standardLibraryValue(as: UInt128.self)
+  }
+}
+
+// MARK: - Optional
+
+extension Optional: StreamActionReducer
+where Wrapped: StreamActionReducer, Wrapped.Action == DefaultStreamParserAction {
+  public typealias Action = DefaultStreamParserAction
+
+  public mutating func reduce(action: DefaultStreamParserAction) throws {
+    switch action {
+    case .setValue(let value):
+      if case .null = value {
+        self = nil
+        return
+      }
+      if var wrapped = self {
+        try wrapped.reduce(action: action)
+        self = wrapped
+        return
+      }
+      guard let value = value.standardLibraryValue(as: Wrapped.self) else {
+        throw StandardLibraryStreamActionReducerError.typeMismatch(
+          expected: String(describing: Wrapped.self),
+          actual: value
+        )
+      }
+      self = value
+    default:
+      guard var wrapped = self else {
+        throw StandardLibraryStreamActionReducerError.unsupportedAction(action)
+      }
+      try wrapped.reduce(action: action)
+      self = wrapped
     }
   }
 }
@@ -215,19 +202,66 @@ private enum StandardLibraryStreamActionReducerError: Error {
   case typeMismatch(expected: String, actual: StreamedValue)
 }
 
-private func reduceToValue<T>(
-  action: DefaultStreamParserAction,
-  expectedType: String,
-  extract: (StreamedValue) -> T?
-) throws -> T {
-  guard case .setValue(let streamedValue) = action else {
-    throw StandardLibraryStreamActionReducerError.unsupportedAction(action)
+extension DefaultStreamParserAction {
+  fileprivate func standardLibraryValue<T>(as type: T.Type) throws -> T {
+    guard case .setValue(let streamedValue) = self else {
+      throw StandardLibraryStreamActionReducerError.unsupportedAction(self)
+    }
+    guard let value = streamedValue.standardLibraryValue(as: type) else {
+      throw StandardLibraryStreamActionReducerError.typeMismatch(
+        expected: String(describing: type),
+        actual: streamedValue
+      )
+    }
+    return value
   }
-  guard let value = extract(streamedValue) else {
-    throw StandardLibraryStreamActionReducerError.typeMismatch(
-      expected: expectedType,
-      actual: streamedValue
-    )
+}
+
+extension StreamedValue {
+  fileprivate func standardLibraryValue<T>(as type: T.Type) -> T? {
+    switch self {
+    case .string(let value):
+      return value as? T
+    case .double(let value):
+      return value as? T
+    case .float(let value):
+      return value as? T
+    case .boolean(let value):
+      return value as? T
+    case .int8(let value):
+      return value as? T
+    case .int16(let value):
+      return value as? T
+    case .int32(let value):
+      return value as? T
+    case .int64(let value):
+      return value as? T
+    case .int(let value):
+      return value as? T
+    case .uint8(let value):
+      return value as? T
+    case .uint16(let value):
+      return value as? T
+    case .uint32(let value):
+      return value as? T
+    case .uint64(let value):
+      return value as? T
+    case .uint(let value):
+      return value as? T
+    case .int128(let high, let low):
+      if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+        let value = Int128(_low: low, _high: high)
+        return value as? T
+      }
+      return nil
+    case .uint128(let high, let low):
+      if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+        let value = UInt128(_low: low, _high: high)
+        return value as? T
+      }
+      return nil
+    case .null:
+      return nil
+    }
   }
-  return value
 }
