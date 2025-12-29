@@ -1,21 +1,32 @@
 // MARK: - PartialsStream
 
-public struct PartialsStream<Value: StreamParseable, Parser: StreamParser> {
-  private var parser: Parser
-  public private(set) var current = Value.Partial()
+public struct PartialsStream<Value: StreamParseable, Parser: StreamParser>
+where Parser.Action == Value.Partial.Action {
+  @usableFromInline
+  var parser: Parser
+
+  @usableFromInline
+  var _current = Value.Partial()
+
+  public var current: Value.Partial {
+    self._current
+  }
 
   public init(of valueType: Value.Type, from parser: Parser) {
     self.parser = parser
   }
 
+  @inlinable
   @discardableResult
   public mutating func next(_ byte: UInt8) throws -> Value.Partial {
     try self.next(CollectionOfOne(byte))
   }
 
+  @inlinable
   @discardableResult
   public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value.Partial {
-    self.current
+    try self.parser.parse(bytes: bytes, into: &self._current)
+    return self.current
   }
 }
 
