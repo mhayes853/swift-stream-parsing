@@ -6,7 +6,7 @@ import Testing
 struct `PartialsStream tests` {
   @Test
   func `Injects Default Commands Into Partial`() throws {
-    let defaultCommands: [DefaultStreamParserAction] = [
+    let defaultCommands: [DefaultStreamAction] = [
       .setValue("start"),
       .delegateKeyed(key: "metadata", .setValue(1)),
       .delegateUnkeyed(index: 0, .setValue(true))

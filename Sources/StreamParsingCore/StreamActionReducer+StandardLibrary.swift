@@ -1,9 +1,9 @@
 // MARK: - String
 
 extension String: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: String.self)
   }
 }
@@ -11,9 +11,9 @@ extension String: StreamActionReducer {
 // MARK: - Double
 
 extension Double: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Double.self)
   }
 }
@@ -21,9 +21,9 @@ extension Double: StreamActionReducer {
 // MARK: - Float
 
 extension Float: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Float.self)
   }
 }
@@ -31,9 +31,9 @@ extension Float: StreamActionReducer {
 // MARK: - Bool
 
 extension Bool: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Bool.self)
   }
 }
@@ -41,9 +41,9 @@ extension Bool: StreamActionReducer {
 // MARK: - Int8
 
 extension Int8: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int8.self)
   }
 }
@@ -51,9 +51,9 @@ extension Int8: StreamActionReducer {
 // MARK: - Int16
 
 extension Int16: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int16.self)
   }
 }
@@ -61,9 +61,9 @@ extension Int16: StreamActionReducer {
 // MARK: - Int32
 
 extension Int32: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int32.self)
   }
 }
@@ -71,9 +71,9 @@ extension Int32: StreamActionReducer {
 // MARK: - Int64
 
 extension Int64: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int64.self)
   }
 }
@@ -81,9 +81,9 @@ extension Int64: StreamActionReducer {
 // MARK: - Int
 
 extension Int: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int.self)
   }
 }
@@ -91,9 +91,9 @@ extension Int: StreamActionReducer {
 // MARK: - UInt8
 
 extension UInt8: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt8.self)
   }
 }
@@ -101,9 +101,9 @@ extension UInt8: StreamActionReducer {
 // MARK: - UInt16
 
 extension UInt16: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt16.self)
   }
 }
@@ -111,9 +111,9 @@ extension UInt16: StreamActionReducer {
 // MARK: - UInt32
 
 extension UInt32: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt32.self)
   }
 }
@@ -121,9 +121,9 @@ extension UInt32: StreamActionReducer {
 // MARK: - UInt64
 
 extension UInt64: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt64.self)
   }
 }
@@ -131,9 +131,9 @@ extension UInt64: StreamActionReducer {
 // MARK: - UInt
 
 extension UInt: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt.self)
   }
 }
@@ -142,9 +142,9 @@ extension UInt: StreamActionReducer {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: Int128.self)
   }
 }
@@ -153,9 +153,9 @@ extension Int128: StreamActionReducer {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: StreamActionReducer {
-  public typealias StreamAction = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     self = try action.standardLibraryValue(as: UInt128.self)
   }
 }
@@ -163,10 +163,10 @@ extension UInt128: StreamActionReducer {
 // MARK: - Optional
 
 extension Optional: StreamActionReducer
-where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamParserAction {
-  public typealias StreamAction = DefaultStreamParserAction
+where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamAction {
+  public typealias StreamAction = DefaultStreamAction
 
-  public mutating func reduce(action: DefaultStreamParserAction) throws {
+  public mutating func reduce(action: DefaultStreamAction) throws {
     switch action {
     case .setValue(let value):
       if case .null = value {
@@ -195,14 +195,34 @@ where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamParserA
   }
 }
 
+// MARK: - RawRepresentable
+
+extension RawRepresentable
+where RawValue: StreamActionReducer, RawValue.StreamAction == DefaultStreamAction {
+  public typealias StreamAction = DefaultStreamAction
+
+  public mutating func reduce(action: DefaultStreamAction) throws {
+    var updatedRawValue = rawValue
+    try updatedRawValue.reduce(action: action)
+    guard let updatedValue = Self(rawValue: updatedRawValue) else {
+      throw StandardLibraryStreamActionReducerError.rawValueInitializationFailed(
+        type: String(describing: Self.self),
+        rawValue: String(describing: updatedRawValue)
+      )
+    }
+    self = updatedValue
+  }
+}
+
 // MARK: - Helpers
 
 private enum StandardLibraryStreamActionReducerError: Error {
-  case unsupportedAction(DefaultStreamParserAction)
+  case unsupportedAction(DefaultStreamAction)
   case typeMismatch(expected: String, actual: StreamedValue)
+  case rawValueInitializationFailed(type: String, rawValue: String)
 }
 
-extension DefaultStreamParserAction {
+extension DefaultStreamAction {
   fileprivate func standardLibraryValue<T>(as type: T.Type) throws -> T {
     guard case .setValue(let streamedValue) = self else {
       throw StandardLibraryStreamActionReducerError.unsupportedAction(self)

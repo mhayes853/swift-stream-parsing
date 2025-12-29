@@ -19,7 +19,7 @@ public protocol StreamActionReducer<StreamAction> {
 
 // MARK: - StreamParserValue
 
-public indirect enum DefaultStreamParserAction: Hashable, Sendable {
+public indirect enum DefaultStreamAction: Hashable, Sendable {
   case setValue(StreamedValue)
   case delegateUnkeyed(index: Int, Self)
   case delegateKeyed(key: String, Self)

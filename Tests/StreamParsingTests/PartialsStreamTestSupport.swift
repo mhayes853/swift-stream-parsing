@@ -5,23 +5,23 @@ struct MockValue: StreamParseable {
 }
 
 struct MockPartial: StreamPartial {
-  typealias StreamAction = DefaultStreamParserAction
+  typealias StreamAction = DefaultStreamAction
 
-  var commands = [DefaultStreamParserAction]()
+  var commands = [DefaultStreamAction]()
 
-  mutating func reduce(action: DefaultStreamParserAction) throws {
+  mutating func reduce(action: DefaultStreamAction) throws {
     commands.append(action)
   }
 }
 
 struct MockParser: StreamParser {
-  typealias StreamAction = DefaultStreamParserAction
+  typealias StreamAction = DefaultStreamAction
 
-  let defaultCommands: [DefaultStreamParserAction]
+  let defaultCommands: [DefaultStreamAction]
 
   mutating func parse(
     bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamActionReducer<DefaultStreamParserAction>
+    into reducer: inout some StreamActionReducer<DefaultStreamAction>
   ) throws {
     for byte in bytes {
       try reducer.reduce(action: self.defaultCommands[Int(byte)])

@@ -161,10 +161,7 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Reduces Optional Wrapped For Non SetValue Actions`() throws {
     var reducer: MockPartial? = MockPartial()
-    let action = DefaultStreamParserAction.delegateKeyed(
-      key: "metadata",
-      .setValue("value")
-    )
+    let action = DefaultStreamAction.delegateKeyed(key: "metadata", .setValue("value"))
     try reducer.reduce(action: action)
     expectNoDifference(reducer?.commands, [action])
   }
@@ -190,11 +187,7 @@ struct `StreamActionReducer+StandardLibrary tests` {
   func `Sets Int128 From SetValue`() throws {
     let initial: Int128 = 0
     let expected: Int128 = 256
-    try expectSetValue(
-      initial: initial,
-      expected: expected,
-      streamedValue: .int128(expected)
-    )
+    try expectSetValue(initial: initial, expected: expected, streamedValue: .int128(expected))
   }
 
   @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
@@ -209,11 +202,7 @@ struct `StreamActionReducer+StandardLibrary tests` {
   func `Sets UInt128 From SetValue`() throws {
     let initial: UInt128 = 0
     let expected: UInt128 = 512
-    try expectSetValue(
-      initial: initial,
-      expected: expected,
-      streamedValue: .uint128(expected)
-    )
+    try expectSetValue(initial: initial, expected: expected, streamedValue: .uint128(expected))
   }
 
   @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
@@ -222,13 +211,44 @@ struct `StreamActionReducer+StandardLibrary tests` {
     let initial: UInt128 = 0
     expectThrowsOnNonSetValue(initial: initial)
   }
+
+  @Test
+  func `Sets RawRepresentable From SetValue`() throws {
+    var reducer = TestRawRepresentable(rawValue: "old")
+    try reducer.reduce(action: .setValue(.string("new")))
+    expectNoDifference(reducer, TestRawRepresentable(rawValue: "new"))
+  }
+
+  @Test
+  func `Reduces RawValue For Non SetValue Actions`() throws {
+    var reducer = PartialRawRepresentable(rawValue: MockPartial())
+    let action = DefaultStreamAction.delegateKeyed(key: "metadata", .setValue("value"))
+    try reducer.reduce(action: action)
+    expectNoDifference(reducer.rawValue.commands, [action])
+  }
+
+  @Test
+  func `Throws When SetValue Type Is Invalid`() {
+    var reducer = TestRawRepresentable(rawValue: "old")
+    #expect(throws: Error.self) {
+      try reducer.reduce(action: .setValue(.int(1)))
+    }
+  }
+
+  @Test
+  func `Throws When RawValue Init Fails`() {
+    var reducer = LimitedRawRepresentable(rawValue: "allowed")!
+    #expect(throws: Error.self) {
+      try reducer.reduce(action: .setValue(.string("bad")))
+    }
+  }
 }
 
 private func expectSetValue<T: StreamActionReducer & Equatable>(
   initial: T,
   expected: T,
   streamedValue: StreamedValue
-) throws where T.StreamAction == DefaultStreamParserAction {
+) throws where T.StreamAction == DefaultStreamAction {
   var reducer = initial
   try reducer.reduce(action: .setValue(streamedValue))
   expectNoDifference(reducer, expected)
@@ -236,9 +256,36 @@ private func expectSetValue<T: StreamActionReducer & Equatable>(
 
 private func expectThrowsOnNonSetValue<T: StreamActionReducer>(
   initial: T
-) where T.StreamAction == DefaultStreamParserAction {
+) where T.StreamAction == DefaultStreamAction {
   var reducer = initial
   #expect(throws: Error.self) {
     try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
+  }
+}
+
+private struct TestRawRepresentable: RawRepresentable, Equatable {
+  var rawValue: String
+
+  init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+}
+
+private struct LimitedRawRepresentable: RawRepresentable, Equatable {
+  var rawValue: String
+
+  init?(rawValue: String) {
+    guard rawValue == "allowed" else {
+      return nil
+    }
+    self.rawValue = rawValue
+  }
+}
+
+private struct PartialRawRepresentable: RawRepresentable {
+  var rawValue: MockPartial
+
+  init(rawValue: MockPartial) {
+    self.rawValue = rawValue
   }
 }
