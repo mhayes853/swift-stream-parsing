@@ -5,7 +5,7 @@ struct MockValue: StreamParseable {
 }
 
 struct MockPartial: StreamPartial {
-  typealias Action = DefaultStreamParserAction
+  typealias StreamAction = DefaultStreamParserAction
 
   var commands = [DefaultStreamParserAction]()
 
@@ -15,7 +15,7 @@ struct MockPartial: StreamPartial {
 }
 
 struct MockParser: StreamParser {
-  typealias Action = DefaultStreamParserAction
+  typealias StreamAction = DefaultStreamParserAction
 
   let defaultCommands: [DefaultStreamParserAction]
 

@@ -1,7 +1,7 @@
 // MARK: - JSONStreamParser
 
 public struct JSONStreamParser: StreamParser {
-  public typealias Action = DefaultStreamParserAction
+  public typealias StreamAction = DefaultStreamParserAction
 
   public let configuration: JSONStreamParser.Configuration
 

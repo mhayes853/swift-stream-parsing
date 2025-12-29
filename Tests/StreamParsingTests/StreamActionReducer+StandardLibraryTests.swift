@@ -228,7 +228,7 @@ private func expectSetValue<T: StreamActionReducer & Equatable>(
   initial: T,
   expected: T,
   streamedValue: StreamedValue
-) throws where T.Action == DefaultStreamParserAction {
+) throws where T.StreamAction == DefaultStreamParserAction {
   var reducer = initial
   try reducer.reduce(action: .setValue(streamedValue))
   expectNoDifference(reducer, expected)
@@ -236,7 +236,7 @@ private func expectSetValue<T: StreamActionReducer & Equatable>(
 
 private func expectThrowsOnNonSetValue<T: StreamActionReducer>(
   initial: T
-) where T.Action == DefaultStreamParserAction {
+) where T.StreamAction == DefaultStreamParserAction {
   var reducer = initial
   #expect(throws: Error.self) {
     try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))

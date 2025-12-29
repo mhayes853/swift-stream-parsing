@@ -23,7 +23,7 @@ public struct AsyncPartialsSequence<
   Parser: StreamParser,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
->: AsyncSequence where Parseable.Partial.Action == Parser.Action {
+>: AsyncSequence where Parseable.Partial.StreamAction == Parser.StreamAction {
   public typealias Element = Parseable.Partial
 
   fileprivate enum ByteInput {

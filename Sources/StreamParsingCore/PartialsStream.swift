@@ -1,7 +1,7 @@
 // MARK: - PartialsStream
 
 public struct PartialsStream<Value: StreamParseable, Parser: StreamParser>
-where Parser.Action == Value.Partial.Action {
+where Parser.StreamAction == Value.Partial.StreamAction {
   @usableFromInline
   var parser: Parser
 

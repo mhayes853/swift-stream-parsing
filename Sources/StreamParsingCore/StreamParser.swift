@@ -1,20 +1,20 @@
 // MARK: - StreamParser
 
-public protocol StreamParser<Action> {
-  associatedtype Action
+public protocol StreamParser<StreamAction> {
+  associatedtype StreamAction
 
   mutating func parse(
     bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamActionReducer<Action>
+    into reducer: inout some StreamActionReducer<StreamAction>
   ) throws
 }
 
 // MARK: - StreamActionReducer
 
-public protocol StreamActionReducer<Action> {
-  associatedtype Action
+public protocol StreamActionReducer<StreamAction> {
+  associatedtype StreamAction
 
-  mutating func reduce(action: Action) throws
+  mutating func reduce(action: StreamAction) throws
 }
 
 // MARK: - StreamParserValue
