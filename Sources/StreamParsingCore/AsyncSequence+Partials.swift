@@ -4,8 +4,7 @@ extension AsyncSequence where Element == UInt8 {
   public func partials<Parseable, Parser>(
     of parseable: Parseable.Type,
     from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable, Parser, Self>
-  where Parseable.Partial.Action == Parser.Action {
+  ) -> AsyncPartialsSequence<Parseable, Parser, Self, CollectionOfOne<UInt8>> {
     AsyncPartialsSequence(base: self, parser: parser) { .single($0) }
   }
 }
@@ -14,8 +13,7 @@ extension AsyncSequence where Element: Sequence<UInt8> {
   public func partials<Parseable, Parser>(
     of parseable: Parseable.Type,
     from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable, Parser, Self>
-  where Parseable.Partial.Action == Parser.Action {
+  ) -> AsyncPartialsSequence<Parseable, Parser, Self, Element> {
     AsyncPartialsSequence(base: self, parser: parser) { .sequence($0) }
   }
 }
@@ -23,9 +21,15 @@ extension AsyncSequence where Element: Sequence<UInt8> {
 public struct AsyncPartialsSequence<
   Parseable: StreamParseable,
   Parser: StreamParser,
-  Base: AsyncSequence
+  Base: AsyncSequence,
+  Seq: Sequence<UInt8>
 >: AsyncSequence where Parseable.Partial.Action == Parser.Action {
   public typealias Element = Parseable.Partial
+
+  fileprivate enum ByteInput {
+    case single(UInt8)
+    case sequence(Seq)
+  }
 
   let base: Base
   let parser: Parser

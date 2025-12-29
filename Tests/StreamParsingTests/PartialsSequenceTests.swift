@@ -3,7 +3,7 @@ import StreamParsing
 import Testing
 
 @Suite
-struct `PartialsSequence tests` {
+struct `PartialsSequence Tests` {
   @Test
   func `Injects Default Commands Into Partial`() throws {
     let defaultCommands: [DefaultStreamParserAction] = [
@@ -12,8 +12,8 @@ struct `PartialsSequence tests` {
       .delegateUnkeyed(index: 0, .setValue(true))
     ]
 
-    let byteChunks: [[UInt8]] = [[0x01, 0x02, 0x03]]
-    let partials = byteChunks.partials(
+    let bytes: [[UInt8]] = [[0x00, 0x01, 0x02]]
+    let partials = try bytes.partials(
       of: MockValue.self,
       from: MockParser(defaultCommands: defaultCommands)
     )
@@ -22,23 +22,22 @@ struct `PartialsSequence tests` {
   }
 
   @Test
-  func `Stops Iteration On Parser Error`() throws {
-    let byteChunks: [[UInt8]] = [[0x01, 0x02, 0x03]]
-    let partials = byteChunks.partials(of: MockValue.self, from: ThrowingParser())
+  func `Injects Default Commands Into Partial From Simple Bytes Sequence`() throws {
+    let defaultCommands: [DefaultStreamParserAction] = [
+      .setValue("start"),
+      .delegateKeyed(key: "metadata", .setValue(1)),
+      .delegateUnkeyed(index: 0, .setValue(true))
+    ]
 
-    expectNoDifference(Array(partials).count, 0)
+    let bytes: [UInt8] = [0x00, 0x01, 0x02]
+    let partials = try bytes.partials(
+      of: MockValue.self,
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    expectNoDifference(
+      partials.map(\.commands),
+      [[defaultCommands[0]], [defaultCommands[0], defaultCommands[1]], defaultCommands]
+    )
   }
 }
-
-private struct ThrowingParser: StreamParser {
-  typealias Action = DefaultStreamParserAction
-
-  mutating func parse(
-    bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamActionReducer<DefaultStreamParserAction>
-  ) throws {
-    throw ParserFailure()
-  }
-}
-
-private struct ParserFailure: Error {}

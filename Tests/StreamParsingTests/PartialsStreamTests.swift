@@ -16,7 +16,7 @@ struct `PartialsStream tests` {
       of: MockValue.self,
       from: MockParser(defaultCommands: defaultCommands)
     )
-    let partial = try stream.next([0x01, 0x02, 0x03])
+    let partial = try stream.next([0x00, 0x01, 0x02])
 
     expectNoDifference(partial.commands, defaultCommands)
     expectNoDifference(stream.current.commands, defaultCommands)
