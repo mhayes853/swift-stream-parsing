@@ -8,10 +8,12 @@ where Parser.StreamAction == Value.Partial.StreamAction {
   @usableFromInline
   var _current = Value.Partial()
 
+  @inlinable
   public var current: Value.Partial {
     self._current
   }
 
+  @inlinable
   public init(of valueType: Value.Type, from parser: Parser) {
     self.parser = parser
   }
