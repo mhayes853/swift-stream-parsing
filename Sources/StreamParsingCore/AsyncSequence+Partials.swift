@@ -6,7 +6,7 @@ extension AsyncSequence where Element == UInt8 {
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self>
   where Parseable.Partial.Action == Parser.Action {
-    AsyncPartialsSequence(base: self, parser: parser, byteInput: ByteInput.single)
+    AsyncPartialsSequence(base: self, parser: parser) { .single($0) }
   }
 }
 
@@ -16,7 +16,7 @@ extension AsyncSequence where Element: Sequence<UInt8> {
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self>
   where Parseable.Partial.Action == Parser.Action {
-    AsyncPartialsSequence(base: self, parser: parser, byteInput: ByteInput.sequence)
+    AsyncPartialsSequence(base: self, parser: parser) { .sequence($0) }
   }
 }
 
@@ -56,11 +56,4 @@ public struct AsyncPartialsSequence<
       byteInput: self.byteInput
     )
   }
-}
-
-// MARK: - Helpers
-
-private enum ByteInput {
-  case single(UInt8)
-  case sequence(any Sequence<UInt8>)
 }
