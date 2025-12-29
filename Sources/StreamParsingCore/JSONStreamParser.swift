@@ -1,15 +1,17 @@
 // MARK: - JSONStreamParser
 
 public struct JSONStreamParser: StreamParser {
+  public typealias Action = DefaultStreamParserAction
+
   public let configuration: JSONStreamParser.Configuration
 
   public init(configuration: JSONStreamParser.Configuration = JSONStreamParser.Configuration()) {
     self.configuration = configuration
   }
 
-  public mutating func reduce(
+  public mutating func parse(
     bytes: some Sequence<UInt8>,
-    into partial: inout some StreamPartial
+    into partial: inout some StreamActionReducer<DefaultStreamParserAction>
   ) throws {
   }
 }

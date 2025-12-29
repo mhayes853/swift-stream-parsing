@@ -30,8 +30,6 @@ public protocol StreamParseable {
 
 // MARK: - StreamPartial
 
-public protocol StreamPartial {
+public protocol StreamPartial: StreamActionReducer {
   init()
-
-  mutating func reduce(action: StreamParserAction) throws
 }
