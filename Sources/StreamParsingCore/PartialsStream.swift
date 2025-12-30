@@ -6,7 +6,7 @@ where Parser.StreamAction == Value.Partial.StreamAction {
   var parser: Parser
 
   @usableFromInline
-  var _current = Value.Partial()
+  var _current: Value.Partial
 
   @inlinable
   public var current: Value.Partial {
@@ -14,8 +14,9 @@ where Parser.StreamAction == Value.Partial.StreamAction {
   }
 
   @inlinable
-  public init(of valueType: Value.Type, from parser: Parser) {
+  public init(initialValue: Value.Partial, from parser: Parser) {
     self.parser = parser
+    self._current = initialValue
   }
 
   @inlinable
@@ -38,11 +39,5 @@ where Value: Sendable, Value.Partial: Sendable, Parser: Sendable {}
 // MARK: - StreamParseable
 
 public protocol StreamParseable {
-  associatedtype Partial: StreamPartial
-}
-
-// MARK: - StreamPartial
-
-public protocol StreamPartial: StreamActionReducer {
-  init()
+  associatedtype Partial: StreamActionReducer
 }

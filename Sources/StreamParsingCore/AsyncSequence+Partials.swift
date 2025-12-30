@@ -2,19 +2,19 @@
 
 extension AsyncSequence where Element == UInt8 {
   public func partials<Parseable, Parser>(
-    of parseable: Parseable.Type,
+    initialValue: Parseable.Partial,
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self, CollectionOfOne<UInt8>> {
-    AsyncPartialsSequence(base: self, parser: parser) { .single($0) }
+    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .single($0) }
   }
 }
 
 extension AsyncSequence where Element: Sequence<UInt8> {
   public func partials<Parseable, Parser>(
-    of parseable: Parseable.Type,
+    initialValue: Parseable.Partial,
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self, Element> {
-    AsyncPartialsSequence(base: self, parser: parser) { .sequence($0) }
+    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .sequence($0) }
   }
 }
 
@@ -33,6 +33,7 @@ public struct AsyncPartialsSequence<
 
   let base: Base
   let parser: Parser
+  let initialValue: Parseable.Partial
   fileprivate let byteInput: (Base.Element) -> ByteInput
 
   public struct AsyncIterator: AsyncIteratorProtocol {
@@ -56,7 +57,7 @@ public struct AsyncPartialsSequence<
   public func makeAsyncIterator() -> AsyncIterator {
     AsyncIterator(
       baseIterator: self.base.makeAsyncIterator(),
-      stream: PartialsStream(of: Parseable.self, from: self.parser),
+      stream: PartialsStream(initialValue: self.initialValue, from: self.parser),
       byteInput: self.byteInput
     )
   }
