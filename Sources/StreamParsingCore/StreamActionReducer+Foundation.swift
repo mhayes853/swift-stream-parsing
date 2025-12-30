@@ -5,9 +5,12 @@
 
   extension Data: StreamActionReducer {
     public typealias StreamAction = DefaultStreamAction
+  }
 
-    public mutating func reduce(action: DefaultStreamAction) throws {
-      self = try action.foundationValue(as: Data.self)
+  extension Data: ConvertibleFromStreamedValue {
+    public init?(streamedValue: StreamedValue) {
+      guard let value = streamedValue.dataValue else { return nil }
+      self = value
     }
   }
 
@@ -15,46 +18,24 @@
 
   extension Decimal: StreamActionReducer {
     public typealias StreamAction = DefaultStreamAction
+  }
 
-    public mutating func reduce(action: DefaultStreamAction) throws {
-      self = try action.foundationValue(as: Decimal.self)
+  extension Decimal: ConvertibleFromStreamedValue {
+    public init?(streamedValue: StreamedValue) {
+      guard let value = streamedValue.decimalValue else { return nil }
+      self = value
     }
   }
 
   // MARK: - Helpers
 
-  extension DefaultStreamAction {
-    fileprivate func foundationValue<T>(as type: T.Type) throws -> T {
-      guard case .setValue(let streamedValue) = self else {
-        throw StandardLibraryStreamActionReducerError.unsupportedAction(self)
-      }
-      guard let value = streamedValue.foundationValue(as: type) else {
-        throw StandardLibraryStreamActionReducerError.typeMismatch(
-          expected: String(describing: type),
-          actual: streamedValue
-        )
-      }
-      return value
-    }
-  }
-
   extension StreamedValue {
-    fileprivate func foundationValue<T>(as type: T.Type) -> T? {
-      if type == Data.self {
-        return self.dataValue() as? T
-      }
-      if type == Decimal.self {
-        return self.decimalValue() as? T
-      }
-      return nil
-    }
-
-    private func dataValue() -> Data? {
+    fileprivate var dataValue: Data? {
       guard case .string(let value) = self else { return nil }
       return Data(value.utf8)
     }
 
-    private func decimalValue() -> Decimal? {
+    fileprivate var decimalValue: Decimal? {
       switch self {
       case .double(let value):
         return Decimal(value)

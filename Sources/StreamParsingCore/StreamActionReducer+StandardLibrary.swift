@@ -2,9 +2,12 @@
 
 extension String: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
 
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: String.self)
+extension String: ConvertibleFromStreamedValue {
+  public init?(streamedValue: StreamedValue) {
+    guard case .string(let value) = streamedValue else { return nil }
+    self = value
   }
 }
 
@@ -12,29 +15,28 @@ extension String: StreamActionReducer {
 
 extension Double: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Double.self)
-  }
 }
+
+extension Double: ConvertibleFromStreamedValue {}
 
 // MARK: - Float
 
 extension Float: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Float.self)
-  }
 }
+
+extension Float: ConvertibleFromStreamedValue {}
 
 // MARK: - Bool
 
 extension Bool: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
 
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Bool.self)
+extension Bool: ConvertibleFromStreamedValue {
+  public init?(streamedValue: StreamedValue) {
+    guard case .boolean(let value) = streamedValue else { return nil }
+    self = value
   }
 }
 
@@ -42,123 +44,101 @@ extension Bool: StreamActionReducer {
 
 extension Int8: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int8.self)
-  }
 }
+
+extension Int8: ConvertibleFromStreamedValue {}
 
 // MARK: - Int16
 
 extension Int16: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int16.self)
-  }
 }
+
+extension Int16: ConvertibleFromStreamedValue {}
 
 // MARK: - Int32
 
 extension Int32: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int32.self)
-  }
 }
+
+extension Int32: ConvertibleFromStreamedValue {}
 
 // MARK: - Int64
 
 extension Int64: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int64.self)
-  }
 }
+
+extension Int64: ConvertibleFromStreamedValue {}
 
 // MARK: - Int
 
 extension Int: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int.self)
-  }
 }
+
+extension Int: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt8
 
 extension UInt8: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt8.self)
-  }
 }
+
+extension UInt8: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt16
 
 extension UInt16: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt16.self)
-  }
 }
+
+extension UInt16: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt32
 
 extension UInt32: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt32.self)
-  }
 }
+
+extension UInt32: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt64
 
 extension UInt64: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt64.self)
-  }
 }
+
+extension UInt64: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt
 
 extension UInt: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt.self)
-  }
 }
+
+extension UInt: ConvertibleFromStreamedValue {}
 
 // MARK: - Int128
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: Int128.self)
-  }
 }
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Int128: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt128
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    self = try action.standardLibraryValue(as: UInt128.self)
-  }
 }
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension UInt128: ConvertibleFromStreamedValue {}
 
 // MARK: - Optional
 
@@ -178,8 +158,8 @@ where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamAction 
         self = wrapped
         return
       }
-      guard let value = value.standardLibraryValue(as: Wrapped.self) else {
-        throw StandardLibraryStreamActionReducerError.typeMismatch(
+      guard let value = optionalValue(from: value, as: Wrapped.self) else {
+        throw DefaultStreamActionReducerError.typeMismatch(
           expected: String(describing: Wrapped.self),
           actual: value
         )
@@ -187,11 +167,24 @@ where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamAction 
       self = value
     default:
       guard var wrapped = self else {
-        throw StandardLibraryStreamActionReducerError.unsupportedAction(action)
+        throw DefaultStreamActionReducerError.unsupportedAction(action)
       }
       try wrapped.reduce(action: action)
       self = wrapped
     }
+  }
+}
+
+extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromStreamedValue {
+  public init?(streamedValue: StreamedValue) {
+    if case .null = streamedValue {
+      self = nil
+      return
+    }
+    guard let wrapped = Wrapped(streamedValue: streamedValue) else {
+      return nil
+    }
+    self = wrapped
   }
 }
 
@@ -205,11 +198,39 @@ where RawValue: StreamActionReducer, RawValue.StreamAction == DefaultStreamActio
     var updatedRawValue = rawValue
     try updatedRawValue.reduce(action: action)
     guard let updatedValue = Self(rawValue: updatedRawValue) else {
-      throw StandardLibraryStreamActionReducerError.rawValueInitializationFailed(
+      throw DefaultStreamActionReducerError.rawValueInitializationFailed(
         type: String(describing: Self.self),
         rawValue: String(describing: updatedRawValue)
       )
     }
     self = updatedValue
   }
+}
+
+extension RawRepresentable where RawValue: ConvertibleFromStreamedValue {
+  public init?(streamedValue: StreamedValue) {
+    guard let rawValue = RawValue(streamedValue: streamedValue) else {
+      return nil
+    }
+    guard let value = Self(rawValue: rawValue) else {
+      return nil
+    }
+    self = value
+  }
+}
+
+// MARK: - Optional Helpers
+
+private func optionalValue<T>(
+  from streamedValue: StreamedValue,
+  as _: T.Type
+) -> T? {
+  nil
+}
+
+private func optionalValue<T: ConvertibleFromStreamedValue>(
+  from streamedValue: StreamedValue,
+  as _: T.Type
+) -> T? {
+  T(streamedValue: streamedValue)
 }

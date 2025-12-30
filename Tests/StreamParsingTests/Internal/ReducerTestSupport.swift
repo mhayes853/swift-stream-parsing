@@ -7,9 +7,9 @@ func expectSetValue<T: StreamActionReducer & Equatable>(
   expected: T,
   streamedValue: StreamedValue
 ) throws where T.StreamAction == DefaultStreamAction {
-  var reducer = initial
-  try reducer.reduce(action: .setValue(streamedValue))
-  expectNoDifference(reducer, expected)
+  var value = initial
+  try value.reduce(action: .setValue(streamedValue))
+  expectNoDifference(value, expected)
 }
 
 func expectThrowsOnNonSetValue<T: StreamActionReducer>(
@@ -25,8 +25,8 @@ func expectThrowsOnSetValue<T: StreamActionReducer>(
   initial: T,
   streamedValue: StreamedValue
 ) where T.StreamAction == DefaultStreamAction {
-  var reducer = initial
+  var value = initial
   #expect(throws: Error.self) {
-    try reducer.reduce(action: .setValue(streamedValue))
+    try value.reduce(action: .setValue(streamedValue))
   }
 }

@@ -5,13 +5,21 @@ import Testing
 @Suite
 struct `StreamActionReducer+StandardLibrary tests` {
   @Test
-  func `Sets String From SetValue`() throws {
-    try expectSetValue(initial: "", expected: "hello", streamedValue: .string("hello"))
+  func `Throws For Non SetValue Convertible Reducer Action`() {
+    let reducer = DefaultConvertibleReducer(value: "old")
+    expectThrowsOnNonSetValue(initial: reducer)
   }
 
   @Test
-  func `Throws For Non SetValue String Action`() {
-    expectThrowsOnNonSetValue(initial: "")
+  func `Sets Convertible Reducer From SetValue`() throws {
+    var reducer = DefaultConvertibleReducer(value: "old")
+    try reducer.reduce(action: .setValue(.string("new")))
+    expectNoDifference(reducer, DefaultConvertibleReducer(value: "new"))
+  }
+
+  @Test
+  func `Sets String From SetValue`() throws {
+    try expectSetValue(initial: "", expected: "hello", streamedValue: .string("hello"))
   }
 
   @Test
@@ -20,18 +28,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue Double Action`() {
-    expectThrowsOnNonSetValue(initial: 0.0)
-  }
-
-  @Test
   func `Sets Float From SetValue`() throws {
     try expectSetValue(initial: Float(0), expected: Float(3.5), streamedValue: .float(3.5))
-  }
-
-  @Test
-  func `Throws For Non SetValue Float Action`() {
-    expectThrowsOnNonSetValue(initial: Float(0))
   }
 
   @Test
@@ -54,18 +52,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue Boolean Action`() {
-    expectThrowsOnNonSetValue(initial: false)
-  }
-
-  @Test
   func `Sets Int8 From SetValue`() throws {
     try expectSetValue(initial: Int8(0), expected: Int8(8), streamedValue: .int8(8))
-  }
-
-  @Test
-  func `Throws For Non SetValue Int8 Action`() {
-    expectThrowsOnNonSetValue(initial: Int8(0))
   }
 
   @Test
@@ -74,18 +62,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue Int16 Action`() {
-    expectThrowsOnNonSetValue(initial: Int16(0))
-  }
-
-  @Test
   func `Sets Int32 From SetValue`() throws {
     try expectSetValue(initial: Int32(0), expected: Int32(32), streamedValue: .int32(32))
-  }
-
-  @Test
-  func `Throws For Non SetValue Int32 Action`() {
-    expectThrowsOnNonSetValue(initial: Int32(0))
   }
 
   @Test
@@ -94,18 +72,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue Int64 Action`() {
-    expectThrowsOnNonSetValue(initial: Int64(0))
-  }
-
-  @Test
   func `Sets Int From SetValue`() throws {
     try expectSetValue(initial: 0, expected: 128, streamedValue: .int(128))
-  }
-
-  @Test
-  func `Throws For Non SetValue Int Action`() {
-    expectThrowsOnNonSetValue(initial: 0)
   }
 
   @Test
@@ -114,18 +82,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue UInt8 Action`() {
-    expectThrowsOnNonSetValue(initial: UInt8(0))
-  }
-
-  @Test
   func `Sets UInt16 From SetValue`() throws {
     try expectSetValue(initial: UInt16(0), expected: UInt16(16), streamedValue: .uint16(16))
-  }
-
-  @Test
-  func `Throws For Non SetValue UInt16 Action`() {
-    expectThrowsOnNonSetValue(initial: UInt16(0))
   }
 
   @Test
@@ -134,28 +92,13 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Throws For Non SetValue UInt32 Action`() {
-    expectThrowsOnNonSetValue(initial: UInt32(0))
-  }
-
-  @Test
   func `Sets UInt64 From SetValue`() throws {
     try expectSetValue(initial: UInt64(0), expected: UInt64(64), streamedValue: .uint64(64))
   }
 
   @Test
-  func `Throws For Non SetValue UInt64 Action`() {
-    expectThrowsOnNonSetValue(initial: UInt64(0))
-  }
-
-  @Test
   func `Sets UInt From SetValue`() throws {
     try expectSetValue(initial: UInt(0), expected: UInt(128), streamedValue: .uint(128))
-  }
-
-  @Test
-  func `Throws For Non SetValue UInt Action`() {
-    expectThrowsOnNonSetValue(initial: UInt(0))
   }
 
   @Test
@@ -203,6 +146,18 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Converts Optional From Null StreamedValue`() {
+    let value = String?(streamedValue: .null)
+    expectNoDifference(value, nil)
+  }
+
+  @Test
+  func `Converts Optional From Wrapped StreamedValue`() {
+    let value = String?(streamedValue: .string("hello"))
+    expectNoDifference(value, "hello")
+  }
+
+  @Test
   func `Sets Optional String From SetValue`() throws {
     var reducer: String? = nil
     try reducer.reduce(action: .setValue(.string("hello")))
@@ -240,34 +195,20 @@ struct `StreamActionReducer+StandardLibrary tests` {
     }
   }
 
-  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
   @Test
+  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
   func `Sets Int128 From SetValue`() throws {
     let initial: Int128 = 0
     let expected: Int128 = 256
     try expectSetValue(initial: initial, expected: expected, streamedValue: .int128(expected))
   }
 
-  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
   @Test
-  func `Throws For Non SetValue Int128 Action`() {
-    let initial: Int128 = 0
-    expectThrowsOnNonSetValue(initial: initial)
-  }
-
   @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-  @Test
   func `Sets UInt128 From SetValue`() throws {
     let initial: UInt128 = 0
     let expected: UInt128 = 512
     try expectSetValue(initial: initial, expected: expected, streamedValue: .uint128(expected))
-  }
-
-  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-  @Test
-  func `Throws For Non SetValue UInt128 Action`() {
-    let initial: UInt128 = 0
-    expectThrowsOnNonSetValue(initial: initial)
   }
 
   @Test
@@ -299,6 +240,35 @@ struct `StreamActionReducer+StandardLibrary tests` {
     #expect(throws: Error.self) {
       try reducer.reduce(action: .setValue(.string("bad")))
     }
+  }
+
+  @Test
+  func `Converts RawRepresentable From StreamedValue`() {
+    let value = TestRawRepresentable(streamedValue: .string("new"))
+    expectNoDifference(value, TestRawRepresentable(rawValue: "new"))
+  }
+
+  @Test
+  func `Returns Nil When RawRepresentable Init Fails From StreamedValue`() {
+    let value = LimitedRawRepresentable(streamedValue: .string("bad"))
+    expectNoDifference(value, nil)
+  }
+}
+
+private struct DefaultConvertibleReducer: StreamActionReducer, ConvertibleFromStreamedValue,
+  Equatable
+{
+  typealias StreamAction = DefaultStreamAction
+
+  var value: String
+
+  init(value: String) {
+    self.value = value
+  }
+
+  init?(streamedValue: StreamedValue) {
+    guard case .string(let value) = streamedValue else { return nil }
+    self.value = value
   }
 }
 

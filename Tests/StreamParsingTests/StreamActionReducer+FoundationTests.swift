@@ -93,15 +93,5 @@
         streamedValue: .uint128(value)
       )
     }
-
-    @Test
-    func `Throws For Non SetValue Data Action`() {
-      expectThrowsOnNonSetValue(initial: Data())
-    }
-
-    @Test
-    func `Throws For Non SetValue Decimal Action`() {
-      expectThrowsOnNonSetValue(initial: Decimal())
-    }
   }
 #endif
