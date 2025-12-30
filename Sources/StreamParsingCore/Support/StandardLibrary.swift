@@ -184,19 +184,3 @@ extension RawRepresentable where RawValue: ConvertibleFromStreamedValue {
     self = value
   }
 }
-
-// MARK: - Optional Helpers
-
-private func optionalValue<T>(
-  from streamedValue: StreamedValue,
-  as _: T.Type
-) -> T? {
-  nil
-}
-
-private func optionalValue<T: ConvertibleFromStreamedValue>(
-  from streamedValue: StreamedValue,
-  as _: T.Type
-) -> T? {
-  T(streamedValue: streamedValue)
-}
