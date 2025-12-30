@@ -1,31 +1,29 @@
 // MARK: - AsyncPartialsSequence
 
 extension AsyncSequence where Element == UInt8 {
-  public func partials<Parseable, Parser>(
-    initialValue: Parseable,
+  public func partials<Value, Parser>(
+    initialValue: Value,
     from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable, Parser, Self, CollectionOfOne<UInt8>> {
+  ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
     AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .single($0) }
   }
 }
 
 extension AsyncSequence where Element: Sequence<UInt8> {
-  public func partials<Parseable, Parser>(
-    initialValue: Parseable,
+  public func partials<Value, Parser>(
+    initialValue: Value,
     from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable, Parser, Self, Element> {
+  ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
     AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .sequence($0) }
   }
 }
 
 public struct AsyncPartialsSequence<
-  Parseable: StreamActionReducer,
+  Element: StreamActionReducer,
   Parser: StreamParser,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
->: AsyncSequence where Parseable.StreamAction == Parser.StreamAction {
-  public typealias Element = Parseable
-
+>: AsyncSequence where Element.StreamAction == Parser.StreamAction {
   fileprivate enum ByteInput {
     case single(UInt8)
     case sequence(Seq)
@@ -33,18 +31,16 @@ public struct AsyncPartialsSequence<
 
   let base: Base
   let parser: Parser
-  let initialValue: Parseable
+  let initialValue: Element
   fileprivate let byteInput: (Base.Element) -> ByteInput
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
-    var stream: PartialsStream<Parseable, Parser>
+    var stream: PartialsStream<Element, Parser>
     fileprivate let byteInput: (Base.Element) -> ByteInput
 
-    public mutating func next() async throws -> Parseable? {
-      guard let element = try await self.baseIterator.next() else {
-        return nil
-      }
+    public mutating func next() async throws -> Element? {
+      guard let element = try await self.baseIterator.next() else { return nil }
       switch self.byteInput(element) {
       case .single(let byte):
         return try self.stream.next(byte)
