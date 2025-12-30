@@ -1,40 +1,40 @@
 // MARK: - PartialsStream
 
-public struct PartialsStream<Value: StreamParseable, Parser: StreamParser>
-where Parser.StreamAction == Value.Partial.StreamAction {
+public struct PartialsStream<Value: StreamActionReducer, Parser: StreamParser>
+where Parser.StreamAction == Value.StreamAction {
   @usableFromInline
   var parser: Parser
 
   @usableFromInline
-  var _current: Value.Partial
+  var _current: Value
 
   @inlinable
-  public var current: Value.Partial {
+  public var current: Value {
     self._current
   }
 
   @inlinable
-  public init(initialValue: Value.Partial, from parser: Parser) {
+  public init(initialValue: Value, from parser: Parser) {
     self.parser = parser
     self._current = initialValue
   }
 
   @inlinable
   @discardableResult
-  public mutating func next(_ byte: UInt8) throws -> Value.Partial {
+  public mutating func next(_ byte: UInt8) throws -> Value {
     try self.next(CollectionOfOne(byte))
   }
 
   @inlinable
   @discardableResult
-  public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value.Partial {
+  public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value {
     try self.parser.parse(bytes: bytes, into: &self._current)
     return self.current
   }
 }
 
 extension PartialsStream: Sendable
-where Value: Sendable, Value.Partial: Sendable, Parser: Sendable {}
+where Value: Sendable, Parser: Sendable {}
 
 // MARK: - StreamParseable
 

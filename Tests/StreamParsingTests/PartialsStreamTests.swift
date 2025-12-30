@@ -13,7 +13,7 @@ struct `PartialsStream tests` {
     ]
 
     var stream = PartialsStream(
-      of: MockValue.self,
+      initialValue: MockPartial(),
       from: MockParser(defaultCommands: defaultCommands)
     )
     let partial = try stream.next([0x00, 0x01, 0x02])

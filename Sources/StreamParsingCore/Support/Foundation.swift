@@ -7,6 +7,10 @@
     public typealias StreamAction = DefaultStreamAction
   }
 
+  extension Data: StreamParseable {
+    public typealias Partial = Self
+  }
+
   extension Data: ConvertibleFromStreamedValue {
     public init?(streamedValue: StreamedValue) {
       guard let value = streamedValue.dataValue else { return nil }
@@ -18,6 +22,10 @@
 
   extension Decimal: StreamActionReducer {
     public typealias StreamAction = DefaultStreamAction
+  }
+
+  extension Decimal: StreamParseable {
+    public typealias Partial = Self
   }
 
   extension Decimal: ConvertibleFromStreamedValue {

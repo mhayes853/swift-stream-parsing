@@ -2,7 +2,7 @@
 
 extension AsyncSequence where Element == UInt8 {
   public func partials<Parseable, Parser>(
-    initialValue: Parseable.Partial,
+    initialValue: Parseable,
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self, CollectionOfOne<UInt8>> {
     AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .single($0) }
@@ -11,7 +11,7 @@ extension AsyncSequence where Element == UInt8 {
 
 extension AsyncSequence where Element: Sequence<UInt8> {
   public func partials<Parseable, Parser>(
-    initialValue: Parseable.Partial,
+    initialValue: Parseable,
     from parser: Parser
   ) -> AsyncPartialsSequence<Parseable, Parser, Self, Element> {
     AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .sequence($0) }
@@ -19,12 +19,12 @@ extension AsyncSequence where Element: Sequence<UInt8> {
 }
 
 public struct AsyncPartialsSequence<
-  Parseable: StreamParseable,
+  Parseable: StreamActionReducer,
   Parser: StreamParser,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
->: AsyncSequence where Parseable.Partial.StreamAction == Parser.StreamAction {
-  public typealias Element = Parseable.Partial
+>: AsyncSequence where Parseable.StreamAction == Parser.StreamAction {
+  public typealias Element = Parseable
 
   fileprivate enum ByteInput {
     case single(UInt8)
@@ -33,7 +33,7 @@ public struct AsyncPartialsSequence<
 
   let base: Base
   let parser: Parser
-  let initialValue: Parseable.Partial
+  let initialValue: Parseable
   fileprivate let byteInput: (Base.Element) -> ByteInput
 
   public struct AsyncIterator: AsyncIteratorProtocol {
@@ -41,7 +41,7 @@ public struct AsyncPartialsSequence<
     var stream: PartialsStream<Parseable, Parser>
     fileprivate let byteInput: (Base.Element) -> ByteInput
 
-    public mutating func next() async throws -> Parseable.Partial? {
+    public mutating func next() async throws -> Parseable? {
       guard let element = try await self.baseIterator.next() else {
         return nil
       }

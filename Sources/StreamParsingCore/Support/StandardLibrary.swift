@@ -4,6 +4,10 @@ extension String: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension String: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension String: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
     guard case .string(let value) = streamedValue else { return nil }
@@ -17,6 +21,10 @@ extension Double: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension Double: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension Double: ConvertibleFromStreamedValue {}
 
 // MARK: - Float
@@ -25,12 +33,20 @@ extension Float: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension Float: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension Float: ConvertibleFromStreamedValue {}
 
 // MARK: - Bool
 
 extension Bool: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension Bool: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension Bool: ConvertibleFromStreamedValue {
@@ -46,12 +62,20 @@ extension Int8: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension Int8: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension Int8: ConvertibleFromStreamedValue {}
 
 // MARK: - Int16
 
 extension Int16: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension Int16: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension Int16: ConvertibleFromStreamedValue {}
@@ -62,12 +86,20 @@ extension Int32: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension Int32: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension Int32: ConvertibleFromStreamedValue {}
 
 // MARK: - Int64
 
 extension Int64: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension Int64: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension Int64: ConvertibleFromStreamedValue {}
@@ -78,12 +110,20 @@ extension Int: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension Int: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension Int: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt8
 
 extension UInt8: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension UInt8: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension UInt8: ConvertibleFromStreamedValue {}
@@ -94,12 +134,20 @@ extension UInt16: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension UInt16: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension UInt16: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt32
 
 extension UInt32: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension UInt32: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension UInt32: ConvertibleFromStreamedValue {}
@@ -110,12 +158,20 @@ extension UInt64: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
 }
 
+extension UInt64: StreamParseable {
+  public typealias Partial = Self
+}
+
 extension UInt64: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt
 
 extension UInt: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+extension UInt: StreamParseable {
+  public typealias Partial = Self
 }
 
 extension UInt: ConvertibleFromStreamedValue {}
@@ -128,6 +184,11 @@ extension Int128: StreamActionReducer {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Int128: StreamParseable {
+  public typealias Partial = Self
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: ConvertibleFromStreamedValue {}
 
 // MARK: - UInt128
@@ -135,6 +196,11 @@ extension Int128: ConvertibleFromStreamedValue {}
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: StreamActionReducer {
   public typealias StreamAction = DefaultStreamAction
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension UInt128: StreamParseable {
+  public typealias Partial = Self
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)

@@ -19,7 +19,7 @@ struct `AsyncPartialsSequence Tests` {
 
     var partials: [MockPartial] = []
     let stream = byteStream.partials(
-      of: MockValue.self,
+      initialValue: MockPartial(),
       from: MockParser(defaultCommands: defaultCommands)
     )
     for try await partial in stream {
@@ -46,7 +46,7 @@ struct `AsyncPartialsSequence Tests` {
 
     var partials = [MockPartial]()
     let stream = byteStream.partials(
-      of: MockValue.self,
+      initialValue: MockPartial(),
       from: MockParser(defaultCommands: defaultCommands)
     )
     for try await partial in stream {

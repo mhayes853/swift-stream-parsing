@@ -5,5 +5,9 @@
     public typealias StreamAction = DefaultStreamAction
   }
 
+  extension CGFloat: StreamParseable {
+    public typealias Partial = Self
+  }
+
   extension CGFloat: ConvertibleFromStreamedValue {}
 #endif
