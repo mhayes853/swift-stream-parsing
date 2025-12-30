@@ -142,49 +142,15 @@ extension UInt128: ConvertibleFromStreamedValue {}
 
 // MARK: - Optional
 
-extension Optional: StreamActionReducer
-where Wrapped: StreamActionReducer, Wrapped.StreamAction == DefaultStreamAction {
-  public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
-    switch action {
-    case .setValue(let value):
-      if case .null = value {
-        self = nil
-        return
-      }
-      if var wrapped = self {
-        try wrapped.reduce(action: action)
-        self = wrapped
-        return
-      }
-      guard let value = optionalValue(from: value, as: Wrapped.self) else {
-        throw DefaultStreamActionReducerError.typeMismatch(
-          expected: String(describing: Wrapped.self),
-          actual: value
-        )
-      }
-      self = value
-    default:
-      guard var wrapped = self else {
-        throw DefaultStreamActionReducerError.unsupportedAction(action)
-      }
-      try wrapped.reduce(action: action)
-      self = wrapped
-    }
-  }
-}
-
 extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
-    if case .null = streamedValue {
+    switch streamedValue {
+    case .null:
       self = nil
-      return
+    default:
+      guard let wrapped = Wrapped(streamedValue: streamedValue) else { return nil }
+      self = wrapped
     }
-    guard let wrapped = Wrapped(streamedValue: streamedValue) else {
-      return nil
-    }
-    self = wrapped
   }
 }
 
