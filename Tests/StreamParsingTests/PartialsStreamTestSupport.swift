@@ -10,7 +10,7 @@ struct MockPartial: StreamPartial {
   var commands = [DefaultStreamAction]()
 
   mutating func reduce(action: DefaultStreamAction) throws {
-    commands.append(action)
+    self.commands.append(action)
   }
 }
 

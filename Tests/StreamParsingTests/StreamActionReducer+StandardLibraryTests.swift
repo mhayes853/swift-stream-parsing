@@ -35,6 +35,20 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Converts Between Double And Float`() throws {
+    try expectSetValue(initial: Float(0), expected: Float(3.5), streamedValue: .double(3.5))
+    try expectSetValue(initial: 0.0, expected: 3.5, streamedValue: .float(3.5))
+  }
+
+  @Test
+  func `Throws When Double To Float Overflows`() {
+    expectThrowsOnSetValue(
+      initial: Float(0),
+      streamedValue: .double(Double.greatestFiniteMagnitude)
+    )
+  }
+
+  @Test
   func `Sets Boolean From SetValue`() throws {
     try expectSetValue(initial: false, expected: true, streamedValue: .boolean(true))
   }
@@ -142,6 +156,50 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Throws For Non SetValue UInt Action`() {
     expectThrowsOnNonSetValue(initial: UInt(0))
+  }
+
+  @Test
+  func `Converts Between Signed Integers`() throws {
+    try expectSetValue(initial: Int32(0), expected: Int32(32), streamedValue: .int64(32))
+    try expectSetValue(initial: Int64(0), expected: Int64(8), streamedValue: .int8(8))
+  }
+
+  @Test
+  func `Converts Between Unsigned Integers`() throws {
+    try expectSetValue(initial: UInt32(0), expected: UInt32(32), streamedValue: .uint64(32))
+    try expectSetValue(initial: UInt64(0), expected: UInt64(8), streamedValue: .uint8(8))
+  }
+
+  @Test
+  func `Converts Unsigned To Signed When In Range`() throws {
+    try expectSetValue(initial: Int16(0), expected: Int16(8), streamedValue: .uint8(8))
+    try expectSetValue(initial: Int64(0), expected: Int64(32), streamedValue: .uint32(32))
+  }
+
+  @Test
+  func `Converts Signed To Unsigned When Nonnegative`() throws {
+    try expectSetValue(initial: UInt16(0), expected: UInt16(8), streamedValue: .int8(8))
+    try expectSetValue(initial: UInt64(0), expected: UInt64(32), streamedValue: .int32(32))
+  }
+
+  @Test
+  func `Throws When Signed To Unsigned Is Negative`() {
+    expectThrowsOnSetValue(initial: UInt8(0), streamedValue: .int8(-1))
+  }
+
+  @Test
+  func `Throws When Unsigned To Signed Overflows`() {
+    expectThrowsOnSetValue(initial: Int8(0), streamedValue: .uint8(200))
+  }
+
+  @Test
+  func `Throws When Signed Overflow`() {
+    expectThrowsOnSetValue(initial: Int8(0), streamedValue: .int16(256))
+  }
+
+  @Test
+  func `Throws When Unsigned Overflow`() {
+    expectThrowsOnSetValue(initial: UInt8(0), streamedValue: .uint16(256))
   }
 
   @Test
@@ -260,6 +318,16 @@ private func expectThrowsOnNonSetValue<T: StreamActionReducer>(
   var reducer = initial
   #expect(throws: Error.self) {
     try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
+  }
+}
+
+private func expectThrowsOnSetValue<T: StreamActionReducer>(
+  initial: T,
+  streamedValue: StreamedValue
+) where T.StreamAction == DefaultStreamAction {
+  var reducer = initial
+  #expect(throws: Error.self) {
+    try reducer.reduce(action: .setValue(streamedValue))
   }
 }
 
