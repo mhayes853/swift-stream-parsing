@@ -302,35 +302,6 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 }
 
-private func expectSetValue<T: StreamActionReducer & Equatable>(
-  initial: T,
-  expected: T,
-  streamedValue: StreamedValue
-) throws where T.StreamAction == DefaultStreamAction {
-  var reducer = initial
-  try reducer.reduce(action: .setValue(streamedValue))
-  expectNoDifference(reducer, expected)
-}
-
-private func expectThrowsOnNonSetValue<T: StreamActionReducer>(
-  initial: T
-) where T.StreamAction == DefaultStreamAction {
-  var reducer = initial
-  #expect(throws: Error.self) {
-    try reducer.reduce(action: .delegateKeyed(key: "invalid", .setValue("bad")))
-  }
-}
-
-private func expectThrowsOnSetValue<T: StreamActionReducer>(
-  initial: T,
-  streamedValue: StreamedValue
-) where T.StreamAction == DefaultStreamAction {
-  var reducer = initial
-  #expect(throws: Error.self) {
-    try reducer.reduce(action: .setValue(streamedValue))
-  }
-}
-
 private struct TestRawRepresentable: RawRepresentable, Equatable {
   var rawValue: String
 

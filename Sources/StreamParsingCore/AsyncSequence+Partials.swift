@@ -56,7 +56,7 @@ public struct AsyncPartialsSequence<
   public func makeAsyncIterator() -> AsyncIterator {
     AsyncIterator(
       baseIterator: self.base.makeAsyncIterator(),
-      stream: PartialsStream(of: Parseable.self, from: parser),
+      stream: PartialsStream(of: Parseable.self, from: self.parser),
       byteInput: self.byteInput
     )
   }
