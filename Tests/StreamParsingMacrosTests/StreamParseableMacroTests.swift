@@ -477,5 +477,58 @@ extension BaseTestSuite {
         """
       }
     }
+    
+    @Test
+    func `Handles Optional Members As Double Optionals In Partial`() async throws {
+      assertMacro {
+        """
+        @StreamParseable
+        public struct Person {
+          private var name: String?
+          private var age: Optional<Int>
+        }
+        """
+      } expansion: {
+        """
+        public struct Person {
+          private var name: String?
+          private var age: Optional<Int>
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          public struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
+            public typealias Partial = Self
+
+            public var name: String?.Partial?
+            public var age: Optional<Int>.Partial?
+
+            public init(
+              name: String?.Partial? = nil,
+              age: Optional<Int>.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            public static func initialReduceableValue() -> Self {
+              Self()
+            }
+
+            public mutating func reduce(action: StreamAction) throws {
+              switch action {
+              case .delegateKeyed("name", let action):
+                try _streamParsingPerformReduce(&self.name, action)
+              case .delegateKeyed("age", let action):
+                try _streamParsingPerformReduce(&self.age, action)
+              default:
+                throw StreamParseableError.unsupportedAction(action)
+              }
+            }
+          }
+        }
+        """
+      }
+    }
   }
 }
