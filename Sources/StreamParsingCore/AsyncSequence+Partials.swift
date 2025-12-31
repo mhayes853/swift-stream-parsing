@@ -5,7 +5,9 @@ extension AsyncSequence where Element == UInt8 {
     initialValue: Value,
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
-    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .single($0) }
+    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) {
+      CollectionOfOne($0)
+    }
   }
 }
 
@@ -14,7 +16,7 @@ extension AsyncSequence where Element: Sequence<UInt8> {
     initialValue: Value,
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
-    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { .sequence($0) }
+    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { $0 }
   }
 }
 
@@ -24,29 +26,20 @@ public struct AsyncPartialsSequence<
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
 >: AsyncSequence where Element.StreamAction == Parser.StreamAction {
-  fileprivate enum ByteInput {
-    case single(UInt8)
-    case sequence(Seq)
-  }
-
   let base: Base
   let parser: Parser
   let initialValue: Element
-  fileprivate let byteInput: (Base.Element) -> ByteInput
+  fileprivate let byteInput: (Base.Element) -> Seq
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
     var stream: PartialsStream<Element, Parser>
-    fileprivate let byteInput: (Base.Element) -> ByteInput
+    fileprivate let byteInput: (Base.Element) -> Seq
 
     public mutating func next() async throws -> Element? {
       guard let element = try await self.baseIterator.next() else { return nil }
-      switch self.byteInput(element) {
-      case .single(let byte):
-        return try self.stream.next(byte)
-      case .sequence(let bytes):
-        return try self.stream.next(bytes)
-      }
+      let bytes = self.byteInput(element)
+      return try self.stream.next(bytes)
     }
   }
 
