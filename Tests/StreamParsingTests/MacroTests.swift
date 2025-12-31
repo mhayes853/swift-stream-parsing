@@ -2,36 +2,6 @@ import CustomDump
 import StreamParsing
 import Testing
 
-@StreamParseable
-private struct MacroSimple {
-  var name: String
-  var age: Int
-}
-
-@StreamParseable
-private struct MacroAddress {
-  var city: String
-  var zip: Int
-}
-
-@StreamParseable
-private struct MacroPerson {
-  var name: String
-  var address: MacroAddress
-}
-
-@StreamParseable
-private struct MacroScores {
-  var name: String
-  var scores: [Int]
-}
-
-@StreamParseable
-private struct MacroStats {
-  var name: String
-  var stats: [String: Int]
-}
-
 @Suite
 struct `Macro tests` {
   @Test
@@ -113,4 +83,101 @@ struct `Macro tests` {
     expectNoDifference(partial.name, "Blob")
     expectNoDifference(partial.stats, ["level": 7, "score": 99])
   }
+
+  @Test
+  func `Parses StreamParseable Macro Values With Nested Array Field`() throws {
+    let defaultCommands: [StreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "addresses", .appendArrayElement),
+      .delegateKeyed(
+        key: "addresses",
+        .delegateUnkeyed(index: 0, .delegateKeyed(key: "city", .setValue(.string("Denver"))))
+      ),
+      .delegateKeyed(
+        key: "addresses",
+        .delegateUnkeyed(index: 0, .delegateKeyed(key: "zip", .setValue(.int(80202))))
+      )
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroAddressList.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01, 0x02, 0x03])
+
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.addresses?.first?.city, "Denver")
+    expectNoDifference(partial.addresses?.first?.zip, 80202)
+    expectNoDifference(partial.addresses?.count, 1)
+  }
+
+  @Test
+  func `Parses StreamParseable Macro Values With Nested Dictionary Field`() throws {
+    let defaultCommands: [StreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "addresses", .delegateKeyed(key: "home", .createObjectValue)),
+      .delegateKeyed(
+        key: "addresses",
+        .delegateKeyed(key: "home", .delegateKeyed(key: "city", .setValue(.string("Denver"))))
+      ),
+      .delegateKeyed(
+        key: "addresses",
+        .delegateKeyed(key: "home", .delegateKeyed(key: "zip", .setValue(.int(80202))))
+      )
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroAddressBook.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01, 0x02, 0x03])
+
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.addresses?["home"]?.city, "Denver")
+    expectNoDifference(partial.addresses?["home"]?.zip, 80202)
+  }
+}
+
+@StreamParseable
+private struct MacroSimple {
+  var name: String
+  var age: Int
+}
+
+@StreamParseable
+private struct MacroAddress {
+  var city: String
+  var zip: Int
+}
+
+@StreamParseable
+private struct MacroPerson {
+  var name: String
+  var address: MacroAddress
+}
+
+@StreamParseable
+private struct MacroScores {
+  var name: String
+  var scores: [Int]
+}
+
+@StreamParseable
+private struct MacroStats {
+  var name: String
+  var stats: [String: Int]
+}
+
+@StreamParseable
+private struct MacroAddressList {
+  var name: String
+  var addresses: [MacroAddress]
+}
+
+@StreamParseable
+private struct MacroAddressBook {
+  var name: String
+  var addresses: [String: MacroAddress]
 }
