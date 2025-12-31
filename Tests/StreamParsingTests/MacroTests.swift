@@ -70,7 +70,9 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Array Field`() throws {
     let defaultCommands: [DefaultStreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "scores", .appendArrayElement(.int(0))),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 0, .setValue(.int(10)))),
+      .delegateKeyed(key: "scores", .appendArrayElement(.int(0))),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 1, .setValue(.int(20))))
     ]
 
@@ -79,7 +81,7 @@ struct `Macro tests` {
       from: MockParser(defaultCommands: defaultCommands)
     )
 
-    let partial = try stream.next([0x00, 0x01, 0x02])
+    let partial = try stream.next([0x00, 0x01, 0x02, 0x03, 0x04])
 
     expectNoDifference(partial.name, "Blob")
     expectNoDifference(partial.scores, [10, 20])

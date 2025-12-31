@@ -115,8 +115,10 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Reduces MutableCollection Element For DelegateUnkeyed`() throws {
-    var reducer = [0, 1]
+  func `Reduces Array Element For DelegateUnkeyed`() throws {
+    var reducer = [Int]()
+    try reducer.reduce(action: .appendArrayElement(.int(0)))
+    try reducer.reduce(action: .appendArrayElement(.int(1)))
     try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
     expectNoDifference(reducer, [0, 9])
   }

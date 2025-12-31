@@ -192,6 +192,8 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
     switch action {
     case .delegateUnkeyed(let index, let nestedAction):
       try self[index].reduce(action: nestedAction)
+    case .appendArrayElement(let value):
+      try self.append(Element(action: .setValue(value)))
     default:
       throw DefaultStreamActionReducerError.unsupportedAction(action)
     }
