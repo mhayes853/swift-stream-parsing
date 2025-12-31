@@ -3,13 +3,11 @@
 
   // MARK: - Data
 
-  extension Data: StreamActionReducer {
-    public typealias StreamAction = DefaultStreamAction
-  }
-
   extension Data: StreamParseable {
     public typealias Partial = Self
   }
+
+  extension Data: StreamParseableReducer {}
 
   extension Data: ConvertibleFromStreamedValue {
     public init?(streamedValue: StreamedValue) {
@@ -20,13 +18,11 @@
 
   // MARK: - Decimal
 
-  extension Decimal: StreamActionReducer {
-    public typealias StreamAction = DefaultStreamAction
-  }
-
   extension Decimal: StreamParseable {
     public typealias Partial = Self
   }
+
+  extension Decimal: StreamParseableReducer {}
 
   extension Decimal: ConvertibleFromStreamedValue {
     public init?(streamedValue: StreamedValue) {

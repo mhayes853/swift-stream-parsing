@@ -18,6 +18,19 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Initializes Convertible Reducer From SetValue Action`() throws {
+    let value = try String(action: .setValue(.string("new")))
+    expectNoDifference(value, "new")
+  }
+
+  @Test
+  func `Throws When Convertible Reducer Init Uses Non SetValue Action`() {
+    #expect(throws: Error.self) {
+      _ = try String(action: .delegateKeyed(key: "name", .setValue(.string("new"))))
+    }
+  }
+
+  @Test
   func `Sets String From SetValue`() throws {
     try expectSetValue(initial: "", expected: "hello", streamedValue: .string("hello"))
   }

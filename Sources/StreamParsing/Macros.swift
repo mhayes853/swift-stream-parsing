@@ -15,13 +15,3 @@ public func _streamParsingPerformReduce<T: StreamParseableReducer>(
   }
   try value?.reduce(action: action)
 }
-
-public func _streamParsingPerformReduce<T: ConvertibleFromStreamedValue & StreamActionReducer>(
-  _ value: inout T?,
-  _ action: DefaultStreamAction
-) throws where T.StreamAction == DefaultStreamAction {
-  if value == nil {
-    value = try action.extractedValue(expected: T.self) { T(streamedValue: $0) }
-  }
-  try value?.reduce(action: action)
-}

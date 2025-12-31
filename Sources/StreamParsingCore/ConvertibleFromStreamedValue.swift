@@ -15,8 +15,17 @@ where Self: ConvertibleFromStreamedValue, StreamAction == DefaultStreamAction {
   }
 }
 
+extension StreamParseableReducer
+where Self: ConvertibleFromStreamedValue {
+  public init(action: DefaultStreamAction) throws {
+    self = try action.extractedValue(expected: Self.self) { streamedValue in
+      Self(streamedValue: streamedValue)
+    }
+  }
+}
+
 extension DefaultStreamAction {
-  package func extractedValue<T>(
+  fileprivate func extractedValue<T>(
     expected type: T.Type,
     extractor: (StreamedValue) -> T?
   ) throws -> T {
