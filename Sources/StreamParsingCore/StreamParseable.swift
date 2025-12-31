@@ -7,7 +7,7 @@ public protocol StreamParseable {
 // MARK: - StreamParseableReducer
 
 public protocol StreamParseableReducer: StreamActionReducer {
-  static func initialValue() -> Self
+  static func initialReduceableValue() -> Self
 }
 
 // MARK: - StreamParseableError

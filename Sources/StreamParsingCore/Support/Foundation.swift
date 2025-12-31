@@ -8,7 +8,7 @@
   }
 
   extension Data: StreamParseableReducer {
-    public static func initialValue() -> Self {
+    public static func initialReduceableValue() -> Self {
       Self()
     }
   }
@@ -27,7 +27,7 @@
   }
 
   extension Decimal: StreamParseableReducer {
-    public static func initialValue() -> Self {
+    public static func initialReduceableValue() -> Self {
       Decimal(0)
     }
   }

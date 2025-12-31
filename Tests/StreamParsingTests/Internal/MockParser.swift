@@ -9,7 +9,7 @@ struct MockPartial: StreamParseableReducer {
 
   init() {}
 
-  static func initialValue() -> Self {
+  static func initialReduceableValue() -> Self {
     Self()
   }
 

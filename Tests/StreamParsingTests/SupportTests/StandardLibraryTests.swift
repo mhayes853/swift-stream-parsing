@@ -19,13 +19,13 @@ struct `StreamActionReducer+StandardLibrary tests` {
 
   @Test
   func `Initializes Reducer From InitialValue`() {
-    let value = String.initialValue()
+    let value = String.initialReduceableValue()
     expectNoDifference(value, "")
   }
 
   @Test
   func `Initializes Boolean Reducer From InitialValue`() {
-    let value = Bool.initialValue()
+    let value = Bool.initialReduceableValue()
     expectNoDifference(value, false)
   }
 

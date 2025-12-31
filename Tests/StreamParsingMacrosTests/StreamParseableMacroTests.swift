@@ -32,8 +32,8 @@ extension BaseTestSuite {
             init() {
             }
 
-            static func initialValue() -> Self {
-              Self.init()
+            static func initialReduceableValue() -> Self {
+              Self()
             }
 
             mutating func reduce(action: StreamAction) throws {
@@ -79,8 +79,8 @@ extension BaseTestSuite {
             init() {
             }
 
-            static func initialValue() -> Self {
-              Self.init()
+            static func initialReduceableValue() -> Self {
+              Self()
             }
 
             mutating func reduce(action: StreamAction) throws {
@@ -125,8 +125,8 @@ extension BaseTestSuite {
             init() {
             }
 
-            static func initialValue() -> Self {
-              Self.init()
+            static func initialReduceableValue() -> Self {
+              Self()
             }
 
             mutating func reduce(action: StreamAction) throws {
@@ -289,8 +289,8 @@ extension BaseTestSuite {
             public init() {
             }
 
-            public static func initialValue() -> Self {
-              Self.init()
+            public static func initialReduceableValue() -> Self {
+              Self()
             }
 
             public mutating func reduce(action: StreamAction) throws {
@@ -333,8 +333,8 @@ extension BaseTestSuite {
             init() {
             }
 
-            static func initialValue() -> Self {
-              Self.init()
+            static func initialReduceableValue() -> Self {
+              Self()
             }
 
             mutating func reduce(action: StreamAction) throws {
@@ -377,8 +377,8 @@ extension BaseTestSuite {
             fileprivate init() {
             }
 
-            fileprivate static func initialValue() -> Self {
-              Self.init()
+            fileprivate static func initialReduceableValue() -> Self {
+              Self()
             }
 
             fileprivate mutating func reduce(action: StreamAction) throws {
@@ -425,8 +425,8 @@ extension BaseTestSuite {
             public init() {
             }
 
-            public static func initialValue() -> Self {
-              Self.init()
+            public static func initialReduceableValue() -> Self {
+              Self()
             }
 
             public mutating func reduce(action: StreamAction) throws {

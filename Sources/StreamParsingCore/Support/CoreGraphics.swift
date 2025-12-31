@@ -6,7 +6,7 @@
   }
 
   extension CGFloat: StreamParseableReducer {
-    public static func initialValue() -> Self {
+    public static func initialReduceableValue() -> Self {
       0
     }
   }

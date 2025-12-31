@@ -98,8 +98,8 @@ public enum StreamParseableMacro: ExtensionMacro {
 
         \(raw: modifierPrefix)init() {}
 
-        \(raw: modifierPrefix)static func initialValue() -> Self {
-          Self.init()
+        \(raw: modifierPrefix)static func initialReduceableValue() -> Self {
+          Self()
         }
 
         \(raw: modifierPrefix)mutating func reduce(action: StreamAction) throws {

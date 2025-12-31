@@ -5,7 +5,7 @@ extension String: StreamParseable {
 }
 
 extension String: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     ""
   }
 }
@@ -24,7 +24,7 @@ extension Double: StreamParseable {
 }
 
 extension Double: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -38,7 +38,7 @@ extension Float: StreamParseable {
 }
 
 extension Float: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -52,7 +52,7 @@ extension Bool: StreamParseable {
 }
 
 extension Bool: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     false
   }
 }
@@ -71,7 +71,7 @@ extension Int8: StreamParseable {
 }
 
 extension Int8: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -85,7 +85,7 @@ extension Int16: StreamParseable {
 }
 
 extension Int16: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -99,7 +99,7 @@ extension Int32: StreamParseable {
 }
 
 extension Int32: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -113,7 +113,7 @@ extension Int64: StreamParseable {
 }
 
 extension Int64: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -127,7 +127,7 @@ extension Int: StreamParseable {
 }
 
 extension Int: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -141,7 +141,7 @@ extension UInt8: StreamParseable {
 }
 
 extension UInt8: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -155,7 +155,7 @@ extension UInt16: StreamParseable {
 }
 
 extension UInt16: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -169,7 +169,7 @@ extension UInt32: StreamParseable {
 }
 
 extension UInt32: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -183,7 +183,7 @@ extension UInt64: StreamParseable {
 }
 
 extension UInt64: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -197,7 +197,7 @@ extension UInt: StreamParseable {
 }
 
 extension UInt: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -213,7 +213,7 @@ extension Int128: StreamParseable {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -230,7 +230,7 @@ extension UInt128: StreamParseable {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     0
   }
 }
@@ -245,8 +245,9 @@ extension Array: StreamParseable where Element: StreamParseable {
 }
 
 extension Array: StreamActionReducer where Element: StreamParseableReducer {}
+
 extension Array: StreamParseableReducer where Element: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     []
   }
 
@@ -255,7 +256,7 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
     case .delegateUnkeyed(let index, let nestedAction):
       try self[index].reduce(action: nestedAction)
     case .appendArrayElement:
-      self.append(.initialValue())
+      self.append(.initialReduceableValue())
     default:
       throw StreamActionReducerError.unsupportedAction(action)
     }
@@ -271,14 +272,14 @@ extension Dictionary: StreamParseable where Key == String, Value: StreamParseabl
 extension Dictionary: StreamActionReducer where Key == String, Value: StreamParseableReducer {}
 
 extension Dictionary: StreamParseableReducer where Key == String, Value: StreamParseableReducer {
-  public static func initialValue() -> Self {
+  public static func initialReduceableValue() -> Self {
     [:]
   }
 
   public mutating func reduce(action: StreamAction) throws {
     switch action {
     case .delegateKeyed(let key, .createObjectValue):
-      self[key] = .initialValue()
+      self[key] = .initialReduceableValue()
     case .delegateKeyed(let key, let action):
       try self[key]?.reduce(action: action)
     default:
