@@ -6,16 +6,12 @@ public macro StreamParseable() =
 
 // MARK: - Helpers
 
-public protocol _StreamActionInitializeableReducer: StreamActionReducer {
-  init()
-}
-
-public func _streamParsingPerformReduce<T: _StreamActionInitializeableReducer>(
+public func _streamParsingPerformReduce<T: StreamParseableReducer>(
   _ value: inout T?,
   _ action: DefaultStreamAction
 ) throws where T.StreamAction == DefaultStreamAction {
   if value == nil {
-    value = T()
+    value = try T(action: action)
   }
   try value?.reduce(action: action)
 }

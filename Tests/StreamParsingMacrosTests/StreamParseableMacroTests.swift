@@ -22,14 +22,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
             var name: String.Partial?
             var age: Int.Partial?
 
             init() {
+            }
+
+            init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             mutating func reduce(action: DefaultStreamAction) throws {
@@ -66,13 +70,17 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
             var age: Int.Partial?
 
             init() {
+            }
+
+            init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             mutating func reduce(action: DefaultStreamAction) throws {
@@ -107,14 +115,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
             var name: String.Partial?
             var age: Int.Partial?
 
             init() {
+            }
+
+            init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             mutating func reduce(action: DefaultStreamAction) throws {
@@ -267,14 +279,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          public struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             public typealias Partial = Self
 
             public var name: String.Partial?
             public var age: Int.Partial?
 
             public init() {
+            }
+
+            public init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             public mutating func reduce(action: DefaultStreamAction) throws {
@@ -307,14 +323,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
             var name: String.Partial?
             var age: Int.Partial?
 
             init() {
+            }
+
+            init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             mutating func reduce(action: DefaultStreamAction) throws {
@@ -347,14 +367,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          fileprivate struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          fileprivate struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             fileprivate typealias Partial = Self
 
             fileprivate var name: String.Partial?
             fileprivate var age: Int.Partial?
 
             fileprivate init() {
+            }
+
+            fileprivate init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             fileprivate mutating func reduce(action: DefaultStreamAction) throws {
@@ -391,14 +415,18 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+          public struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
             public typealias Partial = Self
 
             public var name: String.Partial?
             public var age: Int.Partial?
 
             public init() {
+            }
+
+            public init(action: DefaultStreamAction) throws {
+              self.init()
             }
 
             public mutating func reduce(action: DefaultStreamAction) throws {

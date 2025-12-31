@@ -35,9 +35,3 @@ where Parser.StreamAction == Value.StreamAction {
 
 extension PartialsStream: Sendable
 where Value: Sendable, Parser: Sendable {}
-
-// MARK: - StreamParseable
-
-public protocol StreamParseable {
-  associatedtype Partial: StreamActionReducer
-}

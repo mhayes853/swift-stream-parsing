@@ -208,6 +208,18 @@ extension UInt128: ConvertibleFromStreamedValue {}
 
 // MARK: - Array
 
+extension Array: StreamParseable
+where Element: StreamActionReducer, Element.StreamAction == DefaultStreamAction {
+  public typealias Partial = Self
+}
+
+extension Array: StreamParseableReducer
+where Element: StreamActionReducer, Element.StreamAction == DefaultStreamAction {
+  public init(action: DefaultStreamAction) throws {
+    self = []
+  }
+}
+
 extension Array: StreamActionReducer
 where Element: StreamActionReducer, Element.StreamAction == DefaultStreamAction {
   public typealias StreamAction = DefaultStreamAction

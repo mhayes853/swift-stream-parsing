@@ -90,13 +90,17 @@ public enum StreamParseableMacro: ExtensionMacro {
     let propertyLines = Self.partialPropertyLines(from: properties, modifierPrefix: modifierPrefix)
     let switchCases = Self.reduceSwitchCaseLines(from: properties)
     return """
-      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamActionReducer,
-        StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableReducer,
+        StreamParsingCore.StreamParseable {
         \(raw: modifierPrefix)typealias Partial = Self
 
       \(raw: propertyLines)
 
         \(raw: modifierPrefix)init() {}
+
+        \(raw: modifierPrefix)init(action: DefaultStreamAction) throws {
+          self.init()
+        }
 
         \(raw: modifierPrefix)mutating func reduce(action: DefaultStreamAction) throws {
           switch action {

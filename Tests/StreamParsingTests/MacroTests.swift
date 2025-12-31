@@ -20,6 +20,12 @@ private struct MacroPerson {
   var address: MacroAddress
 }
 
+@StreamParseable
+private struct MacroScores {
+  var name: String
+  var scores: [Int]
+}
+
 @Suite
 struct `Macro tests` {
   @Test
@@ -58,5 +64,24 @@ struct `Macro tests` {
     expectNoDifference(partial.name, "Blob")
     expectNoDifference(partial.address?.city, "Denver")
     expectNoDifference(partial.address?.zip, 80202)
+  }
+
+  @Test
+  func `Parses StreamParseable Macro Values With Array Field`() throws {
+    let defaultCommands: [DefaultStreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "scores", .delegateUnkeyed(index: 0, .setValue(.int(10)))),
+      .delegateKeyed(key: "scores", .delegateUnkeyed(index: 1, .setValue(.int(20))))
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroScores.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01, 0x02])
+
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.scores, [10, 20])
   }
 }
