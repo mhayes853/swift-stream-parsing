@@ -6,8 +6,7 @@ public protocol ConvertibleFromStreamedValue {
 
 // MARK: - StreamActionReducer
 
-extension StreamActionReducer
-where Self: ConvertibleFromStreamedValue, StreamAction == DefaultStreamAction {
+extension StreamActionReducer where Self: ConvertibleFromStreamedValue {
   public mutating func reduce(action: StreamAction) throws {
     self = try action.extractedValue(expected: Self.self) { streamedValue in
       Self(streamedValue: streamedValue)
@@ -17,23 +16,23 @@ where Self: ConvertibleFromStreamedValue, StreamAction == DefaultStreamAction {
 
 extension StreamParseableReducer
 where Self: ConvertibleFromStreamedValue {
-  public init(action: DefaultStreamAction) throws {
+  public init(action: StreamAction) throws {
     self = try action.extractedValue(expected: Self.self) { streamedValue in
       Self(streamedValue: streamedValue)
     }
   }
 }
 
-extension DefaultStreamAction {
+extension StreamAction {
   fileprivate func extractedValue<T>(
     expected type: T.Type,
     extractor: (StreamedValue) -> T?
   ) throws -> T {
     guard case .setValue(let streamedValue) = self else {
-      throw DefaultStreamActionReducerError.unsupportedAction(self)
+      throw StreamActionReducerError.unsupportedAction(self)
     }
     guard let value = extractor(streamedValue) else {
-      throw DefaultStreamActionReducerError.typeMismatch(
+      throw StreamActionReducerError.typeMismatch(
         expected: String(describing: type),
         actual: streamedValue
       )

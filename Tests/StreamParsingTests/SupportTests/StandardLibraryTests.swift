@@ -126,7 +126,7 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Reduces Dictionary Value For DelegateKeyed`() throws {
     var reducer = [String: Int]()
-    let actions: [DefaultStreamAction] = [
+    let actions: [StreamAction] = [
       .delegateKeyed(key: "first", .createObjectValue(.int(0))),
       .delegateKeyed(key: "first", .setValue(.int(1))),
       .delegateKeyed(key: "second", .createObjectValue(.int(0))),
@@ -228,7 +228,7 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Reduces RawValue For Non SetValue Actions`() throws {
     var reducer = PartialRawRepresentable(rawValue: MockPartial())
-    let action = DefaultStreamAction.delegateKeyed(key: "metadata", .setValue("value"))
+    let action = StreamAction.delegateKeyed(key: "metadata", .setValue("value"))
     try reducer.reduce(action: action)
     expectNoDifference(reducer.rawValue.commands, [action])
   }
@@ -265,8 +265,6 @@ struct `StreamActionReducer+StandardLibrary tests` {
 private struct DefaultConvertibleReducer: StreamActionReducer, ConvertibleFromStreamedValue,
   Equatable
 {
-  typealias StreamAction = DefaultStreamAction
-
   var value: String
 
   init(value: String) {

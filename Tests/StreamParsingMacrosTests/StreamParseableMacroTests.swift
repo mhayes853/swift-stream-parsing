@@ -32,11 +32,11 @@ extension BaseTestSuite {
             init() {
             }
 
-            init(action: DefaultStreamAction) throws {
+            init(action: StreamAction) throws {
               self.init()
             }
 
-            mutating func reduce(action: DefaultStreamAction) throws {
+            mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)
@@ -79,11 +79,11 @@ extension BaseTestSuite {
             init() {
             }
 
-            init(action: DefaultStreamAction) throws {
+            init(action: StreamAction) throws {
               self.init()
             }
 
-            mutating func reduce(action: DefaultStreamAction) throws {
+            mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
@@ -125,11 +125,11 @@ extension BaseTestSuite {
             init() {
             }
 
-            init(action: DefaultStreamAction) throws {
+            init(action: StreamAction) throws {
               self.init()
             }
 
-            mutating func reduce(action: DefaultStreamAction) throws {
+            mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)
@@ -289,11 +289,11 @@ extension BaseTestSuite {
             public init() {
             }
 
-            public init(action: DefaultStreamAction) throws {
+            public init(action: StreamAction) throws {
               self.init()
             }
 
-            public mutating func reduce(action: DefaultStreamAction) throws {
+            public mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)
@@ -333,11 +333,11 @@ extension BaseTestSuite {
             init() {
             }
 
-            init(action: DefaultStreamAction) throws {
+            init(action: StreamAction) throws {
               self.init()
             }
 
-            mutating func reduce(action: DefaultStreamAction) throws {
+            mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)
@@ -377,11 +377,11 @@ extension BaseTestSuite {
             fileprivate init() {
             }
 
-            fileprivate init(action: DefaultStreamAction) throws {
+            fileprivate init(action: StreamAction) throws {
               self.init()
             }
 
-            fileprivate mutating func reduce(action: DefaultStreamAction) throws {
+            fileprivate mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)
@@ -425,11 +425,11 @@ extension BaseTestSuite {
             public init() {
             }
 
-            public init(action: DefaultStreamAction) throws {
+            public init(action: StreamAction) throws {
               self.init()
             }
 
-            public mutating func reduce(action: DefaultStreamAction) throws {
+            public mutating func reduce(action: StreamAction) throws {
               switch action {
               case .delegateKeyed("name", let action):
                 try _streamParsingPerformReduce(&self.name, action)

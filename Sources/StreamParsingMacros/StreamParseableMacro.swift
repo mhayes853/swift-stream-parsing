@@ -98,11 +98,11 @@ public enum StreamParseableMacro: ExtensionMacro {
 
         \(raw: modifierPrefix)init() {}
 
-        \(raw: modifierPrefix)init(action: DefaultStreamAction) throws {
+        \(raw: modifierPrefix)init(action: StreamAction) throws {
           self.init()
         }
 
-        \(raw: modifierPrefix)mutating func reduce(action: DefaultStreamAction) throws {
+        \(raw: modifierPrefix)mutating func reduce(action: StreamAction) throws {
           switch action {
       \(raw: switchCases)
           default:

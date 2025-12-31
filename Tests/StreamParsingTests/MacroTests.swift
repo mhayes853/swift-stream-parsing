@@ -36,7 +36,7 @@ private struct MacroStats {
 struct `Macro tests` {
   @Test
   func `Parses StreamParseable Macro Values`() throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
       .delegateKeyed(key: "age", .setValue(.int(42)))
     ]
@@ -54,7 +54,7 @@ struct `Macro tests` {
 
   @Test
   func `Parses Nested StreamParseable Macro Values`() throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
       .delegateKeyed(key: "address", .delegateKeyed(key: "city", .setValue(.string("Denver")))),
       .delegateKeyed(key: "address", .delegateKeyed(key: "zip", .setValue(.int(80202))))
@@ -74,7 +74,7 @@ struct `Macro tests` {
 
   @Test
   func `Parses StreamParseable Macro Values With Array Field`() throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
       .delegateKeyed(key: "scores", .appendArrayElement(.int(0))),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 0, .setValue(.int(10)))),
@@ -95,7 +95,7 @@ struct `Macro tests` {
 
   @Test
   func `Parses StreamParseable Macro Values With Dictionary Field`() throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createObjectValue(.int(0)))),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .setValue(.int(7)))),

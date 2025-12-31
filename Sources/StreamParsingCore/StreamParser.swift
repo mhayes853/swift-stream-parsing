@@ -1,8 +1,6 @@
-public protocol StreamParser<StreamAction> {
-  associatedtype StreamAction
-
+public protocol StreamParser {
   mutating func parse(
     bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamActionReducer<StreamAction>
+    into reducer: inout some StreamActionReducer
   ) throws
 }

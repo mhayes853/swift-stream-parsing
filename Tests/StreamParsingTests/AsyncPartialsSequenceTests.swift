@@ -6,7 +6,7 @@ import Testing
 struct `AsyncPartialsSequence Tests` {
   @Test
   func `Injects Default Commands Into Partial`() async throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .setValue("start"),
       .delegateKeyed(key: "metadata", .setValue(1)),
       .delegateUnkeyed(index: 0, .setValue(true))
@@ -31,7 +31,7 @@ struct `AsyncPartialsSequence Tests` {
 
   @Test
   func `Injects Default Commands Into Partial For Simple Bytes Sequence`() async throws {
-    let defaultCommands: [DefaultStreamAction] = [
+    let defaultCommands: [StreamAction] = [
       .setValue("start"),
       .delegateKeyed(key: "metadata", .setValue(1)),
       .delegateUnkeyed(index: 0, .setValue(true))

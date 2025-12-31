@@ -25,7 +25,7 @@ public struct AsyncPartialsSequence<
   Parser: StreamParser,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
->: AsyncSequence where Element.StreamAction == Parser.StreamAction {
+>: AsyncSequence {
   let base: Base
   let parser: Parser
   let initialValue: Element

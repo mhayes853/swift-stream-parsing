@@ -8,8 +8,8 @@ public macro StreamParseable() =
 
 public func _streamParsingPerformReduce<T: StreamParseableReducer>(
   _ value: inout T?,
-  _ action: DefaultStreamAction
-) throws where T.StreamAction == DefaultStreamAction {
+  _ action: StreamAction
+) throws {
   if value == nil {
     value = try T(action: action)
   }

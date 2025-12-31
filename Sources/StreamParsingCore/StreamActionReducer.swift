@@ -1,14 +1,12 @@
 // MARK: - StreamActionReducer
 
-public protocol StreamActionReducer<StreamAction> {
-  associatedtype StreamAction = DefaultStreamAction
-
+public protocol StreamActionReducer {
   mutating func reduce(action: StreamAction) throws
 }
 
 // MARK: - StreamParserValue
 
-public indirect enum DefaultStreamAction: Hashable, Sendable {
+public indirect enum StreamAction: Hashable, Sendable {
   case setValue(StreamedValue)
   case appendArrayElement(StreamedValue)
   case createObjectValue(StreamedValue)

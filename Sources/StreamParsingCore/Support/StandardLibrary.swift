@@ -184,18 +184,18 @@ where Element: StreamParseableReducer {
 extension Array: StreamActionReducer where Element: StreamParseableReducer {}
 
 extension Array: StreamParseableReducer where Element: StreamParseableReducer {
-  public init(action: DefaultStreamAction) throws {
+  public init(action: StreamAction) throws {
     self = []
   }
 
-  public mutating func reduce(action: DefaultStreamAction) throws {
+  public mutating func reduce(action: StreamAction) throws {
     switch action {
     case .delegateUnkeyed(let index, let nestedAction):
       try self[index].reduce(action: nestedAction)
     case .appendArrayElement(let value):
       try self.append(Element(action: .setValue(value)))
     default:
-      throw DefaultStreamActionReducerError.unsupportedAction(action)
+      throw StreamActionReducerError.unsupportedAction(action)
     }
   }
 }
@@ -212,18 +212,18 @@ where Key == String, Value: StreamParseableReducer {}
 
 extension Dictionary: StreamParseableReducer
 where Key == String, Value: StreamParseableReducer {
-  public init(action: DefaultStreamAction) throws {
+  public init(action: StreamAction) throws {
     self = [:]
   }
 
-  public mutating func reduce(action: DefaultStreamAction) throws {
+  public mutating func reduce(action: StreamAction) throws {
     switch action {
     case .delegateKeyed(let key, .createObjectValue(let value)):
       self[key] = try Value(action: .setValue(value))
     case .delegateKeyed(let key, let action):
       try self[key]?.reduce(action: action)
     default:
-      throw DefaultStreamActionReducerError.unsupportedAction(action)
+      throw StreamActionReducerError.unsupportedAction(action)
     }
   }
 }
@@ -245,14 +245,12 @@ extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromS
 // MARK: - RawRepresentable
 
 extension RawRepresentable
-where RawValue: StreamActionReducer, RawValue.StreamAction == DefaultStreamAction {
-  public typealias StreamAction = DefaultStreamAction
-
-  public mutating func reduce(action: DefaultStreamAction) throws {
+where RawValue: StreamActionReducer {
+  public mutating func reduce(action: StreamAction) throws {
     var updatedRawValue = rawValue
     try updatedRawValue.reduce(action: action)
     guard let updatedValue = Self(rawValue: updatedRawValue) else {
-      throw DefaultStreamActionReducerError.rawValueInitializationFailed(
+      throw StreamActionReducerError.rawValueInitializationFailed(
         type: String(describing: Self.self),
         rawValue: String(describing: updatedRawValue)
       )

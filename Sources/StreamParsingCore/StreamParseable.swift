@@ -6,17 +6,16 @@ public protocol StreamParseable {
 
 // MARK: - StreamParseableReducer
 
-public protocol StreamParseableReducer: StreamActionReducer
-where StreamAction == DefaultStreamAction {
-  init(action: DefaultStreamAction) throws
+public protocol StreamParseableReducer: StreamActionReducer {
+  init(action: StreamAction) throws
 }
 
 // MARK: - StreamParseableError
 
 public struct StreamParseableError: Error, Hashable {
-  private let action: DefaultStreamAction
+  private let action: StreamAction
 
-  public static func unsupportedAction(_ action: DefaultStreamAction) -> Self {
+  public static func unsupportedAction(_ action: StreamAction) -> Self {
     Self(action: action)
   }
 }
