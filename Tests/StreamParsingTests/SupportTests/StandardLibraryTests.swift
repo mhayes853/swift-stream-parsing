@@ -124,6 +124,23 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Reduces Dictionary Value For DelegateKeyed`() throws {
+    var reducer = [String: Int]()
+    let actions: [DefaultStreamAction] = [
+      .delegateKeyed(key: "first", .createObjectValue(.int(0))),
+      .delegateKeyed(key: "first", .setValue(.int(1))),
+      .delegateKeyed(key: "second", .createObjectValue(.int(0))),
+      .delegateKeyed(key: "second", .setValue(.int(2)))
+    ]
+
+    for action in actions {
+      try reducer.reduce(action: action)
+    }
+
+    expectNoDifference(reducer, ["first": 1, "second": 2])
+  }
+
+  @Test
   func `Converts Between Signed Integers`() throws {
     try expectSetValue(initial: Int32(0), expected: Int32(32), streamedValue: .int64(32))
     try expectSetValue(initial: Int64(0), expected: Int64(8), streamedValue: .int8(8))

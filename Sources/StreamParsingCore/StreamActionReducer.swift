@@ -11,6 +11,7 @@ public protocol StreamActionReducer<StreamAction> {
 public indirect enum DefaultStreamAction: Hashable, Sendable {
   case setValue(StreamedValue)
   case appendArrayElement(StreamedValue)
+  case createObjectValue(StreamedValue)
   case delegateUnkeyed(index: Int, Self)
   case delegateKeyed(key: String, Self)
 }

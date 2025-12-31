@@ -26,6 +26,12 @@ private struct MacroScores {
   var scores: [Int]
 }
 
+@StreamParseable
+private struct MacroStats {
+  var name: String
+  var stats: [String: Int]
+}
+
 @Suite
 struct `Macro tests` {
   @Test
@@ -85,5 +91,26 @@ struct `Macro tests` {
 
     expectNoDifference(partial.name, "Blob")
     expectNoDifference(partial.scores, [10, 20])
+  }
+
+  @Test
+  func `Parses StreamParseable Macro Values With Dictionary Field`() throws {
+    let defaultCommands: [DefaultStreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createObjectValue(.int(0)))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .setValue(.int(7)))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .createObjectValue(.int(0)))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .setValue(.int(99))))
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroStats.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01, 0x02, 0x03, 0x04])
+
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.stats, ["level": 7, "score": 99])
   }
 }

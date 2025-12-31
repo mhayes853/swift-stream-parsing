@@ -200,6 +200,34 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
   }
 }
 
+// MARK: - Dictionary
+
+extension Dictionary: StreamParseable
+where Key == String, Value: StreamParseableReducer {
+  public typealias Partial = Self
+}
+
+extension Dictionary: StreamActionReducer
+where Key == String, Value: StreamParseableReducer {}
+
+extension Dictionary: StreamParseableReducer
+where Key == String, Value: StreamParseableReducer {
+  public init(action: DefaultStreamAction) throws {
+    self = [:]
+  }
+
+  public mutating func reduce(action: DefaultStreamAction) throws {
+    switch action {
+    case .delegateKeyed(let key, .createObjectValue(let value)):
+      self[key] = try Value(action: .setValue(value))
+    case .delegateKeyed(let key, let action):
+      try self[key]?.reduce(action: action)
+    default:
+      throw DefaultStreamActionReducerError.unsupportedAction(action)
+    }
+  }
+}
+
 // MARK: - Optional
 
 extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromStreamedValue {
