@@ -11,7 +11,7 @@ public func _streamParsingPerformReduce<T: StreamParseableReducer>(
   _ action: StreamAction
 ) throws {
   if value == nil {
-    value = try T(action: action)
+    value = T.initialValue()
   }
   try value?.reduce(action: action)
 }

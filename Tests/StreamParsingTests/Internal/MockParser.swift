@@ -4,8 +4,14 @@ struct MockValue: StreamParseable {
   typealias Partial = MockPartial
 }
 
-struct MockPartial: StreamActionReducer {
+struct MockPartial: StreamParseableReducer {
   var commands = [StreamAction]()
+
+  init() {}
+
+  static func initialValue() -> Self {
+    Self()
+  }
 
   mutating func reduce(action: StreamAction) throws {
     self.commands.append(action)

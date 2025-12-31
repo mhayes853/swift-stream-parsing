@@ -8,8 +8,8 @@ public protocol StreamActionReducer {
 
 public indirect enum StreamAction: Hashable, Sendable {
   case setValue(StreamedValue)
-  case appendArrayElement(StreamedValue)
-  case createObjectValue(StreamedValue)
+  case appendArrayElement
+  case createObjectValue
   case delegateUnkeyed(index: Int, Self)
   case delegateKeyed(key: String, Self)
 }

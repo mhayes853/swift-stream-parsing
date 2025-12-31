@@ -4,7 +4,11 @@ extension String: StreamParseable {
   public typealias Partial = Self
 }
 
-extension String: StreamParseableReducer {}
+extension String: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    ""
+  }
+}
 
 extension String: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
@@ -19,7 +23,11 @@ extension Double: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Double: StreamParseableReducer {}
+extension Double: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Double: ConvertibleFromStreamedValue {}
 
@@ -29,7 +37,11 @@ extension Float: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Float: StreamParseableReducer {}
+extension Float: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Float: ConvertibleFromStreamedValue {}
 
@@ -39,7 +51,11 @@ extension Bool: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Bool: StreamParseableReducer {}
+extension Bool: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    false
+  }
+}
 
 extension Bool: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
@@ -54,7 +70,11 @@ extension Int8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int8: StreamParseableReducer {}
+extension Int8: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Int8: ConvertibleFromStreamedValue {}
 
@@ -64,7 +84,11 @@ extension Int16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int16: StreamParseableReducer {}
+extension Int16: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Int16: ConvertibleFromStreamedValue {}
 
@@ -74,7 +98,11 @@ extension Int32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int32: StreamParseableReducer {}
+extension Int32: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Int32: ConvertibleFromStreamedValue {}
 
@@ -84,7 +112,11 @@ extension Int64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int64: StreamParseableReducer {}
+extension Int64: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Int64: ConvertibleFromStreamedValue {}
 
@@ -94,7 +126,11 @@ extension Int: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int: StreamParseableReducer {}
+extension Int: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension Int: ConvertibleFromStreamedValue {}
 
@@ -104,7 +140,11 @@ extension UInt8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt8: StreamParseableReducer {}
+extension UInt8: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension UInt8: ConvertibleFromStreamedValue {}
 
@@ -114,7 +154,11 @@ extension UInt16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt16: StreamParseableReducer {}
+extension UInt16: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension UInt16: ConvertibleFromStreamedValue {}
 
@@ -124,7 +168,11 @@ extension UInt32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt32: StreamParseableReducer {}
+extension UInt32: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension UInt32: ConvertibleFromStreamedValue {}
 
@@ -134,7 +182,11 @@ extension UInt64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt64: StreamParseableReducer {}
+extension UInt64: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension UInt64: ConvertibleFromStreamedValue {}
 
@@ -144,7 +196,11 @@ extension UInt: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt: StreamParseableReducer {}
+extension UInt: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 extension UInt: ConvertibleFromStreamedValue {}
 
@@ -156,7 +212,11 @@ extension Int128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension Int128: StreamParseableReducer {}
+extension Int128: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: ConvertibleFromStreamedValue {}
@@ -169,31 +229,33 @@ extension UInt128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension UInt128: StreamParseableReducer {}
+extension UInt128: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    0
+  }
+}
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: ConvertibleFromStreamedValue {}
 
 // MARK: - Array
 
-extension Array: StreamParseable
-where Element: StreamParseableReducer {
-  public typealias Partial = Self
+extension Array: StreamParseable where Element: StreamParseable {
+  public typealias Partial = [Element.Partial]
 }
 
 extension Array: StreamActionReducer where Element: StreamParseableReducer {}
-
 extension Array: StreamParseableReducer where Element: StreamParseableReducer {
-  public init(action: StreamAction) throws {
-    self = []
+  public static func initialValue() -> Self {
+    []
   }
 
   public mutating func reduce(action: StreamAction) throws {
     switch action {
     case .delegateUnkeyed(let index, let nestedAction):
       try self[index].reduce(action: nestedAction)
-    case .appendArrayElement(let value):
-      try self.append(Element(action: .setValue(value)))
+    case .appendArrayElement:
+      self.append(.initialValue())
     default:
       throw StreamActionReducerError.unsupportedAction(action)
     }
@@ -202,24 +264,21 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
 
 // MARK: - Dictionary
 
-extension Dictionary: StreamParseable
-where Key == String, Value: StreamParseableReducer {
-  public typealias Partial = Self
+extension Dictionary: StreamParseable where Key == String, Value: StreamParseable {
+  public typealias Partial = [String: Value.Partial]
 }
 
-extension Dictionary: StreamActionReducer
-where Key == String, Value: StreamParseableReducer {}
+extension Dictionary: StreamActionReducer where Key == String, Value: StreamParseableReducer {}
 
-extension Dictionary: StreamParseableReducer
-where Key == String, Value: StreamParseableReducer {
-  public init(action: StreamAction) throws {
-    self = [:]
+extension Dictionary: StreamParseableReducer where Key == String, Value: StreamParseableReducer {
+  public static func initialValue() -> Self {
+    [:]
   }
 
   public mutating func reduce(action: StreamAction) throws {
     switch action {
-    case .delegateKeyed(let key, .createObjectValue(let value)):
-      self[key] = try Value(action: .setValue(value))
+    case .delegateKeyed(let key, .createObjectValue):
+      self[key] = .initialValue()
     case .delegateKeyed(let key, let action):
       try self[key]?.reduce(action: action)
     default:
@@ -261,12 +320,8 @@ where RawValue: StreamActionReducer {
 
 extension RawRepresentable where RawValue: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
-    guard let rawValue = RawValue(streamedValue: streamedValue) else {
-      return nil
-    }
-    guard let value = Self(rawValue: rawValue) else {
-      return nil
-    }
+    guard let rawValue = RawValue(streamedValue: streamedValue) else { return nil }
+    guard let value = Self(rawValue: rawValue) else { return nil }
     self = value
   }
 }

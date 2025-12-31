@@ -76,9 +76,9 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Array Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "scores", .appendArrayElement(.int(0))),
+      .delegateKeyed(key: "scores", .appendArrayElement),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 0, .setValue(.int(10)))),
-      .delegateKeyed(key: "scores", .appendArrayElement(.int(0))),
+      .delegateKeyed(key: "scores", .appendArrayElement),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 1, .setValue(.int(20))))
     ]
 
@@ -97,9 +97,9 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Dictionary Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createObjectValue(.int(0)))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createObjectValue)),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .setValue(.int(7)))),
-      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .createObjectValue(.int(0)))),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .createObjectValue)),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .setValue(.int(99))))
     ]
 

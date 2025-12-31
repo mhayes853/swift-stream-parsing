@@ -14,15 +14,6 @@ extension StreamActionReducer where Self: ConvertibleFromStreamedValue {
   }
 }
 
-extension StreamParseableReducer
-where Self: ConvertibleFromStreamedValue {
-  public init(action: StreamAction) throws {
-    self = try action.extractedValue(expected: Self.self) { streamedValue in
-      Self(streamedValue: streamedValue)
-    }
-  }
-}
-
 extension StreamAction {
   fileprivate func extractedValue<T>(
     expected type: T.Type,

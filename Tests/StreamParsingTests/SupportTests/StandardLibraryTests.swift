@@ -18,16 +18,15 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
-  func `Initializes Convertible Reducer From SetValue Action`() throws {
-    let value = try String(action: .setValue(.string("new")))
-    expectNoDifference(value, "new")
+  func `Initializes Reducer From InitialValue`() {
+    let value = String.initialValue()
+    expectNoDifference(value, "")
   }
 
   @Test
-  func `Throws When Convertible Reducer Init Uses Non SetValue Action`() {
-    #expect(throws: Error.self) {
-      _ = try String(action: .delegateKeyed(key: "name", .setValue(.string("new"))))
-    }
+  func `Initializes Boolean Reducer From InitialValue`() {
+    let value = Bool.initialValue()
+    expectNoDifference(value, false)
   }
 
   @Test
@@ -117,8 +116,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Reduces Array Element For DelegateUnkeyed`() throws {
     var reducer = [Int]()
-    try reducer.reduce(action: .appendArrayElement(.int(0)))
-    try reducer.reduce(action: .appendArrayElement(.int(1)))
+    try reducer.reduce(action: .appendArrayElement)
+    try reducer.reduce(action: .appendArrayElement)
     try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
     expectNoDifference(reducer, [0, 9])
   }
@@ -127,9 +126,9 @@ struct `StreamActionReducer+StandardLibrary tests` {
   func `Reduces Dictionary Value For DelegateKeyed`() throws {
     var reducer = [String: Int]()
     let actions: [StreamAction] = [
-      .delegateKeyed(key: "first", .createObjectValue(.int(0))),
+      .delegateKeyed(key: "first", .createObjectValue),
       .delegateKeyed(key: "first", .setValue(.int(1))),
-      .delegateKeyed(key: "second", .createObjectValue(.int(0))),
+      .delegateKeyed(key: "second", .createObjectValue),
       .delegateKeyed(key: "second", .setValue(.int(2)))
     ]
 

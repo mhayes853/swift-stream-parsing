@@ -1,13 +1,13 @@
 // MARK: - StreamParseable
 
 public protocol StreamParseable {
-  associatedtype Partial: StreamActionReducer
+  associatedtype Partial: StreamParseableReducer
 }
 
 // MARK: - StreamParseableReducer
 
 public protocol StreamParseableReducer: StreamActionReducer {
-  init(action: StreamAction) throws
+  static func initialValue() -> Self
 }
 
 // MARK: - StreamParseableError
