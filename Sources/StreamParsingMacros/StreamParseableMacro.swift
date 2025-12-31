@@ -38,18 +38,7 @@ public enum StreamParseableMacro: ExtensionMacro {
         """
       )
     }
-
-    let aliasPrefix = self.modifierPrefix(for: accessModifier)
-    return [
-      streamParseableExtension,
-      try ExtensionDeclSyntax(
-        """
-        extension \(raw: typeName).Partial: StreamParsingCore.StreamParseable {
-          \(raw: aliasPrefix)typealias Partial = Self
-        }
-        """
-      )
-    ]
+    return [streamParseableExtension]
   }
 
   private struct StoredProperty {
@@ -102,7 +91,9 @@ public enum StreamParseableMacro: ExtensionMacro {
     let switchCases = Self.reduceSwitchCaseLines(from: properties)
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamActionReducer,
-        StreamParsing._StreamActionInitializeableReducer {
+        StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+        \(raw: modifierPrefix)typealias Partial = Self
+
       \(raw: propertyLines)
 
         \(raw: modifierPrefix)init() {}

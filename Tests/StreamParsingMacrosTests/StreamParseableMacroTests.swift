@@ -23,7 +23,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
             var name: String.Partial?
             var age: Int.Partial?
 
@@ -41,10 +43,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          typealias Partial = Self
         }
         """
       }
@@ -69,7 +67,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
             var age: Int.Partial?
 
             init() {
@@ -84,10 +84,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          typealias Partial = Self
         }
         """
       }
@@ -112,7 +108,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
             var name: String.Partial?
             var age: Int.Partial?
 
@@ -130,10 +128,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          typealias Partial = Self
         }
         """
       }
@@ -251,10 +245,6 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
         }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          typealias Partial = Self
-        }
         """
       }
     }
@@ -278,7 +268,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            public typealias Partial = Self
+
             public var name: String.Partial?
             public var age: Int.Partial?
 
@@ -296,10 +288,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          public typealias Partial = Self
         }
         """
       }
@@ -320,7 +308,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
             var name: String.Partial?
             var age: Int.Partial?
 
@@ -338,10 +328,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          typealias Partial = Self
         }
         """
       }
@@ -362,7 +348,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           fileprivate struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            fileprivate typealias Partial = Self
+
             fileprivate var name: String.Partial?
             fileprivate var age: Int.Partial?
 
@@ -380,10 +368,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          fileprivate typealias Partial = Self
         }
         """
       }
@@ -408,7 +392,9 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamActionReducer,
-            StreamParsing._StreamActionInitializeableReducer {
+            StreamParsing._StreamActionInitializeableReducer, StreamParsingCore.StreamParseable {
+            public typealias Partial = Self
+
             public var name: String.Partial?
             public var age: Int.Partial?
 
@@ -426,10 +412,6 @@ extension BaseTestSuite {
               }
             }
           }
-        }
-
-        extension Person.Partial: StreamParsingCore.StreamParseable {
-          public typealias Partial = Self
         }
         """
       }

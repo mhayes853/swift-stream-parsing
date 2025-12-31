@@ -16,7 +16,7 @@ where Self: ConvertibleFromStreamedValue, StreamAction == DefaultStreamAction {
 }
 
 extension DefaultStreamAction {
-  fileprivate func extractedValue<T>(
+  package func extractedValue<T>(
     expected type: T.Type,
     extractor: (StreamedValue) -> T?
   ) throws -> T {
