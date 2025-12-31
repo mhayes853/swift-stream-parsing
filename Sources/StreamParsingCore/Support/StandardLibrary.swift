@@ -206,6 +206,22 @@ extension UInt128: StreamParseable {
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: ConvertibleFromStreamedValue {}
 
+// MARK: - Array
+
+extension Array: StreamActionReducer
+where Element: StreamActionReducer, Element.StreamAction == DefaultStreamAction {
+  public typealias StreamAction = DefaultStreamAction
+
+  public mutating func reduce(action: DefaultStreamAction) throws {
+    switch action {
+    case .delegateUnkeyed(let index, let nestedAction):
+      try self[index].reduce(action: nestedAction)
+    default:
+      throw DefaultStreamActionReducerError.unsupportedAction(action)
+    }
+  }
+}
+
 // MARK: - Optional
 
 extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromStreamedValue {

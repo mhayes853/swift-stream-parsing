@@ -102,6 +102,13 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Reduces MutableCollection Element For DelegateUnkeyed`() throws {
+    var reducer = [0, 1]
+    try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
+    expectNoDifference(reducer, [0, 9])
+  }
+
+  @Test
   func `Converts Between Signed Integers`() throws {
     try expectSetValue(initial: Int32(0), expected: Int32(32), streamedValue: .int64(32))
     try expectSetValue(initial: Int64(0), expected: Int64(8), streamedValue: .int8(8))
