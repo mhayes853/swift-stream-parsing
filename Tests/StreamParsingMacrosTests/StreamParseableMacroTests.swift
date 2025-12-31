@@ -477,7 +477,7 @@ extension BaseTestSuite {
         """
       }
     }
-    
+
     @Test
     func `Handles Optional Members As Double Optionals In Partial`() async throws {
       assertMacro {

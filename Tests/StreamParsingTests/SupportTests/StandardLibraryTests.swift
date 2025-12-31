@@ -202,6 +202,38 @@ struct `StreamActionReducer+StandardLibrary tests` {
   }
 
   @Test
+  func `Reduces Optional String To Nil On Null SetValue`() throws {
+    var value: String? = "old"
+    try value.reduce(action: .setValue(.null))
+    expectNoDifference(value, nil)
+  }
+
+  @Test
+  func `Reduces Optional String To New Value On SetValue`() throws {
+    var value: String? = "old"
+    try value.reduce(action: .setValue(.string("new")))
+    expectNoDifference(value, "new")
+  }
+
+  @Test
+  func `Reduces Optional String From Nil On SetValue`() throws {
+    var value: String? = nil
+    try value.reduce(action: .setValue(.string("new")))
+    expectNoDifference(value, "new")
+  }
+
+  @Test
+  func `Keeps Optional Value When Reduce Throws`() {
+    var value: ThrowingReducer? = nil
+
+    #expect(throws: Error.self) {
+      try value.reduce(action: .setValue(.string("bad")))
+    }
+
+    expectNoDifference(value, nil)
+  }
+
+  @Test
   @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
   func `Sets Int128 From SetValue`() throws {
     let initial: Int128 = 0
@@ -300,5 +332,23 @@ private struct PartialRawRepresentable: RawRepresentable {
 
   init(rawValue: MockPartial) {
     self.rawValue = rawValue
+  }
+}
+
+private struct ThrowingReducer: StreamParseableReducer, Equatable {
+  struct ReduceError: Error, Equatable {}
+
+  var value: String
+
+  init(value: String) {
+    self.value = value
+  }
+
+  static func initialReduceableValue() -> Self {
+    Self(value: "")
+  }
+
+  mutating func reduce(action: StreamAction) throws {
+    throw ReduceError()
   }
 }

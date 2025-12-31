@@ -290,6 +290,29 @@ extension Dictionary: StreamParseableReducer where Key == String, Value: StreamP
 
 // MARK: - Optional
 
+extension Optional: StreamParseable where Wrapped: StreamParseable {
+  public typealias Partial = Wrapped.Partial?
+}
+
+extension Optional: StreamActionReducer where Wrapped: StreamParseableReducer {}
+
+extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer {
+  public static func initialReduceableValue() -> Wrapped? {
+    Wrapped.initialReduceableValue()
+  }
+
+  public mutating func reduce(action: StreamAction) throws {
+    switch action {
+    case .setValue(.null):
+      self = nil
+    default:
+      var new = self ?? Wrapped.initialReduceableValue()
+      try new.reduce(action: action)
+      self = new
+    }
+  }
+}
+
 extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromStreamedValue {
   public init?(streamedValue: StreamedValue) {
     switch streamedValue {

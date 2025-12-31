@@ -138,6 +138,23 @@ struct `Macro tests` {
     expectNoDifference(partial.addresses?["home"]?.city, "Denver")
     expectNoDifference(partial.addresses?["home"]?.zip, 80202)
   }
+
+  @Test
+  func `Reduces Actions On StreamParseable Macro Optional Values`() throws {
+    let defaultCommands: [StreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "name", .setValue(.null))
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroOptional.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01])
+
+    expectNoDifference(partial.name, .some(nil))
+  }
 }
 
 @StreamParseable
@@ -180,4 +197,9 @@ private struct MacroAddressList {
 private struct MacroAddressBook {
   var name: String
   var addresses: [String: MacroAddress]
+}
+
+@StreamParseable
+private struct MacroOptional {
+  var name: String?
 }
