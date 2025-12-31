@@ -29,7 +29,12 @@ extension BaseTestSuite {
             var name: String.Partial?
             var age: Int.Partial?
 
-            init() {
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             static func initialReduceableValue() -> Self {
@@ -76,7 +81,10 @@ extension BaseTestSuite {
 
             var age: Int.Partial?
 
-            init() {
+            init(
+              age: Int.Partial? = nil
+            ) {
+              self.age = age
             }
 
             static func initialReduceableValue() -> Self {
@@ -122,7 +130,12 @@ extension BaseTestSuite {
             var name: String.Partial?
             var age: Int.Partial?
 
-            init() {
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             static func initialReduceableValue() -> Self {
@@ -286,7 +299,12 @@ extension BaseTestSuite {
             public var name: String.Partial?
             public var age: Int.Partial?
 
-            public init() {
+            public init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             public static func initialReduceableValue() -> Self {
@@ -330,7 +348,12 @@ extension BaseTestSuite {
             var name: String.Partial?
             var age: Int.Partial?
 
-            init() {
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             static func initialReduceableValue() -> Self {
@@ -374,7 +397,12 @@ extension BaseTestSuite {
             fileprivate var name: String.Partial?
             fileprivate var age: Int.Partial?
 
-            fileprivate init() {
+            fileprivate init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             fileprivate static func initialReduceableValue() -> Self {
@@ -422,7 +450,12 @@ extension BaseTestSuite {
             public var name: String.Partial?
             public var age: Int.Partial?
 
-            public init() {
+            public init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
             }
 
             public static func initialReduceableValue() -> Self {

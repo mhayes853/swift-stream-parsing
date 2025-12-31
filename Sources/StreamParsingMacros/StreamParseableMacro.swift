@@ -87,7 +87,14 @@ public enum StreamParseableMacro: ExtensionMacro {
     accessModifier: String?
   ) -> DeclSyntax {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let propertyLines = Self.partialPropertyLines(from: properties, modifierPrefix: modifierPrefix)
+    let propertyLines = Self.partialStructProperties(
+      from: properties,
+      modifierPrefix: modifierPrefix
+    )
+    let initializerLines = Self.partialStructInitializer(
+      from: properties,
+      modifierPrefix: modifierPrefix
+    )
     let switchCases = Self.reduceSwitchCaseLines(from: properties)
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableReducer,
@@ -96,7 +103,7 @@ public enum StreamParseableMacro: ExtensionMacro {
 
       \(raw: propertyLines)
 
-        \(raw: modifierPrefix)init() {}
+        \(raw: initializerLines)
 
         \(raw: modifierPrefix)static func initialReduceableValue() -> Self {
           Self()
@@ -113,7 +120,7 @@ public enum StreamParseableMacro: ExtensionMacro {
       """
   }
 
-  private static func partialPropertyLines(
+  private static func partialStructProperties(
     from properties: [StoredProperty],
     modifierPrefix: String
   ) -> String {
@@ -122,6 +129,32 @@ public enum StreamParseableMacro: ExtensionMacro {
       return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial?"
     }
     return lines.joined(separator: "\n")
+  }
+
+  private static func partialStructInitializer(
+    from properties: [StoredProperty],
+    modifierPrefix: String
+  ) -> String {
+    let parameters =
+      properties
+      .map { property in
+        let typeDescription = property.type.trimmedDescription
+        return "\(property.name): \(typeDescription).Partial? = nil"
+      }
+      .joined(separator: ",\n    ")
+    let assignments =
+      properties
+      .map { property in
+        "    self.\(property.name) = \(property.name)"
+      }
+      .joined(separator: "\n")
+    return """
+      \(modifierPrefix)init(
+          \(parameters)
+        ) {
+      \(assignments)
+        }
+      """
   }
 
   private static func reduceSwitchCaseLines(from properties: [StoredProperty]) -> String {
