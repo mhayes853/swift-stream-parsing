@@ -5,11 +5,7 @@
     public typealias Partial = Self
   }
 
-  extension CGFloat: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      0
-    }
-  }
+  extension CGFloat: StreamParseableReducer {}
 
   extension CGFloat: ConvertibleFromStreamedValue {}
 #endif

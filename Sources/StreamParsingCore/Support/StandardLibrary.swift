@@ -23,11 +23,7 @@ extension Double: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Double: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Double: StreamParseableReducer {}
 
 extension Double: ConvertibleFromStreamedValue {}
 
@@ -37,11 +33,7 @@ extension Float: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Float: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Float: StreamParseableReducer {}
 
 extension Float: ConvertibleFromStreamedValue {}
 
@@ -70,11 +62,7 @@ extension Int8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int8: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int8: StreamParseableReducer {}
 
 extension Int8: ConvertibleFromStreamedValue {}
 
@@ -84,11 +72,7 @@ extension Int16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int16: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int16: StreamParseableReducer {}
 
 extension Int16: ConvertibleFromStreamedValue {}
 
@@ -98,11 +82,7 @@ extension Int32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int32: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int32: StreamParseableReducer {}
 
 extension Int32: ConvertibleFromStreamedValue {}
 
@@ -112,11 +92,7 @@ extension Int64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int64: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int64: StreamParseableReducer {}
 
 extension Int64: ConvertibleFromStreamedValue {}
 
@@ -126,11 +102,7 @@ extension Int: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int: StreamParseableReducer {}
 
 extension Int: ConvertibleFromStreamedValue {}
 
@@ -140,11 +112,7 @@ extension UInt8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt8: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt8: StreamParseableReducer {}
 
 extension UInt8: ConvertibleFromStreamedValue {}
 
@@ -154,11 +122,7 @@ extension UInt16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt16: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt16: StreamParseableReducer {}
 
 extension UInt16: ConvertibleFromStreamedValue {}
 
@@ -168,11 +132,7 @@ extension UInt32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt32: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt32: StreamParseableReducer {}
 
 extension UInt32: ConvertibleFromStreamedValue {}
 
@@ -182,11 +142,7 @@ extension UInt64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt64: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt64: StreamParseableReducer {}
 
 extension UInt64: ConvertibleFromStreamedValue {}
 
@@ -196,11 +152,7 @@ extension UInt: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt: StreamParseableReducer {}
 
 extension UInt: ConvertibleFromStreamedValue {}
 
@@ -212,11 +164,7 @@ extension Int128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension Int128: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension Int128: StreamParseableReducer {}
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: ConvertibleFromStreamedValue {}
@@ -229,11 +177,7 @@ extension UInt128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension UInt128: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    0
-  }
-}
+extension UInt128: StreamParseableReducer {}
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: ConvertibleFromStreamedValue {}
