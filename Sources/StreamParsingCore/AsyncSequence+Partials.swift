@@ -29,12 +29,12 @@ public struct AsyncPartialsSequence<
   let base: Base
   let parser: Parser
   let initialValue: Element
-  fileprivate let byteInput: (Base.Element) -> Seq
+  let byteInput: (Base.Element) -> Seq
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
     var stream: PartialsStream<Element, Parser>
-    fileprivate let byteInput: (Base.Element) -> Seq
+    let byteInput: (Base.Element) -> Seq
 
     public mutating func next() async throws -> Element? {
       guard let element = try await self.baseIterator.next() else { return nil }
