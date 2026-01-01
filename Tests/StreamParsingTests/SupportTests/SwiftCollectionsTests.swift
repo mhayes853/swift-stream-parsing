@@ -1,6 +1,5 @@
 #if StreamParsingSwiftCollections
   import Collections
-  import BasicContainers
   import CustomDump
   import StreamParsing
   import Testing

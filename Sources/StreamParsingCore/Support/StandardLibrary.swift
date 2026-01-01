@@ -190,22 +190,9 @@ extension Array: StreamParseable where Element: StreamParseable {
 
 extension Array: StreamActionReducer where Element: StreamParseableReducer {}
 
-extension Array: StreamParseableReducer where Element: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    []
-  }
+extension Array: StreamParseableReducer where Element: StreamParseableReducer {}
 
-  public mutating func reduce(action: StreamAction) throws {
-    switch action {
-    case .delegateUnkeyed(let index, let nestedAction):
-      try self[index].reduce(action: nestedAction)
-    case .appendArrayElement:
-      self.append(.initialReduceableValue())
-    default:
-      throw StreamActionReducerError.unsupportedAction(action)
-    }
-  }
-}
+extension Array: StreamParsingArrayLikeReducer where Element: StreamParseableReducer {}
 
 // MARK: - Dictionary
 
@@ -215,22 +202,10 @@ extension Dictionary: StreamParseable where Key == String, Value: StreamParseabl
 
 extension Dictionary: StreamActionReducer where Key == String, Value: StreamParseableReducer {}
 
-extension Dictionary: StreamParseableReducer where Key == String, Value: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
-    [:]
-  }
+extension Dictionary: StreamParseableReducer where Key == String, Value: StreamParseableReducer {}
 
-  public mutating func reduce(action: StreamAction) throws {
-    switch action {
-    case .delegateKeyed(let key, .createObjectValue):
-      self[key] = .initialReduceableValue()
-    case .delegateKeyed(let key, let action):
-      try self[key]?.reduce(action: action)
-    default:
-      throw StreamActionReducerError.unsupportedAction(action)
-    }
-  }
-}
+extension Dictionary: StreamParsingDictionaryLikeReducer
+where Key == String, Value: StreamParseableReducer {}
 
 // MARK: - Optional
 

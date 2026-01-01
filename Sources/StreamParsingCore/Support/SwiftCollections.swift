@@ -1,5 +1,4 @@
 #if StreamParsingSwiftCollections
-  import BasicContainers
   import Collections
 
   // MARK: - Deque
@@ -10,22 +9,9 @@
 
   extension Deque: StreamActionReducer where Element: StreamParseableReducer {}
 
-  extension Deque: StreamParseableReducer where Element: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      Self()
-    }
+  extension Deque: StreamParseableReducer where Element: StreamParseableReducer {}
 
-    public mutating func reduce(action: StreamAction) throws {
-      switch action {
-      case .delegateUnkeyed(let index, let action):
-        try self[index].reduce(action: action)
-      case .appendArrayElement:
-        self.append(.initialReduceableValue())
-      default:
-        throw StreamActionReducerError.unsupportedAction(action)
-      }
-    }
-  }
+  extension Deque: StreamParsingArrayLikeReducer where Element: StreamParseableReducer {}
 
   // MARK: - BitArray
 
@@ -35,23 +21,9 @@
 
   extension BitArray: StreamActionReducer {}
 
-  extension BitArray: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      Self()
-    }
+  extension BitArray: StreamParseableReducer {}
 
-    public mutating func reduce(action: StreamAction) throws {
-      switch action {
-      case .delegateUnkeyed(let offset, let nestedAction):
-        let index = self.index(self.startIndex, offsetBy: offset)
-        try self[index].reduce(action: nestedAction)
-      case .appendArrayElement:
-        self.append(.initialReduceableValue())
-      default:
-        throw StreamActionReducerError.unsupportedAction(action)
-      }
-    }
-  }
+  extension BitArray: StreamParsingArrayLikeReducer {}
 
   // MARK: - OrderedDictionary
 
@@ -63,22 +35,10 @@
   where Key == String, Value: StreamParseableReducer {}
 
   extension OrderedDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      Self()
-    }
+  where Key == String, Value: StreamParseableReducer {}
 
-    public mutating func reduce(action: StreamAction) throws {
-      switch action {
-      case .delegateKeyed(let key, .createObjectValue):
-        self[key] = .initialReduceableValue()
-      case .delegateKeyed(let key, let action):
-        try self[key]?.reduce(action: action)
-      default:
-        throw StreamActionReducerError.unsupportedAction(action)
-      }
-    }
-  }
+  extension OrderedDictionary: StreamParsingDictionaryLikeReducer
+  where Key == String, Value: StreamParseableReducer {}
 
   // MARK: - TreeDictionary
 
@@ -90,20 +50,8 @@
   where Key == String, Value: StreamParseableReducer {}
 
   extension TreeDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      Self()
-    }
+  where Key == String, Value: StreamParseableReducer {}
 
-    public mutating func reduce(action: StreamAction) throws {
-      switch action {
-      case .delegateKeyed(let key, .createObjectValue):
-        self[key] = .initialReduceableValue()
-      case .delegateKeyed(let key, let action):
-        try self[key]?.reduce(action: action)
-      default:
-        throw StreamActionReducerError.unsupportedAction(action)
-      }
-    }
-  }
+  extension TreeDictionary: StreamParsingDictionaryLikeReducer
+  where Key == String, Value: StreamParseableReducer {}
 #endif

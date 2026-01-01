@@ -29,11 +29,6 @@ let package = Package(
           name: "Collections",
           package: "swift-collections",
           condition: .when(traits: ["StreamParsingSwiftCollections"])
-        ),
-        .product(
-          name: "BasicContainers",
-          package: "swift-collections",
-          condition: .when(traits: ["StreamParsingSwiftCollections"])
         )
       ]
     ),
