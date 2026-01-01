@@ -25,24 +25,6 @@
       expectNoDifference(reducer, [false, true])
     }
 
-    // @Test
-    // func `Reduces RigidArray Element For DelegateUnkeyed`() throws {
-    //   var reducer = RigidArray<Int>(capacity: 2)
-    //   try reducer.reduce(action: .appendArrayElement)
-    //   try reducer.reduce(action: .appendArrayElement)
-    //   try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
-    //   expectNoDifference(Array(reducer), [0, 9])
-    // }
-
-    // @Test
-    // func `Reduces UniqueArray Element For DelegateUnkeyed`() throws {
-    //   var reducer = UniqueArray<Int>(capacity: 2)
-    //   try reducer.reduce(action: .appendArrayElement)
-    //   try reducer.reduce(action: .appendArrayElement)
-    //   try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
-    //   expectNoDifference(Array(reducer), [0, 9])
-    // }
-
     @Test
     func `Reduces OrderedDictionary Value For DelegateKeyed`() throws {
       var reducer = OrderedDictionary<String, Int>()
