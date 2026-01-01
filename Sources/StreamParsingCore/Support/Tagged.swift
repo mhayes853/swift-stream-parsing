@@ -5,15 +5,15 @@
     public typealias Partial = Tagged<Tag, RawValue.Partial>
   }
 
-  extension Tagged: StreamActionReducer where RawValue: StreamParseableReducer {}
+  extension Tagged: StreamActionReducer where RawValue: StreamActionReducer {
+    public mutating func reduce(action: StreamAction) throws {
+      try self.rawValue.reduce(action: action)
+    }
+  }
 
   extension Tagged: StreamParseableReducer where RawValue: StreamParseableReducer {
     public static func initialReduceableValue() -> Self {
       Tagged(rawValue: .initialReduceableValue())
-    }
-
-    public mutating func reduce(action: StreamAction) throws {
-      try self.rawValue.reduce(action: action)
     }
   }
 
