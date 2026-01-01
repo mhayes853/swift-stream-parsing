@@ -47,6 +47,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -95,6 +97,8 @@ extension BaseTestSuite {
               switch action {
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -148,6 +152,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -317,6 +323,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -366,6 +374,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -415,6 +425,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -468,6 +480,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }
@@ -521,6 +535,8 @@ extension BaseTestSuite {
                 try _streamParsingPerformReduce(&self.name, action)
               case .delegateKeyed("age", let action):
                 try _streamParsingPerformReduce(&self.age, action)
+              case .delegateKeyed:
+                break
               default:
                 throw StreamParseableError.unsupportedAction(action)
               }

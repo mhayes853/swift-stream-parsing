@@ -155,6 +155,25 @@ struct `Macro tests` {
 
     expectNoDifference(partial.name, .some(nil))
   }
+
+  @Test
+  func `Ignores Unknown Properties For StreamParseable Macro Values`() throws {
+    let defaultCommands: [StreamAction] = [
+      .delegateKeyed(key: "unknown", .setValue(.string("Blob")))
+    ]
+
+    let original = MacroSimple.Partial(name: "Jane", age: 21)
+
+    var stream = PartialsStream(
+      initialValue: original,
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00])
+
+    expectNoDifference(partial.name, original.name)
+    expectNoDifference(partial.age, original.age)
+  }
 }
 
 @StreamParseable

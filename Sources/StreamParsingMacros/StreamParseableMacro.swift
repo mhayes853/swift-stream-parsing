@@ -112,6 +112,8 @@ public enum StreamParseableMacro: ExtensionMacro {
         \(raw: modifierPrefix)mutating func reduce(action: StreamAction) throws {
           switch action {
       \(raw: switchCases)
+          case .delegateKeyed:
+            break
           default:
             throw StreamParseableError.unsupportedAction(action)
           }
