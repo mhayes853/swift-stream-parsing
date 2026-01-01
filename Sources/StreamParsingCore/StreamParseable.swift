@@ -23,13 +23,3 @@ extension StreamParseableReducer where Self: BinaryFloatingPoint {
     Self(0)
   }
 }
-
-// MARK: - StreamParseableError
-
-public struct StreamParseableError: Error, Hashable {
-  private let action: StreamAction
-
-  public static func unsupportedAction(_ action: StreamAction) -> Self {
-    Self(action: action)
-  }
-}

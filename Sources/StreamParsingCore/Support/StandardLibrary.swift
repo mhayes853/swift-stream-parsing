@@ -252,10 +252,7 @@ where RawValue: StreamActionReducer {
     var updatedRawValue = rawValue
     try updatedRawValue.reduce(action: action)
     guard let updatedValue = Self(rawValue: updatedRawValue) else {
-      throw StreamActionReducerError.rawValueInitializationFailed(
-        type: String(describing: Self.self),
-        rawValue: String(describing: updatedRawValue)
-      )
+      throw StreamParsingError.invalidValue(.string(String(describing: updatedRawValue)))
     }
     self = updatedValue
   }

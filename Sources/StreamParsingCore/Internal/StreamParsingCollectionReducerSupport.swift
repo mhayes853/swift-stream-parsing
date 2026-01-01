@@ -20,7 +20,7 @@ extension StreamParsingArrayLikeReducer {
     case .appendArrayElement:
       self.append(.initialReduceableValue())
     default:
-      throw StreamActionReducerError.unsupportedAction(action)
+      throw StreamParsingError.unsupportedAction(action)
     }
   }
 }
@@ -50,7 +50,7 @@ extension StreamParsingDictionaryLikeReducer {
       try value.reduce(action: action)
       self[key] = value
     default:
-      throw StreamActionReducerError.unsupportedAction(action)
+      throw StreamParsingError.unsupportedAction(action)
     }
   }
 }

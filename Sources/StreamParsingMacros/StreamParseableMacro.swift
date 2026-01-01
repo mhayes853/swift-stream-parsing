@@ -115,7 +115,7 @@ public enum StreamParseableMacro: ExtensionMacro {
           case .delegateKeyed:
             break
           default:
-            throw StreamParseableError.unsupportedAction(action)
+            throw StreamParsingError.unsupportedAction(action)
           }
         }
       }

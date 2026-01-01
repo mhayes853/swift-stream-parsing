@@ -20,13 +20,10 @@ extension StreamAction {
     extractor: (StreamedValue) -> T?
   ) throws -> T {
     guard case .setValue(let streamedValue) = self else {
-      throw StreamActionReducerError.unsupportedAction(self)
+      throw StreamParsingError.unsupportedAction(self)
     }
     guard let value = extractor(streamedValue) else {
-      throw StreamActionReducerError.typeMismatch(
-        expected: String(describing: type),
-        actual: streamedValue
-      )
+      throw StreamParsingError.invalidValue(streamedValue)
     }
     return value
   }
