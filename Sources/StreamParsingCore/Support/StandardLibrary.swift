@@ -246,8 +246,7 @@ extension Optional: ConvertibleFromStreamedValue where Wrapped: ConvertibleFromS
 
 // MARK: - RawRepresentable
 
-extension RawRepresentable
-where RawValue: StreamActionReducer {
+extension RawRepresentable where RawValue: StreamActionReducer {
   public mutating func reduce(action: StreamAction) throws {
     var updatedRawValue = rawValue
     try updatedRawValue.reduce(action: action)
