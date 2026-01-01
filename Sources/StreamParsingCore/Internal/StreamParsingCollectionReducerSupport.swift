@@ -17,7 +17,7 @@ extension StreamParsingArrayLikeReducer {
       var value = self[index]
       try value.reduce(action: nestedAction)
       self[index] = value
-    case .appendArrayElement:
+    case .createUnkeyedValue:
       self.append(.initialReduceableValue())
     default:
       throw StreamParsingError.unsupportedAction(action)
@@ -43,7 +43,7 @@ extension StreamParsingDictionaryLikeReducer {
 
   public mutating func reduce(action: StreamAction) throws {
     switch action {
-    case .delegateKeyed(let key, .createObjectValue):
+    case .delegateKeyed(let key, .createKeyedValue):
       self[key] = .initialReduceableValue()
     case .delegateKeyed(let key, let action):
       guard var value = self[key] else { return }

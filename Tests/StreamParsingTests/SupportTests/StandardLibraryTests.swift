@@ -116,8 +116,8 @@ struct `StreamActionReducer+StandardLibrary tests` {
   @Test
   func `Reduces Array Element For DelegateUnkeyed`() throws {
     var reducer = [Int]()
-    try reducer.reduce(action: .appendArrayElement)
-    try reducer.reduce(action: .appendArrayElement)
+    try reducer.reduce(action: .createUnkeyedValue)
+    try reducer.reduce(action: .createUnkeyedValue)
     try reducer.reduce(action: .delegateUnkeyed(index: 1, .setValue(.int(9))))
     expectNoDifference(reducer, [0, 9])
   }
@@ -126,9 +126,9 @@ struct `StreamActionReducer+StandardLibrary tests` {
   func `Reduces Dictionary Value For DelegateKeyed`() throws {
     var reducer = [String: Int]()
     let actions: [StreamAction] = [
-      .delegateKeyed(key: "first", .createObjectValue),
+      .delegateKeyed(key: "first", .createKeyedValue),
       .delegateKeyed(key: "first", .setValue(.int(1))),
-      .delegateKeyed(key: "second", .createObjectValue),
+      .delegateKeyed(key: "second", .createKeyedValue),
       .delegateKeyed(key: "second", .setValue(.int(2)))
     ]
 

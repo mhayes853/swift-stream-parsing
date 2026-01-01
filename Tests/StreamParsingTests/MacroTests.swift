@@ -46,9 +46,9 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Array Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "scores", .appendArrayElement),
+      .delegateKeyed(key: "scores", .createUnkeyedValue),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 0, .setValue(.int(10)))),
-      .delegateKeyed(key: "scores", .appendArrayElement),
+      .delegateKeyed(key: "scores", .createUnkeyedValue),
       .delegateKeyed(key: "scores", .delegateUnkeyed(index: 1, .setValue(.int(20))))
     ]
 
@@ -67,9 +67,9 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Dictionary Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createObjectValue)),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .createKeyedValue)),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "level", .setValue(.int(7)))),
-      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .createObjectValue)),
+      .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .createKeyedValue)),
       .delegateKeyed(key: "stats", .delegateKeyed(key: "score", .setValue(.int(99))))
     ]
 
@@ -88,7 +88,7 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Nested Array Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "addresses", .appendArrayElement),
+      .delegateKeyed(key: "addresses", .createUnkeyedValue),
       .delegateKeyed(
         key: "addresses",
         .delegateUnkeyed(index: 0, .delegateKeyed(key: "city", .setValue(.string("Denver"))))
@@ -116,7 +116,7 @@ struct `Macro tests` {
   func `Parses StreamParseable Macro Values With Nested Dictionary Field`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
-      .delegateKeyed(key: "addresses", .delegateKeyed(key: "home", .createObjectValue)),
+      .delegateKeyed(key: "addresses", .delegateKeyed(key: "home", .createKeyedValue)),
       .delegateKeyed(
         key: "addresses",
         .delegateKeyed(key: "home", .delegateKeyed(key: "city", .setValue(.string("Denver"))))
