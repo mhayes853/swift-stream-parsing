@@ -329,65 +329,71 @@ struct `JSONStreamParser tests` {
     }
   }
 
-  @Test
-  func `Streams JSON True`() throws {
-    let json = "true"
-    let expected = [true]
-    try expectJSONStreamedValues(
-      json,
-      initialValue: false,
-      expected: expected
-    )
+  @Suite
+  struct `JSONBoolean tests` {
+    @Test
+    func `Streams JSON True`() throws {
+      let json = "true"
+      let expected = [true]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: false,
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON False`() throws {
+      let json = "false"
+      let expected = [false]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: true,
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON True From T`() throws {
+      try expectJSONStreamedValues(
+        "t",
+        initialValue: false,
+        expected: [true]
+      )
+    }
+
+    @Test
+    func `Streams JSON False From F`() throws {
+      try expectJSONStreamedValues(
+        "f",
+        initialValue: true,
+        expected: [false]
+      )
+    }
   }
 
-  @Test
-  func `Streams JSON False`() throws {
-    let json = "false"
-    let expected = [false]
-    try expectJSONStreamedValues(
-      json,
-      initialValue: true,
-      expected: expected
-    )
-  }
+  @Suite
+  struct `JSONNull tests` {
+    @Test
+    func `Streams JSON Null`() throws {
+      let json = "null"
+      let expected: [String?] = [nil]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: "seed",
+        expected: expected
+      )
+    }
 
-  @Test
-  func `Streams JSON True From T`() throws {
-    try expectJSONStreamedValues(
-      "t",
-      initialValue: false,
-      expected: [true]
-    )
-  }
-
-  @Test
-  func `Streams JSON False From F`() throws {
-    try expectJSONStreamedValues(
-      "f",
-      initialValue: true,
-      expected: [false]
-    )
-  }
-
-  @Test
-  func `Streams JSON Null`() throws {
-    let json = "null"
-    let expected: [String?] = [nil]
-    try expectJSONStreamedValues(
-      json,
-      initialValue: "seed",
-      expected: expected
-    )
-  }
-
-  @Test
-  func `Streams JSON Null From N`() throws {
-    let expected: [String?] = [nil]
-    try expectJSONStreamedValues(
-      "n",
-      initialValue: "seed",
-      expected: expected
-    )
+    @Test
+    func `Streams JSON Null From N`() throws {
+      let expected: [String?] = [nil]
+      try expectJSONStreamedValues(
+        "n",
+        initialValue: "seed",
+        expected: expected
+      )
+    }
   }
 }
 
