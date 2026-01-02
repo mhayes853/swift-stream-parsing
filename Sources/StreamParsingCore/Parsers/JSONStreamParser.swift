@@ -1,3 +1,17 @@
+#if canImport(Darwin)
+  import Darwin
+#elseif canImport(Glibc)
+  import Glibc
+#elseif canImport(Musl)
+  import Musl
+#elseif canImport(Android)
+  import Android
+#elseif canImport(WinSDK)
+  import WinSDK
+#elseif canImport(WASILibc)
+  import WASILibc
+#endif
+
 // MARK: - JSONStreamParser
 
 public struct JSONStreamParser: StreamParser {
@@ -82,56 +96,108 @@ extension JSONStreamParser {
     private var fractionScale = 1
     private var hasDecimal = false
     private var digitCount = 0
-    private var lastWasDecimalPoint = false
+    private var hasExponent = false
+    private var exponentIsNegative = false
+    private var exponentValue = 0
+    private var exponentDigitCount = 0
+    private var lastEmittedValue: Double?
+    private var lastByteKind = LastByteKind.none
+    private(set) var shouldEmit = false
+
+    private enum LastByteKind {
+      case decimalPoint
+      case exponentMarker
+      case exponentSign
+      case digit
+      case none
+    }
 
     init(isNegative: Bool = false) {
       self.isNegative = isNegative
     }
 
-    var shouldEmit: Bool {
-      !self.lastWasDecimalPoint && self.digitCount > 0
-    }
-
     var currentStreamedValue: StreamedValue {
-      if self.hasDecimal {
+      if self.hasDecimal || self.hasExponent {
         return .double(self.doubleValue())
       }
       return .int(self.intValue())
     }
 
-    mutating func appendDigit(_ digit: Int) {
-      self.digitCount += 1
-      self.lastWasDecimalPoint = false
-      if self.hasDecimal {
-        self.fractionValue = (self.fractionValue * 10) + digit
-        self.fractionScale *= 10
-      } else {
-        self.integerValue = (self.integerValue * 10) + digit
-      }
-    }
-
     mutating func consume(byte: UInt8) -> Bool {
+      defer { self.updateEmissionState() }
       if let digit = byte.digit {
         self.appendDigit(digit)
         return true
       }
-      if byte == .asciiDot, self.hasDecimal == false {
+      if byte == .asciiDot {
         self.setDecimal()
         return true
       }
-      self.lastWasDecimalPoint = false
+      if byte == .asciiLowerE || byte == .asciiUpperE {
+        self.setExponent()
+        return true
+      }
+      if self.lastByteKind == .exponentMarker && byte == .asciiDash {
+        self.setExponentSign(isNegative: true)
+        return true
+      }
+      if self.lastByteKind == .exponentMarker && byte == .asciiPlus {
+        self.setExponentSign(isNegative: false)
+        return true
+      }
+      self.lastByteKind = .none
+      self.shouldEmit = false
       return false
+    }
+
+    private mutating func updateEmissionState() {
+      let value = self.doubleValue()
+      if let lastEmittedValue = self.lastEmittedValue {
+        self.shouldEmit = value != lastEmittedValue
+      } else {
+        self.shouldEmit = true
+      }
+      if self.shouldEmit {
+        self.lastEmittedValue = value
+      }
+    }
+
+    private mutating func appendDigit(_ digit: Int) {
+      if self.hasExponent {
+        self.exponentDigitCount += 1
+        self.exponentValue = (self.exponentValue * 10) + digit
+      } else {
+        self.digitCount += 1
+        if self.hasDecimal {
+          self.fractionValue = (self.fractionValue * 10) + digit
+          self.fractionScale *= 10
+        } else {
+          self.integerValue = (self.integerValue * 10) + digit
+        }
+      }
+      self.lastByteKind = .digit
     }
 
     private mutating func setDecimal() {
       self.hasDecimal = true
-      self.lastWasDecimalPoint = true
+      self.lastByteKind = .decimalPoint
+    }
+
+    private mutating func setExponent() {
+      self.hasExponent = true
+      self.lastByteKind = .exponentMarker
+    }
+
+    private mutating func setExponentSign(isNegative: Bool) {
+      self.exponentIsNegative = isNegative
+      self.lastByteKind = .exponentSign
     }
 
     static func starting(with byte: UInt8) -> NumberState? {
       guard let digit = byte.digit else { return nil }
       var state = NumberState()
       state.appendDigit(digit)
+      state.updateEmissionState()
       return state
     }
 
@@ -142,14 +208,10 @@ extension JSONStreamParser {
     private func doubleValue() -> Double {
       let sign = self.isNegative ? -1.0 : 1.0
       let fraction = self.hasDecimal ? Double(self.fractionValue) / Double(self.fractionScale) : 0.0
-      return sign * (Double(self.integerValue) + fraction)
-    }
-
-    private static func digit(from byte: UInt8) -> Int? {
-      switch byte {
-      case 0x30...0x39: Int(byte - 0x30)
-      default: nil
-      }
+      let baseValue = Double(self.integerValue) + fraction
+      guard self.hasExponent else { return sign * baseValue }
+      let exponent = self.exponentIsNegative ? -self.exponentValue : self.exponentValue
+      return sign * baseValue * pow(10.0, Double(exponent))
     }
   }
 }
@@ -207,8 +269,8 @@ extension JSONStreamParser {
       try self.setValue(.null, reducer: &reducer)
     default:
       guard let numberState = NumberState.starting(with: byte) else { return }
-      self.state = .number(numberState)
       try self.emitNumberIfAble(numberState, reducer: &reducer)
+      self.state = .number(numberState)
     }
   }
 
@@ -237,8 +299,8 @@ extension JSONStreamParser {
   ) throws {
     var updated = numberState
     if updated.consume(byte: byte) {
-      self.state = .number(updated)
       try self.emitNumberIfAble(updated, reducer: &reducer)
+      self.state = .number(updated)
     } else {
       self.state = .idle
     }
@@ -249,7 +311,7 @@ extension JSONStreamParser {
     literal: LiteralKind,
     reducer: inout R
   ) throws {
-    guard self.isLetter(byte) else {
+    guard byte.isLetter else {
       self.state = .idle
       return
     }
@@ -278,14 +340,6 @@ extension JSONStreamParser {
     guard numberState.shouldEmit else { return }
     try self.setValue(numberState.currentStreamedValue, reducer: &reducer)
   }
-
-  private func isLetter(_ byte: UInt8) -> Bool {
-    switch byte {
-    case 0x41...0x5A, 0x61...0x7A: true
-    default: false
-    }
-  }
-
 }
 
 // MARK: - ASCII
@@ -294,6 +348,9 @@ extension UInt8 {
   fileprivate static let asciiQuote: UInt8 = 0x22
   fileprivate static let asciiDot: UInt8 = 0x2E
   fileprivate static let asciiDash: UInt8 = 0x2D
+  fileprivate static let asciiPlus: UInt8 = 0x2B
+  fileprivate static let asciiLowerE: UInt8 = 0x65
+  fileprivate static let asciiUpperE: UInt8 = 0x45
   fileprivate static let asciiTrue: UInt8 = 0x74
   fileprivate static let asciiFalse: UInt8 = 0x66
   fileprivate static let asciiNull: UInt8 = 0x6E
@@ -306,6 +363,13 @@ extension UInt8 {
     switch self {
     case 0x30...0x39: Int(self - 0x30)
     default: nil
+    }
+  }
+
+  fileprivate var isLetter: Bool {
+    switch self {
+    case 0x41...0x5A, 0x61...0x7A: true
+    default: false
     }
   }
 }
