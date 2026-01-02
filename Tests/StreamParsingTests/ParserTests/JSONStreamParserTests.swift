@@ -5,7 +5,7 @@ import Testing
 @Suite
 struct `JSONStreamParser tests` {
   @Test
-  func `Streams Json String Characters`() throws {
+  func `Streams JSON String Characters`() throws {
     let json = "\"Blob\""
     let expected = ["", "B", "Bl", "Blo", "Blob", "Blob"]
     try expectJSONStreamedValues(
@@ -16,7 +16,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Integer Digits`() throws {
+  func `Streams JSON Integer Digits`() throws {
     let json = "1234"
     let expected = [1, 12, 123, 1234]
     try expectJSONStreamedValues(
@@ -27,7 +27,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Negative Integer Digits`() throws {
+  func `Streams JSON Negative Integer Digits`() throws {
     let json = "-123"
     let expected = [-1, -12, -123]
     try expectJSONStreamedValues(
@@ -38,7 +38,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Double Digits`() throws {
+  func `Streams JSON Double Digits`() throws {
     let json = "12.34"
     let expected: [Double] = [1, 12, 12.3, 12.34]
     try expectJSONStreamedValues(
@@ -49,7 +49,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Negative Double Digits`() throws {
+  func `Streams JSON Negative Double Digits`() throws {
     let json = "-12.34"
     let expected: [Double] = [-1, -12, -12.3, -12.34]
     try expectJSONStreamedValues(
@@ -60,7 +60,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Negative Sign Only`() throws {
+  func `Streams JSON Negative Sign Only`() throws {
     let json = "-"
     let expected: [Int] = []
     try expectJSONStreamedValues(
@@ -71,7 +71,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Float Digits`() throws {
+  func `Streams JSON Float Digits`() throws {
     let json = "12.34"
     let expected: [Float] = [1, 12, 12.3, 12.34]
     try expectJSONStreamedValues(
@@ -82,7 +82,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json True`() throws {
+  func `Streams JSON True`() throws {
     let json = "true"
     let expected = [true, true, true, true]
     try expectJSONStreamedValues(
@@ -93,7 +93,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json False`() throws {
+  func `Streams JSON False`() throws {
     let json = "false"
     let expected = [false, false, false, false, false]
     try expectJSONStreamedValues(
@@ -104,7 +104,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json True From T`() throws {
+  func `Streams JSON True From T`() throws {
     try expectJSONStreamedValues(
       "t",
       initialValue: false,
@@ -113,7 +113,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json False From F`() throws {
+  func `Streams JSON False From F`() throws {
     try expectJSONStreamedValues(
       "f",
       initialValue: true,
@@ -122,7 +122,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Null`() throws {
+  func `Streams JSON Null`() throws {
     let json = "null"
     let expected: [String?] = [nil, nil, nil, nil]
     try expectJSONStreamedValues(
@@ -133,7 +133,7 @@ struct `JSONStreamParser tests` {
   }
 
   @Test
-  func `Streams Json Null From N`() throws {
+  func `Streams JSON Null From N`() throws {
     let expected: [String?] = [nil]
     try expectJSONStreamedValues(
       "n",
