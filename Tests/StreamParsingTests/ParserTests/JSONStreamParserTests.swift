@@ -399,27 +399,9 @@ private func expectJSONStreamedValues<T: StreamActionReducer & Equatable>(
   file: StaticString = #fileID,
   line: UInt = #line
 ) throws {
-  var stream = PartialsStream(
-    initialValue: TrackingReducer(value: initialValue),
+  let values = try json.utf8.partials(
+    initialValue: initialValue,
     from: .json(configuration: configuration)
   )
-  var values = [T]()
-  for byte in json.utf8 {
-    let previousCount = stream.current.reduceCount
-    let partial = try stream.next(byte)
-    if partial.reduceCount != previousCount {
-      values.append(partial.value)
-    }
-  }
   expectNoDifference(values, expected, fileID: file, line: line)
-}
-
-private struct TrackingReducer<Value: StreamActionReducer>: StreamActionReducer {
-  var value: Value
-  var reduceCount = 0
-
-  mutating func reduce(action: StreamAction) throws {
-    self.reduceCount += 1
-    try self.value.reduce(action: action)
-  }
 }

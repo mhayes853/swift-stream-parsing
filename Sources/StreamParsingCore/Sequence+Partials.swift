@@ -5,11 +5,15 @@ extension Sequence where Element == UInt8 {
     initialValue: Value,
     from parser: Parser
   ) throws -> [Value] {
-    var stream = PartialsStream(initialValue: initialValue, from: parser)
+    var stream = PartialsStream(initialValue: TrackingReducer(value: initialValue), from: parser)
     var partials = [Value]()
-    partials.reserveCapacity(self.underestimatedCount)
+    var previousCount = stream.current.reduceCount
     for bytes in self {
-      partials.append(try stream.next(bytes))
+      let partial = try stream.next(bytes)
+      if partial.reduceCount != previousCount {
+        partials.append(partial.value)
+        previousCount = partial.reduceCount
+      }
     }
     return partials
   }
@@ -20,11 +24,15 @@ extension Sequence where Element: Sequence<UInt8> {
     initialValue: Value,
     from parser: Parser
   ) throws -> [Value] {
-    var stream = PartialsStream(initialValue: initialValue, from: parser)
+    var stream = PartialsStream(initialValue: TrackingReducer(value: initialValue), from: parser)
     var partials = [Value]()
-    partials.reserveCapacity(self.underestimatedCount)
+    var previousCount = stream.current.reduceCount
     for bytes in self {
-      partials.append(try stream.next(bytes))
+      let partial = try stream.next(bytes)
+      if partial.reduceCount != previousCount {
+        partials.append(partial.value)
+        previousCount = partial.reduceCount
+      }
     }
     return partials
   }

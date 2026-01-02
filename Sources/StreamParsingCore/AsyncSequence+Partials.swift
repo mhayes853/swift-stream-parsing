@@ -31,21 +31,32 @@ public struct AsyncPartialsSequence<
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
-    var stream: PartialsStream<Element, Parser>
+    var stream: PartialsStream<TrackingReducer<Element>, Parser>
     let byteInput: @Sendable (Base.Element) -> Seq
+    var lastReduceCount: Int
 
     public mutating func next() async throws -> Element? {
-      guard let element = try await self.baseIterator.next() else { return nil }
-      let bytes = self.byteInput(element)
-      return try self.stream.next(bytes)
+      while let element = try await self.baseIterator.next() {
+        let bytes = self.byteInput(element)
+        let partial = try self.stream.next(bytes)
+        if partial.reduceCount != self.lastReduceCount {
+          self.lastReduceCount = partial.reduceCount
+          return partial.value
+        }
+      }
+      return nil
     }
   }
 
   public func makeAsyncIterator() -> AsyncIterator {
     AsyncIterator(
       baseIterator: self.base.makeAsyncIterator(),
-      stream: PartialsStream(initialValue: self.initialValue, from: self.parser),
-      byteInput: self.byteInput
+      stream: PartialsStream(
+        initialValue: TrackingReducer(value: self.initialValue),
+        from: self.parser
+      ),
+      byteInput: self.byteInput,
+      lastReduceCount: 0
     )
   }
 }
