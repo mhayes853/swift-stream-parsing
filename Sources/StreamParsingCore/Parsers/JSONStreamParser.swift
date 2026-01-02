@@ -72,7 +72,7 @@ extension JSONStreamParser {
     case idle
     case string(value: String)
     case number(NumberState)
-    case literal(LiteralKind)
+    case literal(LiteralState)
   }
 }
 
@@ -83,6 +83,39 @@ extension JSONStreamParser {
     case `true`
     case `false`
     case null
+  }
+}
+
+// MARK: - LiteralState
+
+extension JSONStreamParser {
+  private struct LiteralState {
+    private let kind: LiteralKind
+    private var letterCount = 0
+
+    init(kind: LiteralKind) {
+      self.kind = kind
+    }
+
+    var shouldEmit: Bool {
+      self.letterCount == 1
+    }
+
+    var currentStreamedValue: StreamedValue {
+      switch self.kind {
+      case .true: .boolean(true)
+      case .false: .boolean(false)
+      case .null: .null
+      }
+    }
+
+    mutating func consume(byte: UInt8) -> Bool {
+      guard byte.isLetter else {
+        return false
+      }
+      self.letterCount += 1
+      return true
+    }
   }
 }
 
@@ -101,8 +134,15 @@ extension JSONStreamParser {
     private var exponentValue = 0
     private var exponentDigitCount = 0
     private var lastEmittedValue: Double?
+    private var lastParsedValue: Double?
+    private var lastComparedEmittedValue: Double?
     private var lastByteKind = LastByteKind.none
-    private(set) var shouldEmit = false
+
+    var shouldEmit: Bool {
+      guard let lastParsedValue = self.lastParsedValue else { return false }
+      guard let lastComparedEmittedValue = self.lastComparedEmittedValue else { return true }
+      return lastParsedValue != lastComparedEmittedValue
+    }
 
     private enum LastByteKind {
       case decimalPoint
@@ -146,19 +186,14 @@ extension JSONStreamParser {
         return true
       }
       self.lastByteKind = .none
-      self.shouldEmit = false
       return false
     }
 
     private mutating func updateEmissionState() {
-      let value = self.doubleValue()
-      if let lastEmittedValue = self.lastEmittedValue {
-        self.shouldEmit = value != lastEmittedValue
-      } else {
-        self.shouldEmit = true
-      }
+      self.lastComparedEmittedValue = self.lastEmittedValue
+      self.lastParsedValue = self.doubleValue()
       if self.shouldEmit {
-        self.lastEmittedValue = value
+        self.lastEmittedValue = self.lastParsedValue
       }
     }
 
@@ -243,8 +278,8 @@ extension JSONStreamParser {
         numberState: numberState,
         reducer: &reducer
       )
-    case .literal(let literal):
-      try self.consumeLiteral(byte: byte, literal: literal, reducer: &reducer)
+    case .literal(let literalState):
+      try self.consumeLiteral(byte: byte, literalState: literalState, reducer: &reducer)
     }
   }
 
@@ -259,17 +294,25 @@ extension JSONStreamParser {
     case .asciiDash:
       self.state = .number(NumberState(isNegative: true))
     case .asciiTrue:
-      self.state = .literal(.true)
-      try self.setValue(.boolean(true), reducer: &reducer)
+      var literalState = LiteralState(kind: .true)
+      if literalState.consume(byte: byte) {
+        try self.emitLiteralIfAble(literalState, reducer: &reducer)
+      }
+      self.state = .literal(literalState)
     case .asciiFalse:
-      self.state = .literal(.false)
-      try self.setValue(.boolean(false), reducer: &reducer)
+      var literalState = LiteralState(kind: .false)
+      if literalState.consume(byte: byte) {
+        try self.emitLiteralIfAble(literalState, reducer: &reducer)
+      }
+      self.state = .literal(literalState)
     case .asciiNull:
-      self.state = .literal(.null)
-      try self.setValue(.null, reducer: &reducer)
+      var literalState = LiteralState(kind: .null)
+      _ = literalState.consume(byte: byte)
+      try self.emitLiteralIfAble(literalState, reducer: &reducer)
+      self.state = .literal(literalState)
     default:
-      guard let numberState = NumberState.starting(with: byte) else { return }
-      try self.emitNumberIfAble(numberState, reducer: &reducer)
+      guard var numberState = NumberState.starting(with: byte) else { return }
+      try self.emitNumberIfAble(&numberState, reducer: &reducer)
       self.state = .number(numberState)
     }
   }
@@ -299,7 +342,7 @@ extension JSONStreamParser {
   ) throws {
     var updated = numberState
     if updated.consume(byte: byte) {
-      try self.emitNumberIfAble(updated, reducer: &reducer)
+      try self.emitNumberIfAble(&updated, reducer: &reducer)
       self.state = .number(updated)
     } else {
       self.state = .idle
@@ -308,21 +351,15 @@ extension JSONStreamParser {
 
   private mutating func consumeLiteral<R: StreamActionReducer>(
     byte: UInt8,
-    literal: LiteralKind,
+    literalState: LiteralState,
     reducer: inout R
   ) throws {
-    guard byte.isLetter else {
+    var updated = literalState
+    if updated.consume(byte: byte) {
+      try self.emitLiteralIfAble(updated, reducer: &reducer)
+      self.state = .literal(updated)
+    } else {
       self.state = .idle
-      return
-    }
-    self.state = .literal(literal)
-    switch literal {
-    case .true:
-      try self.setValue(.boolean(true), reducer: &reducer)
-    case .false:
-      try self.setValue(.boolean(false), reducer: &reducer)
-    case .null:
-      try self.setValue(.null, reducer: &reducer)
     }
   }
 
@@ -334,11 +371,19 @@ extension JSONStreamParser {
   }
 
   private mutating func emitNumberIfAble<R: StreamActionReducer>(
-    _ numberState: NumberState,
+    _ numberState: inout NumberState,
     reducer: inout R
   ) throws {
     guard numberState.shouldEmit else { return }
     try self.setValue(numberState.currentStreamedValue, reducer: &reducer)
+  }
+
+  private mutating func emitLiteralIfAble<R: StreamActionReducer>(
+    _ literalState: LiteralState,
+    reducer: inout R
+  ) throws {
+    guard literalState.shouldEmit else { return }
+    try self.setValue(literalState.currentStreamedValue, reducer: &reducer)
   }
 }
 

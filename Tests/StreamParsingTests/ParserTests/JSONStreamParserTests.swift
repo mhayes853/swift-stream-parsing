@@ -219,7 +219,7 @@ struct `JSONStreamParser tests` {
   @Test
   func `Streams JSON True`() throws {
     let json = "true"
-    let expected = [true, true, true, true]
+    let expected = [true]
     try expectJSONStreamedValues(
       json,
       initialValue: false,
@@ -230,7 +230,7 @@ struct `JSONStreamParser tests` {
   @Test
   func `Streams JSON False`() throws {
     let json = "false"
-    let expected = [false, false, false, false, false]
+    let expected = [false]
     try expectJSONStreamedValues(
       json,
       initialValue: true,
@@ -259,7 +259,7 @@ struct `JSONStreamParser tests` {
   @Test
   func `Streams JSON Null`() throws {
     let json = "null"
-    let expected: [String?] = [nil, nil, nil, nil]
+    let expected: [String?] = [nil]
     try expectJSONStreamedValues(
       json,
       initialValue: "seed",
