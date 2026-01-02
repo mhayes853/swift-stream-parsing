@@ -60,6 +60,61 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `Initial Reduceable Value Members`() {
+      assertMacro {
+        """
+        @StreamParseable(partialMembers: .initialReduceableValue)
+        struct Person {
+          var name: String
+          var age: Int
+        }
+        """
+      } expansion: {
+        """
+        struct Person {
+          var name: String
+          var age: Int
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableReducer,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial
+            var age: Int.Partial
+
+            init(
+              name: String.Partial = .initialReduceableValue(),
+              age: Int.Partial = .initialReduceableValue()
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialReduceableValue() -> Self {
+              Self()
+            }
+
+            mutating func reduce(action: StreamAction) throws {
+              switch action {
+              case .delegateKeyed("name", let action):
+                try self.name.reduce(action: action)
+              case .delegateKeyed("age", let action):
+                try self.age.reduce(action: action)
+              case .delegateKeyed:
+                break
+              default:
+                throw StreamParsingError.unsupportedAction(action)
+              }
+            }
+          }
+        }
+        """
+      }
+    }
+
+    @Test
     func `Does Not Convert Static`() {
       assertMacro {
         """

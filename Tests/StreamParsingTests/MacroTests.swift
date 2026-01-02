@@ -23,6 +23,24 @@ struct `Macro tests` {
   }
 
   @Test
+  func `Parses StreamParseable Macro Values With Initial Reduceable Members`() throws {
+    let defaultCommands: [StreamAction] = [
+      .delegateKeyed(key: "name", .setValue(.string("Blob"))),
+      .delegateKeyed(key: "age", .setValue(.int(42)))
+    ]
+
+    var stream = PartialsStream(
+      initialValue: MacroInitialReduceable.Partial(),
+      from: MockParser(defaultCommands: defaultCommands)
+    )
+
+    let partial = try stream.next([0x00, 0x01])
+
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.age, 42)
+  }
+
+  @Test
   func `Parses Nested StreamParseable Macro Values`() throws {
     let defaultCommands: [StreamAction] = [
       .delegateKeyed(key: "name", .setValue(.string("Blob"))),
@@ -178,6 +196,12 @@ struct `Macro tests` {
 
 @StreamParseable
 private struct MacroSimple {
+  var name: String
+  var age: Int
+}
+
+@StreamParseable(partialMembers: .initialReduceableValue)
+private struct MacroInitialReduceable {
   var name: String
   var age: Int
 }

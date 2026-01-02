@@ -17,55 +17,35 @@ public enum StreamParseableMacro: ExtensionMacro {
     }
 
     let typeName = structDecl.name.text
-    let properties = Self.storedProperties(in: structDecl)
-    let hasExistingPartial = Self.hasExistingPartial(in: structDecl)
-    let accessModifier = Self.accessModifier(for: structDecl)
+    let properties = self.storedProperties(in: structDecl)
+    let hasExistingPartial = self.hasExistingPartial(in: structDecl)
+    let accessModifier = self.accessModifier(for: structDecl)
+    let membersMode = self.partialMembersMode(from: node)
 
-    let streamParseableExtension: ExtensionDeclSyntax
     if hasExistingPartial {
-      streamParseableExtension = try ExtensionDeclSyntax(
-        """
-        extension \(raw: typeName): StreamParsingCore.StreamParseable {}
-        """
-      )
-    } else {
-      let partialStruct = Self.partialStructDecl(for: properties, accessModifier: accessModifier)
-      streamParseableExtension = try ExtensionDeclSyntax(
+      return [
+        try ExtensionDeclSyntax(
+          """
+          extension \(raw: typeName): StreamParsingCore.StreamParseable {}
+          """
+        )
+      ]
+    }
+
+    let partialStruct = self.partialStructDecl(
+      for: properties,
+      accessModifier: accessModifier,
+      membersMode: membersMode
+    )
+    return [
+      try ExtensionDeclSyntax(
         """
         extension \(raw: typeName): StreamParsingCore.StreamParseable {
           \(partialStruct)
         }
         """
       )
-    }
-    return [streamParseableExtension]
-  }
-
-  private struct StoredProperty {
-    let name: String
-    let type: TypeSyntax
-  }
-
-  private static func storedProperties(in declaration: StructDeclSyntax) -> [StoredProperty] {
-    var properties = [StoredProperty]()
-    for member in declaration.memberBlock.members {
-      guard
-        let variableDecl = member.decl.as(VariableDeclSyntax.self),
-        !self.isStatic(variableDecl)
-      else {
-        continue
-      }
-      for binding in variableDecl.bindings {
-        guard
-          let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
-          let type = binding.typeAnnotation?.type
-        else {
-          continue
-        }
-        properties.append(StoredProperty(name: identifierPattern.identifier.text, type: type))
-      }
-    }
-    return properties
+    ]
   }
 
   private static func isStatic(_ variableDecl: VariableDeclSyntax) -> Bool {
@@ -84,18 +64,21 @@ public enum StreamParseableMacro: ExtensionMacro {
 
   private static func partialStructDecl(
     for properties: [StoredProperty],
-    accessModifier: String?
+    accessModifier: String?,
+    membersMode: PartialMembersMode
   ) -> DeclSyntax {
-    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let propertyLines = Self.partialStructProperties(
+    let modifierPrefix = self.modifierPrefix(for: accessModifier)
+    let propertyLines = self.partialStructProperties(
       from: properties,
-      modifierPrefix: modifierPrefix
+      modifierPrefix: modifierPrefix,
+      membersMode: membersMode
     )
-    let initializerLines = Self.partialStructInitializer(
+    let initializerLines = self.partialStructInitializer(
       from: properties,
-      modifierPrefix: modifierPrefix
+      modifierPrefix: modifierPrefix,
+      membersMode: membersMode
     )
-    let switchCases = Self.reduceSwitchCaseLines(from: properties)
+    let switchCases = self.reduceSwitchCaseLines(from: properties, membersMode: membersMode)
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableReducer,
         StreamParsingCore.StreamParseable {
@@ -124,24 +107,29 @@ public enum StreamParseableMacro: ExtensionMacro {
 
   private static func partialStructProperties(
     from properties: [StoredProperty],
-    modifierPrefix: String
+    modifierPrefix: String,
+    membersMode: PartialMembersMode
   ) -> String {
     let lines = properties.map { property in
       let typeDescription = property.type.trimmedDescription
-      return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial?"
+      let optionalSuffix = membersMode == .optional ? "?" : ""
+      return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
     }
     return lines.joined(separator: "\n")
   }
 
   private static func partialStructInitializer(
     from properties: [StoredProperty],
-    modifierPrefix: String
+    modifierPrefix: String,
+    membersMode: PartialMembersMode
   ) -> String {
     let parameters =
       properties
       .map { property in
         let typeDescription = property.type.trimmedDescription
-        return "\(property.name): \(typeDescription).Partial? = nil"
+        let optionalSuffix = membersMode == .optional ? "?" : ""
+        return
+          "\(property.name): \(typeDescription).Partial\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
       }
       .joined(separator: ",\n    ")
     let assignments =
@@ -159,11 +147,20 @@ public enum StreamParseableMacro: ExtensionMacro {
       """
   }
 
-  private static func reduceSwitchCaseLines(from properties: [StoredProperty]) -> String {
+  private static func reduceSwitchCaseLines(
+    from properties: [StoredProperty],
+    membersMode: PartialMembersMode
+  ) -> String {
     let lines = properties.flatMap { property in
-      [
+      let reducerLine: String
+      if membersMode == .optional {
+        reducerLine = "      try _streamParsingPerformReduce(&self.\(property.name), action)"
+      } else {
+        reducerLine = "      try self.\(property.name).reduce(action: action)"
+      }
+      return [
         "    case .delegateKeyed(\"\(property.name)\", let action):",
-        "      try _streamParsingPerformReduce(&self.\(property.name), action)"
+        reducerLine
       ]
     }
 
@@ -188,5 +185,84 @@ public enum StreamParseableMacro: ExtensionMacro {
 
   private static func modifierPrefix(for accessModifier: String?) -> String {
     accessModifier.map { "\($0) " } ?? ""
+  }
+
+  private static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {
+    guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else {
+      return .optional
+    }
+    let modeArgument =
+      arguments.first { argument in
+        argument.label?.text == "partialMembers"
+      } ?? arguments.first
+    guard let expression = modeArgument?.expression else {
+      return .optional
+    }
+    return PartialMembersMode.parse(from: expression) ?? .optional
+  }
+}
+
+// MARK: - StoredProperty
+
+extension StreamParseableMacro {
+  private struct StoredProperty {
+    let name: String
+    let type: TypeSyntax
+  }
+
+  private static func storedProperties(in declaration: StructDeclSyntax) -> [StoredProperty] {
+    var properties = [StoredProperty]()
+    for member in declaration.memberBlock.members {
+      guard
+        let variableDecl = member.decl.as(VariableDeclSyntax.self),
+        !self.isStatic(variableDecl)
+      else {
+        continue
+      }
+      for binding in variableDecl.bindings {
+        guard
+          let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
+          let type = binding.typeAnnotation?.type
+        else {
+          continue
+        }
+        properties.append(StoredProperty(name: identifierPattern.identifier.text, type: type))
+      }
+    }
+    return properties
+  }
+}
+
+// MARK: - PartialMembersMode
+
+extension StreamParseableMacro {
+  private enum PartialMembersMode: Hashable {
+    case optional
+    case initialReduceableValue
+
+    var defaultValueSyntax: String {
+      switch self {
+      case .optional: "nil"
+      case .initialReduceableValue: ".initialReduceableValue()"
+      }
+    }
+
+    static func parse(from expression: ExprSyntax) -> Self? {
+      switch self.memberName(from: expression) {
+      case "optional": .optional
+      case "initialReduceableValue": .initialReduceableValue
+      default: nil
+      }
+    }
+
+    private static func memberName(from expression: ExprSyntax) -> String? {
+      if let memberAccess = expression.as(MemberAccessExprSyntax.self) {
+        return memberAccess.declName.baseName.text
+      }
+      if let reference = expression.as(DeclReferenceExprSyntax.self) {
+        return reference.baseName.text
+      }
+      return nil
+    }
   }
 }
