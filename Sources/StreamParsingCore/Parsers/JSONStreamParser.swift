@@ -124,6 +124,9 @@ extension JSONStreamParser {
 extension JSONStreamParser {
   private struct StringState {
     private var value = ""
+    private var utf8Buffer: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
+    private var utf8Count = 0
+    private var utf8ExpectedCount = 0
     private(set) var isEscapingByte = false
     private(set) var shouldEmit = true
 
@@ -166,9 +169,97 @@ extension JSONStreamParser {
         self.shouldEmit = false
         return true
       }
-      self.value.unicodeScalars.append(UnicodeScalar(byte))
-      self.shouldEmit = true
+      if byte <= .utf8SingleByteMax {
+        self.value.unicodeScalars.append(UnicodeScalar(byte))
+        self.shouldEmit = true
+        return true
+      }
+      if self.utf8ExpectedCount == 0 {
+        if byte >= .utf8TwoByteMin && byte <= .utf8TwoByteMax {
+          self.utf8ExpectedCount = 2
+        } else if byte >= .utf8ThreeByteMin && byte <= .utf8ThreeByteMax {
+          self.utf8ExpectedCount = 3
+        } else if byte >= .utf8FourByteMin && byte <= .utf8FourByteMax {
+          self.utf8ExpectedCount = 4
+        } else {
+          self.value.unicodeScalars.append(UnicodeScalar(byte))
+          self.shouldEmit = true
+          return true
+        }
+        self.utf8Buffer.0 = byte
+        self.utf8Count = 1
+        self.shouldEmit = false
+        return true
+      }
+      guard byte >= .utf8ContinuationMin && byte <= .utf8ContinuationMax else {
+        self.resetUtf8State()
+        self.value.unicodeScalars.append(UnicodeScalar(byte))
+        self.shouldEmit = true
+        return true
+      }
+      self.appendUtf8Continuation(byte)
+      if self.utf8Count == self.utf8ExpectedCount {
+        if let scalar = self.decodeUtf8Scalar() {
+          self.value.unicodeScalars.append(scalar)
+          self.shouldEmit = true
+        } else {
+          self.shouldEmit = false
+        }
+        self.resetUtf8State()
+      } else {
+        self.shouldEmit = false
+      }
       return true
+    }
+
+    private mutating func appendUtf8Continuation(_ byte: UInt8) {
+      switch self.utf8Count {
+      case 1:
+        self.utf8Buffer.1 = byte
+      case 2:
+        self.utf8Buffer.2 = byte
+      case 3:
+        self.utf8Buffer.3 = byte
+      default:
+        break
+      }
+      self.utf8Count += 1
+    }
+
+    private func decodeUtf8Scalar() -> UnicodeScalar? {
+      switch self.utf8ExpectedCount {
+      case 2:
+        let b0 = UInt32(self.utf8Buffer.0)
+        let b1 = UInt32(self.utf8Buffer.1)
+        let scalar = ((b0 & .utf8TwoByteMask) << 6) | (b1 & .utf8ContinuationMask)
+        return UnicodeScalar(scalar)
+      case 3:
+        let b0 = UInt32(self.utf8Buffer.0)
+        let b1 = UInt32(self.utf8Buffer.1)
+        let b2 = UInt32(self.utf8Buffer.2)
+        let scalar = ((b0 & .utf8ThreeByteMask) << 12)
+          | ((b1 & .utf8ContinuationMask) << 6)
+          | (b2 & .utf8ContinuationMask)
+        return UnicodeScalar(scalar)
+      case 4:
+        let b0 = UInt32(self.utf8Buffer.0)
+        let b1 = UInt32(self.utf8Buffer.1)
+        let b2 = UInt32(self.utf8Buffer.2)
+        let b3 = UInt32(self.utf8Buffer.3)
+        let scalar = ((b0 & .utf8FourByteMask) << 18)
+          | ((b1 & .utf8ContinuationMask) << 12)
+          | ((b2 & .utf8ContinuationMask) << 6)
+          | (b3 & .utf8ContinuationMask)
+        return UnicodeScalar(scalar)
+      default:
+        return nil
+      }
+    }
+
+    private mutating func resetUtf8State() {
+      self.utf8Buffer = (0, 0, 0, 0)
+      self.utf8Count = 0
+      self.utf8ExpectedCount = 0
     }
   }
 }
@@ -380,9 +471,6 @@ extension JSONStreamParser {
   ) throws {
     if byte == .asciiQuote && !stringState.isEscapingByte {
       self.state = .idle
-      if !stringState.isEmpty {
-        try self.setValue(stringState.currentStreamedValue, reducer: &reducer)
-      }
       return
     }
     var updated = stringState
@@ -471,6 +559,15 @@ extension UInt8 {
   fileprivate static let asciiTrue: UInt8 = 0x74
   fileprivate static let asciiFalse: UInt8 = 0x66
   fileprivate static let asciiNull: UInt8 = 0x6E
+  fileprivate static let utf8SingleByteMax: UInt8 = 0x7F
+  fileprivate static let utf8ContinuationMin: UInt8 = 0x80
+  fileprivate static let utf8ContinuationMax: UInt8 = 0xBF
+  fileprivate static let utf8TwoByteMin: UInt8 = 0xC2
+  fileprivate static let utf8TwoByteMax: UInt8 = 0xDF
+  fileprivate static let utf8ThreeByteMin: UInt8 = 0xE0
+  fileprivate static let utf8ThreeByteMax: UInt8 = 0xEF
+  fileprivate static let utf8FourByteMin: UInt8 = 0xF0
+  fileprivate static let utf8FourByteMax: UInt8 = 0xF4
 }
 
 // MARK: - Helpers
@@ -489,4 +586,11 @@ extension UInt8 {
     default: false
     }
   }
+}
+
+extension UInt32 {
+  fileprivate static let utf8ContinuationMask: UInt32 = 0x3F
+  fileprivate static let utf8TwoByteMask: UInt32 = 0x1F
+  fileprivate static let utf8ThreeByteMask: UInt32 = 0x0F
+  fileprivate static let utf8FourByteMask: UInt32 = 0x07
 }

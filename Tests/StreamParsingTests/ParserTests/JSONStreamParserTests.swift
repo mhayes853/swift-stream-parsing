@@ -9,7 +9,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String Characters`() throws {
       let json = "\"Blob\""
-      let expected = ["", "B", "Bl", "Blo", "Blob", "Blob"]
+      let expected = ["", "B", "Bl", "Blo", "Blob"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -31,7 +31,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Quote`() throws {
       let json = "\"\\\"\""
-      let expected = ["", "\"", "\""]
+      let expected = ["", "\""]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -42,7 +42,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Backslash`() throws {
       let json = "\"\\\\\""
-      let expected = ["", "\\", "\\"]
+      let expected = ["", "\\"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -62,7 +62,6 @@ struct `JSONStreamParser tests` {
         "line\n",
         "line\ne",
         "line\nen",
-        "line\nend",
         "line\nend"
       ]
       try expectJSONStreamedValues(
@@ -75,7 +74,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Slash`() throws {
       let json = "\"\\/\""
-      let expected = ["", "/", "/"]
+      let expected = ["", "/"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -86,7 +85,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Backspace`() throws {
       let json = "\"\\b\""
-      let expected = ["", "\u{08}", "\u{08}"]
+      let expected = ["", "\u{08}"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -97,7 +96,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Form Feed`() throws {
       let json = "\"\\f\""
-      let expected = ["", "\u{0C}", "\u{0C}"]
+      let expected = ["", "\u{0C}"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -108,7 +107,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Carriage Return`() throws {
       let json = "\"\\r\""
-      let expected = ["", "\r", "\r"]
+      let expected = ["", "\r"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -119,7 +118,29 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Escaped Tab`() throws {
       let json = "\"\\t\""
-      let expected = ["", "\t", "\t"]
+      let expected = ["", "\t"]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: "",
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON String With Emoji`() throws {
+      let json = "\"😀\""
+      let expected = ["", "😀"]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: "",
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON String With Multiple Emojis`() throws {
+      let json = "\"😀😃\""
+      let expected = ["", "😀", "😀😃"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
