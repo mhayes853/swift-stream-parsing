@@ -70,7 +70,7 @@ extension JSONStreamParser {
 extension JSONStreamParser {
   private enum ParserState {
     case idle
-    case string(value: String)
+    case string(StringState)
     case number(NumberState)
     case literal(LiteralState)
   }
@@ -114,6 +114,60 @@ extension JSONStreamParser {
         return false
       }
       self.letterCount += 1
+      return true
+    }
+  }
+}
+
+// MARK: - StringState
+
+extension JSONStreamParser {
+  private struct StringState {
+    private var value = ""
+    private(set) var isEscapingByte = false
+    private(set) var shouldEmit = true
+
+    var currentStreamedValue: StreamedValue {
+      .string(self.value)
+    }
+
+    var isEmpty: Bool {
+      self.value.isEmpty
+    }
+
+    mutating func consume(byte: UInt8) -> Bool {
+      if self.isEscapingByte {
+        self.isEscapingByte = false
+        switch byte {
+        case .asciiQuote:
+          self.value.append("\"")
+        case .asciiBackslash:
+          self.value.append("\\")
+        case .asciiSlash:
+          self.value.append("/")
+        case .asciiLowerB:
+          self.value.append("\u{08}")
+        case .asciiLowerF:
+          self.value.append("\u{0C}")
+        case .asciiLowerN:
+          self.value.append("\n")
+        case .asciiLowerR:
+          self.value.append("\r")
+        case .asciiLowerT:
+          self.value.append("\t")
+        default:
+          self.value.unicodeScalars.append(UnicodeScalar(byte))
+        }
+        self.shouldEmit = true
+        return true
+      }
+      if byte == .asciiBackslash {
+        self.isEscapingByte = true
+        self.shouldEmit = false
+        return true
+      }
+      self.value.unicodeScalars.append(UnicodeScalar(byte))
+      self.shouldEmit = true
       return true
     }
   }
@@ -270,8 +324,8 @@ extension JSONStreamParser {
     switch self.state {
     case .idle:
       try self.consumeIdle(byte: byte, reducer: &reducer)
-    case .string(let value):
-      try self.consumeString(byte: byte, value: value, reducer: &reducer)
+    case .string(let stringState):
+      try self.consumeString(byte: byte, stringState: stringState, reducer: &reducer)
     case .number(let numberState):
       try self.consumeNumber(
         byte: byte,
@@ -289,8 +343,9 @@ extension JSONStreamParser {
   ) throws {
     switch byte {
     case .asciiQuote:
-      self.state = .string(value: "")
-      try self.setValue(.string(""), reducer: &reducer)
+      let stringState = StringState()
+      try self.emitStringIfAble(stringState, reducer: &reducer)
+      self.state = .string(stringState)
     case .asciiDash:
       self.state = .number(NumberState(isNegative: true))
     case .asciiTrue:
@@ -307,8 +362,9 @@ extension JSONStreamParser {
       self.state = .literal(literalState)
     case .asciiNull:
       var literalState = LiteralState(kind: .null)
-      _ = literalState.consume(byte: byte)
-      try self.emitLiteralIfAble(literalState, reducer: &reducer)
+      if literalState.consume(byte: byte) {
+        try self.emitLiteralIfAble(literalState, reducer: &reducer)
+      }
       self.state = .literal(literalState)
     default:
       guard var numberState = NumberState.starting(with: byte) else { return }
@@ -319,20 +375,21 @@ extension JSONStreamParser {
 
   private mutating func consumeString<R: StreamActionReducer>(
     byte: UInt8,
-    value: String,
+    stringState: StringState,
     reducer: inout R
   ) throws {
-    switch byte {
-    case .asciiQuote:
+    if byte == .asciiQuote && !stringState.isEscapingByte {
       self.state = .idle
-      try self.setValue(.string(value), reducer: &reducer)
-    default:
-      let scalar = UnicodeScalar(byte)
-      var updated = value
-      updated.unicodeScalars.append(scalar)
-      self.state = .string(value: updated)
-      try self.setValue(.string(updated), reducer: &reducer)
+      if !stringState.isEmpty {
+        try self.setValue(stringState.currentStreamedValue, reducer: &reducer)
+      }
+      return
     }
+    var updated = stringState
+    if updated.consume(byte: byte) {
+      try self.emitStringIfAble(updated, reducer: &reducer)
+    }
+    self.state = .string(updated)
   }
 
   private mutating func consumeNumber<R: StreamActionReducer>(
@@ -385,17 +442,32 @@ extension JSONStreamParser {
     guard literalState.shouldEmit else { return }
     try self.setValue(literalState.currentStreamedValue, reducer: &reducer)
   }
+
+  private mutating func emitStringIfAble<R: StreamActionReducer>(
+    _ stringState: StringState,
+    reducer: inout R
+  ) throws {
+    guard stringState.shouldEmit else { return }
+    try self.setValue(stringState.currentStreamedValue, reducer: &reducer)
+  }
 }
 
 // MARK: - ASCII
 
 extension UInt8 {
   fileprivate static let asciiQuote: UInt8 = 0x22
+  fileprivate static let asciiSlash: UInt8 = 0x2F
   fileprivate static let asciiDot: UInt8 = 0x2E
   fileprivate static let asciiDash: UInt8 = 0x2D
   fileprivate static let asciiPlus: UInt8 = 0x2B
+  fileprivate static let asciiBackslash: UInt8 = 0x5C
   fileprivate static let asciiLowerE: UInt8 = 0x65
   fileprivate static let asciiUpperE: UInt8 = 0x45
+  fileprivate static let asciiLowerB: UInt8 = 0x62
+  fileprivate static let asciiLowerF: UInt8 = 0x66
+  fileprivate static let asciiLowerN: UInt8 = 0x6E
+  fileprivate static let asciiLowerR: UInt8 = 0x72
+  fileprivate static let asciiLowerT: UInt8 = 0x74
   fileprivate static let asciiTrue: UInt8 = 0x74
   fileprivate static let asciiFalse: UInt8 = 0x66
   fileprivate static let asciiNull: UInt8 = 0x6E
