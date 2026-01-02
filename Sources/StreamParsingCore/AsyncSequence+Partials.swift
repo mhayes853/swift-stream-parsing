@@ -1,5 +1,3 @@
-// MARK: - AsyncPartialsSequence
-
 extension AsyncSequence where Element == UInt8 {
   public func partials<Value, Parser>(
     initialValue: Value,
@@ -11,7 +9,7 @@ extension AsyncSequence where Element == UInt8 {
   }
 }
 
-extension AsyncSequence where Element: Sequence<UInt8> {
+extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   public func partials<Value, Parser>(
     initialValue: Value,
     from parser: Parser
@@ -29,12 +27,12 @@ public struct AsyncPartialsSequence<
   let base: Base
   let parser: Parser
   let initialValue: Element
-  let byteInput: (Base.Element) -> Seq
+  let byteInput: @Sendable (Base.Element) -> Seq
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
     var stream: PartialsStream<Element, Parser>
-    let byteInput: (Base.Element) -> Seq
+    let byteInput: @Sendable (Base.Element) -> Seq
 
     public mutating func next() async throws -> Element? {
       guard let element = try await self.baseIterator.next() else { return nil }
@@ -51,3 +49,9 @@ public struct AsyncPartialsSequence<
     )
   }
 }
+
+extension AsyncPartialsSequence: Sendable
+where Element: Sendable, Parser: Sendable, Base: Sendable, Seq: Sendable {}
+
+extension AsyncPartialsSequence.AsyncIterator: Sendable
+where Element: Sendable, Parser: Sendable, Base.AsyncIterator: Sendable, Seq: Sendable {}
