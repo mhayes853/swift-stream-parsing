@@ -80,7 +80,19 @@ extension ConvertibleFromStreamedValue where Self: BinaryInteger {
         return
       }
       return nil
-    case .string, .double, .float, .boolean, .null:
+    case .double(let value):
+      if value.isNaN || value.isInfinite {
+        return nil
+      }
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .float(let value):
+      if value.isNaN || value.isInfinite {
+        return nil
+      }
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .string, .boolean, .null:
       return nil
     }
   }
@@ -113,8 +125,37 @@ extension ConvertibleFromStreamedValue where Self: BinaryFloatingPoint {
       }
       guard let converted = Self(exactly: value) else { return nil }
       self = converted
-    case .string, .boolean, .int8, .int16, .int32, .int64, .int, .uint8, .uint16, .uint32,
-      .uint64, .uint, .int128, .uint128, .null:
+    case .int8(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .int16(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .int32(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .int64(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .int(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .uint8(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .uint16(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .uint32(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .uint64(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .uint(let value):
+      guard let converted = Self(exactly: value) else { return nil }
+      self = converted
+    case .string, .boolean, .int128, .uint128, .null:
       return nil
     }
   }

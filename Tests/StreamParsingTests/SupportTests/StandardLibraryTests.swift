@@ -3,7 +3,7 @@ import StreamParsing
 import Testing
 
 @Suite
-struct `StreamActionReducer+StandardLibrary tests` {
+struct `StreamActionReducerStandardLibrary tests` {
   @Test
   func `Throws For Non SetValue Convertible Reducer Action`() {
     let reducer = DefaultConvertibleReducer(value: "old")
@@ -48,6 +48,36 @@ struct `StreamActionReducer+StandardLibrary tests` {
   func `Converts Between Double And Float`() throws {
     try expectSetValue(initial: Float(0), expected: Float(3.5), streamedValue: .double(3.5))
     try expectSetValue(initial: 0.0, expected: 3.5, streamedValue: .float(3.5))
+  }
+
+  @Test
+  func `Converts Float And Double From Integer StreamedValues`() throws {
+    try expectSetValue(initial: 0.0, expected: 12.0, streamedValue: .int(12))
+    try expectSetValue(initial: 0.0, expected: 42.0, streamedValue: .uint64(42))
+    try expectSetValue(initial: Float(0), expected: Float(9), streamedValue: .int8(9))
+    try expectSetValue(initial: Float(0), expected: Float(128), streamedValue: .uint8(128))
+  }
+
+  @Test
+  func `Converts Integers From Float And Double StreamedValues`() throws {
+    try expectSetValue(initial: Int(0), expected: 12, streamedValue: .double(12))
+    try expectSetValue(initial: Int16(0), expected: 24, streamedValue: .float(24))
+    try expectSetValue(initial: UInt(0), expected: 7, streamedValue: .double(7))
+    try expectSetValue(initial: UInt8(0), expected: 9, streamedValue: .float(9))
+  }
+
+  @Test
+  func `Throws When Floating Point Values Are NaN For Integer Conversion`() {
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .double(.nan))
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .float(.nan))
+  }
+
+  @Test
+  func `Throws When Floating Point Values Are Infinite For Integer Conversion`() {
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .double(.infinity))
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .double(-.infinity))
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .float(.infinity))
+    expectThrowsOnSetValue(initial: Int(0), streamedValue: .float(-.infinity))
   }
 
   @Test
