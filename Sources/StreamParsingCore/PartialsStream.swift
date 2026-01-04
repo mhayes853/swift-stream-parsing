@@ -14,6 +14,8 @@ public struct PartialsStream<Value: StreamParseableReducer, Parser: StreamParser
 
   @inlinable
   public init(initialValue: Value, from parser: Parser) {
+    var parser = parser
+    parser.registerHandlers()
     self.parser = parser
     self._current = initialValue
   }
