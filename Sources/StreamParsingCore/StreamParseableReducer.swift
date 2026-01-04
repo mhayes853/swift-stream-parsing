@@ -2,7 +2,7 @@
 
 public protocol StreamParseableReducer {
   static func initialReduceableValue() -> Self
-  static func registerSchema(into parser: some StreamParser)
+  static func registerHandlers(in parser: inout some StreamParser)
 }
 
 // MARK: - Default Initial Values
@@ -20,6 +20,6 @@ extension StreamParseableReducer where Self: BinaryFloatingPoint {
 }
 
 extension StreamParseableReducer {
-  public static func registerSchema(into parser: some StreamParser) {
+  public static func registerHandlers(in parser: inout some StreamParser) {
   }
 }

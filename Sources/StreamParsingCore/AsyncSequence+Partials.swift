@@ -20,7 +20,7 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
 
 public struct AsyncPartialsSequence<
   Element: StreamParseableReducer,
-  Parser: StreamParser,
+  Parser: StreamParser<Element>,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
 >: AsyncSequence {

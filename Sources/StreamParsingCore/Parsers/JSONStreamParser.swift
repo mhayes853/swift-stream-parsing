@@ -1,6 +1,6 @@
 // MARK: - JSONStreamParser
 
-public struct JSONStreamParser: StreamParser {
+public struct JSONStreamParser<Reducer: StreamParseableReducer>: StreamParser {
   public let configuration: JSONStreamParser.Configuration
 
   public init(configuration: JSONStreamParser.Configuration = JSONStreamParser.Configuration()) {
@@ -9,17 +9,16 @@ public struct JSONStreamParser: StreamParser {
 
   public mutating func parse(
     bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamParseableReducer
+    into reducer: inout Reducer
   ) throws {
   }
 }
 
-extension StreamParser where Self == JSONStreamParser {
-  public static var json: Self {
-    JSONStreamParser()
-  }
-
-  public static func json(configuration: JSONStreamParser.Configuration) -> Self {
+extension StreamParser {
+  public static func json<Reducer>(
+    configuration: JSONStreamParser<Reducer>.Configuration =
+      JSONStreamParser<Reducer>.Configuration()
+  ) -> Self where Self == JSONStreamParser<Reducer> {
     JSONStreamParser(configuration: configuration)
   }
 }
