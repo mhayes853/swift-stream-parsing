@@ -19,7 +19,7 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
 }
 
 public struct AsyncPartialsSequence<
-  Element: StreamActionReducer,
+  Element: StreamParseableReducer,
   Parser: StreamParser,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
@@ -31,20 +31,12 @@ public struct AsyncPartialsSequence<
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
-    var stream: PartialsStream<TrackingReducer<Element>, Parser>
+    var stream: PartialsStream<Element, Parser>
     let byteInput: @Sendable (Base.Element) -> Seq
     var lastReduceCount: Int
 
     public mutating func next() async throws -> Element? {
-      while let element = try await self.baseIterator.next() {
-        let bytes = self.byteInput(element)
-        let partial = try self.stream.next(bytes)
-        if partial.reduceCount != self.lastReduceCount {
-          self.lastReduceCount = partial.reduceCount
-          return partial.value
-        }
-      }
-      return nil
+      nil
     }
   }
 
@@ -52,7 +44,7 @@ public struct AsyncPartialsSequence<
     AsyncIterator(
       baseIterator: self.base.makeAsyncIterator(),
       stream: PartialsStream(
-        initialValue: TrackingReducer(value: self.initialValue),
+        initialValue: self.initialValue,
         from: self.parser
       ),
       byteInput: self.byteInput,

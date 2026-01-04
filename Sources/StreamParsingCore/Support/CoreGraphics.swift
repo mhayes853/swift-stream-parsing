@@ -6,6 +6,4 @@
   }
 
   extension CGFloat: StreamParseableReducer {}
-
-  extension CGFloat: ConvertibleFromStreamedValue {}
 #endif

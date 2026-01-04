@@ -1,6 +1,6 @@
 public protocol StreamParser {
   mutating func parse(
     bytes: some Sequence<UInt8>,
-    into reducer: inout some StreamActionReducer
+    into reducer: inout some StreamParseableReducer
   ) throws
 }

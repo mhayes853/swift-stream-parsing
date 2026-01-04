@@ -7,11 +7,11 @@
     public typealias Partial = Deque<Element.Partial>
   }
 
-  extension Deque: StreamActionReducer where Element: StreamParseableReducer {}
-
-  extension Deque: StreamParseableReducer where Element: StreamParseableReducer {}
-
-  extension Deque: StreamParsingArrayLikeReducer where Element: StreamParseableReducer {}
+  extension Deque: StreamParseableReducer where Element: StreamParseableReducer {
+    public static func initialReduceableValue() -> Deque<Element> {
+      []
+    }
+  }
 
   // MARK: - BitArray
 
@@ -19,11 +19,11 @@
     public typealias Partial = Self
   }
 
-  extension BitArray: StreamActionReducer {}
-
-  extension BitArray: StreamParseableReducer {}
-
-  extension BitArray: StreamParsingArrayLikeReducer {}
+  extension BitArray: StreamParseableReducer {
+    public static func initialReduceableValue() -> BitArray {
+      []
+    }
+  }
 
   // MARK: - OrderedDictionary
 
@@ -31,14 +31,12 @@
     public typealias Partial = OrderedDictionary<String, Value.Partial>
   }
 
-  extension OrderedDictionary: StreamActionReducer
-  where Key == String, Value: StreamParseableReducer {}
-
   extension OrderedDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {}
-
-  extension OrderedDictionary: StreamParsingDictionaryLikeReducer
-  where Key == String, Value: StreamParseableReducer {}
+  where Key == String, Value: StreamParseableReducer {
+    public static func initialReduceableValue() -> OrderedDictionary<String, Value> {
+      [:]
+    }
+  }
 
   // MARK: - TreeDictionary
 
@@ -46,12 +44,10 @@
     public typealias Partial = TreeDictionary<String, Value.Partial>
   }
 
-  extension TreeDictionary: StreamActionReducer
-  where Key == String, Value: StreamParseableReducer {}
-
   extension TreeDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {}
-
-  extension TreeDictionary: StreamParsingDictionaryLikeReducer
-  where Key == String, Value: StreamParseableReducer {}
+  where Key == String, Value: StreamParseableReducer {
+    public static func initialReduceableValue() -> TreeDictionary<String, Value> {
+      [:]
+    }
+  }
 #endif

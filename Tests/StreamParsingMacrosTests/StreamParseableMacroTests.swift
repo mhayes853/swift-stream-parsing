@@ -40,19 +40,6 @@ extension BaseTestSuite {
             static func initialReduceableValue() -> Self {
               Self()
             }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
-            }
           }
         }
         """
@@ -95,25 +82,12 @@ extension BaseTestSuite {
             static func initialReduceableValue() -> Self {
               Self()
             }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try self.name.reduce(action: action)
-              case .delegateKeyed("age", let action):
-                try self.age.reduce(action: action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
-            }
           }
         }
         """
       }
     }
-    
+
     @Test
     func `Initial Reduceable Value Members With Optionals`() {
       assertMacro {
@@ -149,19 +123,6 @@ extension BaseTestSuite {
 
             static func initialReduceableValue() -> Self {
               Self()
-            }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try self.name.reduce(action: action)
-              case .delegateKeyed("age", let action):
-                try self.age.reduce(action: action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
             }
           }
         }
@@ -201,17 +162,6 @@ extension BaseTestSuite {
 
             static func initialReduceableValue() -> Self {
               Self()
-            }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
             }
           }
         }
@@ -254,19 +204,6 @@ extension BaseTestSuite {
 
             static func initialReduceableValue() -> Self {
               Self()
-            }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
             }
           }
         }
@@ -426,19 +363,6 @@ extension BaseTestSuite {
             public static func initialReduceableValue() -> Self {
               Self()
             }
-
-            public mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
-            }
           }
         }
         """
@@ -477,19 +401,6 @@ extension BaseTestSuite {
             static func initialReduceableValue() -> Self {
               Self()
             }
-
-            mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
-            }
           }
         }
         """
@@ -527,19 +438,6 @@ extension BaseTestSuite {
 
             fileprivate static func initialReduceableValue() -> Self {
               Self()
-            }
-
-            fileprivate mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
             }
           }
         }
@@ -583,19 +481,6 @@ extension BaseTestSuite {
             public static func initialReduceableValue() -> Self {
               Self()
             }
-
-            public mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
-            }
           }
         }
         """
@@ -637,19 +522,6 @@ extension BaseTestSuite {
 
             public static func initialReduceableValue() -> Self {
               Self()
-            }
-
-            public mutating func reduce(action: StreamAction) throws {
-              switch action {
-              case .delegateKeyed("name", let action):
-                try _streamParsingPerformReduce(&self.name, action)
-              case .delegateKeyed("age", let action):
-                try _streamParsingPerformReduce(&self.age, action)
-              case .delegateKeyed:
-                break
-              default:
-                throw StreamParsingError.unsupportedAction(action)
-              }
             }
           }
         }

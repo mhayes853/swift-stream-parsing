@@ -348,6 +348,69 @@ struct `JSONStreamParser tests` {
         expected: expected
       )
     }
+
+    @Test
+    func `Streams JSON Large Integer Digits`() throws {
+      let json = "18446744073709551615"
+      let expected: [UInt64] = [
+        1,
+        18,
+        184,
+        1_844,
+        18_446,
+        184_467,
+        1_844_674,
+        18_446_744,
+        184_467_440,
+        1_844_674_407,
+        18_446_744_073,
+        184_467_440_737,
+        1_844_674_407_370,
+        18_446_744_073_709,
+        184_467_440_737_095,
+        1_844_674_407_370_955,
+        18_446_744_073_709_551,
+        184_467_440_737_095_516,
+        1_844_674_407_370_955_161,
+        18_446_744_073_709_551_615
+      ]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: UInt64(0),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Large Negative Integer Digits`() throws {
+      let json = "-9223372036854775807"
+      let expected: [Int64] = [
+        -9,
+        -92,
+        -922,
+        -9_223,
+        -92_233,
+        -922_337,
+        -9_223_372,
+        -92_233_720,
+        -922_337_203,
+        -9_223_372_036,
+        -92_233_720_368,
+        -922_337_203_685,
+        -9_223_372_036_854,
+        -92_233_720_368_547,
+        -922_337_203_685_477,
+        -9_223_372_036_854_775,
+        -92_233_720_368_547_758,
+        -922_337_203_685_477_580,
+        -9_223_372_036_854_775_807
+      ]
+      try expectJSONStreamedValues(
+        json,
+        initialValue: Int64(0),
+        expected: expected
+      )
+    }
   }
 
   @Suite
@@ -418,7 +481,7 @@ struct `JSONStreamParser tests` {
   }
 }
 
-private func expectJSONStreamedValues<T: StreamActionReducer & Equatable>(
+private func expectJSONStreamedValues<T: StreamParseableReducer & Equatable>(
   _ json: String,
   configuration: JSONStreamParser.Configuration = JSONStreamParser.Configuration(),
   initialValue: T,

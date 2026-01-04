@@ -78,7 +78,6 @@ public enum StreamParseableMacro: ExtensionMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
-    let switchCases = self.reduceSwitchCaseLines(from: properties, membersMode: membersMode)
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableReducer,
         StreamParsingCore.StreamParseable {
@@ -90,16 +89,6 @@ public enum StreamParseableMacro: ExtensionMacro {
 
         \(raw: modifierPrefix)static func initialReduceableValue() -> Self {
           Self()
-        }
-
-        \(raw: modifierPrefix)mutating func reduce(action: StreamAction) throws {
-          switch action {
-      \(raw: switchCases)
-          case .delegateKeyed:
-            break
-          default:
-            throw StreamParsingError.unsupportedAction(action)
-          }
         }
       }
       """
@@ -145,26 +134,6 @@ public enum StreamParseableMacro: ExtensionMacro {
       \(assignments)
         }
       """
-  }
-
-  private static func reduceSwitchCaseLines(
-    from properties: [StoredProperty],
-    membersMode: PartialMembersMode
-  ) -> String {
-    let lines = properties.flatMap { property in
-      let reducerLine: String
-      if membersMode == .optional {
-        reducerLine = "      try _streamParsingPerformReduce(&self.\(property.name), action)"
-      } else {
-        reducerLine = "      try self.\(property.name).reduce(action: action)"
-      }
-      return [
-        "    case .delegateKeyed(\"\(property.name)\", let action):",
-        reducerLine
-      ]
-    }
-
-    return lines.joined(separator: "\n")
   }
 
   private static func accessModifier(for declaration: StructDeclSyntax) -> String? {
