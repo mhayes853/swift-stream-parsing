@@ -9,5 +9,9 @@
     public static func initialReduceableValue() -> Self {
       Tagged(rawValue: .initialReduceableValue())
     }
+
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+      handlers.registerScopedHandlers(on: RawValue.self, \.rawValue)
+    }
   }
 #endif

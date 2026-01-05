@@ -279,7 +279,7 @@ extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer
     handlers.registerNilHandler(\.self)
   }
 
-  fileprivate var reduceableValue: Wrapped {
+  private var reduceableValue: Wrapped {
     get { self ?? Wrapped.initialReduceableValue() }
     set { self = newValue }
   }

@@ -11,6 +11,12 @@
     public static func initialReduceableValue() -> Deque<Element> {
       []
     }
+
+    public static func registerHandlers(
+      in handlers: inout some StreamParserHandlers<Self>
+    ) {
+      handlers.registerArrayHandler(\.self)
+    }
   }
 
   // MARK: - BitArray
@@ -22,6 +28,12 @@
   extension BitArray: StreamParseableReducer {
     public static func initialReduceableValue() -> BitArray {
       []
+    }
+
+    public static func registerHandlers(
+      in handlers: inout some StreamParserHandlers<Self>
+    ) {
+      handlers.registerArrayHandler(\.self)
     }
   }
 
