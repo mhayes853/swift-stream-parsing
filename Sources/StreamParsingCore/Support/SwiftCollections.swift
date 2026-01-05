@@ -48,6 +48,10 @@
     public static func initialReduceableValue() -> OrderedDictionary<String, Value> {
       [:]
     }
+
+    public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
+      in handlers: inout Handlers
+    ) {}
   }
 
   // MARK: - TreeDictionary
@@ -61,5 +65,9 @@
     public static func initialReduceableValue() -> TreeDictionary<String, Value> {
       [:]
     }
+
+    public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
+      in handlers: inout Handlers
+    ) {}
   }
 #endif

@@ -7,10 +7,10 @@
 
   extension CGFloat: StreamParseableReducer {
     public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerDoubleHandler(\.doubleValue)
+      handlers.registerDoubleHandler(\.streamParsingDoubleValue)
     }
 
-    private var doubleValue: Double {
+    private var streamParsingDoubleValue: Double {
       get { Double(self) }
       set { self = newValue }
     }

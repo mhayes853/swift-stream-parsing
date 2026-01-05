@@ -20,9 +20,3 @@ extension StreamParseableReducer where Self: BinaryFloatingPoint {
     .zero
   }
 }
-
-extension StreamParseableReducer {
-  public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
-    in handlers: inout Handlers
-  ) {}
-}

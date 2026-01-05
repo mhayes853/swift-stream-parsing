@@ -259,6 +259,10 @@ extension Dictionary: StreamParseableReducer where Key == String, Value: StreamP
   public static func initialReduceableValue() -> [String: Value] {
     [:]
   }
+
+  public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
+    in handlers: inout Handlers
+  ) {}
 }
 
 // MARK: - Optional
@@ -275,11 +279,11 @@ extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer
   public static func registerHandlers(
     in handlers: inout some StreamParserHandlers<Self>
   ) {
-    handlers.registerScopedHandlers(on: Wrapped.self, \.reduceableValue)
+    handlers.registerScopedHandlers(on: Wrapped.self, \.streamParsingWrappedValue)
     handlers.registerNilHandler(\.self)
   }
 
-  private var reduceableValue: Wrapped {
+  private var streamParsingWrappedValue: Wrapped {
     get { self ?? Wrapped.initialReduceableValue() }
     set { self = newValue }
   }
