@@ -3,9 +3,12 @@ extension AsyncSequence where Element == UInt8 {
     initialValue: Value,
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
-    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) {
-      CollectionOfOne($0)
-    }
+    AsyncPartialsSequence(
+      base: self,
+      parser: parser,
+      initialValue: initialValue,
+      bytesPath: \.collection
+    )
   }
 }
 
@@ -14,7 +17,12 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
     initialValue: Value,
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
-    AsyncPartialsSequence(base: self, parser: parser, initialValue: initialValue) { $0 }
+    AsyncPartialsSequence(
+      base: self,
+      parser: parser,
+      initialValue: initialValue,
+      bytesPath: \.self
+    )
   }
 }
 
@@ -27,16 +35,15 @@ public struct AsyncPartialsSequence<
   let base: Base
   let parser: Parser
   let initialValue: Element
-  let byteInput: @Sendable (Base.Element) -> Seq
+  let bytesPath: KeyPath<Base.Element, Seq> & Sendable
 
   public struct AsyncIterator: AsyncIteratorProtocol {
     var baseIterator: Base.AsyncIterator
     var stream: PartialsStream<Element, Parser>
-    let byteInput: @Sendable (Base.Element) -> Seq
-    var lastReduceCount: Int
+    let bytesPath: KeyPath<Base.Element, Seq> & Sendable
 
     public mutating func next() async throws -> Element? {
-      nil
+      try await self.baseIterator.next().map { try self.stream.next($0[keyPath: self.bytesPath]) }
     }
   }
 
@@ -47,8 +54,7 @@ public struct AsyncPartialsSequence<
         initialValue: self.initialValue,
         from: self.parser
       ),
-      byteInput: self.byteInput,
-      lastReduceCount: 0
+      bytesPath: self.bytesPath
     )
   }
 }
@@ -58,3 +64,11 @@ where Element: Sendable, Parser: Sendable, Base: Sendable, Seq: Sendable {}
 
 extension AsyncPartialsSequence.AsyncIterator: Sendable
 where Element: Sendable, Parser: Sendable, Base.AsyncIterator: Sendable, Seq: Sendable {}
+
+// MARK: - Helpers
+
+extension UInt8 {
+  fileprivate var collection: CollectionOfOne<Self> {
+    CollectionOfOne(self)
+  }
+}

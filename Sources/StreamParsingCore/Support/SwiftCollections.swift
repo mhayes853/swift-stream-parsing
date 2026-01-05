@@ -12,9 +12,7 @@
       []
     }
 
-    public static func registerHandlers(
-      in handlers: inout some StreamParserHandlers<Self>
-    ) {
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
       handlers.registerArrayHandler(\.self)
     }
   }
@@ -32,9 +30,7 @@
       []
     }
 
-    public static func registerHandlers(
-      in handlers: inout some StreamParserHandlers<Self>
-    ) {
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
       handlers.registerArrayHandler(\.self)
     }
   }

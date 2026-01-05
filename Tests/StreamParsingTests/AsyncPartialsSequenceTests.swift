@@ -1,94 +1,61 @@
-// import CustomDump
-// import StreamParsing
-// import Testing
+import CustomDump
+import StreamParsing
+import Testing
 
-// @Suite
-// struct `AsyncPartialsSequence Tests` {
-//   @Test
-//   func `Injects Default Commands Into Partial`() async throws {
-//     let defaultCommands: [StreamAction] = [
-//       .setValue("start"),
-//       .delegateKeyed(key: "metadata", .setValue(1)),
-//       .delegateUnkeyed(index: 0, .setValue(true))
-//     ]
+@Suite
+struct `AsyncPartialsSequence Tests` {
+  @Test
+  func `Emits Partial For Each Chunked Async Byte Input`() async throws {
+    let parser = MockParser<Int>(actions: [0x00: .int(1), 0x01: .int(2), 0x02: .int(3)])
+    let byteStream = AsyncStream<[UInt8]> { continuation in
+      continuation.yield([0x00, 0x01, 0x02])
+      continuation.finish()
+    }
 
-//     let byteStream = AsyncStream<[UInt8]> { continuation in
-//       continuation.yield([0x00, 0x01, 0x02])
-//       continuation.finish()
-//     }
+    var partials = [Int]()
+    let stream = byteStream.partials(initialValue: 0, from: parser)
+    for try await partial in stream {
+      partials.append(partial)
+    }
 
-//     var partials: [MockPartial] = []
-//     let stream = byteStream.partials(
-//       initialValue: MockPartial(),
-//       from: MockParser(defaultCommands: defaultCommands)
-//     )
-//     for try await partial in stream {
-//       partials.append(partial)
-//     }
+    expectNoDifference(partials, [3])
+  }
 
-//     expectNoDifference(partials.map(\.commands), [defaultCommands])
-//   }
+  @Test
+  func `Emits Partial For Each Async Byte`() async throws {
+    let parser = MockParser<Int>(actions: [0x00: .int(1), 0x01: .int(2), 0x02: .int(3)])
+    let byteStream = AsyncStream<UInt8> { continuation in
+      continuation.yield(0x00)
+      continuation.yield(0x01)
+      continuation.yield(0x02)
+      continuation.finish()
+    }
 
-//   @Test
-//   func `Injects Default Commands Into Partial For Simple Bytes Sequence`() async throws {
-//     let defaultCommands: [StreamAction] = [
-//       .setValue("start"),
-//       .delegateKeyed(key: "metadata", .setValue(1)),
-//       .delegateUnkeyed(index: 0, .setValue(true))
-//     ]
+    var partials = [Int]()
+    let stream = byteStream.partials(initialValue: 0, from: parser)
+    for try await partial in stream {
+      partials.append(partial)
+    }
 
-//     let byteStream = AsyncStream<UInt8> { continuation in
-//       continuation.yield(0x00)
-//       continuation.yield(0x01)
-//       continuation.yield(0x02)
-//       continuation.finish()
-//     }
+    expectNoDifference(partials, [1, 2, 3])
+  }
 
-//     var partials = [MockPartial]()
-//     let stream = byteStream.partials(
-//       initialValue: MockPartial(),
-//       from: MockParser(defaultCommands: defaultCommands)
-//     )
-//     for try await partial in stream {
-//       partials.append(partial)
-//     }
+  @Test
+  func `Emits Same Partial When No Reduction Occurs For An Async Byte`() async throws {
+    let parser = MockParser<Int>(actions: [0x00: .int(1), 0x02: .int(3)])
+    let byteStream = AsyncStream<UInt8> { continuation in
+      continuation.yield(0x00)
+      continuation.yield(0x01)
+      continuation.yield(0x02)
+      continuation.finish()
+    }
 
-//     expectNoDifference(
-//       partials.map(\.commands),
-//       [[defaultCommands[0]], [defaultCommands[0], defaultCommands[1]], defaultCommands]
-//     )
-//   }
+    var partials = [Int]()
+    let stream = byteStream.partials(initialValue: 0, from: parser)
+    for try await partial in stream {
+      partials.append(partial)
+    }
 
-//   @Test
-//   func `Skips Emissions When No Reductions Occur For Simple Bytes Sequence`() async throws {
-//     let defaultCommands: [StreamAction] = [
-//       .setValue("start"),
-//       .delegateKeyed(key: "metadata", .setValue(1)),
-//       .delegateUnkeyed(index: 0, .setValue(true))
-//     ]
-
-//     let byteStream = AsyncStream<UInt8> { continuation in
-//       continuation.yield(0x00)
-//       continuation.yield(0x01)
-//       continuation.yield(0x02)
-//       continuation.finish()
-//     }
-
-//     var partials = [MockPartial]()
-//     let stream = byteStream.partials(
-//       initialValue: MockPartial(),
-//       from: SelectiveMockParser(
-//         defaultCommands: defaultCommands,
-//         reducibleBytes: [0x00, 0x02]
-//       )
-//     )
-//     for try await partial in stream {
-//       partials.append(partial)
-//     }
-
-//     expectNoDifference(
-//       partials.map(\.commands),
-//       [[defaultCommands[0]], [defaultCommands[0], defaultCommands[2]]]
-//     )
-//   }
-// }
+    expectNoDifference(partials, [1, 1, 3])
+  }
+}

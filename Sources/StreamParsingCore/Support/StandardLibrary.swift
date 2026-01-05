@@ -196,9 +196,7 @@ extension UInt128: StreamParseable {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: StreamParseableValue {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt128Handler(\.self)
   }
 }
@@ -256,7 +254,7 @@ extension Optional: StreamParseableValue where Wrapped: StreamParseableValue {
     handlers.registerNilHandler(\.self)
   }
 
-  fileprivate var streamParsingWrappedValue: Wrapped {
+  private var streamParsingWrappedValue: Wrapped {
     get { self ?? Wrapped.initialParseableValue() }
     set { self = newValue }
   }
