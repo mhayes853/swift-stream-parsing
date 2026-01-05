@@ -243,6 +243,10 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
   public static func initialReduceableValue() -> [Element] {
     []
   }
+
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+    handlers.registerArrayHandler(\.self)
+  }
 }
 
 // MARK: - Dictionary

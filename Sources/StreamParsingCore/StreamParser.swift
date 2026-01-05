@@ -76,4 +76,8 @@ public protocol StreamParserHandlers<Reducer> {
     on type: Scoped.Type,
     _ keyPath: WritableKeyPath<Reducer, Scoped>
   )
+
+  mutating func registerArrayHandler<Collection: RangeReplaceableCollection>(
+    _ keyPath: WritableKeyPath<Reducer, Collection>
+  ) where Collection.Element: StreamParseableReducer, Collection.Index == Int
 }
