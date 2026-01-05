@@ -1,6 +1,6 @@
 extension AsyncSequence where Element == UInt8 {
   public func partials<Value, Parser>(
-    initialValue: Value,
+    initialValue: Value = .initialParseableValue(),
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
     AsyncPartialsSequence(
@@ -14,7 +14,7 @@ extension AsyncSequence where Element == UInt8 {
 
 extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   public func partials<Value, Parser>(
-    initialValue: Value,
+    initialValue: Value = .initialParseableValue(),
     from parser: Parser
   ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
     AsyncPartialsSequence(

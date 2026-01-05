@@ -13,7 +13,7 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   }
 
   @inlinable
-  public init(initialValue: Value, from parser: Parser) {
+  public init(initialValue: Value = .initialParseableValue(), from parser: Parser) {
     var parser = parser
     parser.registerHandlers()
     self.parser = parser
