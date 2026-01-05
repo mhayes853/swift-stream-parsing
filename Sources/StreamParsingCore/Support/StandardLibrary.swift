@@ -9,9 +9,7 @@ extension String: StreamParseableReducer {
     ""
   }
 
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerStringHandler(\.self)
   }
 }
@@ -23,9 +21,7 @@ extension Double: StreamParseable {
 }
 
 extension Double: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerDoubleHandler(\.self)
   }
 }
@@ -37,9 +33,7 @@ extension Float: StreamParseable {
 }
 
 extension Float: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerFloatHandler(\.self)
   }
 }
@@ -55,9 +49,7 @@ extension Bool: StreamParseableReducer {
     false
   }
 
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerBoolHandler(\.self)
   }
 }
@@ -69,9 +61,7 @@ extension Int8: StreamParseable {
 }
 
 extension Int8: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt8Handler(\.self)
   }
 }
@@ -83,9 +73,7 @@ extension Int16: StreamParseable {
 }
 
 extension Int16: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt16Handler(\.self)
   }
 }
@@ -96,9 +84,7 @@ extension Int32: StreamParseable {
 }
 
 extension Int32: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt32Handler(\.self)
   }
 }
@@ -110,9 +96,7 @@ extension Int64: StreamParseable {
 }
 
 extension Int64: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt64Handler(\.self)
   }
 }
@@ -124,9 +108,7 @@ extension Int: StreamParseable {
 }
 
 extension Int: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerIntHandler(\.self)
   }
 }
@@ -138,9 +120,7 @@ extension UInt8: StreamParseable {
 }
 
 extension UInt8: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt8Handler(\.self)
   }
 }
@@ -152,9 +132,7 @@ extension UInt16: StreamParseable {
 }
 
 extension UInt16: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt16Handler(\.self)
   }
 }
@@ -166,9 +144,7 @@ extension UInt32: StreamParseable {
 }
 
 extension UInt32: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt32Handler(\.self)
   }
 }
@@ -180,9 +156,7 @@ extension UInt64: StreamParseable {
 }
 
 extension UInt64: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt64Handler(\.self)
   }
 }
@@ -194,9 +168,7 @@ extension UInt: StreamParseable {
 }
 
 extension UInt: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUIntHandler(\.self)
   }
 }
@@ -210,9 +182,7 @@ extension Int128: StreamParseable {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128: StreamParseableReducer {
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt128Handler(\.self)
   }
 }
@@ -260,9 +230,7 @@ extension Dictionary: StreamParseableReducer where Key == String, Value: StreamP
     [:]
   }
 
-  public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
-    in handlers: inout Handlers
-  ) {}
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {}
 }
 
 // MARK: - Optional
@@ -276,9 +244,7 @@ extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer
     Wrapped.initialReduceableValue()
   }
 
-  public static func registerHandlers(
-    in handlers: inout some StreamParserHandlers<Self>
-  ) {
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerScopedHandlers(on: Wrapped.self, \.streamParsingWrappedValue)
     handlers.registerNilHandler(\.self)
   }

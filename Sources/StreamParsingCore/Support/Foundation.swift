@@ -12,9 +12,7 @@
       Self()
     }
 
-    public static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
-      in handlers: inout Handlers
-    ) {
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
       handlers.registerStringHandler(\.streamParsingStringValue)
     }
 
