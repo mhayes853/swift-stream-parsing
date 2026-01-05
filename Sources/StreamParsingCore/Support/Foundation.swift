@@ -52,10 +52,6 @@
       }
     }
 
-    private var decimalNumber: NSDecimalNumber {
-      NSDecimalNumber(decimal: self)
-    }
-
     private var streamParsingIntValue: Int {
       get { self.decimalNumber.intValue }
       set { self = Decimal(newValue) }
@@ -126,6 +122,10 @@
     private var streamParsingUInt128Value: UInt128 {
       get { UInt128(self.decimalNumber.uint64Value) }
       set { self = Decimal(string: String(newValue)) ?? .zero }
+    }
+
+    private var decimalNumber: NSDecimalNumber {
+      NSDecimalNumber(decimal: self)
     }
   }
 #endif

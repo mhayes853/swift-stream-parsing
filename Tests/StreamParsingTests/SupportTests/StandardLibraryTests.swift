@@ -41,4 +41,20 @@ struct `StandardLibrary tests` {
     expectNoDifference(result, [7])
     expectNoDifference(stream.current, [7])
   }
+
+  @Test
+  func `Dictionary Reducer Applies Parsed Member Through PartialsStream`() throws {
+    let parser = MockParser<[String: Int]>(
+      actions: [
+        0x00: .createDictionaryValue(key: "answer"),
+        0x01: .setDictionaryValue(key: "answer", value: 42)
+      ]
+    )
+    var stream = PartialsStream(initialValue: [:], from: parser)
+
+    let result = try stream.next([0x00, 0x01])
+
+    expectNoDifference(result, ["answer": 42])
+    expectNoDifference(stream.current, ["answer": 42])
+  }
 }

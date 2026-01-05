@@ -80,4 +80,8 @@ public protocol StreamParserHandlers<Reducer> {
   mutating func registerArrayHandler(
     _ keyPath: WritableKeyPath<Reducer, some StreamParseableArrayObject>
   )
+
+  mutating func registerDictionaryHandler(
+    _ keyPath: WritableKeyPath<Reducer, some StreamParseableDictionaryObject>
+  )
 }

@@ -232,8 +232,13 @@ extension Dictionary: StreamParseableValue where Key == String, Value: StreamPar
     [:]
   }
 
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {}
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+    handlers.registerDictionaryHandler(\.self)
+  }
 }
+
+extension Dictionary: StreamParseableDictionaryObject
+where Key == String, Value: StreamParseableValue {}
 
 // MARK: - Optional
 
@@ -251,7 +256,7 @@ extension Optional: StreamParseableValue where Wrapped: StreamParseableValue {
     handlers.registerNilHandler(\.self)
   }
 
-  private var streamParsingWrappedValue: Wrapped {
+  fileprivate var streamParsingWrappedValue: Wrapped {
     get { self ?? Wrapped.initialParseableValue() }
     set { self = newValue }
   }

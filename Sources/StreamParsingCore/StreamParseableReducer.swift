@@ -25,6 +25,13 @@ public protocol StreamParseableArrayObject<Element> {
   associatedtype Element: StreamParseableValue
 
   subscript(index: Int) -> Element { get set }
-
   mutating func append(contentsOf sequence: some Sequence<Element>)
+}
+
+// MARK: - StreamParseableDictionaryObject
+
+public protocol StreamParseableDictionaryObject {
+  associatedtype Value: StreamParseableValue
+
+  subscript(key: String) -> Value? { get set }
 }

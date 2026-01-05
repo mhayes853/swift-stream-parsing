@@ -96,9 +96,7 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     mutating func registerArrayHandler<C: StreamParseableArrayObject>(
       _ keyPath: WritableKeyPath<Reducer, C>
     ) {
-      guard C.Element.self == Int.self else {
-        return
-      }
+      guard C.Element.self == Int.self else { return }
       self.storage[.arrayAppend] = { (reducer: inout Reducer, value: Int) in
         var collection = reducer[keyPath: keyPath]
         let element = value as! C.Element
@@ -109,6 +107,22 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
         var collection = reducer[keyPath: keyPath]
         collection[index] = value as! C.Element
         reducer[keyPath: keyPath] = collection
+      }
+    }
+
+    mutating func registerDictionaryHandler<D: StreamParseableDictionaryObject>(
+      _ keyPath: WritableKeyPath<Reducer, D>
+    ) {
+      guard D.Value.self == Int.self else { return }
+      self.storage[.dictionaryCreate] = { (reducer: inout Reducer, key: String) in
+        var dictionary = reducer[keyPath: keyPath]
+        dictionary[key] = D.Value.initialParseableValue()
+        reducer[keyPath: keyPath] = dictionary
+      }
+      self.storage[.dictionarySet] = { (reducer: inout Reducer, key: String, value: Int) in
+        var dictionary = reducer[keyPath: keyPath]
+        dictionary[key] = value as? D.Value
+        reducer[keyPath: keyPath] = dictionary
       }
     }
 
@@ -155,6 +169,12 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
       }
       if let typed = other.storage[.arraySet] as? (inout Scoped, Int, Int) -> Void {
         self.storage[.arraySet] = self.bridgeArraySet(typed, keyPath: keyPath)
+      }
+      if let typed = other.storage[.dictionaryCreate] as? (inout Scoped, String) -> Void {
+        self.storage[.dictionaryCreate] = self.bridgeDictionaryCreate(typed, keyPath: keyPath)
+      }
+      if let typed = other.storage[.dictionarySet] as? (inout Scoped, String, Int) -> Void {
+        self.storage[.dictionarySet] = self.bridgeDictionarySet(typed, keyPath: keyPath)
       }
     }
 
@@ -231,6 +251,24 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
       }
     }
 
+    private func bridgeDictionaryCreate<Scoped>(
+      _ handler: @escaping (inout Scoped, String) -> Void,
+      keyPath: WritableKeyPath<Reducer, Scoped>
+    ) -> (inout Reducer, String) -> Void {
+      { reducer, key in
+        handler(&reducer[keyPath: keyPath], key)
+      }
+    }
+
+    private func bridgeDictionarySet<Scoped>(
+      _ handler: @escaping (inout Scoped, String, Int) -> Void,
+      keyPath: WritableKeyPath<Reducer, Scoped>
+    ) -> (inout Reducer, String, Int) -> Void {
+      { reducer, key, value in
+        handler(&reducer[keyPath: keyPath], key, value)
+      }
+    }
+
     fileprivate func invoke(
       _ invocation: MockHandlerInvocation,
       into reducer: inout Reducer
@@ -254,6 +292,10 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
         self.callArrayAppend(.arrayAppend, into: &reducer, value: .initialParseableValue())
       case .arraySet(let index, let value):
         self.callArraySet(.arraySet, into: &reducer, index: index, value: value)
+      case .createDictionaryValue(let key):
+        self.callDictionaryCreate(.dictionaryCreate, into: &reducer, key: key)
+      case .setDictionaryValue(let key, let value):
+        self.callDictionarySet(.dictionarySet, into: &reducer, key: key, value: value)
       }
     }
 
@@ -327,6 +369,25 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
       guard let handler = self.storage[key] as? (inout Reducer, Int, Int) -> Void else { return }
       handler(&reducer, index, value)
     }
+
+    private func callDictionaryCreate(
+      _ key: MockHandlerKey,
+      into reducer: inout Reducer,
+      key dictionaryKey: String
+    ) {
+      guard let handler = self.storage[key] as? (inout Reducer, String) -> Void else { return }
+      handler(&reducer, dictionaryKey)
+    }
+
+    private func callDictionarySet(
+      _ key: MockHandlerKey,
+      into reducer: inout Reducer,
+      key dictionaryKey: String,
+      value: Int
+    ) {
+      guard let handler = self.storage[key] as? (inout Reducer, String, Int) -> Void else { return }
+      handler(&reducer, dictionaryKey, value)
+    }
   }
 
   enum MockHandlerInvocation {
@@ -338,6 +399,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     case int128(high: Int64, low: UInt64)
     case arrayAppend
     case arraySet(index: Int, value: Int)
+    case createDictionaryValue(key: String)
+    case setDictionaryValue(key: String, value: Int)
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     static func int128(_ value: Int128) -> Self {
@@ -354,6 +417,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     case int128
     case arrayAppend
     case arraySet
+    case dictionaryCreate
+    case dictionarySet
   }
 
   private var actions: [UInt8: MockHandlerInvocation]

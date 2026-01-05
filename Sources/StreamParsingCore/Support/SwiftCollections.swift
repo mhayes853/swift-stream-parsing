@@ -53,10 +53,13 @@
       [:]
     }
 
-    public static func registerHandlers(
-      in handlers: inout some StreamParserHandlers<Self>
-    ) {}
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+      handlers.registerDictionaryHandler(\.self)
+    }
   }
+
+  extension OrderedDictionary: StreamParseableDictionaryObject
+  where Key == String, Value: StreamParseableValue {}
 
   // MARK: - TreeDictionary
 
@@ -70,8 +73,11 @@
       [:]
     }
 
-    public static func registerHandlers(
-      in handlers: inout some StreamParserHandlers<Self>
-    ) {}
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+      handlers.registerDictionaryHandler(\.self)
+    }
   }
+
+  extension TreeDictionary: StreamParseableDictionaryObject
+  where Key == String, Value: StreamParseableValue {}
 #endif
