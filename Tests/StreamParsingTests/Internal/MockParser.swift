@@ -1,97 +1,97 @@
 import StreamParsing
 
-struct MockParser<Reducer: StreamParseableValue>: StreamParser {
+struct MockParser<Value: StreamParseableValue>: StreamParser {
   struct Handlers: StreamParserHandlers {
     private var storage = [MockHandlerKey: Any]()
 
     mutating func registerStringHandler(
-      _ keyPath: WritableKeyPath<Reducer, String>
+      _ keyPath: WritableKeyPath<Value, String>
     ) {
-      self.storage[.string] = { (reducer: inout Reducer, value: String) in
+      self.storage[.string] = { (reducer: inout Value, value: String) in
         reducer[keyPath: keyPath] = value
       }
     }
 
     mutating func registerBoolHandler(
-      _ keyPath: WritableKeyPath<Reducer, Bool>
+      _ keyPath: WritableKeyPath<Value, Bool>
     ) {}
 
     mutating func registerIntHandler(
-      _ keyPath: WritableKeyPath<Reducer, Int>
+      _ keyPath: WritableKeyPath<Value, Int>
     ) {
-      self.storage[.int] = { (reducer: inout Reducer, value: Int) in
+      self.storage[.int] = { (reducer: inout Value, value: Int) in
         reducer[keyPath: keyPath] = value
       }
     }
 
     mutating func registerInt8Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int8>
+      _ keyPath: WritableKeyPath<Value, Int8>
     ) {}
 
     mutating func registerInt16Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int16>
+      _ keyPath: WritableKeyPath<Value, Int16>
     ) {}
 
     mutating func registerInt32Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int32>
+      _ keyPath: WritableKeyPath<Value, Int32>
     ) {}
 
     mutating func registerInt64Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int64>
+      _ keyPath: WritableKeyPath<Value, Int64>
     ) {}
 
     mutating func registerUIntHandler(
-      _ keyPath: WritableKeyPath<Reducer, UInt>
+      _ keyPath: WritableKeyPath<Value, UInt>
     ) {
-      self.storage[.uint] = { (reducer: inout Reducer, value: UInt) in
+      self.storage[.uint] = { (reducer: inout Value, value: UInt) in
         reducer[keyPath: keyPath] = value
       }
     }
 
     mutating func registerUInt8Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt8>
+      _ keyPath: WritableKeyPath<Value, UInt8>
     ) {}
 
     mutating func registerUInt16Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt16>
+      _ keyPath: WritableKeyPath<Value, UInt16>
     ) {}
 
     mutating func registerUInt32Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt32>
+      _ keyPath: WritableKeyPath<Value, UInt32>
     ) {}
 
     mutating func registerUInt64Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt64>
+      _ keyPath: WritableKeyPath<Value, UInt64>
     ) {}
 
     mutating func registerFloatHandler(
-      _ keyPath: WritableKeyPath<Reducer, Float>
+      _ keyPath: WritableKeyPath<Value, Float>
     ) {}
 
     mutating func registerDoubleHandler(
-      _ keyPath: WritableKeyPath<Reducer, Double>
+      _ keyPath: WritableKeyPath<Value, Double>
     ) {
-      self.storage[.double] = { (reducer: inout Reducer, value: Double) in
+      self.storage[.double] = { (reducer: inout Value, value: Double) in
         reducer[keyPath: keyPath] = value
       }
     }
 
-    mutating func registerNilHandler<Value: StreamParseableValue>(
-      _ keyPath: WritableKeyPath<Reducer, Value?>
+    mutating func registerNilHandler<Nullable: StreamParseableValue>(
+      _ keyPath: WritableKeyPath<Value, Nullable?>
     ) {
-      self.storage[.nilValue] = { (reducer: inout Reducer) in
+      self.storage[.nilValue] = { (reducer: inout Value) in
         reducer[keyPath: keyPath] = nil
       }
     }
 
-    mutating func registerKeyedHandler<Value: StreamParseableValue>(
+    mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
       forKey key: String,
-      _ keyPath: WritableKeyPath<Reducer, Value>
+      _ keyPath: WritableKeyPath<Value, Keyed>
     ) {}
 
     mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
       on type: Scoped.Type,
-      _ keyPath: WritableKeyPath<Reducer, Scoped>
+      _ keyPath: WritableKeyPath<Value, Scoped>
     ) {
       var scoped = MockParser<Scoped>.Handlers()
       Scoped.registerHandlers(in: &scoped)
@@ -99,16 +99,16 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     }
 
     mutating func registerArrayHandler<C: StreamParseableArrayObject>(
-      _ keyPath: WritableKeyPath<Reducer, C>
+      _ keyPath: WritableKeyPath<Value, C>
     ) {
       guard C.Element.self == Int.self else { return }
-      self.storage[.arrayAppend] = { (reducer: inout Reducer, value: Int) in
+      self.storage[.arrayAppend] = { (reducer: inout Value, value: Int) in
         var collection = reducer[keyPath: keyPath]
         let element = value as! C.Element
         collection.append(contentsOf: CollectionOfOne(element))
         reducer[keyPath: keyPath] = collection
       }
-      self.storage[.arraySet] = { (reducer: inout Reducer, index: Int, value: Int) in
+      self.storage[.arraySet] = { (reducer: inout Value, index: Int, value: Int) in
         var collection = reducer[keyPath: keyPath]
         collection[index] = value as! C.Element
         reducer[keyPath: keyPath] = collection
@@ -116,15 +116,15 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     }
 
     mutating func registerDictionaryHandler<D: StreamParseableDictionaryObject>(
-      _ keyPath: WritableKeyPath<Reducer, D>
+      _ keyPath: WritableKeyPath<Value, D>
     ) {
       guard D.Value.self == Int.self else { return }
-      self.storage[.dictionaryCreate] = { (reducer: inout Reducer, key: String) in
+      self.storage[.dictionaryCreate] = { (reducer: inout Value, key: String) in
         var dictionary = reducer[keyPath: keyPath]
         dictionary[key] = D.Value.initialParseableValue()
         reducer[keyPath: keyPath] = dictionary
       }
-      self.storage[.dictionarySet] = { (reducer: inout Reducer, key: String, value: Int) in
+      self.storage[.dictionarySet] = { (reducer: inout Value, key: String, value: Int) in
         var dictionary = reducer[keyPath: keyPath]
         dictionary[key] = value as? D.Value
         reducer[keyPath: keyPath] = dictionary
@@ -133,21 +133,21 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     mutating func registerInt128Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int128>
+      _ keyPath: WritableKeyPath<Value, Int128>
     ) {
-      self.storage[.int128] = { (reducer: inout Reducer, value: Int128) in
+      self.storage[.int128] = { (reducer: inout Value, value: Int128) in
         reducer[keyPath: keyPath] = value
       }
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     mutating func registerUInt128Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt128>
+      _ keyPath: WritableKeyPath<Value, UInt128>
     ) {}
 
     private mutating func mergeScoped<Scoped: StreamParseableValue>(
       from other: MockParser<Scoped>.Handlers,
-      keyPath: WritableKeyPath<Reducer, Scoped>
+      keyPath: WritableKeyPath<Value, Scoped>
     ) {
       if let typed = other.storage[.int] as? (inout Scoped, Int) -> Void {
         self.storage[.int] = self.bridge(typed, keyPath: keyPath)
@@ -185,8 +185,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridge<Scoped>(
       _ handler: @escaping (inout Scoped, Int) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, Int) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, Int) -> Void {
       { reducer, input in
         handler(&reducer[keyPath: keyPath], input)
       }
@@ -194,8 +194,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeNil<Scoped>(
       _ handler: @escaping (inout Scoped) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value) -> Void {
       { reducer in
         handler(&reducer[keyPath: keyPath])
       }
@@ -203,8 +203,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeString<Scoped>(
       _ handler: @escaping (inout Scoped, String) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, String) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, String) -> Void {
       { reducer, value in
         handler(&reducer[keyPath: keyPath], value)
       }
@@ -212,8 +212,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeUInt<Scoped>(
       _ handler: @escaping (inout Scoped, UInt) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, UInt) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, UInt) -> Void {
       { reducer, value in
         handler(&reducer[keyPath: keyPath], value)
       }
@@ -221,8 +221,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeDouble<Scoped>(
       _ handler: @escaping (inout Scoped, Double) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, Double) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, Double) -> Void {
       { reducer, value in
         handler(&reducer[keyPath: keyPath], value)
       }
@@ -231,8 +231,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     private func bridgeInt128<Scoped>(
       _ handler: @escaping (inout Scoped, Int128) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, Int128) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, Int128) -> Void {
       { reducer, value in
         handler(&reducer[keyPath: keyPath], value)
       }
@@ -240,8 +240,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeArrayAppend<Scoped>(
       _ handler: @escaping (inout Scoped, Int) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, Int) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, Int) -> Void {
       { reducer, value in
         handler(&reducer[keyPath: keyPath], value)
       }
@@ -249,8 +249,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeArraySet<Scoped>(
       _ handler: @escaping (inout Scoped, Int, Int) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, Int, Int) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, Int, Int) -> Void {
       { reducer, index, value in
         handler(&reducer[keyPath: keyPath], index, value)
       }
@@ -258,8 +258,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeDictionaryCreate<Scoped>(
       _ handler: @escaping (inout Scoped, String) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, String) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, String) -> Void {
       { reducer, key in
         handler(&reducer[keyPath: keyPath], key)
       }
@@ -267,8 +267,8 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func bridgeDictionarySet<Scoped>(
       _ handler: @escaping (inout Scoped, String, Int) -> Void,
-      keyPath: WritableKeyPath<Reducer, Scoped>
-    ) -> (inout Reducer, String, Int) -> Void {
+      keyPath: WritableKeyPath<Value, Scoped>
+    ) -> (inout Value, String, Int) -> Void {
       { reducer, key, value in
         handler(&reducer[keyPath: keyPath], key, value)
       }
@@ -276,7 +276,7 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     fileprivate func invoke(
       _ invocation: MockHandlerInvocation,
-      into reducer: inout Reducer
+      into reducer: inout Value
     ) {
       switch invocation {
       case .int(let value):
@@ -306,91 +306,91 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
 
     private func call(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       value: Int
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, Int) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, Int) -> Void else { return }
       handler(&reducer, value)
     }
 
     private func callUInt(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       value: UInt
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, UInt) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, UInt) -> Void else { return }
       handler(&reducer, value)
     }
 
     private func callDouble(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       value: Double
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, Double) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, Double) -> Void else { return }
       handler(&reducer, value)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     private func callInt128(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       high: Int64,
       low: UInt64
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, Int128) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, Int128) -> Void else { return }
       handler(&reducer, Int128(_low: low, _high: high))
     }
 
     private func callString(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       value: String
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, String) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, String) -> Void else { return }
       handler(&reducer, value)
     }
 
-    private func callNil(_ key: MockHandlerKey, into reducer: inout Reducer) {
-      guard let handler = self.storage[key] as? (inout Reducer) -> Void else { return }
+    private func callNil(_ key: MockHandlerKey, into reducer: inout Value) {
+      guard let handler = self.storage[key] as? (inout Value) -> Void else { return }
       handler(&reducer)
     }
 
     private func callArrayAppend(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       value: Int
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, Int) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, Int) -> Void else { return }
       handler(&reducer, value)
     }
 
     private func callArraySet(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       index: Int,
       value: Int
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, Int, Int) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, Int, Int) -> Void else { return }
       handler(&reducer, index, value)
     }
 
     private func callDictionaryCreate(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       key dictionaryKey: String
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, String) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, String) -> Void else { return }
       handler(&reducer, dictionaryKey)
     }
 
     private func callDictionarySet(
       _ key: MockHandlerKey,
-      into reducer: inout Reducer,
+      into reducer: inout Value,
       key dictionaryKey: String,
       value: Int
     ) {
-      guard let handler = self.storage[key] as? (inout Reducer, String, Int) -> Void else { return }
+      guard let handler = self.storage[key] as? (inout Value, String, Int) -> Void else { return }
       handler(&reducer, dictionaryKey, value)
     }
   }
@@ -433,7 +433,7 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
     self.actions = actions
   }
 
-  mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Reducer) throws {
+  mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
     for byte in bytes {
       guard let invocation = self.actions[byte] else { continue }
       self.handlers.invoke(invocation, into: &reducer)
@@ -441,6 +441,6 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
   }
 
   mutating func registerHandlers() {
-    Reducer.registerHandlers(in: &self.handlers)
+    Value.registerHandlers(in: &self.handlers)
   }
 }

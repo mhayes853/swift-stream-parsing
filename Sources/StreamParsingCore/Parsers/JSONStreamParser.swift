@@ -1,6 +1,6 @@
 // MARK: - JSONStreamParser
 
-public struct JSONStreamParser<Reducer: StreamParseableValue>: StreamParser {
+public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   public let configuration: JSONStreamParser.Configuration
   private var handlers = Handlers()
 
@@ -8,13 +8,10 @@ public struct JSONStreamParser<Reducer: StreamParseableValue>: StreamParser {
     self.configuration = configuration
   }
 
-  public mutating func parse(
-    bytes: some Sequence<UInt8>,
-    into reducer: inout Reducer
-  ) throws {}
+  public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {}
 
   public mutating func registerHandlers() {
-    Reducer.registerHandlers(in: &self.handlers)
+    Value.registerHandlers(in: &self.handlers)
   }
 }
 
@@ -35,100 +32,156 @@ extension JSONStreamParser {
     public var allowComments = false
     public var allowTrailingCommas = false
     public var allowUnquotedKeys = false
+    public var keyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
 
     public init(
       completePartialValues: Bool = false,
       allowComments: Bool = false,
       allowTrailingCommas: Bool = false,
-      allowUnquotedKeys: Bool = false
+      allowUnquotedKeys: Bool = false,
+      keyDecodingStrategy: JSONKeyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
     ) {
       self.completePartialValues = completePartialValues
       self.allowComments = allowComments
       self.allowTrailingCommas = allowTrailingCommas
       self.allowUnquotedKeys = allowUnquotedKeys
+      self.keyDecodingStrategy = keyDecodingStrategy
     }
   }
 }
+
+// MARK: - JSONKeyDecodingStrategy
+
+public enum JSONKeyDecodingStrategy: Sendable {
+  case convertFromSnakeCase
+  case useDefault
+  case custom(@Sendable (String) -> String)
+
+  public func decode(key: String) -> String {
+    switch self {
+    case .convertFromSnakeCase: Self.convertFromSnakeCase(key: key)
+    case .useDefault: key
+    case .custom(let decode): decode(key)
+    }
+  }
+
+  private static func convertFromSnakeCase(key: String) -> String {
+    guard !key.isEmpty else { return key }
+    guard let firstNonUnderscore = key.firstIndex(where: { $0 != "_" }) else { return key }
+
+    var lastNonUnderscore = key.index(before: key.endIndex)
+    while lastNonUnderscore > firstNonUnderscore && key[lastNonUnderscore] == "_" {
+      key.formIndex(before: &lastNonUnderscore)
+    }
+
+    let keyRange = firstNonUnderscore...lastNonUnderscore
+    let leadingUnderscoreRange = key.startIndex..<firstNonUnderscore
+    let trailingUnderscoreRange = key.index(after: lastNonUnderscore)..<key.endIndex
+
+    let components = key[keyRange].split(separator: "_")
+    let joinedString: String
+    if components.count == 1 {
+      joinedString = String(key[keyRange])
+    } else {
+      joinedString = ([components[0].lowercased()] + components[1...].map(\.capitalized)).joined()
+    }
+
+    let result: String
+    if leadingUnderscoreRange.isEmpty && trailingUnderscoreRange.isEmpty {
+      result = joinedString
+    } else if !leadingUnderscoreRange.isEmpty && !trailingUnderscoreRange.isEmpty {
+      result =
+        String(key[leadingUnderscoreRange]) + joinedString + String(key[trailingUnderscoreRange])
+    } else if !leadingUnderscoreRange.isEmpty {
+      result = String(key[leadingUnderscoreRange]) + joinedString
+    } else {
+      result = joinedString + String(key[trailingUnderscoreRange])
+    }
+    return result
+  }
+}
+
+// MARK: - Handlers
 
 extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
     public init() {}
 
     public mutating func registerStringHandler(
-      _ keyPath: WritableKeyPath<Reducer, String>
+      _ keyPath: WritableKeyPath<Value, String>
     ) {}
     public mutating func registerBoolHandler(
-      _ keyPath: WritableKeyPath<Reducer, Bool>
+      _ keyPath: WritableKeyPath<Value, Bool>
     ) {}
     public mutating func registerIntHandler(
-      _ keyPath: WritableKeyPath<Reducer, Int>
+      _ keyPath: WritableKeyPath<Value, Int>
     ) {}
     public mutating func registerInt8Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int8>
+      _ keyPath: WritableKeyPath<Value, Int8>
     ) {}
     public mutating func registerInt16Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int16>
+      _ keyPath: WritableKeyPath<Value, Int16>
     ) {}
     public mutating func registerInt32Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int32>
+      _ keyPath: WritableKeyPath<Value, Int32>
     ) {}
     public mutating func registerInt64Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int64>
+      _ keyPath: WritableKeyPath<Value, Int64>
     ) {}
     public mutating func registerUIntHandler(
-      _ keyPath: WritableKeyPath<Reducer, UInt>
+      _ keyPath: WritableKeyPath<Value, UInt>
     ) {}
     public mutating func registerUInt8Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt8>
+      _ keyPath: WritableKeyPath<Value, UInt8>
     ) {}
     public mutating func registerUInt16Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt16>
+      _ keyPath: WritableKeyPath<Value, UInt16>
     ) {}
     public mutating func registerUInt32Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt32>
+      _ keyPath: WritableKeyPath<Value, UInt32>
     ) {}
     public mutating func registerUInt64Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt64>
+      _ keyPath: WritableKeyPath<Value, UInt64>
     ) {}
     public mutating func registerFloatHandler(
-      _ keyPath: WritableKeyPath<Reducer, Float>
+      _ keyPath: WritableKeyPath<Value, Float>
     ) {}
     public mutating func registerDoubleHandler(
-      _ keyPath: WritableKeyPath<Reducer, Double>
+      _ keyPath: WritableKeyPath<Value, Double>
     ) {}
-    public mutating func registerNilHandler<Value>(
-      _ keyPath: WritableKeyPath<Reducer, Value?>
+    public mutating func registerNilHandler<Nullable>(
+      _ keyPath: WritableKeyPath<Value, Nullable?>
     ) {}
 
-    public mutating func registerKeyedHandler<Value: StreamParseableValue>(
+    public mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
       forKey key: String,
-      _ keyPath: WritableKeyPath<Reducer, Value>
+      _ keyPath: WritableKeyPath<Value, Keyed>
     ) {}
 
     public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
       on type: Scoped.Type,
-      _ keyPath: WritableKeyPath<Reducer, Scoped>
+      _ keyPath: WritableKeyPath<Value, Scoped>
     ) {
     }
 
     public mutating func registerArrayHandler(
-      _ keyPath: WritableKeyPath<Reducer, some StreamParseableArrayObject>
+      _ keyPath: WritableKeyPath<Value, some StreamParseableArrayObject>
     ) {
     }
 
     public mutating func registerDictionaryHandler(
-      _ keyPath: WritableKeyPath<Reducer, some StreamParseableDictionaryObject>
+      _ keyPath: WritableKeyPath<Value, some StreamParseableDictionaryObject>
     ) {
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(
-      _ keyPath: WritableKeyPath<Reducer, Int128>
+      _ keyPath: WritableKeyPath<Value, Int128>
     ) {}
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(
-      _ keyPath: WritableKeyPath<Reducer, UInt128>
+      _ keyPath: WritableKeyPath<Value, UInt128>
     ) {}
   }
 }

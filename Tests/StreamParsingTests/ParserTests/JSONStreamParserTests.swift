@@ -495,3 +495,28 @@ private func expectJSONStreamedValues<T: StreamParseableValue & Equatable>(
   )
   expectNoDifference(values, expected, fileID: file, line: line)
 }
+
+@Suite
+struct `JSONKeyDecodingStrategy tests` {
+  @Test(
+    arguments: [
+      ("", ""),
+      ("simple_key", "simpleKey"),
+      ("more_complex_snake_case_value", "moreComplexSnakeCaseValue"),
+      ("alreadyCamelCase", "alreadyCamelCase"),
+      ("_", "_"),
+      ("___", "___"),
+      ("1_value", "1Value"),
+      ("snake__case", "snakeCase"),
+      ("snake_case__", "snakeCase__"),
+      ("snake_case_with_123", "snakeCaseWith123")
+    ]
+  )
+  func `ConvertFromSnakeCase Converts Snake Cased Keys`(
+    input: String,
+    expected: String
+  ) throws {
+    let strategy = JSONKeyDecodingStrategy.convertFromSnakeCase
+    expectNoDifference(strategy.decode(key: input), expected)
+  }
+}
