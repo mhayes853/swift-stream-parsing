@@ -128,4 +128,24 @@
       NSDecimalNumber(decimal: self)
     }
   }
+
+  // MARK: - PersonNameComponents
+
+  extension PersonNameComponents: StreamParseable, StreamParseableValue {
+    public typealias Partial = Self
+
+    public static func initialParseableValue() -> Self {
+      Self()
+    }
+
+    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+      handlers.registerKeyedHandler(forKey: "familyName", \.familyName)
+      handlers.registerKeyedHandler(forKey: "givenName", \.givenName)
+      handlers.registerKeyedHandler(forKey: "middleName", \.middleName)
+      handlers.registerKeyedHandler(forKey: "namePrefix", \.namePrefix)
+      handlers.registerKeyedHandler(forKey: "nameSuffix", \.nameSuffix)
+      handlers.registerKeyedHandler(forKey: "nickname", \.nickname)
+      handlers.registerKeyedHandler(forKey: "phoneticRepresentation", \.phoneticRepresentation)
+    }
+  }
 #endif
