@@ -7,7 +7,9 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
     mutating func registerStringHandler(
       _ keyPath: WritableKeyPath<Reducer, String>
     ) {
-      fatalError("MockParser only supports integer handlers")
+      self.storage[.string] = { (reducer: inout Reducer, value: String) in
+        reducer[keyPath: keyPath] = value
+      }
     }
 
     mutating func registerBoolHandler(
@@ -152,6 +154,9 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       if let typed = other.storage[.nilValue] as? (inout Scoped) -> Void {
         self.storage[.nilValue] = self.bridgeNil(typed, keyPath: keyPath)
       }
+      if let typed = other.storage[.string] as? (inout Scoped, String) -> Void {
+        self.storage[.string] = self.bridgeString(typed, keyPath: keyPath)
+      }
       if let typed = other.storage[.arrayAppend] as? (inout Scoped, Int) -> Void {
         self.storage[.arrayAppend] = self.bridgeArrayAppend(typed, keyPath: keyPath)
       }
@@ -175,6 +180,15 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
     ) -> (inout Reducer) -> Void {
       { reducer in
         handler(&reducer[keyPath: keyPath])
+      }
+    }
+
+    private func bridgeString<Scoped>(
+      _ handler: @escaping (inout Scoped, String) -> Void,
+      keyPath: WritableKeyPath<Reducer, Scoped>
+    ) -> (inout Reducer, String) -> Void {
+      { reducer, value in
+        handler(&reducer[keyPath: keyPath], value)
       }
     }
 
@@ -205,6 +219,8 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
         self.call(.int, into: &reducer, value: value)
       case .nilValue:
         self.callNil(.nilValue, into: &reducer)
+      case .string(let value):
+        self.callString(.string, into: &reducer, value: value)
       case .arrayAppend:
         self.callArrayAppend(.arrayAppend, into: &reducer, value: .initialReduceableValue())
       case .arraySet(let index, let value):
@@ -218,6 +234,15 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       value: Int
     ) {
       guard let handler = self.storage[key] as? (inout Reducer, Int) -> Void else { return }
+      handler(&reducer, value)
+    }
+
+    private func callString(
+      _ key: MockHandlerKey,
+      into reducer: inout Reducer,
+      value: String
+    ) {
+      guard let handler = self.storage[key] as? (inout Reducer, String) -> Void else { return }
       handler(&reducer, value)
     }
 
@@ -249,6 +274,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
   enum MockHandlerInvocation {
     case int(Int)
     case nilValue
+    case string(String)
     case arrayAppend
     case arraySet(index: Int, value: Int)
   }
@@ -256,6 +282,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
   enum MockHandlerKey: Hashable {
     case int
     case nilValue
+    case string
     case arrayAppend
     case arraySet
   }
