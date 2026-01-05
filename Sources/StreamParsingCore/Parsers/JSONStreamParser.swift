@@ -1,6 +1,6 @@
 // MARK: - JSONStreamParser
 
-public struct JSONStreamParser<Reducer: StreamParseableReducer>: StreamParser {
+public struct JSONStreamParser<Reducer: StreamParseableValue>: StreamParser {
   public let configuration: JSONStreamParser.Configuration
   private var handlers = Handlers()
 
@@ -100,15 +100,15 @@ extension JSONStreamParser {
       _ keyPath: WritableKeyPath<Reducer, Value?>
     ) {}
 
-    public mutating func registerScopedHandlers<Scoped: StreamParseableReducer>(
+    public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
       on type: Scoped.Type,
       _ keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
     }
 
-    public mutating func registerArrayHandler<Collection: RangeReplaceableCollection>(
-      _ keyPath: WritableKeyPath<Reducer, Collection>
-    ) where Collection.Element: StreamParseableReducer, Collection.Index == Int {
+    public mutating func registerArrayHandler(
+      _ keyPath: WritableKeyPath<Reducer, some StreamParseableArrayObject>
+    ) {
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)

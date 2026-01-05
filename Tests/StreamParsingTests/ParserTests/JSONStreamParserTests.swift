@@ -481,7 +481,7 @@ struct `JSONStreamParser tests` {
   }
 }
 
-private func expectJSONStreamedValues<T: StreamParseableReducer & Equatable>(
+private func expectJSONStreamedValues<T: StreamParseableValue & Equatable>(
   _ json: String,
   configuration: JSONStreamParser<T>.Configuration = JSONStreamParser<T>.Configuration(),
   initialValue: T,

@@ -5,9 +5,9 @@
     public typealias Partial = Tagged<Tag, RawValue.Partial>
   }
 
-  extension Tagged: StreamParseableReducer where RawValue: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
-      Tagged(rawValue: .initialReduceableValue())
+  extension Tagged: StreamParseableValue where RawValue: StreamParseableValue {
+    public static func initialParseableValue() -> Self {
+      Tagged(rawValue: .initialParseableValue())
     }
 
     public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {

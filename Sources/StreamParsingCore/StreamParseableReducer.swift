@@ -1,22 +1,30 @@
-// MARK: - StreamParseableReducer
+// MARK: - StreamParseableValue
 
-public protocol StreamParseableReducer {
-  static func initialReduceableValue() -> Self
+public protocol StreamParseableValue {
+  static func initialParseableValue() -> Self
   static func registerHandlers<Handlers: StreamParserHandlers<Self>>(
     in handlers: inout Handlers
   )
 }
 
-// MARK: - Default Initial Values
-
-extension StreamParseableReducer where Self: BinaryInteger {
-  public static func initialReduceableValue() -> Self {
+extension StreamParseableValue where Self: BinaryInteger {
+  public static func initialParseableValue() -> Self {
     Self()
   }
 }
 
-extension StreamParseableReducer where Self: BinaryFloatingPoint {
-  public static func initialReduceableValue() -> Self {
+extension StreamParseableValue where Self: BinaryFloatingPoint {
+  public static func initialParseableValue() -> Self {
     .zero
   }
+}
+
+// MARK: - StreamParseableArrayObject
+
+public protocol StreamParseableArrayObject<Element> {
+  associatedtype Element: StreamParseableValue
+
+  subscript(index: Int) -> Element { get set }
+
+  mutating func append(contentsOf sequence: some Sequence<Element>)
 }

@@ -1,6 +1,6 @@
 // MARK: - PartialsStream
 
-public struct PartialsStream<Value: StreamParseableReducer, Parser: StreamParser<Value>> {
+public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<Value>> {
   @usableFromInline
   var parser: Parser
 

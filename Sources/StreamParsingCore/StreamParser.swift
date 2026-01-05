@@ -1,7 +1,7 @@
 // MARK: - StreamParser
 
 public protocol StreamParser<Reducer> {
-  associatedtype Reducer: StreamParseableReducer
+  associatedtype Reducer: StreamParseableValue
   associatedtype Handlers: StreamParserHandlers<Reducer>
 
   mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Reducer) throws
@@ -15,7 +15,7 @@ extension StreamParser {
 // MARK: - StreamParserHandlers
 
 public protocol StreamParserHandlers<Reducer> {
-  associatedtype Reducer: StreamParseableReducer
+  associatedtype Reducer: StreamParseableValue
 
   mutating func registerStringHandler(
     _ keyPath: WritableKeyPath<Reducer, String>
@@ -68,16 +68,16 @@ public protocol StreamParserHandlers<Reducer> {
     _ keyPath: WritableKeyPath<Reducer, Double>
   )
 
-  mutating func registerNilHandler<Value: StreamParseableReducer>(
+  mutating func registerNilHandler<Value: StreamParseableValue>(
     _ keyPath: WritableKeyPath<Reducer, Value?>
   )
 
-  mutating func registerScopedHandlers<Scoped: StreamParseableReducer>(
+  mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
     on type: Scoped.Type,
     _ keyPath: WritableKeyPath<Reducer, Scoped>
   )
 
-  mutating func registerArrayHandler<Collection: RangeReplaceableCollection>(
-    _ keyPath: WritableKeyPath<Reducer, Collection>
-  ) where Collection.Element: StreamParseableReducer, Collection.Index == Int
+  mutating func registerArrayHandler(
+    _ keyPath: WritableKeyPath<Reducer, some StreamParseableArrayObject>
+  )
 }

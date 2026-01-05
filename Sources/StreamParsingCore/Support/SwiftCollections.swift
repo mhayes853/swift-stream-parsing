@@ -7,8 +7,8 @@
     public typealias Partial = Deque<Element.Partial>
   }
 
-  extension Deque: StreamParseableReducer where Element: StreamParseableReducer {
-    public static func initialReduceableValue() -> Deque<Element> {
+  extension Deque: StreamParseableValue where Element: StreamParseableValue {
+    public static func initialParseableValue() -> Deque<Element> {
       []
     }
 
@@ -18,6 +18,8 @@
       handlers.registerArrayHandler(\.self)
     }
   }
+
+  extension Deque: StreamParseableArrayObject where Element: StreamParseableValue {}
 
   // MARK: - BitArray
 
@@ -25,8 +27,8 @@
     public typealias Partial = Self
   }
 
-  extension BitArray: StreamParseableReducer {
-    public static func initialReduceableValue() -> BitArray {
+  extension BitArray: StreamParseableValue {
+    public static func initialParseableValue() -> BitArray {
       []
     }
 
@@ -37,15 +39,17 @@
     }
   }
 
+  extension BitArray: StreamParseableArrayObject {}
+
   // MARK: - OrderedDictionary
 
   extension OrderedDictionary: StreamParseable where Key == String, Value: StreamParseable {
     public typealias Partial = OrderedDictionary<String, Value.Partial>
   }
 
-  extension OrderedDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {
-    public static func initialReduceableValue() -> OrderedDictionary<String, Value> {
+  extension OrderedDictionary: StreamParseableValue
+  where Key == String, Value: StreamParseableValue {
+    public static func initialParseableValue() -> OrderedDictionary<String, Value> {
       [:]
     }
 
@@ -60,9 +64,9 @@
     public typealias Partial = TreeDictionary<String, Value.Partial>
   }
 
-  extension TreeDictionary: StreamParseableReducer
-  where Key == String, Value: StreamParseableReducer {
-    public static func initialReduceableValue() -> TreeDictionary<String, Value> {
+  extension TreeDictionary: StreamParseableValue
+  where Key == String, Value: StreamParseableValue {
+    public static func initialParseableValue() -> TreeDictionary<String, Value> {
       [:]
     }
 

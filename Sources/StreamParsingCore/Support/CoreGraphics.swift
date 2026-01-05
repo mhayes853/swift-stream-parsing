@@ -5,7 +5,7 @@
     public typealias Partial = Self
   }
 
-  extension CGFloat: StreamParseableReducer {
+  extension CGFloat: StreamParseableValue {
     public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
       handlers.registerDoubleHandler(\.streamParsingDoubleValue)
     }

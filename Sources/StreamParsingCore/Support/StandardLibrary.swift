@@ -4,8 +4,8 @@ extension String: StreamParseable {
   public typealias Partial = Self
 }
 
-extension String: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
+extension String: StreamParseableValue {
+  public static func initialParseableValue() -> Self {
     ""
   }
 
@@ -20,7 +20,7 @@ extension Double: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Double: StreamParseableReducer {
+extension Double: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerDoubleHandler(\.self)
   }
@@ -32,7 +32,7 @@ extension Float: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Float: StreamParseableReducer {
+extension Float: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerFloatHandler(\.self)
   }
@@ -44,8 +44,8 @@ extension Bool: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Bool: StreamParseableReducer {
-  public static func initialReduceableValue() -> Self {
+extension Bool: StreamParseableValue {
+  public static func initialParseableValue() -> Self {
     false
   }
 
@@ -60,7 +60,7 @@ extension Int8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int8: StreamParseableReducer {
+extension Int8: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt8Handler(\.self)
   }
@@ -72,7 +72,7 @@ extension Int16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int16: StreamParseableReducer {
+extension Int16: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt16Handler(\.self)
   }
@@ -83,7 +83,7 @@ extension Int32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int32: StreamParseableReducer {
+extension Int32: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt32Handler(\.self)
   }
@@ -95,7 +95,7 @@ extension Int64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int64: StreamParseableReducer {
+extension Int64: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt64Handler(\.self)
   }
@@ -107,7 +107,7 @@ extension Int: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int: StreamParseableReducer {
+extension Int: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerIntHandler(\.self)
   }
@@ -119,7 +119,7 @@ extension UInt8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt8: StreamParseableReducer {
+extension UInt8: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt8Handler(\.self)
   }
@@ -131,7 +131,7 @@ extension UInt16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt16: StreamParseableReducer {
+extension UInt16: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt16Handler(\.self)
   }
@@ -143,7 +143,7 @@ extension UInt32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt32: StreamParseableReducer {
+extension UInt32: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt32Handler(\.self)
   }
@@ -155,7 +155,7 @@ extension UInt64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt64: StreamParseableReducer {
+extension UInt64: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt64Handler(\.self)
   }
@@ -167,7 +167,7 @@ extension UInt: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt: StreamParseableReducer {
+extension UInt: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUIntHandler(\.self)
   }
@@ -181,7 +181,7 @@ extension Int128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension Int128: StreamParseableReducer {
+extension Int128: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt128Handler(\.self)
   }
@@ -195,7 +195,7 @@ extension UInt128: StreamParseable {
 }
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension UInt128: StreamParseableReducer {
+extension UInt128: StreamParseableValue {
   public static func registerHandlers(
     in handlers: inout some StreamParserHandlers<Self>
   ) {
@@ -209,8 +209,8 @@ extension Array: StreamParseable where Element: StreamParseable {
   public typealias Partial = [Element.Partial]
 }
 
-extension Array: StreamParseableReducer where Element: StreamParseableReducer {
-  public static func initialReduceableValue() -> [Element] {
+extension Array: StreamParseableValue where Element: StreamParseableValue {
+  public static func initialParseableValue() -> [Element] {
     []
   }
 
@@ -219,14 +219,16 @@ extension Array: StreamParseableReducer where Element: StreamParseableReducer {
   }
 }
 
+extension Array: StreamParseableArrayObject where Element: StreamParseableValue {}
+
 // MARK: - Dictionary
 
 extension Dictionary: StreamParseable where Key == String, Value: StreamParseable {
   public typealias Partial = [String: Value.Partial]
 }
 
-extension Dictionary: StreamParseableReducer where Key == String, Value: StreamParseableReducer {
-  public static func initialReduceableValue() -> [String: Value] {
+extension Dictionary: StreamParseableValue where Key == String, Value: StreamParseableValue {
+  public static func initialParseableValue() -> [String: Value] {
     [:]
   }
 
@@ -239,9 +241,9 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
   public typealias Partial = Wrapped.Partial?
 }
 
-extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer {
-  public static func initialReduceableValue() -> Wrapped? {
-    Wrapped.initialReduceableValue()
+extension Optional: StreamParseableValue where Wrapped: StreamParseableValue {
+  public static func initialParseableValue() -> Wrapped? {
+    Wrapped.initialParseableValue()
   }
 
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
@@ -250,7 +252,7 @@ extension Optional: StreamParseableReducer where Wrapped: StreamParseableReducer
   }
 
   private var streamParsingWrappedValue: Wrapped {
-    get { self ?? Wrapped.initialReduceableValue() }
+    get { self ?? Wrapped.initialParseableValue() }
     set { self = newValue }
   }
 }

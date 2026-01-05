@@ -1,3 +1,3 @@
 public protocol StreamParseable {
-  associatedtype Partial: StreamParseableReducer
+  associatedtype Partial: StreamParseableValue
 }

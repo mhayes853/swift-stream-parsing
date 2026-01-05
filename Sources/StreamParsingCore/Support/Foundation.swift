@@ -7,8 +7,8 @@
     public typealias Partial = Self
   }
 
-  extension Data: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
+  extension Data: StreamParseableValue {
+    public static func initialParseableValue() -> Self {
       Self()
     }
 
@@ -28,8 +28,8 @@
     public typealias Partial = Self
   }
 
-  extension Decimal: StreamParseableReducer {
-    public static func initialReduceableValue() -> Self {
+  extension Decimal: StreamParseableValue {
+    public static func initialParseableValue() -> Self {
       Decimal(0)
     }
 

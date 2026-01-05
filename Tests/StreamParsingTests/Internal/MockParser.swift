@@ -1,6 +1,6 @@
 import StreamParsing
 
-struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
+struct MockParser<Reducer: StreamParseableValue>: StreamParser {
   struct Handlers: StreamParserHandlers {
     private var storage = [MockHandlerKey: Any]()
 
@@ -76,7 +76,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       }
     }
 
-    mutating func registerNilHandler<Value: StreamParseableReducer>(
+    mutating func registerNilHandler<Value: StreamParseableValue>(
       _ keyPath: WritableKeyPath<Reducer, Value?>
     ) {
       self.storage[.nilValue] = { (reducer: inout Reducer) in
@@ -84,7 +84,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       }
     }
 
-    mutating func registerScopedHandlers<Scoped: StreamParseableReducer>(
+    mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
       on type: Scoped.Type,
       _ keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
@@ -93,23 +93,21 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       self.mergeScoped(from: scoped, keyPath: keyPath)
     }
 
-    mutating func registerArrayHandler<Collection: RangeReplaceableCollection>(
-      _ keyPath: WritableKeyPath<Reducer, Collection>
-    ) where Collection.Element: StreamParseableReducer, Collection.Index == Int {
-      guard Collection.Element.self == Int.self else {
+    mutating func registerArrayHandler<C: StreamParseableArrayObject>(
+      _ keyPath: WritableKeyPath<Reducer, C>
+    ) {
+      guard C.Element.self == Int.self else {
         return
       }
       self.storage[.arrayAppend] = { (reducer: inout Reducer, value: Int) in
         var collection = reducer[keyPath: keyPath]
-        let element = value as! Collection.Element
-        collection.append(element)
+        let element = value as! C.Element
+        collection.append(contentsOf: CollectionOfOne(element))
         reducer[keyPath: keyPath] = collection
       }
       self.storage[.arraySet] = { (reducer: inout Reducer, index: Int, value: Int) in
         var collection = reducer[keyPath: keyPath]
-        guard index >= 0, index < collection.count else { return }
-        let element = value as! Collection.Element
-        collection.replaceSubrange(index...index, with: [element])
+        collection[index] = value as! C.Element
         reducer[keyPath: keyPath] = collection
       }
     }
@@ -128,7 +126,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
       _ keyPath: WritableKeyPath<Reducer, UInt128>
     ) {}
 
-    private mutating func mergeScoped<Scoped: StreamParseableReducer>(
+    private mutating func mergeScoped<Scoped: StreamParseableValue>(
       from other: MockParser<Scoped>.Handlers,
       keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
@@ -253,7 +251,7 @@ struct MockParser<Reducer: StreamParseableReducer>: StreamParser {
           self.callInt128(.int128, into: &reducer, high: high, low: low)
         }
       case .arrayAppend:
-        self.callArrayAppend(.arrayAppend, into: &reducer, value: .initialReduceableValue())
+        self.callArrayAppend(.arrayAppend, into: &reducer, value: .initialParseableValue())
       case .arraySet(let index, let value):
         self.callArraySet(.arraySet, into: &reducer, index: index, value: value)
       }
