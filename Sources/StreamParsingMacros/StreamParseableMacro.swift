@@ -78,8 +78,12 @@ public enum StreamParseableMacro: ExtensionMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
+    let registerHandlersLines = self.partialStructRegisterHandlers(
+      from: properties,
+      modifierPrefix: modifierPrefix
+    )
     return """
-      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableReducer,
+      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableValue,
         StreamParsingCore.StreamParseable {
         \(raw: modifierPrefix)typealias Partial = Self
 
@@ -87,9 +91,11 @@ public enum StreamParseableMacro: ExtensionMacro {
 
         \(raw: initializerLines)
 
-        \(raw: modifierPrefix)static func initialReduceableValue() -> Self {
+        \(raw: modifierPrefix)static func initialParseableValue() -> Self {
           Self()
         }
+
+        \(raw: registerHandlersLines)
       }
       """
   }
@@ -136,6 +142,25 @@ public enum StreamParseableMacro: ExtensionMacro {
       """
   }
 
+  private static func partialStructRegisterHandlers(
+    from properties: [StoredProperty],
+    modifierPrefix: String
+  ) -> String {
+    let lines =
+      properties
+      .map { property in
+        "    handlers.registerKeyedHandler(forKey: \"\(property.name)\", \\.\(property.name))"
+      }
+      .joined(separator: "\n")
+    return """
+      \(modifierPrefix)static func registerHandlers(
+          in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+        ) {
+      \(lines)
+        }
+      """
+  }
+
   private static func accessModifier(for declaration: StructDeclSyntax) -> String? {
     for modifier in declaration.modifiers {
       switch modifier.name.tokenKind {
@@ -157,16 +182,9 @@ public enum StreamParseableMacro: ExtensionMacro {
   }
 
   private static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {
-    guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else {
-      return .optional
-    }
-    let modeArgument =
-      arguments.first { argument in
-        argument.label?.text == "partialMembers"
-      } ?? arguments.first
-    guard let expression = modeArgument?.expression else {
-      return .optional
-    }
+    guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else { return .optional }
+    let modeArgument = arguments.first { $0.label?.text == "partialMembers" } ?? arguments.first
+    guard let expression = modeArgument?.expression else { return .optional }
     return PartialMembersMode.parse(from: expression) ?? .optional
   }
 }
@@ -207,19 +225,19 @@ extension StreamParseableMacro {
 extension StreamParseableMacro {
   private enum PartialMembersMode: Hashable {
     case optional
-    case initialReduceableValue
+    case initialParseableValue
 
     var defaultValueSyntax: String {
       switch self {
       case .optional: "nil"
-      case .initialReduceableValue: ".initialReduceableValue()"
+      case .initialParseableValue: ".initialParseableValue()"
       }
     }
 
     static func parse(from expression: ExprSyntax) -> Self? {
       switch self.memberName(from: expression) {
       case "optional": .optional
-      case "initialReduceableValue": .initialReduceableValue
+      case "initialParseableValue": .initialParseableValue
       default: nil
       }
     }

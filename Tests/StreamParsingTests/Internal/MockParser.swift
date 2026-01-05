@@ -84,6 +84,11 @@ struct MockParser<Reducer: StreamParseableValue>: StreamParser {
       }
     }
 
+    mutating func registerKeyedHandler<Value: StreamParseableValue>(
+      forKey key: String,
+      _ keyPath: WritableKeyPath<Reducer, Value>
+    ) {}
+
     mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
       on type: Scoped.Type,
       _ keyPath: WritableKeyPath<Reducer, Scoped>

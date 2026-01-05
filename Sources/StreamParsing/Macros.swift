@@ -8,5 +8,5 @@ public macro StreamParseable(partialMembers: _PartialMembersMode = .optional) =
 
 public struct _PartialMembersMode: Sendable {
   public static let optional = Self()
-  public static let initialReduceableValue = Self()
+  public static let initialParseableValue = Self()
 }

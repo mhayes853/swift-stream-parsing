@@ -15,14 +15,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
           var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
+          struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
@@ -37,12 +37,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialReduceableValue() -> Self {
+            static func initialParseableValue() -> Self {
               Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
     }
 
@@ -57,137 +64,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
           var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
-            StreamParsingCore.StreamParseable {
-            typealias Partial = Self
-
-            var name: String.Partial
-            var age: Int.Partial
-
-            init(
-              name: String.Partial = .initialReduceableValue(),
-              age: Int.Partial = .initialReduceableValue()
-            ) {
-              self.name = name
-              self.age = age
-            }
-
-            static func initialReduceableValue() -> Self {
-              Self()
-            }
-          }
-        }
-        """
-      }
-    }
-
-    @Test
-    func `Initial Reduceable Value Members With Optionals`() {
-      assertMacro {
-        """
-        @StreamParseable(partialMembers: .initialReduceableValue)
-        struct Person {
-          var name: String?
-          var age: Int?
-        }
-        """
-      } expansion: {
-        """
-        struct Person {
-          var name: String?
-          var age: Int?
-        }
-
-        extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
-            StreamParsingCore.StreamParseable {
-            typealias Partial = Self
-
-            var name: String?.Partial
-            var age: Int?.Partial
-
-            init(
-              name: String?.Partial = .initialReduceableValue(),
-              age: Int?.Partial = .initialReduceableValue()
-            ) {
-              self.name = name
-              self.age = age
-            }
-
-            static func initialReduceableValue() -> Self {
-              Self()
-            }
-          }
-        }
-        """
-      }
-    }
-
-    @Test
-    func `Does Not Convert Static`() {
-      assertMacro {
-        """
-        @StreamParseable
-        struct Person {
-          static var name: String
-          var age: Int
-        }
-        """
-      } expansion: {
-        """
-        struct Person {
-          static var name: String
-          var age: Int
-        }
-
-        extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
-            StreamParsingCore.StreamParseable {
-            typealias Partial = Self
-
-            var age: Int.Partial?
-
-            init(
-              age: Int.Partial? = nil
-            ) {
-              self.age = age
-            }
-
-            static func initialReduceableValue() -> Self {
-              Self()
-            }
-          }
-        }
-        """
-      }
-    }
-
-    @Test
-    func `Converts Read-Only Members`() {
-      assertMacro {
-        """
-        @StreamParseable
-        struct Person {
-          let name: String
-          let age: Int
-        }
-        """
-      } expansion: {
-        """
-        struct Person {
-          let name: String
-          let age: Int
-        }
-
-        extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
+          struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
@@ -202,12 +86,162 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialReduceableValue() -> Self {
+            static func initialParseableValue() -> Self {
               Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
+        """#
+      }
+    }
+
+    @Test
+    func `Initial Reduceable Value Members With Optionals`() {
+      assertMacro {
         """
+        @StreamParseable(partialMembers: .initialReduceableValue)
+        struct Person {
+          var name: String?
+          var age: Int?
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String?
+          var age: Int?
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String?.Partial?
+            var age: Int?.Partial?
+
+            init(
+              name: String?.Partial? = nil,
+              age: Int?.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
+      }
+    }
+
+    @Test
+    func `Does Not Convert Static`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          static var name: String
+          var age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          static var name: String
+          var age: Int
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var age: Int.Partial?
+
+            init(
+              age: Int.Partial? = nil
+            ) {
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
+      }
+    }
+
+    @Test
+    func `Converts Read-Only Members`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          let name: String
+          let age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          let name: String
+          let age: Int
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+            var age: Int.Partial?
+
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
       }
     }
 
@@ -338,14 +372,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           public var name: String
           public var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableReducer,
+          public struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             public typealias Partial = Self
 
@@ -360,12 +394,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialReduceableValue() -> Self {
+            public static func initialParseableValue() -> Self {
               Self()
+            }
+
+            public static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
       assertMacro {
         """
@@ -376,14 +417,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         private struct Person {
           var name: String
           var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableReducer,
+          struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
@@ -398,12 +439,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialReduceableValue() -> Self {
+            static func initialParseableValue() -> Self {
               Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
       assertMacro {
         """
@@ -414,14 +462,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         fileprivate struct Person {
           var name: String
           var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          fileprivate struct Partial: StreamParsingCore.StreamParseableReducer,
+          fileprivate struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             fileprivate typealias Partial = Self
 
@@ -436,12 +484,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            fileprivate static func initialReduceableValue() -> Self {
+            fileprivate static func initialParseableValue() -> Self {
               Self()
+            }
+
+            fileprivate static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
     }
 
@@ -456,14 +511,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           private var name: String
           private var age: Int
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableReducer,
+          public struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             public typealias Partial = Self
 
@@ -478,12 +533,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialReduceableValue() -> Self {
+            public static func initialParseableValue() -> Self {
               Self()
+            }
+
+            public static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
     }
 
@@ -498,14 +560,14 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           private var name: String?
           private var age: Optional<Int>
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableReducer,
+          public struct Partial: StreamParsingCore.StreamParseableValue,
             StreamParsingCore.StreamParseable {
             public typealias Partial = Self
 
@@ -520,12 +582,19 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialReduceableValue() -> Self {
+            public static func initialParseableValue() -> Self {
               Self()
+            }
+
+            public static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }
         }
-        """
+        """#
       }
     }
   }
