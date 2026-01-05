@@ -55,64 +55,64 @@ extension JSONStreamParser {
     public init() {}
 
     public mutating func registerStringHandler(
-      _ handler: @escaping (inout Reducer, String) -> Void
+      _ keyPath: WritableKeyPath<Reducer, String>
     ) {}
     public mutating func registerBoolHandler(
-      _ handler: @escaping (inout Reducer, Bool) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Bool>
     ) {}
     public mutating func registerIntHandler(
-      _ handler: @escaping (inout Reducer, Int) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int>
     ) {}
     public mutating func registerInt8Handler(
-      _ handler: @escaping (inout Reducer, Int8) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int8>
     ) {}
     public mutating func registerInt16Handler(
-      _ handler: @escaping (inout Reducer, Int16) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int16>
     ) {}
     public mutating func registerInt32Handler(
-      _ handler: @escaping (inout Reducer, Int32) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int32>
     ) {}
     public mutating func registerInt64Handler(
-      _ handler: @escaping (inout Reducer, Int64) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int64>
     ) {}
     public mutating func registerUIntHandler(
-      _ handler: @escaping (inout Reducer, UInt) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt>
     ) {}
     public mutating func registerUInt8Handler(
-      _ handler: @escaping (inout Reducer, UInt8) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt8>
     ) {}
     public mutating func registerUInt16Handler(
-      _ handler: @escaping (inout Reducer, UInt16) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt16>
     ) {}
     public mutating func registerUInt32Handler(
-      _ handler: @escaping (inout Reducer, UInt32) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt32>
     ) {}
     public mutating func registerUInt64Handler(
-      _ handler: @escaping (inout Reducer, UInt64) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt64>
     ) {}
     public mutating func registerFloatHandler(
-      _ handler: @escaping (inout Reducer, Float) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Float>
     ) {}
     public mutating func registerDoubleHandler(
-      _ handler: @escaping (inout Reducer, Double) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Double>
     ) {}
-    public mutating func registerNilHandler(
-      _ handler: @escaping (inout Reducer) -> Void
+    public mutating func registerNilHandler<Value>(
+      _ keyPath: WritableKeyPath<Reducer, Value?>
     ) {}
 
     public mutating func registerScopedHandlers<Scoped: StreamParseableReducer>(
       on type: Scoped.Type,
-      _ body: (inout Reducer, (inout Scoped) -> Void) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(
-      _ handler: @escaping (inout Reducer, Int128) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int128>
     ) {}
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(
-      _ handler: @escaping (inout Reducer, UInt128) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt128>
     ) {}
   }
 

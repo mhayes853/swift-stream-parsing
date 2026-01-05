@@ -5,149 +5,149 @@ struct MockSingleValueParser<Reducer: StreamParseableReducer>: StreamParser {
     private var storage = [MockHandlerKey: Any]()
 
     mutating func registerStringHandler(
-      _ handler: @escaping (inout Reducer, String) -> Void
+      _ keyPath: WritableKeyPath<Reducer, String>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerBoolHandler(
-      _ handler: @escaping (inout Reducer, Bool) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Bool>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerIntHandler(
-      _ handler: @escaping (inout Reducer, Int) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int>
     ) {
-      self.storage[.int] = handler
+      self.storage[.int] = { (reducer: inout Reducer, value: Int) in
+        reducer[keyPath: keyPath] = value
+      }
     }
 
     mutating func registerInt8Handler(
-      _ handler: @escaping (inout Reducer, Int8) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int8>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerInt16Handler(
-      _ handler: @escaping (inout Reducer, Int16) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int16>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerInt32Handler(
-      _ handler: @escaping (inout Reducer, Int32) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int32>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerInt64Handler(
-      _ handler: @escaping (inout Reducer, Int64) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int64>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerUIntHandler(
-      _ handler: @escaping (inout Reducer, UInt) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerUInt8Handler(
-      _ handler: @escaping (inout Reducer, UInt8) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt8>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerUInt16Handler(
-      _ handler: @escaping (inout Reducer, UInt16) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt16>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerUInt32Handler(
-      _ handler: @escaping (inout Reducer, UInt32) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt32>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerUInt64Handler(
-      _ handler: @escaping (inout Reducer, UInt64) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt64>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerFloatHandler(
-      _ handler: @escaping (inout Reducer, Float) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Float>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     mutating func registerDoubleHandler(
-      _ handler: @escaping (inout Reducer, Double) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Double>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
-    mutating func registerNilHandler(
-      _ handler: @escaping (inout Reducer) -> Void
+    mutating func registerNilHandler<Value: StreamParseableReducer>(
+      _ keyPath: WritableKeyPath<Reducer, Value?>
     ) {
-      self.storage[.nilValue] = handler
+      self.storage[.nilValue] = { (reducer: inout Reducer) in
+        reducer[keyPath: keyPath] = nil
+      }
     }
 
     mutating func registerScopedHandlers<Scoped: StreamParseableReducer>(
       on type: Scoped.Type,
-      _ body: @escaping (inout Reducer, (inout Scoped) -> Void) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
       var scoped = MockSingleValueParser<Scoped>.Handlers()
       Scoped.registerHandlers(in: &scoped)
-      self.mergeScoped(from: scoped, body: body)
+      self.mergeScoped(from: scoped, keyPath: keyPath)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     mutating func registerInt128Handler(
-      _ handler: @escaping (inout Reducer, Int128) -> Void
+      _ keyPath: WritableKeyPath<Reducer, Int128>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     mutating func registerUInt128Handler(
-      _ handler: @escaping (inout Reducer, UInt128) -> Void
+      _ keyPath: WritableKeyPath<Reducer, UInt128>
     ) {
       fatalError("MockSingleValueParser only supports integer handlers")
     }
 
     private mutating func mergeScoped<Scoped: StreamParseableReducer>(
       from other: MockSingleValueParser<Scoped>.Handlers,
-      body: @escaping (inout Reducer, (inout Scoped) -> Void) -> Void
+      keyPath: WritableKeyPath<Reducer, Scoped>
     ) {
       if let typed = other.storage[.int] as? (inout Scoped, Int) -> Void {
-        self.storage[.int] = self.bridge(typed, body: body)
+        self.storage[.int] = self.bridge(typed, keyPath: keyPath)
       }
       if let typed = other.storage[.nilValue] as? (inout Scoped) -> Void {
-        self.storage[.nilValue] = self.bridgeNil(typed, body: body)
+        self.storage[.nilValue] = self.bridgeNil(typed, keyPath: keyPath)
       }
     }
 
     private func bridge<Scoped>(
       _ handler: @escaping (inout Scoped, Int) -> Void,
-      body: @escaping (inout Reducer, (inout Scoped) -> Void) -> Void
+      keyPath: WritableKeyPath<Reducer, Scoped>
     ) -> (inout Reducer, Int) -> Void {
       { reducer, input in
-        body(&reducer) {
-          handler(&$0, input)
-        }
+        handler(&reducer[keyPath: keyPath], input)
       }
     }
 
     private func bridgeNil<Scoped>(
       _ handler: @escaping (inout Scoped) -> Void,
-      body: @escaping (inout Reducer, (inout Scoped) -> Void) -> Void
+      keyPath: WritableKeyPath<Reducer, Scoped>
     ) -> (inout Reducer) -> Void {
       { reducer in
-        body(&reducer) {
-          handler(&$0)
-        }
+        handler(&reducer[keyPath: keyPath])
       }
     }
 
