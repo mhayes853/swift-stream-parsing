@@ -474,26 +474,18 @@ private struct UTF8State {
     case 2:
       let b0 = UInt32(self.buffer.0)
       let b1 = UInt32(self.buffer.1)
-      let scalar = ((b0 & .utf8TwoByteMask) << 6) | (b1 & .utf8ContinuationMask)
-      return Unicode.Scalar(scalar)
+      return Unicode.Scalar(((b0 & 0x1F) << 6) | (b1 & 0x3F))
     case 3:
       let b0 = UInt32(self.buffer.0)
       let b1 = UInt32(self.buffer.1)
       let b2 = UInt32(self.buffer.2)
-      let scalar =
-        ((b0 & .utf8ThreeByteMask) << 12) | ((b1 & .utf8ContinuationMask) << 6)
-        | (b2 & .utf8ContinuationMask)
-      return Unicode.Scalar(scalar)
+      return Unicode.Scalar(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F))
     case 4:
       let b0 = UInt32(self.buffer.0)
       let b1 = UInt32(self.buffer.1)
       let b2 = UInt32(self.buffer.2)
       let b3 = UInt32(self.buffer.3)
-      let scalar =
-        ((b0 & .utf8FourByteMask) << 18)
-        | ((b1 & .utf8ContinuationMask) << 12)
-        | ((b2 & .utf8ContinuationMask) << 6)
-        | (b3 & .utf8ContinuationMask)
+      let scalar = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
       return Unicode.Scalar(scalar)
     default:
       return nil
@@ -502,29 +494,10 @@ private struct UTF8State {
 
   private func maxSize(for byte: UInt8) -> UInt8 {
     switch byte {
-    case .utf8TwoByteMin...(.utf8TwoByteMax): 2
-    case .utf8ThreeByteMin...(.utf8ThreeByteMax): 3
-    case .utf8FourByteMin...(.utf8FourByteMax): 4
+    case 0xC2...0xDF: 2
+    case 0xE0...0xEF: 3
+    case 0xF0...0xF4: 4
     default: 1
     }
   }
-}
-
-extension UInt8 {
-  fileprivate static let utf8SingleByteMax: UInt8 = 0x7F
-  fileprivate static let utf8ContinuationMin: UInt8 = 0x80
-  fileprivate static let utf8ContinuationMax: UInt8 = 0xBF
-  fileprivate static let utf8TwoByteMin: UInt8 = 0xC2
-  fileprivate static let utf8TwoByteMax: UInt8 = 0xDF
-  fileprivate static let utf8ThreeByteMin: UInt8 = 0xE0
-  fileprivate static let utf8ThreeByteMax: UInt8 = 0xEF
-  fileprivate static let utf8FourByteMin: UInt8 = 0xF0
-  fileprivate static let utf8FourByteMax: UInt8 = 0xF4
-}
-
-extension UInt32 {
-  fileprivate static let utf8ContinuationMask: UInt32 = 0x3F
-  fileprivate static let utf8TwoByteMask: UInt32 = 0x1F
-  fileprivate static let utf8ThreeByteMask: UInt32 = 0x0F
-  fileprivate static let utf8FourByteMask: UInt32 = 0x07
 }
