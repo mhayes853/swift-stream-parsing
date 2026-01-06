@@ -118,6 +118,8 @@ extension JSONStreamParser {
     private var floatPath: WritableKeyPath<Value, Float>?
     private var doublePath: WritableKeyPath<Value, Double>?
     private var nullablePath: WritableKeyPath<Value, Void?>?
+    private var int128Path: WritableKeyPath<Value, any Sendable>?
+    private var uint128Path: WritableKeyPath<Value, any Sendable>?
     private let configuration: JSONStreamParserConfiguration
 
     init(configuration: JSONStreamParserConfiguration) {
@@ -180,10 +182,10 @@ extension JSONStreamParser {
       self.doublePath = keyPath
     }
 
-    public mutating func registerNilHandler<Nullable>(
+    public mutating func registerNilHandler<Nullable: StreamParseableValue>(
       _ keyPath: WritableKeyPath<Value, Nullable?>
     ) {
-      self.nullablePath = \.[erasing: keyPath]
+      self.nullablePath = keyPath.appending(path: \.nullablePath)
     }
 
     public mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
@@ -255,21 +257,41 @@ extension JSONStreamParser {
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(
       _ keyPath: WritableKeyPath<Value, Int128>
-    ) {}
+    ) {
+      self.int128Path = keyPath.appending(path: \.path)
+    }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(
       _ keyPath: WritableKeyPath<Value, UInt128>
-    ) {}
+    ) {
+      self.int128Path = keyPath.appending(path: \.path)
+    }
   }
 }
 
 // MARK: - StreamParseableValue Helpers
 
-extension StreamParseableValue {
-  fileprivate subscript<Value>(erasing nullablePath: WritableKeyPath<Self, Value?>) -> Void? {
-    get { self[keyPath: nullablePath] != nil ? () : nil }
-    set { self[keyPath: nullablePath] = nil }
+extension Optional where Wrapped: StreamParseableValue {
+  fileprivate var nullablePath: Void? {
+    get { self != nil ? () : nil }
+    set { self = nil }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Int128 {
+  fileprivate var path: any Sendable {
+    get { self }
+    set { self = newValue as! Int128 }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension UInt128 {
+  fileprivate var path: any Sendable {
+    get { self }
+    set { self = newValue as! UInt128 }
   }
 }
 
