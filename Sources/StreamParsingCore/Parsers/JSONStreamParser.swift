@@ -1,11 +1,12 @@
 // MARK: - JSONStreamParser
 
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
-  public let configuration: JSONStreamParser.Configuration
-  private var handlers = Handlers()
+  public let configuration: JSONStreamParserConfiguration
+  private var handlers: Handlers
 
-  public init(configuration: JSONStreamParser.Configuration = JSONStreamParser.Configuration()) {
+  public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
+    self.handlers = Handlers(configuration: configuration)
   }
 
   public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {}
@@ -17,8 +18,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
 extension StreamParser {
   public static func json<Reducer>(
-    configuration: JSONStreamParser<Reducer>.Configuration =
-      JSONStreamParser<Reducer>.Configuration()
+    configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()
   ) -> Self where Self == JSONStreamParser<Reducer> {
     JSONStreamParser(configuration: configuration)
   }
@@ -26,27 +26,25 @@ extension StreamParser {
 
 // MARK: - Configuration
 
-extension JSONStreamParser {
-  public struct Configuration: Sendable {
-    public var completePartialValues = false
-    public var allowComments = false
-    public var allowTrailingCommas = false
-    public var allowUnquotedKeys = false
-    public var keyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
+public struct JSONStreamParserConfiguration: Sendable {
+  public var completePartialValues = false
+  public var allowComments = false
+  public var allowTrailingCommas = false
+  public var allowUnquotedKeys = false
+  public var keyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
 
-    public init(
-      completePartialValues: Bool = false,
-      allowComments: Bool = false,
-      allowTrailingCommas: Bool = false,
-      allowUnquotedKeys: Bool = false,
-      keyDecodingStrategy: JSONKeyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
-    ) {
-      self.completePartialValues = completePartialValues
-      self.allowComments = allowComments
-      self.allowTrailingCommas = allowTrailingCommas
-      self.allowUnquotedKeys = allowUnquotedKeys
-      self.keyDecodingStrategy = keyDecodingStrategy
-    }
+  public init(
+    completePartialValues: Bool = false,
+    allowComments: Bool = false,
+    allowTrailingCommas: Bool = false,
+    allowUnquotedKeys: Bool = false,
+    keyDecodingStrategy: JSONKeyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
+  ) {
+    self.completePartialValues = completePartialValues
+    self.allowComments = allowComments
+    self.allowTrailingCommas = allowTrailingCommas
+    self.allowUnquotedKeys = allowUnquotedKeys
+    self.keyDecodingStrategy = keyDecodingStrategy
   }
 }
 
@@ -105,53 +103,88 @@ public enum JSONKeyDecodingStrategy: Sendable {
 
 extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
-    public init() {}
+    private var stringPath: WritableKeyPath<Value, String>?
+    private var boolPath: WritableKeyPath<Value, Bool>?
+    private var intPath: WritableKeyPath<Value, Int>?
+    private var int8Path: WritableKeyPath<Value, Int8>?
+    private var int16Path: WritableKeyPath<Value, Int16>?
+    private var int32Path: WritableKeyPath<Value, Int32>?
+    private var int64Path: WritableKeyPath<Value, Int64>?
+    private var uintPath: WritableKeyPath<Value, UInt>?
+    private var uint8Path: WritableKeyPath<Value, UInt8>?
+    private var uint16Path: WritableKeyPath<Value, UInt16>?
+    private var uint32Path: WritableKeyPath<Value, UInt32>?
+    private var uint64Path: WritableKeyPath<Value, UInt64>?
+    private var floatPath: WritableKeyPath<Value, Float>?
+    private var doublePath: WritableKeyPath<Value, Double>?
+    private var nullablePath: WritableKeyPath<Value, Void?>?
+    private let configuration: JSONStreamParserConfiguration
 
-    public mutating func registerStringHandler(
-      _ keyPath: WritableKeyPath<Value, String>
-    ) {}
-    public mutating func registerBoolHandler(
-      _ keyPath: WritableKeyPath<Value, Bool>
-    ) {}
-    public mutating func registerIntHandler(
-      _ keyPath: WritableKeyPath<Value, Int>
-    ) {}
-    public mutating func registerInt8Handler(
-      _ keyPath: WritableKeyPath<Value, Int8>
-    ) {}
-    public mutating func registerInt16Handler(
-      _ keyPath: WritableKeyPath<Value, Int16>
-    ) {}
-    public mutating func registerInt32Handler(
-      _ keyPath: WritableKeyPath<Value, Int32>
-    ) {}
-    public mutating func registerInt64Handler(
-      _ keyPath: WritableKeyPath<Value, Int64>
-    ) {}
-    public mutating func registerUIntHandler(
-      _ keyPath: WritableKeyPath<Value, UInt>
-    ) {}
-    public mutating func registerUInt8Handler(
-      _ keyPath: WritableKeyPath<Value, UInt8>
-    ) {}
-    public mutating func registerUInt16Handler(
-      _ keyPath: WritableKeyPath<Value, UInt16>
-    ) {}
-    public mutating func registerUInt32Handler(
-      _ keyPath: WritableKeyPath<Value, UInt32>
-    ) {}
-    public mutating func registerUInt64Handler(
-      _ keyPath: WritableKeyPath<Value, UInt64>
-    ) {}
-    public mutating func registerFloatHandler(
-      _ keyPath: WritableKeyPath<Value, Float>
-    ) {}
-    public mutating func registerDoubleHandler(
-      _ keyPath: WritableKeyPath<Value, Double>
-    ) {}
+    init(configuration: JSONStreamParserConfiguration) {
+      self.configuration = configuration
+    }
+
+    public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
+      self.stringPath = keyPath
+    }
+
+    public mutating func registerBoolHandler(_ keyPath: WritableKeyPath<Value, Bool>) {
+      self.boolPath = keyPath
+    }
+
+    public mutating func registerUIntHandler(_ keyPath: WritableKeyPath<Value, UInt>) {
+      self.uintPath = keyPath
+    }
+
+    public mutating func registerUInt8Handler(_ keyPath: WritableKeyPath<Value, UInt8>) {
+      self.uint8Path = keyPath
+    }
+
+    public mutating func registerUInt16Handler(_ keyPath: WritableKeyPath<Value, UInt16>) {
+      self.uint16Path = keyPath
+    }
+
+    public mutating func registerUInt32Handler(_ keyPath: WritableKeyPath<Value, UInt32>) {
+      self.uint32Path = keyPath
+    }
+
+    public mutating func registerUInt64Handler(_ keyPath: WritableKeyPath<Value, UInt64>) {
+      self.uint64Path = keyPath
+    }
+
+    public mutating func registerIntHandler(_ keyPath: WritableKeyPath<Value, Int>) {
+      self.intPath = keyPath
+    }
+
+    public mutating func registerInt8Handler(_ keyPath: WritableKeyPath<Value, Int8>) {
+      self.int8Path = keyPath
+    }
+
+    public mutating func registerInt16Handler(_ keyPath: WritableKeyPath<Value, Int16>) {
+      self.int16Path = keyPath
+    }
+
+    public mutating func registerInt32Handler(_ keyPath: WritableKeyPath<Value, Int32>) {
+      self.int32Path = keyPath
+    }
+
+    public mutating func registerInt64Handler(_ keyPath: WritableKeyPath<Value, Int64>) {
+      self.int64Path = keyPath
+    }
+
+    public mutating func registerFloatHandler(_ keyPath: WritableKeyPath<Value, Float>) {
+      self.floatPath = keyPath
+    }
+
+    public mutating func registerDoubleHandler(_ keyPath: WritableKeyPath<Value, Double>) {
+      self.doublePath = keyPath
+    }
+
     public mutating func registerNilHandler<Nullable>(
       _ keyPath: WritableKeyPath<Value, Nullable?>
-    ) {}
+    ) {
+      self.nullablePath = \.[erasing: keyPath]
+    }
 
     public mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
       forKey key: String,
@@ -162,6 +195,51 @@ extension JSONStreamParser {
       on type: Scoped.Type,
       _ keyPath: WritableKeyPath<Value, Scoped>
     ) {
+      var handlers = JSONStreamParser<Scoped>.Handlers(configuration: self.configuration)
+      type.registerHandlers(in: &handlers)
+      self.merge(with: handlers, using: keyPath)
+    }
+
+    private mutating func merge<Scoped: StreamParseableValue>(
+      with handlers: JSONStreamParser<Scoped>.Handlers,
+      using path: WritableKeyPath<Value, Scoped>
+    ) {
+      if let boolPath = handlers.boolPath {
+        self.boolPath = path.appending(path: boolPath)
+      }
+      if let int8Path = handlers.int8Path {
+        self.int8Path = path.appending(path: int8Path)
+      }
+      if let uint8Path = handlers.uint8Path {
+        self.uint8Path = path.appending(path: uint8Path)
+      }
+      if let int16Path = handlers.int16Path {
+        self.int16Path = path.appending(path: int16Path)
+      }
+      if let uint16Path = handlers.uint16Path {
+        self.uint16Path = path.appending(path: uint16Path)
+      }
+      if let int32Path = handlers.int32Path {
+        self.int32Path = path.appending(path: int32Path)
+      }
+      if let uint32Path = handlers.uint32Path {
+        self.uint32Path = path.appending(path: uint32Path)
+      }
+      if let int64Path = handlers.int64Path {
+        self.int64Path = path.appending(path: int64Path)
+      }
+      if let uint64Path = handlers.uint64Path {
+        self.uint64Path = path.appending(path: uint64Path)
+      }
+      if let floatPath = handlers.floatPath {
+        self.floatPath = path.appending(path: floatPath)
+      }
+      if let doublePath = handlers.doublePath {
+        self.doublePath = path.appending(path: doublePath)
+      }
+      if let nullablePath = handlers.nullablePath {
+        self.nullablePath = path.appending(path: nullablePath)
+      }
     }
 
     public mutating func registerArrayHandler(
@@ -183,6 +261,15 @@ extension JSONStreamParser {
     public mutating func registerUInt128Handler(
       _ keyPath: WritableKeyPath<Value, UInt128>
     ) {}
+  }
+}
+
+// MARK: - StreamParseableValue Helpers
+
+extension StreamParseableValue {
+  fileprivate subscript<Value>(erasing nullablePath: WritableKeyPath<Self, Value?>) -> Void? {
+    get { self[keyPath: nullablePath] != nil ? () : nil }
+    set { self[keyPath: nullablePath] = nil }
   }
 }
 
@@ -215,8 +302,6 @@ extension UInt8 {
   fileprivate static let utf8FourByteMin: UInt8 = 0xF0
   fileprivate static let utf8FourByteMax: UInt8 = 0xF4
 }
-
-// MARK: - Helpers
 
 extension UInt8 {
   fileprivate var digit: Int? {
