@@ -8,8 +8,8 @@ struct `JSONStreamParser tests` {
   struct `JSONString tests` {
     @Test
     func `Streams JSON String Characters`() throws {
-      let json = "\"Blob\""
-      let expected = ["", "B", "Bl", "Blo", "Blob"]
+    let json = "\"Blob\""
+    let expected = ["", "B", "Bl", "Blo", "Blob", "Blob"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -19,8 +19,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Empty String`() throws {
-      let json = "\"\""
-      let expected = [""]
+    let json = "\"\""
+    let expected = ["", ""]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -30,8 +30,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Quote`() throws {
-      let json = "\"\\\"\""
-      let expected = ["", "\""]
+    let json = "\"\\\"\""
+    let expected = ["", "", "\"", "\""]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -41,8 +41,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Backslash`() throws {
-      let json = "\"\\\\\""
-      let expected = ["", "\\"]
+    let json = "\"\\\\\""
+    let expected = ["", "", "\\", "\\"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -59,9 +59,11 @@ struct `JSONStreamParser tests` {
         "li",
         "lin",
         "line",
+        "line",
         "line\n",
         "line\ne",
         "line\nen",
+        "line\nend",
         "line\nend"
       ]
       try expectJSONStreamedValues(
@@ -73,8 +75,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Slash`() throws {
-      let json = "\"\\/\""
-      let expected = ["", "/"]
+    let json = "\"\\/\""
+    let expected = ["", "", "/", "/"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -84,8 +86,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Backspace`() throws {
-      let json = "\"\\b\""
-      let expected = ["", "\u{08}"]
+    let json = "\"\\b\""
+    let expected = ["", "", "\u{08}", "\u{08}"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -95,8 +97,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Form Feed`() throws {
-      let json = "\"\\f\""
-      let expected = ["", "\u{0C}"]
+    let json = "\"\\f\""
+    let expected = ["", "", "\u{0C}", "\u{0C}"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -106,8 +108,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Carriage Return`() throws {
-      let json = "\"\\r\""
-      let expected = ["", "\r"]
+    let json = "\"\\r\""
+    let expected = ["", "", "\r", "\r"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -117,8 +119,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Escaped Tab`() throws {
-      let json = "\"\\t\""
-      let expected = ["", "\t"]
+    let json = "\"\\t\""
+    let expected = ["", "", "\t", "\t"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -128,8 +130,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Emoji`() throws {
-      let json = "\"😀\""
-      let expected = ["", "😀"]
+    let json = "\"😀\""
+    let expected = ["", "", "", "", "😀", "😀"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -139,8 +141,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON String With Multiple Emojis`() throws {
-      let json = "\"😀😃\""
-      let expected = ["", "😀", "😀😃"]
+    let json = "\"😀😃\""
+    let expected = ["", "", "", "", "", "😀", "😀", "😀", "😀😃", "😀😃"]
       try expectJSONStreamedValues(
         json,
         initialValue: "",
@@ -175,8 +177,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Negative Integer Digits`() throws {
-      let json = "-123"
-      let expected = [-1, -12, -123]
+    let json = "-123"
+    let expected = [0, -1, -12, -123]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -186,8 +188,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Zero With Trailing Decimal`() throws {
-      let json = "0.0"
-      let expected: [Double] = [0]
+    let json = "0.0"
+    let expected: [Double] = [0, 0, 0]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -197,8 +199,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float Zero With Trailing Decimal`() throws {
-      let json = "0.0"
-      let expected: [Float] = [0]
+    let json = "0.0"
+    let expected: [Float] = [0, 0, 0]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -208,8 +210,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Digits`() throws {
-      let json = "12.34"
-      let expected: [Double] = [1, 12, 12.3, 12.34]
+    let json = "12.34"
+    let expected: [Double] = [1, 12, 12, 12.3, 12.34]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -219,8 +221,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Negative Double Digits`() throws {
-      let json = "-12.34"
-      let expected: [Double] = [-1, -12, -12.3, -12.34]
+    let json = "-12.34"
+    let expected: [Double] = [0, -1, -12, -12, -12.3, -12.34]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -230,8 +232,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Negative Sign Only`() throws {
-      let json = "-"
-      let expected: [Int] = []
+    let json = "-"
+    let expected: [Int] = [0]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -241,8 +243,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float Digits`() throws {
-      let json = "12.34"
-      let expected: [Float] = [1, 12, 12.3, 12.34]
+    let json = "12.34"
+    let expected: [Float] = [1, 12, 12, 12.3, 12.34]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -252,8 +254,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Exponent Digits`() throws {
-      let json = "12e3"
-      let expected: [Double] = [1, 12, 12_000]
+    let json = "12e3"
+    let expected: [Double] = [1, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -263,8 +265,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Negative Exponent Digits`() throws {
-      let json = "12e-3"
-      let expected: [Double] = [1, 12, 0.012]
+    let json = "12e-3"
+    let expected: [Double] = [1, 12, 12, 12, 0.012]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -274,8 +276,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Positive Exponent Digits`() throws {
-      let json = "12e+3"
-      let expected: [Double] = [1, 12, 12_000]
+    let json = "12e+3"
+    let expected: [Double] = [1, 12, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -285,8 +287,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double Uppercase Exponent Digits`() throws {
-      let json = "12E3"
-      let expected: [Double] = [1, 12, 12_000]
+    let json = "12E3"
+    let expected: [Double] = [1, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -296,8 +298,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float Exponent Digits`() throws {
-      let json = "12e3"
-      let expected: [Float] = [1, 12, 12_000]
+    let json = "12e3"
+    let expected: [Float] = [1, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -307,8 +309,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float Positive Exponent Digits`() throws {
-      let json = "12e+3"
-      let expected: [Float] = [1, 12, 12_000]
+    let json = "12e+3"
+    let expected: [Float] = [1, 12, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -318,8 +320,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float Uppercase Exponent Digits`() throws {
-      let json = "12E3"
-      let expected: [Float] = [1, 12, 12_000]
+    let json = "12E3"
+    let expected: [Float] = [1, 12, 12, 12_000]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -329,8 +331,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Double With Trailing Decimal Zero`() throws {
-      let json = "11.0"
-      let expected: [Double] = [1, 11]
+    let json = "11.0"
+    let expected: [Double] = [1, 11, 11, 11]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -340,8 +342,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON Float With Trailing Decimal Zero`() throws {
-      let json = "11.0"
-      let expected: [Float] = [1, 11]
+    let json = "11.0"
+    let expected: [Float] = [1, 11, 11, 11]
       try expectJSONStreamedValues(
         json,
         initialValue: 0,
@@ -385,6 +387,7 @@ struct `JSONStreamParser tests` {
     func `Streams JSON Large Negative Integer Digits`() throws {
       let json = "-9223372036854775807"
       let expected: [Int64] = [
+        0,
         -9,
         -92,
         -922,
@@ -417,8 +420,8 @@ struct `JSONStreamParser tests` {
   struct `JSONBoolean tests` {
     @Test
     func `Streams JSON True`() throws {
-      let json = "true"
-      let expected = [true]
+    let json = "true"
+    let expected = [true, true, true, true]
       try expectJSONStreamedValues(
         json,
         initialValue: false,
@@ -428,8 +431,8 @@ struct `JSONStreamParser tests` {
 
     @Test
     func `Streams JSON False`() throws {
-      let json = "false"
-      let expected = [false]
+    let json = "false"
+    let expected = [false, false, false, false, false]
       try expectJSONStreamedValues(
         json,
         initialValue: true,
@@ -460,8 +463,8 @@ struct `JSONStreamParser tests` {
   struct `JSONNull tests` {
     @Test
     func `Streams JSON Null`() throws {
-      let json = "null"
-      let expected: [String?] = [nil]
+    let json = "null"
+    let expected: [String?] = [nil, nil, nil, nil]
       try expectJSONStreamedValues(
         json,
         initialValue: "seed",
