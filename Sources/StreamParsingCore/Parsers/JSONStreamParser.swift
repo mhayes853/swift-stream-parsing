@@ -1,18 +1,64 @@
 // MARK: - JSONStreamParser
 
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
+  private enum Mode {
+    case neutral
+    case string
+    case number
+    case literal
+  }
+
   public let configuration: JSONStreamParserConfiguration
+
   private var handlers: Handlers
+  private var mode = Mode.neutral
 
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
   }
 
-  public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {}
-
   public mutating func registerHandlers() {
     Value.registerHandlers(in: &self.handlers)
+  }
+
+  public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
+    for byte in bytes {
+      try self.parse(byte: byte, into: &reducer)
+    }
+  }
+
+  private mutating func parse(byte: UInt8, into reducer: inout Value) throws {
+    switch self.mode {
+    case .literal: break
+    case .neutral: try self.parseNeutral(byte: byte, into: &reducer)
+    case .number: break
+    case .string: break
+    }
+  }
+
+  private mutating func parseNeutral(byte: UInt8, into reducer: inout Value) throws {
+    switch byte {
+    case .asciiQuote:
+      self.mode = .string
+    case .asciiTrue:
+      self.mode = .literal
+      if let boolPath = self.handlers.boolPath {
+        reducer[keyPath: boolPath] = true
+      }
+    case .asciiFalse:
+      self.mode = .literal
+      if let boolPath = self.handlers.boolPath {
+        reducer[keyPath: boolPath] = false
+      }
+    case .asciiNull:
+      self.mode = .literal
+      if let nullablePath = self.handlers.nullablePath {
+        reducer[keyPath: nullablePath] = nil
+      }
+    default:
+      break
+    }
   }
 }
 
@@ -103,23 +149,23 @@ public enum JSONKeyDecodingStrategy: Sendable {
 
 extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
-    private var stringPath: WritableKeyPath<Value, String>?
-    private var boolPath: WritableKeyPath<Value, Bool>?
-    private var intPath: WritableKeyPath<Value, Int>?
-    private var int8Path: WritableKeyPath<Value, Int8>?
-    private var int16Path: WritableKeyPath<Value, Int16>?
-    private var int32Path: WritableKeyPath<Value, Int32>?
-    private var int64Path: WritableKeyPath<Value, Int64>?
-    private var uintPath: WritableKeyPath<Value, UInt>?
-    private var uint8Path: WritableKeyPath<Value, UInt8>?
-    private var uint16Path: WritableKeyPath<Value, UInt16>?
-    private var uint32Path: WritableKeyPath<Value, UInt32>?
-    private var uint64Path: WritableKeyPath<Value, UInt64>?
-    private var floatPath: WritableKeyPath<Value, Float>?
-    private var doublePath: WritableKeyPath<Value, Double>?
-    private var nullablePath: WritableKeyPath<Value, Void?>?
-    private var int128Path: WritableKeyPath<Value, any Sendable>?
-    private var uint128Path: WritableKeyPath<Value, any Sendable>?
+    var stringPath: WritableKeyPath<Value, String>?
+    var boolPath: WritableKeyPath<Value, Bool>?
+    var intPath: WritableKeyPath<Value, Int>?
+    var int8Path: WritableKeyPath<Value, Int8>?
+    var int16Path: WritableKeyPath<Value, Int16>?
+    var int32Path: WritableKeyPath<Value, Int32>?
+    var int64Path: WritableKeyPath<Value, Int64>?
+    var uintPath: WritableKeyPath<Value, UInt>?
+    var uint8Path: WritableKeyPath<Value, UInt8>?
+    var uint16Path: WritableKeyPath<Value, UInt16>?
+    var uint32Path: WritableKeyPath<Value, UInt32>?
+    var uint64Path: WritableKeyPath<Value, UInt64>?
+    var floatPath: WritableKeyPath<Value, Float>?
+    var doublePath: WritableKeyPath<Value, Double>?
+    var nullablePath: WritableKeyPath<Value, Void?>?
+    var int128Path: WritableKeyPath<Value, any Sendable>?
+    var uint128Path: WritableKeyPath<Value, any Sendable>?
     private let configuration: JSONStreamParserConfiguration
 
     init(configuration: JSONStreamParserConfiguration) {
@@ -242,6 +288,12 @@ extension JSONStreamParser {
       if let nullablePath = handlers.nullablePath {
         self.nullablePath = path.appending(path: nullablePath)
       }
+      if let int128Path = handlers.int128Path {
+        self.int128Path = path.appending(path: int128Path)
+      }
+      if let uint128Path = handlers.uint128Path {
+        self.uint128Path = path.appending(path: uint128Path)
+      }
     }
 
     public mutating func registerArrayHandler(
@@ -255,17 +307,13 @@ extension JSONStreamParser {
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-    public mutating func registerInt128Handler(
-      _ keyPath: WritableKeyPath<Value, Int128>
-    ) {
-      self.int128Path = keyPath.appending(path: \.path)
+    public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
+      self.int128Path = keyPath.appending(path: \.erasedPath)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-    public mutating func registerUInt128Handler(
-      _ keyPath: WritableKeyPath<Value, UInt128>
-    ) {
-      self.int128Path = keyPath.appending(path: \.path)
+    public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
+      self.uint128Path = keyPath.appending(path: \.erasedPath)
     }
   }
 }
@@ -281,7 +329,7 @@ extension Optional where Wrapped: StreamParseableValue {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension Int128 {
-  fileprivate var path: any Sendable {
+  fileprivate var erasedPath: any Sendable {
     get { self }
     set { self = newValue as! Int128 }
   }
@@ -289,7 +337,7 @@ extension Int128 {
 
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128 {
-  fileprivate var path: any Sendable {
+  fileprivate var erasedPath: any Sendable {
     get { self }
     set { self = newValue as! UInt128 }
   }
