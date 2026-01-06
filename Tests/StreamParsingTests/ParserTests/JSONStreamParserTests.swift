@@ -1,4 +1,5 @@
 import CustomDump
+import Foundation
 import StreamParsing
 import Testing
 
@@ -98,7 +99,7 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON String With Multiple Emojis`() throws {
       let json = "\"😀😃\""
-      let expected = ["", "", "", "", "", "😀", "😀", "😀", "😀😃", "😀😃"]
+      let expected = ["", "", "", "", "😀", "😀", "😀", "😀", "😀😃", "😀😃"]
       try expectJSONStreamedValues(json, initialValue: "", expected: expected)
     }
   }
