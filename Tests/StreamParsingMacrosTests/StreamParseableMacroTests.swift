@@ -197,6 +197,100 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `Excludes Computed Properties`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var stored: String
+          var computed: Int {
+            1
+          }
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var stored: String
+          var computed: Int {
+            1
+          }
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var stored: String.Partial?
+
+            init(
+              stored: String.Partial? = nil
+            ) {
+              self.stored = stored
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "stored", \.stored)
+            }
+          }
+        }
+        """#
+      }
+    }
+
+    @Test
+    func `Ignores Instance Methods`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var stored: String
+          func greet() {}
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var stored: String
+          func greet() {}
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var stored: String.Partial?
+
+            init(
+              stored: String.Partial? = nil
+            ) {
+              self.stored = stored
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "stored", \.stored)
+            }
+          }
+        }
+        """#
+      }
+    }
+
+    @Test
     func `Converts Read-Only Members`() {
       assertMacro {
         """

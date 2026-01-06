@@ -8,10 +8,6 @@ public protocol StreamParser<Value> {
   mutating func registerHandlers()
 }
 
-extension StreamParser {
-  public mutating func registerHandlers() {}
-}
-
 // MARK: - StreamParserHandlers
 
 public protocol StreamParserHandlers<Value> {

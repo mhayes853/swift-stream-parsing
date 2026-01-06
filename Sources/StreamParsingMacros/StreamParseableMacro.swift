@@ -206,17 +206,41 @@ extension StreamParseableMacro {
       else {
         continue
       }
+
       for binding in variableDecl.bindings {
+        guard !self.isComputedProperty(binding) else {
+          continue
+        }
+
         guard
           let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
           let type = binding.typeAnnotation?.type
         else {
           continue
         }
+
         properties.append(StoredProperty(name: identifierPattern.identifier.text, type: type))
       }
     }
     return properties
+  }
+
+  private static func isComputedProperty(_ binding: PatternBindingSyntax) -> Bool {
+    guard let accessorBlock = binding.accessorBlock else { return false }
+    switch accessorBlock.accessors {
+    case .getter:
+      return true
+    case .accessors(let accessors):
+      for accessor in accessors {
+        switch accessor.accessorSpecifier.tokenKind {
+        case .keyword(.get), .keyword(.set):
+          return true
+        default:
+          continue
+        }
+      }
+      return false
+    }
   }
 }
 
