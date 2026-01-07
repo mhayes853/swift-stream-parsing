@@ -382,31 +382,6 @@ extension JSONStreamParser {
   }
 }
 
-// MARK: - StreamParseableValue Helpers
-
-extension Optional where Wrapped: StreamParseableValue {
-  fileprivate var nullablePath: Void? {
-    get { self != nil ? () : nil }
-    set { self = nil }
-  }
-}
-
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension Int128 {
-  fileprivate var erasedPath: any Sendable {
-    get { self }
-    set { self = newValue as! Int128 }
-  }
-}
-
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension UInt128 {
-  fileprivate var erasedPath: any Sendable {
-    get { self }
-    set { self = newValue as! UInt128 }
-  }
-}
-
 // MARK: - ASCII
 
 extension UInt8 {
