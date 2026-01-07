@@ -16,6 +16,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var isEscaping = false
   private var utf8State = UTF8State()
 
+  private var isNegative = false
+
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
@@ -45,23 +47,33 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case .asciiQuote:
       self.mode = .string
       self.string = ""
-    case .asciiTrue:
+    case .asciiTrueStart:
       self.mode = .literal
       if let boolPath = self.handlers.boolPath {
         reducer[keyPath: boolPath] = true
       }
-    case .asciiFalse:
+    case .asciiFalseStart:
       self.mode = .literal
       if let boolPath = self.handlers.boolPath {
         reducer[keyPath: boolPath] = false
       }
-    case .asciiNull:
+    case .asciiNullStart:
       self.mode = .literal
       if let nullablePath = self.handlers.nullablePath {
         reducer[keyPath: nullablePath] = nil
       }
+    case .asciiDash:
+      self.mode = .number
+      self.isNegative = true
+      if let numberPath = self.handlers.numberPath {
+        reducer[keyPath: numberPath].reset()
+      }
     case 0x30...0x39:
       self.mode = .number
+      self.isNegative = false
+      if let numberPath = self.handlers.numberPath {
+        reducer[keyPath: numberPath].reset()
+      }
       try self.parseNumber(byte: byte, into: &reducer)
     default:
       break
@@ -122,7 +134,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseNumber(byte: UInt8, into reducer: inout Value) throws {
-
+    guard let digit = byte.digitValue, let numberPath = self.handlers.numberPath else {
+      self.mode = .neutral
+      return
+    }
+    reducer[keyPath: numberPath].append(digit: digit)
+    if self.isNegative {
+      reducer[keyPath: numberPath].negateIfPositive()
+    }
   }
 }
 
@@ -215,16 +234,7 @@ extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
     var stringPath: WritableKeyPath<Value, String>?
     var boolPath: WritableKeyPath<Value, Bool>?
-    var intPath: WritableKeyPath<Value, Int>?
-    var int8Path: WritableKeyPath<Value, Int8>?
-    var int16Path: WritableKeyPath<Value, Int16>?
-    var int32Path: WritableKeyPath<Value, Int32>?
-    var int64Path: WritableKeyPath<Value, Int64>?
-    var uintPath: WritableKeyPath<Value, UInt>?
-    var uint8Path: WritableKeyPath<Value, UInt8>?
-    var uint16Path: WritableKeyPath<Value, UInt16>?
-    var uint32Path: WritableKeyPath<Value, UInt32>?
-    var uint64Path: WritableKeyPath<Value, UInt64>?
+    fileprivate var numberPath: WritableKeyPath<Value, any JSONNumberAccumulator>?
     var floatPath: WritableKeyPath<Value, Float>?
     var doublePath: WritableKeyPath<Value, Double>?
     var nullablePath: WritableKeyPath<Value, Void?>?
@@ -245,43 +255,43 @@ extension JSONStreamParser {
     }
 
     public mutating func registerUIntHandler(_ keyPath: WritableKeyPath<Value, UInt>) {
-      self.uintPath = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt8Handler(_ keyPath: WritableKeyPath<Value, UInt8>) {
-      self.uint8Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt16Handler(_ keyPath: WritableKeyPath<Value, UInt16>) {
-      self.uint16Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt32Handler(_ keyPath: WritableKeyPath<Value, UInt32>) {
-      self.uint32Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt64Handler(_ keyPath: WritableKeyPath<Value, UInt64>) {
-      self.uint64Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerIntHandler(_ keyPath: WritableKeyPath<Value, Int>) {
-      self.intPath = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt8Handler(_ keyPath: WritableKeyPath<Value, Int8>) {
-      self.int8Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt16Handler(_ keyPath: WritableKeyPath<Value, Int16>) {
-      self.int16Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt32Handler(_ keyPath: WritableKeyPath<Value, Int32>) {
-      self.int32Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt64Handler(_ keyPath: WritableKeyPath<Value, Int64>) {
-      self.int64Path = keyPath
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerFloatHandler(_ keyPath: WritableKeyPath<Value, Float>) {
@@ -319,29 +329,8 @@ extension JSONStreamParser {
       if let boolPath = handlers.boolPath {
         self.boolPath = path.appending(path: boolPath)
       }
-      if let int8Path = handlers.int8Path {
-        self.int8Path = path.appending(path: int8Path)
-      }
-      if let uint8Path = handlers.uint8Path {
-        self.uint8Path = path.appending(path: uint8Path)
-      }
-      if let int16Path = handlers.int16Path {
-        self.int16Path = path.appending(path: int16Path)
-      }
-      if let uint16Path = handlers.uint16Path {
-        self.uint16Path = path.appending(path: uint16Path)
-      }
-      if let int32Path = handlers.int32Path {
-        self.int32Path = path.appending(path: int32Path)
-      }
-      if let uint32Path = handlers.uint32Path {
-        self.uint32Path = path.appending(path: uint32Path)
-      }
-      if let int64Path = handlers.int64Path {
-        self.int64Path = path.appending(path: int64Path)
-      }
-      if let uint64Path = handlers.uint64Path {
-        self.uint64Path = path.appending(path: uint64Path)
+      if let numberPath = handlers.numberPath {
+        self.numberPath = path.appending(path: numberPath)
       }
       if let floatPath = handlers.floatPath {
         self.floatPath = path.appending(path: floatPath)
@@ -351,12 +340,6 @@ extension JSONStreamParser {
       }
       if let nullablePath = handlers.nullablePath {
         self.nullablePath = path.appending(path: nullablePath)
-      }
-      if let int128Path = handlers.int128Path {
-        self.int128Path = path.appending(path: int128Path)
-      }
-      if let uint128Path = handlers.uint128Path {
-        self.uint128Path = path.appending(path: uint128Path)
       }
     }
 
@@ -372,12 +355,12 @@ extension JSONStreamParser {
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
-      self.int128Path = keyPath.appending(path: \.erasedPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
-      self.uint128Path = keyPath.appending(path: \.erasedPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
   }
 }
@@ -398,19 +381,12 @@ extension UInt8 {
   fileprivate static let asciiLowerN: UInt8 = 0x6E
   fileprivate static let asciiLowerR: UInt8 = 0x72
   fileprivate static let asciiLowerT: UInt8 = 0x74
-  fileprivate static let asciiTrue: UInt8 = 0x74
-  fileprivate static let asciiFalse: UInt8 = 0x66
-  fileprivate static let asciiNull: UInt8 = 0x6E
+  fileprivate static let asciiTrueStart: UInt8 = 0x74
+  fileprivate static let asciiFalseStart: UInt8 = 0x66
+  fileprivate static let asciiNullStart: UInt8 = 0x6E
 }
 
 extension UInt8 {
-  fileprivate var digit: Int? {
-    switch self {
-    case 0x30...0x39: Int(self - 0x30)
-    default: nil
-    }
-  }
-
   fileprivate var isLetter: Bool {
     switch self {
     case 0x41...0x5A, 0x61...0x7A: true
@@ -475,5 +451,78 @@ private struct UTF8State {
     case 0xF0...0xF4: 4
     default: 1
     }
+  }
+}
+
+// MARK: - Digit
+
+extension UInt8 {
+  fileprivate var digitValue: UInt8? {
+    switch self {
+    case 0x30...0x39: self &- 0x30
+    default: nil
+    }
+  }
+}
+
+// MARK: - JSONNumberAccumulator
+
+private protocol JSONNumberAccumulator {
+  mutating func reset()
+  mutating func append(digit: UInt8)
+  mutating func negateIfPositive()
+}
+
+extension JSONNumberAccumulator {
+  mutating func negateIfPositive() {}
+}
+
+extension JSONNumberAccumulator where Self: Numeric {
+  mutating func reset() {
+    self = .zero
+  }
+}
+
+extension JSONNumberAccumulator where Self: BinaryInteger & Comparable {
+  mutating func append(digit: UInt8) {
+    self *= 10
+    if self < .zero {
+      self -= Self(digit)
+    } else {
+      self += Self(digit)
+    }
+  }
+}
+
+extension JSONNumberAccumulator where Self: SignedNumeric & Comparable {
+  mutating func negateIfPositive() {
+    if self > .zero {
+      self = -self
+    }
+  }
+}
+
+extension Int: JSONNumberAccumulator {}
+extension Int8: JSONNumberAccumulator {}
+extension Int16: JSONNumberAccumulator {}
+extension Int32: JSONNumberAccumulator {}
+extension Int64: JSONNumberAccumulator {}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Int128: JSONNumberAccumulator {}
+
+extension UInt: JSONNumberAccumulator {}
+extension UInt8: JSONNumberAccumulator {}
+extension UInt16: JSONNumberAccumulator {}
+extension UInt32: JSONNumberAccumulator {}
+extension UInt64: JSONNumberAccumulator {}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension UInt128: JSONNumberAccumulator {}
+
+extension JSONNumberAccumulator where Self: BinaryInteger {
+  fileprivate var erasedAccumulator: any JSONNumberAccumulator {
+    get { self }
+    set { self = newValue as! Self }
   }
 }
