@@ -35,7 +35,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch self.mode {
     case .literal: break
     case .neutral: try self.parseNeutral(byte: byte, into: &reducer)
-    case .number: break
+    case .number: try self.parseNumber(byte: byte, into: &reducer)
     case .string: try self.parseString(byte: byte, into: &reducer)
     }
   }
@@ -44,6 +44,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiQuote:
       self.mode = .string
+      self.string = ""
     case .asciiTrue:
       self.mode = .literal
       if let boolPath = self.handlers.boolPath {
@@ -59,6 +60,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       if let nullablePath = self.handlers.nullablePath {
         reducer[keyPath: nullablePath] = nil
       }
+    case 0x30...0x39:
+      self.mode = .number
+      try self.parseNumber(byte: byte, into: &reducer)
     default:
       break
     }
@@ -106,22 +110,19 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private mutating func appendEscapedCharacter(for byte: UInt8) {
     switch byte {
-    case .asciiLowerN:
-      self.string.append("\n")
-    case .asciiLowerR:
-      self.string.append("\r")
-    case .asciiLowerT:
-      self.string.append("\t")
-    case .asciiLowerB:
-      self.string.append("\u{08}")
-    case .asciiLowerF:
-      self.string.append("\u{0C}")
-    case .asciiSlash:
-      self.string.append("/")
-    default:
-      self.string.unicodeScalars.append(Unicode.Scalar(byte))
+    case .asciiLowerN: self.string.append("\n")
+    case .asciiLowerR: self.string.append("\r")
+    case .asciiLowerT: self.string.append("\t")
+    case .asciiLowerB: self.string.append("\u{08}")
+    case .asciiLowerF: self.string.append("\u{0C}")
+    case .asciiSlash: self.string.append("/")
+    default: self.string.unicodeScalars.append(Unicode.Scalar(byte))
     }
     self.isEscaping = false
+  }
+
+  private mutating func parseNumber(byte: UInt8, into reducer: inout Value) throws {
+
   }
 }
 
