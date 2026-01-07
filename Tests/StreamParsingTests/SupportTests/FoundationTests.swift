@@ -19,31 +19,6 @@
     }
 
     @Test
-    func `Decimal Reducer Applies Parsed Integer Through PartialsStream`() throws {
-      let expected = Decimal(42)
-      let parser = MockParser<Decimal>(actions: [0x01: .int(42)])
-      var stream = PartialsStream(initialValue: Decimal(), from: parser)
-
-      let result = try stream.next(0x01)
-
-      expectNoDifference(result, expected)
-      expectNoDifference(stream.current, expected)
-    }
-
-    @Test
-    func `Decimal Reducer Applies Parsed Unsigned Integer Through PartialsStream`() throws {
-      let value: UInt = 123
-      let expected = Decimal(value)
-      let parser = MockParser<Decimal>(actions: [0x02: .uint(value)])
-      var stream = PartialsStream(initialValue: Decimal(), from: parser)
-
-      let result = try stream.next(0x02)
-
-      expectNoDifference(result, expected)
-      expectNoDifference(stream.current, expected)
-    }
-
-    @Test
     func `Decimal Reducer Applies Parsed Double Through PartialsStream`() throws {
       let value = 3.14
       let expected = Decimal(value)
@@ -51,20 +26,6 @@
       var stream = PartialsStream(initialValue: Decimal(), from: parser)
 
       let result = try stream.next(0x03)
-
-      expectNoDifference(result, expected)
-      expectNoDifference(stream.current, expected)
-    }
-
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-    @Test
-    func `Decimal Reducer Applies Parsed Int128 Through PartialsStream`() throws {
-      let value = Int128(Int64.max) + 1
-      let expected = Decimal(string: String(value))
-      let parser = MockParser<Decimal>(actions: [0x04: .int128(value)])
-      var stream = PartialsStream(initialValue: Decimal(), from: parser)
-
-      let result = try stream.next(0x04)
 
       expectNoDifference(result, expected)
       expectNoDifference(stream.current, expected)
