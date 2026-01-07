@@ -32,6 +32,13 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
     try self.parser.parse(bytes: bytes, into: &self._current)
     return self.current
   }
+
+  @inlinable
+  @discardableResult
+  public mutating func finish() throws -> Value {
+    try self.parser.finish(reducer: &self._current)
+    return self.current
+  }
 }
 
 extension PartialsStream: Sendable

@@ -43,7 +43,11 @@ public struct AsyncPartialsSequence<
     let bytesPath: KeyPath<Base.Element, Seq> & Sendable
 
     public mutating func next() async throws -> Element? {
-      try await self.baseIterator.next().map { try self.stream.next($0[keyPath: self.bytesPath]) }
+      guard let nextValue = try await self.baseIterator.next() else {
+        try self.stream.finish()
+        return nil
+      }
+      return try self.stream.next(nextValue[keyPath: self.bytesPath])
     }
   }
 

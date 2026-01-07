@@ -5,6 +5,7 @@ public protocol StreamParser<Value> {
   associatedtype Handlers: StreamParserHandlers<Value>
 
   mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws
+  mutating func finish(reducer: inout Value) throws
   mutating func registerHandlers()
 }
 

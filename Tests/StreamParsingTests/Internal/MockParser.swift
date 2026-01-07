@@ -303,6 +303,9 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
+  mutating func finish(reducer: inout Value) throws {
+  }
+
   mutating func registerHandlers() {
     Value.registerHandlers(in: &self.handlers)
   }

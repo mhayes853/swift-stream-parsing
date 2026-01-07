@@ -38,6 +38,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
+  public mutating func finish(reducer: inout Value) throws {
+    guard self.mode == .exponentialDouble, let numberPath = self.handlers.numberPath else {
+      return
+    }
+    reducer[keyPath: numberPath].exponentiate(by: self.exponent)
+    self.exponent = 0
+    self.isNegativeExponent = false
+    self.mode = .neutral
+  }
+
   private mutating func parse(byte: UInt8, into reducer: inout Value) throws {
     switch self.mode {
     case .literal: break

@@ -8,6 +8,7 @@ extension Sequence where Element == UInt8 {
     for byte in self {
       try partials.append(stream.next(byte))
     }
+    try partials.append(stream.finish())
     return partials
   }
 }
@@ -22,6 +23,7 @@ extension Sequence where Element: Sequence<UInt8> {
     for bytes in self {
       try partials.append(stream.next(bytes))
     }
+    try partials.append(stream.finish())
     return partials
   }
 }

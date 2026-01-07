@@ -10,7 +10,7 @@ struct `PartialsSequence Tests` {
     let byteStream: [[UInt8]] = [[0x00, 0x01, 0x02]]
 
     let partials = try byteStream.partials(initialValue: 0, from: parser)
-    expectNoDifference(partials, [3])
+    expectNoDifference(partials, [3, 3])
   }
 
   @Test
@@ -19,7 +19,7 @@ struct `PartialsSequence Tests` {
     let byteStream: [UInt8] = [0x00, 0x01, 0x02]
 
     let partials = try byteStream.partials(initialValue: 0, from: parser)
-    expectNoDifference(partials, [1, 2, 3])
+    expectNoDifference(partials, [1, 2, 3, 3])
   }
 
   @Test
@@ -28,6 +28,6 @@ struct `PartialsSequence Tests` {
     let byteStream: [UInt8] = [0x00, 0x01, 0x02]
 
     let partials = try byteStream.partials(initialValue: 0, from: parser)
-    expectNoDifference(partials, [1, 1, 3])
+    expectNoDifference(partials, [1, 1, 3, 3])
   }
 }
