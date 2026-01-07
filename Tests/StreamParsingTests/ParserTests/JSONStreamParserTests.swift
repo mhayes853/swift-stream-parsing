@@ -198,6 +198,36 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Streams JSON Double Large Positive Exponent Digits`() throws {
+      let json = "12e21"
+      let expected = 1.2e22
+      let values = try json.utf8.partials(initialValue: 0.0, from: .json())
+      expectClose(try #require(values.last), expected, epsilon: 1e7)
+    }
+
+    @Test
+    func `Streams JSON Double Large Negative Exponent Digits`() throws {
+      let json = "12e-21"
+      let expected = 1.2e-20
+      let values = try json.utf8.partials(initialValue: 0.0, from: .json())
+      expectClose(try #require(values.last), expected, epsilon: 1e-30)
+    }
+
+    @Test
+    func `Streams JSON Double Positive Zero Exponent Digits`() throws {
+      let json = "12e+0"
+      let expected: [Double] = [1, 12, 12, 12, 12]
+      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Double Negative Zero Exponent Digits`() throws {
+      let json = "12e-0"
+      let expected: [Double] = [1, 12, 12, 12, 12]
+      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+    }
+
+    @Test
     func `Streams JSON Float Exponent Digits`() throws {
       let json = "12e3"
       let expected: [Float] = [1, 12, 12, 12_000]

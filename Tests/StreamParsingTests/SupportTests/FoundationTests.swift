@@ -19,7 +19,7 @@
     }
 
     @Test
-    func `Decimal Reducer Applies Parsed Double Through PartialsStream`() throws {
+    func `Decimal Reducer Applies Parsed Double Handler Through PartialsStream`() throws {
       let value = 3.14
       let expected = Decimal(value)
       let parser = MockParser<Decimal>(actions: [0x03: .double(value)])

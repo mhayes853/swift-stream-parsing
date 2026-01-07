@@ -4,7 +4,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
     case string
-    case number
+    case integer
+    case exponentialDouble
+    case fractionalDouble
     case literal
   }
 
@@ -17,6 +19,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var utf8State = UTF8State()
 
   private var isNegative = false
+  private var isNegativeExponent = false
+  private var exponent = 0
+  private var fractionalPosition = 0
 
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
@@ -37,8 +42,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch self.mode {
     case .literal: break
     case .neutral: try self.parseNeutral(byte: byte, into: &reducer)
-    case .number: try self.parseNumber(byte: byte, into: &reducer)
+    case .integer: try self.parseInteger(byte: byte, into: &reducer)
     case .string: try self.parseString(byte: byte, into: &reducer)
+    case .exponentialDouble: try self.parseExponentialDouble(byte: byte, into: &reducer)
+    case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer)
     }
   }
 
@@ -63,18 +70,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         reducer[keyPath: nullablePath] = nil
       }
     case .asciiDash:
-      self.mode = .number
+      guard let numberPath = self.handlers.numberPath else { return }
+      self.mode = .integer
       self.isNegative = true
-      if let numberPath = self.handlers.numberPath {
-        reducer[keyPath: numberPath].reset()
-      }
+      reducer[keyPath: numberPath].reset()
     case 0x30...0x39:
-      self.mode = .number
+      guard let numberPath = self.handlers.numberPath else { return }
+      self.mode = .integer
       self.isNegative = false
-      if let numberPath = self.handlers.numberPath {
-        reducer[keyPath: numberPath].reset()
-      }
-      try self.parseNumber(byte: byte, into: &reducer)
+      reducer[keyPath: numberPath].reset()
+      try self.parseInteger(byte: byte, into: &reducer)
     default:
       break
     }
@@ -133,15 +138,49 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.isEscaping = false
   }
 
-  private mutating func parseNumber(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseInteger(byte: UInt8, into reducer: inout Value) throws {
+    if byte == .asciiDot {
+      self.mode = .fractionalDouble
+    } else if byte == .asciiLowerE || byte == .asciiUpperE {
+      self.mode = .exponentialDouble
+    } else {
+      guard let digit = byte.digitValue, let numberPath = self.handlers.numberPath else {
+        self.mode = .neutral
+        return
+      }
+      reducer[keyPath: numberPath]
+        .append(digit: digit, isNegative: self.isNegative, fractionalPosition: 0)
+    }
+  }
+
+  private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
+    if byte == .asciiDash {
+      self.isNegativeExponent = true
+    } else if byte == .asciiPlus {
+      return
+    } else if let digit = byte.digitValue {
+      self.exponent.appendDigit(digit, isNegative: self.isNegativeExponent)
+    } else {
+      guard let numberPath = self.handlers.numberPath else {
+        self.mode = .neutral
+        return
+      }
+      reducer[keyPath: numberPath].exponentiate(by: self.exponent)
+    }
+  }
+
+  private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value) throws {
     guard let digit = byte.digitValue, let numberPath = self.handlers.numberPath else {
       self.mode = .neutral
       return
     }
-    reducer[keyPath: numberPath].append(digit: digit)
-    if self.isNegative {
-      reducer[keyPath: numberPath].negateIfPositive()
-    }
+    self.fractionalPosition += 1
+    reducer[keyPath: numberPath]
+      .append(
+        digit: digit,
+        isNegative: self.isNegative,
+        fractionalPosition: self.fractionalPosition
+      )
   }
 }
 
@@ -235,11 +274,7 @@ extension JSONStreamParser {
     var stringPath: WritableKeyPath<Value, String>?
     var boolPath: WritableKeyPath<Value, Bool>?
     fileprivate var numberPath: WritableKeyPath<Value, any JSONNumberAccumulator>?
-    var floatPath: WritableKeyPath<Value, Float>?
-    var doublePath: WritableKeyPath<Value, Double>?
     var nullablePath: WritableKeyPath<Value, Void?>?
-    var int128Path: WritableKeyPath<Value, any Sendable>?
-    var uint128Path: WritableKeyPath<Value, any Sendable>?
     private let configuration: JSONStreamParserConfiguration
 
     init(configuration: JSONStreamParserConfiguration) {
@@ -255,51 +290,51 @@ extension JSONStreamParser {
     }
 
     public mutating func registerUIntHandler(_ keyPath: WritableKeyPath<Value, UInt>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerUInt8Handler(_ keyPath: WritableKeyPath<Value, UInt8>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerUInt16Handler(_ keyPath: WritableKeyPath<Value, UInt16>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerUInt32Handler(_ keyPath: WritableKeyPath<Value, UInt32>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerUInt64Handler(_ keyPath: WritableKeyPath<Value, UInt64>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerIntHandler(_ keyPath: WritableKeyPath<Value, Int>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerInt8Handler(_ keyPath: WritableKeyPath<Value, Int8>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerInt16Handler(_ keyPath: WritableKeyPath<Value, Int16>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerInt32Handler(_ keyPath: WritableKeyPath<Value, Int32>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerInt64Handler(_ keyPath: WritableKeyPath<Value, Int64>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     public mutating func registerFloatHandler(_ keyPath: WritableKeyPath<Value, Float>) {
-      self.floatPath = keyPath
+      self.overrideNumberHandler(keyPath)
     }
 
     public mutating func registerDoubleHandler(_ keyPath: WritableKeyPath<Value, Double>) {
-      self.doublePath = keyPath
+      self.overrideNumberHandler(keyPath)
     }
 
     public mutating func registerNilHandler<Nullable: StreamParseableValue>(
@@ -332,12 +367,6 @@ extension JSONStreamParser {
       if let numberPath = handlers.numberPath {
         self.numberPath = path.appending(path: numberPath)
       }
-      if let floatPath = handlers.floatPath {
-        self.floatPath = path.appending(path: floatPath)
-      }
-      if let doublePath = handlers.doublePath {
-        self.doublePath = path.appending(path: doublePath)
-      }
       if let nullablePath = handlers.nullablePath {
         self.nullablePath = path.appending(path: nullablePath)
       }
@@ -355,11 +384,23 @@ extension JSONStreamParser {
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.registerNumberHandler(keyPath)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
+      self.registerNumberHandler(keyPath)
+    }
+
+    private mutating func registerNumberHandler(
+      _ keyPath: WritableKeyPath<Value, some BinaryInteger & JSONNumberAccumulator>
+    ) {
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+    }
+
+    private mutating func overrideNumberHandler(
+      _ keyPath: WritableKeyPath<Value, some BinaryFloatingPoint & JSONNumberAccumulator>
+    ) {
       self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
   }
@@ -469,12 +510,8 @@ extension UInt8 {
 
 private protocol JSONNumberAccumulator {
   mutating func reset()
-  mutating func append(digit: UInt8)
-  mutating func negateIfPositive()
-}
-
-extension JSONNumberAccumulator {
-  mutating func negateIfPositive() {}
+  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int)
+  mutating func exponentiate(by digit: Int)
 }
 
 extension JSONNumberAccumulator where Self: Numeric {
@@ -484,21 +521,35 @@ extension JSONNumberAccumulator where Self: Numeric {
 }
 
 extension JSONNumberAccumulator where Self: BinaryInteger & Comparable {
-  mutating func append(digit: UInt8) {
-    self *= 10
-    if self < .zero {
-      self -= Self(digit)
-    } else {
-      self += Self(digit)
-    }
+  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+    self.appendDigit(digit, isNegative: isNegative)
+  }
+
+  mutating func exponentiate(by digit: Int) {
   }
 }
 
-extension JSONNumberAccumulator where Self: SignedNumeric & Comparable {
-  mutating func negateIfPositive() {
-    if self > .zero {
-      self = -self
+extension JSONNumberAccumulator where Self: BinaryFloatingPoint & Comparable {
+  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+    if fractionalPosition > 0 {
+      let delta = Self(digit) / Self(digitPow10(fractionalPosition))
+      if isNegative {
+        self -= delta
+      } else {
+        self += delta
+      }
+    } else {
+      self *= 10
+      if isNegative {
+        self -= Self(digit)
+      } else {
+        self += Self(digit)
+      }
     }
+  }
+
+  mutating func exponentiate(by exponent: Int) {
+    self *= Self(digitPow10(exponent))
   }
 }
 
@@ -520,9 +571,30 @@ extension UInt64: JSONNumberAccumulator {}
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
 extension UInt128: JSONNumberAccumulator {}
 
+extension Float: JSONNumberAccumulator {}
+extension Double: JSONNumberAccumulator {}
+
 extension JSONNumberAccumulator where Self: BinaryInteger {
   fileprivate var erasedAccumulator: any JSONNumberAccumulator {
     get { self }
     set { self = newValue as! Self }
+  }
+}
+
+extension JSONNumberAccumulator where Self: BinaryFloatingPoint {
+  fileprivate var erasedAccumulator: any JSONNumberAccumulator {
+    get { self }
+    set { self = newValue as! Self }
+  }
+}
+
+extension BinaryInteger {
+  mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
+    self *= 10
+    if isNegative {
+      self -= Self(digit)
+    } else {
+      self += Self(digit)
+    }
   }
 }
