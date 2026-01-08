@@ -283,7 +283,7 @@ extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
     var stringPath: WritableKeyPath<Value, String>?
     var boolPath: WritableKeyPath<Value, Bool>?
-    fileprivate var numberPath: WritableKeyPath<Value, any JSONNumberAccumulator>?
+    fileprivate var numberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
     var nullablePath: WritableKeyPath<Value, Void?>?
     private let configuration: JSONStreamParserConfiguration
 
@@ -300,51 +300,51 @@ extension JSONStreamParser {
     }
 
     public mutating func registerUIntHandler(_ keyPath: WritableKeyPath<Value, UInt>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt8Handler(_ keyPath: WritableKeyPath<Value, UInt8>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt16Handler(_ keyPath: WritableKeyPath<Value, UInt16>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt32Handler(_ keyPath: WritableKeyPath<Value, UInt32>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt64Handler(_ keyPath: WritableKeyPath<Value, UInt64>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerIntHandler(_ keyPath: WritableKeyPath<Value, Int>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt8Handler(_ keyPath: WritableKeyPath<Value, Int8>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt16Handler(_ keyPath: WritableKeyPath<Value, Int16>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt32Handler(_ keyPath: WritableKeyPath<Value, Int32>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt64Handler(_ keyPath: WritableKeyPath<Value, Int64>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerFloatHandler(_ keyPath: WritableKeyPath<Value, Float>) {
-      self.overrideNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerDoubleHandler(_ keyPath: WritableKeyPath<Value, Double>) {
-      self.overrideNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerNilHandler<Nullable: StreamParseableValue>(
@@ -394,23 +394,11 @@ extension JSONStreamParser {
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
-      self.registerNumberHandler(keyPath)
+      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
     @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
-      self.registerNumberHandler(keyPath)
-    }
-
-    private mutating func registerNumberHandler(
-      _ keyPath: WritableKeyPath<Value, some BinaryInteger & JSONNumberAccumulator>
-    ) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
-    }
-
-    private mutating func overrideNumberHandler(
-      _ keyPath: WritableKeyPath<Value, some BinaryFloatingPoint & JSONNumberAccumulator>
-    ) {
       self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
   }
@@ -518,29 +506,123 @@ extension UInt8 {
 
 // MARK: - JSONNumberAccumulator
 
-private protocol JSONNumberAccumulator {
-  mutating func reset()
-  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int)
-  mutating func exponentiate(by digit: Int)
-}
+private enum JSONNumberAccumulator {
+  case int(Int)
+  case int8(Int8)
+  case int16(Int16)
+  case int32(Int32)
+  case int64(Int64)
+  case int128(low: UInt64, high: Int64)
+  case uint(UInt)
+  case uint8(UInt8)
+  case uint16(UInt16)
+  case uint32(UInt32)
+  case uint64(UInt64)
+  case uint128(low: UInt64, high: UInt64)
+  case float(Float)
+  case double(Double)
 
-extension JSONNumberAccumulator where Self: Numeric {
   mutating func reset() {
-    self = .zero
+    switch self {
+    case .int: self = .int(.zero)
+    case .int8: self = .int8(.zero)
+    case .int16: self = .int16(.zero)
+    case .int32: self = .int32(.zero)
+    case .int64: self = .int64(.zero)
+    case .int128: self = .int128(low: .zero, high: .zero)
+    case .uint: self = .uint(.zero)
+    case .uint8: self = .uint8(.zero)
+    case .uint16: self = .uint16(.zero)
+    case .uint32: self = .uint32(.zero)
+    case .uint64: self = .uint64(.zero)
+    case .uint128: self = .uint128(low: .zero, high: .zero)
+    case .float: self = .float(.zero)
+    case .double: self = .double(.zero)
+    }
+  }
+
+  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+    switch self {
+    case .int(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int(value)
+    case .int8(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int8(value)
+    case .int16(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int16(value)
+    case .int32(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int32(value)
+    case .int64(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int64(value)
+    case .int128(let low, let high):
+      guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+        return
+      }
+      var value = Int128(_low: low, _high: high)
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .int128(low: value._low, high: value._high)
+    case .uint(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint(value)
+    case .uint8(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint8(value)
+    case .uint16(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint16(value)
+    case .uint32(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint32(value)
+    case .uint64(var value):
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint64(value)
+    case .uint128(let low, let high):
+      guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+        return
+      }
+      var value = UInt128(_low: low, _high: high)
+      value.appendDigit(digit, isNegative: isNegative)
+      self = .uint128(low: value._low, high: value._high)
+    case .float(var value):
+      value.appendDigit(digit, isNegative: isNegative, fractionalPosition: fractionalPosition)
+      self = .float(value)
+    case .double(var value):
+      value.appendDigit(digit, isNegative: isNegative, fractionalPosition: fractionalPosition)
+      self = .double(value)
+    }
+  }
+
+  mutating func exponentiate(by exponent: Int) {
+    switch self {
+    case .float(var value):
+      value.exponentiate(by: exponent)
+      self = .float(value)
+    case .double(var value):
+      value.exponentiate(by: exponent)
+      self = .double(value)
+    default:
+      break
+    }
   }
 }
 
-extension JSONNumberAccumulator where Self: BinaryInteger & Comparable {
-  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
-    self.appendDigit(digit, isNegative: isNegative)
-  }
-
-  mutating func exponentiate(by digit: Int) {
+extension BinaryInteger {
+  mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
+    self *= 10
+    if isNegative {
+      self -= Self(digit)
+    } else {
+      self += Self(digit)
+    }
   }
 }
 
-extension JSONNumberAccumulator where Self: BinaryFloatingPoint & Comparable {
-  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+extension BinaryFloatingPoint {
+  fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
     if fractionalPosition > 0 {
       let delta = Self(digit) / Self(digitPow10(fractionalPosition))
       if isNegative {
@@ -558,53 +640,153 @@ extension JSONNumberAccumulator where Self: BinaryFloatingPoint & Comparable {
     }
   }
 
-  mutating func exponentiate(by exponent: Int) {
+  fileprivate mutating func exponentiate(by exponent: Int) {
     self *= Self(digitPow10(exponent))
   }
 }
 
-extension Int: JSONNumberAccumulator {}
-extension Int8: JSONNumberAccumulator {}
-extension Int16: JSONNumberAccumulator {}
-extension Int32: JSONNumberAccumulator {}
-extension Int64: JSONNumberAccumulator {}
-
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension Int128: JSONNumberAccumulator {}
-
-extension UInt: JSONNumberAccumulator {}
-extension UInt8: JSONNumberAccumulator {}
-extension UInt16: JSONNumberAccumulator {}
-extension UInt32: JSONNumberAccumulator {}
-extension UInt64: JSONNumberAccumulator {}
-
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
-extension UInt128: JSONNumberAccumulator {}
-
-extension Float: JSONNumberAccumulator {}
-extension Double: JSONNumberAccumulator {}
-
-extension JSONNumberAccumulator where Self: BinaryInteger {
-  fileprivate var erasedAccumulator: any JSONNumberAccumulator {
-    get { self }
-    set { self = newValue as! Self }
-  }
-}
-
-extension JSONNumberAccumulator where Self: BinaryFloatingPoint {
-  fileprivate var erasedAccumulator: any JSONNumberAccumulator {
-    get { self }
-    set { self = newValue as! Self }
-  }
-}
-
-extension BinaryInteger {
-  mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
-    self *= 10
-    if isNegative {
-      self -= Self(digit)
-    } else {
-      self += Self(digit)
+extension Int {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int(self) }
+    set {
+      guard case .int(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
     }
   }
+}
+
+extension Int8 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int8(self) }
+    set {
+      guard case .int8(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension Int16 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int16(self) }
+    set {
+      guard case .int16(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension Int32 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int32(self) }
+    set {
+      guard case .int32(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension Int64 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int64(self) }
+    set {
+      guard case .int64(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Int128 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .int128(low: self._low, high: self._high) }
+    set {
+      guard case .int128(let low, let high) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = Int128(_low: low, _high: high)
+    }
+  }
+}
+
+extension UInt {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint(self) }
+    set {
+      guard case .uint(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension UInt8 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint8(self) }
+    set {
+      guard case .uint8(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension UInt16 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint16(self) }
+    set {
+      guard case .uint16(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension UInt32 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint32(self) }
+    set {
+      guard case .uint32(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension UInt64 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint64(self) }
+    set {
+      guard case .uint64(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension UInt128 {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .uint128(low: self._low, high: self._high) }
+    set {
+      guard case .uint128(let low, let high) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = UInt128(_low: low, _high: high)
+    }
+  }
+}
+
+extension Float {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .float(self) }
+    set {
+      guard case .float(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+extension Double {
+  fileprivate var erasedAccumulator: JSONNumberAccumulator {
+    get { .double(self) }
+    set {
+      guard case .double(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
+      self = value
+    }
+  }
+}
+
+private func jsonNumberAccumulatorCaseMismatch() -> Never {
+  fatalError("JSONNumberAccumulator case mismatch.")
 }
