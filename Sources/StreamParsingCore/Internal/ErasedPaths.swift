@@ -27,7 +27,7 @@ extension Optional where Wrapped: StreamParseableValue {
 
 // MARK: - Int128
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension Int128 {
   package var erasedPath: any Sendable {
     get { self }
@@ -37,7 +37,7 @@ extension Int128 {
 
 // MARK: - UInt128
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension UInt128 {
   package var erasedPath: any Sendable {
     get { self }

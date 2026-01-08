@@ -35,7 +35,7 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerInt64Handler(
     _ keyPath: WritableKeyPath<Value, Int64>
   )
-  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @available(StreamParsing128BitIntegers, *)
   mutating func registerInt128Handler(
     _ keyPath: WritableKeyPath<Value, Int128>
   )
@@ -54,7 +54,7 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerUInt64Handler(
     _ keyPath: WritableKeyPath<Value, UInt64>
   )
-  @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @available(StreamParsing128BitIntegers, *)
   mutating func registerUInt128Handler(
     _ keyPath: WritableKeyPath<Value, UInt128>
   )

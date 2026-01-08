@@ -213,14 +213,14 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
       )
     }
 
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     mutating func registerInt128Handler(
       _ keyPath: WritableKeyPath<Value, Int128>
     ) {
       self.int128Path = keyPath.appending(path: \.erasedPath)
     }
 
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     mutating func registerUInt128Handler(
       _ keyPath: WritableKeyPath<Value, UInt128>
     ) {
@@ -283,7 +283,7 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
     case createDictionaryValue(key: String)
     case setDictionaryValue(key: String, value: Int)
 
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     static func int128(_ value: Int128) -> Self {
       .int128(high: value._high, low: value._low)
     }

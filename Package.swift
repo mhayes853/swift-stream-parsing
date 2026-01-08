@@ -4,6 +4,9 @@
 import CompilerPluginSupport
 import PackageDescription
 
+let StreamParsing128BitIntegers =
+  "AvailabilityMacro=StreamParsing128BitIntegers:macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0"
+
 let package = Package(
   name: "swift-stream-parsing",
   platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
@@ -40,7 +43,8 @@ let package = Package(
           package: "swift-tagged",
           condition: .when(traits: ["StreamParsingTagged"])
         )
-      ]
+      ],
+      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
     ),
     .macro(
       name: "StreamParsingMacros",
@@ -51,7 +55,8 @@ let package = Package(
     ),
     .testTarget(
       name: "StreamParsingTests",
-      dependencies: ["StreamParsing", .product(name: "CustomDump", package: "swift-custom-dump")]
+      dependencies: ["StreamParsing", .product(name: "CustomDump", package: "swift-custom-dump")],
+      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

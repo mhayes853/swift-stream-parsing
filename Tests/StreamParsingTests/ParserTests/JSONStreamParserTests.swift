@@ -322,7 +322,7 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     func `Streams JSON Large UInt128 Digits`() throws {
       let json = "340282366920938463463374607431768211455"
       let expected: [UInt128] = [
@@ -371,7 +371,7 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     func `Streams JSON Large Negative Int128 Digits`() throws {
       let json = "-170141183460469231731687303715884105727"
       let expected: [Int128] = [

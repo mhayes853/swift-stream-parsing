@@ -175,12 +175,12 @@ extension UInt: StreamParseableValue {
 
 // MARK: - Int128
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension Int128: StreamParseable {
   public typealias Partial = Self
 }
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension Int128: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerInt128Handler(\.self)
@@ -189,12 +189,12 @@ extension Int128: StreamParseableValue {
 
 // MARK: - UInt128
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension UInt128: StreamParseable {
   public typealias Partial = Self
 }
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension UInt128: StreamParseableValue {
   public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
     handlers.registerUInt128Handler(\.self)

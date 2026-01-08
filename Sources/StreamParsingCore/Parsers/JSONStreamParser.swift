@@ -392,12 +392,12 @@ extension JSONStreamParser {
     ) {
     }
 
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
       self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
 
-    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    @available(StreamParsing128BitIntegers, *)
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
       self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
@@ -695,7 +695,7 @@ extension Int64 {
   }
 }
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension Int128 {
   fileprivate var erasedAccumulator: JSONNumberAccumulator {
     get { .int128(low: self._low, high: self._high) }
@@ -756,7 +756,7 @@ extension UInt64 {
   }
 }
 
-@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *)
+@available(StreamParsing128BitIntegers, *)
 extension UInt128 {
   fileprivate var erasedAccumulator: JSONNumberAccumulator {
     get { .uint128(low: self._low, high: self._high) }
