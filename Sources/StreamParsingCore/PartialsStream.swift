@@ -7,6 +7,9 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @usableFromInline
   var _current: Value
 
+  @usableFromInline
+  var hasFinished = false
+
   @inlinable
   public var current: Value {
     self._current
@@ -36,6 +39,8 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.hasFinished = true
     try self.parser.finish(reducer: &self._current)
     return self.current
   }
