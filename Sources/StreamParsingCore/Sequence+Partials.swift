@@ -1,5 +1,12 @@
 extension Sequence where Element == UInt8 {
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
+    of type: Value.Type,
+    from parser: Parser
+  ) throws -> [Value] {
+    try self.partials(initialValue: type.initialParseableValue(), from: parser)
+  }
+
+  public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     initialValue: Value = .initialParseableValue(),
     from parser: Parser
   ) throws -> [Value] {
@@ -14,6 +21,13 @@ extension Sequence where Element == UInt8 {
 }
 
 extension Sequence where Element: Sequence<UInt8> {
+  public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
+    of type: Value.Type,
+    from parser: Parser
+  ) throws -> [Value] {
+    try self.partials(initialValue: type.initialParseableValue(), from: parser)
+  }
+
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     initialValue: Value = .initialParseableValue(),
     from parser: Parser
