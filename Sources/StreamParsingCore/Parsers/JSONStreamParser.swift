@@ -965,10 +965,6 @@ extension StreamParseableArrayObject {
     set { self = newValue as! Self }
   }
 
-  fileprivate mutating func setElement(at index: Int, element: any StreamParseable) {
-    self[index] = element as! Element
-  }
-
   fileprivate mutating func appendNewElement() {
     self.append(contentsOf: CollectionOfOne(.initialParseableValue()))
   }

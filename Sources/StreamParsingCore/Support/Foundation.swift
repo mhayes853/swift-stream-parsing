@@ -39,6 +39,7 @@
 
     private var streamParsingDoubleValue: Double {
       get {
+        // NB: See https://github.com/swiftlang/swift-foundation/blob/main/Sources/FoundationEssentials/Decimal/Decimal%2BMath.swift#L657
         if self._length == 0 {
           return self.sign == .minus ? Double.nan : 0
         }
