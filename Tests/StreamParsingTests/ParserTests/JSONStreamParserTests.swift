@@ -659,6 +659,200 @@ struct `JSONStreamParser tests` {
   }
 
   @Suite
+  struct `JSONObject tests` {
+    @Test
+    func `Streams JSON Empty Object Into Dictionary`() throws {
+      let json = "{}"
+      let expected: [[String: Int]] = [[:], [:], [:]]
+      try expectJSONStreamedValues(json, initialValue: [String: Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Single Key Into Dictionary`() throws {
+      let json = "{\"single\":1}"
+      let initial = Array(repeating: [String: Int](), count: 10)
+      let updated = Array(repeating: ["single": 1], count: 3)
+      let expected: [[String: Int]] = initial + updated
+      try expectJSONStreamedValues(json, initialValue: [String: Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Two Keys Into Dictionary`() throws {
+      let json = "{\"first\":1,\"second\":2}"
+      let initial = Array(repeating: [String: Int](), count: 9)
+      let firstPhase = Array(repeating: ["first": 1], count: 11)
+      let finalPhase = Array(repeating: ["first": 1, "second": 2], count: 3)
+      let expected: [[String: Int]] = initial + firstPhase + finalPhase
+      try expectJSONStreamedValues(json, initialValue: [String: Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Two Keys Into StreamParseable Struct`() throws {
+      let json = "{\"first\":1,\"second\":2}"
+      let initial = Array(repeating: TwoKeyObject.Partial(), count: 9)
+      let firstPhase = Array(repeating: TwoKeyObject.Partial(first: 1), count: 11)
+      let finalPhase = Array(repeating: TwoKeyObject.Partial(first: 1, second: 2), count: 3)
+      let expected = initial + firstPhase + finalPhase
+      try expectJSONStreamedValues(json, initialValue: TwoKeyObject.Partial(), expected: expected)
+    }
+
+    @Test
+    func `Streams Pretty Printed JSON Object Into Dictionary`() throws {
+      let json = "{\n  \"first\": 1,\n  \"second\": 2\n}"
+      let initial = Array(repeating: [String: Int](), count: 13)
+      let firstPhase = Array(repeating: ["first": 1], count: 15)
+      let finalPhase = Array(repeating: ["first": 1, "second": 2], count: 4)
+      let expected: [[String: Int]] = initial + firstPhase + finalPhase
+      try expectJSONStreamedValues(json, initialValue: [String: Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams Nested JSON Object Into Dictionary Of Dictionaries`() throws {
+      let json = "{\"outer\":{\"inner\":1}}"
+      let initial = Array(repeating: [String: [String: Int]](), count: 9)
+      let nestedEmpty = Array(
+        repeating: ["outer": [String: Int]()],
+        count: 9
+      )
+      let populated = Array(
+        repeating: ["outer": ["inner": 1]],
+        count: 4
+      )
+      let expected: [[String: [String: Int]]] = initial + nestedEmpty + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [String: [String: Int]](),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams Nested JSON Object Into StreamParseable Struct`() throws {
+      let json = "{\"nested\":{\"value\":1}}"
+      let initial = Array(repeating: NestedContainer.Partial(), count: 19)
+      let populated = Array(
+        repeating: NestedContainer.Partial(
+          nested: NestedValue.Partial(value: 1)
+        ),
+        count: 4
+      )
+      let expected = initial + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: NestedContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams Doubly Nested JSON Object Into Dictionary Of Dictionaries Of Dictionaries`()
+      throws
+    {
+      let json = "{\"level1\":{\"level2\":{\"value\":1}}}"
+      let initial = Array(
+        repeating: [String: [String: [String: Int]]](),
+        count: 10
+      )
+      let firstNested = Array(
+        repeating: ["level1": [String: [String: Int]]()],
+        count: 10
+      )
+      let secondNested = Array(
+        repeating: ["level1": ["level2": [String: Int]()]],
+        count: 9
+      )
+      let populated = Array(
+        repeating: ["level1": ["level2": ["value": 1]]],
+        count: 5
+      )
+      let expected = initial + firstNested + secondNested + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [String: [String: [String: Int]]](),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams Doubly Nested JSON Object Into StreamParseable Struct`() throws {
+      let json = "{\"level1\":{\"level2\":{\"value\":1}}}"
+      let initial = Array(repeating: DoubleNestedRoot.Partial(), count: 29)
+      let populated = Array(
+        repeating: DoubleNestedRoot.Partial(
+          level1: DoubleNestedLevel1.Partial(
+            level2: DoubleNestedLevel2.Partial(value: 1)
+          )
+        ),
+        count: 5
+      )
+      let expected = initial + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: DoubleNestedRoot.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Fractional And Exponential Doubles Into Dictionary`() throws {
+      let json = "{\"fractional\":12.34,\"exponential\":12e3}"
+      let stageOne = Array(repeating: [String: Double](), count: 14)
+      let fractionalProgress: [[String: Double]] = [
+        ["fractional": 1],
+        ["fractional": 12],
+        ["fractional": 12],
+        ["fractional": 12.3],
+        ["fractional": 12.34]
+      ]
+      let fractionalHolding = Array(
+        repeating: ["fractional": 12.34],
+        count: 15
+      )
+      let exponentialPhase: [[String: Double]] = [
+        ["fractional": 12.34, "exponential": 1],
+        ["fractional": 12.34, "exponential": 12],
+        ["fractional": 12.34, "exponential": 12],
+        ["fractional": 12.34, "exponential": 12_000],
+        ["fractional": 12.34, "exponential": 12_000],
+        ["fractional": 12.34, "exponential": 12_000]
+      ]
+      let expected = stageOne + fractionalProgress + fractionalHolding + exponentialPhase
+      try expectJSONStreamedValues(json, initialValue: [String: Double](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Nullable Value Into StreamParseable Struct`() throws {
+      let json = "{\"maybe\":null}"
+      let beforeNull = Array(repeating: NullableObject.Partial(), count: 12)
+      let afterNull = Array(
+        repeating: NullableObject.Partial(maybe: Optional<Int?>.some(nil)),
+        count: 3
+      )
+      let expected = beforeNull + afterNull
+      try expectJSONStreamedValues(json, initialValue: NullableObject.Partial(), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Nullable Value Into Dictionary`() throws {
+      let json = "{\"maybe\":null}"
+      let beforeNull = Array(repeating: [String: Int?](), count: 12)
+      let afterNull = Array(
+        repeating: ["maybe": nil] as [String: Int?],
+        count: 3
+      )
+      let expected = beforeNull + afterNull
+      try expectJSONStreamedValues(json, initialValue: [String: Int?](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Empty Object Into StreamParseable Struct`() throws {
+      let json = "{}"
+      let expected = Array(repeating: EmptyObject.Partial(), count: 3)
+      try expectJSONStreamedValues(json, initialValue: EmptyObject.Partial(), expected: expected)
+    }
+  }
+
+  @Suite
   struct `JSONBoolean tests` {
     @Test
     func `Streams JSON True`() throws {
@@ -716,6 +910,54 @@ private func expectJSONStreamedValues<T: StreamParseableValue & Equatable>(
   )
   expectNoDifference(values, expected, fileID: file, line: line)
 }
+
+@StreamParseable
+struct TwoKeyObject: Equatable {
+  var first: Int = 0
+  var second: Int = 0
+}
+
+@StreamParseable
+struct NestedValue: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable
+struct NestedContainer: Equatable {
+  var nested: NestedValue = .init()
+}
+
+@StreamParseable
+struct DoubleNestedLevel2: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable
+struct DoubleNestedLevel1: Equatable {
+  var level2: DoubleNestedLevel2 = .init()
+}
+
+@StreamParseable
+struct DoubleNestedRoot: Equatable {
+  var level1: DoubleNestedLevel1 = .init()
+}
+
+@StreamParseable
+struct NullableObject: Equatable {
+  var maybe: Int? = 1
+}
+
+@StreamParseable
+struct EmptyObject: Equatable {}
+
+extension TwoKeyObject.Partial: Equatable {}
+extension NestedValue.Partial: Equatable {}
+extension NestedContainer.Partial: Equatable {}
+extension DoubleNestedLevel2.Partial: Equatable {}
+extension DoubleNestedLevel1.Partial: Equatable {}
+extension DoubleNestedRoot.Partial: Equatable {}
+extension NullableObject.Partial: Equatable {}
+extension EmptyObject.Partial: Equatable {}
 
 @Suite
 struct `JSONKeyDecodingStrategy tests` {
