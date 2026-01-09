@@ -8,6 +8,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case exponentialDouble
     case fractionalDouble
     case literal
+
+    var isNumeric: Bool {
+      switch self {
+      case .integer, .exponentialDouble, .fractionalDouble: true
+      default: false
+      }
+    }
   }
 
   public let configuration: JSONStreamParserConfiguration
@@ -22,6 +29,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var isNegativeExponent = false
   private var exponent = 0
   private var fractionalPosition = 0
+
+  private var stack = [StackElement]()
+  private var currentStringPath: WritableKeyPath<Value, String>?
+  private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
+  private var currentArrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
 
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
@@ -39,13 +51,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   public mutating func finish(reducer: inout Value) throws {
-    guard self.mode == .exponentialDouble, let numberPath = self.handlers.numberPath else {
+    guard self.mode.isNumeric, let numberPath = self.handlers.numberPath(stack: self.stack) else {
       return
     }
+    self.mode = .neutral
     reducer[keyPath: numberPath].exponentiate(by: self.exponent)
     self.exponent = 0
     self.isNegativeExponent = false
-    self.mode = .neutral
   }
 
   private mutating func parse(byte: UInt8, into reducer: inout Value) throws {
@@ -62,50 +74,91 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func parseNeutral(byte: UInt8, into reducer: inout Value) throws {
     switch byte {
     case .asciiQuote:
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      self.currentStringPath = self.handlers.stringPath(stack: self.stack)
       self.mode = .string
       self.string = ""
+
+    case .asciiComma:
+      switch self.stack.popLast() {
+      case .array(let index):
+        self.stack.append(.array(index: index + 1))
+      default:
+        break
+      }
+
+    case .asciiArrayStart:
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      self.currentArrayPath = self.handlers.arrayPath(stack: self.stack)
+      self.stack.append(.array(index: 0))
+      guard let currentArrayPath else { return }
+      reducer[keyPath: currentArrayPath].reset()
+
+    case .asciiArrayEnd:
+      self.stack.removeLast()
+      self.currentArrayPath = self.handlers.arrayPath(stack: Array(self.stack.dropLast()))
+
     case .asciiTrueStart:
-      self.mode = .literal
-      if let boolPath = self.handlers.boolPath {
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = true
       }
+
     case .asciiFalseStart:
-      self.mode = .literal
-      if let boolPath = self.handlers.boolPath {
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = false
       }
+
     case .asciiNullStart:
-      self.mode = .literal
-      if let nullablePath = self.handlers.nullablePath {
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      if let nullablePath = self.handlers.nullablePath(stack: self.stack) {
         reducer[keyPath: nullablePath] = nil
       }
+
     case .asciiDash:
-      guard let numberPath = self.handlers.numberPath else { return }
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
       self.isNegative = true
       reducer[keyPath: numberPath].reset()
+
     case 0x30...0x39:
-      guard let numberPath = self.handlers.numberPath else { return }
+      if let currentArrayPath {
+        reducer[keyPath: currentArrayPath].appendNewElement()
+      }
+      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
       self.isNegative = false
       reducer[keyPath: numberPath].reset()
       try self.parseInteger(byte: byte, into: &reducer)
+
     default:
       break
     }
   }
 
   private mutating func parseString(byte: UInt8, into reducer: inout Value) throws {
-    defer {
-      if let stringPath = self.handlers.stringPath {
-        reducer[keyPath: stringPath] = self.string
-      }
-    }
+    guard let currentStringPath else { return }
 
     switch byte {
     case .asciiBackslash:
       if self.isEscaping {
-        self.string.append("\\")
+        reducer[keyPath: currentStringPath].append("\\")
         self.isEscaping = false
       } else {
         self.isEscaping = true
@@ -113,7 +166,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     case .asciiQuote:
       if self.isEscaping {
-        self.string.append("\"")
+        reducer[keyPath: currentStringPath].append("\"")
         self.isEscaping = false
       } else {
         self.mode = .neutral
@@ -123,27 +176,31 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       switch self.utf8State.consume(byte: byte) {
       case .appendByte:
         if self.isEscaping {
-          self.appendEscapedCharacter(for: byte)
+          self.appendEscapedCharacter(for: byte, into: &reducer, at: currentStringPath)
         } else {
-          self.string.unicodeScalars.append(Unicode.Scalar(byte))
+          reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
         }
       case .appendScalar(let scalar):
-        self.string.unicodeScalars.append(scalar)
+        reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
       case .doNothing:
         break
       }
     }
   }
 
-  private mutating func appendEscapedCharacter(for byte: UInt8) {
+  private mutating func appendEscapedCharacter(
+    for byte: UInt8,
+    into reducer: inout Value,
+    at path: WritableKeyPath<Value, String>
+  ) {
     switch byte {
-    case .asciiLowerN: self.string.append("\n")
-    case .asciiLowerR: self.string.append("\r")
-    case .asciiLowerT: self.string.append("\t")
-    case .asciiLowerB: self.string.append("\u{08}")
-    case .asciiLowerF: self.string.append("\u{0C}")
-    case .asciiSlash: self.string.append("/")
-    default: self.string.unicodeScalars.append(Unicode.Scalar(byte))
+    case .asciiLowerN: reducer[keyPath: path].append("\n")
+    case .asciiLowerR: reducer[keyPath: path].append("\r")
+    case .asciiLowerT: reducer[keyPath: path].append("\t")
+    case .asciiLowerB: reducer[keyPath: path].append("\u{08}")
+    case .asciiLowerF: reducer[keyPath: path].append("\u{0C}")
+    case .asciiSlash: reducer[keyPath: path].append("/")
+    default: reducer[keyPath: path].unicodeScalars.append(Unicode.Scalar(byte))
     }
     self.isEscaping = false
   }
@@ -154,9 +211,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     } else if byte == .asciiLowerE || byte == .asciiUpperE {
       self.mode = .exponentialDouble
     } else {
-      guard let digit = byte.digitValue, let numberPath = self.handlers.numberPath else {
+      guard let digit = byte.digitValue, let numberPath = self.currentNumberPath else {
         self.mode = .neutral
-        return
+        return try self.parseNeutral(byte: byte, into: &reducer)
       }
       reducer[keyPath: numberPath]
         .append(digit: digit, isNegative: self.isNegative, fractionalPosition: 0)
@@ -171,21 +228,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     } else if let digit = byte.digitValue {
       self.exponent.appendDigit(digit, isNegative: self.isNegativeExponent)
     } else {
-      guard let numberPath = self.handlers.numberPath else {
-        self.mode = .neutral
-        return
-      }
-      reducer[keyPath: numberPath].exponentiate(by: self.exponent)
+      self.mode = .neutral
+      guard let currentNumberPath else { return }
+      reducer[keyPath: currentNumberPath].exponentiate(by: self.exponent)
+      try self.parseNeutral(byte: byte, into: &reducer)
     }
   }
 
   private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value) throws {
-    guard let digit = byte.digitValue, let numberPath = self.handlers.numberPath else {
+    guard let digit = byte.digitValue, let currentNumberPath else {
       self.mode = .neutral
-      return
+      return try self.parseNeutral(byte: byte, into: &reducer)
     }
     self.fractionalPosition += 1
-    reducer[keyPath: numberPath]
+    reducer[keyPath: currentNumberPath]
       .append(
         digit: digit,
         isNegative: self.isNegative,
@@ -281,14 +337,98 @@ public enum JSONKeyDecodingStrategy: Sendable {
 
 extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
-    var stringPath: WritableKeyPath<Value, String>?
-    var boolPath: WritableKeyPath<Value, Bool>?
-    fileprivate var numberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
-    var nullablePath: WritableKeyPath<Value, Void?>?
+    fileprivate private(set) var stringPath: WritableKeyPath<Value, String>?
+    fileprivate private(set) var boolPath: WritableKeyPath<Value, Bool>?
+    fileprivate private(set) var numberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
+    fileprivate private(set) var nullablePath: WritableKeyPath<Value, Void?>?
+    fileprivate private(set) var arrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
+    fileprivate private(set) var indexPaths: IndexPaths?
+
     private let configuration: JSONStreamParserConfiguration
 
     init(configuration: JSONStreamParserConfiguration) {
       self.configuration = configuration
+    }
+
+    fileprivate func arrayPath(
+      stack: [StackElement]
+    ) -> WritableKeyPath<Value, any StreamParseableArrayObject>? {
+      return self.stackPath(
+        stack: stack,
+        rootPath: self.arrayPath
+      ) { $0.arrayPath?($1) }
+    }
+
+    fileprivate func numberPath(
+      stack: [StackElement]
+    ) -> WritableKeyPath<Value, JSONNumberAccumulator>? {
+      return self.stackPath(
+        stack: stack,
+        rootPath: self.numberPath
+      ) { $0.numberPath?($1) }
+    }
+
+    fileprivate func stringPath(stack: [StackElement]) -> WritableKeyPath<Value, String>? {
+      return self.stackPath(
+        stack: stack,
+        rootPath: self.stringPath
+      ) { $0.stringPath?($1) }
+    }
+
+    fileprivate func nullablePath(stack: [StackElement]) -> WritableKeyPath<Value, Void?>? {
+      return self.stackPath(
+        stack: stack,
+        rootPath: self.nullablePath
+      ) { $0.nullablePath?($1) }
+    }
+
+    fileprivate func booleanPath(stack: [StackElement]) -> WritableKeyPath<Value, Bool>? {
+      return self.stackPath(
+        stack: stack,
+        rootPath: self.boolPath
+      ) { $0.boolPath?($1) }
+    }
+
+    private func stackPath<Path>(
+      stack: [StackElement],
+      rootPath: WritableKeyPath<Value, Path>?,
+      finalPath: (IndexPaths, Int) -> AnyKeyPath?
+    ) -> WritableKeyPath<Value, Path>? {
+      guard !stack.isEmpty else { return rootPath }
+      return self.keyPath(stack: stack, finalPath: finalPath)
+        .flatMap { $0 as? WritableKeyPath<Value, Path> }
+    }
+
+    private func keyPath(
+      stack: [StackElement],
+      finalPath: (IndexPaths, Int) -> AnyKeyPath?
+    ) -> AnyKeyPath? {
+      var path: AnyKeyPath?
+      var indexPaths = self.indexPaths
+      for element in stack.dropLast() {
+        switch element {
+        case .array(let index):
+          guard let _indexPaths = indexPaths else { return nil }
+          let (pathElement, newIndexPaths) = _indexPaths.subpaths(index)
+          if path == nil {
+            path = pathElement
+          } else {
+            path = path?.appending(path: pathElement)
+          }
+          indexPaths = newIndexPaths
+        }
+      }
+      guard let last = stack.last, let indexPaths else { return nil }
+      switch last {
+      case .array(let index):
+        guard let pathElement = finalPath(indexPaths, index) else { return nil }
+        if path == nil {
+          path = pathElement
+        } else {
+          path = path?.appending(path: pathElement)
+        }
+      }
+      return path
     }
 
     public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
@@ -380,11 +520,20 @@ extension JSONStreamParser {
       if let nullablePath = handlers.nullablePath {
         self.nullablePath = path.appending(path: nullablePath)
       }
+      if let arrayPath = handlers.arrayPath {
+        self.arrayPath = path.appending(path: arrayPath)
+      }
     }
 
-    public mutating func registerArrayHandler(
-      _ keyPath: WritableKeyPath<Value, some StreamParseableArrayObject>
+    public mutating func registerArrayHandler<ArrayObject: StreamParseableArrayObject>(
+      _ keyPath: WritableKeyPath<Value, ArrayObject>
     ) {
+      self.arrayPath = keyPath.appending(path: \.erasedJSONPath)
+
+      var elementHandlers = JSONStreamParser<ArrayObject.Element>
+        .Handlers(configuration: self.configuration)
+      ArrayObject.Element.registerHandlers(in: &elementHandlers)
+      self.indexPaths = IndexPaths(handlers: elementHandlers, path: keyPath)
     }
 
     public mutating func registerDictionaryHandler(
@@ -401,6 +550,39 @@ extension JSONStreamParser {
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
       self.numberPath = keyPath.appending(path: \.erasedAccumulator)
     }
+  }
+}
+
+// MARK: - IndexPaths
+
+private struct IndexPaths {
+  var stringPath: ((Int) -> AnyKeyPath)?
+  var boolPath: ((Int) -> AnyKeyPath)?
+  var numberPath: ((Int) -> AnyKeyPath)?
+  var nullablePath: ((Int) -> AnyKeyPath)?
+  var arrayPath: ((Int) -> AnyKeyPath)?
+  let subpaths: (Int) -> (AnyKeyPath, IndexPaths?)
+
+  init<Value: StreamParseableValue, ArrayObject: StreamParseableArrayObject>(
+    handlers: JSONStreamParser<ArrayObject.Element>.Handlers,
+    path: WritableKeyPath<Value, ArrayObject>
+  ) {
+    if let stringPath = handlers.stringPath {
+      self.stringPath = { path.appending(path: \.[$0]).appending(path: stringPath) }
+    }
+    if let boolPath = handlers.boolPath {
+      self.boolPath = { path.appending(path: \.[$0]).appending(path: boolPath) }
+    }
+    if let numberPath = handlers.numberPath {
+      self.numberPath = { path.appending(path: \.[$0]).appending(path: numberPath) }
+    }
+    if let nullablePath = handlers.nullablePath {
+      self.nullablePath = { path.appending(path: \.[$0]).appending(path: nullablePath) }
+    }
+    if let arrayPath = handlers.arrayPath {
+      self.arrayPath = { path.appending(path: \.[$0]).appending(path: arrayPath) }
+    }
+    self.subpaths = { (path.appending(path: \.[$0]), handlers.indexPaths) }
   }
 }
 
@@ -423,6 +605,9 @@ extension UInt8 {
   fileprivate static let asciiTrueStart: UInt8 = 0x74
   fileprivate static let asciiFalseStart: UInt8 = 0x66
   fileprivate static let asciiNullStart: UInt8 = 0x6E
+  fileprivate static let asciiArrayStart: UInt8 = 0x5B
+  fileprivate static let asciiArrayEnd: UInt8 = 0x5D
+  fileprivate static let asciiComma: UInt8 = 0x2C
 }
 
 extension UInt8 {
@@ -559,9 +744,7 @@ private enum JSONNumberAccumulator {
       value.appendDigit(digit, isNegative: isNegative)
       self = .int64(value)
     case .int128(let low, let high):
-      guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
-        return
-      }
+      guard #available(StreamParsing128BitIntegers , *) else { return }
       var value = Int128(_low: low, _high: high)
       value.appendDigit(digit, isNegative: isNegative)
       self = .int128(low: value._low, high: value._high)
@@ -581,9 +764,7 @@ private enum JSONNumberAccumulator {
       value.appendDigit(digit, isNegative: isNegative)
       self = .uint64(value)
     case .uint128(let low, let high):
-      guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
-        return
-      }
+      guard #available(StreamParsing128BitIntegers , *) else { return }
       var value = UInt128(_low: low, _high: high)
       value.appendDigit(digit, isNegative: isNegative)
       self = .uint128(low: value._low, high: value._high)
@@ -611,7 +792,7 @@ private enum JSONNumberAccumulator {
 }
 
 extension BinaryInteger {
-  mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
+  fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
     self *= 10
     if isNegative {
       self -= Self(digit)
@@ -789,4 +970,31 @@ extension Double {
 
 private func jsonNumberAccumulatorCaseMismatch() -> Never {
   fatalError("JSONNumberAccumulator case mismatch.")
+}
+
+// MARK: - ArrayLikeObject
+
+extension StreamParseableArrayObject {
+  fileprivate var erasedJSONPath: any StreamParseableArrayObject {
+    get { self }
+    set { self = newValue as! Self }
+  }
+
+  fileprivate mutating func setElement(at index: Int, element: any StreamParseable) {
+    self[index] = element as! Element
+  }
+
+  fileprivate mutating func appendNewElement() {
+    self.append(contentsOf: CollectionOfOne(.initialParseableValue()))
+  }
+
+  fileprivate mutating func reset() {
+    self = .initialParseableValue()
+  }
+}
+
+// MARK: - StackElement
+
+private enum StackElement {
+  case array(index: Int)
 }

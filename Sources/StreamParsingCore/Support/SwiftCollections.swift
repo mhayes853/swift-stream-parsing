@@ -11,10 +11,6 @@
     public static func initialParseableValue() -> Deque<Element> {
       []
     }
-
-    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerArrayHandler(\.self)
-    }
   }
 
   extension Deque: StreamParseableArrayObject where Element: StreamParseableValue {}
@@ -28,10 +24,6 @@
   extension BitArray: StreamParseableValue {
     public static func initialParseableValue() -> BitArray {
       []
-    }
-
-    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerArrayHandler(\.self)
     }
   }
 
@@ -48,10 +40,6 @@
     public static func initialParseableValue() -> OrderedDictionary<String, Value> {
       [:]
     }
-
-    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerDictionaryHandler(\.self)
-    }
   }
 
   extension OrderedDictionary: StreamParseableDictionaryObject
@@ -67,10 +55,6 @@
   where Key == String, Value: StreamParseableValue {
     public static func initialParseableValue() -> TreeDictionary<String, Value> {
       [:]
-    }
-
-    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerDictionaryHandler(\.self)
     }
   }
 

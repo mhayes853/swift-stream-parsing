@@ -103,6 +103,20 @@ struct `JSONStreamParser tests` {
       let expected = ["", "", "", "", "😀", "😀", "😀", "😀", "😀😃", "😀😃", "😀😃"]
       try expectJSONStreamedValues(json, initialValue: "", expected: expected)
     }
+
+    @Test
+    func `Streams JSON String With Square Brackets Inside`() throws {
+      let json = "\"[]\""
+      let expected = ["", "[", "[]", "[]", "[]"]
+      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+    }
+
+    @Test
+    func `Streams JSON String Containing Only Numbers`() throws {
+      let json = "\"123\""
+      let expected = ["", "1", "12", "123", "123", "123"]
+      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+    }
   }
 
   @Suite
@@ -418,6 +432,229 @@ struct `JSONStreamParser tests` {
         -170_141_183_460_469_231_731_687_303_715_884_105_727
       ]
       try expectJSONStreamedValues(json, initialValue: Int128(0), expected: expected)
+    }
+  }
+
+  @Suite
+  struct `JSONArray tests` {
+    @Test
+    func `Streams JSON Integer Array`() throws {
+      let json = "[1,2]"
+      let expected: [[Int]] = [
+        [],
+        [1],
+        [1],
+        [1, 2],
+        [1, 2],
+        [1, 2]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Integer Array With Heavy Whitespace`() throws {
+      let json = "[  1    ,    2   ]"
+      let expected: [[Int]] = [
+        [],
+        [],
+        [],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1, 2],
+        [1, 2],
+        [1, 2],
+        [1, 2],
+        [1, 2],
+        [1, 2]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [Int](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Array With Fractional And Exponential Double`() throws {
+      let json = "[12.34,12e3]"
+      let expected: [[Double]] = [
+        [],
+        [1],
+        [12],
+        [12],
+        [12.3],
+        [12.34],
+        [12.34],
+        [12.34, 1],
+        [12.34, 12],
+        [12.34, 12],
+        [12.34, 12],
+        [12.34, 12_000],
+        [12.34, 12_000]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [Double](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Integer 2D Array`() throws {
+      let json = "[[1],[2]]"
+      let expected: [[[Int]]] = [
+        [],
+        [[]],
+        [[1]],
+        [[1]],
+        [[1]],
+        [[1], []],
+        [[1], [2]],
+        [[1], [2]],
+        [[1], [2]],
+        [[1], [2]]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [[Int]](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON String Array`() throws {
+      let json = "[\"a\",\"b\"]"
+      let expected: [[String]] = [
+        [],
+        [""],
+        ["a"],
+        ["a"],
+        ["a"],
+        ["a", ""],
+        ["a", "b"],
+        ["a", "b"],
+        ["a", "b"],
+        ["a", "b"]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [String](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON String 2D Array`() throws {
+      let json = "[[\"a\"],[\"b\"]]"
+      let expected: [[[String]]] = [
+        [],
+        [[]],
+        [[""]],
+        [["a"]],
+        [["a"]],
+        [["a"]],
+        [["a"]],
+        [["a"], []],
+        [["a"], [""]],
+        [["a"], ["b"]],
+        [["a"], ["b"]],
+        [["a"], ["b"]],
+        [["a"], ["b"]],
+        [["a"], ["b"]]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [[String]](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Boolean Array`() throws {
+      let json = "[true,false]"
+      let expected: [[Bool]] = [
+        [],
+        [true],
+        [true],
+        [true],
+        [true],
+        [true],
+        [true, false],
+        [true, false],
+        [true, false],
+        [true, false],
+        [true, false],
+        [true, false],
+        [true, false]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [Bool](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Boolean 2D Array`() throws {
+      let json = "[[true],[false]]"
+      let expected: [[[Bool]]] = [
+        [],
+        [[]],
+        [[true]],
+        [[true]],
+        [[true]],
+        [[true]],
+        [[true]],
+        [[true]],
+        [[true], []],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]],
+        [[true], [false]]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [[Bool]](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Optional Array`() throws {
+      let json = "[1,null]"
+      let expected: [[Int?]] = [
+        [],
+        [1],
+        [1],
+        [1, nil],
+        [1, nil],
+        [1, nil],
+        [1, nil],
+        [1, nil],
+        [1, nil]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [Int?](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Optional 2D Array`() throws {
+      let json = "[[null],[1]]"
+      let expected: [[[Int?]]] = [
+        [],
+        [[]],
+        [[nil]],
+        [[nil]],
+        [[nil]],
+        [[nil]],
+        [[nil]],
+        [[nil]],
+        [[nil], []],
+        [[nil], [1]],
+        [[nil], [1]],
+        [[nil], [1]],
+        [[nil], [1]]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [[Int?]](), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Integer 3D Array Single Element`() throws {
+      let json = "[[[1]]]"
+      let expected: [[[[Int]]]] = [
+        [],
+        [[]],
+        [[[]]],
+        [[[1]]],
+        [[[1]]],
+        [[[1]]],
+        [[[1]]],
+        [[[1]]]
+      ]
+      try expectJSONStreamedValues(json, initialValue: [[[Int]]](), expected: expected)
     }
   }
 

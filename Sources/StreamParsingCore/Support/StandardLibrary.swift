@@ -211,10 +211,6 @@ extension Array: StreamParseableValue where Element: StreamParseableValue {
   public static func initialParseableValue() -> [Element] {
     []
   }
-
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerArrayHandler(\.self)
-  }
 }
 
 extension Array: StreamParseableArrayObject where Element: StreamParseableValue {}
@@ -228,10 +224,6 @@ extension Dictionary: StreamParseable where Key == String, Value: StreamParseabl
 extension Dictionary: StreamParseableValue where Key == String, Value: StreamParseableValue {
   public static func initialParseableValue() -> [String: Value] {
     [:]
-  }
-
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerDictionaryHandler(\.self)
   }
 }
 
