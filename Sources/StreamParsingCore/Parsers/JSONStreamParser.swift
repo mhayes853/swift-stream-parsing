@@ -353,40 +353,25 @@ extension JSONStreamParser {
     fileprivate func arrayPath(
       stack: [StackElement]
     ) -> WritableKeyPath<Value, any StreamParseableArrayObject>? {
-      return self.stackPath(
-        stack: stack,
-        rootPath: self.arrayPath
-      ) { $0.arrayPath?($1) }
+      self.stackPath(stack: stack, rootPath: self.arrayPath) { $0.arrayPath?($1) }
     }
 
     fileprivate func numberPath(
       stack: [StackElement]
     ) -> WritableKeyPath<Value, JSONNumberAccumulator>? {
-      return self.stackPath(
-        stack: stack,
-        rootPath: self.numberPath
-      ) { $0.numberPath?($1) }
+      self.stackPath(stack: stack, rootPath: self.numberPath) { $0.numberPath?($1) }
     }
 
     fileprivate func stringPath(stack: [StackElement]) -> WritableKeyPath<Value, String>? {
-      return self.stackPath(
-        stack: stack,
-        rootPath: self.stringPath
-      ) { $0.stringPath?($1) }
+      self.stackPath(stack: stack, rootPath: self.stringPath) { $0.stringPath?($1) }
     }
 
     fileprivate func nullablePath(stack: [StackElement]) -> WritableKeyPath<Value, Void?>? {
-      return self.stackPath(
-        stack: stack,
-        rootPath: self.nullablePath
-      ) { $0.nullablePath?($1) }
+      self.stackPath(stack: stack, rootPath: self.nullablePath) { $0.nullablePath?($1) }
     }
 
     fileprivate func booleanPath(stack: [StackElement]) -> WritableKeyPath<Value, Bool>? {
-      return self.stackPath(
-        stack: stack,
-        rootPath: self.boolPath
-      ) { $0.boolPath?($1) }
+      self.stackPath(stack: stack, rootPath: self.boolPath) { $0.boolPath?($1) }
     }
 
     private func stackPath<Path>(
