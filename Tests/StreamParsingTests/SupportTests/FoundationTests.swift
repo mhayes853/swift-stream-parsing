@@ -30,5 +30,24 @@
       expectNoDifference(result, expected)
       expectNoDifference(stream.current, expected)
     }
+
+    @Test
+    func `Decimal Reducer Doubles Parsed Value Through PartialsStream`() throws {
+      let decimalValue = Decimal(string: "18263.29836292")!
+      let doubledDecimal = decimalValue * Decimal(2)
+      let parser = MockParser<Decimal>(
+        actions: [
+          0x04: .double(18263.29836292),
+          .mockParserDecimalDoubleDoubling: .doubleValue
+        ]
+      )
+      var stream = PartialsStream(initialValue: Decimal(), from: parser)
+
+      _ = try stream.next(0x04)
+      let result = try stream.next(.mockParserDecimalDoubleDoubling)
+
+      expectNoDifference(result, doubledDecimal)
+      expectNoDifference(stream.current, doubledDecimal)
+    }
   }
 #endif

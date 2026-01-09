@@ -38,7 +38,31 @@
     }
 
     private var streamParsingDoubleValue: Double {
-      get { NSDecimalNumber(decimal: self).doubleValue }
+      get {
+        if self._length == 0 {
+          return self.sign == .minus ? Double.nan : 0
+        }
+        var d = 0.0
+        for idx in (0..<min(self._length, 8)).reversed() {
+          withUnsafeBytes(of: self._mantissa) { ptr in
+            let value = ptr.load(
+              fromByteOffset: Int(idx) * MemoryLayout<UInt16>.stride,
+              as: UInt16.self
+            )
+            d = d * 65536 + Double(value)
+          }
+        }
+        if self.exponent < 0 {
+          for _ in self.exponent..<0 {
+            d /= 10.0
+          }
+        } else {
+          for _ in 0..<self.exponent {
+            d *= 10.0
+          }
+        }
+        return self.sign == .minus ? -d : d
+      }
       set { self = Decimal(Double(newValue)) }
     }
   }

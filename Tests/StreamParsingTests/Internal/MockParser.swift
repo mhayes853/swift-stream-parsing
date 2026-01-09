@@ -1,5 +1,9 @@
 import StreamParsing
 
+extension UInt8 {
+  static let mockParserDecimalDoubleDoubling: UInt8 = 0x7D
+}
+
 struct MockParser<Value: StreamParseableValue>: StreamParser {
   struct Handlers: StreamParserHandlers {
     var stringPath: WritableKeyPath<Value, String>?
@@ -248,7 +252,7 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
         guard let doublePath = self.doublePath else { return }
         reducer[keyPath: doublePath] = value
       case .int128(let high, let low):
-        if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0, *) {
+        if #available(StreamParsing128BitIntegers , *) {
           guard let int128Path = self.int128Path else { return }
           reducer[keyPath: int128Path] = Int128(_low: low, _high: high)
         }
@@ -267,6 +271,9 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
       case .setDictionaryValue(let key, let value):
         guard let dictionaryPath = self.dictionaryPath else { return }
         reducer[keyPath: dictionaryPath][key] = value
+      case .doubleValue:
+        guard let doublePath = self.doublePath else { return }
+        reducer[keyPath: doublePath] *= 2
       }
     }
   }
@@ -282,6 +289,7 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
     case arraySet(index: Int, value: Int)
     case createDictionaryValue(key: String)
     case setDictionaryValue(key: String, value: Int)
+    case doubleValue
 
     @available(StreamParsing128BitIntegers, *)
     static func int128(_ value: Int128) -> Self {
