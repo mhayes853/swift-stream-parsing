@@ -107,7 +107,7 @@ public enum StreamParseableMacro: ExtensionMacro {
   ) -> String {
     let lines = properties.map { property in
       let typeDescription = property.type.trimmedDescription
-      let optionalSuffix = membersMode == .optional ? "?" : ""
+      let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
       return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
     }
     return lines.joined(separator: "\n")
@@ -122,7 +122,7 @@ public enum StreamParseableMacro: ExtensionMacro {
       properties
       .map { property in
         let typeDescription = property.type.trimmedDescription
-        let optionalSuffix = membersMode == .optional ? "?" : ""
+        let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
         return
           "\(property.name): \(typeDescription).Partial\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
       }
@@ -256,6 +256,10 @@ extension StreamParseableMacro {
       case .optional: "nil"
       case .initialParseableValue: ".initialParseableValue()"
       }
+    }
+
+    var shouldEmitOptionalMembers: Bool {
+      self == .optional
     }
 
     static func parse(from expression: ExprSyntax) -> Self? {

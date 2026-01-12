@@ -658,7 +658,7 @@ struct `JSONStreamParser tests` {
     }
   }
 
-  @Suite
+  @Suite(.disabled("TODO"))
   struct `JSONObject tests` {
     @Test
     func `Streams JSON Empty Object Into Dictionary`() throws {

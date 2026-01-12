@@ -54,10 +54,10 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Initial Reduceable Value Members`() {
+    func `Initial Parseable Value Members`() {
       assertMacro {
         """
-        @StreamParseable(partialMembers: .initialReduceableValue)
+        @StreamParseable(partialMembers: .initialParseableValue)
         struct Person {
           var name: String
           var age: Int
@@ -75,12 +75,12 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
-            var name: String.Partial?
-            var age: Int.Partial?
+            var name: String.Partial
+            var age: Int.Partial
 
             init(
-              name: String.Partial? = nil,
-              age: Int.Partial? = nil
+              name: String.Partial = .initialParseableValue(),
+              age: Int.Partial = .initialParseableValue()
             ) {
               self.name = name
               self.age = age
@@ -103,10 +103,10 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Initial Reduceable Value Members With Optionals`() {
+    func `Initial Parseable Value Members With Optionals`() {
       assertMacro {
         """
-        @StreamParseable(partialMembers: .initialReduceableValue)
+        @StreamParseable(partialMembers: .initialParseableValue)
         struct Person {
           var name: String?
           var age: Int?
@@ -124,12 +124,12 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseable {
             typealias Partial = Self
 
-            var name: String?.Partial?
-            var age: Int?.Partial?
+            var name: String?.Partial
+            var age: Int?.Partial
 
             init(
-              name: String?.Partial? = nil,
-              age: Int?.Partial? = nil
+              name: String?.Partial = .initialParseableValue(),
+              age: Int?.Partial = .initialParseableValue()
             ) {
               self.name = name
               self.age = age
