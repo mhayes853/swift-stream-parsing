@@ -4,6 +4,14 @@
 public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 
+@attached(member, names: arbitrary)
+public macro StreamParseableMember(key: String) =
+  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
+@attached(member, names: arbitrary)
+public macro StreamParseableMember(keyNames: [String]) =
+  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
 // MARK: - Helpers
 
 public struct PartialMembersMode: Sendable {

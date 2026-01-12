@@ -8,7 +8,10 @@ import Testing
 @Suite(
   .serialized,
   .macros(
-    ["StreamParseable": StreamParseableMacro.self],
+    [
+      "StreamParseable": StreamParseableMacro.self,
+      "StreamParseableMember": StreamParseableMemberMacro.self
+    ],
     record: .failed
   )
 ) struct BaseTestSuite {}

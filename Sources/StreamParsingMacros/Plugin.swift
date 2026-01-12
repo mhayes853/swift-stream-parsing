@@ -3,5 +3,8 @@ import SwiftSyntaxMacros
 
 @main
 struct OperationMacrosPlugin: CompilerPlugin {
-  let providingMacros: [any Macro.Type] = [StreamParseableMacro.self]
+  let providingMacros: [any Macro.Type] = [
+    StreamParseableMacro.self,
+    StreamParseableMemberMacro.self
+  ]
 }

@@ -148,8 +148,10 @@ public enum StreamParseableMacro: ExtensionMacro {
   ) -> String {
     let lines =
       properties
-      .map { property in
-        "    handlers.registerKeyedHandler(forKey: \"\(property.name)\", \\.\(property.name))"
+      .flatMap { property in
+        property.keyNames.map { keyName in
+          "    handlers.registerKeyedHandler(forKey: \"\(keyName)\", \\.\(property.name))"
+        }
       }
       .joined(separator: "\n")
     return """
@@ -195,6 +197,7 @@ extension StreamParseableMacro {
   private struct StoredProperty {
     let name: String
     let type: TypeSyntax
+    let keyNames: [String]
   }
 
   private static func storedProperties(in declaration: StructDeclSyntax) -> [StoredProperty] {
@@ -219,7 +222,11 @@ extension StreamParseableMacro {
           continue
         }
 
-        properties.append(StoredProperty(name: identifierPattern.identifier.text, type: type))
+        let propertyName = identifierPattern.identifier.text
+        let keyNames = self.keyNames(for: variableDecl, defaultName: propertyName)
+        properties.append(
+          StoredProperty(name: propertyName, type: type, keyNames: keyNames)
+        )
       }
     }
     return properties
@@ -241,6 +248,64 @@ extension StreamParseableMacro {
       }
       return false
     }
+  }
+
+  private static func keyNames(
+    for variableDecl: VariableDeclSyntax,
+    defaultName: String
+  ) -> [String] {
+    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl),
+      let arguments = attribute.arguments?.as(LabeledExprListSyntax.self)
+    else {
+      return [defaultName]
+    }
+
+    if let keyExpression = self.argumentExpression(in: arguments, named: "key"),
+      let keyName = self.stringLiteralValue(from: keyExpression)
+    {
+      return [keyName]
+    }
+
+    if let keyNamesExpression = self.argumentExpression(in: arguments, named: "keyNames"),
+      let keyNames = self.stringArrayValues(from: keyNamesExpression),
+      !keyNames.isEmpty
+    {
+      return keyNames
+    }
+
+    return [defaultName]
+  }
+
+  private static func streamParseableMemberAttribute(
+    in variableDecl: VariableDeclSyntax
+  ) -> AttributeSyntax? {
+    variableDecl.attributes
+      .compactMap { $0.as(AttributeSyntax.self) }
+      .first { $0.attributeName.trimmedDescription == "StreamParseableMember" }
+  }
+
+  private static func argumentExpression(
+    in arguments: LabeledExprListSyntax,
+    named name: String
+  ) -> ExprSyntax? {
+    arguments.first { $0.label?.text == name }?.expression
+  }
+
+  private static func stringLiteralValue(from expression: ExprSyntax) -> String? {
+    guard let literal = expression.as(StringLiteralExprSyntax.self) else { return nil }
+    let segments = literal.segments.compactMap {
+      $0.as(StringSegmentSyntax.self)?.content.text
+    }
+    let value = segments.joined()
+    return value.isEmpty ? nil : value
+  }
+
+  private static func stringArrayValues(from expression: ExprSyntax) -> [String]? {
+    guard let arrayExpression = expression.as(ArrayExprSyntax.self) else { return nil }
+    let values = arrayExpression.elements.compactMap {
+      self.stringLiteralValue(from: $0.expression)
+    }
+    return values.isEmpty ? nil : values
   }
 }
 
