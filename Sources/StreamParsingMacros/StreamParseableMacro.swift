@@ -1,3 +1,4 @@
+import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
@@ -17,7 +18,7 @@ public enum StreamParseableMacro: ExtensionMacro {
     }
 
     let typeName = structDecl.name.text
-    let properties = self.storedProperties(in: structDecl)
+    let properties = self.storedProperties(in: structDecl, context: context)
     let hasExistingPartial = self.hasExistingPartial(in: structDecl)
     let accessModifier = self.accessModifier(for: structDecl)
     let membersMode = self.partialMembersMode(from: node)
@@ -200,7 +201,15 @@ extension StreamParseableMacro {
     let keyNames: [String]
   }
 
-  private static func storedProperties(in declaration: StructDeclSyntax) -> [StoredProperty] {
+  private struct KeyNamesResult {
+    let names: [String]
+    let diagnostics: [Diagnostic]
+  }
+
+  private static func storedProperties(
+    in declaration: StructDeclSyntax,
+    context: some MacroExpansionContext
+  ) -> [StoredProperty] {
     var properties = [StoredProperty]()
     for member in declaration.memberBlock.members {
       guard
@@ -223,9 +232,12 @@ extension StreamParseableMacro {
         }
 
         let propertyName = identifierPattern.identifier.text
-        let keyNames = self.keyNames(for: variableDecl, defaultName: propertyName)
+        let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
+        for diagnostic in keyInfo.diagnostics {
+          context.diagnose(diagnostic)
+        }
         properties.append(
-          StoredProperty(name: propertyName, type: type, keyNames: keyNames)
+          StoredProperty(name: propertyName, type: type, keyNames: keyInfo.names)
         )
       }
     }
@@ -253,27 +265,54 @@ extension StreamParseableMacro {
   private static func keyNames(
     for variableDecl: VariableDeclSyntax,
     defaultName: String
-  ) -> [String] {
-    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl),
-      let arguments = attribute.arguments?.as(LabeledExprListSyntax.self)
-    else {
-      return [defaultName]
+  ) -> KeyNamesResult {
+    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl) else {
+      return KeyNamesResult(names: [defaultName], diagnostics: [])
     }
 
-    if let keyExpression = self.argumentExpression(in: arguments, named: "key"),
-      let keyName = self.stringLiteralValue(from: keyExpression)
-    {
-      return [keyName]
+    guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self) else {
+      return KeyNamesResult(names: [defaultName], diagnostics: [])
     }
 
-    if let keyNamesExpression = self.argumentExpression(in: arguments, named: "keyNames"),
-      let keyNames = self.stringArrayValues(from: keyNamesExpression),
-      !keyNames.isEmpty
-    {
-      return keyNames
+    if let keyExpression = self.argumentExpression(in: arguments, named: "key") {
+      if let keyName = self.stringLiteralValue(from: keyExpression) {
+        return KeyNamesResult(names: [keyName], diagnostics: [])
+      }
+
+      return KeyNamesResult(
+        names: [defaultName],
+        diagnostics: [
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(key:) requires a string literal."
+            )
+          )
+        ]
+      )
     }
 
-    return [defaultName]
+    if let keyNamesExpression = self.argumentExpression(in: arguments, named: "keyNames") {
+      if let keyNames = self.stringArrayValues(from: keyNamesExpression),
+        !keyNames.isEmpty
+      {
+        return KeyNamesResult(names: keyNames, diagnostics: [])
+      }
+
+      return KeyNamesResult(
+        names: [defaultName],
+        diagnostics: [
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(keyNames:) requires a string array literal."
+            )
+          )
+        ]
+      )
+    }
+
+    return KeyNamesResult(names: [defaultName], diagnostics: [])
   }
 
   private static func streamParseableMemberAttribute(

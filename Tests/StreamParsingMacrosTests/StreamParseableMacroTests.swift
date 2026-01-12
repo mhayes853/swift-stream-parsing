@@ -101,7 +101,36 @@ extension BaseTestSuite {
         }
         """#
       }
-    }
+  }
+
+  @Test
+  func `Non-String Key Literal`() {
+    assertMacro {
+      """
+      let keyName = "customKeyName"
+
+      @StreamParseable
+      struct Person {
+        @StreamParseableMember(key: keyName)
+        var name: String
+        var age: Int
+      }
+      """
+    } diagnostics: {
+      """
+      let keyName = "customKeyName"
+
+      @StreamParseable
+      struct Person {
+        @StreamParseableMember(key: keyName)
+        ┬───────────────────────────────────
+        ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
+        var name: String
+        var age: Int
+      }
+      """
+    } 
+  }
 
     @Test
     func `Custom Member Key Names`() {
@@ -153,6 +182,85 @@ extension BaseTestSuite {
         """#
       }
     }
+
+    @Test
+    func `Integer Literal Key`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: 1)
+          var name: String
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: 1)
+          ┬─────────────────────────────
+          ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
+          var name: String
+          var age: Int
+        }
+        """
+      }
+    }
+
+    @Test
+    func `Integer Literal Key Names`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: [1])
+          var name: String
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: [1])
+          ┬────────────────────────────────────
+          ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
+          var name: String
+          var age: Int
+        }
+        """
+      }
+    }
+
+  @Test
+  func `Non-String Key Names Array Literal`() {
+    assertMacro {
+      """
+      let keyNames = ["customKeyName"]
+
+      @StreamParseable
+      struct Person {
+        @StreamParseableMember(keyNames: keyNames)
+        var name: String
+        var age: Int
+      }
+      """
+    } diagnostics: {
+      """
+      let keyNames = ["customKeyName"]
+
+      @StreamParseable
+      struct Person {
+        @StreamParseableMember(keyNames: keyNames)
+        ┬─────────────────────────────────────────
+        ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
+        var name: String
+        var age: Int
+      }
+      """
+    }
+  }
 
     @Test
     func `Initial Parseable Value Members`() {
