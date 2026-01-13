@@ -3,7 +3,25 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-public enum StreamParseableMacro: ExtensionMacro {
+public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
+  public static func expansion(
+    of node: AttributeSyntax,
+    providingMembersOf declaration: some DeclGroupSyntax,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    let structDecl = try Self.requireStructDecl(declaration: declaration)
+
+    let properties = Self.storedProperties(in: structDecl, context: context)
+    let accessModifier = Self.accessModifier(for: structDecl)
+    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl)
+    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
+    let streamPartialValuePropertySection = !hasStreamPartialValue
+      ? Self.streamPartialValueProperty(from: properties, modifierPrefix: modifierPrefix)
+      : ""
+    return ["\(raw: streamPartialValuePropertySection)"]
+  }
+  
   public static func expansion(
     of node: AttributeSyntax,
     attachedTo declaration: some DeclGroupSyntax,
@@ -11,17 +29,13 @@ public enum StreamParseableMacro: ExtensionMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
-    guard let structDecl = declaration.as(StructDeclSyntax.self) else {
-      throw MacroExpansionErrorMessage(
-        "@StreamParseable can only be applied to struct declarations."
-      )
-    }
+    let structDecl = try Self.requireStructDecl(declaration: declaration)
 
     let typeName = structDecl.name.text
-    let properties = self.storedProperties(in: structDecl, context: context)
-    let hasExistingPartial = self.hasExistingPartial(in: structDecl)
-    let accessModifier = self.accessModifier(for: structDecl)
-    let membersMode = self.partialMembersMode(from: node)
+    let properties = Self.storedProperties(in: structDecl, context: context)
+    let hasExistingPartial = Self.hasExistingPartial(in: structDecl)
+    let accessModifier = Self.accessModifier(for: structDecl)
+    let membersMode = Self.partialMembersMode(from: node)
 
     if hasExistingPartial {
       return [
@@ -33,7 +47,8 @@ public enum StreamParseableMacro: ExtensionMacro {
       ]
     }
 
-    let partialStruct = self.partialStructDecl(
+    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl)
+    let partialStruct = Self.partialStructDecl(
       for: properties,
       accessModifier: accessModifier,
       membersMode: membersMode,
@@ -48,6 +63,17 @@ public enum StreamParseableMacro: ExtensionMacro {
         """
       )
     ]
+  }
+  
+  private static func requireStructDecl(
+    declaration: some DeclGroupSyntax
+  ) throws -> StructDeclSyntax {
+    guard let structDecl = declaration.as(StructDeclSyntax.self) else {
+      throw MacroExpansionErrorMessage(
+        "@StreamParseable can only be applied to struct declarations."
+      )
+    }
+    return structDecl
   }
 
   private static func isStatic(_ variableDecl: VariableDeclSyntax) -> Bool {
@@ -64,29 +90,49 @@ public enum StreamParseableMacro: ExtensionMacro {
     }
   }
 
+  private static func hasExistingStreamPartialValue(
+    in declaration: StructDeclSyntax
+  ) -> Bool {
+    for member in declaration.memberBlock.members {
+      guard let variableDecl = member.decl.as(VariableDeclSyntax.self),
+        !self.isStatic(variableDecl)
+      else {
+        continue
+      }
+
+      for binding in variableDecl.bindings {
+        guard
+          let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
+          identifierPattern.identifier.text == "streamPartialValue"
+        else {
+          continue
+        }
+
+        return true
+      }
+    }
+
+    return false
+  }
+
   private static func partialStructDecl(
     for properties: [StoredProperty],
     accessModifier: String?,
     membersMode: PartialMembersMode,
     baseTypeName: String
   ) -> DeclSyntax {
-    let modifierPrefix = self.modifierPrefix(for: accessModifier)
-    let propertyLines = self.partialStructProperties(
+    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
+    let propertyLines = Self.partialStructProperties(
       from: properties,
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
-    let initializerLines = self.partialStructInitializer(
+    let initializerLines = Self.partialStructInitializer(
       from: properties,
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
-    let fromBaseInitializerLines = self.partialStructInitializerFromBase(
-      from: properties,
-      modifierPrefix: modifierPrefix,
-      baseTypeName: baseTypeName
-    )
-    let registerHandlersLines = self.partialStructRegisterHandlers(
+    let registerHandlersLines = Self.partialStructRegisterHandlers(
       from: properties,
       modifierPrefix: modifierPrefix
     )
@@ -98,8 +144,6 @@ public enum StreamParseableMacro: ExtensionMacro {
       \(raw: propertyLines)
 
         \(raw: initializerLines)
-
-        \(raw: fromBaseInitializerLines)
 
         \(raw: modifierPrefix)static func initialParseableValue() -> Self {
           Self()
@@ -153,25 +197,6 @@ public enum StreamParseableMacro: ExtensionMacro {
       """
   }
 
-  private static func partialStructInitializerFromBase(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    baseTypeName: String
-  ) -> String {
-    let activeProperties = properties.filter { !$0.isIgnored }
-    let assignments =
-      activeProperties
-      .map { property in
-        "    self.\(property.name) = value.\(property.name)"
-      }
-      .joined(separator: "\n")
-    return """
-      \(modifierPrefix)init(from value: \(baseTypeName)) {
-      \(assignments)
-        }
-      """
-  }
-
   private static func partialStructRegisterHandlers(
     from properties: [StoredProperty],
     modifierPrefix: String
@@ -192,6 +217,33 @@ public enum StreamParseableMacro: ExtensionMacro {
       \(lines)
         }
       """
+  }
+
+  private static func streamPartialValueProperty(
+    from properties: [StoredProperty],
+    modifierPrefix: String
+  ) -> String {
+    let activeProperties = properties.filter { !$0.isIgnored }
+    guard !activeProperties.isEmpty else {
+      return """
+          \(modifierPrefix)var streamPartialValue: Partial {
+            Partial()
+          }
+        """
+    }
+
+    let argumentLines = activeProperties.enumerated().map { index, property in
+      let suffix = index == activeProperties.count - 1 ? "" : ","
+      return "    \(property.name): self.\(property.name).streamPartialValue\(suffix)"
+    }.joined(separator: "\n")
+
+    return """
+        \(modifierPrefix)var streamPartialValue: Partial {
+          Partial(
+        \(argumentLines)
+          )
+        }
+        """
   }
 
   private static func accessModifier(for declaration: StructDeclSyntax) -> String? {

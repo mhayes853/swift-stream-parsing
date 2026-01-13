@@ -3,6 +3,10 @@
 
   extension Tagged: StreamParseable where RawValue: StreamParseable {
     public typealias Partial = Tagged<Tag, RawValue.Partial>
+
+    public var streamPartialValue: Tagged<Tag, RawValue.Partial> {
+      Tagged<Tag, RawValue.Partial>(rawValue: self.rawValue.streamPartialValue)
+    }
   }
 
   extension Tagged: StreamParseableValue where RawValue: StreamParseableValue {

@@ -1,6 +1,7 @@
 // MARK: - Macros
 
 @attached(extension, conformances: StreamParseable, names: named(Partial))
+@attached(member, names: named(streamPartialValue))
 public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 

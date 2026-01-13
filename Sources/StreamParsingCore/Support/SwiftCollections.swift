@@ -5,6 +5,14 @@
 
   extension Deque: StreamParseable where Element: StreamParseable {
     public typealias Partial = Deque<Element.Partial>
+
+    public var streamPartialValue: Deque<Element.Partial> {
+      var deque = Deque<Element.Partial>()
+      for element in self {
+        deque.append(element.streamPartialValue)
+      }
+      return deque
+    }
   }
 
   extension Deque: StreamParseableValue where Element: StreamParseableValue {
@@ -33,6 +41,10 @@
 
   extension OrderedDictionary: StreamParseable where Key == String, Value: StreamParseable {
     public typealias Partial = OrderedDictionary<String, Value.Partial>
+
+    public var streamPartialValue: OrderedDictionary<String, Value.Partial> {
+      self.mapValues(\.streamPartialValue)
+    }
   }
 
   extension OrderedDictionary: StreamParseableValue
@@ -49,6 +61,10 @@
 
   extension TreeDictionary: StreamParseable where Key == String, Value: StreamParseable {
     public typealias Partial = TreeDictionary<String, Value.Partial>
+
+    public var streamPartialValue: TreeDictionary<String, Value.Partial> {
+      self.mapValues(\.streamPartialValue)
+    }
   }
 
   extension TreeDictionary: StreamParseableValue

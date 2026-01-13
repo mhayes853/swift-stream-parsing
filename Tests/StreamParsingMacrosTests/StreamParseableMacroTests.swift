@@ -19,6 +19,13 @@ extension BaseTestSuite {
         struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -35,11 +42,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -74,6 +76,13 @@ extension BaseTestSuite {
         struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -90,11 +99,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -129,6 +133,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(key: "name")
           ┬──────────────────────────────────
+          ├─ 🛑 Only stored properties are supported.
           ╰─ 🛑 Only stored properties are supported.
           static var name: String = ""
         }
@@ -154,6 +159,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(key: "name")
           ┬──────────────────────────────────
+          ├─ 🛑 Only stored properties are supported.
           ╰─ 🛑 Only stored properties are supported.
           var name: String {
             "value"
@@ -184,6 +190,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(key: keyName)
           ┬───────────────────────────────────
+          ├─ 🛑 @StreamParseableMember(key:) requires a string literal.
           ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
           var name: String
           var age: Int
@@ -208,6 +215,13 @@ extension BaseTestSuite {
         struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -224,11 +238,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -265,6 +274,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(key: 1)
           ┬─────────────────────────────
+          ├─ 🛑 @StreamParseableMember(key:) requires a string literal.
           ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
           var name: String
           var age: Int
@@ -290,6 +300,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(keyNames: [1])
           ┬────────────────────────────────────
+          ├─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
           ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
           var name: String
           var age: Int
@@ -319,6 +330,7 @@ extension BaseTestSuite {
         struct Person {
           @StreamParseableMember(keyNames: keyNames)
           ┬─────────────────────────────────────────
+          ├─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
           ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
           var name: String
           var age: Int
@@ -342,6 +354,13 @@ extension BaseTestSuite {
         struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -358,11 +377,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -396,6 +410,13 @@ extension BaseTestSuite {
         struct Person {
           var name: String?
           var age: Int?
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -412,11 +433,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -450,6 +466,12 @@ extension BaseTestSuite {
         struct Person {
           static var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -463,10 +485,6 @@ extension BaseTestSuite {
               age: Int.Partial? = nil
             ) {
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -503,6 +521,12 @@ extension BaseTestSuite {
           var computed: Int {
             1
           }
+
+          var streamPartialValue: Partial {
+            Partial(
+              stored: self.stored.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -516,10 +540,6 @@ extension BaseTestSuite {
               stored: String.Partial? = nil
             ) {
               self.stored = stored
-            }
-
-            init(from value: Person) {
-              self.stored = value.stored
             }
 
             static func initialParseableValue() -> Self {
@@ -553,6 +573,12 @@ extension BaseTestSuite {
         struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -566,10 +592,6 @@ extension BaseTestSuite {
               name: String.Partial? = nil
             ) {
               self.name = name
-            }
-
-            init(from value: Person) {
-              self.name = value.name
             }
 
             static func initialParseableValue() -> Self {
@@ -602,6 +624,12 @@ extension BaseTestSuite {
         struct Person {
           var stored: String
           func greet() {}
+
+          var streamPartialValue: Partial {
+            Partial(
+              stored: self.stored.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -615,10 +643,6 @@ extension BaseTestSuite {
               stored: String.Partial? = nil
             ) {
               self.stored = stored
-            }
-
-            init(from value: Person) {
-              self.stored = value.stored
             }
 
             static func initialParseableValue() -> Self {
@@ -651,6 +675,13 @@ extension BaseTestSuite {
         struct Person {
           let name: String
           let age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -667,11 +698,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -704,6 +730,7 @@ extension BaseTestSuite {
         """
         @StreamParseable
         ┬───────────────
+        ├─ 🛑 @StreamParseable can only be applied to struct declarations.
         ╰─ 🛑 @StreamParseable can only be applied to struct declarations.
         enum Person {
           case name(String)
@@ -732,6 +759,7 @@ extension BaseTestSuite {
         """
         @StreamParseable
         ┬───────────────
+        ├─ 🛑 @StreamParseable can only be applied to struct declarations.
         ╰─ 🛑 @StreamParseable can only be applied to struct declarations.
         class Person {
           var name: String
@@ -765,6 +793,7 @@ extension BaseTestSuite {
         """
         @StreamParseable
         ┬───────────────
+        ├─ 🛑 @StreamParseable can only be applied to struct declarations.
         ╰─ 🛑 @StreamParseable can only be applied to struct declarations.
         actor Person {
           var name: String
@@ -798,11 +827,81 @@ extension BaseTestSuite {
           var age: Int
 
           struct Partial {}
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
         }
         """
+      }
+    }
+
+    @Test
+    func `Uses Existing StreamPartialValue Property`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var name: String
+          var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: name.streamPartialValue,
+              age: age.streamPartialValue
+            )
+          }
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String
+          var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: name.streamPartialValue,
+              age: age.streamPartialValue
+            )
+          }
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+            var age: Int.Partial?
+
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
       }
     }
 
@@ -821,6 +920,13 @@ extension BaseTestSuite {
         public struct Person {
           public var name: String
           public var age: Int
+
+          public var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -837,11 +943,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            public init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             public static func initialParseableValue() -> Self {
@@ -871,6 +972,13 @@ extension BaseTestSuite {
         private struct Person {
           var name: String
           var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -887,11 +995,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -921,6 +1024,13 @@ extension BaseTestSuite {
         fileprivate struct Person {
           var name: String
           var age: Int
+
+          fileprivate var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -937,11 +1047,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            fileprivate init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             fileprivate static func initialParseableValue() -> Self {
@@ -975,6 +1080,13 @@ extension BaseTestSuite {
         public struct Person {
           private var name: String
           private var age: Int
+
+          public var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -991,11 +1103,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            public init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             public static func initialParseableValue() -> Self {
@@ -1029,6 +1136,13 @@ extension BaseTestSuite {
         public struct Person {
           private var name: String?
           private var age: Optional<Int>
+
+          public var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
         }
 
         extension Person: StreamParsingCore.StreamParseable {
@@ -1045,11 +1159,6 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
-            }
-
-            public init(from value: Person) {
-              self.name = value.name
-              self.age = value.age
             }
 
             public static func initialParseableValue() -> Self {
