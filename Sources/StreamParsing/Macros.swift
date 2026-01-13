@@ -4,15 +4,15 @@
 public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 
-@attached(member)
+@attached(peer)
 public macro StreamParseableMember(key: String) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
-@attached(member)
+@attached(peer)
 public macro StreamParseableMember(keyNames: [String]) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
-@attached(member)
+@attached(peer)
 public macro StreamParseableIgnored() =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableIgnoredMacro")
 

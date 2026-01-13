@@ -1,11 +1,10 @@
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-public enum StreamParseableIgnoredMacro: MemberMacro {
+public enum StreamParseableIgnoredMacro: PeerMacro {
   public static func expansion(
     of node: AttributeSyntax,
-    providingMembersOf declaration: some DeclGroupSyntax,
-    conformingTo protocols: [TypeSyntax],
+    providingPeersOf declaration: some DeclSyntaxProtocol,
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
     []
