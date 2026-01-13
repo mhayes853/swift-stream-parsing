@@ -105,9 +105,44 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Streams JSON String With Two-Byte Character`() throws {
+      let json = "\"\u{00E9}\""
+      let expected = ["", "", "\u{00E9}", "\u{00E9}", "\u{00E9}"]
+      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+    }
+
+    @Test
+    func `Streams JSON String With Four-Byte NonEmoji Character`() throws {
+      let json = "\"\u{1D11E}\""
+      let expected = ["", "", "", "", "\u{1D11E}", "\u{1D11E}", "\u{1D11E}"]
+      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+    }
+
+    @Test
     func `Streams JSON String With Square Brackets Inside`() throws {
       let json = "\"[]\""
       let expected = ["", "[", "[]", "[]", "[]"]
+      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+    }
+
+    @Test
+    func `Streams JSON String With Consecutive Four-Byte Scalars`() throws {
+      let scalar1 = "\u{10437}"
+      let scalar2 = "\u{10438}"
+      let json = "\"\(scalar1)\(scalar2)\""
+      let expected = [
+        "",
+        "",
+        "",
+        "",
+        scalar1,
+        scalar1,
+        scalar1,
+        scalar1,
+        "\(scalar1)\(scalar2)",
+        "\(scalar1)\(scalar2)",
+        "\(scalar1)\(scalar2)"
+      ]
       try expectJSONStreamedValues(json, initialValue: "", expected: expected)
     }
 
