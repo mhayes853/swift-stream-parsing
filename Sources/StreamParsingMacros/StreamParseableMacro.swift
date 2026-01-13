@@ -36,7 +36,8 @@ public enum StreamParseableMacro: ExtensionMacro {
     let partialStruct = self.partialStructDecl(
       for: properties,
       accessModifier: accessModifier,
-      membersMode: membersMode
+      membersMode: membersMode,
+      baseTypeName: typeName
     )
     return [
       try ExtensionDeclSyntax(
@@ -66,7 +67,8 @@ public enum StreamParseableMacro: ExtensionMacro {
   private static func partialStructDecl(
     for properties: [StoredProperty],
     accessModifier: String?,
-    membersMode: PartialMembersMode
+    membersMode: PartialMembersMode,
+    baseTypeName: String
   ) -> DeclSyntax {
     let modifierPrefix = self.modifierPrefix(for: accessModifier)
     let propertyLines = self.partialStructProperties(
@@ -78,6 +80,11 @@ public enum StreamParseableMacro: ExtensionMacro {
       from: properties,
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
+    )
+    let fromBaseInitializerLines = self.partialStructInitializerFromBase(
+      from: properties,
+      modifierPrefix: modifierPrefix,
+      baseTypeName: baseTypeName
     )
     let registerHandlersLines = self.partialStructRegisterHandlers(
       from: properties,
@@ -91,6 +98,8 @@ public enum StreamParseableMacro: ExtensionMacro {
       \(raw: propertyLines)
 
         \(raw: initializerLines)
+
+        \(raw: fromBaseInitializerLines)
 
         \(raw: modifierPrefix)static func initialParseableValue() -> Self {
           Self()
@@ -139,6 +148,25 @@ public enum StreamParseableMacro: ExtensionMacro {
       \(modifierPrefix)init(
           \(parameters)
         ) {
+      \(assignments)
+        }
+      """
+  }
+
+  private static func partialStructInitializerFromBase(
+    from properties: [StoredProperty],
+    modifierPrefix: String,
+    baseTypeName: String
+  ) -> String {
+    let activeProperties = properties.filter { !$0.isIgnored }
+    let assignments =
+      activeProperties
+      .map { property in
+        "    self.\(property.name) = value.\(property.name)"
+      }
+      .joined(separator: "\n")
+    return """
+      \(modifierPrefix)init(from value: \(baseTypeName)) {
       \(assignments)
         }
       """

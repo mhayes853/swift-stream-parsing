@@ -37,6 +37,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -85,6 +90,11 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
+            }
+
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -216,6 +226,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -345,6 +360,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -394,6 +414,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -438,6 +463,10 @@ extension BaseTestSuite {
               age: Int.Partial? = nil
             ) {
               self.age = age
+            }
+
+            init(from value: Person) {
+              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -489,6 +518,10 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
+            init(from value: Person) {
+              self.stored = value.stored
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -535,6 +568,10 @@ extension BaseTestSuite {
               self.name = name
             }
 
+            init(from value: Person) {
+              self.name = value.name
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -578,6 +615,10 @@ extension BaseTestSuite {
               stored: String.Partial? = nil
             ) {
               self.stored = stored
+            }
+
+            init(from value: Person) {
+              self.stored = value.stored
             }
 
             static func initialParseableValue() -> Self {
@@ -626,6 +667,11 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
+            }
+
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
             }
 
             static func initialParseableValue() -> Self {
@@ -793,6 +839,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            public init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             public static func initialParseableValue() -> Self {
               Self()
             }
@@ -838,6 +889,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             static func initialParseableValue() -> Self {
               Self()
             }
@@ -881,6 +937,11 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
+            }
+
+            fileprivate init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
             }
 
             fileprivate static func initialParseableValue() -> Self {
@@ -932,6 +993,11 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            public init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
+            }
+
             public static func initialParseableValue() -> Self {
               Self()
             }
@@ -979,6 +1045,11 @@ extension BaseTestSuite {
             ) {
               self.name = name
               self.age = age
+            }
+
+            public init(from value: Person) {
+              self.name = value.name
+              self.age = value.age
             }
 
             public static func initialParseableValue() -> Self {
