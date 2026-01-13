@@ -104,6 +104,56 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `StreamParseableMember Applied To Static Property`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          static var name: String = ""
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          ┬──────────────────────────────────
+          ╰─ 🛑 Only stored properties are supported.
+          static var name: String = ""
+        }
+        """
+      }
+    }
+
+    @Test
+    func `StreamParseableMember Applied To Computed Property`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          var name: String {
+            "value"
+          }
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          ┬──────────────────────────────────
+          ╰─ 🛑 Only stored properties are supported.
+          var name: String {
+            "value"
+          }
+        }
+        """
+      }
+    }
+
+    @Test
     func `Non-String Key Literal`() {
       assertMacro {
         """

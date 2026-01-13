@@ -215,42 +215,81 @@ extension StreamParseableMacro {
   ) -> [StoredProperty] {
     var properties = [StoredProperty]()
     for member in declaration.memberBlock.members {
+      guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
+        continue
+      }
+      properties.append(contentsOf: self.storedProperties(from: variableDecl, context: context))
+    }
+    return properties
+  }
+
+  private static func storedProperties(
+    from variableDecl: VariableDeclSyntax,
+    context: some MacroExpansionContext
+  ) -> [StoredProperty] {
+    if self.isStatic(variableDecl) {
+      self.diagnoseUnsupportedStreamParseableMember(in: variableDecl, context: context)
+      return []
+    }
+
+    var properties = [StoredProperty]()
+    for binding in variableDecl.bindings {
+      if self.isComputedProperty(binding) {
+        self.diagnoseUnsupportedStreamParseableMember(in: variableDecl, context: context)
+        continue
+      }
+
       guard
-        let variableDecl = member.decl.as(VariableDeclSyntax.self),
-        !self.isStatic(variableDecl)
+        let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
+        let type = binding.typeAnnotation?.type
       else {
         continue
       }
 
-      for binding in variableDecl.bindings {
-        guard !self.isComputedProperty(binding) else {
-          continue
-        }
-
-        guard
-          let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
-          let type = binding.typeAnnotation?.type
-        else {
-          continue
-        }
-
-        let propertyName = identifierPattern.identifier.text
-        let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
-        let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
-        for diagnostic in keyInfo.diagnostics {
-          context.diagnose(diagnostic)
-        }
-        properties.append(
-          StoredProperty(
-            name: propertyName,
-            type: type,
-            keyNames: keyInfo.names,
-            isIgnored: isIgnored
-          )
+      properties.append(
+        self.storedProperty(
+          from: variableDecl,
+          propertyName: identifierPattern.identifier.text,
+          type: type,
+          context: context
         )
-      }
+      )
     }
     return properties
+  }
+
+  private static func storedProperty(
+    from variableDecl: VariableDeclSyntax,
+    propertyName: String,
+    type: TypeSyntax,
+    context: some MacroExpansionContext
+  ) -> StoredProperty {
+    let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
+    let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
+    for diagnostic in keyInfo.diagnostics {
+      context.diagnose(diagnostic)
+    }
+    return StoredProperty(
+      name: propertyName,
+      type: type,
+      keyNames: keyInfo.names,
+      isIgnored: isIgnored
+    )
+  }
+
+  private static func diagnoseUnsupportedStreamParseableMember(
+    in variableDecl: VariableDeclSyntax,
+    context: some MacroExpansionContext
+  ) {
+    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl) else { return }
+    context.diagnose(
+      Diagnostic(
+        node: attribute,
+        message: MacroExpansionErrorMessage(
+          "Only stored properties are supported."
+        )
+      )
+    )
   }
 
   private static func isComputedProperty(_ binding: PatternBindingSyntax) -> Bool {
