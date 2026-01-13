@@ -106,7 +106,7 @@ public enum StreamParseableMacro: ExtensionMacro {
     modifierPrefix: String,
     membersMode: PartialMembersMode
   ) -> String {
-    let lines = properties.map { property in
+    let lines = properties.filter { !$0.isIgnored }.map { property in
       let typeDescription = property.type.trimmedDescription
       let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
       return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
@@ -119,8 +119,9 @@ public enum StreamParseableMacro: ExtensionMacro {
     modifierPrefix: String,
     membersMode: PartialMembersMode
   ) -> String {
+    let activeProperties = properties.filter { !$0.isIgnored }
     let parameters =
-      properties
+      activeProperties
       .map { property in
         let typeDescription = property.type.trimmedDescription
         let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
@@ -129,7 +130,7 @@ public enum StreamParseableMacro: ExtensionMacro {
       }
       .joined(separator: ",\n    ")
     let assignments =
-      properties
+      activeProperties
       .map { property in
         "    self.\(property.name) = \(property.name)"
       }
@@ -149,6 +150,7 @@ public enum StreamParseableMacro: ExtensionMacro {
   ) -> String {
     let lines =
       properties
+      .filter { !$0.isIgnored }
       .flatMap { property in
         property.keyNames.map { keyName in
           "    handlers.registerKeyedHandler(forKey: \"\(keyName)\", \\.\(property.name))"
@@ -199,6 +201,7 @@ extension StreamParseableMacro {
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
+    let isIgnored: Bool
   }
 
   private struct KeyNamesResult {
@@ -232,12 +235,18 @@ extension StreamParseableMacro {
         }
 
         let propertyName = identifierPattern.identifier.text
+        let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
         let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
         for diagnostic in keyInfo.diagnostics {
           context.diagnose(diagnostic)
         }
         properties.append(
-          StoredProperty(name: propertyName, type: type, keyNames: keyInfo.names)
+          StoredProperty(
+            name: propertyName,
+            type: type,
+            keyNames: keyInfo.names,
+            isIgnored: isIgnored
+          )
         )
       }
     }
@@ -321,6 +330,14 @@ extension StreamParseableMacro {
     variableDecl.attributes
       .compactMap { $0.as(AttributeSyntax.self) }
       .first { $0.attributeName.trimmedDescription == "StreamParseableMember" }
+  }
+
+  private static func streamParseableIgnoredAttribute(
+    in variableDecl: VariableDeclSyntax
+  ) -> AttributeSyntax? {
+    variableDecl.attributes
+      .compactMap { $0.as(AttributeSyntax.self) }
+      .first { $0.attributeName.trimmedDescription == "StreamParseableIgnored" }
   }
 
   private static func argumentExpression(

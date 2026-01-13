@@ -101,36 +101,36 @@ extension BaseTestSuite {
         }
         """#
       }
-  }
+    }
 
-  @Test
-  func `Non-String Key Literal`() {
-    assertMacro {
-      """
-      let keyName = "customKeyName"
+    @Test
+    func `Non-String Key Literal`() {
+      assertMacro {
+        """
+        let keyName = "customKeyName"
 
-      @StreamParseable
-      struct Person {
-        @StreamParseableMember(key: keyName)
-        var name: String
-        var age: Int
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: keyName)
+          var name: String
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        let keyName = "customKeyName"
+
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: keyName)
+          ┬───────────────────────────────────
+          ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
+          var name: String
+          var age: Int
+        }
+        """
       }
-      """
-    } diagnostics: {
-      """
-      let keyName = "customKeyName"
-
-      @StreamParseable
-      struct Person {
-        @StreamParseableMember(key: keyName)
-        ┬───────────────────────────────────
-        ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
-        var name: String
-        var age: Int
-      }
-      """
-    } 
-  }
+    }
 
     @Test
     func `Custom Member Key Names`() {
@@ -233,34 +233,34 @@ extension BaseTestSuite {
       }
     }
 
-  @Test
-  func `Non-String Key Names Array Literal`() {
-    assertMacro {
-      """
-      let keyNames = ["customKeyName"]
+    @Test
+    func `Non-String Key Names Array Literal`() {
+      assertMacro {
+        """
+        let keyNames = ["customKeyName"]
 
-      @StreamParseable
-      struct Person {
-        @StreamParseableMember(keyNames: keyNames)
-        var name: String
-        var age: Int
-      }
-      """
-    } diagnostics: {
-      """
-      let keyNames = ["customKeyName"]
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: keyNames)
+          var name: String
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        let keyNames = ["customKeyName"]
 
-      @StreamParseable
-      struct Person {
-        @StreamParseableMember(keyNames: keyNames)
-        ┬─────────────────────────────────────────
-        ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
-        var name: String
-        var age: Int
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: keyNames)
+          ┬─────────────────────────────────────────
+          ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
+          var name: String
+          var age: Int
+        }
+        """
       }
-      """
     }
-  }
 
     @Test
     func `Initial Parseable Value Members`() {
@@ -447,6 +447,52 @@ extension BaseTestSuite {
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "stored", \.stored)
+            }
+          }
+        }
+        """#
+      }
+    }
+
+    @Test
+    func `Ignores Explicitly Ignored Properties`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var name: String
+          @StreamParseableIgnored
+          var age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String
+          var age: Int
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+
+            init(
+              name: String.Partial? = nil
+            ) {
+              self.name = name
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "name", \.name)
             }
           }
         }

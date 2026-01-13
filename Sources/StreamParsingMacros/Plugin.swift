@@ -5,6 +5,7 @@ import SwiftSyntaxMacros
 struct OperationMacrosPlugin: CompilerPlugin {
   let providingMacros: [any Macro.Type] = [
     StreamParseableMacro.self,
-    StreamParseableMemberMacro.self
+    StreamParseableMemberMacro.self,
+    StreamParseableIgnoredMacro.self
   ]
 }

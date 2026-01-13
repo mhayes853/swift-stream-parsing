@@ -10,7 +10,8 @@ import Testing
   .macros(
     [
       "StreamParseable": StreamParseableMacro.self,
-      "StreamParseableMember": StreamParseableMemberMacro.self
+      "StreamParseableMember": StreamParseableMemberMacro.self,
+      "StreamParseableIgnored": StreamParseableIgnoredMacro.self
     ],
     record: .failed
   )
