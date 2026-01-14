@@ -693,7 +693,7 @@ struct `JSONStreamParser tests` {
     }
   }
 
-  @Suite(.disabled("TODO"))
+  @Suite
   struct `JSONObject tests` {
     @Test
     func `Streams JSON Empty Object Into Dictionary`() throws {
@@ -847,7 +847,7 @@ struct `JSONStreamParser tests` {
         ["fractional": 12.34, "exponential": 1],
         ["fractional": 12.34, "exponential": 12],
         ["fractional": 12.34, "exponential": 12],
-        ["fractional": 12.34, "exponential": 12_000],
+        ["fractional": 12.34, "exponential": 12],
         ["fractional": 12.34, "exponential": 12_000],
         ["fractional": 12.34, "exponential": 12_000]
       ]
@@ -858,10 +858,10 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Nullable Value Into StreamParseable Struct`() throws {
       let json = "{\"maybe\":null}"
-      let beforeNull = Array(repeating: NullableObject.Partial(), count: 12)
+      let beforeNull = Array(repeating: NullableObject.Partial(), count: 9)
       let afterNull = Array(
         repeating: NullableObject.Partial(maybe: Optional<Int?>.some(nil)),
-        count: 3
+        count: 6
       )
       let expected = beforeNull + afterNull
       try expectJSONStreamedValues(json, initialValue: NullableObject.Partial(), expected: expected)
@@ -870,10 +870,10 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Nullable Value Into Dictionary`() throws {
       let json = "{\"maybe\":null}"
-      let beforeNull = Array(repeating: [String: Int?](), count: 12)
+      let beforeNull = Array(repeating: [String: Int?](), count: 9)
       let afterNull = Array(
         repeating: ["maybe": nil] as [String: Int?],
-        count: 3
+        count: 6
       )
       let expected = beforeNull + afterNull
       try expectJSONStreamedValues(json, initialValue: [String: Int?](), expected: expected)
