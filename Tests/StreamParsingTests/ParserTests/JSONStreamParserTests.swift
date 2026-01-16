@@ -780,7 +780,10 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams Nested JSON Object Into StreamParseable Struct With Initial Parseable Partial Members`() throws {
+    func
+      `Streams Nested JSON Object Into StreamParseable Struct With Initial Parseable Partial Members`()
+      throws
+    {
       let json = "{\"nested\":{\"value\":1}}"
       let initial = Array(repeating: InitialParseableNestedContainer.Partial(), count: 19)
       let populated = Array(

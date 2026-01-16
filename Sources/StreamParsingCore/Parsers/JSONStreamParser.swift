@@ -668,7 +668,6 @@ extension JSONStreamParser {
     ) {
       var handlers = JSONStreamParser<Scoped>.Handlers(configuration: self.configuration)
       type.registerHandlers(in: &handlers)
-      print(Swift.type(of: keyPath))
       self.merge(with: handlers, using: keyPath)
     }
 
@@ -698,15 +697,37 @@ extension JSONStreamParser {
         self.keyedPaths = keyedPaths
       }
 
+      guard !handlers.objectHandlers.isEmpty else { return }
+
       let newHandlers = handlers.objectHandlers.mapValues { handler in
         ObjectHandlersState(
-          paths: handler.paths,
-          keyPath: (path as AnyKeyPath).appending(path: handler.keyPath)!,
+          paths: ObjectPaths(
+            stringPath: handler.paths.stringPath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            },
+            boolPath: handler.paths.boolPath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            },
+            numberPath: handler.paths.numberPath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            },
+            nullablePath: handler.paths.nullablePath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            },
+            arrayPath: handler.paths.arrayPath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            },
+            dictionaryPath: handler.paths.dictionaryPath.flatMap {
+              (path as AnyKeyPath).appending(path: $0)
+            }
+          ),
+          keyPath: handler.keyPath.flatMap { (path as AnyKeyPath).appending(path: $0) },
           keyedPaths: handler.keyedPaths,
           indexPaths: handler.indexPaths
         )
       }
       self.objectHandlers.merge(newHandlers) { $1 }
+      self.keyedPaths = KeyedPaths(objectHandlers: self.objectHandlers)
     }
 
     public mutating func registerArrayHandler<ArrayObject: StreamParseableArrayObject>(
@@ -850,7 +871,7 @@ private struct ObjectPaths {
 
 private struct ObjectHandlersState {
   var paths: ObjectPaths
-  var keyPath: AnyKeyPath
+  var keyPath: AnyKeyPath?
   var keyedPaths: KeyedPaths?
   var indexPaths: IndexPaths?
 }
