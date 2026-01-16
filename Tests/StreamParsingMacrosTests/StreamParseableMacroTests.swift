@@ -170,6 +170,30 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `Missing Stored Property Type Annotation`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var name = "Blob"
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          var name = "Blob"
+              ┬────────────
+              ├─ 🛑 Stored properties must declare an explicit type.
+              ╰─ 🛑 Stored properties must declare an explicit type.
+          var age: Int
+        }
+        """
+      }
+    }
+
+    @Test
     func `Non-String Key Literal`() {
       assertMacro {
         """

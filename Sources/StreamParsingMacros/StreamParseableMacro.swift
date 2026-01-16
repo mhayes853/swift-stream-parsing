@@ -161,7 +161,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
   ) -> String {
     let lines = properties.filter { !$0.isIgnored }
       .map { property in
-        let typeDescription = property.type.trimmedDescription
+        let typeDescription = property.typeName
         let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
         return
           "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
@@ -178,7 +178,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let parameters =
       activeProperties
       .map { property in
-        let typeDescription = property.type.trimmedDescription
+        let typeDescription = property.typeName
         let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
         return
           "\(property.name): \(typeDescription).Partial\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
@@ -284,6 +284,7 @@ extension StreamParseableMacro {
   private struct StoredProperty {
     let name: String
     let type: TypeSyntax
+    let typeName: String
     let keyNames: [String]
     let isIgnored: Bool
   }
@@ -323,10 +324,12 @@ extension StreamParseableMacro {
         continue
       }
 
-      guard
-        let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self),
-        let type = binding.typeAnnotation?.type
-      else {
+      guard let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self) else {
+        continue
+      }
+
+      guard let type = binding.typeAnnotation?.type else {
+        self.diagnoseMissingTypeAnnotation(in: binding, context: context)
         continue
       }
 
@@ -350,14 +353,30 @@ extension StreamParseableMacro {
   ) -> StoredProperty {
     let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
     let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
+    let typeName = type.trimmedDescription
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
     }
     return StoredProperty(
       name: propertyName,
       type: type,
+      typeName: typeName,
       keyNames: keyInfo.names,
       isIgnored: isIgnored
+    )
+  }
+
+  private static func diagnoseMissingTypeAnnotation(
+    in binding: PatternBindingSyntax,
+    context: some MacroExpansionContext
+  ) {
+    context.diagnose(
+      Diagnostic(
+        node: binding,
+        message: MacroExpansionErrorMessage(
+          "Stored properties must declare an explicit type."
+        )
+      )
     )
   }
 
