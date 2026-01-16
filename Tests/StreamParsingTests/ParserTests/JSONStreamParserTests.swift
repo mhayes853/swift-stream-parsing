@@ -780,6 +780,24 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Streams Nested JSON Object Into StreamParseable Struct With Initial Parseable Partial Members`() throws {
+      let json = "{\"nested\":{\"value\":1}}"
+      let initial = Array(repeating: InitialParseableNestedContainer.Partial(), count: 19)
+      let populated = Array(
+        repeating: InitialParseableNestedContainer.Partial(
+          nested: InitialParseableNestedValue.Partial(value: 1)
+        ),
+        count: 4
+      )
+      let expected = initial + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: InitialParseableNestedContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
     func `Streams Doubly Nested JSON Object Into Dictionary Of Dictionaries Of Dictionaries`()
       throws
     {
@@ -880,6 +898,43 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
+      let json = "{\"values\":{\"inner\":1}}"
+      let beforeInner = Array(repeating: DictionaryPropertyContainer.Partial(), count: 19)
+      let populated = Array(
+        repeating: DictionaryPropertyContainer.Partial(values: ["inner": 1]),
+        count: 4
+      )
+      let expected = beforeInner + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: DictionaryPropertyContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Array Property Into StreamParseable Struct`() throws {
+      let json = "{\"numbers\":[1,2]}"
+      let beforeArray = Array(repeating: ArrayPropertyContainer.Partial(), count: 11)
+      let arrayProgress: [ArrayPropertyContainer.Partial] = [
+        ArrayPropertyContainer.Partial(),
+        ArrayPropertyContainer.Partial(numbers: [1]),
+        ArrayPropertyContainer.Partial(numbers: [1]),
+        ArrayPropertyContainer.Partial(numbers: [1, 2]),
+        ArrayPropertyContainer.Partial(numbers: [1, 2]),
+        ArrayPropertyContainer.Partial(numbers: [1, 2]),
+        ArrayPropertyContainer.Partial(numbers: [1, 2])
+      ]
+      let expected = beforeArray + arrayProgress
+      try expectJSONStreamedValues(
+        json,
+        initialValue: ArrayPropertyContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
     func `Streams JSON Empty Object Into StreamParseable Struct`() throws {
       let json = "{}"
       let expected = Array(repeating: EmptyObject.Partial(), count: 3)
@@ -962,6 +1017,16 @@ struct NestedContainer: Equatable {
   var nested: NestedValue = .init()
 }
 
+@StreamParseable(partialMembers: .initialParseableValue)
+struct InitialParseableNestedValue: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable(partialMembers: .initialParseableValue)
+struct InitialParseableNestedContainer: Equatable {
+  var nested: InitialParseableNestedValue = .init()
+}
+
 @StreamParseable
 struct DoubleNestedLevel2: Equatable {
   var value: Int = 0
@@ -985,14 +1050,28 @@ struct NullableObject: Equatable {
 @StreamParseable
 struct EmptyObject: Equatable {}
 
+@StreamParseable
+struct DictionaryPropertyContainer: Equatable {
+  var values: [String: Int]
+}
+
+@StreamParseable
+struct ArrayPropertyContainer: Equatable {
+  var numbers: [Int]
+}
+
 extension TwoKeyObject.Partial: Equatable {}
 extension NestedValue.Partial: Equatable {}
 extension NestedContainer.Partial: Equatable {}
+extension InitialParseableNestedValue.Partial: Equatable {}
+extension InitialParseableNestedContainer.Partial: Equatable {}
 extension DoubleNestedLevel2.Partial: Equatable {}
 extension DoubleNestedLevel1.Partial: Equatable {}
 extension DoubleNestedRoot.Partial: Equatable {}
 extension NullableObject.Partial: Equatable {}
 extension EmptyObject.Partial: Equatable {}
+extension DictionaryPropertyContainer.Partial: Equatable {}
+extension ArrayPropertyContainer.Partial: Equatable {}
 
 @Suite
 struct `JSONKeyDecodingStrategy tests` {

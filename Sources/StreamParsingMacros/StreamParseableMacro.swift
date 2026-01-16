@@ -16,12 +16,13 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let accessModifier = Self.accessModifier(for: structDecl)
     let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl)
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let streamPartialValuePropertySection = !hasStreamPartialValue
+    let streamPartialValuePropertySection =
+      !hasStreamPartialValue
       ? Self.streamPartialValueProperty(from: properties, modifierPrefix: modifierPrefix)
       : ""
     return ["\(raw: streamPartialValuePropertySection)"]
   }
-  
+
   public static func expansion(
     of node: AttributeSyntax,
     attachedTo declaration: some DeclGroupSyntax,
@@ -47,7 +48,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       ]
     }
 
-    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl)
     let partialStruct = Self.partialStructDecl(
       for: properties,
       accessModifier: accessModifier,
@@ -64,7 +64,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       )
     ]
   }
-  
+
   private static func requireStructDecl(
     declaration: some DeclGroupSyntax
   ) throws -> StructDeclSyntax {
@@ -159,11 +159,13 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     modifierPrefix: String,
     membersMode: PartialMembersMode
   ) -> String {
-    let lines = properties.filter { !$0.isIgnored }.map { property in
-      let typeDescription = property.type.trimmedDescription
-      let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
-      return "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
-    }
+    let lines = properties.filter { !$0.isIgnored }
+      .map { property in
+        let typeDescription = property.type.trimmedDescription
+        let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
+        return
+          "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
+      }
     return lines.joined(separator: "\n")
   }
 
@@ -232,18 +234,20 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         """
     }
 
-    let argumentLines = activeProperties.enumerated().map { index, property in
-      let suffix = index == activeProperties.count - 1 ? "" : ","
-      return "    \(property.name): self.\(property.name).streamPartialValue\(suffix)"
-    }.joined(separator: "\n")
+    let argumentLines = activeProperties.enumerated()
+      .map { index, property in
+        let suffix = index == activeProperties.count - 1 ? "" : ","
+        return "    \(property.name): self.\(property.name).streamPartialValue\(suffix)"
+      }
+      .joined(separator: "\n")
 
     return """
-        \(modifierPrefix)var streamPartialValue: Partial {
-          Partial(
-        \(argumentLines)
-          )
-        }
-        """
+      \(modifierPrefix)var streamPartialValue: Partial {
+        Partial(
+      \(argumentLines)
+        )
+      }
+      """
   }
 
   private static func accessModifier(for declaration: StructDeclSyntax) -> String? {

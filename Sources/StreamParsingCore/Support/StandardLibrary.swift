@@ -205,7 +205,7 @@ extension UInt128: StreamParseableValue {
 
 extension Array: StreamParseable where Element: StreamParseable {
   public typealias Partial = [Element.Partial]
-  
+
   public var streamPartialValue: [Element.Partial] {
     self.map(\.streamPartialValue)
   }
@@ -223,8 +223,8 @@ extension Array: StreamParseableArrayObject where Element: StreamParseableValue 
 
 extension Dictionary: StreamParseable where Key == String, Value: StreamParseable {
   public typealias Partial = [String: Value.Partial]
-  
-  public var streamPartialValue: [String : Value.Partial] {
+
+  public var streamPartialValue: [String: Value.Partial] {
     self.mapValues(\.streamPartialValue)
   }
 }
@@ -242,7 +242,7 @@ where Key == String, Value: StreamParseableValue {}
 
 extension Optional: StreamParseable where Wrapped: StreamParseable {
   public typealias Partial = Wrapped.Partial?
-  
+
   public var streamPartialValue: Wrapped.Partial? {
     switch self {
     case .none: nil
