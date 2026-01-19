@@ -18,10 +18,26 @@ extension StreamParseableArrayObject {
 
 // MARK: - StreamParseableValue
 
+private protocol _StreamParsingNilLiteralConvertible {
+  static func streamParsingNil() -> Self
+}
+
+extension Optional: _StreamParsingNilLiteralConvertible {
+  fileprivate static func streamParsingNil() -> Self { nil }
+}
+
 extension Optional where Wrapped: StreamParseableValue {
   package var nullablePath: Void? {
     get { self != nil ? () : nil }
-    set { self = nil }
+    set {
+      if let nilConvertible = Wrapped.self as? _StreamParsingNilLiteralConvertible.Type,
+        let nilValue = nilConvertible.streamParsingNil() as? Wrapped
+      {
+        self = .some(nilValue)
+      } else {
+        self = nil
+      }
+    }
   }
 }
 

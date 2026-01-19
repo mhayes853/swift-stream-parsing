@@ -860,10 +860,7 @@ struct `JSONStreamParser tests` {
         ["fractional": 12.3],
         ["fractional": 12.34]
       ]
-      let fractionalHolding = Array(
-        repeating: ["fractional": 12.34],
-        count: 15
-      )
+      let fractionalHolding = Array(repeating: ["fractional": 12.34], count: 15)
       let exponentialPhase: [[String: Double]] = [
         ["fractional": 12.34, "exponential": 1],
         ["fractional": 12.34, "exponential": 12],
@@ -881,11 +878,29 @@ struct `JSONStreamParser tests` {
       let json = "{\"maybe\":null}"
       let beforeNull = Array(repeating: NullableObject.Partial(), count: 9)
       let afterNull = Array(
-        repeating: NullableObject.Partial(maybe: Optional<Int?>.some(nil)),
+        repeating: NullableObject.Partial(maybe: .some(nil)),
         count: 6
       )
       let expected = beforeNull + afterNull
       try expectJSONStreamedValues(json, initialValue: NullableObject.Partial(), expected: expected)
+    }
+
+    @Test
+    func `Streams JSON Object With Nested Nullable Value Into StreamParseable Struct`() throws {
+      let json = "{\"inner\":{\"maybe\":null}}"
+      let beforeNull = Array(repeating: NullableNestedContainer.Partial(), count: 18)
+      let afterNull = Array(
+        repeating: NullableNestedContainer.Partial(
+          inner: NullableNestedValue.Partial(maybe: .some(nil))
+        ),
+        count: 7
+      )
+      let expected = beforeNull + afterNull
+      try expectJSONStreamedValues(
+        json,
+        initialValue: NullableNestedContainer.Partial(),
+        expected: expected
+      )
     }
 
     @Test
@@ -1051,6 +1066,16 @@ struct NullableObject: Equatable {
 }
 
 @StreamParseable
+struct NullableNestedValue: Equatable {
+  var maybe: Int? = 1
+}
+
+@StreamParseable
+struct NullableNestedContainer: Equatable {
+  var inner: NullableNestedValue = NullableNestedValue()
+}
+
+@StreamParseable
 struct EmptyObject: Equatable {}
 
 @StreamParseable
@@ -1072,6 +1097,8 @@ extension DoubleNestedLevel2.Partial: Equatable {}
 extension DoubleNestedLevel1.Partial: Equatable {}
 extension DoubleNestedRoot.Partial: Equatable {}
 extension NullableObject.Partial: Equatable {}
+extension NullableNestedValue.Partial: Equatable {}
+extension NullableNestedContainer.Partial: Equatable {}
 extension EmptyObject.Partial: Equatable {}
 extension DictionaryPropertyContainer.Partial: Equatable {}
 extension ArrayPropertyContainer.Partial: Equatable {}
