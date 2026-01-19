@@ -1371,6 +1371,39 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Throws For Invalid Hex Number When Enabled`() {
+      let json = "0x"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
+        initialValue: 0,
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Hex Number Without Prefix When Enabled`() {
+      let json = "1x34"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
+        initialValue: 0,
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Hex Number With Extra Leading Zero When Enabled`() {
+      let json = "00x78"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
+        initialValue: 0,
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
     func `Throws For Invalid Exponent`() {
       let json = "{\"a\": 1e}"
       expectJSONStreamParsingError(
@@ -1438,6 +1471,165 @@ struct `JSONStreamParser tests` {
       let json = "null"
       let expected: [String?] = [nil, nil, nil, nil, nil]
       try expectJSONStreamedValues(json, initialValue: "seed", expected: expected)
+    }
+  }
+
+  @Suite
+  struct `JSONConfiguration tests` {
+    @Test
+    func `Allows Trailing Comma In Array When Enabled`() throws {
+      let json = "[1,2,]"
+      let values = try json.utf8.partials(
+        initialValue: [Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.trailingCommas]))
+      )
+      expectNoDifference(values.last, [1, 2])
+    }
+
+    @Test
+    func `Allows Trailing Comma In Object When Enabled`() throws {
+      let json = "{\"a\":1,}"
+      let values = try json.utf8.partials(
+        initialValue: [String: Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.trailingCommas]))
+      )
+      expectNoDifference(values.last, ["a": 1])
+    }
+
+    @Test
+    func `Allows Comments When Enabled`() throws {
+      let json = "/*comment*/1"
+      let values = try json.utf8.partials(
+        initialValue: 0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments]))
+      )
+      expectNoDifference(values.last, 1)
+    }
+
+    @Test
+    func `Allows Single Quoted Strings When Enabled`() throws {
+      let json = "'Blob'"
+      let values = try json.utf8.partials(
+        initialValue: "",
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]))
+      )
+      expectNoDifference(values.last, "Blob")
+    }
+
+    @Test
+    func `Allows Unquoted Keys When Enabled`() throws {
+      let json = "{value:1}"
+      let values = try json.utf8.partials(
+        initialValue: [String: Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]))
+      )
+      expectNoDifference(values.last, ["value": 1])
+    }
+
+    @Test
+    func `Allows Leading Plus When Enabled`() throws {
+      let json = "+1"
+      let values = try json.utf8.partials(
+        initialValue: 0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.leadingPlus]))
+      )
+      expectNoDifference(values.last, 1)
+    }
+
+    @Test
+    func `Allows Leading Zeros When Enabled`() throws {
+      let json = "01"
+      let values = try json.utf8.partials(
+        initialValue: 0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.leadingZeros]))
+      )
+      expectNoDifference(values.last, 1)
+    }
+
+    @Test
+    func `Allows Hex Numbers When Enabled`() throws {
+      let json = "0x1f"
+      let values = try json.utf8.partials(
+        initialValue: 0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]))
+      )
+      expectNoDifference(values.last, 31)
+    }
+
+    @Test
+    func `Allows Leading Decimal Point When Enabled`() throws {
+      let json = ".125"
+      let values = try json.utf8.partials(
+        initialValue: 0.0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.leadingDecimalPoint]))
+      )
+      expectNoDifference(values.last, 0.125)
+    }
+
+    @Test
+    func `Allows Non Finite Numbers When Enabled`() throws {
+      let json = "Infinity"
+      let values = try json.utf8.partials(
+        initialValue: 0.0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers]))
+      )
+      expectNoDifference(values.last, Double.infinity)
+    }
+
+    @Test
+    func `Allows NaN When Enabled`() throws {
+      let json = "NaN"
+      let values = try json.utf8.partials(
+        initialValue: 0.0,
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers]))
+      )
+      #expect(values.last?.isNaN == true)
+    }
+
+    @Test
+    func `Allows Control Characters In Strings When Enabled`() throws {
+      let json = "\"\u{0001}\""
+      let values = try json.utf8.partials(
+        initialValue: "",
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.controlCharactersInStrings])
+        )
+      )
+      expectNoDifference(values.last, "\u{0001}")
+    }
+
+    @Test
+    func `Allows Comments And Unquoted Keys Together`() throws {
+      let json = "{/*note*/unquoted:1}"
+      let values = try json.utf8.partials(
+        initialValue: [String: Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .unquotedKeys]))
+      )
+      expectNoDifference(values.last, ["unquoted": 1])
+    }
+
+    @Test
+    func `Allows Comments And Trailing Commas Together`() throws {
+      let json = "[1,/*note*/2,]"
+      let values = try json.utf8.partials(
+        initialValue: [Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .trailingCommas]))
+      )
+      expectNoDifference(values.last, [1, 2])
+    }
+
+    @Test
+    func `Allows Unquoted Keys And Single Quoted Strings Together`() throws {
+      let json = "{unquoted:'value'}"
+      let values = try json.utf8.partials(
+        initialValue: [String: String](),
+        from: .json(
+          configuration: JSONStreamParserConfiguration(
+            syntaxOptions: [.unquotedKeys, .singleQuotedStrings]
+          )
+        )
+      )
+      expectNoDifference(values.last, ["unquoted": "value"])
     }
   }
 }

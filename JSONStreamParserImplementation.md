@@ -1,19 +1,67 @@
-## Plan: JSONStreamParser Invalid Syntax Handling
+## Plan: JSONStreamParser Configuration Support
 
-### Updated Implementation Plan
-1) Review existing parser modes and output behavior to identify invariants we must preserve (streamed partials, mode transitions, stack handling). Document these invariants in a short checklist for validating no regressions while adding errors.
-2) Add/adjust tests to cover the “no registered path” scenario (e.g. `currentStringPath` is nil in `parseString`) to assert internal state still updates for consumed bytes even when no value is emitted. Add a dedicated test (e.g. `testUnregisteredPathStillUpdatesState`) that feeds a JSON object with an unregistered key followed by a registered key, and asserts that the registered key still parses correctly after the unregistered value is consumed. Example payload: `{"ignored":"alpha","tracked":"beta"}` with only `tracked` registered; expect `tracked` to emit `beta` and no errors.
-3) Introduce error types/positions and wire a single error-reporting path that short-circuits parsing after first syntax error without altering successful parsing paths.
-4) Add mode-specific syntax validation with minimal disruption to current tokenization: enforce delimiters (colon/comma), mismatched closes, invalid literals/numbers, and unexpected tokens; ensure trailing comma detection in object/array modes via “expecting value vs expecting delimiter” state.
-5) Ensure end-of-input validation for unterminated strings/containers and dangling delimiters; confirm trailing bytes after error do not emit new partials while preserving already-emitted partials.
-6) Run/adjust tests to verify preserved behavior on valid streams and all error cases (including trailing commas) and finalize any edge-case handling.
+### Goals
+- Support configurable JSON syntax behaviors via `JSONStreamParserConfiguration` while preserving existing parsing behavior by default.
+- Add dedicated tests for configuration combinations and ensure baseline parsing remains stable.
 
-### Step 1 Notes: Parsing Invariants Checklist
-- `parse(byte:)` always returns the current reducer state after each byte via `PartialsStream`; bytes that do not represent meaningful tokens leave the value unchanged.
-- Mode transitions must mirror the current parser: `neutral` dispatches to `string`, `integer`, `fractionalDouble`, `exponentialDouble`, `keyFinding`, `keyCollecting`; numeric modes fall back to `neutral` and reprocess the current byte for delimiters.
-- Arrays use `StackElement.array(index)`; `[` pushes index 0 and (if registered) resets the array; `,` increments the index by replacing the last stack element; `]` pops the last element and updates the parent path.
-- Objects use `StackElement.object(key)` only after a key is fully collected and `:` is seen; `{` enters `keyFinding` and (if registered) resets the dictionary; `,` in object scope returns to `keyFinding`; `}` pops the last object key and updates the parent path.
-- `appendArrayElementIfNeeded` runs before any value token to keep array element slots aligned with streamed partials.
-- Strings must advance state even when `currentStringPath` is nil: escape tracking, UTF-8 decoding, and closing quote detection still need to move the mode back to `neutral`.
-- Numbers append digits to the accumulator while in numeric modes; on non-digit bytes, the parser resets to `neutral` and replays the byte so delimiters (comma, bracket, brace) are still honored.
-- Booleans and null are applied immediately in `neutral` on `t`/`f`/`n` without an explicit literal mode; error handling should not break existing tolerance for those bytes.
+### Test Plan
+1) Create a new sub test suite `JSONConfiguration tests` within `JSONStreamParser tests`.
+2) Add targeted tests that toggle one configuration at a time:
+   - Allow/disallow trailing commas in arrays and objects.
+   - Allow/disallow comments (line and block).
+   - Allow/disallow single-line comments (//) in neutral, key-finding, and value positions.
+   - Allow/disallow single-quoted strings.
+   - Allow/disallow unquoted object keys.
+   - Allow/disallow leading plus sign in numbers.
+   - Allow/disallow leading zeros in numbers.
+   - Allow/disallow NaN/Infinity (if supported as non-standard literals).
+   - Allow/disallow whitespace control characters outside standard JSON whitespace.
+3) Add combination tests to cover interactions (multiple flags enabled at once):
+   - Allow trailing commas + comments in nested objects/arrays.
+   - Unquoted keys + single-quoted strings in the same object.
+   - Comments + unquoted keys in the same object.
+   - Leading plus + leading zero + exponent formats.
+   - Hex numbers + leading decimal point (ensure leading decimal point only affects decimal parsing).
+4) Add tests that confirm configuration changes do not affect streaming behavior:
+   - Emitted partials still align with array indices and object keys.
+   - Ignored keys still advance internal state even when config toggles are enabled.
+
+### Configuration Surface (Proposed)
+- `allowTrailingCommas: Bool` (default false)
+- `allowComments: Bool` (default false)
+- `allowSingleQuotedStrings: Bool` (default false)
+- `allowUnquotedKeys: Bool` (default false)
+- `allowLeadingPlus: Bool` (default false)
+- `allowLeadingZeros: Bool` (default false)
+- `allowNonFiniteNumbers: Bool` (default false) // NaN/Infinity
+- `allowControlCharactersInStrings: Bool` (default false)
+- `allowUnicodeEscapesWithoutBraces: Bool` (default false) // if relevant to current escape handling
+- `allowHexNumbers: Bool` (default false)
+- `allowLeadingDecimalPoint: Bool` (default false) // .123 => 0.123
+
+### Implementation Plan
+1) Add the new `JSONConfiguration tests` suite and baseline tests for each configuration flag.
+2) Update `JSONStreamParserConfiguration` to include the new syntactic toggles with explicit defaults. Condense the booleans into an `OptionSet` (e.g., `JSONSyntaxOptions`) stored on `JSONStreamParserConfiguration` while providing computed properties (or initializers) for convenience and backward compatibility.
+3) Thread configuration into parsing logic with minimal disruption:
+   - `parseNeutral`: when encountering `,` before `]`/`}` and `allowTrailingCommas == true`, accept and transition to “expecting close or value” state; otherwise keep throwing `trailingComma`.
+   - `parseNeutral` and `parseKeyFinding`: when encountering `/` and `allowComments == true`, enter a `comment` mode (line/block) and ignore bytes until comment end; otherwise throw `unexpectedToken`.
+   - Single-line comment specifics: on `//` enter `comment` mode configured for single-line; consume bytes until `\n` or `\r`, then return to the prior mode (neutral or keyFinding), preserving container state and delimiter expectations.
+   - Add tests for single-line comments embedded in multi-line arrays and objects (e.g., comment between elements or between object entries) to ensure parser resumes correctly after newline boundaries.
+   - `parseString`: allow starting quote of `'` when `allowSingleQuotedStrings == true`; otherwise throw `unexpectedToken`.
+   - `parseKeyFinding`: if `allowUnquotedKeys == true`, accept identifier-style keys and collect until `:` or whitespace; otherwise only allow `"`-delimited keys.
+   - Number parsing (`parseInteger`/`parseFractionalDouble`/`parseExponentialDouble`):
+     - If `allowLeadingPlus == true`, accept `+` as a sign at the beginning of numbers.
+     - If `allowLeadingZeros == true`, allow `0` followed by more digits without error.
+     - If `allowNonFiniteNumbers == true`, recognize `NaN`/`Infinity` as literals.
+     - If `allowHexNumbers == true`, accept `0x`/`0X` prefixed hex digits and parse into integer/float accumulators as appropriate (reject hex floats unless explicitly supported).
+     - If `allowLeadingDecimalPoint == true`, accept `.` followed by digits at value-start and treat as `0.xxx` for number parsing.
+   - String escape handling: if `allowControlCharactersInStrings == true`, do not error on ASCII < 0x20; otherwise keep strict validation.
+4) Ensure configuration checks are localized to the earliest decision points in each mode to avoid state drift:
+   - Keep existing stack/array index updates unchanged.
+   - Preserve current error precedence (e.g., missing comma vs missing closing brace) by checking config before throwing.
+5) Run full JSONStreamParser tests and update any expectations based on configuration defaults.
+
+### Validation Checklist
+- Default configuration behaves identically to current strict JSON parsing.
+- Non-standard syntax is accepted only when the corresponding flag is enabled.
+- Configuration toggles do not alter emitted partials or internal stack behavior.

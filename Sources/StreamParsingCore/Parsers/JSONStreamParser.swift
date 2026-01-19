@@ -5,6 +5,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case neutral
     case string
     case integer
+    case hexInteger
     case exponentialDouble
     case fractionalDouble
     case literal
@@ -13,7 +14,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     var isNumeric: Bool {
       switch self {
-      case .integer, .exponentialDouble, .fractionalDouble: true
+      case .integer, .hexInteger, .exponentialDouble, .fractionalDouble: true
       default: false
       }
     }
@@ -114,6 +115,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case .literal: try self.parseLiteral(byte: byte, into: &reducer)
     case .neutral: try self.parseNeutral(byte: byte, into: &reducer)
     case .integer: try self.parseInteger(byte: byte, into: &reducer)
+    case .hexInteger: try self.parseHexInteger(byte: byte, into: &reducer)
     case .string: try self.parseString(byte: byte, into: &reducer)
     case .exponentialDouble: try self.parseExponentialDouble(byte: byte, into: &reducer)
     case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer)
@@ -315,7 +317,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
         self.stack.removeLast()
-        self.currentDictionaryPath = self.handlers.dictionaryPath(stack: Array(self.stack.dropLast()))
+        self.currentDictionaryPath = self.handlers.dictionaryPath(
+          stack: Array(self.stack.dropLast())
+        )
       }
       self.objectTrailingCommaDepths.remove(self.objectDepth)
       self.objectDepth -= 1
@@ -361,6 +365,49 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.numberState.reset()
       reducer[keyPath: numberPath].reset()
 
+    case .asciiDot:
+      guard self.configuration.syntaxOptions.contains(.leadingDecimalPoint) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .neutral
+        )
+      }
+      self.clearArrayTrailingCommaIfNeeded()
+      try self.beginValueToken()
+      self.appendArrayElementIfNeeded(into: &reducer)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      guard let numberPath = self.currentNumberPath else { return }
+      self.mode = .fractionalDouble
+      self.isNegative = false
+      self.isNegativeExponent = false
+      self.exponent = 0
+      self.fractionalPosition = 0
+      self.numberState.reset()
+      self.numberState.hasDot = true
+      reducer[keyPath: numberPath].reset()
+
+    case .asciiPlus:
+      guard self.configuration.syntaxOptions.contains(.leadingPlus) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .neutral
+        )
+      }
+      self.clearArrayTrailingCommaIfNeeded()
+      try self.beginValueToken()
+      self.appendArrayElementIfNeeded(into: &reducer)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      guard let numberPath = self.currentNumberPath else { return }
+      self.mode = .integer
+      self.isNegative = false
+      self.isNegativeExponent = false
+      self.exponent = 0
+      self.fractionalPosition = 0
+      self.numberState.reset()
+      reducer[keyPath: numberPath].reset()
+
     case 0x30...0x39:
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
@@ -375,6 +422,44 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.numberState.reset()
       reducer[keyPath: numberPath].reset()
       try self.parseInteger(byte: byte, into: &reducer)
+
+    case .asciiUpperI, .asciiUpperN:
+      guard self.configuration.syntaxOptions.contains(.nonFiniteNumbers) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .neutral
+        )
+      }
+      self.clearArrayTrailingCommaIfNeeded()
+      try self.beginValueToken()
+      self.appendArrayElementIfNeeded(into: &reducer)
+      if let numberPath = self.handlers.numberPath(stack: self.stack) {
+        switch byte {
+        case .asciiUpperI:
+          try self.applyNonFiniteNumber(
+            .infinity,
+            at: self.position,
+            path: numberPath,
+            into: &reducer
+          )
+          self.startLiteral(expected: jsonLiteralInfinity)
+        case .asciiUpperN:
+          try self.applyNonFiniteNumber(.nan, at: self.position, path: numberPath, into: &reducer)
+          self.startLiteral(expected: jsonLiteralNaN)
+        default:
+          break
+        }
+      } else {
+        switch byte {
+        case .asciiUpperI:
+          self.startLiteral(expected: jsonLiteralInfinity)
+        case .asciiUpperN:
+          self.startLiteral(expected: jsonLiteralNaN)
+        default:
+          break
+        }
+      }
 
     default:
       if !byte.isWhitespace {
@@ -617,6 +702,23 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       self.mode = .fractionalDouble
       self.numberState.hasDot = true
+    } else if byte == .asciiLowerX || byte == .asciiUpperX {
+      guard self.configuration.syntaxOptions.contains(.hexNumbers),
+        self.numberState.hasDigits,
+        self.numberState.hasLeadingZero,
+        self.numberState.digitCount == 1,
+        !self.numberState.hasDot,
+        !self.numberState.hasExponent
+      else {
+        throw JSONStreamParsingError(
+          reason: .invalidNumber,
+          position: self.position,
+          context: .number
+        )
+      }
+      self.mode = .hexInteger
+      self.numberState.isHex = true
+      self.numberState.hasHexDigits = false
     } else if byte == .asciiLowerE || byte == .asciiUpperE {
       self.mode = .exponentialDouble
       guard self.numberState.hasDigits else {
@@ -633,9 +735,15 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
         return try self.parseNeutral(byte: byte, into: &reducer)
       }
-      if self.numberState.hasLeadingZero && !self.numberState.hasDot && !self.numberState.hasExponent {
+      if self.numberState.hasLeadingZero && !self.numberState.hasDot
+        && !self.numberState.hasExponent
+        && !self.configuration.syntaxOptions.contains(.leadingZeros)
+      {
+        let reason: JSONStreamParsingError.Reason = self.configuration.syntaxOptions.contains(
+          .hexNumbers
+        ) && self.numberState.digitCount == 1 && digit == 0 ? .invalidNumber : .leadingZero
         throw JSONStreamParsingError(
-          reason: .leadingZero,
+          reason: reason,
           position: self.position,
           context: .number
         )
@@ -646,9 +754,26 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           self.numberState.hasLeadingZero = true
         }
       }
+      self.numberState.digitCount += 1
       reducer[keyPath: numberPath]
         .append(digit: digit, isNegative: self.isNegative, fractionalPosition: 0)
     }
+  }
+
+  private mutating func parseHexInteger(byte: UInt8, into reducer: inout Value) throws {
+    guard let hexDigit = byte.hexValue, let numberPath = self.currentNumberPath else {
+      if !self.numberState.hasHexDigits {
+        throw JSONStreamParsingError(
+          reason: .invalidNumber,
+          position: self.position,
+          context: .number
+        )
+      }
+      try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
+      return try self.parseNeutral(byte: byte, into: &reducer)
+    }
+    self.numberState.hasHexDigits = true
+    reducer[keyPath: numberPath].appendHexDigit(hexDigit, isNegative: self.isNegative)
   }
 
   private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
@@ -698,6 +823,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       return try self.parseNeutral(byte: byte, into: &reducer)
     }
     self.fractionalPosition += 1
+    if !self.numberState.hasDigits {
+      self.numberState.hasDigits = true
+    }
     self.numberState.hasFractionDigits = true
     reducer[keyPath: currentNumberPath]
       .append(
@@ -731,10 +859,46 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.mode = .literal
   }
 
+  private mutating func applyNonFiniteNumber(
+    _ value: Double,
+    at position: JSONStreamParsingPosition,
+    path: WritableKeyPath<Value, JSONNumberAccumulator>,
+    into reducer: inout Value
+  ) throws {
+    var accumulator = reducer[keyPath: path]
+    switch accumulator {
+    case .float:
+      accumulator = .float(Float(value))
+    case .double:
+      accumulator = .double(value)
+    default:
+      throw JSONStreamParsingError(
+        reason: .invalidNumber,
+        position: position,
+        context: .number
+      )
+    }
+    reducer[keyPath: path] = accumulator
+  }
+
   private mutating func finalizeNumberOrThrow(
     at position: JSONStreamParsingPosition,
     into reducer: inout Value
   ) throws {
+    if self.numberState.isHex {
+      if !self.numberState.hasHexDigits {
+        throw JSONStreamParsingError(
+          reason: .invalidNumber,
+          position: position,
+          context: .number
+        )
+      }
+      self.mode = .neutral
+      self.exponent = 0
+      self.isNegativeExponent = false
+      self.numberState.reset()
+      return
+    }
     if !self.numberState.hasDigits {
       throw JSONStreamParsingError(
         reason: .invalidNumber,
@@ -777,25 +941,36 @@ extension StreamParser {
 // MARK: - Configuration
 
 public struct JSONStreamParserConfiguration: Sendable {
-  public var completePartialValues = false
-  public var allowComments = false
-  public var allowTrailingCommas = false
-  public var allowUnquotedKeys = false
-  public var keyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
+  public struct SyntaxOptions: OptionSet, Sendable {
+    public let rawValue: UInt
+
+    public init(rawValue: UInt) {
+      self.rawValue = rawValue
+    }
+
+    public static let comments = SyntaxOptions(rawValue: 1 << 0)
+    public static let trailingCommas = SyntaxOptions(rawValue: 1 << 1)
+    public static let unquotedKeys = SyntaxOptions(rawValue: 1 << 2)
+    public static let singleQuotedStrings = SyntaxOptions(rawValue: 1 << 3)
+    public static let leadingPlus = SyntaxOptions(rawValue: 1 << 4)
+    public static let leadingZeros = SyntaxOptions(rawValue: 1 << 5)
+    public static let nonFiniteNumbers = SyntaxOptions(rawValue: 1 << 6)
+    public static let controlCharactersInStrings = SyntaxOptions(rawValue: 1 << 7)
+    public static let hexNumbers = SyntaxOptions(rawValue: 1 << 8)
+    public static let leadingDecimalPoint = SyntaxOptions(rawValue: 1 << 9)
+  }
+
+  public var syntaxOptions: SyntaxOptions
+  public var keyDecodingStrategy: JSONKeyDecodingStrategy
 
   public init(
-    completePartialValues: Bool = false,
-    allowComments: Bool = false,
-    allowTrailingCommas: Bool = false,
-    allowUnquotedKeys: Bool = false,
+    syntaxOptions: SyntaxOptions = [],
     keyDecodingStrategy: JSONKeyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
   ) {
-    self.completePartialValues = completePartialValues
-    self.allowComments = allowComments
-    self.allowTrailingCommas = allowTrailingCommas
-    self.allowUnquotedKeys = allowUnquotedKeys
+    self.syntaxOptions = syntaxOptions
     self.keyDecodingStrategy = keyDecodingStrategy
   }
+
 }
 
 // MARK: - JSONStreamParsingError
@@ -1456,8 +1631,12 @@ extension UInt8 {
   fileprivate static let asciiLowerB: UInt8 = 0x62
   fileprivate static let asciiLowerF: UInt8 = 0x66
   fileprivate static let asciiLowerN: UInt8 = 0x6E
+  fileprivate static let asciiUpperN: UInt8 = 0x4E
   fileprivate static let asciiLowerR: UInt8 = 0x72
   fileprivate static let asciiLowerT: UInt8 = 0x74
+  fileprivate static let asciiUpperI: UInt8 = 0x49
+  fileprivate static let asciiLowerX: UInt8 = 0x78
+  fileprivate static let asciiUpperX: UInt8 = 0x58
   fileprivate static let asciiTrueStart: UInt8 = 0x74
   fileprivate static let asciiFalseStart: UInt8 = 0x66
   fileprivate static let asciiNullStart: UInt8 = 0x6E
@@ -1652,6 +1831,57 @@ private enum JSONNumberAccumulator {
     }
   }
 
+  mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
+    switch self {
+    case .int(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int(value)
+    case .int8(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int8(value)
+    case .int16(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int16(value)
+    case .int32(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int32(value)
+    case .int64(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int64(value)
+    case .int128(let low, let high):
+      guard #available(StreamParsing128BitIntegers , *) else { return }
+      var value = Int128(_low: low, _high: high)
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .int128(low: value._low, high: value._high)
+    case .uint(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint(value)
+    case .uint8(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint8(value)
+    case .uint16(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint16(value)
+    case .uint32(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint32(value)
+    case .uint64(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint64(value)
+    case .uint128(let low, let high):
+      guard #available(StreamParsing128BitIntegers , *) else { return }
+      var value = UInt128(_low: low, _high: high)
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .uint128(low: value._low, high: value._high)
+    case .float(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .float(value)
+    case .double(var value):
+      value.appendHexDigit(digit, isNegative: isNegative)
+      self = .double(value)
+    }
+  }
+
   mutating func exponentiate(by exponent: Int) {
     switch self {
     case .float(var value):
@@ -1669,6 +1899,15 @@ private enum JSONNumberAccumulator {
 extension BinaryInteger {
   fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
     self *= 10
+    if isNegative {
+      self -= Self(digit)
+    } else {
+      self += Self(digit)
+    }
+  }
+
+  fileprivate mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
+    self *= 16
     if isNegative {
       self -= Self(digit)
     } else {
@@ -1693,6 +1932,15 @@ extension BinaryFloatingPoint {
       } else {
         self += Self(digit)
       }
+    }
+  }
+
+  fileprivate mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
+    self *= 16
+    if isNegative {
+      self -= Self(digit)
+    } else {
+      self += Self(digit)
     }
   }
 
@@ -1903,6 +2151,9 @@ private struct NumberState {
   var hasExponent = false
   var hasExponentDigits = false
   var hasDot = false
+  var digitCount = 0
+  var isHex = false
+  var hasHexDigits = false
 
   mutating func reset() {
     self = NumberState()
@@ -1919,3 +2170,5 @@ private struct LiteralState {
 private let jsonLiteralTrue: [UInt8] = Array("true".utf8)
 private let jsonLiteralFalse: [UInt8] = Array("false".utf8)
 private let jsonLiteralNull: [UInt8] = Array("null".utf8)
+private let jsonLiteralInfinity: [UInt8] = Array("Infinity".utf8)
+private let jsonLiteralNaN: [UInt8] = Array("NaN".utf8)
