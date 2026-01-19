@@ -690,11 +690,12 @@ extension JSONStreamParser {
       if let dictionaryPath = handlers.dictionaryPath {
         self.dictionaryPath = path.appending(path: dictionaryPath)
       }
+      let prefixPath = path as AnyKeyPath
       if let indexedPaths = handlers.indexPaths {
-        self.indexPaths = indexedPaths
+        self.indexPaths = indexedPaths.prefixed(by: prefixPath)
       }
       if let keyedPaths = handlers.keyedPaths {
-        self.keyedPaths = keyedPaths
+        self.keyedPaths = keyedPaths.prefixed(by: prefixPath)
       }
 
       guard !handlers.objectHandlers.isEmpty else { return }
@@ -773,7 +774,7 @@ private struct IndexPaths {
   var nullablePath: ((Int) -> AnyKeyPath)?
   var arrayPath: ((Int) -> AnyKeyPath)?
   var dictionaryPath: ((Int) -> AnyKeyPath)?
-  let subpaths: (Int) -> (AnyKeyPath, IndexPaths?, KeyedPaths?)
+  var subpaths: (Int) -> (AnyKeyPath, IndexPaths?, KeyedPaths?)
 
   init<Value: StreamParseableValue, ArrayObject: StreamParseableArrayObject>(
     handlers: JSONStreamParser<ArrayObject.Element>.Handlers,
@@ -801,6 +802,45 @@ private struct IndexPaths {
       (path.appending(path: \.[$0]), handlers.indexPaths, handlers.keyedPaths)
     }
   }
+
+  func prefixed(by prefix: AnyKeyPath) -> IndexPaths {
+    var prefixed = self
+    if let stringPath = self.stringPath {
+      prefixed.stringPath = { index in
+        prefix.appending(path: stringPath(index)) ?? stringPath(index)
+      }
+    }
+    if let boolPath = self.boolPath {
+      prefixed.boolPath = { index in
+        prefix.appending(path: boolPath(index)) ?? boolPath(index)
+      }
+    }
+    if let numberPath = self.numberPath {
+      prefixed.numberPath = { index in
+        prefix.appending(path: numberPath(index)) ?? numberPath(index)
+      }
+    }
+    if let nullablePath = self.nullablePath {
+      prefixed.nullablePath = { index in
+        prefix.appending(path: nullablePath(index)) ?? nullablePath(index)
+      }
+    }
+    if let arrayPath = self.arrayPath {
+      prefixed.arrayPath = { index in
+        prefix.appending(path: arrayPath(index)) ?? arrayPath(index)
+      }
+    }
+    if let dictionaryPath = self.dictionaryPath {
+      prefixed.dictionaryPath = { index in
+        prefix.appending(path: dictionaryPath(index)) ?? dictionaryPath(index)
+      }
+    }
+    prefixed.subpaths = { index in
+      let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(index)
+      return (prefix.appending(path: pathElement) ?? pathElement, nextIndexPaths, nextKeyedPaths)
+    }
+    return prefixed
+  }
 }
 
 // MARK: - KeyedPaths
@@ -812,7 +852,7 @@ private struct KeyedPaths {
   var nullablePath: ((String) -> AnyKeyPath?)?
   var arrayPath: ((String) -> AnyKeyPath?)?
   var dictionaryPath: ((String) -> AnyKeyPath?)?
-  let subpaths: (String) -> (AnyKeyPath?, IndexPaths?, KeyedPaths?)
+  var subpaths: (String) -> (AnyKeyPath?, IndexPaths?, KeyedPaths?)
 
   init<Value: StreamParseableValue, DictionaryObject: StreamParseableDictionaryObject>(
     handlers: JSONStreamParser<DictionaryObject.Value>.Handlers,
@@ -853,6 +893,52 @@ private struct KeyedPaths {
     self.subpaths = {
       (objectHandlers[$0]?.keyPath, objectHandlers[$0]?.indexPaths, objectHandlers[$0]?.keyedPaths)
     }
+  }
+
+  func prefixed(by prefix: AnyKeyPath) -> KeyedPaths {
+    var prefixed = self
+    if let stringPath = self.stringPath {
+      prefixed.stringPath = { key in
+        guard let path = stringPath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    if let boolPath = self.boolPath {
+      prefixed.boolPath = { key in
+        guard let path = boolPath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    if let numberPath = self.numberPath {
+      prefixed.numberPath = { key in
+        guard let path = numberPath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    if let nullablePath = self.nullablePath {
+      prefixed.nullablePath = { key in
+        guard let path = nullablePath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    if let arrayPath = self.arrayPath {
+      prefixed.arrayPath = { key in
+        guard let path = arrayPath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    if let dictionaryPath = self.dictionaryPath {
+      prefixed.dictionaryPath = { key in
+        guard let path = dictionaryPath(key) else { return nil }
+        return prefix.appending(path: path)
+      }
+    }
+    prefixed.subpaths = { key in
+      let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(key)
+      let appendedPath = pathElement.flatMap { prefix.appending(path: $0) }
+      return (appendedPath, nextIndexPaths, nextKeyedPaths)
+    }
+    return prefixed
   }
 }
 

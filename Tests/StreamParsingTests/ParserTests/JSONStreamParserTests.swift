@@ -936,7 +936,7 @@ struct `JSONStreamParser tests` {
       let json = "{\"numbers\":[1,2]}"
       let beforeArray = Array(repeating: ArrayPropertyContainer.Partial(), count: 11)
       let arrayProgress: [ArrayPropertyContainer.Partial] = [
-        ArrayPropertyContainer.Partial(),
+        ArrayPropertyContainer.Partial(numbers: []),
         ArrayPropertyContainer.Partial(numbers: [1]),
         ArrayPropertyContainer.Partial(numbers: [1]),
         ArrayPropertyContainer.Partial(numbers: [1, 2]),
@@ -948,6 +948,65 @@ struct `JSONStreamParser tests` {
       try expectJSONStreamedValues(
         json,
         initialValue: ArrayPropertyContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Nested Array Property Into StreamParseable Struct`() throws {
+      let json = "{\"level1\":{\"level2\":{\"numbers\":[1,2]}}}"
+      let beforeArray = Array(repeating: ArrayNestedRoot.Partial(), count: 31)
+      let arrayProgress: [ArrayNestedRoot.Partial] = [
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        ),
+        ArrayNestedRoot.Partial(
+          level1: ArrayNestedLevel1.Partial(
+            level2: ArrayNestedLevel2.Partial(numbers: [1, 2])
+          )
+        )
+      ]
+      let expected = beforeArray + arrayProgress
+      try expectJSONStreamedValues(
+        json,
+        initialValue: ArrayNestedRoot.Partial(),
         expected: expected
       )
     }
@@ -1088,6 +1147,21 @@ struct ArrayPropertyContainer: Equatable {
   var numbers: [Int]
 }
 
+@StreamParseable
+struct ArrayNestedLevel2: Equatable {
+  var numbers: [Int]
+}
+
+@StreamParseable
+struct ArrayNestedLevel1: Equatable {
+  var level2: ArrayNestedLevel2 = .init(numbers: [])
+}
+
+@StreamParseable
+struct ArrayNestedRoot: Equatable {
+  var level1: ArrayNestedLevel1 = .init()
+}
+
 extension TwoKeyObject.Partial: Equatable {}
 extension NestedValue.Partial: Equatable {}
 extension NestedContainer.Partial: Equatable {}
@@ -1102,6 +1176,9 @@ extension NullableNestedContainer.Partial: Equatable {}
 extension EmptyObject.Partial: Equatable {}
 extension DictionaryPropertyContainer.Partial: Equatable {}
 extension ArrayPropertyContainer.Partial: Equatable {}
+extension ArrayNestedLevel2.Partial: Equatable {}
+extension ArrayNestedLevel1.Partial: Equatable {}
+extension ArrayNestedRoot.Partial: Equatable {}
 
 @Suite
 struct `JSONKeyDecodingStrategy tests` {
