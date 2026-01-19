@@ -1019,6 +1019,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.numberParsingState.resetAfterFinalize()
   }
 
+}
+
+extension JSONStreamParser {
   private struct StringParsingState {
     var buffer = ""
     var isEscaping = false
@@ -1086,7 +1089,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.unicodeEscapeValue = 0
     }
   }
+}
 
+extension JSONStreamParser {
   private struct NumberParsingState {
     var isNegative = false
     var isNegativeExponent = false
@@ -1117,7 +1122,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.state.reset()
     }
   }
+}
 
+extension JSONStreamParser {
   private struct ContainerState {
     var stack = [StackElement]()
     var arrayDepth = 0
@@ -1184,7 +1191,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.arrayExpectingValueDepths.contains(depth) && self.arrayHasValueDepths.contains(depth)
     }
   }
+}
 
+extension JSONStreamParser {
   private struct CommentState {
     var kind = CommentKind.line
     var returnMode = Mode.neutral
