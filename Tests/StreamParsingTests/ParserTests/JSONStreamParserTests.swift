@@ -725,6 +725,16 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Continues Parsing After Ignored Key`() throws {
+      let json = "{\"ignored\":\"alpha\",\"tracked\":\"beta\"}"
+      let values = try json.utf8.partials(
+        initialValue: TrackedOnly.Partial(),
+        from: .json()
+      )
+      expectNoDifference(values.last, TrackedOnly.Partial(tracked: "beta"))
+    }
+
+    @Test
     func `Streams Pretty Printed JSON Object Into Dictionary`() throws {
       let json = "{\n  \"first\": 1,\n  \"second\": 2\n}"
       let initial = Array(repeating: [String: Int](), count: 13)
@@ -1502,6 +1512,11 @@ struct TwoKeyObject: Equatable {
 }
 
 @StreamParseable
+struct TrackedOnly: Equatable {
+  var tracked: String = ""
+}
+
+@StreamParseable
 struct NestedValue: Equatable {
   var value: Int = 0
 }
@@ -1638,6 +1653,7 @@ struct Event: Equatable {
 }
 
 extension TwoKeyObject.Partial: Equatable {}
+extension TrackedOnly.Partial: Equatable {}
 extension NestedValue.Partial: Equatable {}
 extension NestedContainer.Partial: Equatable {}
 extension InitialParseableNestedValue.Partial: Equatable {}

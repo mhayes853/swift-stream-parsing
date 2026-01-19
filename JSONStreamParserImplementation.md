@@ -1,80 +1,19 @@
 ## Plan: JSONStreamParser Invalid Syntax Handling
 
-### Goals
-- Add syntax error reporting to `JSONStreamParser` without adding configuration yet.
-- Prioritize tests first, then implementation.
-- Keep streaming semantics clear when invalid syntax appears mid-stream.
+### Updated Implementation Plan
+1) Review existing parser modes and output behavior to identify invariants we must preserve (streamed partials, mode transitions, stack handling). Document these invariants in a short checklist for validating no regressions while adding errors.
+2) Add/adjust tests to cover the “no registered path” scenario (e.g. `currentStringPath` is nil in `parseString`) to assert internal state still updates for consumed bytes even when no value is emitted. Add a dedicated test (e.g. `testUnregisteredPathStillUpdatesState`) that feeds a JSON object with an unregistered key followed by a registered key, and asserts that the registered key still parses correctly after the unregistered value is consumed. Example payload: `{"ignored":"alpha","tracked":"beta"}` with only `tracked` registered; expect `tracked` to emit `beta` and no errors.
+3) Introduce error types/positions and wire a single error-reporting path that short-circuits parsing after first syntax error without altering successful parsing paths.
+4) Add mode-specific syntax validation with minimal disruption to current tokenization: enforce delimiters (colon/comma), mismatched closes, invalid literals/numbers, and unexpected tokens; ensure trailing comma detection in object/array modes via “expecting value vs expecting delimiter” state.
+5) Ensure end-of-input validation for unterminated strings/containers and dangling delimiters; confirm trailing bytes after error do not emit new partials while preserving already-emitted partials.
+6) Run/adjust tests to verify preserved behavior on valid streams and all error cases (including trailing commas) and finalize any edge-case handling.
 
-### Tests (write first)
-Add a new test suite under `JSONStreamParser tests`:
-- `JSONError tests`
-
-Proposed tests (invalid JSON samples, each should assert error emission and streaming behavior):
-- `{"a":}` (missing value)
-- `{"a" 1}` (missing colon)
-- `{"a": 1,}` (trailing comma)
-- `{"a": [1,]}` (trailing comma in array)
-- `{"a": [1 2]}` (missing comma in array)
-- `{"a": "unterminated}` (unterminated string)
-- `{"a": "\u12"}` (invalid unicode escape)
-- `{"a": \n }` (invalid escape in string)
-- `{"a": 1` (missing closing brace)
-- `[1, 2` (missing closing bracket)
-- `][` (unexpected token in neutral mode)
-- `{"a": tru}` (invalid literal)
-- `{"a": -}` (invalid number)
-- `{"a": 01}` (leading zero in number)
-- `{"a": 1e}` (invalid exponent)
-- `{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Grace"}],"meta":{"count":2},` (missing closing brace on larger payload)
-- `{"catalog":{"items":[{"sku":"a1","price":9.99},{"sku":"b2","price":12.50}], "currency":"USD"} "extra":true}` (missing comma between object members in larger payload)
-- `[{"type":"event","payload":{"values":[1,2,3]}},{"type":"event","payload":{"values":[4,5,6]}},]` (trailing comma in larger array payload)
-- `{"data":[{"id":1,"tags":["a","b","c"]},{"id":2,"tags":["d","e","f"]}]` (missing closing brace on larger payload)
-
-Test expectations:
-- Add one dedicated test that uses `expectJSONStreamedValues` to confirm streamed values emitted before the error are preserved.
-- All other syntax tests should only assert `JSONStreamParsingError` once invalid syntax is detected.
-- After the first syntax error, no additional partials should be emitted for trailing bytes.
-
-### Error Representation
-- Introduce `JSONStreamParsingError` (Swift `Error`).
-- Shape of the error:
-  - `reason` enum (e.g. unexpectedToken, invalidNumber, unterminatedString, invalidEscape, invalidUnicode, missingDelimiter, mismatchedClose).
-  - `position` (line/column) for diagnostics, represented by a dedicated coordinate type (e.g. `JSONStreamParsingPosition` with `line`/`column`).
-  - `context` (optional) string or enum for mode (neutral/object/array/key/value).
-- Expose through the parser’s existing error channel (e.g. `StreamParsingError` wrapper if needed).
-
-### Streaming Behavior with Errors
-- Emit partials up to the last valid byte.
-- Once a syntax error is detected, fail the stream and stop emitting further partials.
-- For in-progress objects/arrays, do not emit a new partial at the error byte unless the byte completes a valid token.
-- Preserve current behavior for valid JSON (no regression in existing tests).
-
-### Syntax Validation Strategy by Mode
-`JSONStreamParser` currently uses parsing modes. For each mode, add lightweight checks for invalid characters or missing delimiters:
-- Neutral mode:
-  - Accept only whitespace, `{`, `[`, `"`, digits, `-`, `t`, `f`, `n`.
-  - Any other byte => `unexpectedToken`.
-  - `]` or `}` when stack is empty => `mismatchedClose`.
-- Object key mode:
-  - Expect `"` to start a string key; `}` to close if no pending key; whitespace allowed.
-  - Any other byte => `unexpectedToken`.
-- Object colon/value separator:
-  - After a key string, expect `:` (with optional whitespace).
-  - Missing `:` before a value => `missingDelimiter`.
-- Array value mode:
-  - Expect value token or `]` if empty/after comma.
-  - Comma handling should enforce value between delimiters.
-- String mode:
-  - Treat any character after `\` as valid; only detect unterminated strings and invalid `\u` length/hex if the parser explicitly processes unicode escapes later.
-  - Track unterminated string at end-of-input.
-- Number mode:
-  - Validate minus, leading zero rules, fractional digits, and exponent format.
-  - Reject stray `+`, missing digits after `-`, `.` or `e/E`.
-- Literal mode:
-  - Only accept `true`, `false`, `null` with exact spelling.
-
-### Implementation Steps (after tests)
-- Add `JSONStreamParsingError` and wire it into the parser’s error reporting path.
-- Add validation checks per mode at the byte-processing boundary.
-- Ensure error detection is deterministic and uses the current byte offset.
-- Update parser to stop processing after first syntax error.
+### Step 1 Notes: Parsing Invariants Checklist
+- `parse(byte:)` always returns the current reducer state after each byte via `PartialsStream`; bytes that do not represent meaningful tokens leave the value unchanged.
+- Mode transitions must mirror the current parser: `neutral` dispatches to `string`, `integer`, `fractionalDouble`, `exponentialDouble`, `keyFinding`, `keyCollecting`; numeric modes fall back to `neutral` and reprocess the current byte for delimiters.
+- Arrays use `StackElement.array(index)`; `[` pushes index 0 and (if registered) resets the array; `,` increments the index by replacing the last stack element; `]` pops the last element and updates the parent path.
+- Objects use `StackElement.object(key)` only after a key is fully collected and `:` is seen; `{` enters `keyFinding` and (if registered) resets the dictionary; `,` in object scope returns to `keyFinding`; `}` pops the last object key and updates the parent path.
+- `appendArrayElementIfNeeded` runs before any value token to keep array element slots aligned with streamed partials.
+- Strings must advance state even when `currentStringPath` is nil: escape tracking, UTF-8 decoding, and closing quote detection still need to move the mode back to `neutral`.
+- Numbers append digits to the accumulator while in numeric modes; on non-digit bytes, the parser resets to `neutral` and replays the byte so delimiters (comma, bracket, brace) are still honored.
+- Booleans and null are applied immediately in `neutral` on `t`/`f`/`n` without an explicit literal mode; error handling should not break existing tolerance for those bytes.
