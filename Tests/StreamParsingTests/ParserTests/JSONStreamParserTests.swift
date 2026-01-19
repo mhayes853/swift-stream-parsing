@@ -1507,6 +1507,38 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Allows Single Line Comments In Multi Line Array When Enabled`() throws {
+      let json = """
+        [
+          1,
+          // comment
+          2
+        ]
+        """
+      let values = try json.utf8.partials(
+        initialValue: [Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments]))
+      )
+      expectNoDifference(values.last, [1, 2])
+    }
+
+    @Test
+    func `Allows Single Line Comments In Multi Line Object When Enabled`() throws {
+      let json = """
+        {
+          "a": 1,
+          // comment
+          "b": 2
+        }
+        """
+      let values = try json.utf8.partials(
+        initialValue: [String: Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments]))
+      )
+      expectNoDifference(values.last, ["a": 1, "b": 2])
+    }
+
+    @Test
     func `Allows Single Quoted Strings When Enabled`() throws {
       let json = "'Blob'"
       let values = try json.utf8.partials(

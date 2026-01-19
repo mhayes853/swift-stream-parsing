@@ -11,6 +11,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case literal
     case keyFinding
     case keyCollecting
+    case commentStart
+    case comment
 
     var isNumeric: Bool {
       switch self {
@@ -52,6 +54,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var currentDictionaryPath: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
   private var position = JSONStreamParsingPosition(line: 1, column: 1)
   private var literalState = LiteralState()
+  private var commentKind = CommentKind.line
+  private var commentReturnMode = Mode.neutral
+  private var commentSawAsterisk = false
 
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
@@ -69,6 +74,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   public mutating func finish(reducer: inout Value) throws {
+    if self.mode == .commentStart {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    if self.mode == .comment && self.commentKind == .block {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
     if self.mode == .string {
       if self.unicodeEscapeRemaining > 0 {
         throw JSONStreamParsingError(
@@ -121,6 +140,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer)
     case .keyFinding: try self.parseKeyFinding(byte: byte, into: &reducer)
     case .keyCollecting: try self.parseKeyCollecting(byte: byte, into: &reducer)
+    case .commentStart: try self.parseCommentStart(byte: byte, into: &reducer)
+    case .comment: try self.parseComment(byte: byte, into: &reducer)
     }
   }
 
@@ -461,6 +482,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         }
       }
 
+    case .asciiSlash:
+      guard self.configuration.syntaxOptions.contains(.comments) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .neutral
+        )
+      }
+      self.commentReturnMode = .neutral
+      self.mode = .commentStart
+
     default:
       if !byte.isWhitespace {
         throw JSONStreamParsingError(
@@ -484,6 +516,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.unicodeEscapeRemaining = 0
       self.unicodeEscapeValue = 0
       self.objectTrailingCommaDepths.remove(self.objectDepth)
+
+    case .asciiSlash:
+      guard self.configuration.syntaxOptions.contains(.comments) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .objectKey
+        )
+      }
+      self.commentReturnMode = .keyFinding
+      self.mode = .commentStart
 
     case .asciiObjectEnd:
       self.mode = .neutral
@@ -833,6 +876,41 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         isNegative: self.isNegative,
         fractionalPosition: self.fractionalPosition
       )
+  }
+
+  private mutating func parseCommentStart(byte: UInt8, into reducer: inout Value) throws {
+    switch byte {
+    case .asciiSlash:
+      self.commentKind = .line
+      self.commentSawAsterisk = false
+      self.mode = .comment
+    case .asciiAsterisk:
+      self.commentKind = .block
+      self.commentSawAsterisk = false
+      self.mode = .comment
+    default:
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+  }
+
+  private mutating func parseComment(byte: UInt8, into reducer: inout Value) throws {
+    switch self.commentKind {
+    case .line:
+      if byte == .asciiLineFeed || byte == .asciiCarriageReturn {
+        self.mode = self.commentReturnMode
+      }
+    case .block:
+      if self.commentSawAsterisk && byte == .asciiSlash {
+        self.mode = self.commentReturnMode
+        self.commentSawAsterisk = false
+      } else {
+        self.commentSawAsterisk = byte == .asciiAsterisk
+      }
+    }
   }
 
   private mutating func parseLiteral(byte: UInt8, into reducer: inout Value) throws {
@@ -1622,6 +1700,7 @@ private struct ObjectHandlersState {
 extension UInt8 {
   fileprivate static let asciiQuote: UInt8 = 0x22
   fileprivate static let asciiSlash: UInt8 = 0x2F
+  fileprivate static let asciiAsterisk: UInt8 = 0x2A
   fileprivate static let asciiDot: UInt8 = 0x2E
   fileprivate static let asciiDash: UInt8 = 0x2D
   fileprivate static let asciiPlus: UInt8 = 0x2B
@@ -1646,6 +1725,8 @@ extension UInt8 {
   fileprivate static let asciiObjectEnd: UInt8 = 0x7D
   fileprivate static let asciiColon: UInt8 = 0x3A
   fileprivate static let asciiComma: UInt8 = 0x2C
+  fileprivate static let asciiLineFeed: UInt8 = 0x0A
+  fileprivate static let asciiCarriageReturn: UInt8 = 0x0D
 }
 
 extension UInt8 {
@@ -2165,6 +2246,11 @@ private struct NumberState {
 private struct LiteralState {
   var expected = [UInt8]()
   var index = 0
+}
+
+private enum CommentKind {
+  case line
+  case block
 }
 
 private let jsonLiteralTrue: [UInt8] = Array("true".utf8)
