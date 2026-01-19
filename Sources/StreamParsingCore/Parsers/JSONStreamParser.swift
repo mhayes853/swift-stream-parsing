@@ -900,42 +900,42 @@ private struct KeyedPaths {
     if let stringPath = self.stringPath {
       prefixed.stringPath = { key in
         guard let path = stringPath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     if let boolPath = self.boolPath {
       prefixed.boolPath = { key in
         guard let path = boolPath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     if let numberPath = self.numberPath {
       prefixed.numberPath = { key in
         guard let path = numberPath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     if let nullablePath = self.nullablePath {
       prefixed.nullablePath = { key in
         guard let path = nullablePath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     if let arrayPath = self.arrayPath {
       prefixed.arrayPath = { key in
         guard let path = arrayPath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     if let dictionaryPath = self.dictionaryPath {
       prefixed.dictionaryPath = { key in
         guard let path = dictionaryPath(key) else { return nil }
-        return prefix.appending(path: path)
+        return prefix.appending(path: path) ?? path
       }
     }
     prefixed.subpaths = { key in
       let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(key)
-      let appendedPath = pathElement.flatMap { prefix.appending(path: $0) }
+      let appendedPath = pathElement.flatMap { prefix.appending(path: $0) ?? $0 }
       return (appendedPath, nextIndexPaths, nextKeyedPaths)
     }
     return prefixed

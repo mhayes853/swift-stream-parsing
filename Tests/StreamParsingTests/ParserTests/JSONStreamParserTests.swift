@@ -918,12 +918,16 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
       let json = "{\"values\":{\"inner\":1}}"
-      let beforeInner = Array(repeating: DictionaryPropertyContainer.Partial(), count: 19)
+      let beforeInner = Array(repeating: DictionaryPropertyContainer.Partial(), count: 10)
+      let beforeElement = Array(
+        repeating: DictionaryPropertyContainer.Partial(values: [:]),
+        count: 9
+      )
       let populated = Array(
         repeating: DictionaryPropertyContainer.Partial(values: ["inner": 1]),
         count: 4
       )
-      let expected = beforeInner + populated
+      let expected = beforeInner + beforeElement + populated
       try expectJSONStreamedValues(
         json,
         initialValue: DictionaryPropertyContainer.Partial(),
