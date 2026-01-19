@@ -78,12 +78,15 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
+  private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
+    guard let currentArrayPath, case .array = self.stack.last else { return }
+    reducer[keyPath: currentArrayPath].appendNewElement()
+  }
+
   private mutating func parseNeutral(byte: UInt8, into reducer: inout Value) throws {
     switch byte {
     case .asciiQuote:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       self.currentStringPath = self.handlers.stringPath(stack: self.stack)
       self.mode = .string
       self.string = ""
@@ -106,9 +109,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
 
     case .asciiArrayStart:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       self.currentArrayPath = self.handlers.arrayPath(stack: self.stack)
       self.stack.append(.array(index: 0))
       guard let currentArrayPath else { return }
@@ -119,9 +120,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.currentArrayPath = self.handlers.arrayPath(stack: Array(self.stack.dropLast()))
 
     case .asciiObjectStart:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       self.mode = .keyFinding
       self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.stack)
       guard let currentDictionaryPath else { return }
@@ -132,33 +131,25 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.currentDictionaryPath = self.handlers.dictionaryPath(stack: Array(self.stack.dropLast()))
 
     case .asciiTrueStart:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = true
       }
 
     case .asciiFalseStart:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = false
       }
 
     case .asciiNullStart:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       if let nullablePath = self.handlers.nullablePath(stack: self.stack) {
         reducer[keyPath: nullablePath] = nil
       }
 
     case .asciiDash:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
@@ -166,9 +157,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       reducer[keyPath: numberPath].reset()
 
     case 0x30...0x39:
-      if let currentArrayPath {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-      }
+      self.appendArrayElementIfNeeded(into: &reducer)
       self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer

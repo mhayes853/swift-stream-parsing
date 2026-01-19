@@ -1024,6 +1024,200 @@ struct `JSONStreamParser tests` {
   }
 
   @Suite
+  struct `JSONCombination tests` {
+    @Test
+    func `Streams JSON Array Of StreamParseable Structs`() throws {
+      let json = "[{\"value\":1}]"
+      let initial = Array(repeating: [CombinationItem.Partial](), count: 1)
+      let objectStart = Array(repeating: [CombinationItem.Partial()], count: 9)
+      let populated = Array(
+        repeating: [CombinationItem.Partial(value: 1)],
+        count: 4
+      )
+      let expected = initial + objectStart + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [CombinationItem.Partial](),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Array Of StreamParseable Structs With Multiple Elements`() throws {
+      let json = "[{\"value\":1},{\"value\":2}]"
+      let initial = Array(repeating: [CombinationItem.Partial](), count: 1)
+      let firstObject = Array(
+        repeating: [CombinationItem.Partial()],
+        count: 9
+      )
+      let firstValue = Array(
+        repeating: [CombinationItem.Partial(value: 1)],
+        count: 3
+      )
+      let secondObject = Array(
+        repeating: [CombinationItem.Partial(value: 1), CombinationItem.Partial()],
+        count: 9
+      )
+      let finalValues = Array(
+        repeating: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)],
+        count: 4
+      )
+      let expected = initial + firstObject + firstValue + secondObject + finalValues
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [CombinationItem.Partial](),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Empty Array Of StreamParseable Structs`() throws {
+      let json = "[]"
+      let expected = Array(repeating: [CombinationItem.Partial](), count: 3)
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [CombinationItem.Partial](),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Array Of StreamParseable Structs`() throws {
+      let json = "{\"items\":[{\"value\":1}]}"
+      let beforeArray = Array(repeating: CombinationContainer.Partial(), count: 9)
+      let arrayStart = Array(repeating: CombinationContainer.Partial(items: []), count: 1)
+      let itemStarted = Array(
+        repeating: CombinationContainer.Partial(items: [CombinationItem.Partial()]),
+        count: 9
+      )
+      let itemPopulated = Array(
+        repeating: CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]),
+        count: 5
+      )
+      let expected = beforeArray + arrayStart + itemStarted + itemPopulated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: CombinationContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Empty Array Of StreamParseable Structs`() throws {
+      let json = "{\"items\":[]}"
+      let beforeArray = Array(repeating: CombinationContainer.Partial(), count: 9)
+      let afterArray = Array(repeating: CombinationContainer.Partial(items: []), count: 4)
+      let expected = beforeArray + afterArray
+      try expectJSONStreamedValues(
+        json,
+        initialValue: CombinationContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams JSON Object With Multi-Element Array Of StreamParseable Structs`() throws {
+      let json = "{\"items\":[{\"value\":1},{\"value\":2}]}"
+      let beforeArray = Array(repeating: CombinationContainer.Partial(), count: 9)
+      let arrayStart = Array(repeating: CombinationContainer.Partial(items: []), count: 1)
+      let firstItemStarted = Array(
+        repeating: CombinationContainer.Partial(items: [CombinationItem.Partial()]),
+        count: 9
+      )
+      let firstItemPopulated = Array(
+        repeating: CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]),
+        count: 3
+      )
+      let secondItemStarted = Array(
+        repeating: CombinationContainer.Partial(
+          items: [CombinationItem.Partial(value: 1), CombinationItem.Partial()]
+        ),
+        count: 9
+      )
+      let secondItemPopulated = Array(
+        repeating: CombinationContainer.Partial(
+          items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]
+        ),
+        count: 5
+      )
+      let expected =
+        beforeArray + arrayStart + firstItemStarted + firstItemPopulated + secondItemStarted
+        + secondItemPopulated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: CombinationContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams Quadruple Nested JSON Object Array Array Object`() throws {
+      let json = "{\"matrix\":[[{\"value\":1}]]}"
+      let beforeArray = Array(repeating: CombinationMatrixContainer.Partial(), count: 10)
+      let outerArrayStart = Array(
+        repeating: CombinationMatrixContainer.Partial(matrix: []),
+        count: 1
+      )
+      let innerArrayStart = Array(
+        repeating: CombinationMatrixContainer.Partial(matrix: [[]]),
+        count: 1
+      )
+      let objectStarted = Array(
+        repeating: CombinationMatrixContainer.Partial(
+          matrix: [[CombinationMatrixItem.Partial()]]
+        ),
+        count: 9
+      )
+      let populated = Array(
+        repeating: CombinationMatrixContainer.Partial(
+          matrix: [[CombinationMatrixItem.Partial(value: 1)]]
+        ),
+        count: 6
+      )
+      let expected = beforeArray + outerArrayStart + innerArrayStart + objectStarted + populated
+      try expectJSONStreamedValues(
+        json,
+        initialValue: CombinationMatrixContainer.Partial(),
+        expected: expected
+      )
+    }
+
+    @Test
+    func `Streams Quadruple Nested JSON Array Object Object Array`() throws {
+      let json = "[{\"inner\":{\"numbers\":[1,2]}}]"
+      let arrayStart = Array(repeating: [QuadArrayOuter.Partial](), count: 1)
+      let beforeNumbers = Array(repeating: [QuadArrayOuter.Partial()], count: 20)
+      let numbersStart = Array(
+        repeating: [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: []))],
+        count: 1
+      )
+      let firstNumber = Array(
+        repeating: [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1]))],
+        count: 1
+      )
+      let comma = Array(
+        repeating: [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1]))],
+        count: 1
+      )
+      let secondNumber = Array(
+        repeating: [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))],
+        count: 1
+      )
+      let closing = Array(
+        repeating: [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))],
+        count: 5
+      )
+      let expected =
+        arrayStart + beforeNumbers + numbersStart + firstNumber + comma + secondNumber + closing
+      try expectJSONStreamedValues(
+        json,
+        initialValue: [QuadArrayOuter.Partial](),
+        expected: expected
+      )
+    }
+  }
+
+  @Suite
   struct `JSONBoolean tests` {
     @Test
     func `Streams JSON True`() throws {
@@ -1166,6 +1360,36 @@ struct ArrayNestedRoot: Equatable {
   var level1: ArrayNestedLevel1 = .init()
 }
 
+@StreamParseable
+struct CombinationItem: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable
+struct CombinationContainer: Equatable {
+  var items: [CombinationItem]
+}
+
+@StreamParseable
+struct CombinationMatrixItem: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable
+struct CombinationMatrixContainer: Equatable {
+  var matrix: [[CombinationMatrixItem]]
+}
+
+@StreamParseable
+struct QuadArrayInner: Equatable {
+  var numbers: [Int]
+}
+
+@StreamParseable
+struct QuadArrayOuter: Equatable {
+  var inner: QuadArrayInner = .init(numbers: [])
+}
+
 extension TwoKeyObject.Partial: Equatable {}
 extension NestedValue.Partial: Equatable {}
 extension NestedContainer.Partial: Equatable {}
@@ -1183,6 +1407,12 @@ extension ArrayPropertyContainer.Partial: Equatable {}
 extension ArrayNestedLevel2.Partial: Equatable {}
 extension ArrayNestedLevel1.Partial: Equatable {}
 extension ArrayNestedRoot.Partial: Equatable {}
+extension CombinationItem.Partial: Equatable {}
+extension CombinationContainer.Partial: Equatable {}
+extension CombinationMatrixItem.Partial: Equatable {}
+extension CombinationMatrixContainer.Partial: Equatable {}
+extension QuadArrayInner.Partial: Equatable {}
+extension QuadArrayOuter.Partial: Equatable {}
 
 @Suite
 struct `JSONKeyDecodingStrategy tests` {
