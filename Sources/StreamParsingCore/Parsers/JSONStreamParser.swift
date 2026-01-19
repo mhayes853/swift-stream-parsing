@@ -31,6 +31,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var utf8State = UTF8State()
   private var isCollectingKey = false
   private var isAwaitingKeySeparator = false
+  private var isCollectingUnquotedKey = false
+  private var stringDelimiter: UInt8 = .asciiQuote
+  private var keyDelimiter: UInt8 = .asciiQuote
   private var unicodeEscapeRemaining = 0
   private var unicodeEscapeValue: UInt32 = 0
 
@@ -212,6 +215,27 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.appendArrayElementIfNeeded(into: &reducer)
       self.currentStringPath = self.handlers.stringPath(stack: self.stack)
       self.mode = .string
+      self.stringDelimiter = .asciiQuote
+      self.string = ""
+      self.isEscaping = false
+      self.utf8State = UTF8State()
+      self.unicodeEscapeRemaining = 0
+      self.unicodeEscapeValue = 0
+
+    case .asciiApostrophe:
+      guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .neutral
+        )
+      }
+      self.clearArrayTrailingCommaIfNeeded()
+      try self.beginValueToken()
+      self.appendArrayElementIfNeeded(into: &reducer)
+      self.currentStringPath = self.handlers.stringPath(stack: self.stack)
+      self.mode = .string
+      self.stringDelimiter = .asciiApostrophe
       self.string = ""
       self.isEscaping = false
       self.utf8State = UTF8State()
@@ -510,6 +534,40 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.mode = .keyCollecting
       self.string = ""
       self.isCollectingKey = true
+      self.isCollectingUnquotedKey = false
+      self.keyDelimiter = .asciiQuote
+      self.isAwaitingKeySeparator = false
+      self.isEscaping = false
+      self.utf8State = UTF8State()
+      self.unicodeEscapeRemaining = 0
+      self.unicodeEscapeValue = 0
+      self.objectTrailingCommaDepths.remove(self.objectDepth)
+
+    case .asciiApostrophe:
+      guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .objectKey
+        )
+      }
+      self.mode = .keyCollecting
+      self.string = ""
+      self.isCollectingKey = true
+      self.isCollectingUnquotedKey = false
+      self.keyDelimiter = .asciiApostrophe
+      self.isAwaitingKeySeparator = false
+      self.isEscaping = false
+      self.utf8State = UTF8State()
+      self.unicodeEscapeRemaining = 0
+      self.unicodeEscapeValue = 0
+      self.objectTrailingCommaDepths.remove(self.objectDepth)
+
+    case _ where byte.isAlphaNumeric && self.configuration.syntaxOptions.contains(.unquotedKeys):
+      self.mode = .keyCollecting
+      self.string = String(Unicode.Scalar(byte))
+      self.isCollectingKey = true
+      self.isCollectingUnquotedKey = true
       self.isAwaitingKeySeparator = false
       self.isEscaping = false
       self.utf8State = UTF8State()
@@ -569,6 +627,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         self.mode = .neutral
         self.isAwaitingKeySeparator = false
         self.isCollectingKey = false
+        self.isCollectingUnquotedKey = false
       } else if !byte.isWhitespace {
         throw JSONStreamParsingError(
           reason: .missingColon,
@@ -576,6 +635,31 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .objectKey
         )
       }
+      return
+    }
+
+    if self.isCollectingUnquotedKey {
+      if byte == .asciiColon {
+        self.stack.append(.object(key: self.string))
+        self.objectValuePendingDepths.insert(self.stack.count)
+        self.mode = .neutral
+        self.isAwaitingKeySeparator = false
+        self.isCollectingKey = false
+        self.isCollectingUnquotedKey = false
+        return
+      }
+      if byte.isWhitespace {
+        self.isAwaitingKeySeparator = true
+        return
+      }
+      guard byte.isAlphaNumeric else {
+        throw JSONStreamParsingError(
+          reason: .unexpectedToken,
+          position: self.position,
+          context: .objectKey
+        )
+      }
+      self.string.unicodeScalars.append(Unicode.Scalar(byte))
       return
     }
 
@@ -588,9 +672,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         self.isEscaping = true
       }
 
-    case .asciiQuote:
+    case self.keyDelimiter:
       if self.isEscaping {
-        self.string.append("\"")
+        self.string.unicodeScalars.append(Unicode.Scalar(byte))
         self.isEscaping = false
       } else {
         self.isCollectingKey = false
@@ -651,7 +735,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           self.isEscaping = true
         }
 
-      case .asciiQuote:
+      case self.stringDelimiter:
         if self.isEscaping {
           self.isEscaping = false
         } else {
@@ -689,9 +773,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         self.isEscaping = true
       }
 
-    case .asciiQuote:
+    case self.stringDelimiter:
       if self.isEscaping {
-        reducer[keyPath: currentStringPath].append("\"")
+        reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
         self.isEscaping = false
       } else {
         self.mode = .neutral
@@ -1701,6 +1785,7 @@ extension UInt8 {
   fileprivate static let asciiQuote: UInt8 = 0x22
   fileprivate static let asciiSlash: UInt8 = 0x2F
   fileprivate static let asciiAsterisk: UInt8 = 0x2A
+  fileprivate static let asciiApostrophe: UInt8 = 0x27
   fileprivate static let asciiDot: UInt8 = 0x2E
   fileprivate static let asciiDash: UInt8 = 0x2D
   fileprivate static let asciiPlus: UInt8 = 0x2B
@@ -1735,6 +1820,10 @@ extension UInt8 {
     case 0x41...0x5A, 0x61...0x7A: true
     default: false
     }
+  }
+
+  fileprivate var isAlphaNumeric: Bool {
+    self.isLetter || self.digitValue != nil
   }
 
   fileprivate var isWhitespace: Bool {

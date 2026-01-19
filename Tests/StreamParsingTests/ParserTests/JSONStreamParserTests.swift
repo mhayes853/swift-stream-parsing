@@ -1414,6 +1414,50 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Throws For Unterminated Single Quoted String When Enabled`() {
+      let json = "'unterminated"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: "",
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Mismatched Single Quoted String When Enabled`() {
+      let json = "'mismatch\""
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: "",
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Unquoted Key With Whitespace When Enabled`() {
+      let json = "{bad key: 1}"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]),
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
+
+    @Test
+    func `Throws For Unquoted Key With Punctuation When Enabled`() {
+      let json = "{bad-key: 1}"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]),
+        initialValue: [String: Int](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
     func `Throws For Missing Closing Brace In Larger Payload`() {
       let json =
         "{\"users\":[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Grace\"}],\"meta\":{\"count\":2}"

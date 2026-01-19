@@ -25,6 +25,8 @@
 4) Add tests that confirm configuration changes do not affect streaming behavior:
    - Emitted partials still align with array indices and object keys.
    - Ignored keys still advance internal state even when config toggles are enabled.
+   - Invalid single-quoted string cases still surface correct syntax errors (e.g., unterminated single-quoted strings, mismatched quote types).
+   - Invalid unquoted key cases still surface correct syntax errors (e.g., whitespace or punctuation inside an unquoted key).
 
 ### Configuration Surface (Proposed)
 - `allowTrailingCommas: Bool` (default false)
