@@ -26,40 +26,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private var handlers: Handlers
   private var mode = Mode.neutral
-  private var string = ""
-  private var isEscaping = false
-  private var utf8State = UTF8State()
-  private var isCollectingKey = false
-  private var isAwaitingKeySeparator = false
-  private var isCollectingUnquotedKey = false
-  private var stringDelimiter: UInt8 = .asciiQuote
-  private var keyDelimiter: UInt8 = .asciiQuote
-  private var unicodeEscapeRemaining = 0
-  private var unicodeEscapeValue: UInt32 = 0
-
-  private var isNegative = false
-  private var isNegativeExponent = false
-  private var exponent = 0
-  private var fractionalPosition = 0
-  private var numberState = NumberState()
-
-  private var stack = [StackElement]()
-  private var arrayDepth = 0
-  private var objectDepth = 0
-  private var arrayTrailingCommaDepths = BitVector()
-  private var arrayExpectingValueDepths = BitVector()
-  private var arrayHasValueDepths = BitVector()
-  private var objectTrailingCommaDepths = BitVector()
-  private var objectValuePendingDepths = BitVector()
+  private var stringState = StringParsingState()
+  private var numberParsingState = NumberParsingState()
+  private var containerState = ContainerState()
   private var currentStringPath: WritableKeyPath<Value, String>?
   private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
   private var currentArrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
   private var currentDictionaryPath: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
   private var position = JSONStreamParsingPosition(line: 1, column: 1)
   private var literalState = LiteralState()
-  private var commentKind = CommentKind.line
-  private var commentReturnMode = Mode.neutral
-  private var commentSawAsterisk = false
+  private var commentState = CommentState()
 
   private var shouldThrowTrailingCommaError: Bool {
     !self.configuration.syntaxOptions.contains(.trailingCommas)
@@ -88,14 +64,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         context: .neutral
       )
     }
-    if self.mode == .comment && self.commentKind == .block {
+    if self.mode == .comment && self.commentState.kind == .block {
       throw JSONStreamParsingError(
         reason: .unexpectedToken,
         position: self.position,
         context: .neutral
       )
     }
-    if self.mode == .keyCollecting && !self.isCollectingUnquotedKey {
+    if self.mode == .keyCollecting && !self.stringState.isCollectingUnquotedKey {
       throw JSONStreamParsingError(
         reason: .unterminatedString,
         position: self.position,
@@ -103,7 +79,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if self.mode == .string {
-      if self.unicodeEscapeRemaining > 0 {
+      if self.stringState.unicodeEscapeRemaining > 0 {
         throw JSONStreamParsingError(
           reason: .invalidUnicodeEscape,
           position: self.position,
@@ -126,14 +102,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     if self.mode.isNumeric {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
     }
-    if self.arrayDepth > 0 {
+    if self.containerState.arrayDepth > 0 {
       throw JSONStreamParsingError(
         reason: .missingClosingBracket,
         position: self.position,
         context: .arrayValue
       )
     }
-    if self.objectDepth > 0 {
+    if self.containerState.objectDepth > 0 {
       throw JSONStreamParsingError(
         reason: .missingClosingBrace,
         position: self.position,
@@ -160,8 +136,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
-    guard case .array(let index) = self.stack.last else { return }
-    let containerStack = Array(self.stack.dropLast())
+    guard case .array(let index) = self.containerState.stack.last else { return }
+    let containerStack = Array(self.containerState.stack.dropLast())
     self.currentArrayPath = self.handlers.arrayPath(stack: containerStack)
     guard let currentArrayPath else { return }
     if let collection = reducer[keyPath: currentArrayPath] as? any Collection {
@@ -176,14 +152,12 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func beginValueToken() throws {
-    if case .array = self.stack.last {
-      if self.arrayExpectingValueDepths.contains(self.arrayDepth)
-        || self.arrayTrailingCommaDepths.contains(self.arrayDepth)
-      {
-        self.arrayExpectingValueDepths.remove(self.arrayDepth)
-        self.arrayHasValueDepths.insert(self.arrayDepth)
-        self.arrayTrailingCommaDepths.remove(self.arrayDepth)
-      } else if self.arrayHasValueDepths.contains(self.arrayDepth) {
+    if case .array = self.containerState.stack.last {
+      if self.containerState.isArrayExpectingValueOrTrailingComma(at: self.containerState.arrayDepth) {
+        self.containerState.arrayExpectingValueDepths.remove(self.containerState.arrayDepth)
+        self.containerState.arrayHasValueDepths.insert(self.containerState.arrayDepth)
+        self.containerState.arrayTrailingCommaDepths.remove(self.containerState.arrayDepth)
+      } else if self.containerState.arrayHasValueDepths.contains(self.containerState.arrayDepth) {
         throw JSONStreamParsingError(
           reason: .missingComma,
           position: self.position,
@@ -191,22 +165,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
     }
-    if case .object = self.stack.last {
-      let depth = self.stack.count
-      if self.objectValuePendingDepths.contains(depth) {
-        self.objectValuePendingDepths.remove(depth)
+    if case .object = self.containerState.stack.last {
+      let depth = self.containerState.stack.count
+      if self.containerState.objectValuePendingDepths.contains(depth) {
+        self.containerState.objectValuePendingDepths.remove(depth)
       }
     }
   }
 
   private mutating func markArrayTrailingComma() {
-    guard self.arrayDepth > 0 else { return }
-    self.arrayTrailingCommaDepths.insert(self.arrayDepth)
+    self.containerState.markArrayTrailingComma()
   }
 
   private mutating func clearArrayTrailingCommaIfNeeded() {
-    guard self.arrayDepth > 0 else { return }
-    self.arrayTrailingCommaDepths.remove(self.arrayDepth)
+    self.containerState.clearArrayTrailingCommaIfNeeded()
   }
 
   private mutating func advancePosition(for byte: UInt8) {
@@ -224,14 +196,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentStringPath = self.handlers.stringPath(stack: self.stack)
+      self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
       self.mode = .string
-      self.stringDelimiter = .asciiQuote
-      self.string = ""
-      self.isEscaping = false
-      self.utf8State = UTF8State()
-      self.unicodeEscapeRemaining = 0
-      self.unicodeEscapeValue = 0
+      self.stringState.startString(delimiter: .asciiQuote)
 
     case .asciiApostrophe:
       guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
@@ -244,47 +211,38 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentStringPath = self.handlers.stringPath(stack: self.stack)
+      self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
       self.mode = .string
-      self.stringDelimiter = .asciiApostrophe
-      self.string = ""
-      self.isEscaping = false
-      self.utf8State = UTF8State()
-      self.unicodeEscapeRemaining = 0
-      self.unicodeEscapeValue = 0
+      self.stringState.startString(delimiter: .asciiApostrophe)
 
     case .asciiComma:
-      switch self.stack.last {
+      switch self.containerState.stack.last {
       case .array(let index):
-        if self.arrayExpectingValueDepths.contains(self.arrayDepth) {
+        if self.containerState.arrayExpectingValueDepths.contains(self.containerState.arrayDepth) {
           throw JSONStreamParsingError(
             reason: .missingValue,
             position: self.position,
             context: .arrayValue
           )
         }
-        _ = self.stack.popLast()
-        self.stack.append(.array(index: index + 1))
+        _ = self.containerState.stack.popLast()
+        self.containerState.stack.append(.array(index: index + 1))
         self.markArrayTrailingComma()
-        self.arrayExpectingValueDepths.insert(self.arrayDepth)
+        self.containerState.arrayExpectingValueDepths.insert(self.containerState.arrayDepth)
 
       case .object:
-        let keyDepth = self.stack.count
-        if self.objectValuePendingDepths.contains(keyDepth) {
+        let keyDepth = self.containerState.stack.count
+        if self.containerState.objectValuePendingDepths.contains(keyDepth) {
           throw JSONStreamParsingError(
             reason: .missingValue,
             position: self.position,
             context: .objectValue
           )
         }
-        _ = self.stack.popLast()
+        _ = self.containerState.stack.popLast()
         self.mode = .keyFinding
-        self.string = ""
-        self.isCollectingKey = false
-        self.isAwaitingKeySeparator = false
-        if self.objectDepth > 0 {
-          self.objectTrailingCommaDepths.insert(self.objectDepth)
-        }
+        self.stringState.resetKeyCollection()
+        self.containerState.markObjectTrailingCommaIfNeeded()
 
       default:
         throw JSONStreamParsingError(
@@ -298,24 +256,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentArrayPath = self.handlers.arrayPath(stack: self.stack)
-      self.arrayDepth += 1
-      self.arrayExpectingValueDepths.insert(self.arrayDepth)
-      self.arrayHasValueDepths.remove(self.arrayDepth)
-      self.arrayTrailingCommaDepths.remove(self.arrayDepth)
-      self.stack.append(.array(index: 0))
+      self.currentArrayPath = self.handlers.arrayPath(stack: self.containerState.stack)
+      self.containerState.startArray()
       guard let currentArrayPath else { return }
       reducer[keyPath: currentArrayPath].reset()
 
     case .asciiArrayEnd:
-      guard self.arrayDepth > 0, case .array = self.stack.last else {
+      guard self.containerState.isArrayContextAtTop else {
         throw JSONStreamParsingError(
           reason: .unexpectedToken,
           position: self.position,
           context: .neutral
         )
       }
-      if self.arrayTrailingCommaDepths.contains(self.arrayDepth) {
+      if self.containerState.arrayTrailingCommaDepths.contains(self.containerState.arrayDepth) {
         if self.shouldThrowTrailingCommaError {
           throw JSONStreamParsingError(
             reason: .trailingComma,
@@ -324,9 +278,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
       }
-      if self.arrayExpectingValueDepths.contains(self.arrayDepth)
-        && self.arrayHasValueDepths.contains(self.arrayDepth)
-      {
+      if self.containerState.isArrayTrailingCommaAfterValue(at: self.containerState.arrayDepth) {
         if self.shouldThrowTrailingCommaError {
           throw JSONStreamParsingError(
             reason: .trailingComma,
@@ -335,32 +287,30 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
       }
-      self.arrayTrailingCommaDepths.remove(self.arrayDepth)
-      self.arrayExpectingValueDepths.remove(self.arrayDepth)
-      self.arrayHasValueDepths.remove(self.arrayDepth)
-      self.arrayDepth -= 1
-      self.stack.removeLast()
-      self.currentArrayPath = self.handlers.arrayPath(stack: Array(self.stack.dropLast()))
+      self.containerState.finishArray()
+      self.currentArrayPath = self.handlers.arrayPath(
+        stack: Array(self.containerState.stack.dropLast())
+      )
 
     case .asciiObjectStart:
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
       self.mode = .keyFinding
-      self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.stack)
-      self.objectDepth += 1
+      self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.containerState.stack)
+      self.containerState.startObject()
       guard let currentDictionaryPath else { return }
       reducer[keyPath: currentDictionaryPath].reset()
 
     case .asciiObjectEnd:
-      guard self.objectDepth > 0 else {
+      guard self.containerState.objectDepth > 0 else {
         throw JSONStreamParsingError(
           reason: .unexpectedToken,
           position: self.position,
           context: .neutral
         )
       }
-      if self.objectTrailingCommaDepths.contains(self.objectDepth) {
+      if self.containerState.objectTrailingCommaDepths.contains(self.containerState.objectDepth) {
         if self.shouldThrowTrailingCommaError {
           throw JSONStreamParsingError(
             reason: .trailingComma,
@@ -369,28 +319,27 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
       }
-      if case .object = self.stack.last {
-        let keyDepth = self.stack.count
-        if self.objectValuePendingDepths.contains(keyDepth) {
+      if case .object = self.containerState.stack.last {
+        let keyDepth = self.containerState.stack.count
+        if self.containerState.objectValuePendingDepths.contains(keyDepth) {
           throw JSONStreamParsingError(
             reason: .missingValue,
             position: self.position,
             context: .objectValue
           )
         }
-        self.stack.removeLast()
+        self.containerState.stack.removeLast()
         self.currentDictionaryPath = self.handlers.dictionaryPath(
-          stack: Array(self.stack.dropLast())
+          stack: Array(self.containerState.stack.dropLast())
         )
       }
-      self.objectTrailingCommaDepths.remove(self.objectDepth)
-      self.objectDepth -= 1
+      self.containerState.finishObject()
 
     case .asciiTrueStart:
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      if let boolPath = self.handlers.booleanPath(stack: self.stack) {
+      if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
         reducer[keyPath: boolPath] = true
       }
       self.startLiteral(expected: jsonLiteralTrue)
@@ -399,7 +348,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      if let boolPath = self.handlers.booleanPath(stack: self.stack) {
+      if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
         reducer[keyPath: boolPath] = false
       }
       self.startLiteral(expected: jsonLiteralFalse)
@@ -408,7 +357,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      if let nullablePath = self.handlers.nullablePath(stack: self.stack) {
+      if let nullablePath = self.handlers.nullablePath(stack: self.containerState.stack) {
         reducer[keyPath: nullablePath] = nil
       }
       self.startLiteral(expected: jsonLiteralNull)
@@ -417,14 +366,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
-      self.isNegative = true
-      self.isNegativeExponent = false
-      self.exponent = 0
-      self.fractionalPosition = 0
-      self.numberState.reset()
+      self.numberParsingState.resetForInteger(isNegative: true)
       reducer[keyPath: numberPath].reset()
 
     case .asciiDot:
@@ -438,15 +383,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .fractionalDouble
-      self.isNegative = false
-      self.isNegativeExponent = false
-      self.exponent = 0
-      self.fractionalPosition = 0
-      self.numberState.reset()
-      self.numberState.hasDot = true
+      self.numberParsingState.resetForFractionalLeadingDot()
       reducer[keyPath: numberPath].reset()
 
     case .asciiPlus:
@@ -460,28 +400,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
-      self.isNegative = false
-      self.isNegativeExponent = false
-      self.exponent = 0
-      self.fractionalPosition = 0
-      self.numberState.reset()
+      self.numberParsingState.resetForInteger(isNegative: false)
       reducer[keyPath: numberPath].reset()
 
     case 0x30...0x39:
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.stack)
+      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
       guard let numberPath = self.currentNumberPath else { return }
       self.mode = .integer
-      self.isNegative = false
-      self.isNegativeExponent = false
-      self.exponent = 0
-      self.fractionalPosition = 0
-      self.numberState.reset()
+      self.numberParsingState.resetForInteger(isNegative: false)
       reducer[keyPath: numberPath].reset()
       try self.parseInteger(byte: byte, into: &reducer)
 
@@ -496,7 +428,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.clearArrayTrailingCommaIfNeeded()
       try self.beginValueToken()
       self.appendArrayElementIfNeeded(into: &reducer)
-      if let numberPath = self.handlers.numberPath(stack: self.stack) {
+      if let numberPath = self.handlers.numberPath(stack: self.containerState.stack) {
         switch byte {
         case .asciiUpperI:
           try self.applyNonFiniteNumber(
@@ -531,7 +463,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .neutral
         )
       }
-      self.commentReturnMode = .neutral
+      self.commentState.returnMode = .neutral
       self.mode = .commentStart
 
     default:
@@ -549,16 +481,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiQuote:
       self.mode = .keyCollecting
-      self.string = ""
-      self.isCollectingKey = true
-      self.isCollectingUnquotedKey = false
-      self.keyDelimiter = .asciiQuote
-      self.isAwaitingKeySeparator = false
-      self.isEscaping = false
-      self.utf8State = UTF8State()
-      self.unicodeEscapeRemaining = 0
-      self.unicodeEscapeValue = 0
-      self.objectTrailingCommaDepths.remove(self.objectDepth)
+      self.stringState.startKey(delimiter: .asciiQuote, initial: "", isUnquoted: false)
+      self.containerState.objectTrailingCommaDepths.remove(self.containerState.objectDepth)
 
     case .asciiApostrophe:
       guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
@@ -569,28 +493,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.mode = .keyCollecting
-      self.string = ""
-      self.isCollectingKey = true
-      self.isCollectingUnquotedKey = false
-      self.keyDelimiter = .asciiApostrophe
-      self.isAwaitingKeySeparator = false
-      self.isEscaping = false
-      self.utf8State = UTF8State()
-      self.unicodeEscapeRemaining = 0
-      self.unicodeEscapeValue = 0
-      self.objectTrailingCommaDepths.remove(self.objectDepth)
+      self.stringState.startKey(delimiter: .asciiApostrophe, initial: "", isUnquoted: false)
+      self.containerState.objectTrailingCommaDepths.remove(self.containerState.objectDepth)
 
     case _ where byte.isAlphaNumeric && self.configuration.syntaxOptions.contains(.unquotedKeys):
       self.mode = .keyCollecting
-      self.string = String(Unicode.Scalar(byte))
-      self.isCollectingKey = true
-      self.isCollectingUnquotedKey = true
-      self.isAwaitingKeySeparator = false
-      self.isEscaping = false
-      self.utf8State = UTF8State()
-      self.unicodeEscapeRemaining = 0
-      self.unicodeEscapeValue = 0
-      self.objectTrailingCommaDepths.remove(self.objectDepth)
+      self.stringState.startKey(
+        delimiter: .asciiQuote,
+        initial: String(Unicode.Scalar(byte)),
+        isUnquoted: true
+      )
+      self.containerState.objectTrailingCommaDepths.remove(self.containerState.objectDepth)
 
     case .asciiSlash:
       guard self.configuration.syntaxOptions.contains(.comments) else {
@@ -600,19 +513,19 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .objectKey
         )
       }
-      self.commentReturnMode = .keyFinding
+      self.commentState.returnMode = .keyFinding
       self.mode = .commentStart
 
     case .asciiObjectEnd:
       self.mode = .neutral
-      if self.objectDepth == 0 {
+      if self.containerState.objectDepth == 0 {
         throw JSONStreamParsingError(
           reason: .unexpectedToken,
           position: self.position,
           context: .objectKey
         )
       }
-      if self.objectTrailingCommaDepths.contains(self.objectDepth) {
+      if self.containerState.objectTrailingCommaDepths.contains(self.containerState.objectDepth) {
         if self.shouldThrowTrailingCommaError {
           throw JSONStreamParsingError(
             reason: .trailingComma,
@@ -621,11 +534,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
       }
-      if case .object = self.stack.last {
-        _ = self.stack.popLast()
+      if case .object = self.containerState.stack.last {
+        _ = self.containerState.stack.popLast()
       }
-      self.objectTrailingCommaDepths.remove(self.objectDepth)
-      self.objectDepth -= 1
+      self.containerState.finishObject()
 
     default:
       if !byte.isWhitespace {
@@ -639,16 +551,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseKeyCollecting(byte: UInt8, into reducer: inout Value) throws {
-    if self.isAwaitingKeySeparator {
+    if self.stringState.isAwaitingKeySeparator {
       if byte == .asciiColon {
-        self.stack.append(.object(key: self.string))
-        self.objectValuePendingDepths.insert(self.stack.count)
+        self.containerState.stack.append(.object(key: self.stringState.buffer))
+        self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
-        self.isAwaitingKeySeparator = false
-        self.isCollectingKey = false
-        self.isCollectingUnquotedKey = false
+        self.stringState.finishKeyCollection()
       } else if !byte.isWhitespace {
-        if self.keyDelimiter == .asciiApostrophe {
+        if self.stringState.keyDelimiter == .asciiApostrophe {
           throw JSONStreamParsingError(
             reason: .unexpectedToken,
             position: self.position,
@@ -664,18 +574,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       return
     }
 
-    if self.isCollectingUnquotedKey {
+    if self.stringState.isCollectingUnquotedKey {
       if byte == .asciiColon {
-        self.stack.append(.object(key: self.string))
-        self.objectValuePendingDepths.insert(self.stack.count)
+        self.containerState.stack.append(.object(key: self.stringState.buffer))
+        self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
-        self.isAwaitingKeySeparator = false
-        self.isCollectingKey = false
-        self.isCollectingUnquotedKey = false
+        self.stringState.finishKeyCollection()
         return
       }
       if byte.isWhitespace {
-        self.isAwaitingKeySeparator = true
+        self.stringState.isAwaitingKeySeparator = true
         return
       }
       guard byte.isAlphaNumeric else {
@@ -685,40 +593,40 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .objectKey
         )
       }
-      self.string.unicodeScalars.append(Unicode.Scalar(byte))
+      self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
       return
     }
 
     switch byte {
     case .asciiBackslash:
-      if self.isEscaping {
-        self.string.append("\\")
-        self.isEscaping = false
+      if self.stringState.isEscaping {
+        self.stringState.buffer.append("\\")
+        self.stringState.isEscaping = false
       } else {
-        self.isEscaping = true
+        self.stringState.isEscaping = true
       }
 
-    case self.keyDelimiter:
-      if self.isEscaping {
-        self.string.unicodeScalars.append(Unicode.Scalar(byte))
-        self.isEscaping = false
+    case self.stringState.keyDelimiter:
+      if self.stringState.isEscaping {
+        self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
+        self.stringState.isEscaping = false
       } else {
-        self.isCollectingKey = false
-        self.isAwaitingKeySeparator = true
+        self.stringState.isCollectingKey = false
+        self.stringState.isAwaitingKeySeparator = true
       }
 
     default:
-      switch self.utf8State.consume(byte: byte) {
+      switch self.stringState.utf8State.consume(byte: byte) {
       case .appendByte:
-        if self.isEscaping {
-          var currentString = self.string
-          self.appendEscapedCharacter(for: byte, into: &currentString)
-          self.string = currentString
+        if self.stringState.isEscaping {
+          var currentString = self.stringState.buffer
+          self.stringState.appendEscapedCharacter(for: byte, into: &currentString)
+          self.stringState.buffer = currentString
         } else {
-          self.string.unicodeScalars.append(Unicode.Scalar(byte))
+          self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
         }
       case .appendScalar(let scalar):
-        self.string.unicodeScalars.append(scalar)
+        self.stringState.buffer.unicodeScalars.append(scalar)
       case .doNothing:
         break
       }
@@ -726,7 +634,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseString(byte: UInt8, into reducer: inout Value) throws {
-    if self.unicodeEscapeRemaining > 0 {
+    if self.stringState.unicodeEscapeRemaining > 0 {
       guard let hexValue = byte.hexValue else {
         throw JSONStreamParsingError(
           reason: .invalidUnicodeEscape,
@@ -734,10 +642,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .string
         )
       }
-      self.unicodeEscapeValue = (self.unicodeEscapeValue << 4) | UInt32(hexValue)
-      self.unicodeEscapeRemaining -= 1
-      if self.unicodeEscapeRemaining == 0 {
-        guard let scalar = Unicode.Scalar(self.unicodeEscapeValue) else {
+      self.stringState.unicodeEscapeValue =
+        (self.stringState.unicodeEscapeValue << 4) | UInt32(hexValue)
+      self.stringState.unicodeEscapeRemaining -= 1
+      if self.stringState.unicodeEscapeRemaining == 0 {
+        guard let scalar = Unicode.Scalar(self.stringState.unicodeEscapeValue) else {
           throw JSONStreamParsingError(
             reason: .invalidUnicodeEscape,
             position: self.position,
@@ -747,7 +656,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         if let currentStringPath {
           reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
         }
-        self.unicodeEscapeValue = 0
+        self.stringState.unicodeEscapeValue = 0
       }
       return
     }
@@ -755,30 +664,28 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     guard let currentStringPath else {
       switch byte {
       case .asciiBackslash:
-        if self.isEscaping {
-          self.isEscaping = false
+        if self.stringState.isEscaping {
+          self.stringState.isEscaping = false
         } else {
-          self.isEscaping = true
+          self.stringState.isEscaping = true
         }
 
-      case self.stringDelimiter:
-        if self.isEscaping {
-          self.isEscaping = false
+      case self.stringState.stringDelimiter:
+        if self.stringState.isEscaping {
+          self.stringState.isEscaping = false
         } else {
           self.mode = .neutral
         }
 
       default:
-        if self.isEscaping {
+        if self.stringState.isEscaping {
           if byte == 0x75 {
-            self.unicodeEscapeRemaining = 4
-            self.unicodeEscapeValue = 0
-            self.isEscaping = false
+            self.stringState.beginUnicodeEscape()
             return
           }
-          self.isEscaping = false
+          self.stringState.isEscaping = false
         }
-        switch self.utf8State.consume(byte: byte) {
+        switch self.stringState.utf8State.consume(byte: byte) {
         case .appendByte:
           break
         case .appendScalar:
@@ -792,34 +699,35 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     switch byte {
     case .asciiBackslash:
-      if self.isEscaping {
+      if self.stringState.isEscaping {
         reducer[keyPath: currentStringPath].append("\\")
-        self.isEscaping = false
+        self.stringState.isEscaping = false
       } else {
-        self.isEscaping = true
+        self.stringState.isEscaping = true
       }
 
-    case self.stringDelimiter:
-      if self.isEscaping {
+    case self.stringState.stringDelimiter:
+      if self.stringState.isEscaping {
         reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
-        self.isEscaping = false
+        self.stringState.isEscaping = false
       } else {
         self.mode = .neutral
       }
 
     default:
-      if self.isEscaping {
+      if self.stringState.isEscaping {
         if byte == 0x75 {
-          self.unicodeEscapeRemaining = 4
-          self.unicodeEscapeValue = 0
-          self.isEscaping = false
+          self.stringState.beginUnicodeEscape()
           return
         }
       }
-      switch self.utf8State.consume(byte: byte) {
+      switch self.stringState.utf8State.consume(byte: byte) {
       case .appendByte:
-        if self.isEscaping {
-          self.appendEscapedCharacter(for: byte, into: &reducer[keyPath: currentStringPath])
+        if self.stringState.isEscaping {
+          self.stringState.appendEscapedCharacter(
+            for: byte,
+            into: &reducer[keyPath: currentStringPath]
+          )
         } else {
           reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
         }
@@ -831,22 +739,30 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func appendEscapedCharacter(for byte: UInt8, into string: inout String) {
-    switch byte {
-    case .asciiLowerN: string.append("\n")
-    case .asciiLowerR: string.append("\r")
-    case .asciiLowerT: string.append("\t")
-    case .asciiLowerB: string.append("\u{08}")
-    case .asciiLowerF: string.append("\u{0C}")
-    case .asciiSlash: string.append("/")
-    default: string.unicodeScalars.append(Unicode.Scalar(byte))
+  private var canStartHexNumber: Bool {
+    self.configuration.syntaxOptions.contains(.hexNumbers)
+      && self.numberParsingState.state.hasDigits
+      && self.numberParsingState.state.hasLeadingZero
+      && self.numberParsingState.state.digitCount == 1
+      && !self.numberParsingState.state.hasDot
+      && !self.numberParsingState.state.hasExponent
+  }
+
+  private func leadingZeroErrorReason(for digit: UInt8) -> JSONStreamParsingError.Reason? {
+    let state = self.numberParsingState.state
+    if !state.hasLeadingZero { return nil }
+    if state.hasDot { return nil }
+    if state.hasExponent { return nil }
+    if self.configuration.syntaxOptions.contains(.leadingZeros) { return nil }
+    if self.configuration.syntaxOptions.contains(.hexNumbers) && state.digitCount == 1 && digit == 0 {
+      return .invalidNumber
     }
-    self.isEscaping = false
+    return .leadingZero
   }
 
   private mutating func parseInteger(byte: UInt8, into reducer: inout Value) throws {
     if byte == .asciiDot {
-      guard self.numberState.hasDigits else {
+      guard self.numberParsingState.state.hasDigits else {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
           position: self.position,
@@ -854,15 +770,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.mode = .fractionalDouble
-      self.numberState.hasDot = true
+      self.numberParsingState.state.hasDot = true
     } else if byte == .asciiLowerX || byte == .asciiUpperX {
-      guard self.configuration.syntaxOptions.contains(.hexNumbers),
-        self.numberState.hasDigits,
-        self.numberState.hasLeadingZero,
-        self.numberState.digitCount == 1,
-        !self.numberState.hasDot,
-        !self.numberState.hasExponent
-      else {
+      guard self.canStartHexNumber else {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
           position: self.position,
@@ -870,52 +780,46 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.mode = .hexInteger
-      self.numberState.isHex = true
-      self.numberState.hasHexDigits = false
+      self.numberParsingState.state.isHex = true
+      self.numberParsingState.state.hasHexDigits = false
     } else if byte == .asciiLowerE || byte == .asciiUpperE {
       self.mode = .exponentialDouble
-      guard self.numberState.hasDigits else {
+      guard self.numberParsingState.state.hasDigits else {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
           position: self.position,
           context: .number
         )
       }
-      self.numberState.hasExponent = true
-      self.numberState.hasExponentDigits = false
+      self.numberParsingState.state.hasExponent = true
+      self.numberParsingState.state.hasExponentDigits = false
     } else {
       guard let digit = byte.digitValue, let numberPath = self.currentNumberPath else {
         try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
         return try self.parseNeutral(byte: byte, into: &reducer)
       }
-      if self.numberState.hasLeadingZero && !self.numberState.hasDot
-        && !self.numberState.hasExponent
-        && !self.configuration.syntaxOptions.contains(.leadingZeros)
-      {
-        let reason: JSONStreamParsingError.Reason = self.configuration.syntaxOptions.contains(
-          .hexNumbers
-        ) && self.numberState.digitCount == 1 && digit == 0 ? .invalidNumber : .leadingZero
+      if let reason = self.leadingZeroErrorReason(for: digit) {
         throw JSONStreamParsingError(
           reason: reason,
           position: self.position,
           context: .number
         )
       }
-      if !self.numberState.hasDigits {
-        self.numberState.hasDigits = true
+      if !self.numberParsingState.state.hasDigits {
+        self.numberParsingState.state.hasDigits = true
         if digit == 0 {
-          self.numberState.hasLeadingZero = true
+          self.numberParsingState.state.hasLeadingZero = true
         }
       }
-      self.numberState.digitCount += 1
+      self.numberParsingState.state.digitCount += 1
       reducer[keyPath: numberPath]
-        .append(digit: digit, isNegative: self.isNegative, fractionalPosition: 0)
+        .append(digit: digit, isNegative: self.numberParsingState.isNegative, fractionalPosition: 0)
     }
   }
 
   private mutating func parseHexInteger(byte: UInt8, into reducer: inout Value) throws {
     guard let hexDigit = byte.hexValue, let numberPath = self.currentNumberPath else {
-      if !self.numberState.hasHexDigits {
+      if !self.numberParsingState.state.hasHexDigits {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
           position: self.position,
@@ -925,22 +829,23 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       return try self.parseNeutral(byte: byte, into: &reducer)
     }
-    self.numberState.hasHexDigits = true
-    reducer[keyPath: numberPath].appendHexDigit(hexDigit, isNegative: self.isNegative)
+    self.numberParsingState.state.hasHexDigits = true
+    reducer[keyPath: numberPath]
+      .appendHexDigit(hexDigit, isNegative: self.numberParsingState.isNegative)
   }
 
   private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
     if byte == .asciiDash {
-      if self.numberState.hasExponentDigits {
+      if self.numberParsingState.state.hasExponentDigits {
         throw JSONStreamParsingError(
           reason: .invalidExponent,
           position: self.position,
           context: .number
         )
       }
-      self.isNegativeExponent = true
+      self.numberParsingState.isNegativeExponent = true
     } else if byte == .asciiPlus {
-      if self.numberState.hasExponentDigits {
+      if self.numberParsingState.state.hasExponentDigits {
         throw JSONStreamParsingError(
           reason: .invalidExponent,
           position: self.position,
@@ -949,8 +854,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       return
     } else if let digit = byte.digitValue {
-      self.numberState.hasExponentDigits = true
-      self.exponent.appendDigit(digit, isNegative: self.isNegativeExponent)
+      self.numberParsingState.state.hasExponentDigits = true
+      self.numberParsingState.exponent.appendDigit(
+        digit,
+        isNegative: self.numberParsingState.isNegativeExponent
+      )
     } else {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       try self.parseNeutral(byte: byte, into: &reducer)
@@ -960,7 +868,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value) throws {
     guard let digit = byte.digitValue, let currentNumberPath else {
       if byte == .asciiLowerE || byte == .asciiUpperE {
-        guard self.numberState.hasFractionDigits else {
+        guard self.numberParsingState.state.hasFractionDigits else {
           throw JSONStreamParsingError(
             reason: .invalidNumber,
             position: self.position,
@@ -968,35 +876,33 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
         self.mode = .exponentialDouble
-        self.numberState.hasExponent = true
-        self.numberState.hasExponentDigits = false
+        self.numberParsingState.state.hasExponent = true
+        self.numberParsingState.state.hasExponentDigits = false
         return
       }
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       return try self.parseNeutral(byte: byte, into: &reducer)
     }
-    self.fractionalPosition += 1
-    if !self.numberState.hasDigits {
-      self.numberState.hasDigits = true
+    self.numberParsingState.fractionalPosition += 1
+    if !self.numberParsingState.state.hasDigits {
+      self.numberParsingState.state.hasDigits = true
     }
-    self.numberState.hasFractionDigits = true
+    self.numberParsingState.state.hasFractionDigits = true
     reducer[keyPath: currentNumberPath]
       .append(
         digit: digit,
-        isNegative: self.isNegative,
-        fractionalPosition: self.fractionalPosition
+        isNegative: self.numberParsingState.isNegative,
+        fractionalPosition: self.numberParsingState.fractionalPosition
       )
   }
 
   private mutating func parseCommentStart(byte: UInt8, into reducer: inout Value) throws {
     switch byte {
     case .asciiSlash:
-      self.commentKind = .line
-      self.commentSawAsterisk = false
+      self.commentState.begin(kind: .line)
       self.mode = .comment
     case .asciiAsterisk:
-      self.commentKind = .block
-      self.commentSawAsterisk = false
+      self.commentState.begin(kind: .block)
       self.mode = .comment
     default:
       throw JSONStreamParsingError(
@@ -1008,17 +914,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseComment(byte: UInt8, into reducer: inout Value) throws {
-    switch self.commentKind {
+    switch self.commentState.kind {
     case .line:
       if byte == .asciiLineFeed || byte == .asciiCarriageReturn {
-        self.mode = self.commentReturnMode
+        self.mode = self.commentState.returnMode
       }
     case .block:
-      if self.commentSawAsterisk && byte == .asciiSlash {
-        self.mode = self.commentReturnMode
-        self.commentSawAsterisk = false
+      if self.commentState.sawAsterisk && byte == .asciiSlash {
+        self.mode = self.commentState.returnMode
+        self.commentState.sawAsterisk = false
       } else {
-        self.commentSawAsterisk = byte == .asciiAsterisk
+        self.commentState.sawAsterisk = byte == .asciiAsterisk
       }
     }
   }
@@ -1073,8 +979,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     at position: JSONStreamParsingPosition,
     into reducer: inout Value
   ) throws {
-    if self.numberState.isHex {
-      if !self.numberState.hasHexDigits {
+    if self.numberParsingState.state.isHex {
+      if !self.numberParsingState.state.hasHexDigits {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
           position: position,
@@ -1082,26 +988,24 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.mode = .neutral
-      self.exponent = 0
-      self.isNegativeExponent = false
-      self.numberState.reset()
+      self.numberParsingState.resetAfterFinalize()
       return
     }
-    if !self.numberState.hasDigits {
+    if !self.numberParsingState.state.hasDigits {
       throw JSONStreamParsingError(
         reason: .invalidNumber,
         position: position,
         context: .number
       )
     }
-    if self.numberState.hasDot && !self.numberState.hasFractionDigits {
+    if self.numberParsingState.state.hasDot && !self.numberParsingState.state.hasFractionDigits {
       throw JSONStreamParsingError(
         reason: .invalidNumber,
         position: position,
         context: .number
       )
     }
-    if self.numberState.hasExponent && !self.numberState.hasExponentDigits {
+    if self.numberParsingState.isMissingExponentDigits {
       throw JSONStreamParsingError(
         reason: .invalidExponent,
         position: position,
@@ -1109,12 +1013,187 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].exponentiate(by: self.exponent)
+      reducer[keyPath: numberPath].exponentiate(by: self.numberParsingState.exponent)
     }
     self.mode = .neutral
-    self.exponent = 0
-    self.isNegativeExponent = false
-    self.numberState.reset()
+    self.numberParsingState.resetAfterFinalize()
+  }
+
+  private struct StringParsingState {
+    var buffer = ""
+    var isEscaping = false
+    var utf8State = UTF8State()
+    var isCollectingKey = false
+    var isAwaitingKeySeparator = false
+    var isCollectingUnquotedKey = false
+    var stringDelimiter: UInt8 = .asciiQuote
+    var keyDelimiter: UInt8 = .asciiQuote
+    var unicodeEscapeRemaining = 0
+    var unicodeEscapeValue: UInt32 = 0
+
+    mutating func startString(delimiter: UInt8) {
+      self.stringDelimiter = delimiter
+      self.buffer = ""
+      self.resetEscapeState()
+    }
+
+    mutating func startKey(delimiter: UInt8, initial: String, isUnquoted: Bool) {
+      self.keyDelimiter = delimiter
+      self.buffer = initial
+      self.isCollectingKey = true
+      self.isCollectingUnquotedKey = isUnquoted
+      self.isAwaitingKeySeparator = false
+      self.resetEscapeState()
+    }
+
+    mutating func resetKeyCollection() {
+      self.buffer = ""
+      self.isCollectingKey = false
+      self.isAwaitingKeySeparator = false
+      self.isCollectingUnquotedKey = false
+      self.resetEscapeState()
+    }
+
+    mutating func finishKeyCollection() {
+      self.isCollectingKey = false
+      self.isAwaitingKeySeparator = false
+      self.isCollectingUnquotedKey = false
+    }
+
+    mutating func beginUnicodeEscape() {
+      self.unicodeEscapeRemaining = 4
+      self.unicodeEscapeValue = 0
+      self.isEscaping = false
+    }
+
+    mutating func appendEscapedCharacter(for byte: UInt8, into string: inout String) {
+      switch byte {
+      case .asciiLowerN: string.append("\n")
+      case .asciiLowerR: string.append("\r")
+      case .asciiLowerT: string.append("\t")
+      case .asciiLowerB: string.append("\u{08}")
+      case .asciiLowerF: string.append("\u{0C}")
+      case .asciiSlash: string.append("/")
+      default: string.unicodeScalars.append(Unicode.Scalar(byte))
+      }
+      self.isEscaping = false
+    }
+
+    private mutating func resetEscapeState() {
+      self.isEscaping = false
+      self.utf8State = UTF8State()
+      self.unicodeEscapeRemaining = 0
+      self.unicodeEscapeValue = 0
+    }
+  }
+
+  private struct NumberParsingState {
+    var isNegative = false
+    var isNegativeExponent = false
+    var exponent = 0
+    var fractionalPosition = 0
+    var state = NumberState()
+
+    var isMissingExponentDigits: Bool {
+      self.state.hasExponent && !self.state.hasExponentDigits
+    }
+
+    mutating func resetForInteger(isNegative: Bool) {
+      self.isNegative = isNegative
+      self.isNegativeExponent = false
+      self.exponent = 0
+      self.fractionalPosition = 0
+      self.state.reset()
+    }
+
+    mutating func resetForFractionalLeadingDot() {
+      self.resetForInteger(isNegative: false)
+      self.state.hasDot = true
+    }
+
+    mutating func resetAfterFinalize() {
+      self.exponent = 0
+      self.isNegativeExponent = false
+      self.state.reset()
+    }
+  }
+
+  private struct ContainerState {
+    var stack = [StackElement]()
+    var arrayDepth = 0
+    var objectDepth = 0
+    var arrayTrailingCommaDepths = BitVector()
+    var arrayExpectingValueDepths = BitVector()
+    var arrayHasValueDepths = BitVector()
+    var objectTrailingCommaDepths = BitVector()
+    var objectValuePendingDepths = BitVector()
+
+    var isArrayContextAtTop: Bool {
+      guard self.arrayDepth > 0 else { return false }
+      if case .array = self.stack.last {
+        return true
+      }
+      return false
+    }
+
+    mutating func startArray() {
+      self.arrayDepth += 1
+      self.arrayExpectingValueDepths.insert(self.arrayDepth)
+      self.arrayHasValueDepths.remove(self.arrayDepth)
+      self.arrayTrailingCommaDepths.remove(self.arrayDepth)
+      self.stack.append(.array(index: 0))
+    }
+
+    mutating func finishArray() {
+      self.arrayTrailingCommaDepths.remove(self.arrayDepth)
+      self.arrayExpectingValueDepths.remove(self.arrayDepth)
+      self.arrayHasValueDepths.remove(self.arrayDepth)
+      self.arrayDepth -= 1
+      self.stack.removeLast()
+    }
+
+    mutating func startObject() {
+      self.objectDepth += 1
+    }
+
+    mutating func finishObject() {
+      self.objectTrailingCommaDepths.remove(self.objectDepth)
+      self.objectDepth -= 1
+    }
+
+    mutating func markArrayTrailingComma() {
+      guard self.arrayDepth > 0 else { return }
+      self.arrayTrailingCommaDepths.insert(self.arrayDepth)
+    }
+
+    mutating func clearArrayTrailingCommaIfNeeded() {
+      guard self.arrayDepth > 0 else { return }
+      self.arrayTrailingCommaDepths.remove(self.arrayDepth)
+    }
+
+    mutating func markObjectTrailingCommaIfNeeded() {
+      guard self.objectDepth > 0 else { return }
+      self.objectTrailingCommaDepths.insert(self.objectDepth)
+    }
+
+    func isArrayExpectingValueOrTrailingComma(at depth: Int) -> Bool {
+      self.arrayExpectingValueDepths.contains(depth) || self.arrayTrailingCommaDepths.contains(depth)
+    }
+
+    func isArrayTrailingCommaAfterValue(at depth: Int) -> Bool {
+      self.arrayExpectingValueDepths.contains(depth) && self.arrayHasValueDepths.contains(depth)
+    }
+  }
+
+  private struct CommentState {
+    var kind = CommentKind.line
+    var returnMode = Mode.neutral
+    var sawAsterisk = false
+
+    mutating func begin(kind: CommentKind) {
+      self.kind = kind
+      self.sawAsterisk = false
+    }
   }
 }
 
