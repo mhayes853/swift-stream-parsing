@@ -40,11 +40,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var stack = [StackElement]()
   private var arrayDepth = 0
   private var objectDepth = 0
-  private var arrayTrailingCommaDepths = Set<Int>()
-  private var arrayExpectingValueDepths = Set<Int>()
-  private var arrayHasValueDepths = Set<Int>()
-  private var objectTrailingCommaDepths = Set<Int>()
-  private var objectValuePendingDepths = Set<Int>()
+  private var arrayTrailingCommaDepths = BitVector()
+  private var arrayExpectingValueDepths = BitVector()
+  private var arrayHasValueDepths = BitVector()
+  private var objectTrailingCommaDepths = BitVector()
+  private var objectValuePendingDepths = BitVector()
   private var currentStringPath: WritableKeyPath<Value, String>?
   private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
   private var currentArrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
@@ -327,7 +327,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = true
       }
-      self.startLiteral(expected: Array("true".utf8))
+      self.startLiteral(expected: jsonLiteralTrue)
 
     case .asciiFalseStart:
       self.clearArrayTrailingCommaIfNeeded()
@@ -336,7 +336,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       if let boolPath = self.handlers.booleanPath(stack: self.stack) {
         reducer[keyPath: boolPath] = false
       }
-      self.startLiteral(expected: Array("false".utf8))
+      self.startLiteral(expected: jsonLiteralFalse)
 
     case .asciiNullStart:
       self.clearArrayTrailingCommaIfNeeded()
@@ -345,7 +345,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       if let nullablePath = self.handlers.nullablePath(stack: self.stack) {
         reducer[keyPath: nullablePath] = nil
       }
-      self.startLiteral(expected: Array("null".utf8))
+      self.startLiteral(expected: jsonLiteralNull)
 
     case .asciiDash:
       self.clearArrayTrailingCommaIfNeeded()
@@ -1915,3 +1915,7 @@ private struct LiteralState {
   var expected = [UInt8]()
   var index = 0
 }
+
+private let jsonLiteralTrue: [UInt8] = Array("true".utf8)
+private let jsonLiteralFalse: [UInt8] = Array("false".utf8)
+private let jsonLiteralNull: [UInt8] = Array("null".utf8)
