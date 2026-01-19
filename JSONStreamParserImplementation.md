@@ -11,6 +11,7 @@
    - Allow/disallow comments (line and block).
    - Allow/disallow single-line comments (//) in neutral, key-finding, and value positions.
    - Allow/disallow single-quoted strings.
+   - Allow/disallow single-quoted object keys (e.g., `{'key': 1}`).
    - Allow/disallow unquoted object keys.
    - Allow/disallow leading plus sign in numbers.
    - Allow/disallow leading zeros in numbers.
@@ -27,6 +28,7 @@
    - Ignored keys still advance internal state even when config toggles are enabled.
    - Invalid single-quoted string cases still surface correct syntax errors (e.g., unterminated single-quoted strings, mismatched quote types).
    - Invalid unquoted key cases still surface correct syntax errors (e.g., whitespace or punctuation inside an unquoted key).
+   - Invalid single-quoted key cases still surface correct syntax errors (e.g., unterminated single-quoted keys or mismatched delimiters in object keys).
 
 ### Configuration Surface (Proposed)
 - `allowTrailingCommas: Bool` (default false)
@@ -50,6 +52,7 @@
    - Single-line comment specifics: on `//` enter `comment` mode configured for single-line; consume bytes until `\n` or `\r`, then return to the prior mode (neutral or keyFinding), preserving container state and delimiter expectations.
    - Add tests for single-line comments embedded in multi-line arrays and objects (e.g., comment between elements or between object entries) to ensure parser resumes correctly after newline boundaries.
    - `parseString`: allow starting quote of `'` when `allowSingleQuotedStrings == true`; otherwise throw `unexpectedToken`.
+   - `parseKeyFinding`/`parseKeyCollecting`: allow `'` as a key delimiter when `allowSingleQuotedStrings == true`, and ensure closing delimiter matches the opening quote.
    - `parseKeyFinding`: if `allowUnquotedKeys == true`, accept identifier-style keys and collect until `:` or whitespace; otherwise only allow `"`-delimited keys.
    - Number parsing (`parseInteger`/`parseFractionalDouble`/`parseExponentialDouble`):
      - If `allowLeadingPlus == true`, accept `+` as a sign at the beginning of numbers.

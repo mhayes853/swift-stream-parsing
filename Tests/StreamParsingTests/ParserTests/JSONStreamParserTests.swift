@@ -1458,6 +1458,50 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Throws For Unterminated Single Quoted Key When Enabled`() {
+      let json = "{'key: 1}"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: [String: Int](),
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Mismatched Single Quoted Key When Enabled`() {
+      let json = "{'key\": 1}"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: [String: Int](),
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Unescaped Single Quote In Single Quoted String When Enabled`() {
+      let json = "'bad 'quote'"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: "",
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
+    func `Throws For Unescaped Single Quote In Single Quoted Key When Enabled`() {
+      let json = "{'bad 'key': 1}"
+      expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
+        initialValue: [String: Int](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
     func `Throws For Missing Closing Brace In Larger Payload`() {
       let json =
         "{\"users\":[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Grace\"}],\"meta\":{\"count\":2}"
@@ -1590,6 +1634,16 @@ struct `JSONStreamParser tests` {
         from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]))
       )
       expectNoDifference(values.last, "Blob")
+    }
+
+    @Test
+    func `Allows Single Quoted Object Keys When Enabled`() throws {
+      let json = "{'key':1}"
+      let values = try json.utf8.partials(
+        initialValue: [String: Int](),
+        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]))
+      )
+      expectNoDifference(values.last, ["key": 1])
     }
 
     @Test

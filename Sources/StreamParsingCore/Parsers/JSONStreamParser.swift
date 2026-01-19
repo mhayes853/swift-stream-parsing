@@ -61,6 +61,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var commentReturnMode = Mode.neutral
   private var commentSawAsterisk = false
 
+  private var shouldThrowTrailingCommaError: Bool {
+    !self.configuration.syntaxOptions.contains(.trailingCommas)
+  }
+
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
@@ -89,6 +93,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         reason: .unexpectedToken,
         position: self.position,
         context: .neutral
+      )
+    }
+    if self.mode == .keyCollecting && !self.isCollectingUnquotedKey {
+      throw JSONStreamParsingError(
+        reason: .unterminatedString,
+        position: self.position,
+        context: .objectKey
       )
     }
     if self.mode == .string {
@@ -305,20 +316,24 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       if self.arrayTrailingCommaDepths.contains(self.arrayDepth) {
-        throw JSONStreamParsingError(
-          reason: .trailingComma,
-          position: self.position,
-          context: .arrayValue
-        )
+        if self.shouldThrowTrailingCommaError {
+          throw JSONStreamParsingError(
+            reason: .trailingComma,
+            position: self.position,
+            context: .arrayValue
+          )
+        }
       }
       if self.arrayExpectingValueDepths.contains(self.arrayDepth)
         && self.arrayHasValueDepths.contains(self.arrayDepth)
       {
-        throw JSONStreamParsingError(
-          reason: .trailingComma,
-          position: self.position,
-          context: .arrayValue
-        )
+        if self.shouldThrowTrailingCommaError {
+          throw JSONStreamParsingError(
+            reason: .trailingComma,
+            position: self.position,
+            context: .arrayValue
+          )
+        }
       }
       self.arrayTrailingCommaDepths.remove(self.arrayDepth)
       self.arrayExpectingValueDepths.remove(self.arrayDepth)
@@ -346,11 +361,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       if self.objectTrailingCommaDepths.contains(self.objectDepth) {
-        throw JSONStreamParsingError(
-          reason: .trailingComma,
-          position: self.position,
-          context: .objectValue
-        )
+        if self.shouldThrowTrailingCommaError {
+          throw JSONStreamParsingError(
+            reason: .trailingComma,
+            position: self.position,
+            context: .objectValue
+          )
+        }
       }
       if case .object = self.stack.last {
         let keyDepth = self.stack.count
@@ -596,11 +613,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       if self.objectTrailingCommaDepths.contains(self.objectDepth) {
-        throw JSONStreamParsingError(
-          reason: .trailingComma,
-          position: self.position,
-          context: .objectValue
-        )
+        if self.shouldThrowTrailingCommaError {
+          throw JSONStreamParsingError(
+            reason: .trailingComma,
+            position: self.position,
+            context: .objectValue
+          )
+        }
       }
       if case .object = self.stack.last {
         _ = self.stack.popLast()
@@ -629,6 +648,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         self.isCollectingKey = false
         self.isCollectingUnquotedKey = false
       } else if !byte.isWhitespace {
+        if self.keyDelimiter == .asciiApostrophe {
+          throw JSONStreamParsingError(
+            reason: .unexpectedToken,
+            position: self.position,
+            context: .objectKey
+          )
+        }
         throw JSONStreamParsingError(
           reason: .missingColon,
           position: self.position,
