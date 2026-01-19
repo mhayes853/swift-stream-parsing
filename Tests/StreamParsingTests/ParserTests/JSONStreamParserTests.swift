@@ -206,13 +206,6 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams JSON Negative Sign Only`() throws {
-      let json = "-"
-      let expected: [Int] = [0, 0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
-    }
-
-    @Test
     func `Streams JSON Float Digits`() throws {
       let json = "12.34"
       let expected: [Float] = [1, 12, 12, 12.3, 12.34, 12.34]
@@ -1218,6 +1211,200 @@ struct `JSONStreamParser tests` {
   }
 
   @Suite
+  struct `JSONError tests` {
+    @Test
+    func `Streams Values Before Syntax Error`() {
+      let json = "[1,2,x]"
+      let expected: [[Int]] = [
+        [],
+        [1],
+        [1],
+        [1, 2],
+        [1, 2]
+      ]
+      expectJSONStreamedValuesBeforeError(
+        json,
+        initialValue: [Int](),
+        expected: expected,
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
+    func `Throws For Missing Value`() {
+      let json = "{\"a\":}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .missingValue
+      )
+    }
+
+    @Test
+    func `Throws For Missing Colon`() {
+      let json = "{\"a\" 1}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
+
+    @Test
+    func `Throws For Trailing Comma In Object`() {
+      let json = "{\"a\": 1,}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .trailingComma
+      )
+    }
+
+    @Test
+    func `Throws For Trailing Comma In Array`() {
+      let json = "[1,]"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .trailingComma
+      )
+    }
+
+    @Test
+    func `Throws For Missing Comma In Array`() {
+      let json = "[1 2]"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .missingComma
+      )
+    }
+
+    @Test
+    func `Throws For Unterminated String`() {
+      let json = "\"unterminated"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: "",
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Unicode Escape`() {
+      let json = "\"\\u12\""
+      expectJSONStreamParsingError(
+        json,
+        initialValue: "",
+        reason: .invalidUnicodeEscape
+      )
+    }
+
+    @Test
+    func `Throws For Missing Closing Brace`() {
+      let json = "{\"a\": 1"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .missingClosingBrace
+      )
+    }
+
+    @Test
+    func `Throws For Missing Closing Bracket`() {
+      let json = "[1,2"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .missingClosingBracket
+      )
+    }
+
+    @Test
+    func `Throws For Unexpected Token In Neutral Mode`() {
+      let json = "]["
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Literal`() {
+      let json = "{\"a\": tru}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Bool](),
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Number`() {
+      let json = "{\"a\": -}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Leading Zero`() {
+      let json = "{\"a\": 01}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .leadingZero
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Exponent`() {
+      let json = "{\"a\": 1e}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Double](),
+        reason: .invalidExponent
+      )
+    }
+
+    @Test
+    func `Throws For Missing Closing Brace In Larger Payload`() {
+      let json =
+        "{\"users\":[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Grace\"}],\"meta\":{\"count\":2}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: LargePayload.Partial(),
+        reason: .missingClosingBrace
+      )
+    }
+
+    @Test
+    func `Throws For Trailing Comma In Larger Array Payload`() {
+      let json =
+        "[{\"type\":\"event\",\"payload\":{\"values\":[1,2,3]}},{\"type\":\"event\",\"payload\":{\"values\":[4,5,6]}},]"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [Event.Partial](),
+        reason: .trailingComma
+      )
+    }
+
+    @Test
+    func `Throws With Position For Invalid Token`() {
+      let json = "{\n\"a\": 1,\n\"b\": x\n}"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [String: Int](),
+        reason: .unexpectedToken,
+        position: JSONStreamParsingPosition(line: 3, column: 6)
+      )
+    }
+  }
+
+  @Suite
   struct `JSONBoolean tests` {
     @Test
     func `Streams JSON True`() throws {
@@ -1232,16 +1419,6 @@ struct `JSONStreamParser tests` {
       let expected = [false, false, false, false, false, false]
       try expectJSONStreamedValues(json, initialValue: true, expected: expected)
     }
-
-    @Test
-    func `Streams JSON True From T`() throws {
-      try expectJSONStreamedValues("t", initialValue: false, expected: [true, true])
-    }
-
-    @Test
-    func `Streams JSON False From F`() throws {
-      try expectJSONStreamedValues("f", initialValue: true, expected: [false, false])
-    }
   }
 
   @Suite
@@ -1251,12 +1428,6 @@ struct `JSONStreamParser tests` {
       let json = "null"
       let expected: [String?] = [nil, nil, nil, nil, nil]
       try expectJSONStreamedValues(json, initialValue: "seed", expected: expected)
-    }
-
-    @Test
-    func `Streams JSON Null From N`() throws {
-      let expected: [String?] = [nil, nil]
-      try expectJSONStreamedValues("n", initialValue: "seed", expected: expected)
     }
   }
 }
@@ -1274,6 +1445,54 @@ private func expectJSONStreamedValues<T: StreamParseableValue & Equatable>(
     from: .json(configuration: configuration)
   )
   expectNoDifference(values, expected, fileID: file, line: line)
+}
+
+private func expectJSONStreamedValuesBeforeError<T: StreamParseableValue & Equatable>(
+  _ json: String,
+  configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration(),
+  initialValue: T,
+  expected: [T],
+  reason: JSONStreamParsingError.Reason
+) {
+  var stream = PartialsStream(initialValue: initialValue, from: .json(configuration: configuration))
+  var partials = [T]()
+  let thrownError = #expect(throws: JSONStreamParsingError.self) {
+    for byte in json.utf8 {
+      partials.append(try stream.next(byte))
+    }
+    _ = try stream.finish()
+  }
+
+  guard let error = thrownError else {
+    Issue.record("Expected JSONStreamParsingError to be captured.")
+    return
+  }
+  #expect(error.reason == reason)
+  expectNoDifference(partials, expected)
+}
+
+private func expectJSONStreamParsingError<T: StreamParseableValue>(
+  _ json: String,
+  configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration(),
+  initialValue: T,
+  reason: JSONStreamParsingError.Reason,
+  position: JSONStreamParsingPosition? = nil
+) {
+  let thrownError = #expect(throws: JSONStreamParsingError.self) {
+    _ = try json.utf8.partials(
+      initialValue: initialValue,
+      from: .json(configuration: configuration)
+    )
+  }
+
+  guard let error = thrownError else {
+    Issue.record("Expected JSONStreamParsingError to be captured.")
+    return
+  }
+  #expect(error.reason == reason)
+  if let position {
+    #expect(error.position == position)
+  }
 }
 
 @StreamParseable
@@ -1388,6 +1607,34 @@ struct QuadArrayInner: Equatable {
 @StreamParseable
 struct QuadArrayOuter: Equatable {
   var inner: QuadArrayInner = .init(numbers: [])
+}
+
+@StreamParseable
+struct LargeUser: Equatable {
+  var id: Int = 0
+  var name: String = ""
+}
+
+@StreamParseable
+struct LargeMeta: Equatable {
+  var count: Int = 0
+}
+
+@StreamParseable
+struct LargePayload: Equatable {
+  var users: [LargeUser] = []
+  var meta: LargeMeta = .init()
+}
+
+@StreamParseable
+struct EventPayload: Equatable {
+  var values: [Int] = []
+}
+
+@StreamParseable
+struct Event: Equatable {
+  var type: String = ""
+  var payload: EventPayload = .init()
 }
 
 extension TwoKeyObject.Partial: Equatable {}

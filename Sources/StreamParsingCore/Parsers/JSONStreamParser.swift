@@ -364,6 +364,60 @@ public struct JSONStreamParserConfiguration: Sendable {
   }
 }
 
+// MARK: - JSONStreamParsingError
+
+public struct JSONStreamParsingPosition: Hashable, Sendable {
+  public var line: Int
+  public var column: Int
+
+  public init(line: Int, column: Int) {
+    self.line = line
+    self.column = column
+  }
+}
+
+public struct JSONStreamParsingError: Error, Hashable, Sendable {
+  public enum Reason: Hashable, Sendable {
+    case unexpectedToken
+    case missingValue
+    case missingColon
+    case trailingComma
+    case missingComma
+    case unterminatedString
+    case invalidUnicodeEscape
+    case invalidLiteral
+    case invalidNumber
+    case leadingZero
+    case invalidExponent
+    case missingClosingBrace
+    case missingClosingBracket
+  }
+
+  public enum Context: Hashable, Sendable {
+    case neutral
+    case objectKey
+    case objectValue
+    case arrayValue
+    case string
+    case number
+    case literal
+  }
+
+  public var reason: Reason
+  public var position: JSONStreamParsingPosition
+  public var context: Context?
+
+  public init(
+    reason: Reason,
+    position: JSONStreamParsingPosition,
+    context: Context? = nil
+  ) {
+    self.reason = reason
+    self.position = position
+    self.context = context
+  }
+}
+
 // MARK: - JSONKeyDecodingStrategy
 
 public enum JSONKeyDecodingStrategy: Sendable {
