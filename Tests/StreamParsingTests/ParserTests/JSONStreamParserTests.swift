@@ -1024,6 +1024,16 @@ struct `JSONStreamParser tests` {
       let expected = Array(repeating: EmptyObject.Partial(), count: 3)
       try expectJSONStreamedValues(json, initialValue: EmptyObject.Partial(), expected: expected)
     }
+
+    @Test
+    func `Streams JSON Object With Duplicate Keys Into Dictionary Keeping Last Value`() throws {
+      let json = "{\"value\":1,\"value\":2}"
+      let initial = Array(repeating: [String: Int](), count: 9)
+      let firstValue = Array(repeating: ["value": 1], count: 10)
+      let overwrittenValue = Array(repeating: ["value": 2], count: 3)
+      let expected: [[String: Int]] = initial + firstValue + overwrittenValue
+      try expectJSONStreamedValues(json, initialValue: [String: Int](), expected: expected)
+    }
   }
 
   @Suite
