@@ -413,10 +413,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-    guard let numberPath = self.currentNumberPath else { return }
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: true)
-    reducer[keyPath: numberPath].reset()
+    if let numberPath = self.currentNumberPath {
+      reducer[keyPath: numberPath].reset()
+    }
   }
 
   private mutating func handleNeutralLeadingDecimalPointStart(into reducer: inout Value) throws {
@@ -431,10 +432,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-    guard let numberPath = self.currentNumberPath else { return }
     self.mode = .fractionalDouble
     self.numberParsingState.resetForFractionalLeadingDot()
-    reducer[keyPath: numberPath].reset()
+    if let numberPath = self.currentNumberPath {
+      reducer[keyPath: numberPath].reset()
+    }
   }
 
   private mutating func handleNeutralLeadingPlusStart(into reducer: inout Value) throws {
@@ -449,10 +451,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-    guard let numberPath = self.currentNumberPath else { return }
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
-    reducer[keyPath: numberPath].reset()
+    if let numberPath = self.currentNumberPath {
+      reducer[keyPath: numberPath].reset()
+    }
   }
 
   private mutating func handleNeutralDigitStart(_ byte: UInt8, into reducer: inout Value) throws {
@@ -460,10 +463,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-    guard let numberPath = self.currentNumberPath else { return }
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
-    reducer[keyPath: numberPath].reset()
+    if let numberPath = self.currentNumberPath {
+      reducer[keyPath: numberPath].reset()
+    }
     try self.parseInteger(byte: byte, into: &reducer)
   }
 
@@ -849,10 +853,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.numberParsingState.state.hasExponent = true
       self.numberParsingState.state.hasExponentDigits = false
     } else {
-      guard let digit = byte.digitValue, let numberPath = self.currentNumberPath else {
+      guard let digit = byte.digitValue else {
         try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
         return try self.parseNeutral(byte: byte, into: &reducer)
       }
+      let numberPath = self.currentNumberPath
       if let reason = self.leadingZeroErrorReason(for: digit) {
         throw JSONStreamParsingError(
           reason: reason,
@@ -867,13 +872,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         }
       }
       self.numberParsingState.state.digitCount += 1
-      reducer[keyPath: numberPath]
-        .append(digit: digit, isNegative: self.numberParsingState.isNegative, fractionalPosition: 0)
+      if let appendPath = numberPath {
+        reducer[keyPath: appendPath]
+          .append(digit: digit, isNegative: self.numberParsingState.isNegative, fractionalPosition: 0)
+      }
     }
   }
-
   private mutating func parseHexInteger(byte: UInt8, into reducer: inout Value) throws {
-    guard let hexDigit = byte.hexValue, let numberPath = self.currentNumberPath else {
+    guard let hexDigit = byte.hexValue else {
       if !self.numberParsingState.state.hasHexDigits {
         throw JSONStreamParsingError(
           reason: .invalidNumber,
@@ -884,11 +890,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       return try self.parseNeutral(byte: byte, into: &reducer)
     }
+    let numberPath = self.currentNumberPath
     self.numberParsingState.state.hasHexDigits = true
-    reducer[keyPath: numberPath]
-      .appendHexDigit(hexDigit, isNegative: self.numberParsingState.isNegative)
+    if let appendPath = numberPath {
+      reducer[keyPath: appendPath]
+        .appendHexDigit(hexDigit, isNegative: self.numberParsingState.isNegative)
+    }
   }
-
   private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
     if byte == .asciiDash {
       if self.numberParsingState.state.hasExponentDigits {
@@ -921,7 +929,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value) throws {
-    guard let digit = byte.digitValue, let currentNumberPath else {
+    guard let digit = byte.digitValue else {
       if byte == .asciiLowerE || byte == .asciiUpperE {
         guard self.numberParsingState.state.hasFractionDigits else {
           throw JSONStreamParsingError(
@@ -943,14 +951,15 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.numberParsingState.state.hasDigits = true
     }
     self.numberParsingState.state.hasFractionDigits = true
-    reducer[keyPath: currentNumberPath]
-      .append(
-        digit: digit,
-        isNegative: self.numberParsingState.isNegative,
-        fractionalPosition: self.numberParsingState.fractionalPosition
-      )
+    if let currentNumberPath = self.currentNumberPath {
+      reducer[keyPath: currentNumberPath]
+        .append(
+          digit: digit,
+          isNegative: self.numberParsingState.isNegative,
+          fractionalPosition: self.numberParsingState.fractionalPosition
+        )
+    }
   }
-
   private mutating func parseCommentStart(byte: UInt8, into reducer: inout Value) throws {
     switch byte {
     case .asciiSlash:

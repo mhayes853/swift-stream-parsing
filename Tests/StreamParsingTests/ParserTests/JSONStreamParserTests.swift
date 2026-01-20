@@ -1020,6 +1020,25 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Parses Object Into Empty StreamParseable Type`() throws {
+      let json = """
+      {
+        "bio" : "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum. Maecenas quis nisi nunc. Nam tristique feugiat est vitae mollis. Maecenas quis nisi nunc.",
+        "id" : "V59OF92YF627HFY0",
+        "language" : "Sindhi",
+        "name" : "Adeel Solangi",
+        "version" : 6.1
+      }
+      """
+      var stream = PartialsStream(initialValue: EmptyObject.Partial(), from: .json())
+      for byte in json.utf8 {
+        _ = try stream.next(byte)
+      }
+      let final = try stream.finish()
+      expectNoDifference(final, EmptyObject.Partial())
+    }
+
+    @Test
     func `Streams JSON Empty Object Into StreamParseable Struct`() throws {
       let json = "{}"
       let expected = Array(repeating: EmptyObject.Partial(), count: 3)
