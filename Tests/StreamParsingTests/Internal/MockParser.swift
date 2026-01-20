@@ -2,6 +2,11 @@ import StreamParsing
 
 extension UInt8 {
   static let mockParserDecimalDoubleDoubling: UInt8 = 0x7D
+  static let mockParserThrows: UInt8 = 0x7E
+}
+
+enum MockParserError: Error {
+  case simulatedThrow
 }
 
 struct MockParser<Value: StreamParseableValue>: StreamParser {
@@ -299,13 +304,18 @@ struct MockParser<Value: StreamParseableValue>: StreamParser {
 
   private var actions: [UInt8: MockHandlerInvocation]
   private var handlers = Handlers()
+  private let throwOnByte: UInt8?
 
-  init(actions: [UInt8: MockHandlerInvocation]) {
+  init(actions: [UInt8: MockHandlerInvocation], throwOnByte: UInt8? = nil) {
     self.actions = actions
+    self.throwOnByte = throwOnByte
   }
 
   mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
     for byte in bytes {
+      if let throwByte = self.throwOnByte, byte == throwByte {
+        throw MockParserError.simulatedThrow
+      }
       guard let invocation = self.actions[byte] else { continue }
       self.handlers.invoke(invocation, into: &reducer)
     }

@@ -24,6 +24,9 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @usableFromInline
   var hasFinished = false
 
+  @usableFromInline
+  var hasParserThrown = false
+
   /// The most recent value state emitted by the stream.
   @inlinable
   public var current: Value {
@@ -60,7 +63,15 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @inlinable
   @discardableResult
   public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value {
-    try self.parser.parse(bytes: bytes, into: &self._current)
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+
+    do {
+      try self.parser.parse(bytes: bytes, into: &self._current)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
+
     return self.current
   }
 
@@ -70,6 +81,7 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
     try self.parser.finish(reducer: &self._current)

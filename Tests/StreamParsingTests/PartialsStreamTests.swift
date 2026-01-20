@@ -13,4 +13,38 @@ struct `PartialsStream Tests` {
       _ = try stream.finish()
     }
   }
+
+  @Test
+  func `Rejects Next After Parser Throws`() throws {
+    let parser = MockParser<Int>(
+      actions: [:],
+      throwOnByte: .mockParserThrows
+    )
+    var stream = PartialsStream(initialValue: 0, from: parser)
+
+    #expect(throws: MockParserError.self) {
+      _ = try stream.next(.mockParserThrows)
+    }
+
+    #expect(throws: StreamParsingError.parserThrows) {
+      _ = try stream.next(0x7F)
+    }
+  }
+
+  @Test
+  func `Finish Throws After Parser Throws`() throws {
+    let parser = MockParser<Int>(
+      actions: [:],
+      throwOnByte: .mockParserThrows
+    )
+    var stream = PartialsStream(initialValue: 0, from: parser)
+
+    #expect(throws: MockParserError.self) {
+      _ = try stream.next(.mockParserThrows)
+    }
+
+    #expect(throws: StreamParsingError.parserThrows) {
+      _ = try stream.finish()
+    }
+  }
 }
