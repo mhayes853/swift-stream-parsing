@@ -136,24 +136,18 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
-    guard case .array(let index) = self.containerState.stack.last else { return }
+    guard case .array = self.containerState.stack.last else { return }
     let containerStack = Array(self.containerState.stack.dropLast())
     self.currentArrayPath = self.handlers.arrayPath(stack: containerStack)
     guard let currentArrayPath else { return }
-    if let collection = reducer[keyPath: currentArrayPath] as? any Collection {
-      var count = collection.count
-      while count <= index {
-        reducer[keyPath: currentArrayPath].appendNewElement()
-        count += 1
-      }
-      return
-    }
     reducer[keyPath: currentArrayPath].appendNewElement()
   }
 
   private mutating func beginValueToken() throws {
     if case .array = self.containerState.stack.last {
-      if self.containerState.isArrayExpectingValueOrTrailingComma(at: self.containerState.arrayDepth) {
+      if self.containerState.isArrayExpectingValueOrTrailingComma(
+        at: self.containerState.arrayDepth
+      ) {
         self.containerState.arrayExpectingValueDepths.remove(self.containerState.arrayDepth)
         self.containerState.arrayHasValueDepths.insert(self.containerState.arrayDepth)
         self.containerState.arrayTrailingCommaDepths.remove(self.containerState.arrayDepth)
@@ -754,7 +748,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     if state.hasDot { return nil }
     if state.hasExponent { return nil }
     if self.configuration.syntaxOptions.contains(.leadingZeros) { return nil }
-    if self.configuration.syntaxOptions.contains(.hexNumbers) && state.digitCount == 1 && digit == 0 {
+    if self.configuration.syntaxOptions.contains(.hexNumbers) && state.digitCount == 1 && digit == 0
+    {
       return .invalidNumber
     }
     return .leadingZero
@@ -1184,7 +1179,8 @@ extension JSONStreamParser {
     }
 
     func isArrayExpectingValueOrTrailingComma(at depth: Int) -> Bool {
-      self.arrayExpectingValueDepths.contains(depth) || self.arrayTrailingCommaDepths.contains(depth)
+      self.arrayExpectingValueDepths.contains(depth)
+        || self.arrayTrailingCommaDepths.contains(depth)
     }
 
     func isArrayTrailingCommaAfterValue(at depth: Int) -> Bool {
