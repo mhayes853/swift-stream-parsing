@@ -187,287 +187,342 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func parseNeutral(byte: UInt8, into reducer: inout Value) throws {
     switch byte {
     case .asciiQuote:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
-      self.mode = .string
-      self.stringState.startString(delimiter: .asciiQuote)
-
+      try self.handleNeutralDoubleQuotedStringStart(into: &reducer)
     case .asciiApostrophe:
-      guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
-      self.mode = .string
-      self.stringState.startString(delimiter: .asciiApostrophe)
-
+      try self.handleNeutralSingleQuotedStringStart(into: &reducer)
     case .asciiComma:
-      switch self.containerState.stack.last {
-      case .array(let index):
-        if self.containerState.arrayExpectingValueDepths.contains(self.containerState.arrayDepth) {
-          throw JSONStreamParsingError(
-            reason: .missingValue,
-            position: self.position,
-            context: .arrayValue
-          )
-        }
-        _ = self.containerState.stack.popLast()
-        self.containerState.stack.append(.array(index: index + 1))
-        self.markArrayTrailingComma()
-        self.containerState.arrayExpectingValueDepths.insert(self.containerState.arrayDepth)
-
-      case .object:
-        let keyDepth = self.containerState.stack.count
-        if self.containerState.objectValuePendingDepths.contains(keyDepth) {
-          throw JSONStreamParsingError(
-            reason: .missingValue,
-            position: self.position,
-            context: .objectValue
-          )
-        }
-        _ = self.containerState.stack.popLast()
-        self.mode = .keyFinding
-        self.stringState.resetKeyCollection()
-        self.containerState.markObjectTrailingCommaIfNeeded()
-
-      default:
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-
+      try self.handleNeutralComma()
     case .asciiArrayStart:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentArrayPath = self.handlers.arrayPath(stack: self.containerState.stack)
-      self.containerState.startArray()
-      guard let currentArrayPath else { return }
-      reducer[keyPath: currentArrayPath].reset()
-
+      try self.handleNeutralArrayStart(into: &reducer)
     case .asciiArrayEnd:
-      guard self.containerState.isArrayContextAtTop else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      if self.containerState.arrayTrailingCommaDepths.contains(self.containerState.arrayDepth) {
-        if self.shouldThrowTrailingCommaError {
-          throw JSONStreamParsingError(
-            reason: .trailingComma,
-            position: self.position,
-            context: .arrayValue
-          )
-        }
-      }
-      if self.containerState.isArrayTrailingCommaAfterValue(at: self.containerState.arrayDepth) {
-        if self.shouldThrowTrailingCommaError {
-          throw JSONStreamParsingError(
-            reason: .trailingComma,
-            position: self.position,
-            context: .arrayValue
-          )
-        }
-      }
-      self.containerState.finishArray()
-      self.currentArrayPath = self.handlers.arrayPath(
-        stack: Array(self.containerState.stack.dropLast())
-      )
-
+      try self.handleNeutralArrayEnd()
     case .asciiObjectStart:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.mode = .keyFinding
-      self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.containerState.stack)
-      self.containerState.startObject()
-      guard let currentDictionaryPath else { return }
-      reducer[keyPath: currentDictionaryPath].reset()
-
+      try self.handleNeutralObjectStart(into: &reducer)
     case .asciiObjectEnd:
-      guard self.containerState.objectDepth > 0 else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      if self.containerState.objectTrailingCommaDepths.contains(self.containerState.objectDepth) {
-        if self.shouldThrowTrailingCommaError {
-          throw JSONStreamParsingError(
-            reason: .trailingComma,
-            position: self.position,
-            context: .objectValue
-          )
-        }
-      }
-      if case .object = self.containerState.stack.last {
-        let keyDepth = self.containerState.stack.count
-        if self.containerState.objectValuePendingDepths.contains(keyDepth) {
-          throw JSONStreamParsingError(
-            reason: .missingValue,
-            position: self.position,
-            context: .objectValue
-          )
-        }
-        self.containerState.stack.removeLast()
-        self.currentDictionaryPath = self.handlers.dictionaryPath(
-          stack: Array(self.containerState.stack.dropLast())
-        )
-      }
-      self.containerState.finishObject()
-
+      try self.handleNeutralObjectEnd()
     case .asciiTrueStart:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
-        reducer[keyPath: boolPath] = true
-      }
-      self.startLiteral(expected: jsonLiteralTrue)
-
+      try self.handleNeutralTrueStart(into: &reducer)
     case .asciiFalseStart:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
-        reducer[keyPath: boolPath] = false
-      }
-      self.startLiteral(expected: jsonLiteralFalse)
-
+      try self.handleNeutralFalseStart(into: &reducer)
     case .asciiNullStart:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      if let nullablePath = self.handlers.nullablePath(stack: self.containerState.stack) {
-        reducer[keyPath: nullablePath] = nil
-      }
-      self.startLiteral(expected: jsonLiteralNull)
-
+      try self.handleNeutralNullStart(into: &reducer)
     case .asciiDash:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-      guard let numberPath = self.currentNumberPath else { return }
-      self.mode = .integer
-      self.numberParsingState.resetForInteger(isNegative: true)
-      reducer[keyPath: numberPath].reset()
-
+      try self.handleNeutralNegativeNumberStart(into: &reducer)
     case .asciiDot:
-      guard self.configuration.syntaxOptions.contains(.leadingDecimalPoint) else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-      guard let numberPath = self.currentNumberPath else { return }
-      self.mode = .fractionalDouble
-      self.numberParsingState.resetForFractionalLeadingDot()
-      reducer[keyPath: numberPath].reset()
-
+      try self.handleNeutralLeadingDecimalPointStart(into: &reducer)
     case .asciiPlus:
-      guard self.configuration.syntaxOptions.contains(.leadingPlus) else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-      guard let numberPath = self.currentNumberPath else { return }
-      self.mode = .integer
-      self.numberParsingState.resetForInteger(isNegative: false)
-      reducer[keyPath: numberPath].reset()
-
+      try self.handleNeutralLeadingPlusStart(into: &reducer)
     case 0x30...0x39:
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
-      guard let numberPath = self.currentNumberPath else { return }
-      self.mode = .integer
-      self.numberParsingState.resetForInteger(isNegative: false)
-      reducer[keyPath: numberPath].reset()
-      try self.parseInteger(byte: byte, into: &reducer)
-
+      try self.handleNeutralDigitStart(byte, into: &reducer)
     case .asciiUpperI, .asciiUpperN:
-      guard self.configuration.syntaxOptions.contains(.nonFiniteNumbers) else {
-        throw JSONStreamParsingError(
-          reason: .unexpectedToken,
-          position: self.position,
-          context: .neutral
-        )
-      }
-      self.clearArrayTrailingCommaIfNeeded()
-      try self.beginValueToken()
-      self.appendArrayElementIfNeeded(into: &reducer)
-      if let numberPath = self.handlers.numberPath(stack: self.containerState.stack) {
-        switch byte {
-        case .asciiUpperI:
-          try self.applyNonFiniteNumber(
-            .infinity,
-            at: self.position,
-            path: numberPath,
-            into: &reducer
-          )
-          self.startLiteral(expected: jsonLiteralInfinity)
-        case .asciiUpperN:
-          try self.applyNonFiniteNumber(.nan, at: self.position, path: numberPath, into: &reducer)
-          self.startLiteral(expected: jsonLiteralNaN)
-        default:
-          break
-        }
-      } else {
-        switch byte {
-        case .asciiUpperI:
-          self.startLiteral(expected: jsonLiteralInfinity)
-        case .asciiUpperN:
-          self.startLiteral(expected: jsonLiteralNaN)
-        default:
-          break
-        }
-      }
-
+      try self.handleNeutralNonFiniteNumberStart(byte, into: &reducer)
     case .asciiSlash:
-      guard self.configuration.syntaxOptions.contains(.comments) else {
+      try self.handleNeutralCommentStart()
+    default:
+      try self.handleNeutralWhitespaceOrError(byte)
+    }
+  }
+
+  private mutating func handleNeutralDoubleQuotedStringStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
+    self.mode = .string
+    self.stringState.startString(delimiter: .asciiQuote)
+  }
+
+  private mutating func handleNeutralSingleQuotedStringStart(into reducer: inout Value) throws {
+    guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
+    self.mode = .string
+    self.stringState.startString(delimiter: .asciiApostrophe)
+  }
+
+  private mutating func handleNeutralComma() throws {
+    switch self.containerState.stack.last {
+    case .array(let index):
+      if self.containerState.arrayExpectingValueDepths.contains(self.containerState.arrayDepth) {
         throw JSONStreamParsingError(
-          reason: .unexpectedToken,
+          reason: .missingValue,
           position: self.position,
-          context: .neutral
+          context: .arrayValue
         )
       }
-      self.commentState.returnMode = .neutral
-      self.mode = .commentStart
+      _ = self.containerState.stack.popLast()
+      self.containerState.stack.append(.array(index: index + 1))
+      self.markArrayTrailingComma()
+      self.containerState.arrayExpectingValueDepths.insert(self.containerState.arrayDepth)
+
+    case .object:
+      let keyDepth = self.containerState.stack.count
+      if self.containerState.objectValuePendingDepths.contains(keyDepth) {
+        throw JSONStreamParsingError(
+          reason: .missingValue,
+          position: self.position,
+          context: .objectValue
+        )
+      }
+      _ = self.containerState.stack.popLast()
+      self.mode = .keyFinding
+      self.stringState.resetKeyCollection()
+      self.containerState.markObjectTrailingCommaIfNeeded()
 
     default:
-      if !byte.isWhitespace {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+  }
+
+  private mutating func handleNeutralArrayStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentArrayPath = self.handlers.arrayPath(stack: self.containerState.stack)
+    self.containerState.startArray()
+    guard let currentArrayPath else { return }
+    reducer[keyPath: currentArrayPath].reset()
+  }
+
+  private mutating func handleNeutralArrayEnd() throws {
+    guard self.containerState.isArrayContextAtTop else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    if self.containerState.arrayTrailingCommaDepths.contains(self.containerState.arrayDepth) {
+      if self.shouldThrowTrailingCommaError {
         throw JSONStreamParsingError(
-          reason: .unexpectedToken,
+          reason: .trailingComma,
           position: self.position,
-          context: .neutral
+          context: .arrayValue
         )
       }
+    }
+    if self.containerState.isArrayTrailingCommaAfterValue(at: self.containerState.arrayDepth) {
+      if self.shouldThrowTrailingCommaError {
+        throw JSONStreamParsingError(
+          reason: .trailingComma,
+          position: self.position,
+          context: .arrayValue
+        )
+      }
+    }
+    self.containerState.finishArray()
+    self.currentArrayPath = self.handlers.arrayPath(
+      stack: Array(self.containerState.stack.dropLast())
+    )
+  }
+
+  private mutating func handleNeutralObjectStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.mode = .keyFinding
+    self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.containerState.stack)
+    self.containerState.startObject()
+    guard let currentDictionaryPath else { return }
+    reducer[keyPath: currentDictionaryPath].reset()
+  }
+
+  private mutating func handleNeutralObjectEnd() throws {
+    guard self.containerState.objectDepth > 0 else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    if self.containerState.objectTrailingCommaDepths.contains(self.containerState.objectDepth) {
+      if self.shouldThrowTrailingCommaError {
+        throw JSONStreamParsingError(
+          reason: .trailingComma,
+          position: self.position,
+          context: .objectValue
+        )
+      }
+    }
+    if case .object = self.containerState.stack.last {
+      let keyDepth = self.containerState.stack.count
+      if self.containerState.objectValuePendingDepths.contains(keyDepth) {
+        throw JSONStreamParsingError(
+          reason: .missingValue,
+          position: self.position,
+          context: .objectValue
+        )
+      }
+      self.containerState.stack.removeLast()
+      self.currentDictionaryPath = self.handlers.dictionaryPath(
+        stack: Array(self.containerState.stack.dropLast())
+      )
+    }
+    self.containerState.finishObject()
+  }
+
+  private mutating func handleNeutralTrueStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
+      reducer[keyPath: boolPath] = true
+    }
+    self.startLiteral(expected: jsonLiteralTrue)
+  }
+
+  private mutating func handleNeutralFalseStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
+      reducer[keyPath: boolPath] = false
+    }
+    self.startLiteral(expected: jsonLiteralFalse)
+  }
+
+  private mutating func handleNeutralNullStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    if let nullablePath = self.handlers.nullablePath(stack: self.containerState.stack) {
+      reducer[keyPath: nullablePath] = nil
+    }
+    self.startLiteral(expected: jsonLiteralNull)
+  }
+
+  private mutating func handleNeutralNegativeNumberStart(into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    guard let numberPath = self.currentNumberPath else { return }
+    self.mode = .integer
+    self.numberParsingState.resetForInteger(isNegative: true)
+    reducer[keyPath: numberPath].reset()
+  }
+
+  private mutating func handleNeutralLeadingDecimalPointStart(into reducer: inout Value) throws {
+    guard self.configuration.syntaxOptions.contains(.leadingDecimalPoint) else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    guard let numberPath = self.currentNumberPath else { return }
+    self.mode = .fractionalDouble
+    self.numberParsingState.resetForFractionalLeadingDot()
+    reducer[keyPath: numberPath].reset()
+  }
+
+  private mutating func handleNeutralLeadingPlusStart(into reducer: inout Value) throws {
+    guard self.configuration.syntaxOptions.contains(.leadingPlus) else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    guard let numberPath = self.currentNumberPath else { return }
+    self.mode = .integer
+    self.numberParsingState.resetForInteger(isNegative: false)
+    reducer[keyPath: numberPath].reset()
+  }
+
+  private mutating func handleNeutralDigitStart(_ byte: UInt8, into reducer: inout Value) throws {
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    guard let numberPath = self.currentNumberPath else { return }
+    self.mode = .integer
+    self.numberParsingState.resetForInteger(isNegative: false)
+    reducer[keyPath: numberPath].reset()
+    try self.parseInteger(byte: byte, into: &reducer)
+  }
+
+  private mutating func handleNeutralNonFiniteNumberStart(
+    _ byte: UInt8,
+    into reducer: inout Value
+  ) throws {
+    guard self.configuration.syntaxOptions.contains(.nonFiniteNumbers) else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    self.clearArrayTrailingCommaIfNeeded()
+    try self.beginValueToken()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    if let numberPath = self.handlers.numberPath(stack: self.containerState.stack) {
+      switch byte {
+      case .asciiUpperI:
+        try self.applyNonFiniteNumber(
+          .infinity,
+          at: self.position,
+          path: numberPath,
+          into: &reducer
+        )
+        self.startLiteral(expected: jsonLiteralInfinity)
+      case .asciiUpperN:
+        try self.applyNonFiniteNumber(.nan, at: self.position, path: numberPath, into: &reducer)
+        self.startLiteral(expected: jsonLiteralNaN)
+      default:
+        break
+      }
+    } else {
+      switch byte {
+      case .asciiUpperI:
+        self.startLiteral(expected: jsonLiteralInfinity)
+      case .asciiUpperN:
+        self.startLiteral(expected: jsonLiteralNaN)
+      default:
+        break
+      }
+    }
+  }
+
+  private mutating func handleNeutralCommentStart() throws {
+    guard self.configuration.syntaxOptions.contains(.comments) else {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
+    }
+    self.commentState.returnMode = .neutral
+    self.mode = .commentStart
+  }
+
+  private mutating func handleNeutralWhitespaceOrError(_ byte: UInt8) throws {
+    if !byte.isWhitespace {
+      throw JSONStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
     }
   }
 
