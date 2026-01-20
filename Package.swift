@@ -27,7 +27,8 @@ let package = Package(
     .package(url: "https://github.com/swiftlang/swift-syntax", "600.0.0"..<"603.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
-    .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.1.0")
+    .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.1.0"),
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7")
   ],
   targets: [
     .target(
@@ -59,7 +60,12 @@ let package = Package(
     ),
     .testTarget(
       name: "StreamParsingTests",
-      dependencies: ["StreamParsing", .product(name: "CustomDump", package: "swift-custom-dump")],
+      dependencies: [
+        "StreamParsing",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+        .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+      ],
+      resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
     ),
     .testTarget(

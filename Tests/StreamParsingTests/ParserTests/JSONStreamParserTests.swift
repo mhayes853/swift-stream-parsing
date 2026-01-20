@@ -1,5 +1,6 @@
 import CustomDump
 import Foundation
+import SnapshotTesting
 import StreamParsing
 import Testing
 
@@ -1641,7 +1642,9 @@ struct `JSONStreamParser tests` {
       let json = "'Blob'"
       let values = try json.utf8.partials(
         initialValue: "",
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings])
+        )
       )
       expectNoDifference(values.last, "Blob")
     }
@@ -1651,7 +1654,9 @@ struct `JSONStreamParser tests` {
       let json = "{'key':1}"
       let values = try json.utf8.partials(
         initialValue: [String: Int](),
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings])
+        )
       )
       expectNoDifference(values.last, ["key": 1])
     }
@@ -1701,7 +1706,9 @@ struct `JSONStreamParser tests` {
       let json = ".125"
       let values = try json.utf8.partials(
         initialValue: 0.0,
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.leadingDecimalPoint]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.leadingDecimalPoint])
+        )
       )
       expectNoDifference(values.last, 0.125)
     }
@@ -1711,7 +1718,9 @@ struct `JSONStreamParser tests` {
       let json = "Infinity"
       let values = try json.utf8.partials(
         initialValue: 0.0,
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers])
+        )
       )
       expectNoDifference(values.last, Double.infinity)
     }
@@ -1721,7 +1730,9 @@ struct `JSONStreamParser tests` {
       let json = "NaN"
       let values = try json.utf8.partials(
         initialValue: 0.0,
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.nonFiniteNumbers])
+        )
       )
       #expect(values.last?.isNaN == true)
     }
@@ -1743,7 +1754,9 @@ struct `JSONStreamParser tests` {
       let json = "{/*note*/unquoted:1}"
       let values = try json.utf8.partials(
         initialValue: [String: Int](),
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .unquotedKeys]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .unquotedKeys])
+        )
       )
       expectNoDifference(values.last, ["unquoted": 1])
     }
@@ -1753,7 +1766,9 @@ struct `JSONStreamParser tests` {
       let json = "[1,/*note*/2,]"
       let values = try json.utf8.partials(
         initialValue: [Int](),
-        from: .json(configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .trailingCommas]))
+        from: .json(
+          configuration: JSONStreamParserConfiguration(syntaxOptions: [.comments, .trailingCommas])
+        )
       )
       expectNoDifference(values.last, [1, 2])
     }
@@ -2033,3 +2048,65 @@ struct `JSONKeyDecodingStrategy tests` {
     expectNoDifference(strategy.decode(key: input), expected)
   }
 }
+
+@Suite
+struct `JSONDump tests` {
+  private let url64Kb = Bundle.module.url(forResource: "64KB", withExtension: "json")!
+  private let url512Kb = Bundle.module.url(forResource: "512KB", withExtension: "json")!
+
+  @Test
+  func `Small JSON Dump Optional`() throws {
+    try self.assertSnapshot(of: [ProfileOptional.Partial].self, from: self.url64Kb)
+  }
+
+  @Test
+  func `Small JSON Dump Parseable`() throws {
+    try self.assertSnapshot(of: [ProfileParseable.Partial].self, from: self.url64Kb)
+  }
+
+  @Test
+  func `Large JSON Dump Optional`() throws {
+    try self.assertSnapshot(of: [ProfileOptional.Partial].self, from: self.url512Kb)
+  }
+
+  @Test
+  func `Large JSON Dump Parseable`() throws {
+    try self.assertSnapshot(of: [ProfileParseable.Partial].self, from: self.url512Kb)
+  }
+
+  private func assertSnapshot<Value: StreamParseableValue & Encodable>(
+    of type: Value.Type,
+    from url: URL,
+    testName: String = #function
+  ) throws {
+    let data = try Data(contentsOf: url)
+    var stream = PartialsStream(initialValue: type.initialParseableValue(), from: .json())
+    for byte in data {
+      _ = try stream.next(byte)
+    }
+    let final = try stream.finish()
+    SnapshotTesting.assertSnapshot(of: final, as: .json, testName: testName)
+  }
+}
+
+@StreamParseable
+struct ProfileOptional {
+  var id: String
+  var name: String
+  var language: String
+  var bio: String
+  var version: Double
+}
+
+extension ProfileOptional.Partial: Codable {}
+
+@StreamParseable(partialMembers: .initialParseableValue)
+struct ProfileParseable {
+  var id: String
+  var name: String
+  var language: String
+  var bio: String
+  var version: Double
+}
+
+extension ProfileParseable.Partial: Codable {}

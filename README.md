@@ -8,7 +8,7 @@ A Swift interface for parsing values byte-by-byte.
 
 ## Overview
 
-`@StreamParseable` derives a `Partial` helper and wire-up for your struct so it can be driven by `PartialsStream` and the `JSONStreamParser`. The library also exposes async-friendly helpers and `Sequence` extensions that surface every value state produced as bytes arrive.
+``@StreamParseable`` derives a `Partial` helper and wire-up for your struct so it can be driven by ``PartialsStream`` and the ``JSONStreamParser``. The library also exposes async-friendly helpers and `Sequence` extensions that surface every value state produced as bytes arrive.
 
 ## Quick Start
 
@@ -39,11 +39,11 @@ print(partial.name)
 
 ### Streaming partials
 
-Use `PartialsStream` to feed bytes or sequences of bytes to a parser and observe the partial value state after each append. `Sequence` and `AsyncSequence` helpers (`partials(of:from:)`) expose the same value stream when you want to work with batches or async byte sources.
+Use ``PartialsStream`` to feed bytes or sequences of bytes to a parser and observe the partial value state after each append. `Sequence` and `AsyncSequence` helpers (``partials(of:from:)``) expose the same value stream when you want to work with batches or async byte sources.
 
 ### JSON parser configuration
 
-`JSONStreamParserConfiguration.SyntaxOptions` lets you relax strict JSON (allow comments, trailing commas, unquoted keys, `Infinity`, etc.). The parser also respects `JSONKeyDecodingStrategy`, so you can convert snake_case keys or provide a bespoke transformation when wiring `StreamParseable` values into the parser.
+``JSONStreamParserConfiguration.SyntaxOptions`` lets you relax strict JSON (allow comments, trailing commas, unquoted keys, `Infinity`, etc.). The parser also respects ``JSONKeyDecodingStrategy``, so you can convert snake_case keys or provide a bespoke transformation when wiring ``StreamParseable`` values into the parser.
 
 ## Installation
 
