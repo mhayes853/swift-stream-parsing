@@ -1,4 +1,6 @@
+/// A dictionary-like value that accepts string keys for element lookup.
 public protocol StreamParseableDictionaryObject<Value>: StreamParseableValue {
+  /// The value type stored by string keys in the dictionary-like value.
   associatedtype Value: StreamParseableValue
 
   subscript(key: String) -> Value? { get set }

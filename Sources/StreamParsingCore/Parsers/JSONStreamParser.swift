@@ -1,5 +1,6 @@
 // MARK: - JSONStreamParser
 
+/// A ``StreamParser`` that parses JSON.
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
@@ -22,6 +23,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
+  /// Configuration that controls the parser’s syntax allowances and key decoding.
   public let configuration: JSONStreamParserConfiguration
 
   private var handlers: Handlers
@@ -41,6 +43,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     !self.configuration.syntaxOptions.contains(.trailingCommas)
   }
 
+  /// Creates a parser with the provided configuration.
+  ///
+  /// - Parameter configuration: The syntax and key decoding settings used while parsing.
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
@@ -1258,6 +1263,7 @@ extension JSONStreamParser {
 }
 
 extension StreamParser {
+  /// Creates a `JSONStreamParser` for the value type.
   public static func json<Reducer>(
     configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()
   ) -> Self where Self == JSONStreamParser<Reducer> {
@@ -1267,29 +1273,61 @@ extension StreamParser {
 
 // MARK: - Configuration
 
+/// Controls the syntax rules and key decoding used by `JSONStreamParser`.
 public struct JSONStreamParserConfiguration: Sendable {
+  /// Flags that extend or relax strict JSON syntax.
   public struct SyntaxOptions: OptionSet, Sendable {
     public let rawValue: UInt
 
+    /// Initializes an option set with raw bits.
+    ///
+    /// - Parameter rawValue: The raw bit pattern representing the enabled syntax options.
     public init(rawValue: UInt) {
       self.rawValue = rawValue
     }
 
+    /// Supports `//` and `/* */` comment syntax inside JSON.
     public static let comments = SyntaxOptions(rawValue: 1 << 0)
+
+    /// Allows trailing commas in arrays and objects.
     public static let trailingCommas = SyntaxOptions(rawValue: 1 << 1)
+
+    /// Permits unquoted object keys.
     public static let unquotedKeys = SyntaxOptions(rawValue: 1 << 2)
+
+    /// Accepts single-quoted strings alongside double-quoted ones.
     public static let singleQuotedStrings = SyntaxOptions(rawValue: 1 << 3)
+
+    /// Allows numbers to start with `+`.
     public static let leadingPlus = SyntaxOptions(rawValue: 1 << 4)
+
+    /// Permits leading zeros before integers.
     public static let leadingZeros = SyntaxOptions(rawValue: 1 << 5)
+
+    /// Parses JSON literals such as `Infinity` and `NaN`.
     public static let nonFiniteNumbers = SyntaxOptions(rawValue: 1 << 6)
+
+    /// Allows control characters inside strings when escaped.
     public static let controlCharactersInStrings = SyntaxOptions(rawValue: 1 << 7)
+
+    /// Accepts hexadecimal numeric literals.
     public static let hexNumbers = SyntaxOptions(rawValue: 1 << 8)
+
+    /// Allows numbers that begin with a decimal point (e.g. `.5`).
     public static let leadingDecimalPoint = SyntaxOptions(rawValue: 1 << 9)
   }
 
+  /// The syntax features enabled during parsing.
   public var syntaxOptions: SyntaxOptions
+
+  /// Strategy used to translate dictionary keys to Swift key paths.
   public var keyDecodingStrategy: JSONKeyDecodingStrategy
 
+  /// Creates a configuration with the requested syntax options and key decoding.
+  ///
+  /// - Parameters:
+  ///   - syntaxOptions: Syntax relaxations to enable while parsing.
+  ///   - keyDecodingStrategy: Strategy used to transform JSON keys before handler lookup.
   public init(
     syntaxOptions: SyntaxOptions = [],
     keyDecodingStrategy: JSONKeyDecodingStrategy = JSONKeyDecodingStrategy.useDefault
@@ -1302,47 +1340,107 @@ public struct JSONStreamParserConfiguration: Sendable {
 
 // MARK: - JSONStreamParsingError
 
+/// Represents the current line and column while parsing JSON.
 public struct JSONStreamParsingPosition: Hashable, Sendable {
+  /// 1-based line number in the parsed stream.
   public var line: Int
+
+  /// 1-based column number in the parsed stream.
   public var column: Int
 
+  /// Creates a position with the supplied line and column.
+  ///
+  /// - Parameters:
+  ///   - line: The 1-based line number in the stream.
+  ///   - column: The 1-based column number in the stream.
   public init(line: Int, column: Int) {
     self.line = line
     self.column = column
   }
 }
 
+/// Represents a JSON parsing failure, its location, and context.
 public struct JSONStreamParsingError: Error, Hashable, Sendable {
   public enum Reason: Hashable, Sendable {
+    /// Encountered an unexpected token for the current parser mode.
     case unexpectedToken
+
+    /// The parser found a comma without a following value.
     case missingValue
+
+    /// An object key was not followed by a colon.
     case missingColon
+
+    /// A trailing comma was detected where it is forbidden.
     case trailingComma
+
+    /// A comma was missing between array or object entries.
     case missingComma
+
+    /// A quoted string was not terminated.
     case unterminatedString
+
+    /// A Unicode escape sequence was invalid.
     case invalidUnicodeEscape
+
+    /// A literal (true/false/null) was malformed.
     case invalidLiteral
+
+    /// A numeric literal could not be parsed.
     case invalidNumber
+
+    /// A number started with an illegal leading zero.
     case leadingZero
+
+    /// The exponent portion of a number was invalid.
     case invalidExponent
+
+    /// A closing brace `}` was missing.
     case missingClosingBrace
+
+    /// A closing bracket `]` was missing.
     case missingClosingBracket
   }
 
+  /// Optional parsing context used to describe where an error occurred.
   public enum Context: Hashable, Sendable {
+    /// Neutral parsing context outside of any container.
     case neutral
+
+    /// While decoding an object key.
     case objectKey
+
+    /// While decoding an object value.
     case objectValue
+
+    /// While decoding an array value.
     case arrayValue
+
+    /// While decoding a string.
     case string
+
+    /// While decoding a number.
     case number
+
+    /// While decoding a JSON literal (`true`, `false`, `null`, etc.).
     case literal
   }
 
+  /// Reason the parser failed.
   public var reason: Reason
+
+  /// Position where the failure occurred.
   public var position: JSONStreamParsingPosition
+
+  /// Optional context for the reason.
   public var context: Context?
 
+  /// Initializes the error with a reason, position, and optional context.
+  ///
+  /// - Parameters:
+  ///   - reason: Why parsing failed.
+  ///   - position: Where in the stream the failure occurred.
+  ///   - context: Optional contextual information about the failure.
   public init(
     reason: Reason,
     position: JSONStreamParsingPosition,
@@ -1356,11 +1454,18 @@ public struct JSONStreamParsingError: Error, Hashable, Sendable {
 
 // MARK: - JSONKeyDecodingStrategy
 
+/// Controls how object keys from JSON map to Swift property names.
 public enum JSONKeyDecodingStrategy: Sendable {
+  /// Converts snake_case JSON keys to camelCase Swift names.
   case convertFromSnakeCase
+
+  /// Leaves keys untouched.
   case useDefault
+
+  /// Provides a custom transformation closure.
   case custom(@Sendable (String) -> String)
 
+  /// Applies the selected strategy to transform the provided key.
   public func decode(key: String) -> String {
     switch self {
     case .convertFromSnakeCase: Self.convertFromSnakeCase(key: key)

@@ -1,5 +1,19 @@
 // MARK: - PartialsStream
 
+/// Drives a `StreamParser` and exposes each incremental value state.
+///
+/// ```swift
+/// struct BlogPost: StreamParseable {
+///   struct Partial: StreamParseableValue, StreamParseable { ... }
+/// }
+///
+/// var stream = PartialsStream(initialValue: .initialParseableValue(), from: .json())
+/// let bytes = Array("{\"title\":\"DocC\"}".utf8)
+/// for byte in bytes {
+///   _ = try stream.next(byte)
+/// }
+/// let final = try stream.finish()
+/// ```
 public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<Value>> {
   @usableFromInline
   var parser: Parser
@@ -10,11 +24,17 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
   @usableFromInline
   var hasFinished = false
 
+  /// The most recent value state emitted by the stream.
   @inlinable
   public var current: Value {
     self._current
   }
 
+  /// Installs the supplied parser and optional initial value state.
+  ///
+  /// - Parameters:
+  ///   - initialValue: The value state to start parsing from.
+  ///   - parser: The parser that will consume bytes.
   @inlinable
   public init(initialValue: Value = .initialParseableValue(), from parser: Parser) {
     var parser = parser
@@ -23,12 +43,20 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
     self._current = initialValue
   }
 
+  /// Sends a single byte into the parser and returns the updated value.
+  ///
+  /// - Parameter byte: Byte to feed into the parser.
+  /// - Returns: The latest parsed value after consuming the byte.
   @inlinable
   @discardableResult
   public mutating func next(_ byte: UInt8) throws -> Value {
     try self.next(CollectionOfOne(byte))
   }
 
+  /// Feeds multiple bytes to the parser and returns the latest value.
+  ///
+  /// - Parameter bytes: The byte sequence to parse.
+  /// - Returns: The latest parsed value after consuming the bytes.
   @inlinable
   @discardableResult
   public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value {
@@ -36,6 +64,9 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
     return self.current
   }
 
+  /// Completes parsing and validates that the stream ended cleanly.
+  ///
+  /// - Returns: The final parsed value after calling `finish()`.
   @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
