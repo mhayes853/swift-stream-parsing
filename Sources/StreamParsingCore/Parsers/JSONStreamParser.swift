@@ -1263,7 +1263,7 @@ extension JSONStreamParser {
 }
 
 extension StreamParser {
-  /// Creates a `JSONStreamParser` for the value type.
+  /// Creates a ``JSONStreamParser`` for the value type.
   public static func json<Reducer>(
     configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()
   ) -> Self where Self == JSONStreamParser<Reducer> {
@@ -1273,7 +1273,7 @@ extension StreamParser {
 
 // MARK: - Configuration
 
-/// Controls the syntax rules and key decoding used by `JSONStreamParser`.
+/// Controls the syntax rules and key decoding used by ``JSONStreamParser``.
 public struct JSONStreamParserConfiguration: Sendable {
   /// Flags that extend or relax strict JSON syntax.
   public struct SyntaxOptions: OptionSet, Sendable {

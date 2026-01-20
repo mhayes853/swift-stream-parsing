@@ -1,4 +1,4 @@
-/// A type that can be created and updated by a `StreamParser`.
+/// A type that can be created and updated by a ``StreamParser``.
 public protocol StreamParseableValue {
   /// Returns the value state used before any bytes are parsed.
   static func initialParseableValue() -> Self

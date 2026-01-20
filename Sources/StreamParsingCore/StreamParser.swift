@@ -4,6 +4,7 @@
 public protocol StreamParser<Value> {
   /// The value type that the parser emits and updates.
   associatedtype Value: StreamParseableValue
+
   /// The handler set used to map parsed tokens into `Value`.
   associatedtype Handlers: StreamParserHandlers<Value>
 
@@ -64,6 +65,7 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerInt128Handler(
     _ keyPath: WritableKeyPath<Value, Int128>
   )
+
   /// Handles unsigned integer tokens.
   mutating func registerUIntHandler(
     _ keyPath: WritableKeyPath<Value, UInt>
@@ -98,6 +100,7 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerFloatHandler(
     _ keyPath: WritableKeyPath<Value, Float>
   )
+
   /// Handles floating-point tokens parsed as `Double`.
   mutating func registerDoubleHandler(
     _ keyPath: WritableKeyPath<Value, Double>

@@ -1,6 +1,6 @@
 // MARK: - PartialsStream
 
-/// Drives a `StreamParser` and exposes each incremental value state.
+/// Drives a ``StreamParser`` and exposes each incremental value state.
 ///
 /// ```swift
 /// struct BlogPost: StreamParseable {
@@ -77,7 +77,7 @@ public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<V
 
   /// Completes parsing and validates that the stream ended cleanly.
   ///
-  /// - Returns: The final parsed value after calling `finish()`.
+  /// - Returns: The final parsed value after calling ``finish()``.
   @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
