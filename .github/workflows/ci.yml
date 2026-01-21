@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-26
+    strategy:
+      matrix:
+        xcode: ["26.0"]
+        config: ["debug", "release"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+      - name: Run ${{ matrix.config }} tests
+        run: swift test --configuration ${{ matrix.config }} --enable-all-traits
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Test Swift Package on Linux"
+        run: swift build --build-tests --enable-all-traits
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Test Swift Package on Android"
+        uses: swift-android-sdk/swift-android-action@v2
+        with:
+          swift-version: 6.2
+          swift-build-flags: --enable-all-traits
+          run-tests: false
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Setup Swift on Windows"
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.2-release
+          tag: 6.2-RELEASE
+      - name: "Test Swift Package on Windows"
+        run: swift build --build-tests --enable-all-traits
+
+  wasm:
+    name: WASM
+    runs-on: ubuntu-latest
+    container: swift:6.2.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swiftwasm/setup-swiftwasm@v2
+        with:
+          tag: swift-6.2-RELEASE
+          target: wasm32-unknown-wasip1
+      - name: Build
+        run: swift build --build-tests --swift-sdk wasm32-unknown-wasip1 --enable-all-traits
