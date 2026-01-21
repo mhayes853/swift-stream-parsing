@@ -2172,6 +2172,7 @@ struct `JSONKeyDecodingStrategy tests` {
 struct `JSONDump tests` {
   private let url64Kb = Bundle.module.url(forResource: "64KB", withExtension: "json")!
   private let url512Kb = Bundle.module.url(forResource: "512KB", withExtension: "json")!
+  private let urlDeepNested64 = Bundle.module.url(forResource: "DeepNested64", withExtension: "json")!
 
   @Test
   func `Small JSON Dump Optional`() throws {
@@ -2193,6 +2194,15 @@ struct `JSONDump tests` {
     try self.assertSnapshot(of: [ProfileParseable.Partial].self, from: self.url512Kb)
   }
 
+  @Test
+  func `Nested JSON Dump Partial States`() throws {
+    try self.assertNestedPartialSnapshot(
+      from: self.urlDeepNested64,
+      chunkSize: 256 * 1024,
+      testName: #function
+    )
+  }
+
   private func assertSnapshot<Value: StreamParseableValue & Encodable>(
     of type: Value.Type,
     from url: URL,
@@ -2205,6 +2215,30 @@ struct `JSONDump tests` {
     }
     let final = try stream.finish()
     SnapshotTesting.assertSnapshot(of: final, as: .json, testName: testName)
+  }
+
+  private func assertNestedPartialSnapshot(
+    from url: URL,
+    chunkSize: Int,
+    testName: String
+  ) throws {
+    let data = try Data(contentsOf: url)
+    var stream = PartialsStream(
+      initialValue: DeepNestedRoot.Partial.initialParseableValue(),
+      from: .json()
+    )
+    let bytes = Array(data)
+    var partials = [DeepNestedRoot.Partial]()
+    var offset = bytes.startIndex
+
+    while offset < bytes.endIndex {
+      let endIndex = min(offset + chunkSize, bytes.endIndex)
+      partials.append(try stream.next(bytes[offset..<endIndex]))
+      offset = endIndex
+    }
+
+    partials.append(try stream.finish())
+    SnapshotTesting.assertSnapshot(of: partials, as: .json, testName: testName)
   }
 }
 
@@ -2229,3 +2263,4 @@ struct ProfileParseable {
 }
 
 extension ProfileParseable.Partial: Codable {}
+
