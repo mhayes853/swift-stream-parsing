@@ -44,6 +44,7 @@ jobs:
           swift-version: 6.2
           swift-build-flags: --enable-all-traits --disable-experimental-prebuilts
           run-tests: false
+          build-tests: false # NB: This CI action has something against macro test targets for some reason.
 
   windows:
     name: Windows
