@@ -1,4 +1,3 @@
-import FoundationModels
 import MacroTesting
 import SnapshotTesting
 import StreamParsingMacros
