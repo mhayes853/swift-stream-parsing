@@ -19,7 +19,12 @@ let package = Package(
     .trait(
       name: "StreamParsingTagged",
       description: "Adds integrations for Tagged."
-    )
+    ),
+    .trait(
+      name: "StreamParsingFoundation",
+      description: "Adds integrations for Foundation types."
+    ),
+    .default(enabledTraits: ["StreamParsingFoundation"])
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),

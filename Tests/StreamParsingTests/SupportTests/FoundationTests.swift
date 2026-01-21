@@ -1,4 +1,4 @@
-#if canImport(Foundation)
+#if StreamParsingFoundation && canImport(Foundation)
   import CustomDump
   import Foundation
   import StreamParsing

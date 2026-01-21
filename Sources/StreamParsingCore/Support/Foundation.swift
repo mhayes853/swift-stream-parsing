@@ -1,4 +1,4 @@
-#if canImport(Foundation)
+#if StreamParsingFoundation && canImport(Foundation)
   import Foundation
 
   // MARK: - Data
@@ -67,8 +67,6 @@
       set { self = Decimal(Double(newValue)) }
     }
   }
-
-  // MARK: - PersonNameComponents
 
   extension PersonNameComponents: StreamParseable, StreamParseableValue {
     public typealias Partial = Self
