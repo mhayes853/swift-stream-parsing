@@ -940,6 +940,16 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Parses Empty Object From Array Property`() throws {
+      let json = "{\"values\":[1,2,3],\"other\":{}}"
+      let values = try json.utf8.partials(
+        initialValue: EmptyObject.Partial(),
+        from: .json()
+      )
+      expectNoDifference(values.last, EmptyObject.Partial())
+    }
+
+    @Test
     func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
       let json = "{\"values\":{\"inner\":1}}"
       let beforeInner = Array(repeating: DictionaryPropertyContainer.Partial(), count: 10)
