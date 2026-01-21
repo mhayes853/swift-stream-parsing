@@ -39,30 +39,35 @@
 
     private var streamParsingDoubleValue: Double {
       get {
-        // NB: See https://github.com/swiftlang/swift-foundation/blob/main/Sources/FoundationEssentials/Decimal/Decimal%2BMath.swift#L657
-        if self._length == 0 {
-          return self.sign == .minus ? Double.nan : 0
+        if self.isNaN {
+          return Double.nan
         }
-        var d = 0.0
-        for idx in (0..<min(self._length, 8)).reversed() {
-          withUnsafeBytes(of: self._mantissa) { ptr in
-            let value = ptr.load(
-              fromByteOffset: Int(idx) * MemoryLayout<UInt16>.stride,
-              as: UInt16.self
-            )
-            d = d * 65536 + Double(value)
-          }
+        if self.isZero {
+          return 0
         }
-        if self.exponent < 0 {
-          for _ in self.exponent..<0 {
-            d /= 10.0
-          }
-        } else {
-          for _ in 0..<self.exponent {
-            d *= 10.0
-          }
+
+        var mantissa = self.significand
+        let two = Decimal(2)
+        var divisor = Decimal(1)
+        while divisor <= mantissa {
+          divisor *= two
         }
-        return self.sign == .minus ? -d : d
+        divisor /= two
+
+        var result = 0.0
+        let one = Decimal(1)
+        while divisor >= one && !divisor.isZero {
+          result *= 2
+          if mantissa >= divisor {
+            mantissa -= divisor
+            result += 1
+          }
+          divisor /= two
+        }
+
+        let factor = digitPow10(self.exponent)
+        let scaledResult = result * factor
+        return self.sign == .minus ? -scaledResult : scaledResult
       }
       set { self = Decimal(Double(newValue)) }
     }
