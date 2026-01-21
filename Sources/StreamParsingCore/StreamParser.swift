@@ -96,6 +96,7 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerUInt128Handler(
     _ keyPath: WritableKeyPath<Value, UInt128>
   )
+
   /// Handles floating-point tokens parsed as `Float`.
   mutating func registerFloatHandler(
     _ keyPath: WritableKeyPath<Value, Float>
@@ -132,4 +133,140 @@ public protocol StreamParserHandlers<Value> {
   mutating func registerDictionaryHandler(
     _ keyPath: WritableKeyPath<Value, some StreamParseableDictionaryObject>
   )
+}
+
+extension StreamParserHandlers {
+  public mutating func registerStringHandler(
+    _ keyPath: WritableKeyPath<Value, String>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerBoolHandler(
+    _ keyPath: WritableKeyPath<Value, Bool>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerIntHandler(
+    _ keyPath: WritableKeyPath<Value, Int>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerInt8Handler(
+    _ keyPath: WritableKeyPath<Value, Int8>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerInt16Handler(
+    _ keyPath: WritableKeyPath<Value, Int16>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerInt32Handler(
+    _ keyPath: WritableKeyPath<Value, Int32>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerInt64Handler(
+    _ keyPath: WritableKeyPath<Value, Int64>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  @available(StreamParsing128BitIntegers, *)
+  public mutating func registerInt128Handler(
+    _ keyPath: WritableKeyPath<Value, Int128>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerUIntHandler(
+    _ keyPath: WritableKeyPath<Value, UInt>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerUInt8Handler(
+    _ keyPath: WritableKeyPath<Value, UInt8>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerUInt16Handler(
+    _ keyPath: WritableKeyPath<Value, UInt16>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerUInt32Handler(
+    _ keyPath: WritableKeyPath<Value, UInt32>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerUInt64Handler(
+    _ keyPath: WritableKeyPath<Value, UInt64>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  @available(StreamParsing128BitIntegers, *)
+  public mutating func registerUInt128Handler(
+    _ keyPath: WritableKeyPath<Value, UInt128>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerFloatHandler(
+    _ keyPath: WritableKeyPath<Value, Float>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerDoubleHandler(
+    _ keyPath: WritableKeyPath<Value, Double>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerNilHandler<Nullable: StreamParseableValue>(
+    _ keyPath: WritableKeyPath<Value, Nullable?>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
+    forKey key: String,
+    _ keyPath: WritableKeyPath<Value, Keyed>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
+    on type: Scoped.Type,
+    _ keyPath: WritableKeyPath<Value, Scoped>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerArrayHandler(
+    _ keyPath: WritableKeyPath<Value, some StreamParseableArrayObject>
+  ) {
+    missingHandlerImplementation()
+  }
+
+  public mutating func registerDictionaryHandler(
+    _ keyPath: WritableKeyPath<Value, some StreamParseableDictionaryObject>
+  ) {
+    missingHandlerImplementation()
+  }
+}
+
+private func missingHandlerImplementation(function: String = #function) -> Never {
+  fatalError("\(function) is not supported")
 }
