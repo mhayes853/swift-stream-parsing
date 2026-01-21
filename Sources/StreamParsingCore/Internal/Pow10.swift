@@ -4,6 +4,18 @@ func digitPow10(_ exponent: Int) -> Double {
   exponent < 0 ? _negativeDigitPow10Table[-exponent] : _digitPow10Table[exponent]
 }
 
+@inlinable
+func digitPow10Value(_ exponent: Int) -> Double? {
+  if exponent >= 0 {
+    guard exponent < _digitPow10Table.count else { return nil }
+    return _digitPow10Table[exponent]
+  } else {
+    let index = -exponent
+    guard index < _negativeDigitPow10Table.count else { return nil }
+    return _negativeDigitPow10Table[index]
+  }
+}
+
 @usableFromInline
 let _digitPow10Table: [Double] = [
   1e0,

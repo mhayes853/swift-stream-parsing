@@ -328,9 +328,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
     }
     self.containerState.finishArray()
-      self.currentArrayPath = self.handlers.arrayPath(
-        stack: self.containerState.stack.dropLast()
-      )
+    self.currentArrayPath = self.handlers.arrayPath(
+      stack: self.containerState.stack.dropLast()
+    )
   }
 
   private mutating func handleNeutralObjectStart(into reducer: inout Value) throws {
@@ -873,12 +873,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       self.numberParsingState.state.digitCount += 1
       if let appendPath = numberPath {
-        reducer[keyPath: appendPath]
-          .append(
-            digit: digit,
-            isNegative: self.numberParsingState.isNegative,
-            fractionalPosition: 0
+        guard
+          reducer[keyPath: appendPath]
+            .append(
+              digit: digit,
+              isNegative: self.numberParsingState.isNegative,
+              fractionalPosition: 0
+            )
+        else {
+          throw JSONStreamParsingError(
+            reason: .numericOverflow,
+            position: self.position,
+            context: .number
           )
+        }
       }
     }
   }
@@ -897,8 +905,19 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     let numberPath = self.currentNumberPath
     self.numberParsingState.state.hasHexDigits = true
     if let appendPath = numberPath {
-      reducer[keyPath: appendPath]
-        .appendHexDigit(hexDigit, isNegative: self.numberParsingState.isNegative)
+      guard
+        reducer[keyPath: appendPath]
+          .appendHexDigit(
+            hexDigit,
+            isNegative: self.numberParsingState.isNegative
+          )
+      else {
+        throw JSONStreamParsingError(
+          reason: .numericOverflow,
+          position: self.position,
+          context: .number
+        )
+      }
     }
   }
   private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
@@ -922,10 +941,18 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       return
     } else if let digit = byte.digitValue {
       self.numberParsingState.state.hasExponentDigits = true
-      self.numberParsingState.exponent.appendDigit(
-        digit,
-        isNegative: self.numberParsingState.isNegativeExponent
-      )
+      guard
+        self.numberParsingState.exponent.appendDigit(
+          digit,
+          isNegative: self.numberParsingState.isNegativeExponent
+        )
+      else {
+        throw JSONStreamParsingError(
+          reason: .numericOverflow,
+          position: self.position,
+          context: .number
+        )
+      }
     } else {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       try self.parseNeutral(byte: byte, into: &reducer)
@@ -956,12 +983,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
     self.numberParsingState.state.hasFractionDigits = true
     if let currentNumberPath = self.currentNumberPath {
-      reducer[keyPath: currentNumberPath]
-        .append(
-          digit: digit,
-          isNegative: self.numberParsingState.isNegative,
-          fractionalPosition: self.numberParsingState.fractionalPosition
+      guard
+        reducer[keyPath: currentNumberPath]
+          .append(
+            digit: digit,
+            isNegative: self.numberParsingState.isNegative,
+            fractionalPosition: self.numberParsingState.fractionalPosition
+          )
+      else {
+        throw JSONStreamParsingError(
+          reason: .numericOverflow,
+          position: self.position,
+          context: .number
         )
+      }
     }
   }
   private mutating func parseCommentStart(byte: UInt8, into reducer: inout Value) throws {
@@ -1081,7 +1116,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].exponentiate(by: self.numberParsingState.exponent)
+      guard
+        reducer[keyPath: numberPath]
+          .exponentiate(by: self.numberParsingState.exponent)
+      else {
+        throw JSONStreamParsingError(
+          reason: .numericOverflow,
+          position: position,
+          context: .number
+        )
+      }
     }
     self.mode = .neutral
     self.numberParsingState.resetAfterFinalize()
@@ -1402,6 +1446,9 @@ public struct JSONStreamParsingError: Error, Hashable, Sendable {
     /// A numeric literal could not be parsed.
     case invalidNumber
 
+    /// A numeric literal overflowed.
+    case numericOverflow
+
     /// A number started with an illegal leading zero.
     case leadingZero
 
@@ -1557,7 +1604,8 @@ extension JSONStreamParser {
 
     fileprivate func dictionaryPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, any StreamParseableDictionaryObject>? where S.Element == StackElement {
+    ) -> WritableKeyPath<Value, any StreamParseableDictionaryObject>?
+    where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.dictionaryPath,
@@ -2247,98 +2295,111 @@ private enum JSONNumberAccumulator {
     }
   }
 
-  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+  mutating func append(digit: UInt8, isNegative: Bool, fractionalPosition: Int) -> Bool {
     switch self {
     case .int(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int(value)
     case .int8(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int8(value)
     case .int16(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int16(value)
     case .int32(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int32(value)
     case .int64(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int64(value)
     case .int128(let low, let high):
-      guard #available(StreamParsing128BitIntegers , *) else { return }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       var value = Int128(_low: low, _high: high)
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .int128(low: value._low, high: value._high)
     case .uint(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint(value)
     case .uint8(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint8(value)
     case .uint16(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint16(value)
     case .uint32(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint32(value)
     case .uint64(var value):
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint64(value)
     case .uint128(let low, let high):
-      guard #available(StreamParsing128BitIntegers , *) else { return }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       var value = UInt128(_low: low, _high: high)
-      value.appendDigit(digit, isNegative: isNegative)
+      guard value.appendDigit(digit, isNegative: isNegative) else { return false }
       self = .uint128(low: value._low, high: value._high)
     case .float(var value):
-      value.appendDigit(digit, isNegative: isNegative, fractionalPosition: fractionalPosition)
+      guard
+        value.appendDigit(
+          digit,
+          isNegative: isNegative,
+          fractionalPosition: fractionalPosition
+        )
+      else { return false }
       self = .float(value)
     case .double(var value):
-      value.appendDigit(digit, isNegative: isNegative, fractionalPosition: fractionalPosition)
+      guard
+        value.appendDigit(
+          digit,
+          isNegative: isNegative,
+          fractionalPosition: fractionalPosition
+        )
+      else { return false }
       self = .double(value)
     }
+    return true
   }
 
-  mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
+  mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) -> Bool {
     switch self {
     case .int(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int(value)
     case .int8(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int8(value)
     case .int16(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int16(value)
     case .int32(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int32(value)
     case .int64(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int64(value)
     case .int128(let low, let high):
-      guard #available(StreamParsing128BitIntegers , *) else { return }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       var value = Int128(_low: low, _high: high)
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .int128(low: value._low, high: value._high)
     case .uint(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint(value)
     case .uint8(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint8(value)
     case .uint16(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint16(value)
     case .uint32(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint32(value)
     case .uint64(var value):
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint64(value)
     case .uint128(let low, let high):
-      guard #available(StreamParsing128BitIntegers , *) else { return }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       var value = UInt128(_low: low, _high: high)
-      value.appendHexDigit(digit, isNegative: isNegative)
+      guard value.appendHexDigit(digit, isNegative: isNegative) else { return false }
       self = .uint128(low: value._low, high: value._high)
     case .float(var value):
       value.appendHexDigit(digit, isNegative: isNegative)
@@ -2347,46 +2408,69 @@ private enum JSONNumberAccumulator {
       value.appendHexDigit(digit, isNegative: isNegative)
       self = .double(value)
     }
+    return true
   }
 
-  mutating func exponentiate(by exponent: Int) {
+  mutating func exponentiate(by exponent: Int) -> Bool {
     switch self {
     case .float(var value):
-      value.exponentiate(by: exponent)
+      guard value.exponentiate(by: exponent) else { return false }
       self = .float(value)
     case .double(var value):
-      value.exponentiate(by: exponent)
+      guard value.exponentiate(by: exponent) else { return false }
       self = .double(value)
     default:
       break
     }
+    return true
   }
 }
 
-extension BinaryInteger {
-  fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool) {
-    self *= 10
+extension FixedWidthInteger {
+  fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool) -> Bool {
+    let (multiplied, multiplyOverflow) = self.multipliedReportingOverflow(by: 10)
+    guard !multiplyOverflow else { return false }
+    self = multiplied
+    let delta = Self(digit)
     if isNegative {
-      self -= Self(digit)
+      let (result, subtractionOverflow) = self.subtractingReportingOverflow(delta)
+      guard !subtractionOverflow else { return false }
+      self = result
     } else {
-      self += Self(digit)
+      let (result, additionOverflow) = self.addingReportingOverflow(delta)
+      guard !additionOverflow else { return false }
+      self = result
     }
+    return true
   }
 
-  fileprivate mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
-    self *= 16
+  fileprivate mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) -> Bool {
+    let (multiplied, multiplyOverflow) = self.multipliedReportingOverflow(by: 16)
+    guard !multiplyOverflow else { return false }
+    self = multiplied
+    let delta = Self(digit)
     if isNegative {
-      self -= Self(digit)
+      let (result, subtractionOverflow) = self.subtractingReportingOverflow(delta)
+      guard !subtractionOverflow else { return false }
+      self = result
     } else {
-      self += Self(digit)
+      let (result, additionOverflow) = self.addingReportingOverflow(delta)
+      guard !additionOverflow else { return false }
+      self = result
     }
+    return true
   }
 }
 
 extension BinaryFloatingPoint {
-  fileprivate mutating func appendDigit(_ digit: UInt8, isNegative: Bool, fractionalPosition: Int) {
+  fileprivate mutating func appendDigit(
+    _ digit: UInt8,
+    isNegative: Bool,
+    fractionalPosition: Int
+  ) -> Bool {
     if fractionalPosition > 0 {
-      let delta = Self(digit) / Self(digitPow10(fractionalPosition))
+      guard let divisor = digitPow10Value(fractionalPosition) else { return false }
+      let delta = Self(digit) / Self(divisor)
       if isNegative {
         self -= delta
       } else {
@@ -2400,6 +2484,7 @@ extension BinaryFloatingPoint {
         self += Self(digit)
       }
     }
+    return self.isFinite
   }
 
   fileprivate mutating func appendHexDigit(_ digit: UInt8, isNegative: Bool) {
@@ -2411,8 +2496,10 @@ extension BinaryFloatingPoint {
     }
   }
 
-  fileprivate mutating func exponentiate(by exponent: Int) {
-    self *= Self(digitPow10(exponent))
+  fileprivate mutating func exponentiate(by exponent: Int) -> Bool {
+    guard let value = digitPow10Value(exponent) else { return false }
+    self *= Self(value)
+    return self.isFinite
   }
 }
 

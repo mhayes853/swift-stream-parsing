@@ -1421,6 +1421,66 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Throws For Integer Overflow`() {
+      let json = "[18446744073709551616]"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: [UInt64](),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For Int32 Overflow`() {
+      let json = "2147483648"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: Int32(),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For UInt32 Overflow`() {
+      let json = "4294967296"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: UInt32(),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For Int8 Overflow`() {
+      let json = "-129"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: Int8(),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For Float Overflow`() {
+      let json = "3.5e38"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: Float(),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For Double Overflow`() {
+      let json = "1e400"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: Double(),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
     func `Throws For Leading Zero`() {
       let json = "{\"a\": 01}"
       expectJSONStreamParsingError(
@@ -1470,6 +1530,16 @@ struct `JSONStreamParser tests` {
         json,
         initialValue: [String: Double](),
         reason: .invalidExponent
+      )
+    }
+
+    @Test
+    func `Throws For Exponent Overflow`() {
+      let json = "1e9223372036854775808"
+      expectJSONStreamParsingError(
+        json,
+        initialValue: Double(),
+        reason: .numericOverflow
       )
     }
 
