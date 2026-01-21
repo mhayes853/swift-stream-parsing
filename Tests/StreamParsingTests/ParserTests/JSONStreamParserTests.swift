@@ -2172,7 +2172,10 @@ struct `JSONKeyDecodingStrategy tests` {
 struct `JSONDump tests` {
   private let url64Kb = Bundle.module.url(forResource: "64KB", withExtension: "json")!
   private let url512Kb = Bundle.module.url(forResource: "512KB", withExtension: "json")!
-  private let urlDeepNested64 = Bundle.module.url(forResource: "DeepNested64", withExtension: "json")!
+  private let urlDeepNested64 = Bundle.module.url(
+    forResource: "DeepNested64",
+    withExtension: "json"
+  )!
 
   @Test
   func `Small JSON Dump Optional`() throws {
@@ -2263,4 +2266,3 @@ struct ProfileParseable {
 }
 
 extension ProfileParseable.Partial: Codable {}
-

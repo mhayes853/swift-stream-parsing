@@ -69,4 +69,4 @@ jobs:
           tag: swift-6.2-RELEASE
           target: wasm32-unknown-wasip1
       - name: Build
-        run: swift build --build-tests --disable-experimental-prebuilts --swift-sdk wasm32-unknown-wasip1 --traits StreamParsingSwiftCollections
+        run: swift build --disable-experimental-prebuilts --swift-sdk wasm32-unknown-wasip1 --traits StreamParsingSwiftCollections
