@@ -920,6 +920,26 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
+    func `Parses Empty Object From Boolean Property`() throws {
+      let json = "{\"flag\":true,\"other\":{}}"
+      let values = try json.utf8.partials(
+        initialValue: EmptyObject.Partial(),
+        from: .json()
+      )
+      expectNoDifference(values.last, EmptyObject.Partial())
+    }
+
+    @Test
+    func `Parses Empty Object From Null Property`() throws {
+      let json = "{\"value\":null,\"other\":{}}"
+      let values = try json.utf8.partials(
+        initialValue: EmptyObject.Partial(),
+        from: .json()
+      )
+      expectNoDifference(values.last, EmptyObject.Partial())
+    }
+
+    @Test
     func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
       let json = "{\"values\":{\"inner\":1}}"
       let beforeInner = Array(repeating: DictionaryPropertyContainer.Partial(), count: 10)
@@ -1022,14 +1042,14 @@ struct `JSONStreamParser tests` {
     @Test
     func `Parses Object Into Empty StreamParseable Type`() throws {
       let json = """
-      {
-        "bio" : "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum. Maecenas quis nisi nunc. Nam tristique feugiat est vitae mollis. Maecenas quis nisi nunc.",
-        "id" : "V59OF92YF627HFY0",
-        "language" : "Sindhi",
-        "name" : "Adeel Solangi",
-        "version" : 6.1
-      }
-      """
+        {
+          "bio" : "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum. Maecenas quis nisi nunc. Nam tristique feugiat est vitae mollis. Maecenas quis nisi nunc.",
+          "id" : "V59OF92YF627HFY0",
+          "language" : "Sindhi",
+          "name" : "Adeel Solangi",
+          "version" : 6.1
+        }
+        """
       var stream = PartialsStream(initialValue: EmptyObject.Partial(), from: .json())
       for byte in json.utf8 {
         _ = try stream.next(byte)
