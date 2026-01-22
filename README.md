@@ -78,6 +78,7 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
 - `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
 - `StreamParsingTagged` interops the library with `Tagged`.
+- `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
 
 ## Installation
 You can add Swift Stream Parsing to an Xcode project by adding it to your project as a package.

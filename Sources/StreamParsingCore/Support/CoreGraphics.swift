@@ -1,4 +1,4 @@
-#if canImport(CoreGraphics)
+#if StreamParsingCoreGraphics && canImport(CoreGraphics)
   import CoreGraphics
 
   extension CGFloat: StreamParseable {

@@ -24,7 +24,11 @@ let package = Package(
       name: "StreamParsingFoundation",
       description: "Adds integrations for Foundation types."
     ),
-    .default(enabledTraits: ["StreamParsingFoundation"])
+    .trait(
+      name: "StreamParsingCoreGraphics",
+      description: "Adds integrations for CoreGraphics types."
+    ),
+    .default(enabledTraits: ["StreamParsingFoundation", "StreamParsingCoreGraphics"])
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
