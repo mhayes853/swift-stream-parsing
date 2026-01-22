@@ -10,7 +10,7 @@ A Swift toolkit for byte-by-byte parsing.
 
 `JSONDecoder` and `Codable` are powerful tools when you need to decode structured JSON bytes, however both of those tools require the entire data payload to be present at decode time.
 
-This is especially problematic cor applications such as streaming structured data from LLMs. As a result, the FoundationModels framework has its own set of interfaces for incrementally streaming structured data.
+This is especially problematic for applications such as streaming structured data from LLMs. As a result, the FoundationModels framework has its own set of interfaces for incrementally streaming structured data.
 
 This library offers a dedicated interface for incremental parsing with built-in JSON support.
 
