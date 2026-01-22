@@ -4,51 +4,73 @@ Stream-first parsing helpers built on a macro-generated value model and a stream
 
 ## Overview
 
-``@StreamParseable`` derives a `Partial` helper and ``StreamParseableValue`` implementation for your struct so you can drive it with ``PartialsStream``, the JSON parser, and the sequence helpers that emit every partial state.
+`JSONDecoder` and `Codable` are powerful tools when you need to decode structured JSON bytes, however both of those tools require the entire data payload to be present at decode time.
+
+This is especially problematic cor applications such as streaming structured data from LLMs. As a result, the FoundationModels framework has its own set of interfaces for incrementally streaming structured data.
+
+This library offers a dedicated interface for incremental parsing with built-in JSON support.
 
 ## Quick Start
+
+First, you create a struct that uses the `@StreamParseable` macro, and then you can begin parsing!
 
 ```swift
 import StreamParsing
 
-@StreamParseable(partialMembers: .optional)
+@StreamParseable
 struct Profile {
   var id: Int
   var name: String
   var isActive: Bool
 }
 
-let parser = JSONStreamParser<Profile.Partial>()
-var stream = PartialsStream(initialValue: .initialParseableValue(), from: parser)
-for byte in Data("{\"id\":1,\"name\":\"DocC\",\"isActive\":true}".utf8) {
-  try stream.next(byte)
+let json = """
+{
+  "id": 4,
+  "name": "Blob",
+  "isActive": true
 }
-let partial = try stream.finish()
-print(partial.name)
+"""
+
+let partials: [Profile.Partial] = try json.utf8
+  .partials(of: Profile.Partial.self, from: .json())
 ```
 
-## Streaming partial values
+The `@StreamParseable` macro generates a `Partial` struct with all optional members. Additionally, all stored members on an `@StreamParseable` must also conform to the ``StreamParseable`` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
-``PartialsStream`` feeds bytes to a ``StreamParser`` and exposes the latest value with each call to ``next(_:)`` and ``finish()``. The same logic powers the `Sequence` and `AsyncSequence` ``partials(of:from:)`` helpers so you can collect partial values when working with batched or asynchronous byte sources.
+You can also parse partials from an AsyncSequence of bytes or byte chunks.
 
-## JSON parsing
+```swift
+struct AsyncJSONBytesSequence: AsyncSequence {
+  typealias Element = UInt8
+  
+  // ...
+}
 
-``JSONStreamParser`` accepts a ``JSONStreamParserConfiguration`` that controls ``SyntaxOptions`` such as comments, trailing commas, unquoted keys, `Infinity`, and leading decimal points. Use ``JSONKeyDecodingStrategy`` to decode snake_case keys, leave keys untouched, or provide a custom transformation before wiring the callbacks into the value.
+let partials = AsyncJSONBytesSequence(...)
+  .partials(of: Profile.Partial.self, from: .json())
+for try await profilePartial in partials {
+  print(profilePartial)
+}
+```
 
-## Macros
+## Parsers
 
-The  ``StreamParseable`` macro derives the `Partial` helper, the `streamPartialValue` implementation, and `registerHandlers(in:)` calls for each property. ``StreamParseableMember`` and  ``StreamParseableIgnored`` control how individual stored properties map to JSON keys, while  ``PartialMembersMode``  (`.optional` or `.initialParseableValue`) configures whether the generated members default to `nil` or the type’s initial parseable value.
+The library comes with a built-in JSON parser, and you can pass a custom configuration to the parser to relax constraints of key names and syntax.
 
-## Topics
+```swift
+let configuration = JSONStreamParserConfiguration(
+  syntaxOptions: [.comments, .trailingCommas],
+  keyDecodingStrategy: .convertFromSnakeCase
+)
 
-- ``StreamParseable`` (macro)
-- ``StreamParseableMember`` / ``StreamParseableIgnored``
-- ``PartialMembersMode``
-- ``PartialsStream``
-- ``JSONStreamParser``
-- ``JSONStreamParserConfiguration``
-- ``JSONKeyDecodingStrategy``
-- ``JSONStreamParsingError``
-- ``JSONStreamParserConfiguration.SyntaxOptions``
-- ``Sequence/partials(of:from:)``
-- ``AsyncSequence/partials(of:from:)``
+let partials: [Profile.Partial] = try json.utf8
+  .partials(of: Profile.Partial.self, from: .json(configuration: configuration))
+```
+
+## Traits
+
+While the core library itself has 0 dependencies, you can enable the following package traits to integrate with additional dependencies:
+- `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
+- `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
+- `StreamParsingTagged` interops the library with `Tagged`.

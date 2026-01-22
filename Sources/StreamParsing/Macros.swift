@@ -1,7 +1,6 @@
 // MARK: - Macros
 
 /// Generates a ``StreamParseable`` conformance and `Partial` helper for a struct.
-/// Use this on value types that you want to decode incrementally from a byte stream.
 ///
 /// ```swift
 /// @StreamParseable
@@ -27,7 +26,7 @@ public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
 public macro StreamParseableMember(key: String) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
-/// Declares multiple key names that map to the same property when decoding.
+/// Declares multiple key names that map to the same property when parsing.
 ///
 /// ```swift
 /// struct Payload {
@@ -57,7 +56,7 @@ public macro StreamParseableIgnored() =
 public struct PartialMembersMode: Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
   public static let optional = Self()
+
   /// Members are initialized to their ``initialParseableValue()`` result.
-  ///
   public static let initialParseableValue = Self()
 }
