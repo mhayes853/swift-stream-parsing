@@ -10,7 +10,7 @@ A Swift toolkit for byte-by-byte parsing.
 
 `JSONDecoder` and `Codable` are powerful tools when you need to decode structured JSON bytes, however both of those tools require the entire data payload to be present at decode time.
 
-This is especially problematic for applications such as streaming structured data from LLMs. As a result, the FoundationModels framework has its own set of interfaces for incrementally streaming structured data.
+This is especially problematic for applications such as streaming structured data from LLMs. For example, the FoundationModels framework has its own set of interfaces for incrementally streaming structured data.
 
 This library offers a dedicated interface for incremental parsing with built-in JSON support.
 
@@ -40,7 +40,44 @@ let partials: [Profile.Partial] = try json.utf8
   .partials(of: Profile.Partial.self, from: .json())
 ```
 
-The `@StreamParseable` macro generates a `Partial` struct with all optional members. Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
+The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
+
+```swift
+extension Profile: StreamParsingCore.StreamParseable {
+  struct Partial: StreamParsingCore.StreamParseableValue,
+    StreamParsingCore.StreamParseable {
+    typealias Partial = Self
+
+    var id: Int.Partial?
+    var name: String.Partial?
+    var isActive: Bool.Partial?
+
+    init(
+      id: Int.Partial? = nil,
+      name: String.Partial? = nil,
+      isActive: Bool.Partial? = nil
+    ) {
+      self.id = id
+      self.name = name
+      self.isActive = isActive
+    }
+
+    static func initialParseableValue() -> Self {
+      Self()
+    }
+
+    static func registerHandlers(
+      in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+    ) {
+      handlers.registerKeyedHandler(forKey: "id", \.id)
+      handlers.registerKeyedHandler(forKey: "name", \.name)
+      handlers.registerKeyedHandler(forKey: "isActive", \.isActive)
+    }
+  }
+}
+```
+
+Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
 You can also parse partials from an AsyncSequence of bytes or byte chunks.
 
