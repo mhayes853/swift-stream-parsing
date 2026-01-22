@@ -5,7 +5,7 @@ public struct StreamParsingError: Error, Hashable {
     case parserThrows
   }
 
-  /// Thrown when `finish()` is invoked more than once on a stream.
+  /// Thrown when ``PartialsStream/finish()`` is invoked more than once on a stream.
   public static let parserFinished = StreamParsingError(.parserFinished)
 
   /// Thrown when the parser has previously failed and the stream still receives bytes.

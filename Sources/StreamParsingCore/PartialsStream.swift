@@ -7,9 +7,8 @@
 ///   struct Partial: StreamParseableValue, StreamParseable { ... }
 /// }
 ///
-/// var stream = PartialsStream(initialValue: .initialParseableValue(), from: .json())
-/// let bytes = Array("{\"title\":\"DocC\"}".utf8)
-/// for byte in bytes {
+/// var stream = PartialsStream(initialValue: BlogPost.Partial(), from: .json())
+/// for byte in "{\"title\":\"DocC\"}".utf8 {
 ///   _ = try stream.next(byte)
 /// }
 /// let final = try stream.finish()

@@ -1,6 +1,10 @@
 // MARK: - JSONStreamParser
 
 /// A ``StreamParser`` that parses JSON.
+///
+/// The parser will update its value for every byte that semantically changes the parsed value.
+/// However, some sections of JSON, such as object keys, or exponentials, will not update the value
+/// until the entire section has been parsed.
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
@@ -23,7 +27,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  /// Configuration that controls the parser’s syntax allowances and key decoding.
+  /// The ``JSONStreamParserConfiguration``.
   public let configuration: JSONStreamParserConfiguration
 
   private var handlers: Handlers
@@ -45,7 +49,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
   /// Creates a parser with the provided configuration.
   ///
-  /// - Parameter configuration: The syntax and key decoding settings used while parsing.
+  /// - Parameter configuration: The ``JSONStreamParserConfiguration`` to use.
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
@@ -1320,7 +1324,9 @@ extension JSONStreamParser {
 }
 
 extension StreamParser {
-  /// Creates a ``JSONStreamParser`` for the value type.
+  /// Creates a ``JSONStreamParser``.
+  ///
+  /// - Parameter configuration: The ``JSONStreamParserConfiguration`` to use.
   public static func json<Reducer>(
     configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()
   ) -> Self where Self == JSONStreamParser<Reducer> {
@@ -1336,9 +1342,6 @@ public struct JSONStreamParserConfiguration: Sendable {
   public struct SyntaxOptions: OptionSet, Sendable {
     public let rawValue: UInt
 
-    /// Initializes an option set with raw bits.
-    ///
-    /// - Parameter rawValue: The raw bit pattern representing the enabled syntax options.
     public init(rawValue: UInt) {
       self.rawValue = rawValue
     }
@@ -1377,10 +1380,10 @@ public struct JSONStreamParserConfiguration: Sendable {
   /// The syntax features enabled during parsing.
   public var syntaxOptions: SyntaxOptions
 
-  /// Strategy used to translate dictionary keys to Swift key paths.
+  /// Strategy used to translate JSON object keys to the keys registered in the handlers.
   public var keyDecodingStrategy: JSONKeyDecodingStrategy
 
-  /// Creates a configuration with the requested syntax options and key decoding.
+  /// Creates a configuration.
   ///
   /// - Parameters:
   ///   - syntaxOptions: Syntax relaxations to enable while parsing.
@@ -1397,7 +1400,7 @@ public struct JSONStreamParserConfiguration: Sendable {
 
 // MARK: - JSONStreamParsingError
 
-/// Represents the current line and column while parsing JSON.
+/// The current line and column while parsing JSON.
 public struct JSONStreamParsingPosition: Hashable, Sendable {
   /// 1-based line number in the parsed stream.
   public var line: Int
@@ -1405,7 +1408,7 @@ public struct JSONStreamParsingPosition: Hashable, Sendable {
   /// 1-based column number in the parsed stream.
   public var column: Int
 
-  /// Creates a position with the supplied line and column.
+  /// Creates a position.
   ///
   /// - Parameters:
   ///   - line: The 1-based line number in the stream.

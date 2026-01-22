@@ -1,5 +1,5 @@
 extension Sequence where Element == UInt8 {
-  /// Parses every byte, returning the value state after each input and the final state.
+  /// Incrementally parses bytes as a value.
   ///
   /// ```swift
   /// let partials = try bytes.partials(of: MyModel.Partial.self, from: .json())
@@ -9,7 +9,7 @@ extension Sequence where Element == UInt8 {
   /// - Parameters:
   ///   - type: The value type to collect partials for.
   ///   - parser: The parser that produces the value states.
-  /// - Returns: An array of value states observed after each input and at completion.
+  /// - Returns: The values observed after each byte and at completion.
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     of type: Value.Type,
     from parser: Parser
@@ -17,12 +17,12 @@ extension Sequence where Element == UInt8 {
     try self.partials(initialValue: type.initialParseableValue(), from: parser)
   }
 
-  /// Parses bytes starting from the caller-provided value state.
+  /// Incrementally parses bytes as a value.
   ///
   /// - Parameters:
   ///   - initialValue: The value state to begin parsing from.
   ///   - parser: The parser that feeds the bytes.
-  /// - Returns: All intermediate and final value states.
+  /// - Returns: The values observed after each byte and at completion.
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     initialValue: Value,
     from parser: Parser
@@ -38,7 +38,7 @@ extension Sequence where Element == UInt8 {
 }
 
 extension Sequence where Element: Sequence<UInt8> {
-  /// Parses each nested byte collection and returns the partial value states produced.
+  /// Incrementally parses chunks of bytes as a value.
   ///
   /// ```swift
   /// let partials = try batches.partials(of: MyModel.Partial.self, from: .json())
@@ -47,7 +47,7 @@ extension Sequence where Element: Sequence<UInt8> {
   /// - Parameters:
   ///   - type: The value type being parsed.
   ///   - parser: The parser that consumes the nested sequences.
-  /// - Returns: An array with the value states observed for each batch.
+  /// - Returns: The values states observed after each collection and at completion.
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     of type: Value.Type,
     from parser: Parser
@@ -55,12 +55,12 @@ extension Sequence where Element: Sequence<UInt8> {
     try self.partials(initialValue: type.initialParseableValue(), from: parser)
   }
 
-  /// Parses each collection from the call-site value state.
+  /// Incrementally parses chunks of bytes as a value.
   ///
   /// - Parameters:
   ///   - initialValue: The value state to resume parsing from.
   ///   - parser: The parser that consumes each collection.
-  /// - Returns: The value states observed after each collection and at completion.
+  /// - Returns: The values states observed after each collection and at completion.
   public func partials<Value: StreamParseableValue, Parser: StreamParser<Value>>(
     initialValue: Value,
     from parser: Parser

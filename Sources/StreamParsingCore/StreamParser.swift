@@ -5,7 +5,7 @@ public protocol StreamParser<Value> {
   /// The value type that the parser emits and updates.
   associatedtype Value: StreamParseableValue
 
-  /// The handler set used to map parsed tokens into `Value`.
+  /// The handler set used to map parsed values into `Value`.
   associatedtype Handlers: StreamParserHandlers<Value>
 
   /// Parses the supplied bytes and updates `value`.
@@ -20,89 +20,89 @@ public protocol StreamParser<Value> {
 
 // MARK: - StreamParserHandlers
 
-/// Allows callers to register how tokens map to writable key paths on the parsed value.
+/// Allows callers to register how values map to writable key paths on the parsed value.
 public protocol StreamParserHandlers<Value> {
   /// The value that the handlers are populated from.
   associatedtype Value: StreamParseableValue
 
-  /// Handles string tokens and writes them through the supplied key path.
+  /// Handles string values and writes them through the supplied key path.
   mutating func registerStringHandler(
     _ keyPath: WritableKeyPath<Value, String>
   )
 
-  /// Handles boolean tokens.
+  /// Handles boolean values.
   mutating func registerBoolHandler(
     _ keyPath: WritableKeyPath<Value, Bool>
   )
 
-  /// Handles signed integer tokens.
+  /// Handles signed integer values.
   mutating func registerIntHandler(
     _ keyPath: WritableKeyPath<Value, Int>
   )
 
-  /// Handles signed 8-bit integer tokens.
+  /// Handles signed 8-bit integer values.
   mutating func registerInt8Handler(
     _ keyPath: WritableKeyPath<Value, Int8>
   )
 
-  /// Handles signed 16-bit integer tokens.
+  /// Handles signed 16-bit integer values.
   mutating func registerInt16Handler(
     _ keyPath: WritableKeyPath<Value, Int16>
   )
 
-  /// Handles signed 32-bit integer tokens.
+  /// Handles signed 32-bit integer values.
   mutating func registerInt32Handler(
     _ keyPath: WritableKeyPath<Value, Int32>
   )
 
-  /// Handles signed 64-bit integer tokens.
+  /// Handles signed 64-bit integer values.
   mutating func registerInt64Handler(
     _ keyPath: WritableKeyPath<Value, Int64>
   )
 
-  /// Handles 128-bit signed integer tokens.
+  /// Handles 128-bit signed integer values.
   @available(StreamParsing128BitIntegers, *)
   mutating func registerInt128Handler(
     _ keyPath: WritableKeyPath<Value, Int128>
   )
 
-  /// Handles unsigned integer tokens.
+  /// Handles unsigned integer values.
   mutating func registerUIntHandler(
     _ keyPath: WritableKeyPath<Value, UInt>
   )
 
-  /// Handles unsigned 8-bit integer tokens.
+  /// Handles unsigned 8-bit integer values.
   mutating func registerUInt8Handler(
     _ keyPath: WritableKeyPath<Value, UInt8>
   )
 
-  /// Handles unsigned 16-bit integer tokens.
+  /// Handles unsigned 16-bit integer values.
   mutating func registerUInt16Handler(
     _ keyPath: WritableKeyPath<Value, UInt16>
   )
 
-  /// Handles unsigned 32-bit integer tokens.
+  /// Handles unsigned 32-bit integer values.
   mutating func registerUInt32Handler(
     _ keyPath: WritableKeyPath<Value, UInt32>
   )
 
-  /// Handles unsigned 64-bit integer tokens.
+  /// Handles unsigned 64-bit integer values.
   mutating func registerUInt64Handler(
     _ keyPath: WritableKeyPath<Value, UInt64>
   )
 
-  /// Handles 128-bit unsigned integer tokens.
+  /// Handles 128-bit unsigned integer values.
   @available(StreamParsing128BitIntegers, *)
   mutating func registerUInt128Handler(
     _ keyPath: WritableKeyPath<Value, UInt128>
   )
 
-  /// Handles floating-point tokens parsed as `Float`.
+  /// Handles floating-point values parsed as `Float`.
   mutating func registerFloatHandler(
     _ keyPath: WritableKeyPath<Value, Float>
   )
 
-  /// Handles floating-point tokens parsed as `Double`.
+  /// Handles floating-point values parsed as `Double`.
   mutating func registerDoubleHandler(
     _ keyPath: WritableKeyPath<Value, Double>
   )

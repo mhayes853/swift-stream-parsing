@@ -1,4 +1,4 @@
-/// An array-like value that can grow as the parser discovers nested elements.
+/// An array-like value that can grow as a ``StreamParser`` parses array elements.
 public protocol StreamParseableArrayObject<Element>: StreamParseableValue {
   /// The element type stored in the array-like value.
   associatedtype Element: StreamParseableValue
