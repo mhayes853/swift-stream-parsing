@@ -270,6 +270,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     accessModifier.map { "\($0) " } ?? ""
   }
 
+  private static func isOptionalType(_ type: TypeSyntax) -> Bool {
+    type.is(OptionalTypeSyntax.self) || type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self)
+  }
+
   private static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {
     guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else { return .optional }
     let modeArgument = arguments.first { $0.label?.text == "partialMembers" } ?? arguments.first

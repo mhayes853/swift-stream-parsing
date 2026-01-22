@@ -1283,7 +1283,7 @@ struct `JSONStreamParser tests` {
   @Suite
   struct `JSONError tests` {
     @Test
-    func `Streams Values Before Syntax Error`() {
+    func `Streams Values Before Syntax Error`() throws {
       let json = "[1,2,x]"
       let expected: [[Int]] = [
         [],
@@ -1301,9 +1301,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Value`() {
+    func `Throws For Missing Value`() throws {
       let json = "{\"a\":}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .missingValue
@@ -1311,9 +1311,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Colon`() {
+    func `Throws For Missing Colon`() throws {
       let json = "{\"a\" 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .missingColon
@@ -1321,9 +1321,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Trailing Comma In Object`() {
+    func `Throws For Trailing Comma In Object`() throws {
       let json = "{\"a\": 1,}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .trailingComma
@@ -1331,9 +1331,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Trailing Comma In Array`() {
+    func `Throws For Trailing Comma In Array`() throws {
       let json = "[1,]"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [Int](),
         reason: .trailingComma
@@ -1341,9 +1341,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Comma In Array`() {
+    func `Throws For Missing Comma In Array`() throws {
       let json = "[1 2]"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [Int](),
         reason: .missingComma
@@ -1351,9 +1351,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unterminated String`() {
+    func `Throws For Unterminated String`() throws {
       let json = "\"unterminated"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: "",
         reason: .unterminatedString
@@ -1361,9 +1361,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Unicode Escape`() {
+    func `Throws For Invalid Unicode Escape`() throws {
       let json = "\"\\u12\""
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: "",
         reason: .invalidUnicodeEscape
@@ -1371,9 +1371,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Closing Brace`() {
+    func `Throws For Missing Closing Brace`() throws {
       let json = "{\"a\": 1"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .missingClosingBrace
@@ -1381,9 +1381,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Closing Bracket`() {
+    func `Throws For Missing Closing Bracket`() throws {
       let json = "[1,2"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [Int](),
         reason: .missingClosingBracket
@@ -1391,9 +1391,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unexpected Token In Neutral Mode`() {
+    func `Throws For Unexpected Token In Neutral Mode`() throws {
       let json = "]["
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [Int](),
         reason: .unexpectedToken
@@ -1401,9 +1401,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Literal`() {
+    func `Throws For Invalid Literal`() throws {
       let json = "{\"a\": tru}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Bool](),
         reason: .invalidLiteral
@@ -1411,9 +1411,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Number`() {
+    func `Throws For Invalid Number`() throws {
       let json = "{\"a\": -}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .invalidNumber
@@ -1421,9 +1421,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Integer Overflow`() {
+    func `Throws For Integer Overflow`() throws {
       let json = "[18446744073709551616]"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [UInt64](),
         reason: .numericOverflow
@@ -1431,9 +1431,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Int32 Overflow`() {
+    func `Throws For Int32 Overflow`() throws {
       let json = "2147483648"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: Int32(),
         reason: .numericOverflow
@@ -1441,9 +1441,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For UInt32 Overflow`() {
+    func `Throws For UInt32 Overflow`() throws {
       let json = "4294967296"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: UInt32(),
         reason: .numericOverflow
@@ -1451,9 +1451,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Int8 Overflow`() {
+    func `Throws For Int8 Overflow`() throws {
       let json = "-129"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: Int8(),
         reason: .numericOverflow
@@ -1461,9 +1461,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Float Overflow`() {
+    func `Throws For Float Overflow`() throws {
       let json = "3.5e38"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: Float(),
         reason: .numericOverflow
@@ -1471,9 +1471,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Double Overflow`() {
+    func `Throws For Double Overflow`() throws {
       let json = "1e400"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: Double(),
         reason: .numericOverflow
@@ -1481,9 +1481,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Leading Zero`() {
+    func `Throws For Leading Zero`() throws {
       let json = "{\"a\": 01}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .leadingZero
@@ -1491,9 +1491,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Hex Number When Enabled`() {
+    func `Throws For Invalid Hex Number When Enabled`() throws {
       let json = "0x"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
         initialValue: 0,
@@ -1502,9 +1502,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Hex Number Without Prefix When Enabled`() {
+    func `Throws For Invalid Hex Number Without Prefix When Enabled`() throws {
       let json = "1x34"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
         initialValue: 0,
@@ -1513,9 +1513,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Hex Number With Extra Leading Zero When Enabled`() {
+    func `Throws For Invalid Hex Number With Extra Leading Zero When Enabled`() throws {
       let json = "00x78"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.hexNumbers]),
         initialValue: 0,
@@ -1524,9 +1524,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Invalid Exponent`() {
+    func `Throws For Invalid Exponent`() throws {
       let json = "{\"a\": 1e}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Double](),
         reason: .invalidExponent
@@ -1534,9 +1534,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Exponent Overflow`() {
+    func `Throws For Exponent Overflow`() throws {
       let json = "1e9223372036854775808"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: Double(),
         reason: .numericOverflow
@@ -1544,9 +1544,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unterminated Single Quoted String When Enabled`() {
+    func `Throws For Unterminated Single Quoted String When Enabled`() throws {
       let json = "'unterminated"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: "",
@@ -1555,9 +1555,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Mismatched Single Quoted String When Enabled`() {
+    func `Throws For Mismatched Single Quoted String When Enabled`() throws {
       let json = "'mismatch\""
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: "",
@@ -1566,9 +1566,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unquoted Key With Whitespace When Enabled`() {
+    func `Throws For Unquoted Key With Whitespace When Enabled`() throws {
       let json = "{bad key: 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]),
         initialValue: [String: Int](),
@@ -1577,9 +1577,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unquoted Key With Punctuation When Enabled`() {
+    func `Throws For Unquoted Key With Punctuation When Enabled`() throws {
       let json = "{bad-key: 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]),
         initialValue: [String: Int](),
@@ -1588,9 +1588,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unterminated Single Quoted Key When Enabled`() {
+    func `Throws For Unterminated Single Quoted Key When Enabled`() throws {
       let json = "{'key: 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: [String: Int](),
@@ -1599,9 +1599,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Mismatched Single Quoted Key When Enabled`() {
+    func `Throws For Mismatched Single Quoted Key When Enabled`() throws {
       let json = "{'key\": 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: [String: Int](),
@@ -1610,9 +1610,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unescaped Single Quote In Single Quoted String When Enabled`() {
+    func `Throws For Unescaped Single Quote In Single Quoted String When Enabled`() throws {
       let json = "'bad 'quote'"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: "",
@@ -1621,9 +1621,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Unescaped Single Quote In Single Quoted Key When Enabled`() {
+    func `Throws For Unescaped Single Quote In Single Quoted Key When Enabled`() throws {
       let json = "{'bad 'key': 1}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         configuration: JSONStreamParserConfiguration(syntaxOptions: [.singleQuotedStrings]),
         initialValue: [String: Int](),
@@ -1632,10 +1632,10 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Missing Closing Brace In Larger Payload`() {
+    func `Throws For Missing Closing Brace In Larger Payload`() throws {
       let json =
         "{\"users\":[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Grace\"}],\"meta\":{\"count\":2}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: LargePayload.Partial(),
         reason: .missingClosingBrace
@@ -1643,10 +1643,10 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Trailing Comma In Larger Array Payload`() {
+    func `Throws For Trailing Comma In Larger Array Payload`() throws {
       let json =
         "[{\"type\":\"event\",\"payload\":{\"values\":[1,2,3]}},{\"type\":\"event\",\"payload\":{\"values\":[4,5,6]}},]"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [Event.Partial](),
         reason: .trailingComma
@@ -1654,13 +1654,123 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws With Position For Invalid Token`() {
+    func `Throws With Position For Invalid Token`() throws {
       let json = "{\n\"a\": 1,\n\"b\": x\n}"
-      expectJSONStreamParsingError(
+      try expectJSONStreamParsingError(
         json,
         initialValue: [String: Int](),
         reason: .unexpectedToken,
         position: JSONStreamParsingPosition(line: 3, column: 6)
+      )
+    }
+
+    @Test
+    func `Throws For String When Expecting Integer`() throws {
+      let json = "\"123\""
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: 0,
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For String Property When Expecting Integer In Object`() throws {
+      let json = "{\"value\": \"123\"}"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: IntValueContainer.Partial(),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For String Element When Expecting Integer In Array`() throws {
+      let json = "[\"123\"]"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer When Expecting Boolean`() throws {
+      let json = "1"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: false,
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Null When Expecting Integer`() throws {
+      let json = "null"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: 0,
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer When Expecting String`() throws {
+      let json = "1"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: "",
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer Element When Expecting Boolean In Array`() throws {
+      let json = "[1]"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: [Bool](),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Null Element When Expecting Integer In Array`() throws {
+      let json = "[null]"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: [Int](),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer Element When Expecting String In Array`() throws {
+      let json = "[1]"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: [String](),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer Property When Expecting Boolean In Object`() throws {
+      let json = "{\"value\": 1}"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: BoolValueContainer.Partial(),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Integer Property When Expecting String In Object`() throws {
+      let json = "{\"value\": 1}"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: StringValueContainer.Partial(),
+        reason: .invalidType
       )
     }
   }
@@ -1953,7 +2063,7 @@ private func expectJSONStreamParsingError<T: StreamParseableValue>(
   initialValue: T,
   reason: JSONStreamParsingError.Reason,
   position: JSONStreamParsingPosition? = nil
-) {
+) throws {
   let thrownError = #expect(throws: JSONStreamParsingError.self) {
     _ = try json.utf8.partials(
       initialValue: initialValue,
@@ -1961,10 +2071,7 @@ private func expectJSONStreamParsingError<T: StreamParseableValue>(
     )
   }
 
-  guard let error = thrownError else {
-    Issue.record("Expected JSONStreamParsingError to be captured.")
-    return
-  }
+  let error = try #require(thrownError)
   #expect(error.reason == reason)
   if let position {
     #expect(error.position == position)
@@ -2071,6 +2178,21 @@ struct CombinationContainer: Equatable {
 }
 
 @StreamParseable
+struct IntValueContainer: Equatable {
+  var value: Int = 0
+}
+
+@StreamParseable
+struct BoolValueContainer: Equatable {
+  var value: Bool = false
+}
+
+@StreamParseable
+struct StringValueContainer: Equatable {
+  var value: String = ""
+}
+
+@StreamParseable
 struct CombinationMatrixItem: Equatable {
   var value: Int = 0
 }
@@ -2131,6 +2253,7 @@ extension NullableObject.Partial: Equatable {}
 extension NullableNestedValue.Partial: Equatable {}
 extension NullableNestedContainer.Partial: Equatable {}
 extension EmptyObject.Partial: Equatable {}
+extension IntValueContainer.Partial: Equatable {}
 extension DictionaryPropertyContainer.Partial: Equatable {}
 extension ArrayPropertyContainer.Partial: Equatable {}
 extension ArrayNestedLevel2.Partial: Equatable {}
