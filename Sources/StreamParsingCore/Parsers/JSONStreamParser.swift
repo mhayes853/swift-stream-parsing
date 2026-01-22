@@ -147,9 +147,27 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
     guard case .array = self.containerState.stack.last else { return }
     let containerStack = self.containerState.stack.dropLast()
-    self.currentArrayPath = self.handlers.arrayPath(stack: containerStack)
+    let (path, _) = self.handlers.arrayPath(stack: containerStack)
+    self.currentArrayPath = path
     guard let currentArrayPath else { return }
     reducer[keyPath: currentArrayPath].appendNewElement()
+  }
+
+  private func invalidTypeContext() -> JSONStreamParsingError.Context? {
+    switch self.containerState.stack.last {
+    case .array: .arrayValue
+    case .object: .objectValue
+    default: .neutral
+    }
+  }
+
+  private mutating func throwInvalidTypeIfNeeded(_ isInvalidType: Bool) throws {
+    guard isInvalidType else { return }
+    throw JSONStreamParsingError(
+      reason: .invalidType,
+      position: self.position,
+      context: self.invalidTypeContext()
+    )
   }
 
   private mutating func beginValueToken() throws {
@@ -236,7 +254,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.stringPath(stack: self.containerState.stack)
+    self.currentStringPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
     self.stringState.startString(delimiter: .asciiQuote)
   }
@@ -252,7 +272,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentStringPath = self.handlers.stringPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.stringPath(stack: self.containerState.stack)
+    self.currentStringPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
     self.stringState.startString(delimiter: .asciiApostrophe)
   }
@@ -299,7 +321,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentArrayPath = self.handlers.arrayPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.arrayPath(stack: self.containerState.stack)
+    self.currentArrayPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.containerState.startArray()
     guard let currentArrayPath else { return }
     reducer[keyPath: currentArrayPath].reset()
@@ -332,9 +356,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
     }
     self.containerState.finishArray()
-    self.currentArrayPath = self.handlers.arrayPath(
-      stack: self.containerState.stack.dropLast()
-    )
+    let (path, _) = self.handlers.arrayPath(stack: self.containerState.stack.dropLast())
+    self.currentArrayPath = path
   }
 
   private mutating func handleNeutralObjectStart(into reducer: inout Value) throws {
@@ -342,7 +365,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.mode = .keyFinding
-    self.currentDictionaryPath = self.handlers.dictionaryPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.dictionaryPath(stack: self.containerState.stack)
+    self.currentDictionaryPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.containerState.startObject()
     guard let currentDictionaryPath else { return }
     reducer[keyPath: currentDictionaryPath].reset()
@@ -375,9 +400,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.containerState.stack.removeLast()
-      self.currentDictionaryPath = self.handlers.dictionaryPath(
-        stack: self.containerState.stack.dropLast()
-      )
+      let (path, _) = self.handlers.dictionaryPath(stack: self.containerState.stack.dropLast())
+      self.currentDictionaryPath = path
     }
     self.containerState.finishObject()
   }
@@ -386,9 +410,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
+    let (boolPath, isInvalidType) = self.handlers.booleanPath(stack: self.containerState.stack)
+    if let boolPath {
       reducer[keyPath: boolPath] = true
     }
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.startLiteral(expected: jsonLiteralTrue)
   }
 
@@ -396,9 +422,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    if let boolPath = self.handlers.booleanPath(stack: self.containerState.stack) {
+    let (boolPath, isInvalidType) = self.handlers.booleanPath(stack: self.containerState.stack)
+    if let boolPath {
       reducer[keyPath: boolPath] = false
     }
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.startLiteral(expected: jsonLiteralFalse)
   }
 
@@ -406,9 +434,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    if let nullablePath = self.handlers.nullablePath(stack: self.containerState.stack) {
+    let (nullablePath, isInvalidType) = self.handlers.nullablePath(stack: self.containerState.stack)
+    if let nullablePath {
       reducer[keyPath: nullablePath] = nil
     }
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.startLiteral(expected: jsonLiteralNull)
   }
 
@@ -416,7 +446,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    self.currentNumberPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: true)
     if let numberPath = self.currentNumberPath {
@@ -435,7 +467,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    self.currentNumberPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .fractionalDouble
     self.numberParsingState.resetForFractionalLeadingDot()
     if let numberPath = self.currentNumberPath {
@@ -454,7 +488,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    self.currentNumberPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
     if let numberPath = self.currentNumberPath {
@@ -466,7 +502,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    self.currentNumberPath = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    self.currentNumberPath = path
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
     if let numberPath = self.currentNumberPath {
@@ -489,7 +527,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    if let numberPath = self.handlers.numberPath(stack: self.containerState.stack) {
+    let (numberPath, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    if let numberPath {
       switch byte {
       case .asciiUpperI:
         try self.applyNonFiniteNumber(
@@ -506,6 +545,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         break
       }
     } else {
+      try self.throwInvalidTypeIfNeeded(isInvalidType)
       switch byte {
       case .asciiUpperI:
         self.startLiteral(expected: jsonLiteralInfinity)
@@ -1463,6 +1503,9 @@ public struct JSONStreamParsingError: Error, Hashable, Sendable {
 
     /// A closing bracket `]` was missing.
     case missingClosingBracket
+
+    /// A value had an incompatible type.
+    case invalidType
   }
 
   /// Optional parsing context used to describe where an error occurred.
@@ -1590,13 +1633,25 @@ extension JSONStreamParser {
 
     private let configuration: JSONStreamParserConfiguration
 
+    fileprivate var hasAnyHandler: Bool {
+      self.stringPath != nil
+        || self.boolPath != nil
+        || self.numberPath != nil
+        || self.nullablePath != nil
+        || self.arrayPath != nil
+        || self.dictionaryPath != nil
+        || self.indexPaths != nil
+        || self.keyedPaths != nil
+    }
+
     init(configuration: JSONStreamParserConfiguration) {
       self.configuration = configuration
     }
 
     fileprivate func arrayPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, any StreamParseableArrayObject>? where S.Element == StackElement {
+    ) -> (WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool)
+    where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.arrayPath,
@@ -1607,19 +1662,20 @@ extension JSONStreamParser {
 
     fileprivate func dictionaryPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, any StreamParseableDictionaryObject>?
+    ) -> (WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool)
     where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.dictionaryPath,
         finalIndexPath: { $0.dictionaryPath?($1) },
-        finalKeyedPath: { $0.dictionaryPath?($1) }
+        finalKeyedPath: { $0.dictionaryPath?($1) },
+        acceptsKeyedPathsAsMatch: true
       )
     }
 
     fileprivate func numberPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, JSONNumberAccumulator>? where S.Element == StackElement {
+    ) -> (WritableKeyPath<Value, JSONNumberAccumulator>?, Bool) where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.numberPath,
@@ -1630,7 +1686,7 @@ extension JSONStreamParser {
 
     fileprivate func stringPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, String>? where S.Element == StackElement {
+    ) -> (WritableKeyPath<Value, String>?, Bool) where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.stringPath,
@@ -1641,7 +1697,7 @@ extension JSONStreamParser {
 
     fileprivate func nullablePath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, Void?>? where S.Element == StackElement {
+    ) -> (WritableKeyPath<Value, Void?>?, Bool) where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.nullablePath,
@@ -1652,7 +1708,7 @@ extension JSONStreamParser {
 
     fileprivate func booleanPath<S: Sequence>(
       stack: S
-    ) -> WritableKeyPath<Value, Bool>? where S.Element == StackElement {
+    ) -> (WritableKeyPath<Value, Bool>?, Bool) where S.Element == StackElement {
       self.stackPath(
         stack: stack,
         rootPath: self.boolPath,
@@ -1665,26 +1721,34 @@ extension JSONStreamParser {
       stack: S,
       rootPath: WritableKeyPath<Value, Path>?,
       finalIndexPath: (IndexPaths, Int) -> AnyKeyPath?,
-      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?
-    ) -> WritableKeyPath<Value, Path>? where S.Element == StackElement {
+      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?,
+      acceptsKeyedPathsAsMatch: Bool = false
+    ) -> (WritableKeyPath<Value, Path>?, Bool) where S.Element == StackElement {
       var iterator = stack.makeIterator()
-      guard let firstElement = iterator.next() else { return rootPath }
-      return
-        self.keyPath(
-          current: firstElement,
-          iterator: &iterator,
-          finalIndexPath: finalIndexPath,
-          finalKeyedPath: finalKeyedPath
-        )
-        .flatMap { $0 as? WritableKeyPath<Value, Path> }
+      guard let firstElement = iterator.next() else {
+        let isInvalidType =
+          rootPath == nil
+          && self.hasAnyHandler
+          && !(acceptsKeyedPathsAsMatch && self.keyedPaths != nil)
+        return (rootPath, isInvalidType)
+      }
+      let result = self.keyPath(
+        current: firstElement,
+        iterator: &iterator,
+        finalIndexPath: finalIndexPath,
+        finalKeyedPath: finalKeyedPath,
+        acceptsKeyedPathsAsMatch: acceptsKeyedPathsAsMatch
+      )
+      return (result.0 as? WritableKeyPath<Value, Path>, result.1)
     }
 
     private func keyPath<S: IteratorProtocol>(
       current: StackElement,
       iterator: inout S,
       finalIndexPath: (IndexPaths, Int) -> AnyKeyPath?,
-      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?
-    ) -> AnyKeyPath? where S.Element == StackElement {
+      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?,
+      acceptsKeyedPathsAsMatch: Bool
+    ) -> (AnyKeyPath?, Bool) where S.Element == StackElement {
       var path: AnyKeyPath?
       var indexPaths = self.indexPaths
       var keyedPaths = self.keyedPaths
@@ -1692,7 +1756,7 @@ extension JSONStreamParser {
       while let next = iterator.next() {
         switch element {
         case .array(let index):
-          guard let currentIndexPaths = indexPaths else { return nil }
+          guard let currentIndexPaths = indexPaths else { return (nil, false) }
           let (pathElement, nextIndexPaths, nextKeyedPaths) = currentIndexPaths.subpaths(index)
           if path == nil {
             path = pathElement
@@ -1702,13 +1766,15 @@ extension JSONStreamParser {
           indexPaths = nextIndexPaths
           keyedPaths = nextKeyedPaths
         case .object(let key):
-          guard let currentKeyedPaths = keyedPaths else { return nil }
+          guard let currentKeyedPaths = keyedPaths else { return (nil, false) }
+          guard currentKeyedPaths.expectsKey(key) else { return (nil, false) }
           let (pathElement, nextIndexPaths, nextKeyedPaths) = currentKeyedPaths.subpaths(key)
-          guard let pathElement else { return nil }
-          if path == nil {
-            path = pathElement
-          } else {
-            path = path?.appending(path: pathElement)
+          if let pathElement {
+            if path == nil {
+              path = pathElement
+            } else {
+              path = path?.appending(path: pathElement)
+            }
           }
           indexPaths = nextIndexPaths
           keyedPaths = nextKeyedPaths
@@ -1717,23 +1783,37 @@ extension JSONStreamParser {
       }
       switch element {
       case .array(let index):
-        guard let indexPaths, let pathElement = finalIndexPath(indexPaths, index) else {
-          return nil
+        guard let indexPaths else { return (nil, false) }
+        if let pathElement = finalIndexPath(indexPaths, index) {
+          if path == nil {
+            path = pathElement
+          } else {
+            path = path?.appending(path: pathElement)
+          }
+          return (path, false)
         }
-        if path == nil {
-          path = pathElement
-        } else {
-          path = path?.appending(path: pathElement)
-        }
+        let (_, _, nextKeyedPaths) = indexPaths.subpaths(index)
+        let expectsObject = nextKeyedPaths != nil
+        let isInvalidType =
+          indexPaths.hasAnyHandler && !(acceptsKeyedPathsAsMatch && expectsObject)
+        return (nil, isInvalidType)
       case .object(let key):
-        guard let keyedPaths, let pathElement = finalKeyedPath(keyedPaths, key) else { return nil }
-        if path == nil {
-          path = pathElement
-        } else {
-          path = path?.appending(path: pathElement)
+        guard let keyedPaths else { return (nil, false) }
+        guard keyedPaths.expectsKey(key) else { return (nil, false) }
+        if let pathElement = finalKeyedPath(keyedPaths, key) {
+          if path == nil {
+            path = pathElement
+          } else {
+            path = path?.appending(path: pathElement)
+          }
+          return (path, false)
         }
+        let (_, _, nextKeyedPaths) = keyedPaths.subpaths(key)
+        let expectsObject = nextKeyedPaths != nil
+        let isInvalidType =
+          keyedPaths.hasAnyHandler && !(acceptsKeyedPathsAsMatch && expectsObject)
+        return (nil, isInvalidType)
       }
-      return path
     }
 
     public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
@@ -1940,6 +2020,7 @@ private struct IndexPaths {
   var arrayPath: ((Int) -> AnyKeyPath)?
   var dictionaryPath: ((Int) -> AnyKeyPath)?
   var subpaths: (Int) -> (AnyKeyPath, IndexPaths?, KeyedPaths?)
+  var hasAnyHandler: Bool
 
   init<Value: StreamParseableValue, ArrayObject: StreamParseableArrayObject>(
     handlers: JSONStreamParser<ArrayObject.Element>.Handlers,
@@ -1966,6 +2047,7 @@ private struct IndexPaths {
     self.subpaths = {
       (path.appending(path: \.[$0]), handlers.indexPaths, handlers.keyedPaths)
     }
+    self.hasAnyHandler = handlers.hasAnyHandler
   }
 
   func prefixed(by prefix: AnyKeyPath) -> IndexPaths {
@@ -2004,6 +2086,7 @@ private struct IndexPaths {
       let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(index)
       return (prefix.appending(path: pathElement) ?? pathElement, nextIndexPaths, nextKeyedPaths)
     }
+    prefixed.hasAnyHandler = self.hasAnyHandler
     return prefixed
   }
 }
@@ -2018,6 +2101,9 @@ private struct KeyedPaths {
   var arrayPath: ((String) -> AnyKeyPath?)?
   var dictionaryPath: ((String) -> AnyKeyPath?)?
   var subpaths: (String) -> (AnyKeyPath?, IndexPaths?, KeyedPaths?)
+  var hasAnyHandler: Bool
+  var expectsAnyKey: Bool
+  var registeredKeys: Set<String>
 
   init<Value: StreamParseableValue, DictionaryObject: StreamParseableDictionaryObject>(
     handlers: JSONStreamParser<DictionaryObject.Value>.Handlers,
@@ -2046,6 +2132,9 @@ private struct KeyedPaths {
     self.subpaths = {
       (path.appending(path: \.[unwrapped: $0]), handlers.indexPaths, handlers.keyedPaths)
     }
+    self.hasAnyHandler = handlers.hasAnyHandler
+    self.expectsAnyKey = true
+    self.registeredKeys = []
   }
 
   init(objectHandlers: [String: ObjectHandlersState]) {
@@ -2058,6 +2147,13 @@ private struct KeyedPaths {
     self.subpaths = {
       (objectHandlers[$0]?.keyPath, objectHandlers[$0]?.indexPaths, objectHandlers[$0]?.keyedPaths)
     }
+    self.hasAnyHandler = !objectHandlers.isEmpty
+    self.expectsAnyKey = false
+    self.registeredKeys = Set(objectHandlers.keys)
+  }
+
+  func expectsKey(_ key: String) -> Bool {
+    self.expectsAnyKey || self.registeredKeys.contains(key)
   }
 
   func prefixed(by prefix: AnyKeyPath) -> KeyedPaths {
@@ -2103,6 +2199,9 @@ private struct KeyedPaths {
       let appendedPath = pathElement.flatMap { prefix.appending(path: $0) ?? $0 }
       return (appendedPath, nextIndexPaths, nextKeyedPaths)
     }
+    prefixed.hasAnyHandler = self.hasAnyHandler
+    prefixed.expectsAnyKey = self.expectsAnyKey
+    prefixed.registeredKeys = self.registeredKeys
     return prefixed
   }
 }
