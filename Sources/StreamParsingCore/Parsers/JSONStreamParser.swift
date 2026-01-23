@@ -39,6 +39,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
   private var currentArrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
   private var currentDictionaryPath: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
+  private var currentTrieNode: PathTrie<Value>?
+  private var trieNodeStack = [PathTrie<Value>?]()
   private var position = JSONStreamParsingPosition(line: 1, column: 1)
   private var literalState = LiteralState()
   private var commentState = CommentState()
@@ -53,10 +55,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   public init(configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration()) {
     self.configuration = configuration
     self.handlers = Handlers(configuration: configuration)
+    self.currentTrieNode = self.handlers.pathTrie
   }
 
   public mutating func registerHandlers() {
     Value.registerHandlers(in: &self.handlers)
+    self.currentTrieNode = self.handlers.pathTrie
+    self.trieNodeStack.removeAll()
   }
 
   public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
@@ -146,11 +151,36 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
     guard case .array = self.containerState.stack.last else { return }
-    let containerStack = self.containerState.stack.dropLast()
-    let (path, _) = self.handlers.arrayPath(stack: containerStack)
+    let containerDepth = self.containerState.stack.count - 1
+    let containerNode = self.trieNode(forStackDepth: containerDepth)
+    let (path, _) = self.handlers.arrayPath(node: containerNode)
     self.currentArrayPath = path
     guard let currentArrayPath else { return }
     reducer[keyPath: currentArrayPath].appendNewElement()
+  }
+
+  private func trieNode(forStackDepth depth: Int) -> PathTrie<Value>? {
+    guard depth > 0 else { return self.handlers.pathTrie }
+    let index = depth - 1
+    guard index >= 0, index < self.trieNodeStack.count else { return nil }
+    return self.trieNodeStack[index]
+  }
+
+  private mutating func pushArrayTrieNode() {
+    let next = self.currentTrieNode?.arrayChildNode()
+    self.trieNodeStack.append(next)
+    self.currentTrieNode = next
+  }
+
+  private mutating func pushObjectTrieNode(for key: String) {
+    let next = self.currentTrieNode?.objectChildNode(for: key)
+    self.trieNodeStack.append(next)
+    self.currentTrieNode = next
+  }
+
+  private mutating func popTrieNode() {
+    _ = self.trieNodeStack.popLast()
+    self.currentTrieNode = self.trieNodeStack.last ?? self.handlers.pathTrie
   }
 
   private func invalidTypeContext() -> JSONStreamParsingError.Context? {
@@ -254,7 +284,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.stringPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.stringPath(node: self.currentTrieNode)
     self.currentStringPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
@@ -272,7 +302,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.stringPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.stringPath(node: self.currentTrieNode)
     self.currentStringPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
@@ -304,6 +334,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       _ = self.containerState.stack.popLast()
+      self.popTrieNode()
       self.mode = .keyFinding
       self.stringState.resetKeyCollection()
       self.containerState.markObjectTrailingCommaIfNeeded()
@@ -321,10 +352,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.arrayPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.arrayPath(node: self.currentTrieNode)
     self.currentArrayPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.containerState.startArray()
+    self.pushArrayTrieNode()
     guard let currentArrayPath else { return }
     reducer[keyPath: currentArrayPath].reset()
   }
@@ -356,7 +388,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
     }
     self.containerState.finishArray()
-    let (path, _) = self.handlers.arrayPath(stack: self.containerState.stack.dropLast())
+    self.popTrieNode()
+    let containerDepth = self.containerState.stack.count - 1
+    let containerNode = self.trieNode(forStackDepth: containerDepth)
+    let (path, _) = self.handlers.arrayPath(node: containerNode)
     self.currentArrayPath = path
   }
 
@@ -365,7 +400,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
     self.mode = .keyFinding
-    let (path, isInvalidType) = self.handlers.dictionaryPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.dictionaryPath(node: self.currentTrieNode)
     self.currentDictionaryPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.containerState.startObject()
@@ -400,7 +435,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         )
       }
       self.containerState.stack.removeLast()
-      let (path, _) = self.handlers.dictionaryPath(stack: self.containerState.stack.dropLast())
+      self.popTrieNode()
+      let containerDepth = self.containerState.stack.count - 1
+      let containerNode = self.trieNode(forStackDepth: containerDepth)
+      let (path, _) = self.handlers.dictionaryPath(node: containerNode)
       self.currentDictionaryPath = path
     }
     self.containerState.finishObject()
@@ -410,7 +448,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (boolPath, isInvalidType) = self.handlers.booleanPath(stack: self.containerState.stack)
+    let (boolPath, isInvalidType) = self.handlers.booleanPath(node: self.currentTrieNode)
     if let boolPath {
       reducer[keyPath: boolPath] = true
     }
@@ -422,7 +460,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (boolPath, isInvalidType) = self.handlers.booleanPath(stack: self.containerState.stack)
+    let (boolPath, isInvalidType) = self.handlers.booleanPath(node: self.currentTrieNode)
     if let boolPath {
       reducer[keyPath: boolPath] = false
     }
@@ -434,7 +472,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (nullablePath, isInvalidType) = self.handlers.nullablePath(stack: self.containerState.stack)
+    let (nullablePath, isInvalidType) = self.handlers.nullablePath(node: self.currentTrieNode)
     if let nullablePath {
       reducer[keyPath: nullablePath] = nil
     }
@@ -446,7 +484,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     self.currentNumberPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
@@ -467,7 +505,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     self.currentNumberPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .fractionalDouble
@@ -488,7 +526,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     self.currentNumberPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
@@ -502,7 +540,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     self.currentNumberPath = path
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
@@ -527,7 +565,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (numberPath, isInvalidType) = self.handlers.numberPath(stack: self.containerState.stack)
+    let (numberPath, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     if let numberPath {
       switch byte {
       case .asciiUpperI:
@@ -638,6 +676,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       if case .object = self.containerState.stack.last {
         _ = self.containerState.stack.popLast()
+        self.popTrieNode()
       }
       self.containerState.finishObject()
 
@@ -656,6 +695,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     if self.stringState.isAwaitingKeySeparator {
       if byte == .asciiColon {
         self.containerState.stack.append(.object(key: self.stringState.buffer))
+        self.pushObjectTrieNode(for: self.stringState.buffer)
         self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
         self.stringState.finishKeyCollection()
@@ -679,6 +719,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     if self.stringState.isCollectingUnquotedKey {
       if byte == .asciiColon {
         self.containerState.stack.append(.object(key: self.stringState.buffer))
+        self.pushObjectTrieNode(for: self.stringState.buffer)
         self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
         self.stringState.finishKeyCollection()
@@ -1616,266 +1657,326 @@ public enum JSONKeyDecodingStrategy: Sendable {
   }
 }
 
+// MARK: - PathTrie
+
+private final class PathTrie<Value: StreamParseableValue> {
+  struct Paths {
+    var string: WritableKeyPath<Value, String>?
+    var bool: WritableKeyPath<Value, Bool>?
+    var number: WritableKeyPath<Value, JSONNumberAccumulator>?
+    var nullable: WritableKeyPath<Value, Void?>?
+    var array: WritableKeyPath<Value, any StreamParseableArrayObject>?
+    var dictionary: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
+
+    var hasAnyHandler: Bool {
+      self.string != nil
+        || self.bool != nil
+        || self.number != nil
+        || self.nullable != nil
+        || self.array != nil
+        || self.dictionary != nil
+    }
+
+    mutating func merge(from other: Paths) {
+      if self.string == nil { self.string = other.string }
+      if self.bool == nil { self.bool = other.bool }
+      if self.number == nil { self.number = other.number }
+      if self.nullable == nil { self.nullable = other.nullable }
+      if self.array == nil { self.array = other.array }
+      if self.dictionary == nil { self.dictionary = other.dictionary }
+    }
+  }
+
+  enum Children {
+    case none
+    case array(PathTrie)
+    case object(keys: [String: PathTrie], any: PathTrie?)
+  }
+
+  var paths = Paths()
+  var children: Children = .none
+  var dynamicKeyBuilder: ((String) -> PathTrie<Value>)?
+  private var dynamicKeyCache: [String: PathTrie<Value>] = [:]
+
+  init(paths: Paths = Paths(), children: Children = .none) {
+    self.paths = paths
+    self.children = children
+  }
+
+  var expectsObject: Bool {
+    if case .object = self.children { return true }
+    return false
+  }
+
+  var hasAnyHandler: Bool {
+    self.paths.hasAnyHandler || self.hasChildren
+  }
+
+  private var hasChildren: Bool {
+    switch self.children {
+    case .none: false
+    case .array, .object: true
+    }
+  }
+
+  func prefixed<Root: StreamParseableValue>(
+    by prefix: WritableKeyPath<Root, Value>
+  ) -> PathTrie<Root> {
+    let prefixedPaths = PathTrie<Root>.Paths(
+      string: self.paths.string.map { prefix.appending(path: $0) },
+      bool: self.paths.bool.map { prefix.appending(path: $0) },
+      number: self.paths.number.map { prefix.appending(path: $0) },
+      nullable: self.paths.nullable.map { prefix.appending(path: $0) },
+      array: self.paths.array.map { prefix.appending(path: $0) },
+      dictionary: self.paths.dictionary.map { prefix.appending(path: $0) }
+    )
+    let node = PathTrie<Root>(paths: prefixedPaths)
+    switch self.children {
+    case .none:
+      break
+    case .array(let child):
+      node.children = .array(child.prefixed(by: prefix))
+    case .object(let keys, let any):
+      var prefixedKeys = [String: PathTrie<Root>]()
+      prefixedKeys.reserveCapacity(keys.count)
+      for (key, child) in keys {
+        prefixedKeys[key] = child.prefixed(by: prefix)
+      }
+      let prefixedAny = any.map { $0.prefixed(by: prefix) }
+      node.children = .object(keys: prefixedKeys, any: prefixedAny)
+    }
+    if let builder = self.dynamicKeyBuilder {
+      node.dynamicKeyBuilder = { key in
+        builder(key).prefixed(by: prefix)
+      }
+    }
+    return node
+  }
+
+  func merge(from other: PathTrie<Value>) {
+    self.paths.merge(from: other.paths)
+    switch other.children {
+    case .none:
+      break
+    case .array(let otherChild):
+      let child = self.ensureArrayChild()
+      child.merge(from: otherChild)
+    case .object(let keys, let any):
+      for (key, otherChild) in keys {
+        let child = self.ensureObjectChild(for: key)
+        child.merge(from: otherChild)
+      }
+      if let otherAny = any {
+        let anyChild = self.ensureAnyObjectChild()
+        anyChild.merge(from: otherAny)
+        if anyChild.dynamicKeyBuilder == nil {
+          anyChild.dynamicKeyBuilder = otherAny.dynamicKeyBuilder
+        }
+      }
+    }
+    if self.dynamicKeyBuilder == nil {
+      self.dynamicKeyBuilder = other.dynamicKeyBuilder
+    }
+  }
+
+  func arrayChildNode() -> PathTrie<Value>? {
+    if case .array(let child) = self.children {
+      return child
+    }
+    return nil
+  }
+
+  func objectChildNode(for key: String) -> PathTrie<Value>? {
+    guard case .object(let keys, let any) = self.children else { return nil }
+    if let child = keys[key] {
+      return child
+    }
+    guard let any else { return nil }
+    return any.nodeForDynamicKey(key)
+  }
+
+  private func nodeForDynamicKey(_ key: String) -> PathTrie<Value> {
+    if let cached = self.dynamicKeyCache[key] {
+      return cached
+    }
+    guard let builder = self.dynamicKeyBuilder else { return self }
+    let node = builder(key)
+    self.dynamicKeyCache[key] = node
+    return node
+  }
+
+  @discardableResult
+  func ensureArrayChild() -> PathTrie<Value> {
+    if case .array(let child) = self.children {
+      return child
+    }
+    let child = PathTrie<Value>()
+    self.children = .array(child)
+    return child
+  }
+
+  @discardableResult
+  func ensureObjectChild(for key: String) -> PathTrie<Value> {
+    if case .object(var keys, let any) = self.children {
+      if let child = keys[key] {
+        return child
+      }
+      let child = PathTrie<Value>()
+      keys[key] = child
+      self.children = .object(keys: keys, any: any)
+      return child
+    }
+    let child = PathTrie<Value>()
+    self.children = .object(keys: [key: child], any: nil)
+    return child
+  }
+
+  @discardableResult
+  func ensureAnyObjectChild() -> PathTrie<Value> {
+    if case .object(let keys, let any) = self.children {
+      if let any {
+        return any
+      }
+      let child = PathTrie<Value>()
+      self.children = .object(keys: keys, any: child)
+      return child
+    }
+    let child = PathTrie<Value>()
+    self.children = .object(keys: [:], any: child)
+    return child
+  }
+}
+
 // MARK: - Handlers
 
 extension JSONStreamParser {
   public struct Handlers: StreamParserHandlers {
-    fileprivate private(set) var stringPath: WritableKeyPath<Value, String>?
-    fileprivate private(set) var boolPath: WritableKeyPath<Value, Bool>?
-    fileprivate private(set) var numberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
-    fileprivate private(set) var nullablePath: WritableKeyPath<Value, Void?>?
-    fileprivate private(set) var arrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
-    fileprivate private(set) var dictionaryPath:
-      WritableKeyPath<Value, any StreamParseableDictionaryObject>?
-    fileprivate private(set) var indexPaths: IndexPaths?
-    fileprivate private(set) var keyedPaths: KeyedPaths?
-    fileprivate private(set) var objectHandlers = [String: ObjectHandlersState]()
+    fileprivate var pathTrie = PathTrie<Value>()
 
     private let configuration: JSONStreamParserConfiguration
 
     fileprivate var hasAnyHandler: Bool {
-      self.stringPath != nil
-        || self.boolPath != nil
-        || self.numberPath != nil
-        || self.nullablePath != nil
-        || self.arrayPath != nil
-        || self.dictionaryPath != nil
-        || self.indexPaths != nil
-        || self.keyedPaths != nil
+      self.pathTrie.hasAnyHandler
     }
 
     init(configuration: JSONStreamParserConfiguration) {
       self.configuration = configuration
     }
 
-    fileprivate func arrayPath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool)
-    where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.arrayPath,
-        finalIndexPath: { $0.arrayPath?($1) },
-        finalKeyedPath: { $0.arrayPath?($1) }
-      )
+    fileprivate func arrayPath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.array
+      let isInvalidType = path == nil && node.hasAnyHandler
+      return (path, isInvalidType)
     }
 
-    fileprivate func dictionaryPath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool)
-    where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.dictionaryPath,
-        finalIndexPath: { $0.dictionaryPath?($1) },
-        finalKeyedPath: { $0.dictionaryPath?($1) },
-        acceptsKeyedPathsAsMatch: true
-      )
+    fileprivate func dictionaryPath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.dictionary
+      let isInvalidType = path == nil && node.hasAnyHandler && !node.expectsObject
+      return (path, isInvalidType)
     }
 
-    fileprivate func numberPath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, JSONNumberAccumulator>?, Bool) where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.numberPath,
-        finalIndexPath: { $0.numberPath?($1) },
-        finalKeyedPath: { $0.numberPath?($1) }
-      )
+    fileprivate func numberPath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, JSONNumberAccumulator>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.number
+      let isInvalidType = path == nil && node.hasAnyHandler
+      return (path, isInvalidType)
     }
 
-    fileprivate func stringPath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, String>?, Bool) where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.stringPath,
-        finalIndexPath: { $0.stringPath?($1) },
-        finalKeyedPath: { $0.stringPath?($1) }
-      )
+    fileprivate func stringPath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, String>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.string
+      let isInvalidType = path == nil && node.hasAnyHandler
+      return (path, isInvalidType)
     }
 
-    fileprivate func nullablePath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, Void?>?, Bool) where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.nullablePath,
-        finalIndexPath: { $0.nullablePath?($1) },
-        finalKeyedPath: { $0.nullablePath?($1) }
-      )
+    fileprivate func nullablePath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, Void?>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.nullable
+      let isInvalidType = path == nil && node.hasAnyHandler
+      return (path, isInvalidType)
     }
 
-    fileprivate func booleanPath<S: Sequence>(
-      stack: S
-    ) -> (WritableKeyPath<Value, Bool>?, Bool) where S.Element == StackElement {
-      self.stackPath(
-        stack: stack,
-        rootPath: self.boolPath,
-        finalIndexPath: { $0.boolPath?($1) },
-        finalKeyedPath: { $0.boolPath?($1) }
-      )
-    }
-
-    private func stackPath<S: Sequence, Path>(
-      stack: S,
-      rootPath: WritableKeyPath<Value, Path>?,
-      finalIndexPath: (IndexPaths, Int) -> AnyKeyPath?,
-      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?,
-      acceptsKeyedPathsAsMatch: Bool = false
-    ) -> (WritableKeyPath<Value, Path>?, Bool) where S.Element == StackElement {
-      var iterator = stack.makeIterator()
-      guard let firstElement = iterator.next() else {
-        let isInvalidType =
-          rootPath == nil
-          && self.hasAnyHandler
-          && !(acceptsKeyedPathsAsMatch && self.keyedPaths != nil)
-        return (rootPath, isInvalidType)
-      }
-      let result = self.keyPath(
-        current: firstElement,
-        iterator: &iterator,
-        finalIndexPath: finalIndexPath,
-        finalKeyedPath: finalKeyedPath,
-        acceptsKeyedPathsAsMatch: acceptsKeyedPathsAsMatch
-      )
-      return (result.0 as? WritableKeyPath<Value, Path>, result.1)
-    }
-
-    private func keyPath<S: IteratorProtocol>(
-      current: StackElement,
-      iterator: inout S,
-      finalIndexPath: (IndexPaths, Int) -> AnyKeyPath?,
-      finalKeyedPath: (KeyedPaths, String) -> AnyKeyPath?,
-      acceptsKeyedPathsAsMatch: Bool
-    ) -> (AnyKeyPath?, Bool) where S.Element == StackElement {
-      var path: AnyKeyPath?
-      var indexPaths = self.indexPaths
-      var keyedPaths = self.keyedPaths
-      var element = current
-      while let next = iterator.next() {
-        switch element {
-        case .array(let index):
-          guard let currentIndexPaths = indexPaths else { return (nil, false) }
-          let (pathElement, nextIndexPaths, nextKeyedPaths) = currentIndexPaths.subpaths(index)
-          if path == nil {
-            path = pathElement
-          } else {
-            path = path?.appending(path: pathElement)
-          }
-          indexPaths = nextIndexPaths
-          keyedPaths = nextKeyedPaths
-        case .object(let key):
-          guard let currentKeyedPaths = keyedPaths else { return (nil, false) }
-          guard currentKeyedPaths.expectsKey(key) else { return (nil, false) }
-          let (pathElement, nextIndexPaths, nextKeyedPaths) = currentKeyedPaths.subpaths(key)
-          if let pathElement {
-            if path == nil {
-              path = pathElement
-            } else {
-              path = path?.appending(path: pathElement)
-            }
-          }
-          indexPaths = nextIndexPaths
-          keyedPaths = nextKeyedPaths
-        }
-        element = next
-      }
-      switch element {
-      case .array(let index):
-        guard let indexPaths else { return (nil, false) }
-        if let pathElement = finalIndexPath(indexPaths, index) {
-          if path == nil {
-            path = pathElement
-          } else {
-            path = path?.appending(path: pathElement)
-          }
-          return (path, false)
-        }
-        let (_, _, nextKeyedPaths) = indexPaths.subpaths(index)
-        let expectsObject = nextKeyedPaths != nil
-        let isInvalidType =
-          indexPaths.hasAnyHandler && !(acceptsKeyedPathsAsMatch && expectsObject)
-        return (nil, isInvalidType)
-      case .object(let key):
-        guard let keyedPaths else { return (nil, false) }
-        guard keyedPaths.expectsKey(key) else { return (nil, false) }
-        if let pathElement = finalKeyedPath(keyedPaths, key) {
-          if path == nil {
-            path = pathElement
-          } else {
-            path = path?.appending(path: pathElement)
-          }
-          return (path, false)
-        }
-        let (_, _, nextKeyedPaths) = keyedPaths.subpaths(key)
-        let expectsObject = nextKeyedPaths != nil
-        let isInvalidType =
-          keyedPaths.hasAnyHandler && !(acceptsKeyedPathsAsMatch && expectsObject)
-        return (nil, isInvalidType)
-      }
+    fileprivate func booleanPath(
+      node: PathTrie<Value>?
+    ) -> (WritableKeyPath<Value, Bool>?, Bool) {
+      guard let node else { return (nil, false) }
+      let path = node.paths.bool
+      let isInvalidType = path == nil && node.hasAnyHandler
+      return (path, isInvalidType)
     }
 
     public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
-      self.stringPath = keyPath
+      self.pathTrie.paths.string = keyPath
     }
 
     public mutating func registerBoolHandler(_ keyPath: WritableKeyPath<Value, Bool>) {
-      self.boolPath = keyPath
+      self.pathTrie.paths.bool = keyPath
     }
 
     public mutating func registerUIntHandler(_ keyPath: WritableKeyPath<Value, UInt>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt8Handler(_ keyPath: WritableKeyPath<Value, UInt8>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt16Handler(_ keyPath: WritableKeyPath<Value, UInt16>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt32Handler(_ keyPath: WritableKeyPath<Value, UInt32>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerUInt64Handler(_ keyPath: WritableKeyPath<Value, UInt64>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerIntHandler(_ keyPath: WritableKeyPath<Value, Int>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt8Handler(_ keyPath: WritableKeyPath<Value, Int8>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt16Handler(_ keyPath: WritableKeyPath<Value, Int16>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt32Handler(_ keyPath: WritableKeyPath<Value, Int32>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerInt64Handler(_ keyPath: WritableKeyPath<Value, Int64>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerFloatHandler(_ keyPath: WritableKeyPath<Value, Float>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerDoubleHandler(_ keyPath: WritableKeyPath<Value, Double>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     public mutating func registerNilHandler<Nullable: StreamParseableValue>(
       _ keyPath: WritableKeyPath<Value, Nullable?>
     ) {
-      self.nullablePath = keyPath.appending(path: \.nullablePath)
+      self.pathTrie.paths.nullable = keyPath.appending(path: \.nullablePath)
     }
 
     public mutating func registerKeyedHandler<Keyed: StreamParseableValue>(
@@ -1887,21 +1988,9 @@ extension JSONStreamParser {
 
       let decodedKey = self.configuration.keyDecodingStrategy.decode(key: key)
 
-      let objectPaths = ObjectPaths(
-        stringPath: keyedHandlers.stringPath.map { keyPath.appending(path: $0) },
-        boolPath: keyedHandlers.boolPath.map { keyPath.appending(path: $0) },
-        numberPath: keyedHandlers.numberPath.map { keyPath.appending(path: $0) },
-        nullablePath: keyedHandlers.nullablePath.map { keyPath.appending(path: $0) },
-        arrayPath: keyedHandlers.arrayPath.map { keyPath.appending(path: $0) },
-        dictionaryPath: keyedHandlers.dictionaryPath.map { keyPath.appending(path: $0) }
-      )
-      self.objectHandlers[decodedKey] = ObjectHandlersState(
-        paths: objectPaths,
-        keyPath: keyPath,
-        keyedPaths: keyedHandlers.keyedPaths,
-        indexPaths: keyedHandlers.indexPaths
-      )
-      self.keyedPaths = KeyedPaths(objectHandlers: self.objectHandlers)
+      let keyNode = self.pathTrie.ensureObjectChild(for: decodedKey)
+      let prefixedTrie = keyedHandlers.pathTrie.prefixed(by: keyPath)
+      keyNode.merge(from: prefixedTrie)
     }
 
     public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
@@ -1910,320 +1999,51 @@ extension JSONStreamParser {
     ) {
       var handlers = JSONStreamParser<Scoped>.Handlers(configuration: self.configuration)
       type.registerHandlers(in: &handlers)
-      self.merge(with: handlers, using: keyPath)
-    }
-
-    private mutating func merge<Scoped: StreamParseableValue>(
-      with handlers: JSONStreamParser<Scoped>.Handlers,
-      using path: WritableKeyPath<Value, Scoped>
-    ) {
-      if let stringPath = handlers.stringPath {
-        self.stringPath = path.appending(path: stringPath)
-      }
-      if let boolPath = handlers.boolPath {
-        self.boolPath = path.appending(path: boolPath)
-      }
-      if let numberPath = handlers.numberPath {
-        self.numberPath = path.appending(path: numberPath)
-      }
-      if let nullablePath = handlers.nullablePath {
-        self.nullablePath = path.appending(path: nullablePath)
-      }
-      if let arrayPath = handlers.arrayPath {
-        self.arrayPath = path.appending(path: arrayPath)
-      }
-      if let dictionaryPath = handlers.dictionaryPath {
-        self.dictionaryPath = path.appending(path: dictionaryPath)
-      }
-      let prefixPath = path as AnyKeyPath
-      if let indexedPaths = handlers.indexPaths {
-        self.indexPaths = indexedPaths.prefixed(by: prefixPath)
-      }
-      if let keyedPaths = handlers.keyedPaths {
-        self.keyedPaths = keyedPaths.prefixed(by: prefixPath)
-      }
-
-      guard !handlers.objectHandlers.isEmpty else { return }
-
-      let newHandlers = handlers.objectHandlers.mapValues { handler in
-        ObjectHandlersState(
-          paths: ObjectPaths(
-            stringPath: handler.paths.stringPath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            },
-            boolPath: handler.paths.boolPath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            },
-            numberPath: handler.paths.numberPath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            },
-            nullablePath: handler.paths.nullablePath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            },
-            arrayPath: handler.paths.arrayPath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            },
-            dictionaryPath: handler.paths.dictionaryPath.flatMap {
-              (path as AnyKeyPath).appending(path: $0)
-            }
-          ),
-          keyPath: handler.keyPath.flatMap { (path as AnyKeyPath).appending(path: $0) },
-          keyedPaths: handler.keyedPaths,
-          indexPaths: handler.indexPaths
-        )
-      }
-      self.objectHandlers.merge(newHandlers) { $1 }
-      self.keyedPaths = KeyedPaths(objectHandlers: self.objectHandlers)
+      let prefixedTrie = handlers.pathTrie.prefixed(by: keyPath)
+      self.pathTrie.merge(from: prefixedTrie)
     }
 
     public mutating func registerArrayHandler<ArrayObject: StreamParseableArrayObject>(
       _ keyPath: WritableKeyPath<Value, ArrayObject>
     ) {
-      self.arrayPath = keyPath.appending(path: \.erasedJSONPath)
+      self.pathTrie.paths.array = keyPath.appending(path: \.erasedJSONPath)
 
       var elementHandlers = JSONStreamParser<ArrayObject.Element>
         .Handlers(configuration: self.configuration)
       ArrayObject.Element.registerHandlers(in: &elementHandlers)
-      self.indexPaths = IndexPaths(handlers: elementHandlers, path: keyPath)
+
+      let arrayNode = self.pathTrie.ensureArrayChild()
+      let elementPrefix = keyPath.appending(path: \.currentElement)
+      let prefixedTrie = elementHandlers.pathTrie.prefixed(by: elementPrefix)
+      arrayNode.merge(from: prefixedTrie)
     }
 
     public mutating func registerDictionaryHandler<
       DictionaryObject: StreamParseableDictionaryObject
     >(_ keyPath: WritableKeyPath<Value, DictionaryObject>) {
-      self.dictionaryPath = keyPath.appending(path: \.erasedJSONPath)
+      self.pathTrie.paths.dictionary = keyPath.appending(path: \.erasedJSONPath)
 
       var valueHandlers = JSONStreamParser<DictionaryObject.Value>
         .Handlers(configuration: self.configuration)
       DictionaryObject.Value.registerHandlers(in: &valueHandlers)
-      self.keyedPaths = KeyedPaths(handlers: valueHandlers, path: keyPath)
+
+      let anyNode = self.pathTrie.ensureAnyObjectChild()
+      anyNode.dynamicKeyBuilder = { key in
+        let valuePrefix = keyPath.appending(path: \.[unwrapped: key])
+        return valueHandlers.pathTrie.prefixed(by: valuePrefix)
+      }
     }
 
     @available(StreamParsing128BitIntegers, *)
     public mutating func registerInt128Handler(_ keyPath: WritableKeyPath<Value, Int128>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
 
     @available(StreamParsing128BitIntegers, *)
     public mutating func registerUInt128Handler(_ keyPath: WritableKeyPath<Value, UInt128>) {
-      self.numberPath = keyPath.appending(path: \.erasedAccumulator)
+      self.pathTrie.paths.number = keyPath.appending(path: \.erasedAccumulator)
     }
   }
-}
-
-// MARK: - IndexPaths
-
-private struct IndexPaths {
-  var stringPath: ((Int) -> AnyKeyPath)?
-  var boolPath: ((Int) -> AnyKeyPath)?
-  var numberPath: ((Int) -> AnyKeyPath)?
-  var nullablePath: ((Int) -> AnyKeyPath)?
-  var arrayPath: ((Int) -> AnyKeyPath)?
-  var dictionaryPath: ((Int) -> AnyKeyPath)?
-  var subpaths: (Int) -> (AnyKeyPath, IndexPaths?, KeyedPaths?)
-  var hasAnyHandler: Bool
-
-  init<Value: StreamParseableValue, ArrayObject: StreamParseableArrayObject>(
-    handlers: JSONStreamParser<ArrayObject.Element>.Handlers,
-    path: WritableKeyPath<Value, ArrayObject>
-  ) {
-    if let stringPath = handlers.stringPath {
-      self.stringPath = { path.appending(path: \.[$0]).appending(path: stringPath) }
-    }
-    if let boolPath = handlers.boolPath {
-      self.boolPath = { path.appending(path: \.[$0]).appending(path: boolPath) }
-    }
-    if let numberPath = handlers.numberPath {
-      self.numberPath = { path.appending(path: \.[$0]).appending(path: numberPath) }
-    }
-    if let nullablePath = handlers.nullablePath {
-      self.nullablePath = { path.appending(path: \.[$0]).appending(path: nullablePath) }
-    }
-    if let dictionaryPath = handlers.dictionaryPath {
-      self.dictionaryPath = { path.appending(path: \.[$0]).appending(path: dictionaryPath) }
-    }
-    if let arrayPath = handlers.arrayPath {
-      self.arrayPath = { path.appending(path: \.[$0]).appending(path: arrayPath) }
-    }
-    self.subpaths = {
-      (path.appending(path: \.[$0]), handlers.indexPaths, handlers.keyedPaths)
-    }
-    self.hasAnyHandler = handlers.hasAnyHandler
-  }
-
-  func prefixed(by prefix: AnyKeyPath) -> IndexPaths {
-    var prefixed = self
-    if let stringPath = self.stringPath {
-      prefixed.stringPath = { index in
-        prefix.appending(path: stringPath(index)) ?? stringPath(index)
-      }
-    }
-    if let boolPath = self.boolPath {
-      prefixed.boolPath = { index in
-        prefix.appending(path: boolPath(index)) ?? boolPath(index)
-      }
-    }
-    if let numberPath = self.numberPath {
-      prefixed.numberPath = { index in
-        prefix.appending(path: numberPath(index)) ?? numberPath(index)
-      }
-    }
-    if let nullablePath = self.nullablePath {
-      prefixed.nullablePath = { index in
-        prefix.appending(path: nullablePath(index)) ?? nullablePath(index)
-      }
-    }
-    if let arrayPath = self.arrayPath {
-      prefixed.arrayPath = { index in
-        prefix.appending(path: arrayPath(index)) ?? arrayPath(index)
-      }
-    }
-    if let dictionaryPath = self.dictionaryPath {
-      prefixed.dictionaryPath = { index in
-        prefix.appending(path: dictionaryPath(index)) ?? dictionaryPath(index)
-      }
-    }
-    prefixed.subpaths = { index in
-      let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(index)
-      return (prefix.appending(path: pathElement) ?? pathElement, nextIndexPaths, nextKeyedPaths)
-    }
-    prefixed.hasAnyHandler = self.hasAnyHandler
-    return prefixed
-  }
-}
-
-// MARK: - KeyedPaths
-
-private struct KeyedPaths {
-  var stringPath: ((String) -> AnyKeyPath?)?
-  var boolPath: ((String) -> AnyKeyPath?)?
-  var numberPath: ((String) -> AnyKeyPath?)?
-  var nullablePath: ((String) -> AnyKeyPath?)?
-  var arrayPath: ((String) -> AnyKeyPath?)?
-  var dictionaryPath: ((String) -> AnyKeyPath?)?
-  var subpaths: (String) -> (AnyKeyPath?, IndexPaths?, KeyedPaths?)
-  var hasAnyHandler: Bool
-  var expectsAnyKey: Bool
-  var registeredKeys: Set<String>
-
-  init<Value: StreamParseableValue, DictionaryObject: StreamParseableDictionaryObject>(
-    handlers: JSONStreamParser<DictionaryObject.Value>.Handlers,
-    path: WritableKeyPath<Value, DictionaryObject>
-  ) {
-    if let stringPath = handlers.stringPath {
-      self.stringPath = { path.appending(path: \.[unwrapped: $0]).appending(path: stringPath) }
-    }
-    if let boolPath = handlers.boolPath {
-      self.boolPath = { path.appending(path: \.[unwrapped: $0]).appending(path: boolPath) }
-    }
-    if let numberPath = handlers.numberPath {
-      self.numberPath = { path.appending(path: \.[unwrapped: $0]).appending(path: numberPath) }
-    }
-    if let nullablePath = handlers.nullablePath {
-      self.nullablePath = { path.appending(path: \.[unwrapped: $0]).appending(path: nullablePath) }
-    }
-    if let dictionaryPath = handlers.dictionaryPath {
-      self.dictionaryPath = {
-        path.appending(path: \.[unwrapped: $0]).appending(path: dictionaryPath)
-      }
-    }
-    if let arrayPath = handlers.arrayPath {
-      self.arrayPath = { path.appending(path: \.[unwrapped: $0]).appending(path: arrayPath) }
-    }
-    self.subpaths = {
-      (path.appending(path: \.[unwrapped: $0]), handlers.indexPaths, handlers.keyedPaths)
-    }
-    self.hasAnyHandler = handlers.hasAnyHandler
-    self.expectsAnyKey = true
-    self.registeredKeys = []
-  }
-
-  init(objectHandlers: [String: ObjectHandlersState]) {
-    self.stringPath = { objectHandlers[$0]?.paths.stringPath }
-    self.numberPath = { objectHandlers[$0]?.paths.numberPath }
-    self.boolPath = { objectHandlers[$0]?.paths.boolPath }
-    self.arrayPath = { objectHandlers[$0]?.paths.arrayPath }
-    self.dictionaryPath = { objectHandlers[$0]?.paths.dictionaryPath }
-    self.nullablePath = { objectHandlers[$0]?.paths.nullablePath }
-    self.subpaths = {
-      (objectHandlers[$0]?.keyPath, objectHandlers[$0]?.indexPaths, objectHandlers[$0]?.keyedPaths)
-    }
-    self.hasAnyHandler = !objectHandlers.isEmpty
-    self.expectsAnyKey = false
-    self.registeredKeys = Set(objectHandlers.keys)
-  }
-
-  func expectsKey(_ key: String) -> Bool {
-    self.expectsAnyKey || self.registeredKeys.contains(key)
-  }
-
-  func prefixed(by prefix: AnyKeyPath) -> KeyedPaths {
-    var prefixed = self
-    if let stringPath = self.stringPath {
-      prefixed.stringPath = { key in
-        guard let path = stringPath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    if let boolPath = self.boolPath {
-      prefixed.boolPath = { key in
-        guard let path = boolPath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    if let numberPath = self.numberPath {
-      prefixed.numberPath = { key in
-        guard let path = numberPath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    if let nullablePath = self.nullablePath {
-      prefixed.nullablePath = { key in
-        guard let path = nullablePath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    if let arrayPath = self.arrayPath {
-      prefixed.arrayPath = { key in
-        guard let path = arrayPath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    if let dictionaryPath = self.dictionaryPath {
-      prefixed.dictionaryPath = { key in
-        guard let path = dictionaryPath(key) else { return nil }
-        return prefix.appending(path: path) ?? path
-      }
-    }
-    prefixed.subpaths = { key in
-      let (pathElement, nextIndexPaths, nextKeyedPaths) = self.subpaths(key)
-      let appendedPath = pathElement.flatMap { prefix.appending(path: $0) ?? $0 }
-      return (appendedPath, nextIndexPaths, nextKeyedPaths)
-    }
-    prefixed.hasAnyHandler = self.hasAnyHandler
-    prefixed.expectsAnyKey = self.expectsAnyKey
-    prefixed.registeredKeys = self.registeredKeys
-    return prefixed
-  }
-}
-
-// MARK: - ObjectPaths
-
-private struct ObjectPaths {
-  var stringPath: AnyKeyPath?
-  var boolPath: AnyKeyPath?
-  var numberPath: AnyKeyPath?
-  var nullablePath: AnyKeyPath?
-  var arrayPath: AnyKeyPath?
-  var dictionaryPath: AnyKeyPath?
-}
-
-// MARK: - ObjectHandlersState
-
-private struct ObjectHandlersState {
-  var paths: ObjectPaths
-  var keyPath: AnyKeyPath?
-  var keyedPaths: KeyedPaths?
-  var indexPaths: IndexPaths?
 }
 
 // MARK: - ASCII
@@ -2771,6 +2591,17 @@ extension StreamParseableArrayObject {
   fileprivate var erasedJSONPath: any StreamParseableArrayObject {
     get { self }
     set { self = newValue as! Self }
+  }
+
+  fileprivate var currentElement: Element {
+    get {
+      let index = self.count - 1
+      return self[index]
+    }
+    set {
+      let index = self.count - 1
+      self[index] = newValue
+    }
   }
 
   fileprivate mutating func appendNewElement() {
