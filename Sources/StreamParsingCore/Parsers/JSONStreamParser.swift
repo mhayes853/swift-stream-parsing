@@ -1678,12 +1678,24 @@ private final class PathTrie<Value: StreamParseableValue> {
     }
 
     mutating func merge(from other: Paths) {
-      if self.string == nil { self.string = other.string }
-      if self.bool == nil { self.bool = other.bool }
-      if self.number == nil { self.number = other.number }
-      if self.nullable == nil { self.nullable = other.nullable }
-      if self.array == nil { self.array = other.array }
-      if self.dictionary == nil { self.dictionary = other.dictionary }
+      if self.string == nil {
+        self.string = other.string
+      }
+      if self.bool == nil {
+        self.bool = other.bool
+      }
+      if self.number == nil {
+        self.number = other.number
+      }
+      if self.nullable == nil {
+        self.nullable = other.nullable
+      }
+      if self.array == nil {
+        self.array = other.array
+      }
+      if self.dictionary == nil {
+        self.dictionary = other.dictionary
+      }
     }
   }
 
@@ -1722,14 +1734,15 @@ private final class PathTrie<Value: StreamParseableValue> {
   func prefixed<Root: StreamParseableValue>(
     by prefix: WritableKeyPath<Root, Value>
   ) -> PathTrie<Root> {
-    let prefixedPaths = PathTrie<Root>.Paths(
-      string: self.paths.string.map { prefix.appending(path: $0) },
-      bool: self.paths.bool.map { prefix.appending(path: $0) },
-      number: self.paths.number.map { prefix.appending(path: $0) },
-      nullable: self.paths.nullable.map { prefix.appending(path: $0) },
-      array: self.paths.array.map { prefix.appending(path: $0) },
-      dictionary: self.paths.dictionary.map { prefix.appending(path: $0) }
-    )
+    let prefixedPaths = PathTrie<Root>
+      .Paths(
+        string: self.paths.string.map { prefix.appending(path: $0) },
+        bool: self.paths.bool.map { prefix.appending(path: $0) },
+        number: self.paths.number.map { prefix.appending(path: $0) },
+        nullable: self.paths.nullable.map { prefix.appending(path: $0) },
+        array: self.paths.array.map { prefix.appending(path: $0) },
+        dictionary: self.paths.dictionary.map { prefix.appending(path: $0) }
+      )
     let node = PathTrie<Root>(paths: prefixedPaths)
     switch self.children {
     case .none:
