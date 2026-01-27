@@ -34,6 +34,22 @@ let json = """
 
 let partials: [Profile.Partial] = try json.utf8
   .partials(of: Profile.Partial.self, from: .json())
+
+for partial in partials {
+  print(partial)
+}
+
+// Prints:
+// Profile.Partial(id: nil, name: nil, isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: nil, isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: Optional("B"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Bl"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Blo"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 

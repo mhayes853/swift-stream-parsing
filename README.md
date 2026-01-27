@@ -38,6 +38,22 @@ let json = """
 
 let partials: [Profile.Partial] = try json.utf8
   .partials(of: Profile.Partial.self, from: .json())
+
+for partial in partials {
+  print(partial)
+}
+
+// Prints:
+// Profile.Partial(id: nil, name: nil, isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: nil, isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: Optional("B"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Bl"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Blo"), isActive: nil)
+// Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: nil)
+// ...
+// Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
@@ -116,6 +132,14 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
 - `StreamParsingTagged` interops the library with `Tagged`.
 - `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+
+## Documentation
+
+The documentation for releases and main are available here.
+* [StreamParsing (main)](https://swiftpackageindex.com/mhayes853/swift-stream-parsing/main/documentation/streamparsing/)
+* [StreamParsing (0.x.x)](https://swiftpackageindex.com/mhayes853/swift-stream-parsing/~/documentation/streamparsing/)
+* [StreamParsingCore (main)](https://swiftpackageindex.com/mhayes853/swift-stream-parsing/main/documentation/streamparsingcore/)
+* [StreamParsingCore (0.x.x)](https://swiftpackageindex.com/mhayes853/swift-stream-parsing/~/documentation/streamparsingcore/)
 
 ## Installation
 You can add Swift Stream Parsing to an Xcode project by adding it to your project as a package.
