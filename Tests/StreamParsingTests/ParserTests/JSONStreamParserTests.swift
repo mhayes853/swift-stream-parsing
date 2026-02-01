@@ -462,6 +462,51 @@ struct `JSONStreamParser tests` {
       ]
       try expectJSONStreamedValues(json, initialValue: Int128(0), expected: expected)
     }
+
+    @Test
+    func `Parses Double With High Precision`() throws {
+      let json = "3.14159265358979323846"
+      let expected: [Double] = [
+        3,
+        3,
+        3.1,
+        3.14,
+        3.141,
+        3.1415,
+        3.14159,
+        3.141592,
+        3.1415926,
+        3.14159265,
+        3.141592653,
+        3.1415926535,
+        3.14159265358,
+        3.141592653589,
+        3.1415926535897,
+        3.14159265358979,
+        3.141592653589793,
+        3.1415926535897932,
+        3.14159265358979323,
+        3.141592653589793238,
+        3.1415926535897932384,
+        3.14159265358979323846,
+        3.14159265358979323846
+      ]
+      try expectJSONStreamedValues(json, initialValue: 0.0, expected: expected)
+    }
+
+    @Test
+    func `Matches Foundation JSONDecoder Precision`() throws {
+      let number = "3.14159265358979323846"
+      let streamValues = try number.utf8.partials(
+        initialValue: 0.0,
+        from: .json()
+      )
+      let streamValue = try #require(streamValues.last)
+
+      let foundationValue = Double(number)!
+      
+      expectClose(streamValue, foundationValue)
+    }
   }
 
   @Suite
