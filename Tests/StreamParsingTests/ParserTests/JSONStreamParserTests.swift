@@ -503,7 +503,7 @@ struct `JSONStreamParser tests` {
       )
       let streamValue = try #require(streamValues.last)
 
-      let foundationValue = Double(number)!
+      let foundationValue = try JSONDecoder().decode(Double.self, from: Data(number.utf8))
       
       expectClose(streamValue, foundationValue)
     }
