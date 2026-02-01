@@ -79,7 +79,6 @@ func parseInteger<T: FixedWidthInteger>(
   }
 
   let string = String(decoding: buffer, as: UTF8.self)
-  guard let first = string.first else { return nil }
 
   if buffer.isFirstNegative {
     guard T.isSigned else { return nil }
@@ -100,7 +99,6 @@ func parseHexInteger<T: FixedWidthInteger>(
 ) -> T? {
   guard !buffer.isEmpty else { return nil }
   let string = String(decoding: buffer, as: UTF8.self)
-  guard let first = string.first else { return nil }
   if buffer[0] == .asciiDash {
     guard T.isSigned else { return nil }
     let unsignedString = String(string.dropFirst())
