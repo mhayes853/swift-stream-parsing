@@ -1066,7 +1066,6 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
       return try self.parseNeutral(byte: byte, into: &reducer)
     }
-    self.numberParsingState.fractionalPosition += 1
     if !self.numberParsingState.state.hasDigits {
       self.numberParsingState.state.hasDigits = true
     }
@@ -1315,7 +1314,6 @@ extension JSONStreamParser {
     var isNegative = false
     var isNegativeExponent = false
     var exponent = 0
-    var fractionalPosition = 0
     var state = NumberState()
     var digitBuffer = DigitBuffer()
 
@@ -1342,7 +1340,6 @@ extension JSONStreamParser {
       self.isNegative = isNegative
       self.isNegativeExponent = false
       self.exponent = 0
-      self.fractionalPosition = 0
       self.digitBuffer.count = 0
       self.state.reset()
     }
