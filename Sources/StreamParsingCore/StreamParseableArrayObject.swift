@@ -3,6 +3,8 @@ public protocol StreamParseableArrayObject<Element>: StreamParseableValue {
   /// The element type stored in the array-like value.
   associatedtype Element: StreamParseableValue
 
+  var count: Int { get }
+
   subscript(index: Int) -> Element { get set }
 
   /// Adds more elements as the parser emits them.
