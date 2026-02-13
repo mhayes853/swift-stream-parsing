@@ -10,7 +10,10 @@ let StreamParsing128BitIntegers =
 let package = Package(
   name: "swift-stream-parsing",
   platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
-  products: [.library(name: "StreamParsing", targets: ["StreamParsing"])],
+  products: [
+    .library(name: "StreamParsing", targets: ["StreamParsing"]),
+    .library(name: "StreamParsingCore", targets: ["StreamParsingCore"]),
+  ],
   traits: [
     .trait(
       name: "StreamParsingSwiftCollections",
