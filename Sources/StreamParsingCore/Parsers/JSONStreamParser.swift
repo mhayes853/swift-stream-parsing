@@ -1,5 +1,10 @@
 // MARK: - JSONStreamParser
 
+/// A convenience typealias for ``JSONStreamParser`` that parses a partial of a ``StreamParseable`` type.
+public typealias JSONStreamParserOf<
+  Parseable: StreamParseable
+> = JSONStreamParser<Parseable.Partial>
+
 /// A ``StreamParser`` that parses JSON.
 ///
 /// The parser will update its value for every byte that semantically changes the parsed value.
@@ -2240,48 +2245,72 @@ private enum JSONNumberAccumulator {
   ) -> Bool {
     switch self {
     case .int:
-      guard let value: Int = parseInteger(buffer: buffer, isHex: isHex, as: Int.self) else { return false }
+      guard let value: Int = parseInteger(buffer: buffer, isHex: isHex, as: Int.self) else {
+        return false
+      }
       self = .int(value)
     case .int8:
-      guard let value: Int8 = parseInteger(buffer: buffer, isHex: isHex, as: Int8.self) else { return false }
+      guard let value: Int8 = parseInteger(buffer: buffer, isHex: isHex, as: Int8.self) else {
+        return false
+      }
       self = .int8(value)
     case .int16:
-      guard let value: Int16 = parseInteger(buffer: buffer, isHex: isHex, as: Int16.self) else { return false }
+      guard let value: Int16 = parseInteger(buffer: buffer, isHex: isHex, as: Int16.self) else {
+        return false
+      }
       self = .int16(value)
     case .int32:
-      guard let value: Int32 = parseInteger(buffer: buffer, isHex: isHex, as: Int32.self) else { return false }
+      guard let value: Int32 = parseInteger(buffer: buffer, isHex: isHex, as: Int32.self) else {
+        return false
+      }
       self = .int32(value)
     case .int64:
-      guard let value: Int64 = parseInteger(buffer: buffer, isHex: isHex, as: Int64.self) else { return false }
+      guard let value: Int64 = parseInteger(buffer: buffer, isHex: isHex, as: Int64.self) else {
+        return false
+      }
       self = .int64(value)
     case .int128:
-      guard #available(StreamParsing128BitIntegers, *) else { return true }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       guard let value = parseInt128(buffer: buffer, isHex: isHex) else { return false }
       self = .int128(low: value._low, high: value._high)
     case .uint:
-      guard let value: UInt = parseInteger(buffer: buffer, isHex: isHex, as: UInt.self) else { return false }
+      guard let value: UInt = parseInteger(buffer: buffer, isHex: isHex, as: UInt.self) else {
+        return false
+      }
       self = .uint(value)
     case .uint8:
-      guard let value: UInt8 = parseInteger(buffer: buffer, isHex: isHex, as: UInt8.self) else { return false }
+      guard let value: UInt8 = parseInteger(buffer: buffer, isHex: isHex, as: UInt8.self) else {
+        return false
+      }
       self = .uint8(value)
     case .uint16:
-      guard let value: UInt16 = parseInteger(buffer: buffer, isHex: isHex, as: UInt16.self) else { return false }
+      guard let value: UInt16 = parseInteger(buffer: buffer, isHex: isHex, as: UInt16.self) else {
+        return false
+      }
       self = .uint16(value)
     case .uint32:
-      guard let value: UInt32 = parseInteger(buffer: buffer, isHex: isHex, as: UInt32.self) else { return false }
+      guard let value: UInt32 = parseInteger(buffer: buffer, isHex: isHex, as: UInt32.self) else {
+        return false
+      }
       self = .uint32(value)
     case .uint64:
-      guard let value: UInt64 = parseInteger(buffer: buffer, isHex: isHex, as: UInt64.self) else { return false }
+      guard let value: UInt64 = parseInteger(buffer: buffer, isHex: isHex, as: UInt64.self) else {
+        return false
+      }
       self = .uint64(value)
     case .uint128:
-      guard #available(StreamParsing128BitIntegers, *) else { return true }
+      guard #available(StreamParsing128BitIntegers , *) else { return true }
       guard let value = parseUInt128(buffer: buffer, isHex: isHex) else { return false }
       self = .uint128(low: value._low, high: value._high)
     case .float:
-      guard let value: Float = parseFloatingPoint(buffer: buffer, as: Float.self) else { return false }
+      guard let value: Float = parseFloatingPoint(buffer: buffer, as: Float.self) else {
+        return false
+      }
       self = .float(value)
     case .double:
-      guard let value: Double = parseFloatingPoint(buffer: buffer, as: Double.self) else { return false }
+      guard let value: Double = parseFloatingPoint(buffer: buffer, as: Double.self) else {
+        return false
+      }
       self = .double(value)
     }
     return true

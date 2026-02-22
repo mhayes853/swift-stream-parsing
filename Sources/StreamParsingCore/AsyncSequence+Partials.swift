@@ -2,6 +2,36 @@ extension AsyncSequence where Element == UInt8 {
   /// Incrementally parses bytes as a value in an async sequence.
   ///
   /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
+  /// let partials = sequence.partials(of: MyModel.self, from: .json())
+  /// for try await partial in partials {
+  ///   print(partial)
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - type: The value type describing each partial state.
+  ///   - parser: The parser to drive from the async bytes.
+  /// - Returns: An ``AsyncPartialsSequence``.
+  public func partials<Parseable: StreamParseable, Parser>(
+    of type: Parseable.Type,
+    from parser: Parser
+  ) -> AsyncPartialsSequence<Parseable.Partial, Parser, Self, CollectionOfOne<UInt8>> {
+    self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+  }
+
+  /// Incrementally parses bytes as a value in an async sequence.
+  ///
+  /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
   /// let partials = sequence.partials(of: MyModel.Partial.self, from: .json())
   /// for try await partial in partials {
   ///   print(partial)
@@ -39,9 +69,39 @@ extension AsyncSequence where Element == UInt8 {
 }
 
 extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
+  /// Incrementally parses bytes as a value in an async sequence.
+  ///
+  /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
+  /// let partials = sequence.partials(of: MyModel.self, from: .json())
+  /// for try await partial in partials {
+  ///   print(partial)
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - type: The value type describing each partial state.
+  ///   - parser: The parser that processes the collected sequences.
+  /// - Returns: An ``AsyncPartialsSequence``.
+  public func partials<Parseable: StreamParseable, Parser>(
+    of type: Parseable.Type,
+    from parser: Parser
+  ) -> AsyncPartialsSequence<Parseable.Partial, Parser, Self, Element> {
+    self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+  }
+
   /// Incrementally parses a chunk of byte as a value in an async sequence.
   ///
   /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
   /// let partials = sequence.partials(of: MyModel.Partial.self, from: .json())
   /// for try await partial in partials {
   ///   print(partial)

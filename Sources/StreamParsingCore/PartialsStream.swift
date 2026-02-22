@@ -1,5 +1,14 @@
 // MARK: - PartialsStream
 
+/// A convenience typealias for a ``PartialsStream`` for a ``StreamParser``.
+public typealias PartialsStreamOf<Parser: StreamParser> = PartialsStream<Parser.Value, Parser>
+
+/// A convenience typealias for a ``PartialsStream`` for a ``StreamParseable`` type.
+public typealias PartialsStreamFor<
+  Parseable: StreamParseable,
+  Parser: StreamParser<Parseable.Partial>
+> = PartialsStream<Parseable.Partial, Parser>
+
 /// Drives a ``StreamParser`` and exposes each incremental value state.
 ///
 /// ```swift

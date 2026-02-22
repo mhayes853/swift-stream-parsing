@@ -2,6 +2,34 @@ extension Sequence where Element == UInt8 {
   /// Incrementally parses bytes as a value.
   ///
   /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
+  /// let partials = try bytes.partials(of: MyModel.self, from: .json())
+  /// print(partials.last)
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - type: The value type to collect partials for.
+  ///   - parser: The parser that produces the value states.
+  /// - Returns: The values observed after each byte and at completion.
+  public func partials<Value: StreamParseable, Parser: StreamParser<Value.Partial>>(
+    of type: Value.Type,
+    from parser: Parser
+  ) throws -> [Value.Partial] {
+    try self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+  }
+
+  /// Incrementally parses bytes as a value.
+  ///
+  /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
   /// let partials = try bytes.partials(of: MyModel.Partial.self, from: .json())
   /// print(partials.last)
   /// ```
@@ -38,9 +66,37 @@ extension Sequence where Element == UInt8 {
 }
 
 extension Sequence where Element: Sequence<UInt8> {
+  /// Incrementally parses bytes as a value.
+  ///
+  /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
+  /// let partials = try bytes.partials(of: MyModel.self, from: .json())
+  /// print(partials.last)
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - type: The value type to collect partials for.
+  ///   - parser: The parser that produces the value states.
+  /// - Returns: The values observed after each byte and at completion.
+  public func partials<Value: StreamParseable, Parser: StreamParser<Value.Partial>>(
+    of type: Value.Type,
+    from parser: Parser
+  ) throws -> [Value.Partial] {
+    try self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+  }
+
   /// Incrementally parses chunks of bytes as a value.
   ///
   /// ```swift
+  /// @StreamParseable
+  /// struct MyModel {
+  ///   // ...
+  /// }
+  ///
   /// let partials = try batches.partials(of: MyModel.Partial.self, from: .json())
   /// ```
   ///
