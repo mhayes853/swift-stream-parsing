@@ -356,7 +356,18 @@ extension StreamParseableMacro {
     context: some MacroExpansionContext
   ) -> StoredProperty {
     let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
-    let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
+    let hasStreamParseableMember = self.streamParseableMemberAttribute(in: variableDecl) != nil
+    if isIgnored, hasStreamParseableMember {
+      Self.diagnoseConflictingStreamParseableMemberAndIgnored(
+        in: variableDecl,
+        context: context
+      )
+    }
+
+    let keyInfo =
+      isIgnored
+      ? KeyNamesResult(names: [propertyName], diagnostics: [])
+      : Self.keyNames(for: variableDecl, defaultName: propertyName)
     let typeName = type.trimmedDescription
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
@@ -394,6 +405,21 @@ extension StreamParseableMacro {
         node: attribute,
         message: MacroExpansionErrorMessage(
           "Only stored properties are supported."
+        )
+      )
+    )
+  }
+
+  private static func diagnoseConflictingStreamParseableMemberAndIgnored(
+    in variableDecl: VariableDeclSyntax,
+    context: some MacroExpansionContext
+  ) {
+    guard let attribute = Self.streamParseableMemberAttribute(in: variableDecl) else { return }
+    context.diagnose(
+      Diagnostic(
+        node: attribute,
+        message: MacroExpansionErrorMessage(
+          "@StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property."
         )
       )
     )

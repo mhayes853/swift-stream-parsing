@@ -634,6 +634,32 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `StreamParseableMember And StreamParseableIgnored On Same Property`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          @StreamParseableIgnored
+          var name: String
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          ┬──────────────────────────────────
+          ├─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          ╰─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          @StreamParseableIgnored
+          var name: String
+        }
+        """
+      }
+    }
+
+    @Test
     func `Ignores Instance Methods`() {
       assertMacro {
         """
