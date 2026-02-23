@@ -634,6 +634,32 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `StreamParseableMember And StreamParseableIgnored On Same Property`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          @StreamParseableIgnored
+          var name: String
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "name")
+          ┬──────────────────────────────────
+          ├─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          ╰─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          @StreamParseableIgnored
+          var name: String
+        }
+        """
+      }
+    }
+
+    @Test
     func `Ignores Instance Methods`() {
       assertMacro {
         """
@@ -1193,6 +1219,175 @@ extension BaseTestSuite {
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
+      }
+    }
+    
+    @Test
+    func `Merges Multiple Member Macro Applications`() async throws {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "blob")
+          @StreamParseableMember(key: "name2")
+          var name: String
+          var age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String
+          var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+            var age: Int.Partial?
+
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "blob", \.name)
+              handlers.registerKeyedHandler(forKey: "name2", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
+      }
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: ["blob"])
+          @StreamParseableMember(keyNames: ["name2"])
+          var name: String
+          var age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String
+          var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+            var age: Int.Partial?
+
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "blob", \.name)
+              handlers.registerKeyedHandler(forKey: "name2", \.name)
+              handlers.registerKeyedHandler(forKey: "age", \.age)
+            }
+          }
+        }
+        """#
+      }
+      assertMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(keyNames: ["blob"])
+          @StreamParseableMember(key: "name2")
+          var name: String
+          var age: Int
+        }
+        """
+      } expansion: {
+        #"""
+        struct Person {
+          var name: String
+          var age: Int
+
+          var streamPartialValue: Partial {
+            Partial(
+              name: self.name.streamPartialValue,
+              age: self.age.streamPartialValue
+            )
+          }
+        }
+
+        extension Person: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseableValue,
+            StreamParsingCore.StreamParseable {
+            typealias Partial = Self
+
+            var name: String.Partial?
+            var age: Int.Partial?
+
+            init(
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
+            ) {
+              self.name = name
+              self.age = age
+            }
+
+            static func initialParseableValue() -> Self {
+              Self()
+            }
+
+            static func registerHandlers(
+              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
+            ) {
+              handlers.registerKeyedHandler(forKey: "blob", \.name)
+              handlers.registerKeyedHandler(forKey: "name2", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
           }

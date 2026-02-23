@@ -356,7 +356,18 @@ extension StreamParseableMacro {
     context: some MacroExpansionContext
   ) -> StoredProperty {
     let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
-    let keyInfo = self.keyNames(for: variableDecl, defaultName: propertyName)
+    let hasStreamParseableMember = self.streamParseableMemberAttribute(in: variableDecl) != nil
+    if isIgnored, hasStreamParseableMember {
+      Self.diagnoseConflictingStreamParseableMemberAndIgnored(
+        in: variableDecl,
+        context: context
+      )
+    }
+
+    let keyInfo =
+      isIgnored
+      ? KeyNamesResult(names: [propertyName], diagnostics: [])
+      : Self.keyNames(for: variableDecl, defaultName: propertyName)
     let typeName = type.trimmedDescription
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
@@ -399,6 +410,21 @@ extension StreamParseableMacro {
     )
   }
 
+  private static func diagnoseConflictingStreamParseableMemberAndIgnored(
+    in variableDecl: VariableDeclSyntax,
+    context: some MacroExpansionContext
+  ) {
+    guard let attribute = Self.streamParseableMemberAttribute(in: variableDecl) else { return }
+    context.diagnose(
+      Diagnostic(
+        node: attribute,
+        message: MacroExpansionErrorMessage(
+          "@StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property."
+        )
+      )
+    )
+  }
+
   private static func isComputedProperty(_ binding: PatternBindingSyntax) -> Bool {
     guard let accessorBlock = binding.accessorBlock else { return false }
     switch accessorBlock.accessors {
@@ -421,61 +447,71 @@ extension StreamParseableMacro {
     for variableDecl: VariableDeclSyntax,
     defaultName: String
   ) -> KeyNamesResult {
-    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl) else {
+    let attributes = self.streamParseableMemberAttributes(in: variableDecl)
+    guard !attributes.isEmpty else {
       return KeyNamesResult(names: [defaultName], diagnostics: [])
     }
 
-    guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self) else {
-      return KeyNamesResult(names: [defaultName], diagnostics: [])
-    }
+    var names = [String]()
+    var diagnostics = [Diagnostic]()
 
-    if let keyExpression = self.argumentExpression(in: arguments, named: "key") {
-      if let keyName = self.stringLiteralValue(from: keyExpression) {
-        return KeyNamesResult(names: [keyName], diagnostics: [])
+    for attribute in attributes {
+      guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self) else {
+        continue
       }
 
-      return KeyNamesResult(
-        names: [defaultName],
-        diagnostics: [
-          Diagnostic(
-            node: attribute,
-            message: MacroExpansionErrorMessage(
-              "@StreamParseableMember(key:) requires a string literal."
+      if let keyExpression = self.argumentExpression(in: arguments, named: "key") {
+        if let keyName = self.stringLiteralValue(from: keyExpression) {
+          names.append(keyName)
+        } else {
+          diagnostics.append(
+            Diagnostic(
+              node: attribute,
+              message: MacroExpansionErrorMessage(
+                "@StreamParseableMember(key:) requires a string literal."
+              )
             )
           )
-        ]
-      )
-    }
-
-    if let keyNamesExpression = self.argumentExpression(in: arguments, named: "keyNames") {
-      if let keyNames = self.stringArrayValues(from: keyNamesExpression),
-        !keyNames.isEmpty
-      {
-        return KeyNamesResult(names: keyNames, diagnostics: [])
+        }
+        continue
       }
 
-      return KeyNamesResult(
-        names: [defaultName],
-        diagnostics: [
-          Diagnostic(
-            node: attribute,
-            message: MacroExpansionErrorMessage(
-              "@StreamParseableMember(keyNames:) requires a string array literal."
+      if let keyNamesExpression = self.argumentExpression(in: arguments, named: "keyNames") {
+        if let keyNames = self.stringArrayValues(from: keyNamesExpression),
+          !keyNames.isEmpty
+        {
+          names.append(contentsOf: keyNames)
+        } else {
+          diagnostics.append(
+            Diagnostic(
+              node: attribute,
+              message: MacroExpansionErrorMessage(
+                "@StreamParseableMember(keyNames:) requires a string array literal."
+              )
             )
           )
-        ]
-      )
+        }
+      }
     }
 
-    return KeyNamesResult(names: [defaultName], diagnostics: [])
+    return KeyNamesResult(
+      names: names.isEmpty ? [defaultName] : names,
+      diagnostics: diagnostics
+    )
   }
 
   private static func streamParseableMemberAttribute(
     in variableDecl: VariableDeclSyntax
   ) -> AttributeSyntax? {
+    self.streamParseableMemberAttributes(in: variableDecl).first
+  }
+
+  private static func streamParseableMemberAttributes(
+    in variableDecl: VariableDeclSyntax
+  ) -> [AttributeSyntax] {
     variableDecl.attributes
       .compactMap { $0.as(AttributeSyntax.self) }
-      .first { $0.attributeName.trimmedDescription == "StreamParseableMember" }
+      .filter { $0.attributeName.trimmedDescription == "StreamParseableMember" }
   }
 
   private static func streamParseableIgnoredAttribute(
