@@ -767,16 +767,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     default:
       switch self.stringState.utf8State.consume(byte: byte) {
-      case .appendByte:
+      case .consume(let scalar):
         if self.stringState.isEscaping {
           var currentString = self.stringState.buffer
           self.stringState.appendEscapedCharacter(for: byte, into: &currentString)
           self.stringState.buffer = currentString
         } else {
-          self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
+          self.stringState.buffer.unicodeScalars.append(scalar)
         }
-      case .appendScalar(let scalar):
-        self.stringState.buffer.unicodeScalars.append(scalar)
       case .doNothing:
         break
       }
@@ -836,9 +834,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           self.stringState.isEscaping = false
         }
         switch self.stringState.utf8State.consume(byte: byte) {
-        case .appendByte:
-          break
-        case .appendScalar:
+        case .consume:
           break
         case .doNothing:
           break
@@ -872,17 +868,15 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         }
       }
       switch self.stringState.utf8State.consume(byte: byte) {
-      case .appendByte:
+      case .consume(let scalar):
         if self.stringState.isEscaping {
           self.stringState.appendEscapedCharacter(
             for: byte,
             into: &reducer[keyPath: currentStringPath]
           )
         } else {
-          reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
+          reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
         }
-      case .appendScalar(let scalar):
-        reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
       case .doNothing:
         break
       }
@@ -2128,65 +2122,6 @@ extension UInt8 {
     case 0x41...0x46: self &- 0x41 &+ 10
     case 0x61...0x66: self &- 0x61 &+ 10
     default: nil
-    }
-  }
-}
-
-// MARK: - UTF8
-
-private struct UTF8State {
-  private var buffer: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
-  private var index = 0
-  private var maxSize = UInt8(0)
-
-  init() {}
-
-  enum ConsumeAction {
-    case doNothing
-    case appendByte
-    case appendScalar(Unicode.Scalar)
-  }
-
-  mutating func consume(byte: UInt8) -> ConsumeAction {
-    self.maxSize = self.maxSize > 0 ? self.maxSize : self.maxSize(for: byte)
-    withUnsafeMutableBytes(of: &self.buffer) { buffer in
-      buffer[self.index] = byte
-      self.index += 1
-    }
-    guard self.index == self.maxSize else { return .doNothing }
-    defer { self = UTF8State() }
-    return self.unicodeScalar.map { .appendScalar($0) } ?? .appendByte
-  }
-
-  private var unicodeScalar: UnicodeScalar? {
-    switch self.maxSize {
-    case 2:
-      let b0 = UInt32(self.buffer.0)
-      let b1 = UInt32(self.buffer.1)
-      return Unicode.Scalar(((b0 & 0x1F) << 6) | (b1 & 0x3F))
-    case 3:
-      let b0 = UInt32(self.buffer.0)
-      let b1 = UInt32(self.buffer.1)
-      let b2 = UInt32(self.buffer.2)
-      return Unicode.Scalar(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F))
-    case 4:
-      let b0 = UInt32(self.buffer.0)
-      let b1 = UInt32(self.buffer.1)
-      let b2 = UInt32(self.buffer.2)
-      let b3 = UInt32(self.buffer.3)
-      let scalar = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
-      return Unicode.Scalar(scalar)
-    default:
-      return nil
-    }
-  }
-
-  private func maxSize(for byte: UInt8) -> UInt8 {
-    switch byte {
-    case 0xC2...0xDF: 2
-    case 0xE0...0xEF: 3
-    case 0xF0...0xF4: 4
-    default: 1
     }
   }
 }
