@@ -1,5 +1,8 @@
 #if StreamParsingSwiftCollections
-  import Collections
+  import OrderedCollections
+  import HashTreeCollections
+  import DequeModule
+  import BitCollections
 
   // MARK: - Deque
 
