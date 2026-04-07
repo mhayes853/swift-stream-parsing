@@ -6,10 +6,6 @@ public typealias JSONStreamParserOf<
 > = JSONStreamParser<Parseable.Partial>
 
 /// A ``StreamParser`` that parses JSON.
-///
-/// The parser will update its value for every byte that semantically changes the parsed value.
-/// However, some sections of JSON, such as object keys, or exponentials, will not update the value
-/// until the entire section has been parsed.
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
@@ -70,9 +66,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
+    var chunkState = ByteChunkParseState()
     for byte in bytes {
-      try self.parse(byte: byte, into: &reducer)
+      try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
     }
+    try self.flushByteChunkParseState(&chunkState, into: &reducer)
   }
 
   public mutating func finish(reducer: inout Value) throws {
@@ -119,7 +117,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if self.mode.isNumeric {
-      try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
+      var chunkState = ByteChunkParseState()
+      try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
     }
     if self.containerState.arrayDepth > 0 {
       throw JSONStreamParsingError(
@@ -137,20 +136,26 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parse(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parse(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     defer { self.advancePosition(for: byte) }
     switch self.mode {
     case .literal: try self.parseLiteral(byte: byte, into: &reducer)
-    case .neutral: try self.parseNeutral(byte: byte, into: &reducer)
-    case .integer: try self.parseInteger(byte: byte, into: &reducer)
-    case .hexInteger: try self.parseHexInteger(byte: byte, into: &reducer)
-    case .string: try self.parseString(byte: byte, into: &reducer)
-    case .exponentialDouble: try self.parseExponentialDouble(byte: byte, into: &reducer)
-    case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer)
-    case .keyFinding: try self.parseKeyFinding(byte: byte, into: &reducer)
-    case .keyCollecting: try self.parseKeyCollecting(byte: byte, into: &reducer)
-    case .commentStart: try self.parseCommentStart(byte: byte, into: &reducer)
-    case .comment: try self.parseComment(byte: byte, into: &reducer)
+    case .neutral: try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .integer: try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .hexInteger: try self.parseHexInteger(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .string: try self.parseString(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .exponentialDouble:
+      try self.parseExponentialDouble(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .fractionalDouble:
+      try self.parseFractionalDouble(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .keyFinding: try self.parseKeyFinding(byte: byte)
+    case .keyCollecting: try self.parseKeyCollecting(byte: byte)
+    case .commentStart: try self.parseCommentStart(byte: byte)
+    case .comment: self.parseComment(byte: byte)
     }
   }
 
@@ -246,12 +251,77 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseNeutral(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func flushByteChunkParseState(
+    _ chunkState: inout ByteChunkParseState,
+    into reducer: inout Value
+  ) throws {
+    if let valueStringBuffer = chunkState.valueStringBuffer, let currentStringPath {
+      reducer[keyPath: currentStringPath] = valueStringBuffer
+      chunkState.valueStringBuffer = nil
+    }
+    if let valueNumberAccumulator = chunkState.valueNumberAccumulator, let currentNumberPath {
+      reducer[keyPath: currentNumberPath] = valueNumberAccumulator
+      chunkState.valueNumberAccumulator = nil
+    }
+  }
+
+  private func ensureValueStringBuffer(
+    in reducer: Value,
+    chunkState: inout ByteChunkParseState
+  ) -> String {
+    if let valueStringBuffer = chunkState.valueStringBuffer {
+      return valueStringBuffer
+    }
+    guard let currentStringPath else { return "" }
+    let valueStringBuffer = reducer[keyPath: currentStringPath]
+    chunkState.valueStringBuffer = valueStringBuffer
+    return valueStringBuffer
+  }
+
+  private func ensureValueNumberAccumulator(
+    in reducer: Value,
+    chunkState: inout ByteChunkParseState
+  ) -> JSONNumberAccumulator? {
+    if let valueNumberAccumulator = chunkState.valueNumberAccumulator {
+      return valueNumberAccumulator
+    }
+    guard let currentNumberPath else { return nil }
+    let valueNumberAccumulator = reducer[keyPath: currentNumberPath]
+    chunkState.valueNumberAccumulator = valueNumberAccumulator
+    return valueNumberAccumulator
+  }
+
+  private mutating func writeCurrentNumberAccumulator(
+    in reducer: Value,
+    chunkState: inout ByteChunkParseState,
+    isHex: Bool,
+    position: JSONStreamParsingPosition
+  ) throws {
+    let valueNumberAccumulator = self.ensureValueNumberAccumulator(
+      in: reducer,
+      chunkState: &chunkState
+    )
+    guard var valueNumberAccumulator else { return }
+    let didParse = valueNumberAccumulator.parseDigits(
+      buffer: self.numberParsingState.digitBuffer,
+      isHex: isHex
+    )
+    guard didParse else {
+      throw JSONStreamParsingError(reason: .numericOverflow, position: position, context: .number)
+    }
+    chunkState.valueNumberAccumulator = valueNumberAccumulator
+  }
+
+  private mutating func parseNeutral(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     switch byte {
     case .asciiQuote:
-      try self.handleNeutralDoubleQuotedStringStart(into: &reducer)
+      try self.handleNeutralDoubleQuotedStringStart(into: &reducer, chunkState: &chunkState)
     case .asciiApostrophe:
-      try self.handleNeutralSingleQuotedStringStart(into: &reducer)
+      try self.handleNeutralSingleQuotedStringStart(into: &reducer, chunkState: &chunkState)
     case .asciiComma:
       try self.handleNeutralComma()
     case .asciiArrayStart:
@@ -269,13 +339,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     case .asciiNullStart:
       try self.handleNeutralNullStart(into: &reducer)
     case .asciiDash:
-      try self.handleNeutralNegativeNumberStart(into: &reducer)
+      try self.handleNeutralNegativeNumberStart(into: &reducer, chunkState: &chunkState)
     case .asciiDot:
-      try self.handleNeutralLeadingDecimalPointStart(into: &reducer)
+      try self.handleNeutralLeadingDecimalPointStart(into: &reducer, chunkState: &chunkState)
     case .asciiPlus:
-      try self.handleNeutralLeadingPlusStart(into: &reducer)
+      try self.handleNeutralLeadingPlusStart(into: &reducer, chunkState: &chunkState)
     case 0x30...0x39:
-      try self.handleNeutralDigitStart(byte, into: &reducer)
+      try self.handleNeutralDigitStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiUpperI, .asciiUpperN:
       try self.handleNeutralNonFiniteNumberStart(byte, into: &reducer)
     case .asciiSlash:
@@ -285,7 +355,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func handleNeutralDoubleQuotedStringStart(into reducer: inout Value) throws {
+  private mutating func handleNeutralDoubleQuotedStringStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
@@ -294,9 +367,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
     self.stringState.startString(delimiter: .asciiQuote)
+    chunkState.valueStringBuffer = self.currentStringPath.map { _ in "" }
   }
 
-  private mutating func handleNeutralSingleQuotedStringStart(into reducer: inout Value) throws {
+  private mutating func handleNeutralSingleQuotedStringStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard self.configuration.syntaxOptions.contains(.singleQuotedStrings) else {
       throw JSONStreamParsingError(
         reason: .unexpectedToken,
@@ -312,6 +389,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .string
     self.stringState.startString(delimiter: .asciiApostrophe)
+    chunkState.valueStringBuffer = self.currentStringPath.map { _ in "" }
   }
 
   private mutating func handleNeutralComma() throws {
@@ -485,7 +563,10 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.startLiteral(expected: jsonLiteralNull)
   }
 
-  private mutating func handleNeutralNegativeNumberStart(into reducer: inout Value) throws {
+  private mutating func handleNeutralNegativeNumberStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
@@ -495,12 +576,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: true)
     try self.numberParsingState.appendDigit(.asciiDash, position: self.position)
-    if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].reset()
+    if let currentNumberPath {
+      var valueNumberAccumulator = reducer[keyPath: currentNumberPath]
+      valueNumberAccumulator.reset()
+      chunkState.valueNumberAccumulator = valueNumberAccumulator
     }
   }
 
-  private mutating func handleNeutralLeadingDecimalPointStart(into reducer: inout Value) throws {
+  private mutating func handleNeutralLeadingDecimalPointStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard self.configuration.syntaxOptions.contains(.leadingDecimalPoint) else {
       throw JSONStreamParsingError(
         reason: .unexpectedToken,
@@ -516,12 +602,17 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .fractionalDouble
     try self.numberParsingState.resetForFractionalLeadingDot(position: self.position)
-    if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].reset()
+    if let currentNumberPath {
+      var valueNumberAccumulator = reducer[keyPath: currentNumberPath]
+      valueNumberAccumulator.reset()
+      chunkState.valueNumberAccumulator = valueNumberAccumulator
     }
   }
 
-  private mutating func handleNeutralLeadingPlusStart(into reducer: inout Value) throws {
+  private mutating func handleNeutralLeadingPlusStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard self.configuration.syntaxOptions.contains(.leadingPlus) else {
       throw JSONStreamParsingError(
         reason: .unexpectedToken,
@@ -538,12 +629,18 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
     try self.numberParsingState.appendDigit(.asciiPlus, position: self.position)
-    if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].reset()
+    if let currentNumberPath {
+      var valueNumberAccumulator = reducer[keyPath: currentNumberPath]
+      valueNumberAccumulator.reset()
+      chunkState.valueNumberAccumulator = valueNumberAccumulator
     }
   }
 
-  private mutating func handleNeutralDigitStart(_ byte: UInt8, into reducer: inout Value) throws {
+  private mutating func handleNeutralDigitStart(
+    _ byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     self.clearArrayTrailingCommaIfNeeded()
     try self.beginValueToken()
     self.appendArrayElementIfNeeded(into: &reducer)
@@ -552,10 +649,12 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
-    if let numberPath = self.currentNumberPath {
-      reducer[keyPath: numberPath].reset()
+    if let currentNumberPath {
+      var valueNumberAccumulator = reducer[keyPath: currentNumberPath]
+      valueNumberAccumulator.reset()
+      chunkState.valueNumberAccumulator = valueNumberAccumulator
     }
-    try self.parseInteger(byte: byte, into: &reducer)
+    try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
   }
 
   private mutating func handleNeutralNonFiniteNumberStart(
@@ -589,16 +688,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       default:
         break
       }
-    } else {
-      try self.throwInvalidTypeIfNeeded(isInvalidType)
-      switch byte {
-      case .asciiUpperI:
-        self.startLiteral(expected: jsonLiteralInfinity)
-      case .asciiUpperN:
-        self.startLiteral(expected: jsonLiteralNaN)
-      default:
-        break
-      }
+      return
+    }
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
+    switch byte {
+    case .asciiUpperI:
+      self.startLiteral(expected: jsonLiteralInfinity)
+    case .asciiUpperN:
+      self.startLiteral(expected: jsonLiteralNaN)
+    default:
+      break
     }
   }
 
@@ -624,7 +723,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseKeyFinding(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseKeyFinding(byte: UInt8) throws {
     switch byte {
     case .asciiQuote:
       self.mode = .keyCollecting
@@ -698,11 +797,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseKeyCollecting(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseKeyCollecting(byte: UInt8) throws {
     if self.stringState.isAwaitingKeySeparator {
       if byte == .asciiColon {
-        self.containerState.stack.append(.object(key: self.stringState.buffer))
-        self.pushObjectTrieNode(for: self.stringState.buffer)
+        self.containerState.stack.append(.object(key: self.stringState.keyBuffer))
+        self.pushObjectTrieNode(for: self.stringState.keyBuffer)
         self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
         self.stringState.finishKeyCollection()
@@ -725,8 +824,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     if self.stringState.isCollectingUnquotedKey {
       if byte == .asciiColon {
-        self.containerState.stack.append(.object(key: self.stringState.buffer))
-        self.pushObjectTrieNode(for: self.stringState.buffer)
+        self.containerState.stack.append(.object(key: self.stringState.keyBuffer))
+        self.pushObjectTrieNode(for: self.stringState.keyBuffer)
         self.containerState.objectValuePendingDepths.insert(self.containerState.stack.count)
         self.mode = .neutral
         self.stringState.finishKeyCollection()
@@ -743,14 +842,14 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .objectKey
         )
       }
-      self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
+      self.stringState.keyBuffer.unicodeScalars.append(Unicode.Scalar(byte))
       return
     }
 
     switch byte {
     case .asciiBackslash:
       if self.stringState.isEscaping {
-        self.stringState.buffer.append("\\")
+        self.stringState.keyBuffer.append("\\")
         self.stringState.isEscaping = false
       } else {
         self.stringState.isEscaping = true
@@ -758,7 +857,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     case self.stringState.keyDelimiter:
       if self.stringState.isEscaping {
-        self.stringState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
+        self.stringState.keyBuffer.unicodeScalars.append(Unicode.Scalar(byte))
         self.stringState.isEscaping = false
       } else {
         self.stringState.isCollectingKey = false
@@ -769,11 +868,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       switch self.stringState.utf8State.consume(byte: byte) {
       case .consume(let scalar):
         if self.stringState.isEscaping {
-          var currentString = self.stringState.buffer
+          var currentString = self.stringState.keyBuffer
           self.stringState.appendEscapedCharacter(for: byte, into: &currentString)
-          self.stringState.buffer = currentString
+          self.stringState.keyBuffer = currentString
         } else {
-          self.stringState.buffer.unicodeScalars.append(scalar)
+          self.stringState.keyBuffer.unicodeScalars.append(scalar)
         }
       case .doNothing:
         break
@@ -781,7 +880,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseString(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseString(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if self.stringState.unicodeEscapeRemaining > 0 {
       guard let hexValue = byte.hexValue else {
         throw JSONStreamParsingError(
@@ -801,15 +904,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
             context: .string
           )
         }
-        if let currentStringPath {
-          reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
+        if self.currentStringPath != nil {
+          var valueStringBuffer = self.ensureValueStringBuffer(
+            in: reducer,
+            chunkState: &chunkState
+          )
+          valueStringBuffer.unicodeScalars.append(scalar)
+          chunkState.valueStringBuffer = valueStringBuffer
         }
         self.stringState.unicodeEscapeValue = 0
       }
       return
     }
 
-    guard let currentStringPath else {
+    guard self.currentStringPath != nil else {
       switch byte {
       case .asciiBackslash:
         if self.stringState.isEscaping {
@@ -846,7 +954,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiBackslash:
       if self.stringState.isEscaping {
-        reducer[keyPath: currentStringPath].append("\\")
+        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        valueStringBuffer.append("\\")
+        chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
       } else {
         self.stringState.isEscaping = true
@@ -854,9 +964,12 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     case self.stringState.stringDelimiter:
       if self.stringState.isEscaping {
-        reducer[keyPath: currentStringPath].unicodeScalars.append(Unicode.Scalar(byte))
+        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        valueStringBuffer.unicodeScalars.append(Unicode.Scalar(byte))
+        chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
       } else {
+        try self.flushByteChunkParseState(&chunkState, into: &reducer)
         self.mode = .neutral
       }
 
@@ -869,14 +982,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       switch self.stringState.utf8State.consume(byte: byte) {
       case .consume(let scalar):
+        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
         if self.stringState.isEscaping {
-          self.stringState.appendEscapedCharacter(
-            for: byte,
-            into: &reducer[keyPath: currentStringPath]
-          )
+          self.stringState.appendEscapedCharacter(for: byte, into: &valueStringBuffer)
         } else {
-          reducer[keyPath: currentStringPath].unicodeScalars.append(scalar)
+          valueStringBuffer.unicodeScalars.append(scalar)
         }
+        chunkState.valueStringBuffer = valueStringBuffer
       case .doNothing:
         break
       }
@@ -905,7 +1017,11 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     return .leadingZero
   }
 
-  private mutating func parseInteger(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseInteger(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if byte == .asciiDot {
       guard self.numberParsingState.state.hasDigits else {
         throw JSONStreamParsingError(
@@ -917,21 +1033,12 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.mode = .fractionalDouble
       self.numberParsingState.state.hasDot = true
       try self.numberParsingState.appendDigit(byte, position: self.position)
-      if let numberPath = self.currentNumberPath {
-        guard
-          reducer[keyPath: numberPath]
-            .parseDigits(
-              buffer: self.numberParsingState.digitBuffer,
-              isHex: false
-            )
-        else {
-          throw JSONStreamParsingError(
-            reason: .numericOverflow,
-            position: self.position,
-            context: .number
-          )
-        }
-      }
+      try self.writeCurrentNumberAccumulator(
+        in: reducer,
+        chunkState: &chunkState,
+        isHex: false,
+        position: self.position
+      )
     } else if byte == .asciiLowerX || byte == .asciiUpperX {
       guard self.canStartHexNumber else {
         throw JSONStreamParsingError(
@@ -957,8 +1064,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.numberParsingState.appendDigit(byte, position: self.position)
     } else {
       guard let digit = byte.digitValue else {
-        try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
-        return try self.parseNeutral(byte: byte, into: &reducer)
+        try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
+        return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
       }
       if let reason = self.leadingZeroErrorReason(for: digit) {
         throw JSONStreamParsingError(
@@ -975,24 +1082,20 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       self.numberParsingState.state.digitCount += 1
       try self.numberParsingState.appendDigit(byte, position: self.position)
-      if let numberPath = self.currentNumberPath {
-        guard
-          reducer[keyPath: numberPath]
-            .parseDigits(
-              buffer: self.numberParsingState.digitBuffer,
-              isHex: false
-            )
-        else {
-          throw JSONStreamParsingError(
-            reason: .numericOverflow,
-            position: self.position,
-            context: .number
-          )
-        }
-      }
+      try self.writeCurrentNumberAccumulator(
+        in: reducer,
+        chunkState: &chunkState,
+        isHex: false,
+        position: self.position
+      )
     }
   }
-  private mutating func parseHexInteger(byte: UInt8, into reducer: inout Value) throws {
+
+  private mutating func parseHexInteger(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard byte.hexValue != nil else {
       if !self.numberParsingState.state.hasHexDigits {
         throw JSONStreamParsingError(
@@ -1001,13 +1104,18 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .number
         )
       }
-      try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
-      return try self.parseNeutral(byte: byte, into: &reducer)
+      try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
+      return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
     self.numberParsingState.state.hasHexDigits = true
     try self.numberParsingState.appendDigit(byte, position: self.position)
   }
-  private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value) throws {
+
+  private mutating func parseExponentialDouble(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if byte == .asciiDash {
       if self.numberParsingState.state.hasExponentDigits {
         throw JSONStreamParsingError(
@@ -1041,12 +1149,16 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       self.numberParsingState.exponent = newExponent
       try self.numberParsingState.appendDigit(byte, position: self.position)
     } else {
-      try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
-      try self.parseNeutral(byte: byte, into: &reducer)
+      try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
+      try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
   }
 
-  private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseFractionalDouble(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard byte.digitValue != nil else {
       if byte == .asciiLowerE || byte == .asciiUpperE {
         guard self.numberParsingState.state.hasFractionDigits else {
@@ -1062,31 +1174,23 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         try self.numberParsingState.appendDigit(byte, position: self.position)
         return
       }
-      try self.finalizeNumberOrThrow(at: self.position, into: &reducer)
-      return try self.parseNeutral(byte: byte, into: &reducer)
+      try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
+      return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
     if !self.numberParsingState.state.hasDigits {
       self.numberParsingState.state.hasDigits = true
     }
     self.numberParsingState.state.hasFractionDigits = true
     try self.numberParsingState.appendDigit(byte, position: self.position)
-    if let numberPath = self.currentNumberPath {
-      guard
-        reducer[keyPath: numberPath]
-          .parseDigits(
-            buffer: self.numberParsingState.digitBuffer,
-            isHex: false
-          )
-      else {
-        throw JSONStreamParsingError(
-          reason: .numericOverflow,
-          position: self.position,
-          context: .number
-        )
-      }
-    }
+    try self.writeCurrentNumberAccumulator(
+      in: reducer,
+      chunkState: &chunkState,
+      isHex: false,
+      position: self.position
+    )
   }
-  private mutating func parseCommentStart(byte: UInt8, into reducer: inout Value) throws {
+
+  private mutating func parseCommentStart(byte: UInt8) throws {
     switch byte {
     case .asciiSlash:
       self.commentState.begin(kind: .line)
@@ -1103,7 +1207,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseComment(byte: UInt8, into reducer: inout Value) throws {
+  private mutating func parseComment(byte: UInt8) {
     switch self.commentState.kind {
     case .line:
       if byte == .asciiLineFeed || byte == .asciiCarriageReturn {
@@ -1122,7 +1226,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func parseLiteral(byte: UInt8, into reducer: inout Value) throws {
     guard self.literalState.index < self.literalState.expected.count else {
       self.mode = .neutral
-      return try self.parseNeutral(byte: byte, into: &reducer)
+      var chunkState = ByteChunkParseState()
+      return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
     if byte != self.literalState.expected[self.literalState.index] {
       throw JSONStreamParsingError(
@@ -1167,7 +1272,8 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private mutating func finalizeNumberOrThrow(
     at position: JSONStreamParsingPosition,
-    into reducer: inout Value
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
   ) throws {
     if self.numberParsingState.state.isHex {
       if !self.numberParsingState.state.hasHexDigits {
@@ -1177,21 +1283,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .number
         )
       }
-      if let numberPath = self.currentNumberPath {
-        guard
-          reducer[keyPath: numberPath]
-            .parseDigits(
-              buffer: self.numberParsingState.digitBuffer,
-              isHex: true
-            )
-        else {
-          throw JSONStreamParsingError(
-            reason: .numericOverflow,
-            position: position,
-            context: .number
-          )
-        }
-      }
+      try self.writeCurrentNumberAccumulator(
+        in: reducer,
+        chunkState: &chunkState,
+        isHex: true,
+        position: position
+      )
+      try self.flushByteChunkParseState(&chunkState, into: &reducer)
       self.mode = .neutral
       self.numberParsingState.resetAfterFinalize()
       return
@@ -1217,21 +1315,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         context: .number
       )
     }
-    if let numberPath = self.currentNumberPath {
-      guard
-        reducer[keyPath: numberPath]
-          .parseDigits(
-            buffer: self.numberParsingState.digitBuffer,
-            isHex: self.numberParsingState.state.isHex
-          )
-      else {
-        throw JSONStreamParsingError(
-          reason: .numericOverflow,
-          position: position,
-          context: .number
-        )
-      }
-    }
+    try self.writeCurrentNumberAccumulator(
+      in: reducer,
+      chunkState: &chunkState,
+      isHex: self.numberParsingState.state.isHex,
+      position: position
+    )
+    try self.flushByteChunkParseState(&chunkState, into: &reducer)
     self.mode = .neutral
     self.numberParsingState.resetAfterFinalize()
   }
@@ -1239,8 +1329,13 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 }
 
 extension JSONStreamParser {
+  private struct ByteChunkParseState {
+    var valueStringBuffer: String?
+    var valueNumberAccumulator: JSONNumberAccumulator?
+  }
+
   private struct StringParsingState {
-    var buffer = ""
+    var keyBuffer = ""
     var isEscaping = false
     var utf8State = UTF8State()
     var isCollectingKey = false
@@ -1253,13 +1348,12 @@ extension JSONStreamParser {
 
     mutating func startString(delimiter: UInt8) {
       self.stringDelimiter = delimiter
-      self.buffer = ""
       self.resetEscapeState()
     }
 
     mutating func startKey(delimiter: UInt8, initial: String, isUnquoted: Bool) {
       self.keyDelimiter = delimiter
-      self.buffer = initial
+      self.keyBuffer = initial
       self.isCollectingKey = true
       self.isCollectingUnquotedKey = isUnquoted
       self.isAwaitingKeySeparator = false
@@ -1267,7 +1361,7 @@ extension JSONStreamParser {
     }
 
     mutating func resetKeyCollection() {
-      self.buffer = ""
+      self.keyBuffer = ""
       self.isCollectingKey = false
       self.isAwaitingKeySeparator = false
       self.isCollectingUnquotedKey = false
@@ -2174,10 +2268,7 @@ private enum JSONNumberAccumulator {
     }
   }
 
-  mutating func parseDigits(
-    buffer: DigitBuffer,
-    isHex: Bool
-  ) -> Bool {
+  mutating func parseDigits(buffer: DigitBuffer, isHex: Bool) -> Bool {
     switch self {
     case .int:
       guard let value: Int = parseInteger(buffer: buffer, isHex: isHex, as: Int.self) else {

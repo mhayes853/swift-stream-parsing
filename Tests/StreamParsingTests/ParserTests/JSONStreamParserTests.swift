@@ -153,6 +153,22 @@ struct `JSONStreamParser tests` {
       let expected = ["", "1", "12", "123", "123", "123"]
       try expectJSONStreamedValues(json, initialValue: "", expected: expected)
     }
+
+    @Test
+    func `Chunked Parsing Flushes String Once Per Chunk`() throws {
+      var stream = PartialsStream(
+        initialValue: StringValueContainer.Partial(),
+        from: .json()
+      )
+
+      let first = try stream.next("{\"value\":\"Bl".utf8)
+      let second = try stream.next("ob\"}".utf8)
+      let final = try stream.finish()
+
+      expectNoDifference(first, StringValueContainer.Partial(value: "Bl"))
+      expectNoDifference(second, StringValueContainer.Partial(value: "Blob"))
+      expectNoDifference(final, StringValueContainer.Partial(value: "Blob"))
+    }
   }
 
   @Suite
@@ -504,8 +520,24 @@ struct `JSONStreamParser tests` {
       let streamValue = try #require(streamValues.last)
 
       let foundationValue = try JSONDecoder().decode(Double.self, from: Data(number.utf8))
-      
+
       expectClose(streamValue, foundationValue)
+    }
+
+    @Test
+    func `Chunked Parsing Flushes Number Once Per Chunk`() throws {
+      var stream = PartialsStream(
+        initialValue: IntValueContainer.Partial(),
+        from: .json()
+      )
+
+      let first = try stream.next("{\"value\":12".utf8)
+      let second = try stream.next("34}".utf8)
+      let final = try stream.finish()
+
+      expectNoDifference(first, IntValueContainer.Partial(value: 12))
+      expectNoDifference(second, IntValueContainer.Partial(value: 1234))
+      expectNoDifference(final, IntValueContainer.Partial(value: 1234))
     }
   }
 
@@ -2299,6 +2331,7 @@ extension NullableNestedValue.Partial: Equatable {}
 extension NullableNestedContainer.Partial: Equatable {}
 extension EmptyObject.Partial: Equatable {}
 extension IntValueContainer.Partial: Equatable {}
+extension StringValueContainer.Partial: Equatable {}
 extension DictionaryPropertyContainer.Partial: Equatable {}
 extension ArrayPropertyContainer.Partial: Equatable {}
 extension ArrayNestedLevel2.Partial: Equatable {}
@@ -2366,6 +2399,24 @@ struct `JSONDump tests` {
   }
 
   @Test
+  func `Large JSON Dump Parseable Chunked 4KB`() throws {
+    try self.assertSnapshot(
+      of: [ProfileParseable.Partial].self,
+      from: self.url512Kb,
+      chunkSize: 4 * 1024
+    )
+  }
+
+  @Test
+  func `Large JSON Dump Optional Chunked 4KB`() throws {
+    try self.assertSnapshot(
+      of: [ProfileOptional.Partial].self,
+      from: self.url512Kb,
+      chunkSize: 4 * 1024
+    )
+  }
+
+  @Test
   func `Nested JSON Dump Partial States`() throws {
     try self.assertNestedPartialSnapshot(
       from: self.urlDeepNested64,
@@ -2377,12 +2428,23 @@ struct `JSONDump tests` {
   private func assertSnapshot<Value: StreamParseableValue & Encodable>(
     of type: Value.Type,
     from url: URL,
+    chunkSize: Int? = nil,
     testName: String = #function
   ) throws {
     let data = try Data(contentsOf: url)
     var stream = PartialsStream(initialValue: type.initialParseableValue(), from: .json())
-    for byte in data {
-      _ = try stream.next(byte)
+    if let chunkSize {
+      let bytes = Array(data)
+      var offset = bytes.startIndex
+      while offset < bytes.endIndex {
+        let endIndex = min(offset + chunkSize, bytes.endIndex)
+        _ = try stream.next(bytes[offset..<endIndex])
+        offset = endIndex
+      }
+    } else {
+      for byte in data {
+        _ = try stream.next(byte)
+      }
     }
     let final = try stream.finish()
     SnapshotTesting.assertSnapshot(of: final, as: .json, testName: testName)
