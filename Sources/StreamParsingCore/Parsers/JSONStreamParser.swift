@@ -6,11 +6,6 @@ public typealias JSONStreamParserOf<
 > = JSONStreamParser<Parseable.Partial>
 
 /// A ``StreamParser`` that parses JSON.
-///
-/// The parser updates completed leaf values and flushes partial string and number progress at byte
-/// sequence boundaries.
-/// However, some sections of JSON, such as object keys or exponentials, will not update the value
-/// until the entire section has been parsed.
 public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
