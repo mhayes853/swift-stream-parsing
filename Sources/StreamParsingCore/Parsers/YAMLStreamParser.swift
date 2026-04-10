@@ -10,6 +10,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   private enum Mode {
     case neutral
     case string
+    case blockScalarHeader
+    case blockScalar
     case keyCollecting
     case integer
     case fractionalDouble
@@ -41,6 +43,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     let path: WritableKeyPath<Value, any StreamParseableArrayObject>?
     let style: ArrayStyle
     var didAppendForCurrentElement = false
+    var sawTrailingComma = false
   }
 
   private struct ObjectContext {
@@ -48,6 +51,13 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     let style: ObjectStyle
     var isExpectingKey = true
     var hasActiveKey = false
+    var hasStartedValueForActiveKey = false
+    var sawTrailingComma = false
+  }
+
+  private enum BlockScalarKind {
+    case literal
+    case folded
   }
 
   public let configuration: YAMLStreamParserConfiguration
@@ -71,6 +81,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   private var currentLineIndent = 0
   private var lineStartDashIndent: Int?
   private var keyParsingState = KeyParsingState()
+  private var blockScalarState = BlockScalarState()
 
   public init(configuration: YAMLStreamParserConfiguration = YAMLStreamParserConfiguration()) {
     self.configuration = configuration
@@ -94,6 +105,17 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   public mutating func finish(reducer: inout Value) throws {
+    if self.mode == .blockScalarHeader {
+      throw YAMLStreamParsingError(
+        reason: .invalidMultiLineString,
+        position: self.position,
+        context: .string
+      )
+    }
+    if self.mode == .blockScalar {
+      var chunkState = ByteChunkParseState()
+      try self.finishBlockScalar(into: &reducer, chunkState: &chunkState)
+    }
     if self.mode == .string {
       throw YAMLStreamParsingError(
         reason: .unterminatedString,
@@ -102,10 +124,53 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if self.mode.isNumeric {
+      if self.numberParsingState.state.hasExponent && !self.numberParsingState.state.hasExponentDigits {
+        throw YAMLStreamParsingError(
+          reason: .invalidExponent,
+          position: self.position,
+          context: .number
+        )
+      }
+      if self.numberParsingState.state.hasDot && !self.numberParsingState.state.hasFractionDigits {
+        throw YAMLStreamParsingError(
+          reason: .invalidNumber,
+          position: self.position,
+          context: .number
+        )
+      }
       var chunkState = ByteChunkParseState()
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
     }
+    try self.prepareBlockContextsForIndent(0)
     self.closeBlockArrayContexts(toIndent: 0)
+    if case .flow = self.currentArrayContext?.style {
+      if self.currentArrayContext?.sawTrailingComma == true {
+        throw YAMLStreamParsingError(
+          reason: .trailingComma,
+          position: self.position,
+          context: .arrayValue
+        )
+      }
+      throw YAMLStreamParsingError(
+        reason: .missingClosingBracket,
+        position: self.position,
+        context: .arrayValue
+      )
+    }
+    if case .flow = self.currentObjectContext?.style {
+      if self.currentObjectContext?.sawTrailingComma == true {
+        throw YAMLStreamParsingError(
+          reason: .trailingComma,
+          position: self.position,
+          context: .objectValue
+        )
+      }
+      throw YAMLStreamParsingError(
+        reason: .missingClosingBrace,
+        position: self.position,
+        context: .objectValue
+      )
+    }
   }
 
   private var currentArrayContext: ArrayContext? {
@@ -148,12 +213,46 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.currentTrieNode = self.trieNodeStack.last ?? self.handlers.pathTrie
   }
 
+  private func invalidTypeContext() -> YAMLStreamParsingError.Context? {
+    if self.currentArrayContext != nil {
+      return .arrayValue
+    }
+    if self.currentObjectContext?.hasActiveKey == true {
+      return .objectValue
+    }
+    return .neutral
+  }
+
+  private func throwInvalidTypeIfNeeded(_ isInvalidType: Bool) throws {
+    guard isInvalidType else { return }
+    throw YAMLStreamParsingError(
+      reason: .invalidType,
+      position: self.position,
+      context: self.invalidTypeContext()
+    )
+  }
+
   private mutating func appendArrayElementIfNeeded(into reducer: inout Value) {
     guard let currentArrayContext, !currentArrayContext.didAppendForCurrentElement else { return }
     if let path = currentArrayContext.path {
       reducer[keyPath: path].appendNewElement()
     }
     self.replaceCurrentArrayContext { $0.didAppendForCurrentElement = true }
+  }
+
+  private mutating func prepareForValueStart() throws {
+    if case .flow = self.currentArrayContext?.style {
+      if self.currentArrayContext?.didAppendForCurrentElement == true {
+        throw YAMLStreamParsingError(reason: .missingComma, position: self.position, context: .arrayValue)
+      }
+      self.replaceCurrentArrayContext { $0.sawTrailingComma = false }
+    }
+    if self.currentObjectContext?.hasActiveKey == true {
+      self.replaceCurrentObjectContext {
+        $0.sawTrailingComma = false
+        $0.hasStartedValueForActiveKey = true
+      }
+    }
   }
 
   private mutating func prepareForNextArrayElement() {
@@ -170,6 +269,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.popTrieNode()
     self.replaceCurrentObjectContext {
       $0.hasActiveKey = false
+      $0.hasStartedValueForActiveKey = false
       $0.isExpectingKey = true
     }
   }
@@ -188,25 +288,33 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func prepareBlockContextsForIndent(_ indent: Int) {
+  private mutating func prepareBlockContextsForIndent(_ indent: Int) throws {
     if case .block(let currentIndent) = self.currentObjectContext?.style,
       self.currentObjectContext?.hasActiveKey == true,
       indent <= currentIndent
     {
-      self.finishCurrentObjectValue()
+      if self.currentObjectContext?.hasStartedValueForActiveKey == true {
+        self.finishCurrentObjectValue()
+      } else {
+        throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+      }
     }
     self.closeBlockArrayContexts(toIndent: indent)
     self.closeBlockObjectContexts(toIndent: indent)
   }
 
-  private mutating func startBlockArrayItem(at indent: Int, into reducer: inout Value) {
+  private mutating func startBlockArrayItem(at indent: Int, into reducer: inout Value) throws {
     if case .block(let currentIndent) = self.currentArrayContext?.style, currentIndent == indent {
       self.prepareForNextArrayElement()
       return
     }
 
+    if self.currentObjectContext?.hasActiveKey == true {
+      self.replaceCurrentObjectContext { $0.hasStartedValueForActiveKey = true }
+    }
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, _) = self.handlers.arrayPath(node: self.currentTrieNode)
+    let (path, isInvalidType) = self.handlers.arrayPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     if let path {
       reducer[keyPath: path].reset()
     }
@@ -224,9 +332,12 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.currentDictionaryPath = path
   }
 
-  private mutating func startBlockObjectIfNeeded(at indent: Int, into reducer: inout Value) {
+  private mutating func startBlockObjectIfNeeded(at indent: Int, into reducer: inout Value) throws {
     if case .block(let currentIndent) = self.currentObjectContext?.style, currentIndent == indent {
       return
+    }
+    if self.currentObjectContext?.hasActiveKey == true {
+      self.replaceCurrentObjectContext { $0.hasStartedValueForActiveKey = true }
     }
     self.startObject(style: .block(indent: indent), into: &reducer)
   }
@@ -237,49 +348,27 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.replaceCurrentObjectContext {
       $0.isExpectingKey = false
       $0.hasActiveKey = true
+      $0.hasStartedValueForActiveKey = false
     }
   }
 
   private mutating func parse(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
-    defer { self.advancePosition(for: byte) }
+    try self.parseCurrentByte(byte: byte, into: &reducer, chunkState: &chunkState)
+    self.advancePosition(for: byte)
+  }
 
+  private mutating func parseCurrentByte(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
     if self.mode == .neutral || self.mode == .arrayValue {
-      if self.isAtLineStart {
-        switch byte {
-        case 0x20:
-          self.currentLineIndent += 1
-          return
-        case 0x0A:
-          return
-        default:
-          self.prepareBlockContextsForIndent(self.currentLineIndent)
-          if self.currentObjectContext == nil,
-            self.currentLineIndent == 0,
-            self.currentTrieNode?.expectsObject == true,
-            byte == .asciiQuote || self.isPlainKeyByte(byte)
-          {
-            self.startBlockObjectIfNeeded(at: 0, into: &reducer)
-          }
-          if self.currentObjectContext == nil,
-            self.currentTrieNode?.expectsObject == true,
-            byte == .asciiQuote || self.isPlainKeyByte(byte)
-          {
-            self.startBlockObjectIfNeeded(at: self.currentLineIndent, into: &reducer)
-          } else if case .block(let indent) = self.currentObjectContext?.style,
-            self.currentObjectContext?.hasActiveKey == true,
-            self.currentLineIndent > indent,
-            self.currentTrieNode?.expectsObject == true
-          {
-            self.startBlockObjectIfNeeded(at: self.currentLineIndent, into: &reducer)
-          }
-          self.isAtLineStart = false
-        }
+      if try self.handleLineStartIfNeeded(byte: byte, into: &reducer) {
+        return
       }
     }
 
     switch self.mode {
     case .neutral: try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     case .string: try self.parseString(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .blockScalarHeader: try self.parseBlockScalarHeader(byte: byte)
+    case .blockScalar: try self.parseBlockScalar(byte: byte, into: &reducer, chunkState: &chunkState)
     case .integer: try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
     case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer, chunkState: &chunkState)
     case .exponentialDouble: try self.parseExponentialDouble(byte: byte, into: &reducer, chunkState: &chunkState)
@@ -291,17 +380,56 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
+  private mutating func handleLineStartIfNeeded(byte: UInt8, into reducer: inout Value) throws -> Bool {
+    guard self.isAtLineStart else { return false }
+    switch byte {
+    case 0x20:
+      self.currentLineIndent += 1
+      return true
+    case 0x0A:
+      return true
+    default:
+      try self.prepareBlockContextsForIndent(self.currentLineIndent)
+      if self.currentObjectContext == nil,
+        self.currentLineIndent == 0,
+        self.currentTrieNode?.expectsObject == true,
+        byte == .asciiQuote || self.isPlainKeyByte(byte)
+      {
+        try self.startBlockObjectIfNeeded(at: 0, into: &reducer)
+      }
+      if self.currentObjectContext == nil,
+        self.currentTrieNode?.expectsObject == true,
+        byte == .asciiQuote || self.isPlainKeyByte(byte)
+      {
+        try self.startBlockObjectIfNeeded(at: self.currentLineIndent, into: &reducer)
+      } else if case .block(let indent) = self.currentObjectContext?.style,
+        self.currentObjectContext?.hasActiveKey == true,
+        self.currentLineIndent > indent,
+        self.currentTrieNode?.expectsObject == true
+      {
+        try self.startBlockObjectIfNeeded(at: self.currentLineIndent, into: &reducer)
+      }
+      self.isAtLineStart = false
+      return false
+    }
+  }
+
   private mutating func parseNeutral(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
     if self.currentObjectContext?.isExpectingKey == true {
       switch byte {
       case .asciiObjectEnd:
+        if self.currentObjectContext?.sawTrailingComma == true {
+          throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .objectValue)
+        }
         return self.finishCurrentFlowObject()
       case .asciiQuote:
+        self.replaceCurrentObjectContext { $0.sawTrailingComma = false }
         self.mode = .keyCollecting
         self.keyParsingState.startQuoted()
         return
       default:
         if self.isPlainKeyByte(byte) {
+          self.replaceCurrentObjectContext { $0.sawTrailingComma = false }
           self.mode = .keyCollecting
           self.keyParsingState.startPlain(initial: byte)
           return
@@ -314,10 +442,12 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       if case .flow = self.currentArrayContext?.style {
         try self.flushByteChunkParseState(&chunkState, into: &reducer)
         self.prepareForNextArrayElement()
+        self.replaceCurrentArrayContext { $0.sawTrailingComma = true }
         self.mode = .arrayValue
       } else if case .flow = self.currentObjectContext?.style {
         try self.flushByteChunkParseState(&chunkState, into: &reducer)
         self.finishCurrentObjectValue()
+        self.replaceCurrentObjectContext { $0.sawTrailingComma = true }
       }
     case .asciiQuote:
       try self.handleNeutralDoubleQuotedStringStart(into: &reducer, chunkState: &chunkState)
@@ -342,6 +472,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.handleNeutralLiteralStart(byte, into: &reducer)
     case .asciiLowerN:
       try self.handleNeutralNullStart(byte, into: &reducer)
+    case 0x7C, 0x3E:
+      try self.handleNeutralBlockScalarStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiHash:
       try self.handleNeutralCommentStart()
     default:
@@ -369,6 +501,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
         self.keyParsingState.reset()
         self.mode = .neutral
       } else if !self.isYAMLWhitespace(byte) {
+        if self.currentObjectContext?.hasActiveKey == true {
+          throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+        }
         throw YAMLStreamParsingError(reason: .missingColon, position: self.position, context: .objectKey)
       }
       return
@@ -421,7 +556,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
 
     if byte == 0x20 || byte == 0x0A {
-      self.startBlockArrayItem(at: lineStartDashIndent, into: &reducer)
+      try self.startBlockArrayItem(at: lineStartDashIndent, into: &reducer)
       self.mode = byte == 0x20 ? .arrayValue : .neutral
       return
     }
@@ -433,8 +568,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralNegativeNumberStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, _) = self.handlers.numberPath(node: self.currentTrieNode)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentNumberPath = path
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: true)
@@ -447,8 +584,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralDigitStart(_ byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, _) = self.handlers.numberPath(node: self.currentTrieNode)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentNumberPath = path
     self.mode = .integer
     self.numberParsingState.resetForInteger(isNegative: false)
@@ -461,8 +600,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralLeadingDecimalPointStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (path, _) = self.handlers.numberPath(node: self.currentTrieNode)
+    let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentNumberPath = path
     self.mode = .fractionalDouble
     try self.numberParsingState.resetForFractionalLeadingDot(position: self.position)
@@ -474,6 +615,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralNonFiniteNumberStart(_ byte: UInt8, into reducer: inout Value) throws {
+    try self.prepareForValueStart()
+    let (_, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     if byte == .asciiUpperI {
       self.startLiteral(expected: yamlLiteralInfinity)
     } else {
@@ -482,8 +626,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralLiteralStart(_ byte: UInt8, into reducer: inout Value) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (boolPath, _) = self.handlers.booleanPath(node: self.currentTrieNode)
+    let (boolPath, isInvalidType) = self.handlers.booleanPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentBoolPath = boolPath
     if byte == .asciiLowerT {
       if let boolPath {
@@ -499,8 +645,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralNullStart(_ byte: UInt8, into reducer: inout Value) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (nullablePath, _) = self.handlers.nullablePath(node: self.currentTrieNode)
+    let (nullablePath, isInvalidType) = self.handlers.nullablePath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentNullablePath = nullablePath
     if let nullablePath {
       reducer[keyPath: nullablePath] = nil
@@ -514,7 +662,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralArrayStart(into reducer: inout Value) throws {
-    let (path, _) = self.handlers.arrayPath(node: self.currentTrieNode)
+    try self.prepareForValueStart()
+    let (path, isInvalidType) = self.handlers.arrayPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.appendArrayElementIfNeeded(into: &reducer)
     if let path {
       reducer[keyPath: path].reset()
@@ -526,9 +676,95 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralObjectStart(into reducer: inout Value) throws {
+    try self.prepareForValueStart()
+    let (_, isInvalidType) = self.handlers.dictionaryPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.appendArrayElementIfNeeded(into: &reducer)
     self.startObject(style: .flow, into: &reducer)
     self.mode = .neutral
+  }
+
+  private mutating func handleNeutralBlockScalarStart(
+    _ byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
+    try self.prepareForValueStart()
+    self.appendArrayElementIfNeeded(into: &reducer)
+    let (stringPath, isInvalidType) = self.handlers.stringPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
+    self.currentStringPath = stringPath
+    if let currentStringPath {
+      reducer[keyPath: currentStringPath] = ""
+      chunkState.valueStringBuffer = ""
+    }
+    let kind = byte == 0x7C ? BlockScalarKind.literal : BlockScalarKind.folded
+    self.blockScalarState.start(kind: kind, parentIndent: self.currentLineIndent)
+    self.mode = .blockScalarHeader
+  }
+
+  private mutating func parseBlockScalarHeader(byte: UInt8) throws {
+    if byte == 0x20 || byte == 0x0D {
+      return
+    }
+    guard byte == 0x0A else {
+      throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+    }
+    self.mode = .blockScalar
+  }
+
+  private mutating func parseBlockScalar(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
+    if self.blockScalarState.isAtLineStart {
+      if byte == 0x20 {
+        self.blockScalarState.currentLineIndent += 1
+        return
+      }
+      if byte == 0x0A {
+        self.blockScalarState.finishCurrentLine()
+        return
+      }
+      if self.blockScalarState.contentIndent == nil {
+        guard self.blockScalarState.currentLineIndent > self.blockScalarState.parentIndent else {
+          throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+        }
+        self.blockScalarState.contentIndent = self.blockScalarState.currentLineIndent
+      } else if self.blockScalarState.currentLineIndent < self.blockScalarState.contentIndent ?? 0 {
+        self.currentLineIndent = self.blockScalarState.currentLineIndent
+        try self.finishBlockScalar(into: &reducer, chunkState: &chunkState)
+        return try self.parseCurrentByte(byte: byte, into: &reducer, chunkState: &chunkState)
+      }
+      self.blockScalarState.beginContentByte()
+    }
+
+    if byte == 0x0A {
+      self.blockScalarState.finishCurrentLine()
+      return
+    }
+    self.blockScalarState.append(byte: byte)
+  }
+
+  private mutating func finishBlockScalar(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
+    if self.mode == .blockScalar {
+      if !self.blockScalarState.isAtLineStart || self.blockScalarState.currentLineIndent > 0 {
+        self.blockScalarState.finishCurrentLine()
+      }
+    }
+    guard self.blockScalarState.hasContent else {
+      throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+    }
+    if let currentStringPath {
+      reducer[keyPath: currentStringPath] = self.blockScalarState.buffer
+      chunkState.valueStringBuffer = nil
+    }
+    self.mode = .neutral
+    self.blockScalarState = BlockScalarState()
   }
 
   private mutating func finishCurrentFlowObject() {
@@ -540,19 +776,40 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralObjectEnd() throws {
+    guard case .flow = self.currentObjectContext?.style else {
+      throw YAMLStreamParsingError(reason: .unexpectedToken, position: self.position, context: .neutral)
+    }
+    let sawTrailingComma = self.currentObjectContext?.sawTrailingComma == true
+    let isMissingValue = self.currentObjectContext?.hasActiveKey == true
+      && self.currentObjectContext?.hasStartedValueForActiveKey == false
     self.finishCurrentFlowObject()
+    if isMissingValue {
+      throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+    }
+    if sawTrailingComma {
+      throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .objectValue)
+    }
   }
 
   private mutating func handleNeutralArrayEnd(into reducer: inout Value) throws {
-    guard case .flow = self.currentArrayContext?.style else { return }
+    guard case .flow = self.currentArrayContext?.style else {
+      throw YAMLStreamParsingError(reason: .unexpectedToken, position: self.position, context: .neutral)
+    }
+    let sawTrailingComma = self.currentArrayContext?.sawTrailingComma == true
+    let didAppendElement = self.currentArrayContext?.didAppendForCurrentElement == true
     _ = self.arrayContexts.popLast()
     self.popArrayTrieNode()
     self.mode = .neutral
+    if !didAppendElement && sawTrailingComma {
+      throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .arrayValue)
+    }
   }
 
   private mutating func handleNeutralDoubleQuotedStringStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+    try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
-    let (stringPath, _) = self.handlers.stringPath(node: self.currentTrieNode)
+    let (stringPath, isInvalidType) = self.handlers.stringPath(node: self.currentTrieNode)
+    try self.throwInvalidTypeIfNeeded(isInvalidType)
     self.currentStringPath = stringPath
     if let currentStringPath {
       reducer[keyPath: currentStringPath] = ""
@@ -710,6 +967,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
         if digit == 0 {
           self.numberParsingState.state.hasLeadingZero = true
         }
+      } else if self.numberParsingState.state.hasLeadingZero {
+        throw YAMLStreamParsingError(reason: .leadingZero, position: self.position, context: .number)
       }
       self.numberParsingState.state.digitCount += 1
       try self.numberParsingState.appendDigit(byte, position: self.position)
@@ -798,6 +1057,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     case .asciiComma:
       try self.flushByteChunkParseState(&chunkState, into: &reducer)
       self.prepareForNextArrayElement()
+      self.replaceCurrentArrayContext { $0.sawTrailingComma = true }
     case .asciiArrayEnd:
       try self.flushByteChunkParseState(&chunkState, into: &reducer)
       try self.handleNeutralArrayEnd(into: &reducer)
@@ -812,7 +1072,15 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.handleNeutralLiteralStart(byte, into: &reducer)
     case .asciiLowerN:
       try self.handleNeutralNullStart(byte, into: &reducer)
+    case 0x7C, 0x3E:
+      try self.handleNeutralBlockScalarStart(byte, into: &reducer, chunkState: &chunkState)
     default:
+      if self.isYAMLWhitespace(byte) {
+        break
+      }
+      if case .flow = self.currentArrayContext?.style {
+        throw YAMLStreamParsingError(reason: .missingComma, position: self.position, context: .arrayValue)
+      }
       break
     }
   }
@@ -1449,6 +1717,72 @@ extension YAMLStreamParser {
   private struct ByteChunkParseState {
     var valueStringBuffer: String?
     var valueNumberAccumulator: JSONNumberAccumulator?
+  }
+
+  private struct BlockScalarState {
+    var kind = BlockScalarKind.literal
+    var parentIndent = 0
+    var contentIndent: Int?
+    var currentLineIndent = 0
+    var currentLine = ""
+    var buffer = ""
+    var isAtLineStart = true
+    var hasContent = false
+    var previousLineWasBlank = false
+    var utf8State = UTF8State()
+
+    mutating func start(kind: BlockScalarKind, parentIndent: Int) {
+      self.kind = kind
+      self.parentIndent = parentIndent
+      self.contentIndent = nil
+      self.currentLineIndent = 0
+      self.currentLine = ""
+      self.buffer = ""
+      self.isAtLineStart = true
+      self.hasContent = false
+      self.previousLineWasBlank = false
+      self.utf8State = UTF8State()
+    }
+
+    mutating func beginContentByte() {
+      guard let contentIndent else { return }
+      if self.currentLineIndent > contentIndent {
+        self.currentLine = String(repeating: " ", count: self.currentLineIndent - contentIndent)
+      }
+      self.isAtLineStart = false
+    }
+
+    mutating func append(byte: UInt8) {
+      switch self.utf8State.consume(byte: byte) {
+      case .consume(let scalar):
+        self.currentLine.unicodeScalars.append(scalar)
+      case .doNothing:
+        break
+      }
+    }
+
+    mutating func finishCurrentLine() {
+      let isBlankLine = self.currentLine.isEmpty
+      if self.hasContent {
+        switch self.kind {
+        case .literal:
+          self.buffer.append("\n")
+        case .folded:
+          if self.previousLineWasBlank || isBlankLine {
+            self.buffer.append("\n")
+          } else {
+            self.buffer.append(" ")
+          }
+        }
+      }
+      self.buffer.append(self.currentLine)
+      self.hasContent = true
+      self.previousLineWasBlank = isBlankLine
+      self.currentLine = ""
+      self.currentLineIndent = 0
+      self.isAtLineStart = true
+      self.utf8State.reset()
+    }
   }
 }
 

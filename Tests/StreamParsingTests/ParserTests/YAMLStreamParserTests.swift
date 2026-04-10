@@ -152,6 +152,58 @@ struct `YAMLStreamParser tests` {
       ]
       try expectYAMLStreamedValues(yaml, initialValue: "", expected: expected)
     }
+
+    @Test
+    func `Streams YAML Literal Block String`() throws {
+      let yaml = """
+      |
+        hello
+        world
+      """
+      try expectYAMLFinalValue(yaml, initialValue: "", expected: "hello\nworld")
+    }
+
+    @Test
+    func `Streams YAML Folded Block String`() throws {
+      let yaml = """
+      >
+        hello
+        world
+      """
+      try expectYAMLFinalValue(yaml, initialValue: "", expected: "hello world")
+    }
+
+    @Test
+    func `Streams YAML Literal Block String With Blank Line And Extra Indentation`() throws {
+      let yaml = """
+      |
+        hello
+
+          world
+      """
+      try expectYAMLFinalValue(yaml, initialValue: "", expected: "hello\n\n  world")
+    }
+
+    @Test
+    func `Streams YAML Folded Block String With Blank Line`() throws {
+      let yaml = """
+      >
+        hello
+
+        world
+      """
+      try expectYAMLFinalValue(yaml, initialValue: "", expected: "hello\n\nworld")
+    }
+
+    @Test
+    func `Streams YAML Folded Block String With Extra Indentation`() throws {
+      let yaml = """
+      >
+        hello
+          world
+      """
+      try expectYAMLFinalValue(yaml, initialValue: "", expected: "hello   world")
+    }
   }
 
   @Suite
@@ -1413,6 +1465,319 @@ struct `YAMLStreamParser tests` {
       try expectYAMLStreamedValues(yaml, initialValue: [String: Int](), expected: expected)
     }
   }
+
+  @Suite
+  struct `YAMLError tests` {
+    @Test
+    func `Throws For Missing Colon`() throws {
+      let yaml = "{a 1}"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
+
+    @Test
+    func `Throws For Unexpected Token In Neutral Mode`() throws {
+      let yaml = "]["
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
+    func `Throws For Unterminated String`() throws {
+      let yaml = "\"unterminated"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: "",
+        reason: .unterminatedString
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Unicode Escape`() throws {
+      let yaml = "\"\\u12\""
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: "",
+        reason: .invalidUnicodeEscape
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Literal`() throws {
+      let yaml = "{a: truX}"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Bool](),
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Number`() throws {
+      let yaml = "{a: -}"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Fractional Number`() throws {
+      let yaml = "1."
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: 0.0,
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Exponent`() throws {
+      let yaml = "1e+"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: 0.0,
+        reason: .invalidExponent
+      )
+    }
+
+    @Test
+    func `Throws For Numeric Overflow`() throws {
+      let yaml = "[18446744073709551616]"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [UInt64](),
+        reason: .numericOverflow
+      )
+    }
+
+    @Test
+    func `Throws For Missing Value`() throws {
+      let yaml = "{a: }"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingValue
+      )
+    }
+
+    @Test
+    func `Throws For Trailing Comma In Object`() throws {
+      let yaml = "{a: 1,}"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .trailingComma
+      )
+    }
+
+    @Test
+    func `Throws For Trailing Comma In Array`() throws {
+      let yaml = "[1,]"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .trailingComma
+      )
+    }
+
+    @Test
+    func `Throws For Missing Comma In Array`() throws {
+      let yaml = "[1 2]"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .missingComma
+      )
+    }
+
+    @Test
+    func `Throws For Missing Closing Brace`() throws {
+      let yaml = "{a: 1"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingClosingBrace
+      )
+    }
+
+    @Test
+    func `Throws For Missing Closing Bracket`() throws {
+      let yaml = "[1, 2"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .missingClosingBracket
+      )
+    }
+
+    @Test
+    func `Throws For Leading Zero`() throws {
+      let yaml = "{a: 01}"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .leadingZero
+      )
+    }
+  }
+
+  @Suite
+  struct `YAMLBlockError tests` {
+    @Test
+    func `Throws For Missing Colon In Block Mapping`() throws {
+      let yaml = "value 1"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
+
+    @Test
+    func `Throws For Missing Value In Block Mapping`() throws {
+      let yaml = "value:"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingValue
+      )
+    }
+
+    @Test
+    func `Throws For Missing Nested Value In Block Mapping`() throws {
+      let yaml = """
+      root:
+        child:
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: [String: Int]](),
+        reason: .missingValue
+      )
+    }
+
+    @Test
+    func `Throws For Unexpected Token In Block Context`() throws {
+      let yaml = "]"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Number In Block Mapping`() throws {
+      let yaml = "value: -x"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .invalidNumber
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Exponent In Block Mapping`() throws {
+      let yaml = "value: 1e+"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Double](),
+        reason: .invalidExponent
+      )
+    }
+
+    @Test
+    func `Throws For Leading Zero In Block Mapping`() throws {
+      let yaml = "value: 01"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .leadingZero
+      )
+    }
+
+    @Test
+    func `Throws For Leading Zero In Block Sequence`() throws {
+      let yaml = """
+      - 01
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .leadingZero
+      )
+    }
+
+    @Test
+    func `Throws For Block Scalar When Expecting Integer`() throws {
+      let yaml = """
+      |
+        123
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: 0,
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Block Scalar Property When Expecting Integer`() throws {
+      let yaml = """
+      value: |
+        123
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: IntValueContainer.Partial(),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Block Scalar Element When Expecting Integer`() throws {
+      let yaml = """
+      - |
+          123
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [Int](),
+        reason: .invalidType
+      )
+    }
+
+    @Test
+    func `Throws For Invalid Block Scalar Header`() throws {
+      let yaml = "value: | nope"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: YAMLStringValueContainer.Partial(),
+        reason: .invalidMultiLineString
+      )
+    }
+
+    @Test
+    func `Throws For Missing Block Scalar Content`() throws {
+      let yaml = """
+      value: |
+      next: 1
+      """
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: YAMLStringValueContainer.Partial(),
+        reason: .invalidMultiLineString
+      )
+    }
+  }
 }
 
 private func expectYAMLStreamedValues<T: StreamParseableValue & Equatable>(
@@ -1445,6 +1810,51 @@ private func expectYAMLFinalValue<T: StreamParseableValue & Equatable>(
   expectNoDifference(values.last, expected, fileID: file, line: line)
 }
 
+private func expectYAMLStreamedValuesBeforeError<T: StreamParseableValue & Equatable>(
+  _ yaml: String,
+  configuration: YAMLStreamParserConfiguration = YAMLStreamParserConfiguration(),
+  initialValue: T,
+  expected: [T],
+  reason: YAMLStreamParsingError.Reason
+) {
+  var stream = PartialsStream(initialValue: initialValue, from: .yaml(configuration: configuration))
+  var partials = [T]()
+  let thrownError = #expect(throws: YAMLStreamParsingError.self) {
+    for byte in yaml.utf8 {
+      partials.append(try stream.next(byte))
+    }
+    _ = try stream.finish()
+  }
+
+  guard let error = thrownError else {
+    Issue.record("Expected YAMLStreamParsingError to be captured.")
+    return
+  }
+  expectNoDifference(error.reason, reason)
+  expectNoDifference(partials, expected)
+}
+
+private func expectYAMLStreamParsingError<T: StreamParseableValue>(
+  _ yaml: String,
+  configuration: YAMLStreamParserConfiguration = YAMLStreamParserConfiguration(),
+  initialValue: T,
+  reason: YAMLStreamParsingError.Reason,
+  position: YAMLStreamParsingPosition? = nil
+) throws {
+  let thrownError = #expect(throws: YAMLStreamParsingError.self) {
+    _ = try yaml.utf8.partials(
+      initialValue: initialValue,
+      from: .yaml(configuration: configuration)
+    )
+  }
+
+  let error = try #require(thrownError)
+  expectNoDifference(error.reason, reason)
+  if let position {
+    expectNoDifference(error.position, position)
+  }
+}
+
 
 @StreamParseable
 struct YAMLStringValueContainer: Equatable {
@@ -1452,3 +1862,64 @@ struct YAMLStringValueContainer: Equatable {
 }
 
 extension YAMLStringValueContainer.Partial: Equatable {}
+
+@Suite
+struct `YAMLKeyDecodingStrategy tests` {
+  @Test(
+    arguments: [
+      ("", ""),
+      ("simple_key", "simpleKey"),
+      ("more_complex_snake_case_value", "moreComplexSnakeCaseValue"),
+      ("alreadyCamelCase", "alreadyCamelCase"),
+      ("_", "_"),
+      ("___", "___"),
+      ("1_value", "1Value"),
+      ("snake__case", "snakeCase"),
+      ("snake_case__", "snakeCase__"),
+      ("snake_case_with_123", "snakeCaseWith123")
+    ]
+  )
+  func `ConvertFromSnakeCase Converts Snake Cased Keys`(
+    input: String,
+    expected: String
+  ) throws {
+    let strategy = YAMLKeyDecodingStrategy.convertFromSnakeCase
+    expectNoDifference(strategy.decode(key: input), expected)
+  }
+
+  @Test
+  func `UseDefault Leaves Keys Unchanged`() throws {
+    let strategy = YAMLKeyDecodingStrategy.useDefault
+    expectNoDifference(strategy.decode(key: "snake_case"), "snake_case")
+  }
+
+  @Test
+  func `Custom Applies Transform`() throws {
+    let strategy = YAMLKeyDecodingStrategy.custom { "prefix_\($0)" }
+    expectNoDifference(strategy.decode(key: "value"), "prefix_value")
+  }
+
+  @Test
+  func `Streams YAML Object Using ConvertFromSnakeCase`() throws {
+    let yaml = "snake_case: 1"
+    let configuration = YAMLStreamParserConfiguration(keyDecodingStrategy: .convertFromSnakeCase)
+    let values = try yaml.utf8.partials(
+      initialValue: [String: Int](),
+      from: .yaml(configuration: configuration)
+    )
+    expectNoDifference(values.last, ["snakeCase": 1])
+  }
+
+  @Test
+  func `Streams YAML Object Using Custom Key Decoder`() throws {
+    let yaml = "value: 1"
+    let configuration = YAMLStreamParserConfiguration(
+      keyDecodingStrategy: .custom { "prefix_\($0)" }
+    )
+    let values = try yaml.utf8.partials(
+      initialValue: [String: Int](),
+      from: .yaml(configuration: configuration)
+    )
+    expectNoDifference(values.last, ["prefix_value": 1])
+  }
+}
