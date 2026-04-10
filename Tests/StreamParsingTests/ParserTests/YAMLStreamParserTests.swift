@@ -1094,17 +1094,21 @@ struct `YAMLStreamParser tests` {
       first: 1
       second: 2
       """
-      try expectYAMLFinalValue(yaml, initialValue: [String: Int](), expected: ["first": 1, "second": 2])
+      let initialPhase: [[String: Int]] = Array(repeating: [:], count: 7)
+      let firstPhase: [[String: Int]] = Array(repeating: ["first": 1], count: 10)
+      let finalPhase: [[String: Int]] = Array(repeating: ["first": 1, "second": 2], count: 2)
+      let expected: [[String: Int]] = initialPhase + firstPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Int](), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Two Keys Into StreamParseable Struct`() throws {
       let yaml = "{first: 1, second: 2}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: TwoKeyObject.Partial(),
-        expected: TwoKeyObject.Partial(first: 1, second: 2)
-      )
+      let initialPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(), count: 8)
+      let firstPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(first: 1, second: nil), count: 11)
+      let finalPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(first: 1, second: 2), count: 3)
+      let expected = initialPhase + firstPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: TwoKeyObject.Partial(), expected: expected)
     }
 
     @Test
@@ -1113,21 +1117,29 @@ struct `YAMLStreamParser tests` {
       first: 1
       second: 2
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: TwoKeyObject.Partial(),
-        expected: TwoKeyObject.Partial(first: 1, second: 2)
-      )
+      let initialPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(), count: 7)
+      let firstPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(first: 1, second: nil), count: 10)
+      let finalPhase: [TwoKeyObject.Partial] = Array(repeating: TwoKeyObject.Partial(first: 1, second: 2), count: 2)
+      let expected = initialPhase + firstPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: TwoKeyObject.Partial(), expected: expected)
     }
 
     @Test
     func `Continues Parsing YAML Flow-Style Mapping After Ignored Key`() throws {
       let yaml = "{ignored: \"alpha\", tracked: \"beta\"}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: TrackedOnly.Partial(),
-        expected: TrackedOnly.Partial(tracked: "beta")
-      )
+      let nilPhase: [TrackedOnly.Partial] = Array(repeating: TrackedOnly.Partial(tracked: nil), count: 28)
+      let stringPhase: [TrackedOnly.Partial] = [
+        TrackedOnly.Partial(tracked: ""),
+        TrackedOnly.Partial(tracked: "b"),
+        TrackedOnly.Partial(tracked: "be"),
+        TrackedOnly.Partial(tracked: "bet"),
+        TrackedOnly.Partial(tracked: "beta"),
+        TrackedOnly.Partial(tracked: "beta"),
+        TrackedOnly.Partial(tracked: "beta"),
+        TrackedOnly.Partial(tracked: "beta")
+      ]
+      let expected = nilPhase + stringPhase
+      try expectYAMLStreamedValues(yaml, initialValue: TrackedOnly.Partial(), expected: expected)
     }
 
     @Test
@@ -1136,21 +1148,28 @@ struct `YAMLStreamParser tests` {
       ignored: "alpha"
       tracked: "beta"
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: TrackedOnly.Partial(),
-        expected: TrackedOnly.Partial(tracked: "beta")
-      )
+      let nilPhase: [TrackedOnly.Partial] = Array(repeating: TrackedOnly.Partial(tracked: nil), count: 26)
+      let stringPhase: [TrackedOnly.Partial] = [
+        TrackedOnly.Partial(tracked: ""),
+        TrackedOnly.Partial(tracked: "b"),
+        TrackedOnly.Partial(tracked: "be"),
+        TrackedOnly.Partial(tracked: "bet"),
+        TrackedOnly.Partial(tracked: "beta"),
+        TrackedOnly.Partial(tracked: "beta"),
+        TrackedOnly.Partial(tracked: "beta")
+      ]
+      let expected = nilPhase + stringPhase
+      try expectYAMLStreamedValues(yaml, initialValue: TrackedOnly.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Nested Object Into Dictionary Of Dictionaries`() throws {
       let yaml = "{outer: {inner: 1}}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: [String: [String: Int]](),
-        expected: ["outer": ["inner": 1]]
-      )
+      let initialPhase: [[String: [String: Int]]] = Array(repeating: [:], count: 8)
+      let outerPhase: [[String: [String: Int]]] = Array(repeating: ["outer": [:]], count: 8)
+      let finalPhase: [[String: [String: Int]]] = Array(repeating: ["outer": ["inner": 1]], count: 4)
+      let expected = initialPhase + outerPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: [String: Int]](), expected: expected)
     }
 
     @Test
@@ -1159,21 +1178,20 @@ struct `YAMLStreamParser tests` {
       outer:
         inner: 1
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: [String: [String: Int]](),
-        expected: ["outer": ["inner": 1]]
-      )
+      let initialPhase: [[String: [String: Int]]] = Array(repeating: [:], count: 9)
+      let outerPhase: [[String: [String: Int]]] = Array(repeating: ["outer": [:]], count: 7)
+      let finalPhase: [[String: [String: Int]]] = Array(repeating: ["outer": ["inner": 1]], count: 2)
+      let expected = initialPhase + outerPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: [String: Int]](), expected: expected)
     }
 
     @Test
     func `Streams YAML Nested Object Into StreamParseable Struct`() throws {
       let yaml = "{nested: {value: 1}}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NestedContainer.Partial(),
-        expected: NestedContainer.Partial(nested: NestedValue.Partial(value: 1))
-      )
+      let nilPhase: [NestedContainer.Partial] = Array(repeating: NestedContainer.Partial(), count: 17)
+      let finalPhase: [NestedContainer.Partial] = Array(repeating: NestedContainer.Partial(nested: NestedValue.Partial(value: 1)), count: 4)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NestedContainer.Partial(), expected: expected)
     }
 
     @Test
@@ -1182,35 +1200,52 @@ struct `YAMLStreamParser tests` {
       nested:
         value: 1
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NestedContainer.Partial(),
-        expected: NestedContainer.Partial(nested: NestedValue.Partial(value: 1))
-      )
+      let nilPhase: [NestedContainer.Partial] = Array(repeating: NestedContainer.Partial(), count: 17)
+      let finalPhase: [NestedContainer.Partial] = Array(repeating: NestedContainer.Partial(nested: NestedValue.Partial(value: 1)), count: 2)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NestedContainer.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Nullable Value Into Dictionary`() throws {
       let yaml = "{maybe: null}"
-      let expected: [String: Int?] = ["maybe": nil]
-      try expectYAMLFinalValue(yaml, initialValue: [String: Int?](), expected: expected)
+      let initialPhase: [[String: Int?]] = Array(repeating: [:], count: 8)
+      let finalPhase: [[String: Int?]] = Array(repeating: ["maybe": nil], count: 6)
+      let expected = initialPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Int?](), expected: expected)
     }
 
     @Test
     func `Streams YAML Block-Style Object With Nullable Value Into Dictionary`() throws {
       let yaml = "maybe: null"
-      let expected: [String: Int?] = ["maybe": nil]
-      try expectYAMLFinalValue(yaml, initialValue: [String: Int?](), expected: expected)
+      let initialPhase: [[String: Int?]] = Array(repeating: [:], count: 7)
+      let finalPhase: [[String: Int?]] = Array(repeating: ["maybe": nil], count: 5)
+      let expected = initialPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Int?](), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Fractional And Exponential Doubles Into Dictionary`() throws {
       let yaml = "{fractional: 12.34, exponential: 12e3}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: [String: Double](),
-        expected: ["fractional": 12.34, "exponential": 12_000]
-      )
+      let initialPhase: [[String: Double]] = Array(repeating: [:], count: 13)
+      let fractionalBuildUp: [[String: Double]] = [
+        ["fractional": 1.0],
+        ["fractional": 12.0],
+        ["fractional": 12.0],
+        ["fractional": 12.3],
+        ["fractional": 12.34]
+      ]
+      let fractionalStable: [[String: Double]] = Array(repeating: ["fractional": 12.34], count: 15)
+      let expBuildUp: [[String: Double]] = [
+        ["fractional": 12.34, "exponential": 1.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12000.0]
+      ]
+      let final: [[String: Double]] = Array(repeating: ["fractional": 12.34, "exponential": 12000.0], count: 1)
+      let expected = initialPhase + fractionalBuildUp + fractionalStable + expBuildUp + final
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Double](), expected: expected)
     }
 
     @Test
@@ -1219,41 +1254,51 @@ struct `YAMLStreamParser tests` {
       fractional: 12.34
       exponential: 12e3
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: [String: Double](),
-        expected: ["fractional": 12.34, "exponential": 12_000]
-      )
+      let initialPhase: [[String: Double]] = Array(repeating: [:], count: 12)
+      let fractionalBuildUp: [[String: Double]] = [
+        ["fractional": 1.0],
+        ["fractional": 12.0],
+        ["fractional": 12.0],
+        ["fractional": 12.3],
+        ["fractional": 12.34]
+      ]
+      let fractionalStable: [[String: Double]] = Array(repeating: ["fractional": 12.34], count: 14)
+      let expBuildUp: [[String: Double]] = [
+        ["fractional": 12.34, "exponential": 1.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12.0],
+        ["fractional": 12.34, "exponential": 12000.0]
+      ]
+      let expected = initialPhase + fractionalBuildUp + fractionalStable + expBuildUp
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Double](), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Nullable Value Into StreamParseable Struct`() throws {
       let yaml = "{maybe: null}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NullableObject.Partial(),
-        expected: NullableObject.Partial(maybe: .some(nil))
-      )
+      let nilPhase: [NullableObject.Partial] = Array(repeating: NullableObject.Partial(), count: 8)
+      let finalPhase: [NullableObject.Partial] = Array(repeating: NullableObject.Partial(maybe: .some(nil)), count: 6)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NullableObject.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Block-Style Object With Nullable Value Into StreamParseable Struct`() throws {
       let yaml = "maybe: null"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NullableObject.Partial(),
-        expected: NullableObject.Partial(maybe: .some(nil))
-      )
+      let nilPhase: [NullableObject.Partial] = Array(repeating: NullableObject.Partial(), count: 7)
+      let finalPhase: [NullableObject.Partial] = Array(repeating: NullableObject.Partial(maybe: .some(nil)), count: 5)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NullableObject.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Nested Nullable Value Into StreamParseable Struct`() throws {
       let yaml = "{inner: {maybe: null}}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NullableNestedContainer.Partial(),
-        expected: NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: .some(nil)))
-      )
+      let nilPhase: [NullableNestedContainer.Partial] = Array(repeating: NullableNestedContainer.Partial(), count: 16)
+      let finalPhase: [NullableNestedContainer.Partial] = Array(repeating: NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: .some(nil))), count: 7)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NullableNestedContainer.Partial(), expected: expected)
     }
 
     @Test
@@ -1262,39 +1307,42 @@ struct `YAMLStreamParser tests` {
       inner:
         maybe: null
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: NullableNestedContainer.Partial(),
-        expected: NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: .some(nil)))
-      )
+      let nilPhase: [NullableNestedContainer.Partial] = Array(repeating: NullableNestedContainer.Partial(), count: 16)
+      let finalPhase: [NullableNestedContainer.Partial] = Array(repeating: NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: .some(nil))), count: 5)
+      let expected = nilPhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: NullableNestedContainer.Partial(), expected: expected)
     }
 
     @Test
     func `Parses Empty YAML Object From Boolean Property`() throws {
       let yaml = "{flag: true, other: {}}"
-      try expectYAMLFinalValue(yaml, initialValue: EmptyObject.Partial(), expected: EmptyObject.Partial())
+      let expected: [EmptyObject.Partial] = Array(repeating: EmptyObject.Partial(), count: 24)
+      try expectYAMLStreamedValues(yaml, initialValue: EmptyObject.Partial(), expected: expected)
     }
 
     @Test
     func `Parses Empty YAML Object From Null Property`() throws {
       let yaml = "{value: null, other: {}}"
-      try expectYAMLFinalValue(yaml, initialValue: EmptyObject.Partial(), expected: EmptyObject.Partial())
+      let expected: [EmptyObject.Partial] = Array(repeating: EmptyObject.Partial(), count: 25)
+      try expectYAMLStreamedValues(yaml, initialValue: EmptyObject.Partial(), expected: expected)
     }
 
     @Test
     func `Parses Empty YAML Object From Array Property`() throws {
       let yaml = "{values: [1, 2, 3], other: {}}"
-      try expectYAMLFinalValue(yaml, initialValue: EmptyObject.Partial(), expected: EmptyObject.Partial())
+      let expected: [EmptyObject.Partial] = Array(repeating: EmptyObject.Partial(), count: 31)
+      try expectYAMLStreamedValues(yaml, initialValue: EmptyObject.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Array Property Into StreamParseable Struct`() throws {
       let yaml = "{numbers: [1, 2]}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: ArrayPropertyContainer.Partial(),
-        expected: ArrayPropertyContainer.Partial(numbers: [1, 2])
-      )
+      let nilPhase: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(), count: 10)
+      let emptyArray: [ArrayPropertyContainer.Partial] = [ArrayPropertyContainer.Partial(numbers: [])]
+      let oneElement: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(numbers: [1]), count: 3)
+      let finalPhase: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(numbers: [1, 2]), count: 4)
+      let expected = nilPhase + emptyArray + oneElement + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: ArrayPropertyContainer.Partial(), expected: expected)
     }
 
     @Test
@@ -1304,21 +1352,22 @@ struct `YAMLStreamParser tests` {
         - 1
         - 2
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: ArrayPropertyContainer.Partial(),
-        expected: ArrayPropertyContainer.Partial(numbers: [1, 2])
-      )
+      let nilPhase: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(), count: 12)
+      let emptyArray: [ArrayPropertyContainer.Partial] = [ArrayPropertyContainer.Partial(numbers: [])]
+      let oneElement: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(numbers: [1]), count: 6)
+      let finalPhase: [ArrayPropertyContainer.Partial] = Array(repeating: ArrayPropertyContainer.Partial(numbers: [1, 2]), count: 2)
+      let expected = nilPhase + emptyArray + oneElement + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: ArrayPropertyContainer.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Dictionary Property Into StreamParseable Struct`() throws {
       let yaml = "{values: {inner: 1}}"
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: DictionaryPropertyContainer.Partial(),
-        expected: DictionaryPropertyContainer.Partial(values: ["inner": 1])
-      )
+      let nilPhase: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(), count: 9)
+      let emptyDict: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(values: [:]), count: 8)
+      let finalPhase: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(values: ["inner": 1]), count: 4)
+      let expected = nilPhase + emptyDict + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: DictionaryPropertyContainer.Partial(), expected: expected)
     }
 
     @Test
@@ -1327,17 +1376,21 @@ struct `YAMLStreamParser tests` {
       values:
         inner: 1
       """
-      try expectYAMLFinalValue(
-        yaml,
-        initialValue: DictionaryPropertyContainer.Partial(),
-        expected: DictionaryPropertyContainer.Partial(values: ["inner": 1])
-      )
+      let nilPhase: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(), count: 10)
+      let emptyDict: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(values: [:]), count: 7)
+      let finalPhase: [DictionaryPropertyContainer.Partial] = Array(repeating: DictionaryPropertyContainer.Partial(values: ["inner": 1]), count: 2)
+      let expected = nilPhase + emptyDict + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: DictionaryPropertyContainer.Partial(), expected: expected)
     }
 
     @Test
     func `Streams YAML Object With Duplicate Keys Into Dictionary Keeping Last Value`() throws {
       let yaml = "{value: 1, value: 2}"
-      try expectYAMLFinalValue(yaml, initialValue: [String: Int](), expected: ["value": 2])
+      let initialPhase: [[String: Int]] = Array(repeating: [:], count: 8)
+      let firstValuePhase: [[String: Int]] = Array(repeating: ["value": 1], count: 10)
+      let finalPhase: [[String: Int]] = Array(repeating: ["value": 2], count: 3)
+      let expected = initialPhase + firstValuePhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Int](), expected: expected)
     }
 
     @Test
@@ -1353,7 +1406,11 @@ struct `YAMLStreamParser tests` {
       value: 1
       value: 2
       """
-      try expectYAMLFinalValue(yaml, initialValue: [String: Int](), expected: ["value": 2])
+      let initialPhase: [[String: Int]] = Array(repeating: [:], count: 7)
+      let firstValuePhase: [[String: Int]] = Array(repeating: ["value": 1], count: 9)
+      let finalPhase: [[String: Int]] = Array(repeating: ["value": 2], count: 2)
+      let expected = initialPhase + firstValuePhase + finalPhase
+      try expectYAMLStreamedValues(yaml, initialValue: [String: Int](), expected: expected)
     }
   }
 }
