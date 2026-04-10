@@ -34,4 +34,5 @@ extension UInt8 {
   static let asciiUpperF: UInt8 = 0x46
   static let asciiLowerA: UInt8 = 0x61
   static let asciiLowerF: UInt8 = 0x66
+  static let asciiHash: UInt8 = 0x23
 }
