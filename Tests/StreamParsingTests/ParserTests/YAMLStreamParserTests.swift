@@ -1,7 +1,21 @@
 import CustomDump
 import Foundation
+import SnapshotTesting
 import StreamParsing
 import Testing
+import Yams
+
+extension Snapshotting where Value: Encodable, Format == String {
+  static var yaml: SnapshotTesting.Snapshotting<Value, String> {
+    Snapshotting(
+      pathExtension: "yaml",
+      diffing: .lines,
+      snapshot: { value in
+        try! YAMLEncoder().encode(value)
+      }
+    )
+  }
+}
 
 @Suite
 struct `YAMLStreamParser tests` {
@@ -1921,5 +1935,111 @@ struct `YAMLKeyDecodingStrategy tests` {
       from: .yaml(configuration: configuration)
     )
     expectNoDifference(values.last, ["prefix_value": 1])
+  }
+}
+
+@Suite
+struct `YAMLDump tests` {
+  private let url64Kb = Bundle.module.url(forResource: "64KB", withExtension: "yaml")!
+  private let url512Kb = Bundle.module.url(forResource: "512KB", withExtension: "yaml")!
+  private let urlDeepNested64 = Bundle.module.url(
+    forResource: "DeepNested64",
+    withExtension: "yaml"
+  )!
+
+  @Test
+  func `Small YAML Dump Optional`() throws {
+    try self.assertSnapshot(of: [ProfileOptional.Partial].self, from: self.url64Kb)
+  }
+
+  @Test
+  func `Small YAML Dump Parseable`() throws {
+    try self.assertSnapshot(of: [ProfileParseable.Partial].self, from: self.url64Kb)
+  }
+
+  @Test
+  func `Large YAML Dump Optional`() throws {
+    try self.assertSnapshot(of: [ProfileOptional.Partial].self, from: self.url512Kb)
+  }
+
+  @Test
+  func `Large YAML Dump Parseable`() throws {
+    try self.assertSnapshot(of: [ProfileParseable.Partial].self, from: self.url512Kb)
+  }
+
+  @Test
+  func `Large YAML Dump Parseable Chunked 4KB`() throws {
+    try self.assertSnapshot(
+      of: [ProfileParseable.Partial].self,
+      from: self.url512Kb,
+      chunkSize: 4 * 1024
+    )
+  }
+
+  @Test
+  func `Large YAML Dump Optional Chunked 4KB`() throws {
+    try self.assertSnapshot(
+      of: [ProfileOptional.Partial].self,
+      from: self.url512Kb,
+      chunkSize: 4 * 1024
+    )
+  }
+
+  @Test
+  func `Nested YAML Dump Partial States`() throws {
+    try self.assertNestedPartialSnapshot(
+      from: self.urlDeepNested64,
+      chunkSize: 256 * 1024,
+      testName: #function
+    )
+  }
+
+  private func assertSnapshot<Value: StreamParseableValue & Encodable>(
+    of type: Value.Type,
+    from url: URL,
+    chunkSize: Int? = nil,
+    testName: String = #function
+  ) throws {
+    let data = try Data(contentsOf: url)
+    var stream = PartialsStream(initialValue: type.initialParseableValue(), from: .yaml())
+    if let chunkSize {
+      let bytes = Array(data)
+      var offset = bytes.startIndex
+      while offset < bytes.endIndex {
+        let endIndex = min(offset + chunkSize, bytes.endIndex)
+        _ = try stream.next(bytes[offset..<endIndex])
+        offset = endIndex
+      }
+    } else {
+      for byte in data {
+        _ = try stream.next(byte)
+      }
+    }
+    let final = try stream.finish()
+    SnapshotTesting.assertSnapshot(of: final, as: .yaml, testName: testName)
+  }
+
+  private func assertNestedPartialSnapshot(
+    from url: URL,
+    chunkSize: Int,
+    testName: String
+  ) throws {
+    let data = try Data(contentsOf: url)
+    var stream = PartialsStream(
+      initialValue: DeepNestedRoot.Partial.initialParseableValue(),
+      from: .yaml()
+    )
+    let bytes = Array(data)
+    var partials = [DeepNestedRoot.Partial]()
+    var offset = bytes.startIndex
+
+    while offset < bytes.endIndex {
+      let endIndex = min(offset + chunkSize, bytes.endIndex)
+      partials.append(try stream.next(bytes[offset..<endIndex]))
+      offset = endIndex
+    }
+
+    partials.append(try stream.finish())
+    SnapshotTesting.assertSnapshot(of: partials, as: .yaml, testName: testName)
   }
 }
