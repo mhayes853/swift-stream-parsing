@@ -1794,6 +1794,24 @@ struct `YAMLStreamParser tests` {
   }
 }
 
+@Suite
+struct `YAMLConfiguration tests` {
+  @Test
+  func `Allows Comments By Default`() throws {
+    let yaml = """
+    # top level comment
+    first: 1 # inline comment
+    # between values
+    second: 2
+    """
+    let values = try yaml.utf8.partials(
+      initialValue: [String: Int](),
+      from: .yaml()
+    )
+    expectNoDifference(values.last, ["first": 1, "second": 2])
+  }
+}
+
 private func expectYAMLStreamedValues<T: StreamParseableValue & Equatable>(
   _ yaml: String,
   configuration: YAMLStreamParserConfiguration = YAMLStreamParserConfiguration(),

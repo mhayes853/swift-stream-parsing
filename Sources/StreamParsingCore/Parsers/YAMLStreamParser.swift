@@ -716,7 +716,6 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func handleNeutralCommentStart() throws {
-    guard self.configuration.syntaxOptions.contains(.comments) else { return }
     self.mode = .comment
   }
 
@@ -1451,25 +1450,12 @@ extension YAMLStreamParser {
 // MARK: - Configuration
 
 public struct YAMLStreamParserConfiguration: Sendable {
-  public var syntaxOptions: SyntaxOptions
   public var keyDecodingStrategy: YAMLKeyDecodingStrategy
 
   public init(
-    syntaxOptions: SyntaxOptions = [],
     keyDecodingStrategy: YAMLKeyDecodingStrategy = .useDefault
   ) {
-    self.syntaxOptions = syntaxOptions
     self.keyDecodingStrategy = keyDecodingStrategy
-  }
-
-  public struct SyntaxOptions: OptionSet, Sendable {
-    public let rawValue: UInt
-
-    public init(rawValue: UInt) {
-      self.rawValue = rawValue
-    }
-
-    public static let comments = SyntaxOptions(rawValue: 1 << 0)
   }
 }
 
