@@ -68,7 +68,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   private var numberParsingState = NumberParsingState()
   private var position = YAMLStreamParsingPosition(line: 1, column: 1)
   private var currentStringPath: WritableKeyPath<Value, String>?
-  private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
+  private var currentNumberPath: WritableKeyPath<Value, NumberAccumulator>?
   private var currentBoolPath: WritableKeyPath<Value, Bool>?
   private var currentNullablePath: WritableKeyPath<Value, Void?>?
   private var currentDictionaryPath: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
@@ -101,7 +101,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     for byte in bytes {
       try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
     }
-    try self.flushByteChunkParseState(&chunkState, into: &reducer)
+    chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
   }
 
   public mutating func finish(reducer: inout Value) throws {
@@ -124,7 +124,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       )
     }
     if self.mode.isNumeric {
-      if self.numberParsingState.state.hasExponent && !self.numberParsingState.state.hasExponentDigits {
+      if self.numberParsingState.state.hasExponent
+        && !self.numberParsingState.state.hasExponentDigits
+      {
         throw YAMLStreamParsingError(
           reason: .invalidExponent,
           position: self.position,
@@ -243,7 +245,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func prepareForValueStart() throws {
     if case .flow = self.currentArrayContext?.style {
       if self.currentArrayContext?.didAppendForCurrentElement == true {
-        throw YAMLStreamParsingError(reason: .missingComma, position: self.position, context: .arrayValue)
+        throw YAMLStreamParsingError(
+          reason: .missingComma,
+          position: self.position,
+          context: .arrayValue
+        )
       }
       self.replaceCurrentArrayContext { $0.sawTrailingComma = false }
     }
@@ -282,7 +288,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func closeBlockObjectContexts(toIndent indent: Int) {
-    while case .block(let currentIndent) = self.currentObjectContext?.style, currentIndent > indent {
+    while case .block(let currentIndent) = self.currentObjectContext?.style, currentIndent > indent
+    {
       self.finishCurrentObjectValue()
       _ = self.objectContexts.popLast()
     }
@@ -296,7 +303,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       if self.currentObjectContext?.hasStartedValueForActiveKey == true {
         self.finishCurrentObjectValue()
       } else {
-        throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+        throw YAMLStreamParsingError(
+          reason: .missingValue,
+          position: self.position,
+          context: .objectValue
+        )
       }
     }
     self.closeBlockArrayContexts(toIndent: indent)
@@ -352,12 +363,20 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parse(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parse(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     try self.parseCurrentByte(byte: byte, into: &reducer, chunkState: &chunkState)
     self.advancePosition(for: byte)
   }
 
-  private mutating func parseCurrentByte(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseCurrentByte(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if self.mode == .neutral || self.mode == .arrayValue {
       if try self.handleLineStartIfNeeded(byte: byte, into: &reducer) {
         return
@@ -368,25 +387,31 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     case .neutral: try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     case .string: try self.parseString(byte: byte, into: &reducer, chunkState: &chunkState)
     case .blockScalarHeader: try self.parseBlockScalarHeader(byte: byte)
-    case .blockScalar: try self.parseBlockScalar(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .blockScalar:
+      try self.parseBlockScalar(byte: byte, into: &reducer, chunkState: &chunkState)
     case .integer: try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
-    case .fractionalDouble: try self.parseFractionalDouble(byte: byte, into: &reducer, chunkState: &chunkState)
-    case .exponentialDouble: try self.parseExponentialDouble(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .fractionalDouble:
+      try self.parseFractionalDouble(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .exponentialDouble:
+      try self.parseExponentialDouble(byte: byte, into: &reducer, chunkState: &chunkState)
     case .literal: try self.parseLiteral(byte: byte, into: &reducer)
     case .keyCollecting: try self.parseKeyCollecting(byte: byte)
     case .comment: self.parseComment(byte: byte)
     case .arrayValue: try self.parseArrayValue(byte: byte, into: &reducer, chunkState: &chunkState)
-    case .lineStartDash: try self.parseLineStartDash(byte: byte, into: &reducer, chunkState: &chunkState)
+    case .lineStartDash:
+      try self.parseLineStartDash(byte: byte, into: &reducer, chunkState: &chunkState)
     }
   }
 
-  private mutating func handleLineStartIfNeeded(byte: UInt8, into reducer: inout Value) throws -> Bool {
+  private mutating func handleLineStartIfNeeded(byte: UInt8, into reducer: inout Value) throws
+    -> Bool
+  {
     guard self.isAtLineStart else { return false }
     switch byte {
-    case 0x20:
+    case .asciiSpace:
       self.currentLineIndent += 1
       return true
-    case 0x0A:
+    case .asciiLineFeed:
       return true
     default:
       try self.prepareBlockContextsForIndent(self.currentLineIndent)
@@ -414,12 +439,20 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func parseNeutral(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseNeutral(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if self.currentObjectContext?.isExpectingKey == true {
       switch byte {
       case .asciiObjectEnd:
         if self.currentObjectContext?.sawTrailingComma == true {
-          throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .objectValue)
+          throw YAMLStreamParsingError(
+            reason: .trailingComma,
+            position: self.position,
+            context: .objectValue
+          )
         }
         return self.finishCurrentFlowObject()
       case .asciiQuote:
@@ -440,12 +473,12 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiComma:
       if case .flow = self.currentArrayContext?.style {
-        try self.flushByteChunkParseState(&chunkState, into: &reducer)
+        chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
         self.prepareForNextArrayElement()
         self.replaceCurrentArrayContext { $0.sawTrailingComma = true }
         self.mode = .arrayValue
       } else if case .flow = self.currentObjectContext?.style {
-        try self.flushByteChunkParseState(&chunkState, into: &reducer)
+        chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
         self.finishCurrentObjectValue()
         self.replaceCurrentObjectContext { $0.sawTrailingComma = true }
       }
@@ -462,7 +495,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     case .asciiDash:
       self.lineStartDashIndent = self.currentLineIndent
       self.mode = .lineStartDash
-    case 0x30...0x39:
+    case .asciiZero ... .asciiNine:
       try self.handleNeutralDigitStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiDot:
       try self.handleNeutralLeadingDecimalPointStart(into: &reducer, chunkState: &chunkState)
@@ -472,7 +505,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.handleNeutralLiteralStart(byte, into: &reducer)
     case .asciiLowerN:
       try self.handleNeutralNullStart(byte, into: &reducer)
-    case 0x7C, 0x3E:
+    case .asciiPipe, .asciiGreaterThan:
       try self.handleNeutralBlockScalarStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiHash:
       try self.handleNeutralCommentStart()
@@ -483,7 +516,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private func isPlainKeyByte(_ byte: UInt8) -> Bool {
     switch byte {
-    case 0x30...0x39, 0x41...0x5A, 0x61...0x7A, 0x5F:
+    case .asciiZero ... .asciiNine, .asciiUpperA ... .asciiUpperZ, .asciiLowerA ... .asciiLowerZ,
+      .asciiUnderscore:
       true
     default:
       false
@@ -491,7 +525,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private func isYAMLWhitespace(_ byte: UInt8) -> Bool {
-    byte == 0x20 || byte == 0x0A || byte == 0x0D || byte == 0x09
+    byte == .asciiSpace || byte == .asciiLineFeed || byte == .asciiCarriageReturn
+      || byte == .asciiTab
   }
 
   private mutating func parseKeyCollecting(byte: UInt8) throws {
@@ -502,9 +537,17 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
         self.mode = .neutral
       } else if !self.isYAMLWhitespace(byte) {
         if self.currentObjectContext?.hasActiveKey == true {
-          throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+          throw YAMLStreamParsingError(
+            reason: .missingValue,
+            position: self.position,
+            context: .objectValue
+          )
         }
-        throw YAMLStreamParsingError(reason: .missingColon, position: self.position, context: .objectKey)
+        throw YAMLStreamParsingError(
+          reason: .missingColon,
+          position: self.position,
+          context: .objectKey
+        )
       }
       return
     }
@@ -541,7 +584,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     } else if self.isPlainKeyByte(byte) || byte == .asciiDash {
       self.keyParsingState.buffer.unicodeScalars.append(Unicode.Scalar(byte))
     } else {
-      throw YAMLStreamParsingError(reason: .unexpectedToken, position: self.position, context: .objectKey)
+      throw YAMLStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .objectKey
+      )
     }
   }
 
@@ -555,9 +602,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
 
-    if byte == 0x20 || byte == 0x0A {
+    if byte == .asciiSpace || byte == .asciiLineFeed {
       try self.startBlockArrayItem(at: lineStartDashIndent, into: &reducer)
-      self.mode = byte == 0x20 ? .arrayValue : .neutral
+      self.mode = byte == .asciiSpace ? .arrayValue : .neutral
       return
     }
 
@@ -567,7 +614,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
   }
 
-  private mutating func handleNeutralNegativeNumberStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func handleNeutralNegativeNumberStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
     let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
@@ -583,7 +633,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func handleNeutralDigitStart(_ byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func handleNeutralDigitStart(
+    _ byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
     let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
@@ -599,7 +653,10 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     try self.parseInteger(byte: byte, into: &reducer, chunkState: &chunkState)
   }
 
-  private mutating func handleNeutralLeadingDecimalPointStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func handleNeutralLeadingDecimalPointStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
     let (path, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
@@ -614,7 +671,9 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func handleNeutralNonFiniteNumberStart(_ byte: UInt8, into reducer: inout Value) throws {
+  private mutating func handleNeutralNonFiniteNumberStart(_ byte: UInt8, into reducer: inout Value)
+    throws
+  {
     try self.prepareForValueStart()
     let (_, isInvalidType) = self.handlers.numberPath(node: self.currentTrieNode)
     try self.throwInvalidTypeIfNeeded(isInvalidType)
@@ -698,17 +757,21 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       reducer[keyPath: currentStringPath] = ""
       chunkState.valueStringBuffer = ""
     }
-    let kind = byte == 0x7C ? BlockScalarKind.literal : BlockScalarKind.folded
+    let kind = byte == .asciiPipe ? BlockScalarKind.literal : BlockScalarKind.folded
     self.blockScalarState.start(kind: kind, parentIndent: self.currentLineIndent)
     self.mode = .blockScalarHeader
   }
 
   private mutating func parseBlockScalarHeader(byte: UInt8) throws {
-    if byte == 0x20 || byte == 0x0D {
+    if byte == .asciiSpace || byte == .asciiCarriageReturn {
       return
     }
-    guard byte == 0x0A else {
-      throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+    guard byte == .asciiLineFeed else {
+      throw YAMLStreamParsingError(
+        reason: .invalidMultiLineString,
+        position: self.position,
+        context: .string
+      )
     }
     self.mode = .blockScalar
   }
@@ -719,17 +782,21 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     chunkState: inout ByteChunkParseState
   ) throws {
     if self.blockScalarState.isAtLineStart {
-      if byte == 0x20 {
+      if byte == .asciiSpace {
         self.blockScalarState.currentLineIndent += 1
         return
       }
-      if byte == 0x0A {
+      if byte == .asciiLineFeed {
         self.blockScalarState.finishCurrentLine()
         return
       }
       if self.blockScalarState.contentIndent == nil {
         guard self.blockScalarState.currentLineIndent > self.blockScalarState.parentIndent else {
-          throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+          throw YAMLStreamParsingError(
+            reason: .invalidMultiLineString,
+            position: self.position,
+            context: .string
+          )
         }
         self.blockScalarState.contentIndent = self.blockScalarState.currentLineIndent
       } else if self.blockScalarState.currentLineIndent < self.blockScalarState.contentIndent ?? 0 {
@@ -740,7 +807,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       self.blockScalarState.beginContentByte()
     }
 
-    if byte == 0x0A {
+    if byte == .asciiLineFeed {
       self.blockScalarState.finishCurrentLine()
       return
     }
@@ -757,7 +824,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       }
     }
     guard self.blockScalarState.hasContent else {
-      throw YAMLStreamParsingError(reason: .invalidMultiLineString, position: self.position, context: .string)
+      throw YAMLStreamParsingError(
+        reason: .invalidMultiLineString,
+        position: self.position,
+        context: .string
+      )
     }
     if let currentStringPath {
       reducer[keyPath: currentStringPath] = self.blockScalarState.buffer
@@ -777,23 +848,40 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
 
   private mutating func handleNeutralObjectEnd() throws {
     guard case .flow = self.currentObjectContext?.style else {
-      throw YAMLStreamParsingError(reason: .unexpectedToken, position: self.position, context: .neutral)
+      throw YAMLStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
     }
     let sawTrailingComma = self.currentObjectContext?.sawTrailingComma == true
-    let isMissingValue = self.currentObjectContext?.hasActiveKey == true
+    let isMissingValue =
+      self.currentObjectContext?.hasActiveKey == true
       && self.currentObjectContext?.hasStartedValueForActiveKey == false
     self.finishCurrentFlowObject()
     if isMissingValue {
-      throw YAMLStreamParsingError(reason: .missingValue, position: self.position, context: .objectValue)
+      throw YAMLStreamParsingError(
+        reason: .missingValue,
+        position: self.position,
+        context: .objectValue
+      )
     }
     if sawTrailingComma {
-      throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .objectValue)
+      throw YAMLStreamParsingError(
+        reason: .trailingComma,
+        position: self.position,
+        context: .objectValue
+      )
     }
   }
 
   private mutating func handleNeutralArrayEnd(into reducer: inout Value) throws {
     guard case .flow = self.currentArrayContext?.style else {
-      throw YAMLStreamParsingError(reason: .unexpectedToken, position: self.position, context: .neutral)
+      throw YAMLStreamParsingError(
+        reason: .unexpectedToken,
+        position: self.position,
+        context: .neutral
+      )
     }
     let sawTrailingComma = self.currentArrayContext?.sawTrailingComma == true
     let didAppendElement = self.currentArrayContext?.didAppendForCurrentElement == true
@@ -801,11 +889,18 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.popArrayTrieNode()
     self.mode = .neutral
     if !didAppendElement && sawTrailingComma {
-      throw YAMLStreamParsingError(reason: .trailingComma, position: self.position, context: .arrayValue)
+      throw YAMLStreamParsingError(
+        reason: .trailingComma,
+        position: self.position,
+        context: .arrayValue
+      )
     }
   }
 
-  private mutating func handleNeutralDoubleQuotedStringStart(into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func handleNeutralDoubleQuotedStringStart(
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     try self.prepareForValueStart()
     self.appendArrayElementIfNeeded(into: &reducer)
     let (stringPath, isInvalidType) = self.handlers.stringPath(node: self.currentTrieNode)
@@ -819,7 +914,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     self.stringState.startString(delimiter: .asciiQuote)
   }
 
-  private mutating func parseString(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseString(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if self.stringState.unicodeEscapeRemaining > 0 {
       guard let hexValue = byte.hexValue else {
         throw YAMLStreamParsingError(
@@ -828,7 +927,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
           context: .string
         )
       }
-      self.stringState.unicodeEscapeValue = (self.stringState.unicodeEscapeValue << 4) | UInt32(hexValue)
+      self.stringState.unicodeEscapeValue =
+        (self.stringState.unicodeEscapeValue << 4) | UInt32(hexValue)
       self.stringState.unicodeEscapeRemaining -= 1
       if self.stringState.unicodeEscapeRemaining == 0 {
         guard let scalar = Unicode.Scalar(self.stringState.unicodeEscapeValue) else {
@@ -839,7 +939,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
         if self.currentStringPath != nil {
-          var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+          var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
           valueStringBuffer.unicodeScalars.append(scalar)
           chunkState.valueStringBuffer = valueStringBuffer
         }
@@ -864,7 +964,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
         }
       default:
         if self.stringState.isEscaping {
-          if byte == 0x75 {
+          if byte == .asciiLowerU {
             self.stringState.beginUnicodeEscape()
             return
           }
@@ -881,7 +981,7 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiBackslash:
       if self.stringState.isEscaping {
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         valueStringBuffer.append("\\")
         chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
@@ -890,24 +990,24 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       }
     case self.stringState.stringDelimiter:
       if self.stringState.isEscaping {
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         valueStringBuffer.unicodeScalars.append(Unicode.Scalar(byte))
         chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
       } else {
-        try self.flushByteChunkParseState(&chunkState, into: &reducer)
+        chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
         self.mode = .neutral
       }
     default:
       if self.stringState.isEscaping {
-        if byte == 0x75 {
+        if byte == .asciiLowerU {
           self.stringState.beginUnicodeEscape()
           return
         }
       }
       switch self.stringState.utf8State.consume(byte: byte) {
       case .consume(let scalar):
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         if self.stringState.isEscaping {
           self.stringState.appendEscapedCharacter(for: byte, into: &valueStringBuffer)
         } else {
@@ -919,71 +1019,73 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
   }
 
-  private mutating func flushByteChunkParseState(_ chunkState: inout ByteChunkParseState, into reducer: inout Value) throws {
-    if let valueStringBuffer = chunkState.valueStringBuffer, let currentStringPath {
-      reducer[keyPath: currentStringPath] = valueStringBuffer
-      chunkState.valueStringBuffer = nil
-    }
-    if let valueNumberAccumulator = chunkState.valueNumberAccumulator, let currentNumberPath {
-      reducer[keyPath: currentNumberPath] = valueNumberAccumulator
-      chunkState.valueNumberAccumulator = nil
-    }
-  }
-
-  private func ensureValueStringBuffer(in reducer: Value, chunkState: inout ByteChunkParseState) -> String {
-    if let valueStringBuffer = chunkState.valueStringBuffer {
-      return valueStringBuffer
-    }
-    guard let currentStringPath else { return "" }
-    let valueStringBuffer = reducer[keyPath: currentStringPath]
-    chunkState.valueStringBuffer = valueStringBuffer
-    return valueStringBuffer
-  }
-
-  private func digitValue(for byte: UInt8) -> UInt8? {
-    switch byte {
-    case 0x30...0x39: byte &- 0x30
-    default: nil
-    }
-  }
-
-  private mutating func parseInteger(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseInteger(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if byte == .asciiDot {
       self.mode = .fractionalDouble
       self.numberParsingState.state.hasDot = true
       try self.numberParsingState.appendDigit(byte, position: self.position)
-      try self.writeCurrentNumberAccumulator(in: reducer, chunkState: &chunkState, isHex: false, position: self.position)
+      try self.writeCurrentNumberAccumulator(
+        in: reducer,
+        chunkState: &chunkState,
+        isHex: false,
+        position: self.position
+      )
     } else if byte == .asciiLowerE || byte == .asciiUpperE {
       self.mode = .exponentialDouble
       guard self.numberParsingState.state.hasDigits else {
-        throw YAMLStreamParsingError(reason: .invalidNumber, position: self.position, context: .number)
+        throw YAMLStreamParsingError(
+          reason: .invalidNumber,
+          position: self.position,
+          context: .number
+        )
       }
       self.numberParsingState.state.hasExponent = true
       self.numberParsingState.state.hasExponentDigits = false
       try self.numberParsingState.appendDigit(byte, position: self.position)
-    } else if let digit = self.digitValue(for: byte) {
+    } else if let digit = byte.digitValue {
       if !self.numberParsingState.state.hasDigits {
         self.numberParsingState.state.hasDigits = true
         if digit == 0 {
           self.numberParsingState.state.hasLeadingZero = true
         }
       } else if self.numberParsingState.state.hasLeadingZero {
-        throw YAMLStreamParsingError(reason: .leadingZero, position: self.position, context: .number)
+        throw YAMLStreamParsingError(
+          reason: .leadingZero,
+          position: self.position,
+          context: .number
+        )
       }
       self.numberParsingState.state.digitCount += 1
       try self.numberParsingState.appendDigit(byte, position: self.position)
-      try self.writeCurrentNumberAccumulator(in: reducer, chunkState: &chunkState, isHex: false, position: self.position)
+      try self.writeCurrentNumberAccumulator(
+        in: reducer,
+        chunkState: &chunkState,
+        isHex: false,
+        position: self.position
+      )
     } else {
       try self.finalizeNumberOrThrow(at: self.position, into: &reducer, chunkState: &chunkState)
       try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
   }
 
-  private mutating func parseFractionalDouble(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
-    guard self.digitValue(for: byte) != nil else {
+  private mutating func parseFractionalDouble(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
+    guard byte.digitValue != nil else {
       if byte == .asciiLowerE || byte == .asciiUpperE {
         guard self.numberParsingState.state.hasFractionDigits else {
-          throw YAMLStreamParsingError(reason: .invalidNumber, position: self.position, context: .number)
+          throw YAMLStreamParsingError(
+            reason: .invalidNumber,
+            position: self.position,
+            context: .number
+          )
         }
         self.mode = .exponentialDouble
         self.numberParsingState.state.hasExponent = true
@@ -999,27 +1101,48 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     }
     self.numberParsingState.state.hasFractionDigits = true
     try self.numberParsingState.appendDigit(byte, position: self.position)
-    try self.writeCurrentNumberAccumulator(in: reducer, chunkState: &chunkState, isHex: false, position: self.position)
+    try self.writeCurrentNumberAccumulator(
+      in: reducer,
+      chunkState: &chunkState,
+      isHex: false,
+      position: self.position
+    )
   }
 
-  private mutating func parseExponentialDouble(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseExponentialDouble(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     if byte == .asciiDash {
       if self.numberParsingState.state.hasExponentDigits {
-        throw YAMLStreamParsingError(reason: .invalidExponent, position: self.position, context: .number)
+        throw YAMLStreamParsingError(
+          reason: .invalidExponent,
+          position: self.position,
+          context: .number
+        )
       }
       self.numberParsingState.isNegativeExponent = true
       try self.numberParsingState.appendDigit(byte, position: self.position)
     } else if byte == .asciiPlus {
       if self.numberParsingState.state.hasExponentDigits {
-        throw YAMLStreamParsingError(reason: .invalidExponent, position: self.position, context: .number)
+        throw YAMLStreamParsingError(
+          reason: .invalidExponent,
+          position: self.position,
+          context: .number
+        )
       }
       try self.numberParsingState.appendDigit(byte, position: self.position)
       return
-    } else if let digit = self.digitValue(for: byte) {
+    } else if let digit = byte.digitValue {
       self.numberParsingState.state.hasExponentDigits = true
       let newExponent = self.numberParsingState.exponent * 10 + Int(digit)
       if newExponent > 999 {
-        throw YAMLStreamParsingError(reason: .numericOverflow, position: self.position, context: .number)
+        throw YAMLStreamParsingError(
+          reason: .numericOverflow,
+          position: self.position,
+          context: .number
+        )
       }
       self.numberParsingState.exponent = newExponent
       try self.numberParsingState.appendDigit(byte, position: self.position)
@@ -1036,7 +1159,11 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       return try self.parseNeutral(byte: byte, into: &reducer, chunkState: &chunkState)
     }
     if byte != self.literalState.expected[self.literalState.index] {
-      throw YAMLStreamParsingError(reason: .invalidLiteral, position: self.position, context: .literal)
+      throw YAMLStreamParsingError(
+        reason: .invalidLiteral,
+        position: self.position,
+        context: .literal
+      )
     }
     self.literalState.index += 1
     if self.literalState.index == self.literalState.expected.count {
@@ -1045,25 +1172,29 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func parseComment(byte: UInt8) {
-    if byte == 0x0A {
+    if byte == .asciiLineFeed {
       self.mode = .neutral
     }
   }
 
-  private mutating func parseArrayValue(byte: UInt8, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func parseArrayValue(
+    byte: UInt8,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     switch byte {
     case .asciiQuote:
       try self.handleNeutralDoubleQuotedStringStart(into: &reducer, chunkState: &chunkState)
     case .asciiComma:
-      try self.flushByteChunkParseState(&chunkState, into: &reducer)
+      chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
       self.prepareForNextArrayElement()
       self.replaceCurrentArrayContext { $0.sawTrailingComma = true }
     case .asciiArrayEnd:
-      try self.flushByteChunkParseState(&chunkState, into: &reducer)
+      chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
       try self.handleNeutralArrayEnd(into: &reducer)
     case .asciiArrayStart:
       try self.handleNeutralArrayStart(into: &reducer)
-    case 0x30...0x39:
+    case .asciiZero ... .asciiNine:
       try self.handleNeutralDigitStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiDash:
       self.lineStartDashIndent = self.currentLineIndent
@@ -1072,51 +1203,62 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.handleNeutralLiteralStart(byte, into: &reducer)
     case .asciiLowerN:
       try self.handleNeutralNullStart(byte, into: &reducer)
-    case 0x7C, 0x3E:
+    case .asciiPipe, .asciiGreaterThan:
       try self.handleNeutralBlockScalarStart(byte, into: &reducer, chunkState: &chunkState)
     default:
       if self.isYAMLWhitespace(byte) {
         break
       }
       if case .flow = self.currentArrayContext?.style {
-        throw YAMLStreamParsingError(reason: .missingComma, position: self.position, context: .arrayValue)
+        throw YAMLStreamParsingError(
+          reason: .missingComma,
+          position: self.position,
+          context: .arrayValue
+        )
       }
       break
     }
   }
 
-  private mutating func writeCurrentNumberAccumulator(in reducer: Value, chunkState: inout ByteChunkParseState, isHex: Bool, position: YAMLStreamParsingPosition) throws {
-    let accumulator = self.ensureValueNumberAccumulator(in: reducer, chunkState: &chunkState)
+  private mutating func writeCurrentNumberAccumulator(
+    in reducer: Value,
+    chunkState: inout ByteChunkParseState,
+    isHex: Bool,
+    position: YAMLStreamParsingPosition
+  ) throws {
+    let accumulator = chunkState.ensureValueNumberAccumulator(in: reducer, path: self.currentNumberPath)
     guard var accumulator else { return }
-    let didParse = accumulator.parseDigits(buffer: self.numberParsingState.digitBuffer, isHex: isHex)
+    let didParse = accumulator.parseDigits(
+      buffer: self.numberParsingState.digitBuffer,
+      isHex: isHex
+    )
     guard didParse else {
       throw YAMLStreamParsingError(reason: .numericOverflow, position: position, context: .number)
     }
     chunkState.valueNumberAccumulator = accumulator
   }
 
-  private func ensureValueNumberAccumulator(in reducer: Value, chunkState: inout ByteChunkParseState) -> JSONNumberAccumulator? {
-    if let accumulator = chunkState.valueNumberAccumulator {
-      return accumulator
-    }
-    guard let currentNumberPath else { return nil }
-    let accumulator = reducer[keyPath: currentNumberPath]
-    chunkState.valueNumberAccumulator = accumulator
-    return accumulator
-  }
-
-  private mutating func finalizeNumberOrThrow(at position: YAMLStreamParsingPosition, into reducer: inout Value, chunkState: inout ByteChunkParseState) throws {
+  private mutating func finalizeNumberOrThrow(
+    at position: YAMLStreamParsingPosition,
+    into reducer: inout Value,
+    chunkState: inout ByteChunkParseState
+  ) throws {
     guard self.numberParsingState.state.hasDigits else {
       throw YAMLStreamParsingError(reason: .invalidNumber, position: position, context: .number)
     }
-    try self.writeCurrentNumberAccumulator(in: reducer, chunkState: &chunkState, isHex: false, position: position)
-    try self.flushByteChunkParseState(&chunkState, into: &reducer)
+    try self.writeCurrentNumberAccumulator(
+      in: reducer,
+      chunkState: &chunkState,
+      isHex: false,
+      position: position
+    )
+    chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
     self.mode = .neutral
     self.numberParsingState.resetAfterFinalize()
   }
 
   private mutating func advancePosition(for byte: UInt8) {
-    if byte == 0x0A {
+    if byte == .asciiLineFeed {
       self.position.line += 1
       self.position.column = 1
       self.isAtLineStart = true
@@ -1144,46 +1286,41 @@ extension YAMLStreamParser {
       self.pathTrie.paths.hasAnyHandler
     }
 
-    fileprivate func numberPath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, JSONNumberAccumulator>?, Bool) {
+    fileprivate func numberPath(node: PathTrie<Value>?) -> (
+      WritableKeyPath<Value, NumberAccumulator>?, Bool
+    ) {
       guard let node else { return (nil, false) }
-      let path = node.paths.number
-      let isInvalidType = path == nil && node.paths.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.number) { $0.paths.hasAnyHandler }
     }
 
     fileprivate func stringPath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, String>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.string
-      let isInvalidType = path == nil && node.paths.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.string) { $0.paths.hasAnyHandler }
     }
 
     fileprivate func booleanPath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, Bool>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.bool
-      let isInvalidType = path == nil && node.paths.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.bool) { $0.paths.hasAnyHandler }
     }
 
-    fileprivate func nullablePath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, Void?>?, Bool) {
+    fileprivate func nullablePath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, Void?>?, Bool)
+    {
       guard let node else { return (nil, false) }
-      let path = node.paths.nullable
-      let isInvalidType = path == nil && node.paths.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.nullable) { $0.paths.hasAnyHandler }
     }
 
-    fileprivate func arrayPath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool) {
+    fileprivate func arrayPath(node: PathTrie<Value>?) -> (
+      WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool
+    ) {
       guard let node else { return (nil, false) }
-      let path = node.paths.array
-      let isInvalidType = path == nil && node.paths.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.array) { $0.paths.hasAnyHandler }
     }
 
-    fileprivate func dictionaryPath(node: PathTrie<Value>?) -> (WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool) {
+    fileprivate func dictionaryPath(node: PathTrie<Value>?) -> (
+      WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool
+    ) {
       guard let node else { return (nil, false) }
-      let path = node.paths.dictionary
-      let isInvalidType = path == nil && node.paths.hasAnyHandler && !node.expectsObject
-      return (path, isInvalidType)
+      return node.path(\.dictionary) { $0.paths.hasAnyHandler && !$0.expectsObject }
     }
 
     public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
@@ -1265,11 +1402,11 @@ extension YAMLStreamParser {
       var keyedHandlers = YAMLStreamParser<Keyed>.Handlers(configuration: self.configuration)
       Keyed.registerHandlers(in: &keyedHandlers)
 
-      let decodedKey = self.configuration.keyDecodingStrategy.decode(key: key)
-
-      let keyNode = self.pathTrie.ensureObjectChild(for: decodedKey)
-      let prefixedTrie = keyedHandlers.pathTrie.prefixed(by: keyPath)
-      keyNode.merge(from: prefixedTrie)
+      self.pathTrie.mergeKeyedHandlerTrie(
+        decodedKey: self.configuration.keyDecodingStrategy.decode(key: key),
+        keyPath: keyPath,
+        nestedTrie: keyedHandlers.pathTrie
+      )
     }
 
     public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
@@ -1278,224 +1415,35 @@ extension YAMLStreamParser {
     ) {
       var handlers = YAMLStreamParser<Scoped>.Handlers(configuration: self.configuration)
       type.registerHandlers(in: &handlers)
-      let prefixedTrie = handlers.pathTrie.prefixed(by: keyPath)
-      self.pathTrie.merge(from: prefixedTrie)
+      self.pathTrie.mergeScopedHandlerTrie(keyPath: keyPath, nestedTrie: handlers.pathTrie)
     }
 
     public mutating func registerArrayHandler<ArrayObject: StreamParseableArrayObject>(
       _ keyPath: WritableKeyPath<Value, ArrayObject>
     ) {
-      self.pathTrie.paths.array = keyPath.appending(path: \.erasedJSONPath)
-
-      var elementHandlers = YAMLStreamParser<ArrayObject.Element>.Handlers(configuration: self.configuration)
+      var elementHandlers = YAMLStreamParser<ArrayObject.Element>
+        .Handlers(configuration: self.configuration)
       ArrayObject.Element.registerHandlers(in: &elementHandlers)
 
-      let arrayNode = self.pathTrie.ensureArrayChild()
-      let elementPrefix = keyPath.appending(path: \.currentElement)
-      let prefixedTrie = elementHandlers.pathTrie.prefixed(by: elementPrefix)
-      arrayNode.merge(from: prefixedTrie)
+      self.pathTrie.registerArrayHandlerTrie(
+        keyPath: keyPath,
+        elementTrie: elementHandlers.pathTrie
+      )
     }
 
-    public mutating func registerDictionaryHandler<DictionaryObject: StreamParseableDictionaryObject>(
+    public mutating func registerDictionaryHandler<
+      DictionaryObject: StreamParseableDictionaryObject
+    >(
       _ keyPath: WritableKeyPath<Value, DictionaryObject>
     ) {
-      self.pathTrie.paths.dictionary = keyPath.appending(path: \.erasedJSONPath)
-
-      var valueHandlers = YAMLStreamParser<DictionaryObject.Value>.Handlers(configuration: self.configuration)
+      var valueHandlers = YAMLStreamParser<DictionaryObject.Value>
+        .Handlers(configuration: self.configuration)
       DictionaryObject.Value.registerHandlers(in: &valueHandlers)
 
-      let anyNode = self.pathTrie.ensureAnyObjectChild()
-      anyNode.dynamicKeyBuilder = { key in
-        let valuePrefix = keyPath.appending(path: \.[unwrapped: key])
-        return valueHandlers.pathTrie.prefixed(by: valuePrefix)
-      }
-    }
-  }
-}
-
-// MARK: - PathTrie
-
-private final class PathTrie<Value: StreamParseableValue> {
-  struct Paths {
-    var string: WritableKeyPath<Value, String>?
-    var bool: WritableKeyPath<Value, Bool>?
-    var number: WritableKeyPath<Value, JSONNumberAccumulator>?
-    var nullable: WritableKeyPath<Value, Void?>?
-    var array: WritableKeyPath<Value, any StreamParseableArrayObject>?
-    var dictionary: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
-
-    var hasAnyHandler: Bool {
-      self.string != nil
-        || self.bool != nil
-        || self.number != nil
-        || self.nullable != nil
-        || self.array != nil
-        || self.dictionary != nil
-    }
-
-    mutating func merge(from other: Paths) {
-      if self.string == nil {
-        self.string = other.string
-      }
-      if self.bool == nil {
-        self.bool = other.bool
-      }
-      if self.number == nil {
-        self.number = other.number
-      }
-      if self.nullable == nil {
-        self.nullable = other.nullable
-      }
-      if self.array == nil {
-        self.array = other.array
-      }
-      if self.dictionary == nil {
-        self.dictionary = other.dictionary
-      }
-    }
-  }
-
-  var paths = Paths()
-  var children: Children = .none
-
-  enum Children {
-    case none
-    case array(PathTrie)
-    case object(keys: [String: PathTrie], any: PathTrie?)
-  }
-
-  var dynamicKeyBuilder: ((String) -> PathTrie<Value>)?
-  private var dynamicKeyCache: [String: PathTrie<Value>] = [:]
-
-  init(paths: Paths = Paths(), children: Children = .none) {
-    self.paths = paths
-    self.children = children
-  }
-
-  var expectsObject: Bool {
-    if case .object = self.children { return true }
-    return false
-  }
-
-  var hasAnyHandler: Bool {
-    self.paths.hasAnyHandler || self.hasChildren
-  }
-
-  private var hasChildren: Bool {
-    switch self.children {
-    case .none: false
-    case .array, .object: true
-    }
-  }
-
-  func objectChildNode(for key: String) -> PathTrie<Value>? {
-    guard case .object(let keys, let any) = self.children else { return nil }
-    if let child = keys[key] {
-      return child
-    }
-    guard let any else { return nil }
-    return any.nodeForDynamicKey(key)
-  }
-
-  private func nodeForDynamicKey(_ key: String) -> PathTrie<Value> {
-    if let cached = self.dynamicKeyCache[key] {
-      return cached
-    }
-    guard let builder = self.dynamicKeyBuilder else { return self }
-    let node = builder(key)
-    self.dynamicKeyCache[key] = node
-    return node
-  }
-
-  @discardableResult
-  func ensureArrayChild() -> PathTrie<Value> {
-    if case .array(let child) = self.children { return child }
-    let child = PathTrie<Value>()
-    self.children = .array(child)
-    return child
-  }
-
-  @discardableResult
-  func ensureObjectChild(for key: String) -> PathTrie<Value> {
-    if case .object(var keys, let any) = self.children {
-      if let child = keys[key] { return child }
-      let child = PathTrie<Value>()
-      keys[key] = child
-      self.children = .object(keys: keys, any: any)
-      return child
-    }
-    let child = PathTrie<Value>()
-    self.children = .object(keys: [key: child], any: nil)
-    return child
-  }
-
-  @discardableResult
-  func ensureAnyObjectChild() -> PathTrie<Value> {
-    if case .object(let keys, let any) = self.children {
-      if let any { return any }
-      let child = PathTrie<Value>()
-      self.children = .object(keys: keys, any: child)
-      return child
-    }
-    let child = PathTrie<Value>()
-    self.children = .object(keys: [:], any: child)
-    return child
-  }
-
-  func prefixed<Root: StreamParseableValue>(
-    by prefix: WritableKeyPath<Root, Value>
-  ) -> PathTrie<Root> {
-    var prefixedPaths = PathTrie<Root>.Paths()
-    prefixedPaths.string = self.paths.string.map { prefix.appending(path: $0) }
-    prefixedPaths.bool = self.paths.bool.map { prefix.appending(path: $0) }
-    prefixedPaths.number = self.paths.number.map { prefix.appending(path: $0) }
-    prefixedPaths.nullable = self.paths.nullable.map { prefix.appending(path: $0) }
-    prefixedPaths.array = self.paths.array.map { prefix.appending(path: $0) }
-    prefixedPaths.dictionary = self.paths.dictionary.map { prefix.appending(path: $0) }
-    let node = PathTrie<Root>(paths: prefixedPaths)
-    switch self.children {
-    case .none: break
-    case .array(let child):
-      node.children = .array(child.prefixed(by: prefix))
-    case .object(let keys, let any):
-      var prefixedKeys = [String: PathTrie<Root>]()
-      prefixedKeys.reserveCapacity(keys.count)
-      for (key, child) in keys {
-        prefixedKeys[key] = child.prefixed(by: prefix)
-      }
-      let prefixedAny = any.map { $0.prefixed(by: prefix) }
-      node.children = .object(keys: prefixedKeys, any: prefixedAny)
-    }
-    if let builder = self.dynamicKeyBuilder {
-      node.dynamicKeyBuilder = { key in
-        builder(key).prefixed(by: prefix)
-      }
-    }
-    return node
-  }
-
-  func merge(from other: PathTrie<Value>) {
-    self.paths.merge(from: other.paths)
-    switch other.children {
-    case .none: break
-    case .array(let otherChild):
-      let child = self.ensureArrayChild()
-      child.merge(from: otherChild)
-    case .object(let keys, let any):
-      for (key, otherChild) in keys {
-        let child = self.ensureObjectChild(for: key)
-        child.merge(from: otherChild)
-      }
-      if let otherAny = any {
-        let anyChild = self.ensureAnyObjectChild()
-        anyChild.merge(from: otherAny)
-        if anyChild.dynamicKeyBuilder == nil {
-          anyChild.dynamicKeyBuilder = otherAny.dynamicKeyBuilder
-        }
-      }
-    }
-    if self.dynamicKeyBuilder == nil {
-      self.dynamicKeyBuilder = other.dynamicKeyBuilder
+      self.pathTrie.registerDictionaryHandlerTrie(
+        keyPath: keyPath,
+        valueTrie: valueHandlers.pathTrie
+      )
     }
   }
 }
@@ -1534,45 +1482,10 @@ public enum YAMLKeyDecodingStrategy: Sendable {
 
   public func decode(key: String) -> String {
     switch self {
-    case .convertFromSnakeCase: Self.convertFromSnakeCase(key: key)
+    case .convertFromSnakeCase: decodeKeyFromSnakeCase(key)
     case .useDefault: key
     case .custom(let decode): decode(key)
     }
-  }
-
-  private static func convertFromSnakeCase(key: String) -> String {
-    guard !key.isEmpty else { return key }
-    guard let firstNonUnderscore = key.firstIndex(where: { $0 != "_" }) else { return key }
-
-    var lastNonUnderscore = key.index(before: key.endIndex)
-    while lastNonUnderscore > firstNonUnderscore && key[lastNonUnderscore] == "_" {
-      key.formIndex(before: &lastNonUnderscore)
-    }
-
-    let keyRange = firstNonUnderscore...lastNonUnderscore
-    let leadingUnderscoreRange = key.startIndex..<firstNonUnderscore
-    let trailingUnderscoreRange = key.index(after: lastNonUnderscore)..<key.endIndex
-
-    let components = key[keyRange].split(separator: "_")
-    let joinedString: String
-    if components.count == 1 {
-      joinedString = String(key[keyRange])
-    } else {
-      joinedString = ([components[0].lowercased()] + components[1...].map(\.capitalized)).joined()
-    }
-
-    let result: String
-    if leadingUnderscoreRange.isEmpty && trailingUnderscoreRange.isEmpty {
-      result = joinedString
-    } else if !leadingUnderscoreRange.isEmpty && !trailingUnderscoreRange.isEmpty {
-      result =
-        String(key[leadingUnderscoreRange]) + joinedString + String(key[trailingUnderscoreRange])
-    } else if !leadingUnderscoreRange.isEmpty {
-      result = String(key[leadingUnderscoreRange]) + joinedString
-    } else {
-      result = joinedString + String(key[trailingUnderscoreRange])
-    }
-    return result
   }
 }
 
@@ -1714,10 +1627,7 @@ extension YAMLStreamParser {
     }
   }
 
-  private struct ByteChunkParseState {
-    var valueStringBuffer: String?
-    var valueNumberAccumulator: JSONNumberAccumulator?
-  }
+  private typealias ByteChunkParseState = ParserByteChunkState<Value>
 
   private struct BlockScalarState {
     var kind = BlockScalarKind.literal
@@ -1786,322 +1696,6 @@ extension YAMLStreamParser {
   }
 }
 
-// MARK: - UInt8+HexValue
-
-extension UInt8 {
-  fileprivate var hexValue: UInt8? {
-    switch self {
-    case 0x30...0x39: self &- 0x30
-    case 0x41...0x46: self &- 0x41 &+ 10
-    case 0x61...0x66: self &- 0x61 &+ 10
-    default: nil
-    }
-  }
-}
-
-// MARK: - JSONNumberAccumulator stub for compilation
-
-private enum JSONNumberAccumulator {
-  case int(Int)
-  case int8(Int8)
-  case int16(Int16)
-  case int32(Int32)
-  case int64(Int64)
-  case int128(low: UInt64, high: Int64)
-  case uint(UInt)
-  case uint8(UInt8)
-  case uint16(UInt16)
-  case uint32(UInt32)
-  case uint64(UInt64)
-  case uint128(low: UInt64, high: UInt64)
-  case float(Float)
-  case double(Double)
-
-  mutating func reset() {
-    switch self {
-    case .int: self = .int(.zero)
-    case .int8: self = .int8(.zero)
-    case .int16: self = .int16(.zero)
-    case .int32: self = .int32(.zero)
-    case .int64: self = .int64(.zero)
-    case .int128: self = .int128(low: .zero, high: .zero)
-    case .uint: self = .uint(.zero)
-    case .uint8: self = .uint8(.zero)
-    case .uint16: self = .uint16(.zero)
-    case .uint32: self = .uint32(.zero)
-    case .uint64: self = .uint64(.zero)
-    case .uint128: self = .uint128(low: .zero, high: .zero)
-    case .float: self = .float(.zero)
-    case .double: self = .double(.zero)
-    }
-  }
-
-  mutating func parseDigits(buffer: DigitBuffer, isHex: Bool) -> Bool {
-    switch self {
-    case .int:
-      guard let value: Int = parseInteger(buffer: buffer, isHex: isHex, as: Int.self) else {
-        return false
-      }
-      self = .int(value)
-    case .int8:
-      guard let value: Int8 = parseInteger(buffer: buffer, isHex: isHex, as: Int8.self) else {
-        return false
-      }
-      self = .int8(value)
-    case .int16:
-      guard let value: Int16 = parseInteger(buffer: buffer, isHex: isHex, as: Int16.self) else {
-        return false
-      }
-      self = .int16(value)
-    case .int32:
-      guard let value: Int32 = parseInteger(buffer: buffer, isHex: isHex, as: Int32.self) else {
-        return false
-      }
-      self = .int32(value)
-    case .int64:
-      guard let value: Int64 = parseInteger(buffer: buffer, isHex: isHex, as: Int64.self) else {
-        return false
-      }
-      self = .int64(value)
-    case .int128:
-      guard #available(StreamParsing128BitIntegers, *) else { return true }
-      guard let value = parseInt128(buffer: buffer, isHex: isHex) else { return false }
-      self = .int128(low: value._low, high: value._high)
-    case .uint:
-      guard let value: UInt = parseInteger(buffer: buffer, isHex: isHex, as: UInt.self) else {
-        return false
-      }
-      self = .uint(value)
-    case .uint8:
-      guard let value: UInt8 = parseInteger(buffer: buffer, isHex: isHex, as: UInt8.self) else {
-        return false
-      }
-      self = .uint8(value)
-    case .uint16:
-      guard let value: UInt16 = parseInteger(buffer: buffer, isHex: isHex, as: UInt16.self) else {
-        return false
-      }
-      self = .uint16(value)
-    case .uint32:
-      guard let value: UInt32 = parseInteger(buffer: buffer, isHex: isHex, as: UInt32.self) else {
-        return false
-      }
-      self = .uint32(value)
-    case .uint64:
-      guard let value: UInt64 = parseInteger(buffer: buffer, isHex: isHex, as: UInt64.self) else {
-        return false
-      }
-      self = .uint64(value)
-    case .uint128:
-      guard #available(StreamParsing128BitIntegers, *) else { return true }
-      guard let value = parseUInt128(buffer: buffer, isHex: isHex) else { return false }
-      self = .uint128(low: value._low, high: value._high)
-    case .float:
-      guard let value: Float = parseFloatingPoint(buffer: buffer, as: Float.self) else {
-        return false
-      }
-      self = .float(value)
-    case .double:
-      guard let value: Double = parseFloatingPoint(buffer: buffer, as: Double.self) else {
-        return false
-      }
-      self = .double(value)
-    }
-    return true
-  }
-}
-
-// MARK: - StreamParseableValue extensions for arrays/objects
-
-extension StreamParseableValue {
-  fileprivate var erasedJSONPath: any StreamParseableValue {
-    get { self }
-    set { self = newValue as! Self }
-  }
-}
-
-extension StreamParseableDictionaryObject {
-  fileprivate var erasedJSONPath: any StreamParseableDictionaryObject {
-    get { self }
-    set { self = newValue as! Self }
-  }
-
-  fileprivate subscript(unwrapped key: String) -> Value {
-    get { self[key] ?? Value.initialParseableValue() }
-    set { self[key] = newValue }
-  }
-}
-
-extension StreamParseableArrayObject {
-  fileprivate var erasedJSONPath: any StreamParseableArrayObject {
-    get { self }
-    set { self = newValue as! Self }
-  }
-
-  fileprivate var currentElement: Element {
-    get {
-      let index = self.count - 1
-      return self[index]
-    }
-    set {
-      let index = self.count - 1
-      self[index] = newValue
-    }
-  }
-
-  fileprivate mutating func appendNewElement() {
-    self.append(contentsOf: CollectionOfOne(.initialParseableValue()))
-  }
-}
-
-extension Int {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int(self) }
-    set {
-      guard case .int(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension Int8 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int8(self) }
-    set {
-      guard case .int8(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension Int16 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int16(self) }
-    set {
-      guard case .int16(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension Int32 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int32(self) }
-    set {
-      guard case .int32(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension Int64 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int64(self) }
-    set {
-      guard case .int64(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension UInt {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint(self) }
-    set {
-      guard case .uint(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension UInt8 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint8(self) }
-    set {
-      guard case .uint8(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension UInt16 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint16(self) }
-    set {
-      guard case .uint16(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension UInt32 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint32(self) }
-    set {
-      guard case .uint32(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension UInt64 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint64(self) }
-    set {
-      guard case .uint64(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-@available(StreamParsing128BitIntegers, *)
-extension Int128 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int128(low: self._low, high: self._high) }
-    set {
-      guard case .int128(let low, let high) = newValue else { return }
-      self = Int128(_low: low, _high: high)
-    }
-  }
-}
-
-@available(StreamParsing128BitIntegers, *)
-extension UInt128 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint128(low: self._low, high: self._high) }
-    set {
-      guard case .uint128(let low, let high) = newValue else { return }
-      self = UInt128(_low: low, _high: high)
-    }
-  }
-}
-
-extension Float {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .float(self) }
-    set {
-      guard case .float(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension Double {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .double(self) }
-    set {
-      guard case .double(let value) = newValue else { return }
-      self = value
-    }
-  }
-}
-
-extension StreamParseableValue {
-  fileprivate mutating func reset() {
-    self = .initialParseableValue()
-  }
-}
-
 // MARK: - NumberParsingState
 
 extension YAMLStreamParser {
@@ -2150,37 +1744,9 @@ extension YAMLStreamParser {
     }
   }
 
-  private struct NumberState {
-    var hasDigits = false
-    var hasLeadingZero = false
-    var hasFractionDigits = false
-    var hasExponent = false
-    var hasExponentDigits = false
-    var hasDot = false
-    var isHex = false
-    var digitCount = 0
-
-    mutating func reset() {
-      self.hasDigits = false
-      self.hasLeadingZero = false
-      self.hasFractionDigits = false
-      self.hasExponent = false
-      self.hasExponentDigits = false
-      self.hasDot = false
-      self.isHex = false
-      self.digitCount = 0
-    }
-  }
 }
 
-// MARK: - LiteralState
-
 extension YAMLStreamParser {
-  private struct LiteralState {
-    var expected = [UInt8]()
-    var index = 0
-  }
-
   private mutating func startLiteral(expected: [UInt8]) {
     self.literalState.expected = expected
     self.literalState.index = 1
