@@ -185,7 +185,7 @@ If you want to use Swift Stream Parsing in a [SwiftPM](https://swift.org/package
 dependencies: [
   .package(
     url: "https://github.com/mhayes853/swift-stream-parsing",
-    from: "0.1.0",
+    from: "0.5.0",
     // You can omit the traits if you don't need any of them.
     traits: ["StreamParsingSwiftCollections"]
   ),
