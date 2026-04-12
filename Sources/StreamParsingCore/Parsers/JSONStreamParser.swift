@@ -37,7 +37,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private var numberParsingState = NumberParsingState()
   private var containerState = ContainerState()
   private var currentStringPath: WritableKeyPath<Value, String>?
-  private var currentNumberPath: WritableKeyPath<Value, JSONNumberAccumulator>?
+  private var currentNumberPath: WritableKeyPath<Value, NumberAccumulator>?
   private var currentArrayPath: WritableKeyPath<Value, any StreamParseableArrayObject>?
   private var currentDictionaryPath: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
   private var currentTrieNode: PathTrie<Value>?
@@ -70,7 +70,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     for byte in bytes {
       try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
     }
-    try self.flushByteChunkParseState(&chunkState, into: &reducer)
+    chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
   }
 
   public mutating func finish(reducer: inout Value) throws {
@@ -243,52 +243,12 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   }
 
   private mutating func advancePosition(for byte: UInt8) {
-    if byte == 0x0A {
+    if byte == .asciiLineFeed {
       self.position.line += 1
       self.position.column = 1
     } else {
       self.position.column += 1
     }
-  }
-
-  private mutating func flushByteChunkParseState(
-    _ chunkState: inout ByteChunkParseState,
-    into reducer: inout Value
-  ) throws {
-    if let valueStringBuffer = chunkState.valueStringBuffer, let currentStringPath {
-      reducer[keyPath: currentStringPath] = valueStringBuffer
-      chunkState.valueStringBuffer = nil
-    }
-    if let valueNumberAccumulator = chunkState.valueNumberAccumulator, let currentNumberPath {
-      reducer[keyPath: currentNumberPath] = valueNumberAccumulator
-      chunkState.valueNumberAccumulator = nil
-    }
-  }
-
-  private func ensureValueStringBuffer(
-    in reducer: Value,
-    chunkState: inout ByteChunkParseState
-  ) -> String {
-    if let valueStringBuffer = chunkState.valueStringBuffer {
-      return valueStringBuffer
-    }
-    guard let currentStringPath else { return "" }
-    let valueStringBuffer = reducer[keyPath: currentStringPath]
-    chunkState.valueStringBuffer = valueStringBuffer
-    return valueStringBuffer
-  }
-
-  private func ensureValueNumberAccumulator(
-    in reducer: Value,
-    chunkState: inout ByteChunkParseState
-  ) -> JSONNumberAccumulator? {
-    if let valueNumberAccumulator = chunkState.valueNumberAccumulator {
-      return valueNumberAccumulator
-    }
-    guard let currentNumberPath else { return nil }
-    let valueNumberAccumulator = reducer[keyPath: currentNumberPath]
-    chunkState.valueNumberAccumulator = valueNumberAccumulator
-    return valueNumberAccumulator
   }
 
   private mutating func writeCurrentNumberAccumulator(
@@ -297,9 +257,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     isHex: Bool,
     position: JSONStreamParsingPosition
   ) throws {
-    let valueNumberAccumulator = self.ensureValueNumberAccumulator(
+    let valueNumberAccumulator = chunkState.ensureValueNumberAccumulator(
       in: reducer,
-      chunkState: &chunkState
+      path: self.currentNumberPath
     )
     guard var valueNumberAccumulator else { return }
     let didParse = valueNumberAccumulator.parseDigits(
@@ -344,7 +304,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       try self.handleNeutralLeadingDecimalPointStart(into: &reducer, chunkState: &chunkState)
     case .asciiPlus:
       try self.handleNeutralLeadingPlusStart(into: &reducer, chunkState: &chunkState)
-    case 0x30...0x39:
+    case .asciiZero ... .asciiNine:
       try self.handleNeutralDigitStart(byte, into: &reducer, chunkState: &chunkState)
     case .asciiUpperI, .asciiUpperN:
       try self.handleNeutralNonFiniteNumberStart(byte, into: &reducer)
@@ -905,9 +865,9 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
         if self.currentStringPath != nil {
-          var valueStringBuffer = self.ensureValueStringBuffer(
+          var valueStringBuffer = chunkState.ensureValueStringBuffer(
             in: reducer,
-            chunkState: &chunkState
+            path: self.currentStringPath
           )
           valueStringBuffer.unicodeScalars.append(scalar)
           chunkState.valueStringBuffer = valueStringBuffer
@@ -935,7 +895,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
       default:
         if self.stringState.isEscaping {
-          if byte == 0x75 {
+          if byte == .asciiLowerU {
             self.stringState.beginUnicodeEscape()
             return
           }
@@ -954,7 +914,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiBackslash:
       if self.stringState.isEscaping {
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         valueStringBuffer.append("\\")
         chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
@@ -964,25 +924,25 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 
     case self.stringState.stringDelimiter:
       if self.stringState.isEscaping {
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         valueStringBuffer.unicodeScalars.append(Unicode.Scalar(byte))
         chunkState.valueStringBuffer = valueStringBuffer
         self.stringState.isEscaping = false
       } else {
-        try self.flushByteChunkParseState(&chunkState, into: &reducer)
+        chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
         self.mode = .neutral
       }
 
     default:
       if self.stringState.isEscaping {
-        if byte == 0x75 {
+        if byte == .asciiLowerU {
           self.stringState.beginUnicodeEscape()
           return
         }
       }
       switch self.stringState.utf8State.consume(byte: byte) {
       case .consume(let scalar):
-        var valueStringBuffer = self.ensureValueStringBuffer(in: reducer, chunkState: &chunkState)
+        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         if self.stringState.isEscaping {
           self.stringState.appendEscapedCharacter(for: byte, into: &valueStringBuffer)
         } else {
@@ -1251,7 +1211,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
   private mutating func applyNonFiniteNumber(
     _ value: Double,
     at position: JSONStreamParsingPosition,
-    path: WritableKeyPath<Value, JSONNumberAccumulator>,
+    path: WritableKeyPath<Value, NumberAccumulator>,
     into reducer: inout Value
   ) throws {
     var accumulator = reducer[keyPath: path]
@@ -1289,7 +1249,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
         isHex: true,
         position: position
       )
-      try self.flushByteChunkParseState(&chunkState, into: &reducer)
+      chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
       self.mode = .neutral
       self.numberParsingState.resetAfterFinalize()
       return
@@ -1321,7 +1281,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
       isHex: self.numberParsingState.state.isHex,
       position: position
     )
-    try self.flushByteChunkParseState(&chunkState, into: &reducer)
+    chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
     self.mode = .neutral
     self.numberParsingState.resetAfterFinalize()
   }
@@ -1329,10 +1289,7 @@ public struct JSONStreamParser<Value: StreamParseableValue>: StreamParser {
 }
 
 extension JSONStreamParser {
-  private struct ByteChunkParseState {
-    var valueStringBuffer: String?
-    var valueNumberAccumulator: JSONNumberAccumulator?
-  }
+  private typealias ByteChunkParseState = ParserByteChunkState<Value>
 
   private struct StringParsingState {
     var keyBuffer = ""
@@ -1747,248 +1704,10 @@ public enum JSONKeyDecodingStrategy: Sendable {
   /// Applies the selected strategy to transform the provided key.
   public func decode(key: String) -> String {
     switch self {
-    case .convertFromSnakeCase: Self.convertFromSnakeCase(key: key)
+    case .convertFromSnakeCase: decodeKeyFromSnakeCase(key)
     case .useDefault: key
     case .custom(let decode): decode(key)
     }
-  }
-
-  private static func convertFromSnakeCase(key: String) -> String {
-    guard !key.isEmpty else { return key }
-    guard let firstNonUnderscore = key.firstIndex(where: { $0 != "_" }) else { return key }
-
-    var lastNonUnderscore = key.index(before: key.endIndex)
-    while lastNonUnderscore > firstNonUnderscore && key[lastNonUnderscore] == "_" {
-      key.formIndex(before: &lastNonUnderscore)
-    }
-
-    let keyRange = firstNonUnderscore...lastNonUnderscore
-    let leadingUnderscoreRange = key.startIndex..<firstNonUnderscore
-    let trailingUnderscoreRange = key.index(after: lastNonUnderscore)..<key.endIndex
-
-    let components = key[keyRange].split(separator: "_")
-    let joinedString: String
-    if components.count == 1 {
-      joinedString = String(key[keyRange])
-    } else {
-      joinedString = ([components[0].lowercased()] + components[1...].map(\.capitalized)).joined()
-    }
-
-    let result: String
-    if leadingUnderscoreRange.isEmpty && trailingUnderscoreRange.isEmpty {
-      result = joinedString
-    } else if !leadingUnderscoreRange.isEmpty && !trailingUnderscoreRange.isEmpty {
-      result =
-        String(key[leadingUnderscoreRange]) + joinedString + String(key[trailingUnderscoreRange])
-    } else if !leadingUnderscoreRange.isEmpty {
-      result = String(key[leadingUnderscoreRange]) + joinedString
-    } else {
-      result = joinedString + String(key[trailingUnderscoreRange])
-    }
-    return result
-  }
-}
-
-// MARK: - PathTrie
-
-private final class PathTrie<Value: StreamParseableValue> {
-  struct Paths {
-    var string: WritableKeyPath<Value, String>?
-    var bool: WritableKeyPath<Value, Bool>?
-    var number: WritableKeyPath<Value, JSONNumberAccumulator>?
-    var nullable: WritableKeyPath<Value, Void?>?
-    var array: WritableKeyPath<Value, any StreamParseableArrayObject>?
-    var dictionary: WritableKeyPath<Value, any StreamParseableDictionaryObject>?
-
-    var hasAnyHandler: Bool {
-      self.string != nil
-        || self.bool != nil
-        || self.number != nil
-        || self.nullable != nil
-        || self.array != nil
-        || self.dictionary != nil
-    }
-
-    mutating func merge(from other: Paths) {
-      if self.string == nil {
-        self.string = other.string
-      }
-      if self.bool == nil {
-        self.bool = other.bool
-      }
-      if self.number == nil {
-        self.number = other.number
-      }
-      if self.nullable == nil {
-        self.nullable = other.nullable
-      }
-      if self.array == nil {
-        self.array = other.array
-      }
-      if self.dictionary == nil {
-        self.dictionary = other.dictionary
-      }
-    }
-  }
-
-  enum Children {
-    case none
-    case array(PathTrie)
-    case object(keys: [String: PathTrie], any: PathTrie?)
-  }
-
-  var paths = Paths()
-  var children: Children = .none
-  var dynamicKeyBuilder: ((String) -> PathTrie<Value>)?
-  private var dynamicKeyCache: [String: PathTrie<Value>] = [:]
-
-  init(paths: Paths = Paths(), children: Children = .none) {
-    self.paths = paths
-    self.children = children
-  }
-
-  var expectsObject: Bool {
-    if case .object = self.children { return true }
-    return false
-  }
-
-  var hasAnyHandler: Bool {
-    self.paths.hasAnyHandler || self.hasChildren
-  }
-
-  private var hasChildren: Bool {
-    switch self.children {
-    case .none: false
-    case .array, .object: true
-    }
-  }
-
-  func prefixed<Root: StreamParseableValue>(
-    by prefix: WritableKeyPath<Root, Value>
-  ) -> PathTrie<Root> {
-    let prefixedPaths = PathTrie<Root>
-      .Paths(
-        string: self.paths.string.map { prefix.appending(path: $0) },
-        bool: self.paths.bool.map { prefix.appending(path: $0) },
-        number: self.paths.number.map { prefix.appending(path: $0) },
-        nullable: self.paths.nullable.map { prefix.appending(path: $0) },
-        array: self.paths.array.map { prefix.appending(path: $0) },
-        dictionary: self.paths.dictionary.map { prefix.appending(path: $0) }
-      )
-    let node = PathTrie<Root>(paths: prefixedPaths)
-    switch self.children {
-    case .none:
-      break
-    case .array(let child):
-      node.children = .array(child.prefixed(by: prefix))
-    case .object(let keys, let any):
-      var prefixedKeys = [String: PathTrie<Root>]()
-      prefixedKeys.reserveCapacity(keys.count)
-      for (key, child) in keys {
-        prefixedKeys[key] = child.prefixed(by: prefix)
-      }
-      let prefixedAny = any.map { $0.prefixed(by: prefix) }
-      node.children = .object(keys: prefixedKeys, any: prefixedAny)
-    }
-    if let builder = self.dynamicKeyBuilder {
-      node.dynamicKeyBuilder = { key in
-        builder(key).prefixed(by: prefix)
-      }
-    }
-    return node
-  }
-
-  func merge(from other: PathTrie<Value>) {
-    self.paths.merge(from: other.paths)
-    switch other.children {
-    case .none:
-      break
-    case .array(let otherChild):
-      let child = self.ensureArrayChild()
-      child.merge(from: otherChild)
-    case .object(let keys, let any):
-      for (key, otherChild) in keys {
-        let child = self.ensureObjectChild(for: key)
-        child.merge(from: otherChild)
-      }
-      if let otherAny = any {
-        let anyChild = self.ensureAnyObjectChild()
-        anyChild.merge(from: otherAny)
-        if anyChild.dynamicKeyBuilder == nil {
-          anyChild.dynamicKeyBuilder = otherAny.dynamicKeyBuilder
-        }
-      }
-    }
-    if self.dynamicKeyBuilder == nil {
-      self.dynamicKeyBuilder = other.dynamicKeyBuilder
-    }
-  }
-
-  func arrayChildNode() -> PathTrie<Value>? {
-    if case .array(let child) = self.children {
-      return child
-    }
-    return nil
-  }
-
-  func objectChildNode(for key: String) -> PathTrie<Value>? {
-    guard case .object(let keys, let any) = self.children else { return nil }
-    if let child = keys[key] {
-      return child
-    }
-    guard let any else { return nil }
-    return any.nodeForDynamicKey(key)
-  }
-
-  private func nodeForDynamicKey(_ key: String) -> PathTrie<Value> {
-    if let cached = self.dynamicKeyCache[key] {
-      return cached
-    }
-    guard let builder = self.dynamicKeyBuilder else { return self }
-    let node = builder(key)
-    self.dynamicKeyCache[key] = node
-    return node
-  }
-
-  @discardableResult
-  func ensureArrayChild() -> PathTrie<Value> {
-    if case .array(let child) = self.children {
-      return child
-    }
-    let child = PathTrie<Value>()
-    self.children = .array(child)
-    return child
-  }
-
-  @discardableResult
-  func ensureObjectChild(for key: String) -> PathTrie<Value> {
-    if case .object(var keys, let any) = self.children {
-      if let child = keys[key] {
-        return child
-      }
-      let child = PathTrie<Value>()
-      keys[key] = child
-      self.children = .object(keys: keys, any: any)
-      return child
-    }
-    let child = PathTrie<Value>()
-    self.children = .object(keys: [key: child], any: nil)
-    return child
-  }
-
-  @discardableResult
-  func ensureAnyObjectChild() -> PathTrie<Value> {
-    if case .object(let keys, let any) = self.children {
-      if let any {
-        return any
-      }
-      let child = PathTrie<Value>()
-      self.children = .object(keys: keys, any: child)
-      return child
-    }
-    let child = PathTrie<Value>()
-    self.children = .object(keys: [:], any: child)
-    return child
   }
 }
 
@@ -2012,54 +1731,42 @@ extension JSONStreamParser {
       node: PathTrie<Value>?
     ) -> (WritableKeyPath<Value, any StreamParseableArrayObject>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.array
-      let isInvalidType = path == nil && node.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.array)
     }
 
     fileprivate func dictionaryPath(
       node: PathTrie<Value>?
     ) -> (WritableKeyPath<Value, any StreamParseableDictionaryObject>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.dictionary
-      let isInvalidType = path == nil && node.hasAnyHandler && !node.expectsObject
-      return (path, isInvalidType)
+      return node.path(\.dictionary) { $0.hasAnyHandler && !$0.expectsObject }
     }
 
     fileprivate func numberPath(
       node: PathTrie<Value>?
-    ) -> (WritableKeyPath<Value, JSONNumberAccumulator>?, Bool) {
+    ) -> (WritableKeyPath<Value, NumberAccumulator>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.number
-      let isInvalidType = path == nil && node.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.number)
     }
 
     fileprivate func stringPath(
       node: PathTrie<Value>?
     ) -> (WritableKeyPath<Value, String>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.string
-      let isInvalidType = path == nil && node.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.string)
     }
 
     fileprivate func nullablePath(
       node: PathTrie<Value>?
     ) -> (WritableKeyPath<Value, Void?>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.nullable
-      let isInvalidType = path == nil && node.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.nullable)
     }
 
     fileprivate func booleanPath(
       node: PathTrie<Value>?
     ) -> (WritableKeyPath<Value, Bool>?, Bool) {
       guard let node else { return (nil, false) }
-      let path = node.paths.bool
-      let isInvalidType = path == nil && node.hasAnyHandler
-      return (path, isInvalidType)
+      return node.path(\.bool)
     }
 
     public mutating func registerStringHandler(_ keyPath: WritableKeyPath<Value, String>) {
@@ -2131,11 +1838,11 @@ extension JSONStreamParser {
       var keyedHandlers = JSONStreamParser<Keyed>.Handlers(configuration: self.configuration)
       Keyed.registerHandlers(in: &keyedHandlers)
 
-      let decodedKey = self.configuration.keyDecodingStrategy.decode(key: key)
-
-      let keyNode = self.pathTrie.ensureObjectChild(for: decodedKey)
-      let prefixedTrie = keyedHandlers.pathTrie.prefixed(by: keyPath)
-      keyNode.merge(from: prefixedTrie)
+      self.pathTrie.mergeKeyedHandlerTrie(
+        decodedKey: self.configuration.keyDecodingStrategy.decode(key: key),
+        keyPath: keyPath,
+        nestedTrie: keyedHandlers.pathTrie
+      )
     }
 
     public mutating func registerScopedHandlers<Scoped: StreamParseableValue>(
@@ -2144,39 +1851,27 @@ extension JSONStreamParser {
     ) {
       var handlers = JSONStreamParser<Scoped>.Handlers(configuration: self.configuration)
       type.registerHandlers(in: &handlers)
-      let prefixedTrie = handlers.pathTrie.prefixed(by: keyPath)
-      self.pathTrie.merge(from: prefixedTrie)
+      self.pathTrie.mergeScopedHandlerTrie(keyPath: keyPath, nestedTrie: handlers.pathTrie)
     }
 
     public mutating func registerArrayHandler<ArrayObject: StreamParseableArrayObject>(
       _ keyPath: WritableKeyPath<Value, ArrayObject>
     ) {
-      self.pathTrie.paths.array = keyPath.appending(path: \.erasedJSONPath)
-
       var elementHandlers = JSONStreamParser<ArrayObject.Element>
         .Handlers(configuration: self.configuration)
       ArrayObject.Element.registerHandlers(in: &elementHandlers)
 
-      let arrayNode = self.pathTrie.ensureArrayChild()
-      let elementPrefix = keyPath.appending(path: \.currentElement)
-      let prefixedTrie = elementHandlers.pathTrie.prefixed(by: elementPrefix)
-      arrayNode.merge(from: prefixedTrie)
+      self.pathTrie.registerArrayHandlerTrie(keyPath: keyPath, elementTrie: elementHandlers.pathTrie)
     }
 
     public mutating func registerDictionaryHandler<
       DictionaryObject: StreamParseableDictionaryObject
     >(_ keyPath: WritableKeyPath<Value, DictionaryObject>) {
-      self.pathTrie.paths.dictionary = keyPath.appending(path: \.erasedJSONPath)
-
       var valueHandlers = JSONStreamParser<DictionaryObject.Value>
         .Handlers(configuration: self.configuration)
       DictionaryObject.Value.registerHandlers(in: &valueHandlers)
 
-      let anyNode = self.pathTrie.ensureAnyObjectChild()
-      anyNode.dynamicKeyBuilder = { key in
-        let valuePrefix = keyPath.appending(path: \.[unwrapped: key])
-        return valueHandlers.pathTrie.prefixed(by: valuePrefix)
-      }
+      self.pathTrie.registerDictionaryHandlerTrie(keyPath: keyPath, valueTrie: valueHandlers.pathTrie)
     }
 
     @available(StreamParsing128BitIntegers, *)
@@ -2191,385 +1886,11 @@ extension JSONStreamParser {
   }
 }
 
-extension UInt8 {
-  fileprivate var isLetter: Bool {
-    switch self {
-    case 0x41...0x5A, 0x61...0x7A: true
-    default: false
-    }
-  }
-
-  fileprivate var isAlphaNumeric: Bool {
-    self.isLetter || self.digitValue != nil
-  }
-
-  fileprivate var isWhitespace: Bool {
-    switch self {
-    case 0x20, 0x09, 0x0A, 0x0D: true
-    default: false
-    }
-  }
-
-  fileprivate var hexValue: UInt8? {
-    switch self {
-    case 0x30...0x39: self &- 0x30
-    case 0x41...0x46: self &- 0x41 &+ 10
-    case 0x61...0x66: self &- 0x61 &+ 10
-    default: nil
-    }
-  }
-}
-
-// MARK: - Digit
-
-extension UInt8 {
-  fileprivate var digitValue: UInt8? {
-    switch self {
-    case 0x30...0x39: self &- 0x30
-    default: nil
-    }
-  }
-}
-
-// MARK: - JSONNumberAccumulator
-
-private enum JSONNumberAccumulator {
-  case int(Int)
-  case int8(Int8)
-  case int16(Int16)
-  case int32(Int32)
-  case int64(Int64)
-  case int128(low: UInt64, high: Int64)
-  case uint(UInt)
-  case uint8(UInt8)
-  case uint16(UInt16)
-  case uint32(UInt32)
-  case uint64(UInt64)
-  case uint128(low: UInt64, high: UInt64)
-  case float(Float)
-  case double(Double)
-
-  mutating func reset() {
-    switch self {
-    case .int: self = .int(.zero)
-    case .int8: self = .int8(.zero)
-    case .int16: self = .int16(.zero)
-    case .int32: self = .int32(.zero)
-    case .int64: self = .int64(.zero)
-    case .int128: self = .int128(low: .zero, high: .zero)
-    case .uint: self = .uint(.zero)
-    case .uint8: self = .uint8(.zero)
-    case .uint16: self = .uint16(.zero)
-    case .uint32: self = .uint32(.zero)
-    case .uint64: self = .uint64(.zero)
-    case .uint128: self = .uint128(low: .zero, high: .zero)
-    case .float: self = .float(.zero)
-    case .double: self = .double(.zero)
-    }
-  }
-
-  mutating func parseDigits(buffer: DigitBuffer, isHex: Bool) -> Bool {
-    switch self {
-    case .int:
-      guard let value: Int = parseInteger(buffer: buffer, isHex: isHex, as: Int.self) else {
-        return false
-      }
-      self = .int(value)
-    case .int8:
-      guard let value: Int8 = parseInteger(buffer: buffer, isHex: isHex, as: Int8.self) else {
-        return false
-      }
-      self = .int8(value)
-    case .int16:
-      guard let value: Int16 = parseInteger(buffer: buffer, isHex: isHex, as: Int16.self) else {
-        return false
-      }
-      self = .int16(value)
-    case .int32:
-      guard let value: Int32 = parseInteger(buffer: buffer, isHex: isHex, as: Int32.self) else {
-        return false
-      }
-      self = .int32(value)
-    case .int64:
-      guard let value: Int64 = parseInteger(buffer: buffer, isHex: isHex, as: Int64.self) else {
-        return false
-      }
-      self = .int64(value)
-    case .int128:
-      guard #available(StreamParsing128BitIntegers , *) else { return true }
-      guard let value = parseInt128(buffer: buffer, isHex: isHex) else { return false }
-      self = .int128(low: value._low, high: value._high)
-    case .uint:
-      guard let value: UInt = parseInteger(buffer: buffer, isHex: isHex, as: UInt.self) else {
-        return false
-      }
-      self = .uint(value)
-    case .uint8:
-      guard let value: UInt8 = parseInteger(buffer: buffer, isHex: isHex, as: UInt8.self) else {
-        return false
-      }
-      self = .uint8(value)
-    case .uint16:
-      guard let value: UInt16 = parseInteger(buffer: buffer, isHex: isHex, as: UInt16.self) else {
-        return false
-      }
-      self = .uint16(value)
-    case .uint32:
-      guard let value: UInt32 = parseInteger(buffer: buffer, isHex: isHex, as: UInt32.self) else {
-        return false
-      }
-      self = .uint32(value)
-    case .uint64:
-      guard let value: UInt64 = parseInteger(buffer: buffer, isHex: isHex, as: UInt64.self) else {
-        return false
-      }
-      self = .uint64(value)
-    case .uint128:
-      guard #available(StreamParsing128BitIntegers , *) else { return true }
-      guard let value = parseUInt128(buffer: buffer, isHex: isHex) else { return false }
-      self = .uint128(low: value._low, high: value._high)
-    case .float:
-      guard let value: Float = parseFloatingPoint(buffer: buffer, as: Float.self) else {
-        return false
-      }
-      self = .float(value)
-    case .double:
-      guard let value: Double = parseFloatingPoint(buffer: buffer, as: Double.self) else {
-        return false
-      }
-      self = .double(value)
-    }
-    return true
-  }
-}
-
-extension Int {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int(self) }
-    set {
-      guard case .int(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension Int8 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int8(self) }
-    set {
-      guard case .int8(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension Int16 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int16(self) }
-    set {
-      guard case .int16(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension Int32 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int32(self) }
-    set {
-      guard case .int32(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension Int64 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int64(self) }
-    set {
-      guard case .int64(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-@available(StreamParsing128BitIntegers, *)
-extension Int128 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .int128(low: self._low, high: self._high) }
-    set {
-      guard case .int128(let low, let high) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = Int128(_low: low, _high: high)
-    }
-  }
-}
-
-extension UInt {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint(self) }
-    set {
-      guard case .uint(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension UInt8 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint8(self) }
-    set {
-      guard case .uint8(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension UInt16 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint16(self) }
-    set {
-      guard case .uint16(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension UInt32 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint32(self) }
-    set {
-      guard case .uint32(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension UInt64 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint64(self) }
-    set {
-      guard case .uint64(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-@available(StreamParsing128BitIntegers, *)
-extension UInt128 {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .uint128(low: self._low, high: self._high) }
-    set {
-      guard case .uint128(let low, let high) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = UInt128(_low: low, _high: high)
-    }
-  }
-}
-
-extension Float {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .float(self) }
-    set {
-      guard case .float(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-extension Double {
-  fileprivate var erasedAccumulator: JSONNumberAccumulator {
-    get { .double(self) }
-    set {
-      guard case .double(let value) = newValue else { jsonNumberAccumulatorCaseMismatch() }
-      self = value
-    }
-  }
-}
-
-private func jsonNumberAccumulatorCaseMismatch() -> Never {
-  fatalError("JSONNumberAccumulator case mismatch.")
-}
-
-// MARK: - DictionaryObject
-
-extension StreamParseableDictionaryObject {
-  fileprivate var erasedJSONPath: any StreamParseableDictionaryObject {
-    get { self }
-    set { self = newValue as! Self }
-  }
-
-  fileprivate subscript(unwrapped key: String) -> Value {
-    get { self[key] ?? Value.initialParseableValue() }
-    set { self[key] = newValue }
-  }
-}
-
-// MARK: - ArrayLikeObject
-
-extension StreamParseableArrayObject {
-  fileprivate var erasedJSONPath: any StreamParseableArrayObject {
-    get { self }
-    set { self = newValue as! Self }
-  }
-
-  fileprivate var currentElement: Element {
-    get {
-      let index = self.count - 1
-      return self[index]
-    }
-    set {
-      let index = self.count - 1
-      self[index] = newValue
-    }
-  }
-
-  fileprivate mutating func appendNewElement() {
-    self.append(contentsOf: CollectionOfOne(.initialParseableValue()))
-  }
-}
-
-// MARK: - StreamParseableValue
-
-extension StreamParseableValue {
-  fileprivate var erasedJSONPath: any StreamParseableValue {
-    get { self }
-    set { self = newValue as! Self }
-  }
-
-  fileprivate mutating func reset() {
-    self = .initialParseableValue()
-  }
-}
-
 // MARK: - StackElement
 
 private enum StackElement {
   case array(index: Int)
   case object(key: String)
-}
-
-// MARK: - NumberState
-
-private struct NumberState {
-  var hasDigits = false
-  var hasLeadingZero = false
-  var hasFractionDigits = false
-  var hasExponent = false
-  var hasExponentDigits = false
-  var hasDot = false
-  var digitCount = 0
-  var isHex = false
-  var hasHexDigits = false
-
-  mutating func reset() {
-    self = NumberState()
-  }
-}
-
-// MARK: - LiteralState
-
-private struct LiteralState {
-  var expected = [UInt8]()
-  var index = 0
 }
 
 private enum CommentKind {

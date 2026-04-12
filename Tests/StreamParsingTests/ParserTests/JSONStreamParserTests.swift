@@ -1850,6 +1850,47 @@ struct `JSONStreamParser tests` {
         reason: .invalidType
       )
     }
+
+    @Test
+    func `Throws For Incomplete True Literal On Finish`() throws {
+      let json = "tru"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: false,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Incomplete False Literal On Finish`() throws {
+      let json = "fal"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: true,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Incomplete Null Literal On Finish`() throws {
+      let json = "nul"
+      try expectJSONStreamParsingError(
+        json,
+        initialValue: String?.none,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Unterminated Unquoted Key On Finish When Enabled`() throws {
+      let json = "{a"
+      try expectJSONStreamParsingError(
+        json,
+        configuration: JSONStreamParserConfiguration(syntaxOptions: [.unquotedKeys]),
+        initialValue: [String: Int](),
+        reason: .missingClosingBrace
+      )
+    }
   }
 
   @Suite
