@@ -176,7 +176,8 @@ You can add Swift Stream Parsing to an Xcode project by adding it to your projec
 
 > [https://github.com/mhayes853/swift-stream-parsing](https://github.com/mhayes853/swift-stream-parsing)
 
-> ⚠️ At of the time of writing this, Xcode 26.2 does not seem to include a UI for enabling traits on swift packages through the `Files > Add Package Dependencies` menu. If you want to enable traits, you will have to install the library inside a local swift package that lives outside your Xcode project.
+> [!NOTE] 
+> Xcode 26.4 is required for using traits directly in Xcode projects.
 
 If you want to use Swift Stream Parsing in a [SwiftPM](https://swift.org/package-manager/) project, it’s as simple as adding it to your `Package.swift`:
 
