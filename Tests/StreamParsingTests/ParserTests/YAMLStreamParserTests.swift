@@ -1791,6 +1791,56 @@ struct `YAMLStreamParser tests` {
         reason: .invalidMultiLineString
       )
     }
+
+    @Test
+    func `Throws For Incomplete True Literal On Finish`() throws {
+      let yaml = "tru"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: false,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Incomplete False Literal On Finish`() throws {
+      let yaml = "fal"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: true,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Incomplete Null Literal On Finish`() throws {
+      let yaml = "nul"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: String?.none,
+        reason: .invalidLiteral
+      )
+    }
+
+    @Test
+    func `Throws For Unterminated Key On Finish`() throws {
+      let yaml = "key\n"
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
+
+    @Test
+    func `Throws For Unterminated Quoted Key On Finish`() throws {
+      let yaml = "\"key\""
+      try expectYAMLStreamParsingError(
+        yaml,
+        initialValue: [String: Int](),
+        reason: .missingColon
+      )
+    }
   }
 }
 

@@ -123,6 +123,20 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
         context: .string
       )
     }
+    if self.mode == .literal {
+      throw YAMLStreamParsingError(
+        reason: .invalidLiteral,
+        position: self.position,
+        context: .literal
+      )
+    }
+    if self.mode == .keyCollecting {
+      throw YAMLStreamParsingError(
+        reason: .missingColon,
+        position: self.position,
+        context: .objectKey
+      )
+    }
     if self.mode.isNumeric {
       if self.numberParsingState.state.hasExponent
         && !self.numberParsingState.state.hasExponentDigits
