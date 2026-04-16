@@ -41,7 +41,8 @@ let package = Package(
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.1.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7"),
-    .package(url: "https://github.com/jpsim/Yams", from: "6.2.1")
+    .package(url: "https://github.com/jpsim/Yams", from: "6.2.1"),
+    .package(url: "https://github.com/toon-format/toon-swift.git", from: "0.4.0")
   ],
   targets: [
     .target(
@@ -77,7 +78,8 @@ let package = Package(
         "StreamParsing",
         .product(name: "CustomDump", package: "swift-custom-dump"),
         .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
-        .product(name: "Yams", package: "Yams")
+        .product(name: "Yams", package: "Yams"),
+        .product(name: "ToonFormat", package: "toon-swift")
       ],
       resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
