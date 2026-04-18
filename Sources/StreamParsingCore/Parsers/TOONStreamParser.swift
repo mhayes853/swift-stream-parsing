@@ -977,7 +977,9 @@ extension TOONStreamParser {
     var result = ""
     var isEscaping = false
     var sawClosingQuote = false
-    for character in token.dropFirst() {
+    var index = token.index(after: token.startIndex)
+    while index < token.endIndex {
+      let character = token[index]
       if isEscaping {
         switch character {
         case "\\": result.append("\\")
@@ -996,17 +998,30 @@ extension TOONStreamParser {
           return result
         }
         isEscaping = false
+        index = token.index(after: index)
         continue
       }
       if character == "\\" {
         isEscaping = true
+        index = token.index(after: index)
         continue
       }
       if character == "\"" {
         sawClosingQuote = true
+        let trailingStart = token.index(after: index)
+        if self.strict,
+          token[trailingStart...].contains(where: { !$0.isWhitespace })
+        {
+          throw TOONStreamParsingError(
+            reason: .unexpectedToken,
+            position: position,
+            context: .string
+          )
+        }
         break
       }
       result.append(character)
+      index = token.index(after: index)
     }
     if self.strict && (!sawClosingQuote || isEscaping) {
       throw TOONStreamParsingError(

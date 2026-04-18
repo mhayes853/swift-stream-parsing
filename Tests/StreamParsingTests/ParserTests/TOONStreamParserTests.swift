@@ -886,6 +886,15 @@ struct `TOONStreamParser tests` {
     }
 
     @Test
+    func `Throws For Trailing Junk After Quoted String Value`() throws {
+      try expectTOONParsingError(
+        "value: \"ok\"junk",
+        initialValue: [String: String](),
+        reason: .unexpectedToken
+      )
+    }
+
+    @Test
     func `Throws For Invalid Literal`() throws {
       try expectTOONParsingError(
         "value: tru",
