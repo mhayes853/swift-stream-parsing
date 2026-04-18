@@ -465,6 +465,23 @@ struct `TOONStreamParser tests` {
       try expectTOONFinalValue(toon, initialValue: [Int](), expected: [1, 2, 3])
     }
 
+    @Test(arguments: [
+      ("\"a:b\"", "a:b"),
+      ("\"a,b\"", "a,b"),
+      ("\"[a]\"", "[a]"),
+      ("\"{a:b}\"", "{a:b}")
+    ])
+    func `Streams TOON Block String Array Item With Delimiters Inside Quotes`(
+      element: String,
+      expectedElement: String
+    ) throws {
+      let toon = """
+      [1]:
+        - \(element)
+      """
+      try expectTOONFinalValue(toon, initialValue: [String](), expected: [expectedElement])
+    }
+
     @Test
     func `Streams TOON Array With Fractional And Exponential Double`() throws {
       let toon = "[3]: 1.5,2e2,-3.25"

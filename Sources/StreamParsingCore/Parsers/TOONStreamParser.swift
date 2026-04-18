@@ -800,18 +800,17 @@ extension TOONStreamParser {
   ) throws {
     let content = String(line.content.dropFirst(2))
     self.index += 1
-    let synthetic = TOONLine(
-      number: line.number,
-      indent: line.indent,
-      content: content,
-      raw: content
-    )
-    let (lhs, rhs) = try self.splitField(synthetic)
-    if let header = try self.parseArrayHeader(from: lhs), header.key == nil {
-      try self.parseArray(header: header, inlineValue: rhs, atIndent: line.indent, node: node)
-      return
-    }
-    if content.contains(":") {
+    let topLevelColonIndex = content.firstTopLevelColonIndex
+    if let topLevelColonIndex {
+      let lhs = String(content[..<topLevelColonIndex]).trimmingCharacters(in: .whitespaces)
+      let rhsStart = content.index(after: topLevelColonIndex)
+      let rawRHS = String(content[rhsStart...])
+      let rhs = rawRHS.hasPrefix(" ") ? String(rawRHS.dropFirst()) : rawRHS
+      let inlineValue = rhs.isEmpty ? nil : rhs
+      if let header = try self.parseArrayHeader(from: lhs), header.key == nil {
+        try self.parseArray(header: header, inlineValue: inlineValue, atIndent: line.indent, node: node)
+        return
+      }
       try self.parseSyntheticObjectItem(content, line: line, node: node)
       return
     }
