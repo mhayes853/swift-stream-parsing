@@ -85,22 +85,12 @@ struct SinkUser: StreamParseableObject, Equatable {
     enterField: { storage, field in
       let p = storage.assumingMemoryBound(to: Self.self)
       switch field {
-      case 3:
-        p.pointee.address = SinkAddress()
-        return withUnsafeMutablePointer(to: &p.pointee.address) { optional in
-          optional.withMemoryRebound(to: SinkAddress.self, capacity: 1) {
-            StreamFrame(storage: UnsafeMutableRawPointer($0), schema: SinkAddress.streamSchema)
-          }
-        }
+      case 3: return streamEnterOptionalObject(&p.pointee.address)
       case 4:
-        p.pointee.scores = []
-        return withUnsafeMutablePointer(to: &p.pointee.scores) { optional in
-          optional.withMemoryRebound(to: [Int].self, capacity: 1) {
-            StreamFrame(storage: UnsafeMutableRawPointer($0), schema: intArraySchema)
-          }
-        }
-      default:
-        return nil
+        return streamEnterOptionalContainer(
+          &p.pointee.scores, initial: [], schema: intArraySchema
+        )
+      default: return nil
       }
     }
   )
@@ -110,15 +100,11 @@ struct SinkUser: StreamParseableObject, Equatable {
 let intArraySchema = StreamSchema(
   shape: .array,
   appendElement: { storage in
-    let array = storage.assumingMemoryBound(to: [Int].self)
-    array.pointee.append(0)
-    let index = array.pointee.count - 1
-    return array.pointee.withUnsafeMutableBufferPointer { buffer in
-      StreamFrame(
-        storage: UnsafeMutableRawPointer(buffer.baseAddress! + index),
-        schema: intScalarSchema
-      )
-    }
+    streamAppendElement(
+      to: &storage.assumingMemoryBound(to: [Int].self).pointee,
+      initial: 0,
+      schema: intScalarSchema
+    )
   }
 )
 
