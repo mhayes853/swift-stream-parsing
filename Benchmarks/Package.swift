@@ -17,6 +17,7 @@ let package = Package(
       name: "StreamParsingBenchmarks",
       dependencies: [
         .product(name: "StreamParsing", package: "swift-stream-parsing"),
+        .product(name: "StreamParsingCore", package: "swift-stream-parsing"),
         .product(name: "Benchmark", package: "benchmark")
       ],
       path: "StreamParsingBenchmarks",

@@ -192,7 +192,7 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) {
     switch self.state {
     case .number:
-      try self.emitNumber(into: &sink)
+      try self.emitBufferedNumber(into: &sink)
       self.state = .done
     case .value, .firstValue, .key, .firstKey, .afterKey:
       throw self.error(.unexpectedToken)
@@ -492,16 +492,39 @@ public struct JSONParser: ~Copyable {
       i &+= 1
     }
 
+    // A token that both starts and ends inside this chunk is already contiguous, so it can be
+    // handed over in place. Only one spanning a boundary needs the copy.
+    if i < to, self.bufferCount == 0 {
+      let slice = UnsafeBufferPointer(
+        start: base.advanced(by: start).assumingMemoryBound(to: UInt8.self),
+        count: i &- start
+      )
+      try self.emitNumber(Span(_unsafeElements: slice), into: &sink)
+      self.state = .afterValue
+      return i
+    }
+
     try self.appendToBuffer(base: base, from: start, count: i &- start)
 
     guard i < to else { return i }
-    try self.emitNumber(into: &sink)
+    try self.emitBufferedNumber(into: &sink)
     self.state = .afterValue
     return i
   }
 
   @inlinable
+  mutating func emitBufferedNumber<Sink: StreamParseSink & ~Copyable>(
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    let count = self.bufferCount
+    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
+    try self.emitNumber(Span(_unsafeElements: slice), into: &sink)
+    self.bufferCount = 0
+  }
+
+  @inlinable
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(
+    _ bytes: Span<UInt8>,
     into sink: inout Sink
   ) throws(JSONParsingError) {
     if self.configuration.validatesNumberGrammar {
@@ -521,10 +544,7 @@ public struct JSONParser: ~Copyable {
       digitCount: self.digitCount,
       flags: self.numberFlags
     )
-    let count = self.bufferCount
-    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
-    sink.number(Span(_unsafeElements: slice), info: info)
-    self.bufferCount = 0
+    sink.number(bytes, info: info)
   }
 
   // MARK: Literals

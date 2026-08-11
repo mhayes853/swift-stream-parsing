@@ -143,4 +143,6 @@ let benchmarks: @Sendable () -> Void = {
     payload: Payloads.documentDouble,
     as: BenchmarkDocument.Partial.self
   )
+
+  addFastParserBenchmarks()
 }
