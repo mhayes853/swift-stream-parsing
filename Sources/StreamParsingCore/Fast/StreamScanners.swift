@@ -9,15 +9,14 @@
 // SIMD16 wins at every run length. SIMD32 loses on arm64 because NEON registers are 128 bits
 // and it lowers to two operations plus a recombine.
 
-@usableFromInline
-let streamScannerVectorWidth = 16
+@inlinable package var streamScannerVectorWidth: Int { 16 }
 
 @inlinable
 @inline(__always)
-func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
-  let quote = SIMD16<UInt8>(repeating: 0x22)
-  let backslash = SIMD16<UInt8>(repeating: 0x5C)
-  let space = SIMD16<UInt8>(repeating: 0x20)
+package func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  let quote = SIMD16<UInt8>(repeating: .asciiQuote)
+  let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)
+  let space = SIMD16<UInt8>(repeating: .asciiSpace)
 
   var i = from
   while i &+ streamScannerVectorWidth <= to {
@@ -30,7 +29,7 @@ func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   }
   while i < to {
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
-    if byte == 0x22 || byte == 0x5C || byte < 0x20 { return i }
+    if byte == .asciiQuote || byte == .asciiBackslash || byte < .asciiSpace { return i }
     i &+= 1
   }
   return to
@@ -38,11 +37,15 @@ func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
 
 @inlinable
 @inline(__always)
-func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var i = from
   while i < to {
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
-    if byte != 0x20 && byte != 0x09 && byte != 0x0A && byte != 0x0D { return i }
+    if byte != .asciiSpace, byte != .asciiTab, byte != .asciiLineFeed,
+      byte != .asciiCarriageReturn
+    {
+      return i
+    }
     i &+= 1
   }
   return i
@@ -51,8 +54,8 @@ func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
 // Lets the full UTF-8 validator run only on the rare non-ASCII run.
 @inlinable
 @inline(__always)
-func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
-  let high = SIMD16<UInt8>(repeating: 0x80)
+package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
+  let high = SIMD16<UInt8>(repeating: .utf8ContinuationFloor)
   var i = from
   while i &+ streamScannerVectorWidth <= to {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
@@ -60,7 +63,7 @@ func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool 
     i &+= streamScannerVectorWidth
   }
   while i < to {
-    if base.load(fromByteOffset: i, as: UInt8.self) >= 0x80 { return true }
+    if base.load(fromByteOffset: i, as: UInt8.self) >= .utf8ContinuationFloor { return true }
     i &+= 1
   }
   return false
@@ -70,11 +73,11 @@ func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool 
 // reconstructed on demand instead.
 @inlinable
 @inline(__always)
-func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+package func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var count = 0
   var i = from
   while i < to {
-    if base.load(fromByteOffset: i, as: UInt8.self) == 0x0A { count &+= 1 }
+    if base.load(fromByteOffset: i, as: UInt8.self) == .asciiLineFeed { count &+= 1 }
     i &+= 1
   }
   return count

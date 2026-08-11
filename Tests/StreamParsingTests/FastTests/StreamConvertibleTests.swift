@@ -1,7 +1,7 @@
 import Testing
 
 import StreamParsing
-@testable import StreamParsingCore
+import StreamParsingCore
 
 @Suite
 struct `Stream convertible tests` {

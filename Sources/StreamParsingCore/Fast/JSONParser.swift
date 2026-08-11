@@ -80,6 +80,8 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var sawDot = false
   @usableFromInline var exponentNegative = false
   @usableFromInline var exponentDigits = 0
+  @usableFromInline var integerDigits: Int32 = 0
+  @usableFromInline var firstIntegerDigitIsZero = false
 
   @usableFromInline var unicodeValue: UInt32 = 0
   @usableFromInline var unicodeRemaining = 0
@@ -190,7 +192,7 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) {
     switch self.state {
     case .number:
-      self.emitNumber(into: &sink)
+      try self.emitNumber(into: &sink)
       self.state = .done
     case .value, .firstValue, .key, .firstKey, .afterKey:
       throw self.error(.unexpectedToken)
@@ -217,27 +219,27 @@ public struct JSONParser: ~Copyable {
     switch self.state {
     case .value, .firstValue:
       switch byte {
-      case 0x7B:
+      case .asciiObjectStart:
         sink.beginObject()
         try self.push(isObject: true, at: offset)
         self.state = .firstKey
-      case 0x5B:
+      case .asciiArrayStart:
         sink.beginArray()
         try self.push(isObject: false, at: offset)
         self.state = .firstValue
-      case 0x5D:
+      case .asciiArrayEnd:
         guard self.state == .firstValue, self.depth > 0, !self.topIsObject else {
           throw self.error(.unexpectedToken)
         }
         sink.endArray()
         self.pop()
-      case 0x22:
+      case .asciiQuote:
         sink.stringBegin()
         self.state = .inString
-      case 0x74: self.startLiteral(kind: 0)
-      case 0x66: self.startLiteral(kind: 1)
-      case 0x6E: self.startLiteral(kind: 2)
-      case 0x2D, 0x30...0x39:
+      case .asciiLowerT: self.startLiteral(kind: 0)
+      case .asciiLowerF: self.startLiteral(kind: 1)
+      case .asciiLowerN: self.startLiteral(kind: 2)
+      case .asciiDash, .asciiZero ... .asciiNine:
         self.resetNumber()
         self.state = .number
         return true
@@ -247,14 +249,14 @@ public struct JSONParser: ~Copyable {
 
     case .afterValue:
       switch byte {
-      case 0x2C:
+      case .asciiComma:
         guard self.depth > 0 else { throw self.error(.unexpectedToken) }
         self.state = self.topIsObject ? .key : .value
-      case 0x5D:
+      case .asciiArrayEnd:
         guard self.depth > 0, !self.topIsObject else { throw self.error(.unexpectedToken) }
         sink.endArray()
         self.pop()
-      case 0x7D:
+      case .asciiObjectEnd:
         guard self.depth > 0, self.topIsObject else { throw self.error(.unexpectedToken) }
         sink.endObject()
         self.pop()
@@ -264,10 +266,10 @@ public struct JSONParser: ~Copyable {
 
     case .key, .firstKey:
       switch byte {
-      case 0x22:
+      case .asciiQuote:
         self.bufferCount = 0
         self.state = .inKey
-      case 0x7D:
+      case .asciiObjectEnd:
         guard self.state == .firstKey, self.depth > 0, self.topIsObject else {
           throw self.error(.unexpectedToken)
         }
@@ -278,7 +280,7 @@ public struct JSONParser: ~Copyable {
       }
 
     case .afterKey:
-      guard byte == 0x3A else { throw self.error(.unexpectedToken) }
+      guard byte == .asciiColon else { throw self.error(.unexpectedToken) }
       self.state = .value
 
     case .done:
@@ -307,6 +309,9 @@ public struct JSONParser: ~Copyable {
     let end = streamStringRunEnd(base: base, from: i, to: to)
 
     if end > i {
+      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+        throw self.error(.invalidEscape)
+      }
       if isKey {
         try self.appendToBuffer(base: base, from: i, count: end &- i)
       } else {
@@ -330,7 +335,10 @@ public struct JSONParser: ~Copyable {
 
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
     i &+= 1
-    if byte == 0x22 {
+    if byte == .asciiQuote {
+      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+        throw self.error(.invalidEscape)
+      }
       if isKey {
         try self.emitBufferedKey(into: &sink)
         self.state = .afterKey
@@ -338,7 +346,7 @@ public struct JSONParser: ~Copyable {
         sink.stringEnd()
         self.state = .afterValue
       }
-    } else if byte == 0x5C {
+    } else if byte == .asciiBackslash {
       self.state = .escape
     } else {
       throw self.error(.unterminatedString)
@@ -352,7 +360,7 @@ public struct JSONParser: ~Copyable {
     at offset: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) {
-    if byte == 0x75 {
+    if byte == .asciiLowerU {
       self.unicodeValue = 0
       self.unicodeRemaining = 4
       self.state = .unicode
@@ -360,12 +368,12 @@ public struct JSONParser: ~Copyable {
     }
     let decoded: UInt8
     switch byte {
-    case 0x22, 0x5C, 0x2F: decoded = byte
-    case 0x6E: decoded = 0x0A
-    case 0x72: decoded = 0x0D
-    case 0x74: decoded = 0x09
-    case 0x62: decoded = 0x08
-    case 0x66: decoded = 0x0C
+    case .asciiQuote, .asciiBackslash, .asciiSlash: decoded = byte
+    case .asciiLowerN: decoded = .asciiLineFeed
+    case .asciiLowerR: decoded = .asciiCarriageReturn
+    case .asciiLowerT: decoded = .asciiTab
+    case .asciiLowerB: decoded = .asciiBackspace
+    case .asciiLowerF: decoded = .asciiFormFeed
     default:
       guard !self.configuration.validatesLiterals else { throw self.error(.invalidEscape) }
       decoded = byte
@@ -386,14 +394,20 @@ public struct JSONParser: ~Copyable {
     guard self.unicodeRemaining == 0 else { return }
 
     let scalar = self.unicodeValue
-    if scalar >= 0xD800 && scalar <= 0xDBFF {
+    if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       self.highSurrogate = scalar
       self.state = self.stateAfterEscape
       return
     }
-    if scalar >= 0xDC00 && scalar <= 0xDFFF, self.highSurrogate != 0 {
+    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate == 0,
+      self.configuration.validatesUTF8
+    {
+      throw self.error(.invalidEscape)
+    }
+    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate != 0 {
       let combined =
-        0x1_0000 &+ ((self.highSurrogate &- 0xD800) << 10) &+ (scalar &- 0xDC00)
+        .utf8ThreeByteCeiling &+ ((self.highSurrogate &- .highSurrogateFloor) << 10)
+        &+ (scalar &- .lowSurrogateFloor)
       self.highSurrogate = 0
       try self.emitScalar(combined, into: &sink)
     } else {
@@ -420,6 +434,8 @@ public struct JSONParser: ~Copyable {
     self.sawDot = false
     self.exponentNegative = false
     self.exponentDigits = 0
+    self.integerDigits = 0
+    self.firstIntegerDigitIsZero = false
     self.bufferCount = 0
   }
 
@@ -437,7 +453,7 @@ public struct JSONParser: ~Copyable {
     var i = from
     while i < to {
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
-      let digit = byte &- 0x30
+      let digit = byte &- .asciiZero
       if digit < 10 {
         if self.inExponent {
           self.exponentDigits &+= 1
@@ -447,23 +463,28 @@ public struct JSONParser: ~Copyable {
         } else {
           self.magnitude = self.magnitude &* 10 &+ UInt64(digit)
           self.digitCount &+= 1
-          if self.sawDot { self.fractionDigits &+= 1 }
+          if self.sawDot {
+            self.fractionDigits &+= 1
+          } else {
+            self.integerDigits &+= 1
+            if self.integerDigits == 1 { self.firstIntegerDigitIsZero = digit == 0 }
+          }
         }
-      } else if byte == 0x2E && !self.sawDot && !self.inExponent {
+      } else if byte == .asciiDot, !self.sawDot, !self.inExponent {
         self.sawDot = true
         self.numberFlags.insert(.fraction)
-      } else if (byte == 0x65 || byte == 0x45) && !self.inExponent {
+      } else if byte == .asciiLowerE || byte == .asciiUpperE, !self.inExponent {
         self.inExponent = true
         self.numberFlags.insert(.exponent)
-      } else if byte == 0x2D {
+      } else if byte == .asciiDash {
         if self.inExponent && self.exponentDigits == 0 {
           self.exponentNegative = true
-        } else if self.digitCount == 0 && !self.sawDot {
+        } else if self.digitCount == 0, !self.sawDot, !self.numberFlags.contains(.negative) {
           self.numberFlags.insert(.negative)
         } else {
           break
         }
-      } else if byte == 0x2B {
+      } else if byte == .asciiPlus {
         guard self.inExponent, self.exponentDigits == 0 else { break }
       } else {
         break
@@ -474,13 +495,23 @@ public struct JSONParser: ~Copyable {
     try self.appendToBuffer(base: base, from: start, count: i &- start)
 
     guard i < to else { return i }
-    self.emitNumber(into: &sink)
+    try self.emitNumber(into: &sink)
     self.state = .afterValue
     return i
   }
 
   @inlinable
-  mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(into sink: inout Sink) {
+  mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    if self.configuration.validatesNumberGrammar {
+      guard self.integerDigits > 0 else { throw self.error(.invalidNumber) }
+      guard self.integerDigits == 1 || !self.firstIntegerDigitIsZero else {
+        throw self.error(.invalidNumber)
+      }
+      guard !self.sawDot || self.fractionDigits > 0 else { throw self.error(.invalidNumber) }
+      guard !self.inExponent || self.exponentDigits > 0 else { throw self.error(.invalidNumber) }
+    }
     if self.digitCount > 19 { self.numberFlags.insert(.overflowed) }
     let signedExponent = self.exponentNegative ? -self.explicitExponent : self.explicitExponent
     let net = signedExponent &- self.fractionDigits
@@ -500,9 +531,9 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline
   static let literalBytes: [[UInt8]] = [
-    [0x74, 0x72, 0x75, 0x65],
-    [0x66, 0x61, 0x6C, 0x73, 0x65],
-    [0x6E, 0x75, 0x6C, 0x6C],
+    [.asciiLowerT, .asciiLowerR, .asciiLowerU, .asciiLowerE],
+    [.asciiLowerF, .asciiLowerA, .asciiLowerL, .asciiLowerS, .asciiLowerE],
+    [.asciiLowerN, .asciiLowerU, .asciiLowerL, .asciiLowerL],
   ]
 
   @inlinable
@@ -584,8 +615,8 @@ public struct JSONParser: ~Copyable {
     let lowest = Swift.max(from, to &- 4)
     while index >= lowest {
       let byte = base.load(fromByteOffset: index, as: UInt8.self)
-      if byte < 0x80 { return to }
-      if byte >= 0xC0 {
+      if byte < .utf8ContinuationFloor { return to }
+      if byte >= .utf8TwoByteFloor {
         let needed = Self.sequenceLength(byte)
         let available = to &- index
         return available >= needed ? to : index
@@ -634,10 +665,10 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   static func sequenceLength(_ lead: UInt8) -> Int {
-    if lead < 0x80 { return 1 }
-    if lead >= 0xF0 { return 4 }
-    if lead >= 0xE0 { return 3 }
-    if lead >= 0xC0 { return 2 }
+    if lead < .utf8ContinuationFloor { return 1 }
+    if lead >= .utf8FourByteFloor { return 4 }
+    if lead >= .utf8ThreeByteFloor { return 3 }
+    if lead >= .utf8TwoByteFloor { return 2 }
     return 1
   }
 
@@ -650,16 +681,31 @@ public struct JSONParser: ~Copyable {
     var i = from
     while i < to {
       let lead = base.load(fromByteOffset: i, as: UInt8.self)
-      if lead < 0x80 {
+      if lead < .utf8ContinuationFloor {
         i &+= 1
         continue
       }
-      guard lead >= 0xC2, lead <= 0xF4 else { throw self.error(.invalidUTF8) }
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else { throw self.error(.invalidUTF8) }
       let needed = Self.sequenceLength(lead)
       guard i &+ needed <= to else { throw self.error(.invalidUTF8) }
       for offset in 1..<needed {
         let continuation = base.load(fromByteOffset: i &+ offset, as: UInt8.self)
-        guard continuation >= 0x80, continuation < 0xC0 else { throw self.error(.invalidUTF8) }
+        guard continuation >= .utf8ContinuationFloor, continuation < .utf8TwoByteFloor else {
+          throw self.error(.invalidUTF8)
+        }
+      }
+      let second = base.load(fromByteOffset: i &+ 1, as: UInt8.self)
+      switch lead {
+      case .utf8ThreeByteFloor:
+        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8) }
+      case .utf8SurrogateLead:
+        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8) }
+      case .utf8FourByteFloor:
+        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8) }
+      case .utf8MaximumLead:
+        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8) }
+      default:
+        break
       }
       i &+= needed
     }
@@ -678,23 +724,23 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) {
     let at = self.escapeScratchOffset
     let count: Int
-    if value < 0x80 {
+    if value < .utf8OneByteCeiling {
       self.buffer[at] = UInt8(value)
       count = 1
-    } else if value < 0x800 {
+    } else if value < .utf8TwoByteCeiling {
       self.buffer[at] = UInt8(0xC0 | (value >> 6))
-      self.buffer[at &+ 1] = UInt8(0x80 | (value & 0x3F))
+      self.buffer[at &+ 1] = UInt8(0x80 | (value & .utf8ContinuationMask))
       count = 2
-    } else if value < 0x1_0000 {
+    } else if value < .utf8ThreeByteCeiling {
       self.buffer[at] = UInt8(0xE0 | (value >> 12))
-      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 6) & 0x3F))
-      self.buffer[at &+ 2] = UInt8(0x80 | (value & 0x3F))
+      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 6) & .utf8ContinuationMask))
+      self.buffer[at &+ 2] = UInt8(0x80 | (value & .utf8ContinuationMask))
       count = 3
     } else {
       self.buffer[at] = UInt8(0xF0 | (value >> 18))
-      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 12) & 0x3F))
-      self.buffer[at &+ 2] = UInt8(0x80 | ((value >> 6) & 0x3F))
-      self.buffer[at &+ 3] = UInt8(0x80 | (value & 0x3F))
+      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 12) & .utf8ContinuationMask))
+      self.buffer[at &+ 2] = UInt8(0x80 | ((value >> 6) & .utf8ContinuationMask))
+      self.buffer[at &+ 3] = UInt8(0x80 | (value & .utf8ContinuationMask))
       count = 4
     }
     try self.emitScratch(count: count, into: &sink)
@@ -768,9 +814,9 @@ public struct JSONParser: ~Copyable {
   @inlinable
   static func hexValue(_ byte: UInt8) -> UInt32? {
     switch byte {
-    case 0x30...0x39: UInt32(byte &- 0x30)
-    case 0x61...0x66: UInt32(byte &- 0x61 &+ 10)
-    case 0x41...0x46: UInt32(byte &- 0x41 &+ 10)
+    case .asciiZero ... .asciiNine: UInt32(byte &- .asciiZero)
+    case .asciiLowerA ... .asciiLowerF: UInt32(byte &- .asciiLowerA &+ 10)
+    case .asciiUpperA ... .asciiUpperF: UInt32(byte &- .asciiUpperA &+ 10)
     default: nil
     }
   }

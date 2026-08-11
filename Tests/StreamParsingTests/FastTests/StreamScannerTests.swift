@@ -1,6 +1,6 @@
 import Testing
 
-@testable import StreamParsingCore
+import StreamParsingCore
 
 @Suite
 struct `Stream scanner tests` {

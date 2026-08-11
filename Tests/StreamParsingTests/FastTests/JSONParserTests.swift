@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import StreamParsingCore
+import StreamParsingCore
 
 // Materializes events into a tree so results can be compared against JSONSerialization.
 struct TreeSink: StreamParseSink {
