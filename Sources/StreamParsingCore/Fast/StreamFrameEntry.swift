@@ -3,12 +3,14 @@
 // by Embedded Swift. So these reinterpret a pointer to an Optional as a pointer to its payload,
 // which relies on single payload enums storing the payload at offset zero.
 //
-// That is an implementation detail rather than a guarantee, so it lives here and nowhere else,
-// and StreamOptionalLayoutTests verifies it holds for the shapes the macro generates. Generated
-// code calls these rather than open coding the reinterpretation.
+// That is an implementation detail rather than a guarantee, so it lives here and nowhere else.
+// The nested object and array cases in the partial sink tests exercise it end to end, so a
+// toolchain that changed optional layout would fail those rather than corrupt values silently.
+//
+// Underscored because nothing outside macro generated code has any reason to call these.
 
 @inlinable
-public func streamEnterOptionalObject<T: StreamParseableObject>(_ value: inout T?) -> StreamFrame {
+public func _streamEnterOptionalObject<T: StreamParseableObject>(_ value: inout T?) -> StreamFrame {
   if value == nil { value = T.streamInitialValue() }
   return withUnsafeMutablePointer(to: &value) {
     StreamFrame(storage: UnsafeMutableRawPointer($0), schema: T.streamSchema)
@@ -16,14 +18,14 @@ public func streamEnterOptionalObject<T: StreamParseableObject>(_ value: inout T
 }
 
 @inlinable
-public func streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> StreamFrame {
+public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> StreamFrame {
   withUnsafeMutablePointer(to: &value) {
     StreamFrame(storage: UnsafeMutableRawPointer($0), schema: T.streamSchema)
   }
 }
 
 @inlinable
-public func streamEnterOptionalContainer<T>(
+public func _streamEnterOptionalContainer<T>(
   _ value: inout T?,
   initial: @autoclosure () -> T,
   schema: StreamSchema
@@ -35,7 +37,7 @@ public func streamEnterOptionalContainer<T>(
 }
 
 @inlinable
-public func streamEnterContainer<T>(_ value: inout T, schema: StreamSchema) -> StreamFrame {
+public func _streamEnterContainer<T>(_ value: inout T, schema: StreamSchema) -> StreamFrame {
   withUnsafeMutablePointer(to: &value) {
     StreamFrame(storage: UnsafeMutableRawPointer($0), schema: schema)
   }
@@ -44,7 +46,7 @@ public func streamEnterContainer<T>(_ value: inout T, schema: StreamSchema) -> S
 // Appends an element and returns a frame for it. The element pointer is only used while this
 // element is the innermost open container, so no append can move the buffer under it.
 @inlinable
-public func streamAppendElement<Element>(
+public func _streamAppendElement<Element>(
   to array: inout [Element],
   initial: @autoclosure () -> Element,
   schema: StreamSchema
@@ -57,11 +59,11 @@ public func streamAppendElement<Element>(
 }
 
 @inlinable
-public func streamAppendElement<Element>(
+public func _streamAppendElement<Element>(
   toOptional array: inout [Element]?,
   initial: @autoclosure () -> Element,
   schema: StreamSchema
 ) -> StreamFrame {
   if array == nil { array = [] }
-  return streamAppendElement(to: &array!, initial: initial(), schema: schema)
+  return _streamAppendElement(to: &array!, initial: initial(), schema: schema)
 }

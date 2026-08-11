@@ -85,9 +85,9 @@ struct SinkUser: StreamParseableObject, Equatable {
     enterField: { storage, field in
       let p = storage.assumingMemoryBound(to: Self.self)
       switch field {
-      case 3: return streamEnterOptionalObject(&p.pointee.address)
+      case 3: return _streamEnterOptionalObject(&p.pointee.address)
       case 4:
-        return streamEnterOptionalContainer(
+        return _streamEnterOptionalContainer(
           &p.pointee.scores, initial: [], schema: intArraySchema
         )
       default: return nil
@@ -100,7 +100,7 @@ struct SinkUser: StreamParseableObject, Equatable {
 let intArraySchema = StreamSchema(
   shape: .array,
   appendElement: { storage in
-    streamAppendElement(
+    _streamAppendElement(
       to: &storage.assumingMemoryBound(to: [Int].self).pointee,
       initial: 0,
       schema: intScalarSchema
