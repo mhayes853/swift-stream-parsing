@@ -98,8 +98,17 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
 
   public mutating func parse(bytes: some Sequence<UInt8>, into reducer: inout Value) throws {
     var chunkState = ByteChunkParseState()
-    for byte in bytes {
-      try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
+    // Iterating an unspecialized `Sequence` allocates per element for cross module callers, so
+    // take the contiguous path whenever the input can provide one.
+    let didParseContiguously: Void? = try bytes.withContiguousStorageIfAvailable { buffer in
+      for byte in buffer {
+        try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
+      }
+    }
+    if didParseContiguously == nil {
+      for byte in bytes {
+        try self.parse(byte: byte, into: &reducer, chunkState: &chunkState)
+      }
     }
     chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
   }
@@ -952,9 +961,8 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
           )
         }
         if self.currentStringPath != nil {
-          var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
-          valueStringBuffer.unicodeScalars.append(scalar)
-          chunkState.valueStringBuffer = valueStringBuffer
+          chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
+          chunkState.valueStringBuffer?.unicodeScalars.append(scalar)
         }
         self.stringState.unicodeEscapeValue = 0
       }
@@ -994,18 +1002,16 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
     switch byte {
     case .asciiBackslash:
       if self.stringState.isEscaping {
-        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
-        valueStringBuffer.append("\\")
-        chunkState.valueStringBuffer = valueStringBuffer
+        chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
+        chunkState.valueStringBuffer?.append("\\")
         self.stringState.isEscaping = false
       } else {
         self.stringState.isEscaping = true
       }
     case self.stringState.stringDelimiter:
       if self.stringState.isEscaping {
-        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
-        valueStringBuffer.unicodeScalars.append(Unicode.Scalar(byte))
-        chunkState.valueStringBuffer = valueStringBuffer
+        chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
+        chunkState.valueStringBuffer?.unicodeScalars.append(Unicode.Scalar(byte))
         self.stringState.isEscaping = false
       } else {
         chunkState.flush(into: &reducer, stringPath: self.currentStringPath, numberPath: self.currentNumberPath)
@@ -1020,13 +1026,12 @@ public struct YAMLStreamParser<Value: StreamParseableValue>: StreamParser {
       }
       switch self.stringState.utf8State.consume(byte: byte) {
       case .consume(let scalar):
-        var valueStringBuffer = chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
+        chunkState.ensureValueStringBuffer(in: reducer, path: self.currentStringPath)
         if self.stringState.isEscaping {
-          self.stringState.appendEscapedCharacter(for: byte, into: &valueStringBuffer)
+          self.stringState.appendEscapedCharacter(for: byte, into: &chunkState.valueStringBuffer!)
         } else {
-          valueStringBuffer.unicodeScalars.append(scalar)
+          chunkState.valueStringBuffer?.unicodeScalars.append(scalar)
         }
-        chunkState.valueStringBuffer = valueStringBuffer
       case .doNothing: break
       }
     }

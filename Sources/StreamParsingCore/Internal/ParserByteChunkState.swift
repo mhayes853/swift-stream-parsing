@@ -19,17 +19,18 @@ struct ParserByteChunkState<Value: StreamParseableValue> {
     }
   }
 
+  /// Ensures a string buffer exists so that callers can append into it in place.
+  ///
+  /// Callers must append through ``valueStringBuffer`` rather than copying it out and
+  /// assigning it back. Mutating the stored optional directly keeps the buffer uniquely
+  /// referenced, which makes accumulation amortized O(1); copying it out puts it at a
+  /// reference count of two and copies the whole accumulated value on every append.
   mutating func ensureValueStringBuffer(
     in reducer: Value,
     path: WritableKeyPath<Value, String>?
-  ) -> String {
-    if let valueStringBuffer = self.valueStringBuffer {
-      return valueStringBuffer
-    }
-    guard let path else { return "" }
-    let valueStringBuffer = reducer[keyPath: path]
-    self.valueStringBuffer = valueStringBuffer
-    return valueStringBuffer
+  ) {
+    guard self.valueStringBuffer == nil else { return }
+    self.valueStringBuffer = path.map { reducer[keyPath: $0] } ?? ""
   }
 
   mutating func ensureValueNumberAccumulator(
