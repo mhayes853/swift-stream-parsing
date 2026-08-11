@@ -1,24 +1,8 @@
-// Value conversion.
-//
-// Three narrow protocols rather than one wide one, so conforming a type is trivial: `Data` only
-// needs an append, `Decimal` only needs an initializer. They are bridged into generated code by
-// overload pairs, because a macro sees only the syntax of a property's type and cannot know
-// whether `String` accepts string content or `Int` accepts numeric content. The constrained
-// overload does the work, the unconstrained one silently does nothing, and Swift ranks the
-// constrained one higher. Dead combinations optimize away entirely.
-
 // MARK: - Protocols
 
-/// A value built from string content.
 public protocol StreamStringConvertible {
   static func streamInitialValue() -> Self
-
-  /// Appends decoded UTF-8. Called once for a complete value, or repeatedly as one streams in.
   mutating func streamAppend(utf8 bytes: Span<UInt8>)
-
-  /// Called before the first append when the parser knows the final byte count.
-  ///
-  /// Lets a `String` land in its inline small-string form without allocating.
   mutating func streamReserve(utf8ByteCount: Int)
 }
 
@@ -26,100 +10,102 @@ extension StreamStringConvertible {
   public mutating func streamReserve(utf8ByteCount: Int) {}
 }
 
-/// A value built from a numeric token.
 public protocol StreamNumberConvertible {
   init?(streamParsing bytes: Span<UInt8>, info: NumberInfo)
 }
 
-/// A value built from a boolean literal.
 public protocol StreamBooleanConvertible {
   init(streamParsingBoolean value: Bool)
 }
 
-/// A value that can represent a null literal.
 public protocol StreamNullable {
   static func streamNullValue() -> Self
 }
 
-// MARK: - Bridging shims
+// MARK: - Integers
 
-@inlinable
-@inline(__always)
-public func streamApply<T: StreamStringConvertible>(_ value: inout T, utf8 bytes: Span<UInt8>) {
-  value.streamAppend(utf8: bytes)
-}
+extension FixedWidthInteger {
+  // Uses the magnitude the parser accumulated while scanning, which is exact for every integer
+  // of nineteen digits or fewer. A token carrying an exponent is rejected rather than scaled,
+  // matching the previous behaviour for integer destinations.
+  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
+    guard info.isExactInteger, !info.flags.contains(.fraction) else { return nil }
 
-@inlinable
-@inline(__always)
-public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) {}
-
-@inlinable
-@inline(__always)
-public func streamApply<T: StreamNumberConvertible>(
-  _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
-) {
-  if let parsed = T(streamParsing: bytes, info: info) { value = parsed }
-}
-
-@inlinable
-@inline(__always)
-public func streamApply<T>(_ value: inout T, bytes: Span<UInt8>, info: NumberInfo) {}
-
-@inlinable
-@inline(__always)
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T, boolean: Bool) {
-  value = T(streamParsingBoolean: boolean)
-}
-
-@inlinable
-@inline(__always)
-public func streamApply<T>(_ value: inout T, boolean: Bool) {}
-
-@inlinable
-@inline(__always)
-public func streamApplyNull<T: StreamNullable>(_ value: inout T) {
-  value = T.streamNullValue()
-}
-
-@inlinable
-@inline(__always)
-public func streamApplyNull<T>(_ value: inout T) {}
-
-// MARK: - Digit parsing
-
-/// Builds a fixed width integer from a numeric token.
-///
-/// Uses the magnitude the parser accumulated while scanning when it is exact, which covers
-/// every integer of nineteen digits or fewer, and re-scans the span otherwise.
-@inlinable
-public func streamParseInteger<T: FixedWidthInteger>(
-  _ bytes: Span<UInt8>, info: NumberInfo, as type: T.Type = T.self
-) -> T? {
-  guard !info.flags.contains(.fraction), !info.flags.contains(.exponent) else { return nil }
-
-  if !info.flags.contains(.overflowed) {
     if info.flags.contains(.negative) {
-      guard T.isSigned, info.magnitude <= UInt64(T.max.magnitude) &+ 1 else { return nil }
-      if info.magnitude == UInt64(T.max.magnitude) &+ 1 { return T.min }
-      return T(exactly: info.magnitude).map { 0 &- $0 }
+      guard Self.isSigned, info.magnitude <= UInt64(Self.max.magnitude) &+ 1 else { return nil }
+      if info.magnitude == UInt64(Self.max.magnitude) &+ 1 {
+        self = Self.min
+        return
+      }
+      guard let positive = Self(exactly: info.magnitude) else { return nil }
+      self = 0 &- positive
+      return
     }
-    return T(exactly: info.magnitude)
-  }
 
-  // The accumulated magnitude wrapped, so the token has more digits than a `UInt64` holds and
-  // cannot fit any narrower type either.
-  return nil
+    guard let value = Self(exactly: info.magnitude) else { return nil }
+    self = value
+  }
 }
 
-/// Builds a floating point value from a numeric token.
-///
-/// Always re-scans the span, because correct rounding needs the digits and the exponent rather
-/// than a truncated significand.
-@inlinable
-public func streamParseFloatingPoint<T: BinaryFloatingPoint>(
-  _ bytes: Span<UInt8>, info: NumberInfo, as type: T.Type = T.self
-) -> T? where T: LosslessStringConvertible {
-  // Numeric tokens are ASCII by construction, so a scalar-wise build is exact here.
+// MARK: - Floating point
+
+extension BinaryFloatingPoint where Self: LosslessStringConvertible {
+  // Accumulation rather than a string round trip. Both operands of the scale are exact when the
+  // significand fits the mantissa and the power of ten is in the exactly representable range,
+  // so a single rounding gives the correctly rounded result. Multiplication is used for a
+  // positive exponent and division for a negative one, because a negative power of ten is not
+  // itself exact.
+  //
+  // Anything outside that range falls back to the standard library's parser, which is slow but
+  // correct.
+  //
+  // Known gap: for types narrower than Double the scaled path rounds twice, once into Double
+  // and once into Self, which can differ from the correctly rounded result in rare cases. Float
+  // needs its own bound before this is relied on for exactness.
+  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
+    guard !info.flags.contains(.overflowed) else {
+      guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
+        return nil
+      }
+      self = fallback
+      return
+    }
+
+    guard let significand = Self(exactly: info.magnitude) else {
+      guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
+        return nil
+      }
+      self = fallback
+      return
+    }
+
+    if info.exponent == 0 {
+      self = info.flags.contains(.negative) ? -significand : significand
+      return
+    }
+
+    let exponent = Int(info.exponent)
+    if info.magnitude <= (1 << 53),
+      let scale = digitPow10Value(abs(exponent)),
+      let typedScale = Self(exactly: scale)
+    {
+      let scaled = exponent >= 0 ? significand * typedScale : significand / typedScale
+      self = info.flags.contains(.negative) ? -scaled : scaled
+      return
+    }
+
+    guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
+      return nil
+    }
+    self = fallback
+  }
+}
+
+@usableFromInline
+func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringConvertible>(
+  _ bytes: Span<UInt8>, as type: T.Type
+) -> T? {
+  // Numeric tokens are ASCII by construction, so a scalar-wise build is exact.
   var text = ""
   text.reserveCapacity(bytes.count)
   for i in 0..<bytes.count {
@@ -152,90 +138,15 @@ extension Optional: StreamNullable {
   public static func streamNullValue() -> Self { nil }
 }
 
-extension Int: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Int = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Int8: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Int8 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Int16: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Int16 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Int32: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Int32 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Int64: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Int64 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension UInt: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: UInt = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension UInt8: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: UInt8 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension UInt16: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: UInt16 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension UInt32: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: UInt32 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension UInt64: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: UInt64 = streamParseInteger(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Double: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    if info.isExactMagnitude, let exact = Double(exactly: info.magnitude) {
-      self = info.flags.contains(.negative) ? -exact : exact
-      return
-    }
-    guard let value: Double = streamParseFloatingPoint(bytes, info: info) else { return nil }
-    self = value
-  }
-}
-
-extension Float: StreamNumberConvertible {
-  public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard let value: Float = streamParseFloatingPoint(bytes, info: info) else { return nil }
-    self = value
-  }
-}
+extension Int: StreamNumberConvertible {}
+extension Int8: StreamNumberConvertible {}
+extension Int16: StreamNumberConvertible {}
+extension Int32: StreamNumberConvertible {}
+extension Int64: StreamNumberConvertible {}
+extension UInt: StreamNumberConvertible {}
+extension UInt8: StreamNumberConvertible {}
+extension UInt16: StreamNumberConvertible {}
+extension UInt32: StreamNumberConvertible {}
+extension UInt64: StreamNumberConvertible {}
+extension Double: StreamNumberConvertible {}
+extension Float: StreamNumberConvertible {}

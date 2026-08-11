@@ -5,18 +5,8 @@ import Testing
 
 // MARK: - Chunk boundary equivalence
 
-/// Asserts that a payload parses to the same value regardless of how it is split.
-///
-/// Resumability is where streaming parsers break: a token straddling a chunk boundary exercises
-/// carry-over state that a single-call parse never touches. This feeds the payload split at
-/// every interior position, plus byte by byte, and requires every result to match the bulk
-/// parse.
-///
-/// - Parameters:
-///   - json: The payload to parse.
-///   - type: The value type to parse into.
-///   - configuration: Parser configuration to use for every variant.
-///   - sourceLocation: Reported on failure.
+// Resumability is where streaming parsers break: a token straddling a chunk boundary exercises
+// carry-over state that a single call parse never touches.
 func expectChunkBoundaryEquivalence<Value: StreamParseableValue>(
   _ json: String,
   as type: Value.Type,
@@ -54,10 +44,8 @@ func expectChunkBoundaryEquivalence<Value: StreamParseableValue>(
   }
 }
 
-/// Asserts that a payload fails the same way regardless of how it is split.
-///
-/// A parser that only rejects malformed input when it happens to see it in one piece is worse
-/// than one that never rejects it, so failures need the same treatment as successes.
+// A parser that only rejects malformed input when it happens to see it in one piece is worse
+// than one that never rejects it, so failures get the same treatment as successes.
 func expectChunkBoundaryFailureEquivalence<Value: StreamParseableValue>(
   _ json: String,
   as type: Value.Type,

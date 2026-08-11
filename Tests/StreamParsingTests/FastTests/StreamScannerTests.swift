@@ -38,7 +38,7 @@ struct `Stream scanner tests` {
         for from in 0...length {
           let expected = Self.naiveStringRunEnd(bytes, from: from)
           let actual = Self.withBase(bytes) {
-            StreamScanner.stringRunEnd(base: $0, from: from, to: length)
+            streamStringRunEnd(base: $0, from: from, to: length)
           }
           #expect(actual == expected, "length \(length) from \(from)")
         }
@@ -52,7 +52,7 @@ struct `Stream scanner tests` {
       var bytes = [UInt8](repeating: 0x61, count: 40)
       bytes[33] = terminator
       let actual = Self.withBase(bytes) {
-        StreamScanner.stringRunEnd(base: $0, from: 0, to: bytes.count)
+        streamStringRunEnd(base: $0, from: 0, to: bytes.count)
       }
       #expect(actual == 33)
     }
@@ -64,7 +64,7 @@ struct `Stream scanner tests` {
   func `Whitespace scanning skips only JSON whitespace`() {
     let bytes: [UInt8] = [0x20, 0x09, 0x0A, 0x0D, 0x61, 0x20]
     let actual = Self.withBase(bytes) {
-      StreamScanner.whitespaceEnd(base: $0, from: 0, to: bytes.count)
+      streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
     }
     #expect(actual == 4)
   }
@@ -73,7 +73,7 @@ struct `Stream scanner tests` {
   func `Whitespace scanning returns the end when everything is whitespace`() {
     let bytes: [UInt8] = [0x20, 0x20, 0x20]
     let actual = Self.withBase(bytes) {
-      StreamScanner.whitespaceEnd(base: $0, from: 0, to: bytes.count)
+      streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
     }
     #expect(actual == 3)
   }
@@ -88,7 +88,7 @@ struct `Stream scanner tests` {
         if length > 0 { bytes[position] = 0xC3 }
         let expected = bytes.contains { $0 >= 0x80 }
         let actual = Self.withBase(bytes) {
-          StreamScanner.containsNonASCII(base: $0, from: 0, to: length)
+          streamContainsNonASCII(base: $0, from: 0, to: length)
         }
         #expect(actual == expected, "length \(length) position \(position)")
       }
@@ -99,7 +99,7 @@ struct `Stream scanner tests` {
   func `Pure ASCII reports no non-ASCII bytes`() {
     let bytes = [UInt8](repeating: 0x7F, count: 50)
     let actual = Self.withBase(bytes) {
-      StreamScanner.containsNonASCII(base: $0, from: 0, to: bytes.count)
+      streamContainsNonASCII(base: $0, from: 0, to: bytes.count)
     }
     #expect(!actual)
   }
@@ -110,7 +110,7 @@ struct `Stream scanner tests` {
   func `Newline counting matches a naive count`() {
     let bytes = Array("a\nbb\n\nccc\n".utf8)
     let actual = Self.withBase(bytes) {
-      StreamScanner.newlineCount(base: $0, from: 0, to: bytes.count)
+      streamNewlineCount(base: $0, from: 0, to: bytes.count)
     }
     #expect(actual == 4)
   }

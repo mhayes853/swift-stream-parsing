@@ -1,5 +1,6 @@
 import Testing
 
+import StreamParsing
 @testable import StreamParsingCore
 
 @Suite
@@ -10,9 +11,9 @@ struct `Stream convertible tests` {
   }
 
   private static func info(
-    _ magnitude: UInt64, digits: UInt16, flags: NumberInfo.Flags = []
+    _ magnitude: UInt64, digits: UInt16, exponent: Int16 = 0, flags: NumberInfo.Flags = []
   ) -> NumberInfo {
-    NumberInfo(magnitude: magnitude, digitCount: digits, flags: flags)
+    NumberInfo(magnitude: magnitude, exponent: exponent, digitCount: digits, flags: flags)
   }
 
   // MARK: - Integers
@@ -73,10 +74,12 @@ struct `Stream convertible tests` {
   @Test
   func `Fractional and exponential tokens are not integers`() {
     Self.span("1.5") { bytes in
-      #expect(Int(streamParsing: bytes, info: Self.info(15, digits: 2, flags: .fraction)) == nil)
+      let info = Self.info(15, digits: 2, exponent: -1, flags: .fraction)
+      #expect(Int(streamParsing: bytes, info: info) == nil)
     }
     Self.span("1e3") { bytes in
-      #expect(Int(streamParsing: bytes, info: Self.info(13, digits: 2, flags: .exponent)) == nil)
+      let info = Self.info(1, digits: 1, exponent: 3, flags: .exponent)
+      #expect(Int(streamParsing: bytes, info: info) == nil)
     }
   }
 
@@ -96,15 +99,15 @@ struct `Stream convertible tests` {
   @Test
   func `Fractional and exponential doubles re-scan the span`() {
     Self.span("98.25") { bytes in
-      let info = Self.info(9825, digits: 4, flags: .fraction)
+      let info = Self.info(9825, digits: 4, exponent: -2, flags: .fraction)
       #expect(Double(streamParsing: bytes, info: info) == 98.25)
     }
     Self.span("1.5e-8") { bytes in
-      let info = Self.info(158, digits: 3, flags: [.fraction, .exponent])
+      let info = Self.info(15, digits: 2, exponent: -9, flags: [.fraction, .exponent])
       #expect(Double(streamParsing: bytes, info: info) == 1.5e-8)
     }
     Self.span("-98.25") { bytes in
-      let info = Self.info(9825, digits: 4, flags: [.fraction, .negative])
+      let info = Self.info(9825, digits: 4, exponent: -2, flags: [.fraction, .negative])
       #expect(Double(streamParsing: bytes, info: info) == -98.25)
     }
   }
