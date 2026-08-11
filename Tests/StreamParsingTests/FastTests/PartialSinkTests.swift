@@ -1,0 +1,230 @@
+import Testing
+
+import StreamParsing
+import StreamParsingCore
+
+// Hand written in the shape the macro will generate, so the routing design is exercised before
+// the macro has to produce it.
+
+struct SinkAddress: StreamParseableObject, Equatable {
+  var city: String?
+  var postalCode: String?
+
+  static func streamInitialValue() -> Self { Self() }
+
+  static let streamSchema = StreamSchema(
+    shape: .object,
+    matchField: { key in
+      switch key.paddedLeadingWord() {
+      case 0x0000_0000_7974_6963: return 0  // "city"
+      case 0x6F43_6C61_7473_6F70: return key.count == 10 ? 1 : -1  // "postalCode"
+      default: return -1
+      }
+    },
+    applyString: { storage, field, bytes in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      switch field {
+      case 0: streamApplyOptional(&p.pointee.city, utf8: bytes)
+      case 1: streamApplyOptional(&p.pointee.postalCode, utf8: bytes)
+      default: break
+      }
+    },
+    applyNull: { storage, field in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      switch field {
+      case 0: p.pointee.city = nil
+      case 1: p.pointee.postalCode = nil
+      default: break
+      }
+    }
+  )
+}
+
+struct SinkUser: StreamParseableObject, Equatable {
+  var id: Int?
+  var name: String?
+  var active: Bool?
+  var address: SinkAddress?
+  var scores: [Int]?
+
+  static func streamInitialValue() -> Self { Self() }
+
+  static let streamSchema = StreamSchema(
+    shape: .object,
+    matchField: { key in
+      switch key.paddedLeadingWord() {
+      case 0x0000_0000_0000_6469: return 0  // "id"
+      case 0x0000_0000_656D_616E: return 1  // "name"
+      case 0x0000_6576_6974_6361: return 2  // "active"
+      case 0x0073_7365_7264_6461: return 3  // "address"
+      case 0x0000_7365_726F_6373: return 4  // "scores"
+      default: return -1
+      }
+    },
+    applyString: { storage, field, bytes in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      if field == 1 { streamApplyOptional(&p.pointee.name, utf8: bytes) }
+    },
+    applyNumber: { storage, field, bytes, info in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      if field == 0 { p.pointee.id = Int(streamParsing: bytes, info: info) }
+    },
+    applyBoolean: { storage, field, value in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      if field == 2 { p.pointee.active = value }
+    },
+    applyNull: { storage, field in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      switch field {
+      case 0: p.pointee.id = nil
+      case 1: p.pointee.name = nil
+      case 2: p.pointee.active = nil
+      default: break
+      }
+    },
+    enterField: { storage, field in
+      let p = storage.assumingMemoryBound(to: Self.self)
+      switch field {
+      case 3:
+        p.pointee.address = SinkAddress()
+        return withUnsafeMutablePointer(to: &p.pointee.address) { optional in
+          optional.withMemoryRebound(to: SinkAddress.self, capacity: 1) {
+            StreamFrame(storage: UnsafeMutableRawPointer($0), schema: SinkAddress.streamSchema)
+          }
+        }
+      case 4:
+        p.pointee.scores = []
+        return withUnsafeMutablePointer(to: &p.pointee.scores) { optional in
+          optional.withMemoryRebound(to: [Int].self, capacity: 1) {
+            StreamFrame(storage: UnsafeMutableRawPointer($0), schema: intArraySchema)
+          }
+        }
+      default:
+        return nil
+      }
+    }
+  )
+}
+
+// An array of scalars: each element is appended, then written through a scalar schema.
+let intArraySchema = StreamSchema(
+  shape: .array,
+  appendElement: { storage in
+    let array = storage.assumingMemoryBound(to: [Int].self)
+    array.pointee.append(0)
+    let index = array.pointee.count - 1
+    return array.pointee.withUnsafeMutableBufferPointer { buffer in
+      StreamFrame(
+        storage: UnsafeMutableRawPointer(buffer.baseAddress! + index),
+        schema: intScalarSchema
+      )
+    }
+  }
+)
+
+let intScalarSchema = StreamSchema(
+  shape: .scalar,
+  applyNumber: { storage, _, bytes, info in
+    let p = storage.assumingMemoryBound(to: Int.self)
+    if let value = Int(streamParsing: bytes, info: info) { p.pointee = value }
+  }
+)
+
+@inline(__always)
+func streamApplyOptional<T: StreamStringConvertible>(_ value: inout T?, utf8 bytes: Span<UInt8>) {
+  if value == nil { value = T.streamInitialValue() }
+  value!.streamAppend(utf8: bytes)
+}
+
+private func parse<Root: StreamParseableObject>(
+  _ json: String, into value: inout Root, chunk: Int = .max
+) throws {
+  try withUnsafeMutablePointer(to: &value) { pointer in
+    var parser = JSONParser()
+    var sink = PartialSink(root: pointer)
+    let bytes = Array(json.utf8)
+    try bytes.withUnsafeBufferPointer { input in
+      var i = 0
+      while i < input.count {
+        let count = min(chunk, input.count - i)
+        try parser.parse(
+          UnsafeBufferPointer(start: input.baseAddress! + i, count: count), into: &sink
+        )
+        i += count
+      }
+    }
+    try parser.finish(into: &sink)
+  }
+}
+
+@Suite
+struct `Partial sink tests` {
+  @Test
+  func `Routes scalars into matching fields`() throws {
+    var user = SinkUser()
+    try parse(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
+    #expect(user.id == 42)
+    #expect(user.name == "Blob")
+    #expect(user.active == true)
+  }
+
+  @Test
+  func `Ignores keys the destination does not have`() throws {
+    var user = SinkUser()
+    try parse(#"{"id":1,"unknown":"x","name":"Blob"}"#, into: &user)
+    #expect(user.id == 1)
+    #expect(user.name == "Blob")
+  }
+
+  // An unknown key whose value is a container must not have its contents routed to the parent.
+  @Test
+  func `Skips containers under unknown keys`() throws {
+    var user = SinkUser()
+    try parse(#"{"extra":{"id":999,"name":"wrong"},"id":1}"#, into: &user)
+    #expect(user.id == 1)
+    #expect(user.name == nil)
+  }
+
+  @Test
+  func `Routes into nested objects`() throws {
+    var user = SinkUser()
+    try parse(#"{"address":{"city":"Brooklyn","postalCode":"11201"}}"#, into: &user)
+    #expect(user.address?.city == "Brooklyn")
+    #expect(user.address?.postalCode == "11201")
+  }
+
+  @Test
+  func `Routes into arrays of scalars`() throws {
+    var user = SinkUser()
+    try parse(#"{"scores":[1,2,3]}"#, into: &user)
+    #expect(user.scores == [1, 2, 3])
+  }
+
+  @Test
+  func `Applies null literals`() throws {
+    var user = SinkUser()
+    user.id = 7
+    try parse(#"{"id":null}"#, into: &user)
+    #expect(user.id == nil)
+  }
+
+  @Test
+  func `Produces the same value at every chunk size`() throws {
+    let json = #"{"id":42,"name":"Blob Jr","active":false,"address":{"city":"NYC"},"scores":[10,20]}"#
+    var whole = SinkUser()
+    try parse(json, into: &whole)
+
+    for chunk in [1, 2, 3, 7] {
+      var chunked = SinkUser()
+      try parse(json, into: &chunked, chunk: chunk)
+      #expect(chunked == whole, "chunk \(chunk)")
+    }
+  }
+
+  @Test
+  func `Accumulates string values across chunks`() throws {
+    var user = SinkUser()
+    try parse(#"{"name":"a longer name that will be split"}"#, into: &user, chunk: 1)
+    #expect(user.name == "a longer name that will be split")
+  }
+}
