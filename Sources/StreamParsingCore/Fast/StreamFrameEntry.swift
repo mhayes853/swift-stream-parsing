@@ -67,3 +67,29 @@ public func _streamAppendElement<Element>(
   if array == nil { array = [] }
   return _streamAppendElement(to: &array!, initial: initial(), schema: schema)
 }
+
+@inlinable
+public func _streamEnterDictionaryValue<Value>(
+  _ dictionary: inout StreamDictionary<Value>,
+  key: Span<UInt8>,
+  initial: @autoclosure () -> Value,
+  schema: StreamSchema
+) -> StreamFrame {
+  let slot = dictionary._slot(forKey: key, initial: initial())
+  return dictionary._withValueStorage(at: slot) {
+    StreamFrame(storage: $0, schema: schema)
+  }
+}
+
+@inlinable
+public func _streamEnterDictionaryValue<Value>(
+  optional dictionary: inout StreamDictionary<Value>?,
+  key: Span<UInt8>,
+  initial: @autoclosure () -> Value,
+  schema: StreamSchema
+) -> StreamFrame {
+  if dictionary == nil { dictionary = StreamDictionary<Value>() }
+  return _streamEnterDictionaryValue(
+    &dictionary!, key: key, initial: initial(), schema: schema
+  )
+}

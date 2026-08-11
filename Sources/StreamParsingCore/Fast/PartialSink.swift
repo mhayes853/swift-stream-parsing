@@ -9,6 +9,7 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var frames: [StreamFrame] = []
   @usableFromInline var started = false
+  @usableFromInline var pendingDictionaryFrame: StreamFrame?
 
   public init(root: UnsafeMutablePointer<Root>) {
     self.root = UnsafeMutableRawPointer(root)
@@ -56,6 +57,9 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
     case .object:
       guard top.pendingField >= 0 else { return nil }
       return top.schema.enterField(top.storage, top.pendingField)
+    case .dictionary:
+      defer { self.pendingDictionaryFrame = nil }
+      return self.pendingDictionaryFrame
     case .scalar:
       return nil
     }
@@ -65,6 +69,12 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
 
   public mutating func key(_ bytes: Span<UInt8>) {
     guard var top = self.frames.last else { return }
+    if top.schema.shape == .dictionary {
+      // The key span does not outlive this call, so the value's frame is resolved now rather
+      // than remembered and resolved when the value arrives.
+      self.pendingDictionaryFrame = top.schema.enterKey(top.storage, bytes)
+      return
+    }
     top.pendingField = top.schema.matchField(bytes)
     self.frames[self.frames.count - 1] = top
   }
@@ -132,6 +142,9 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
     case .object:
       guard top.pendingField >= 0 else { return nil }
       return ScalarTarget(storage: top.storage, schema: top.schema, field: top.pendingField)
+    case .dictionary:
+      guard let frame = self.pendingDictionaryFrame else { return nil }
+      return ScalarTarget(storage: frame.storage, schema: frame.schema, field: 0)
     case .scalar:
       return ScalarTarget(storage: top.storage, schema: top.schema, field: 0)
     }

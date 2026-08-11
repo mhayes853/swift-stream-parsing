@@ -46,6 +46,8 @@ struct SinkUser: StreamParseableObject, Equatable {
   var active: Bool?
   var address: SinkAddress?
   var scores: [Int]?
+  var settings: StreamDictionary<SinkAddress>?
+  var counts: StreamDictionary<Int>?
 
   static func streamInitialValue() -> Self { Self() }
 
@@ -58,6 +60,8 @@ struct SinkUser: StreamParseableObject, Equatable {
       case 0x0000_6576_6974_6361: return 2  // "active"
       case 0x0073_7365_7264_6461: return 3  // "address"
       case 0x0000_7365_726F_6373: return 4  // "scores"
+      case 0x7367_6E69_7474_6573: return 5  // "settings"
+      case 0x0000_7374_6E75_6F63: return 6  // "counts"
       default: return -1
       }
     },
@@ -90,6 +94,14 @@ struct SinkUser: StreamParseableObject, Equatable {
         return _streamEnterOptionalContainer(
           &p.pointee.scores, initial: [], schema: intArraySchema
         )
+      case 5:
+        return _streamEnterOptionalContainer(
+          &p.pointee.settings, initial: StreamDictionary(), schema: addressDictionarySchema
+        )
+      case 6:
+        return _streamEnterOptionalContainer(
+          &p.pointee.counts, initial: StreamDictionary(), schema: intDictionarySchema
+        )
       default: return nil
       }
     }
@@ -102,6 +114,32 @@ let intArraySchema = StreamSchema(
   appendElement: { storage in
     _streamAppendElement(
       to: &storage.assumingMemoryBound(to: [Int].self).pointee,
+      initial: 0,
+      schema: intScalarSchema
+    )
+  }
+)
+
+// Dictionary values live in append-only storage, so a frame can point at one while it is being
+// built, exactly as an array element can.
+let addressDictionarySchema = StreamSchema(
+  shape: .dictionary,
+  enterKey: { storage, key in
+    _streamEnterDictionaryValue(
+      &storage.assumingMemoryBound(to: StreamDictionary<SinkAddress>.self).pointee,
+      key: key,
+      initial: SinkAddress(),
+      schema: SinkAddress.streamSchema
+    )
+  }
+)
+
+let intDictionarySchema = StreamSchema(
+  shape: .dictionary,
+  enterKey: { storage, key in
+    _streamEnterDictionaryValue(
+      &storage.assumingMemoryBound(to: StreamDictionary<Int>.self).pointee,
+      key: key,
       initial: 0,
       schema: intScalarSchema
     )
@@ -205,6 +243,52 @@ struct `Partial sink tests` {
       try parse(json, into: &chunked, chunk: chunk)
       #expect(chunked == whole, "chunk \(chunk)")
     }
+  }
+
+  @Test
+  func `Routes into dictionaries of scalars`() throws {
+    var user = SinkUser()
+    try parse(#"{"counts":{"a":1,"b":2,"c":3}}"#, into: &user)
+    #expect(user.counts?.keys == ["a", "b", "c"])
+    #expect(user.counts?["b"] == 2)
+  }
+
+  @Test
+  func `Routes into dictionaries of objects`() throws {
+    var user = SinkUser()
+    try parse(
+      #"{"settings":{"home":{"city":"NYC"},"work":{"city":"Brooklyn","postalCode":"11201"}}}"#,
+      into: &user
+    )
+    #expect(user.settings?.keys == ["home", "work"])
+    #expect(user.settings?["home"]?.city == "NYC")
+    #expect(user.settings?["work"]?.postalCode == "11201")
+  }
+
+  // The point of the append-only storage: a nested value inside a dictionary updates as it
+  // streams rather than appearing only once it closes.
+  @Test
+  func `Dictionary values update as they stream`() throws {
+    let json = #"{"settings":{"home":{"city":"Brooklyn"}}}"#
+    let bytes = Array(json.utf8)
+    let prefix = json.prefix(bytes.count - 3)  // stops mid-city, before the object closes
+
+    var user = SinkUser()
+    try withUnsafeMutablePointer(to: &user) { pointer in
+      var parser = JSONParser()
+      var sink = PartialSink(root: pointer)
+      try Array(prefix.utf8).withUnsafeBufferPointer {
+        try parser.parse($0, into: &sink)
+      }
+    }
+    #expect(user.settings?["home"]?.city == "Brooklyn")
+  }
+
+  @Test
+  func `Dictionaries preserve insertion order from the payload`() throws {
+    var user = SinkUser()
+    try parse(#"{"counts":{"zebra":1,"apple":2,"mango":3}}"#, into: &user)
+    #expect(user.counts?.keys == ["zebra", "apple", "mango"])
   }
 
   @Test

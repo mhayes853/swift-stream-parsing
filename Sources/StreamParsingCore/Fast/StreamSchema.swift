@@ -17,6 +17,7 @@ public struct StreamSchema: @unchecked Sendable {
   public enum Shape: UInt8, Sendable {
     case object
     case array
+    case dictionary
     case scalar
   }
 
@@ -36,6 +37,9 @@ public struct StreamSchema: @unchecked Sendable {
   // Appends an element and returns a frame for it. Arrays only.
   public var appendElement: @Sendable (UnsafeMutableRawPointer) -> StreamFrame?
 
+  // Returns a frame for the value stored under a dynamic key. Dictionaries only.
+  public var enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
+
   public init(
     shape: Shape,
     matchField: @escaping @Sendable (Span<UInt8>) -> Int32 = { _ in -1 },
@@ -46,7 +50,10 @@ public struct StreamSchema: @unchecked Sendable {
     applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Void = { _, _, _ in },
     applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Void = { _, _ in },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
-    appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil }
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
+    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
+      _, _ in nil
+    }
   ) {
     self.shape = shape
     self.matchField = matchField
@@ -56,6 +63,7 @@ public struct StreamSchema: @unchecked Sendable {
     self.applyNull = applyNull
     self.enterField = enterField
     self.appendElement = appendElement
+    self.enterKey = enterKey
   }
 }
 
