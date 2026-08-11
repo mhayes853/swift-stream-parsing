@@ -75,6 +75,7 @@ let package = Package(
       name: "StreamParsingTests",
       dependencies: [
         "StreamParsing",
+        "StreamParsingCore",
         .product(name: "CustomDump", package: "swift-custom-dump"),
         .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
         .product(name: "Yams", package: "Yams")
