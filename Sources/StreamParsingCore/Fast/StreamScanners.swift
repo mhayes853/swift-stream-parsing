@@ -1,6 +1,4 @@
-// The parser consumes runs rather than bytes: it finds the next byte needing individual
-// attention and hands everything before it to the sink in one piece. Measured on arm64 over an
-// 8 KB corpus at varying run lengths (MB/s):
+// Measured on arm64 over an 8 KB corpus at varying run lengths (MB/s):
 //
 //   run length      4       16      64     4096
 //   scalar       1401     1480    1528     1548
@@ -8,9 +6,8 @@
 //   SIMD16       2476     7469   12770    21411
 //   SIMD32       1680     2987    9201    18480
 //
-// SIMD16 wins at every run length, including four bytes. SWAR is worse than scalar below about
-// twelve bytes and never beats SIMD16, so it is unused. SIMD32 loses on arm64 because NEON
-// registers are 128 bits wide and it lowers to two operations plus a recombine.
+// SIMD16 wins at every run length. SIMD32 loses on arm64 because NEON registers are 128 bits
+// and it lowers to two operations plus a recombine.
 
 @usableFromInline
 let streamScannerVectorWidth = 16
@@ -51,8 +48,7 @@ func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   return i
 }
 
-// Pure ASCII needs no UTF-8 validation at all, so this rides along with the run scan and the
-// full validator only runs on the rare non-ASCII run.
+// Lets the full UTF-8 validator run only on the rare non-ASCII run.
 @inlinable
 @inline(__always)
 func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
@@ -70,9 +66,8 @@ func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool 
   return false
 }
 
-// Line and column exist only to describe an error, so they are reconstructed on demand.
-// Tracking them per byte measured at roughly half the per-byte budget for the throughput
-// target.
+// Tracking line and column per byte measured at roughly half the per-byte budget, so they are
+// reconstructed on demand instead.
 @inlinable
 @inline(__always)
 func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -88,9 +83,8 @@ func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
 // MARK: - Key words
 
 extension Span where Element == UInt8 {
-  // Zero padding makes this a perfect discriminator for keys of eight bytes or fewer: two
-  // distinct keys cannot produce the same word, because a length difference is a padding
-  // difference. That is what lets a generated matcher switch on the word alone.
+  // Zero padding makes this a perfect discriminator for keys of eight bytes or fewer, so a
+  // generated matcher can switch on the word without also checking the length.
   @inlinable
   @inline(__always)
   public func paddedLeadingWord() -> UInt64 {

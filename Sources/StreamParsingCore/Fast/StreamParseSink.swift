@@ -54,34 +54,23 @@ public struct StreamSinkFailure: Error, Hashable, Sendable {
 
 // MARK: - StreamParseSink
 
-// Spans borrow the parser's input and are invalid once the call returns.
-//
-// Sink methods do not throw. A check after every call sits on the hottest path in the parser,
-// so a sink records its failure and the parser reads it once per chunk.
-//
-// Escapes are decoded to UTF-8 inside the parser and delivered as byte spans, so nothing here
-// involves Unicode.Scalar or String. That keeps the Unicode data tables out of an embedded
-// binary.
-//
-// The vocabulary is format agnostic rather than JSON specific so other parsers can drive the
-// same sinks.
+// Spans borrow the parser's input and are invalid once the call returns. Methods do not throw:
+// a check after every call sits on the hottest path, so a sink records its failure and the
+// parser reads it once per chunk.
 public protocol StreamParseSink: ~Copyable {
   mutating func beginObject()
   mutating func endObject()
   mutating func beginArray()
   mutating func endArray()
 
-  // The parser guarantees at least `StreamParsingLayout.keyPaddingByteCount` readable bytes
-  // past the end of a key span, so a generated matcher can load a whole vector without a
-  // bounds check.
+  // At least `StreamParsingLayout.keyPaddingByteCount` readable bytes follow a key span, so a
+  // generated matcher can load a whole vector without a bounds check.
   mutating func key(_ bytes: Span<UInt8>)
   mutating func keyBegin()
   mutating func keyChunk(_ bytes: Span<UInt8>)
   mutating func keyEnd()
 
-  // Every string and key span ends on a UTF-8 sequence boundary: the parser holds back a
-  // trailing partial sequence and prepends it to the next chunk, so a sink can decode each
-  // span independently.
+  // Every string and key span ends on a UTF-8 sequence boundary.
   mutating func string(_ bytes: Span<UInt8>)
   mutating func stringBegin()
   mutating func stringChunk(_ bytes: Span<UInt8>)
@@ -95,8 +84,7 @@ public protocol StreamParseSink: ~Copyable {
 }
 
 extension StreamParseSink where Self: ~Copyable {
-  // Overriding the collapsed forms avoids two of every three sink calls, which is worth a
-  // substantial amount on token dense payloads where sink dispatch dominates.
+  // Overriding the collapsed forms avoids two of every three sink calls.
   @inlinable
   public mutating func key(_ bytes: Span<UInt8>) {
     self.keyBegin()

@@ -25,9 +25,7 @@ public protocol StreamNullable {
 // MARK: - Integers
 
 extension FixedWidthInteger {
-  // Uses the magnitude the parser accumulated while scanning, which is exact for every integer
-  // of nineteen digits or fewer. A token carrying an exponent is rejected rather than scaled,
-  // matching the previous behaviour for integer destinations.
+  // A token carrying an exponent is rejected rather than scaled, matching prior behaviour.
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard info.isExactInteger, !info.flags.contains(.fraction) else { return nil }
 
@@ -105,7 +103,7 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
 func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringConvertible>(
   _ bytes: Span<UInt8>, as type: T.Type
 ) -> T? {
-  // Numeric tokens are ASCII by construction, so a scalar-wise build is exact.
+  // Numeric tokens are ASCII, so a scalar-wise build is exact.
   var text = ""
   text.reserveCapacity(bytes.count)
   for i in 0..<bytes.count {
