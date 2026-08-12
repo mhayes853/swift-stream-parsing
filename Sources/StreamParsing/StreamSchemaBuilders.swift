@@ -50,6 +50,7 @@ public func _streamSchema<T: StreamBooleanConvertible>(for type: T.Type) -> Stre
   )
 }
 
+@_disfavoredOverload
 @inlinable
 public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
   StreamSchema(shape: .scalar)
@@ -101,8 +102,22 @@ public func _streamEnterField<T: StreamParseableObject>(_ value: inout T?) -> St
   _streamEnterOptionalObject(&value)
 }
 
+@_disfavoredOverload
 @inlinable
 public func _streamEnterField<T>(_ value: inout T?) -> StreamFrame? {
+  nil
+}
+
+// The initialized members mode gives non-optional members, so every entry point needs a
+// counterpart that takes the value directly.
+@inlinable
+public func _streamEnterField<T: StreamParseableObject>(_ value: inout T) -> StreamFrame? {
+  _streamEnterObject(&value)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {
   nil
 }
 
@@ -113,6 +128,24 @@ public func _streamEnterArrayField<Element: StreamInitializable>(
 ) -> StreamFrame? {
   _streamEnterOptionalContainer(
     &value, initial: [], schema: _streamArraySchema(Element.self, element: element)
+  )
+}
+
+@inlinable
+public func _streamEnterArrayField<Element: StreamInitializable>(
+  _ value: inout [Element],
+  element: StreamSchema
+) -> StreamFrame? {
+  _streamEnterContainer(&value, schema: _streamArraySchema(Element.self, element: element))
+}
+
+@inlinable
+public func _streamEnterDictionaryField<Value: StreamInitializable>(
+  _ value: inout StreamDictionary<Value>,
+  value valueSchema: StreamSchema
+) -> StreamFrame? {
+  _streamEnterContainer(
+    &value, schema: _streamDictionarySchema(Value.self, value: valueSchema)
   )
 }
 

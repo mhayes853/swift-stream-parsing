@@ -19,6 +19,7 @@ public func streamApply<T: StreamStringConvertible>(_ value: inout T, utf8 bytes
   value.streamAppend(utf8: bytes)
 }
 
+@_disfavoredOverload
 @inlinable
 @inline(__always)
 public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) {}
@@ -31,6 +32,7 @@ public func streamApply<T: StreamNumberConvertible>(
   if let parsed = T(streamParsing: bytes, info: info) { value = parsed }
 }
 
+@_disfavoredOverload
 @inlinable
 @inline(__always)
 public func streamApply<T>(_ value: inout T, bytes: Span<UInt8>, info: NumberInfo) {}
@@ -41,6 +43,7 @@ public func streamApply<T: StreamBooleanConvertible>(_ value: inout T, boolean: 
   value = T(streamParsingBoolean: boolean)
 }
 
+@_disfavoredOverload
 @inlinable
 @inline(__always)
 public func streamApply<T>(_ value: inout T, boolean: Bool) {}
@@ -51,6 +54,7 @@ public func streamApplyNull<T: StreamNullable>(_ value: inout T) {
   value = T.streamNullValue()
 }
 
+@_disfavoredOverload
 @inlinable
 @inline(__always)
 public func streamApplyNull<T>(_ value: inout T) {}

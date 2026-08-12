@@ -163,3 +163,19 @@ extension Dictionary where Key == String {
 extension StreamDictionary: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
+
+extension StreamDictionary: StreamParseableValue where Value: StreamParseableValue {
+  public static func initialParseableValue() -> Self { Self() }
+
+  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
+    handlers.registerDictionaryHandler(\.self)
+  }
+}
+
+extension StreamDictionary: StreamParseableDictionaryObject where Value: StreamParseableValue {}
+
+extension StreamDictionary: StreamParseable where Value: StreamParseable & StreamParseableValue {
+  public typealias Partial = Self
+
+  public var streamPartialValue: Self { self }
+}

@@ -243,3 +243,70 @@ struct `Partial sink tests` {
     #expect(user.name == "a longer name that will be split")
   }
 }
+
+// MARK: - Macro generated
+
+@StreamParseable
+struct MacroAddress: Equatable {
+  var city: String = ""
+  var postalCode: String = ""
+}
+
+@StreamParseable
+struct MacroUser: Equatable {
+  var id: Int = 0
+  var name: String = ""
+  var active: Bool = false
+  var address: MacroAddress = MacroAddress()
+  var scores: [Int] = []
+  var settings: [String: MacroAddress] = [:]
+}
+
+@Suite
+struct `Macro generated schema tests` {
+  @Test
+  func `Routes scalars into macro generated partials`() throws {
+    var user = MacroUser.Partial()
+    try parse(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
+    #expect(user.id == 42)
+    #expect(user.name == "Blob")
+    #expect(user.active == true)
+  }
+
+  @Test
+  func `Routes nested objects, arrays and dictionaries`() throws {
+    var user = MacroUser.Partial()
+    try parse(
+      #"{"address":{"city":"NYC"},"scores":[1,2,3],"settings":{"home":{"city":"Brooklyn"}}}"#,
+      into: &user
+    )
+    #expect(user.address?.city == "NYC")
+    #expect(user.scores == [1, 2, 3])
+    #expect(user.settings?["home"]?.city == "Brooklyn")
+  }
+
+  @Test
+  func `Produces the same value at every chunk size`() throws {
+    let json = #"{"id":7,"name":"Blob Jr","address":{"city":"NYC","postalCode":"10001"},"scores":[10,20]}"#
+    var whole = MacroUser.Partial()
+    try parse(json, into: &whole)
+
+    for chunk in [1, 2, 5] {
+      var chunked = MacroUser.Partial()
+      try parse(json, into: &chunked, chunk: chunk)
+      #expect(chunked.id == whole.id, "chunk \(chunk)")
+      #expect(chunked.name == whole.name, "chunk \(chunk)")
+      #expect(chunked.address?.city == whole.address?.city, "chunk \(chunk)")
+      #expect(chunked.scores == whole.scores, "chunk \(chunk)")
+    }
+  }
+
+  // The macro precomputes key words, which is the part I got wrong four times by hand.
+  @Test
+  func `Ignores keys the generated matcher does not know`() throws {
+    var user = MacroUser.Partial()
+    try parse(#"{"unknown":1,"id":9,"nam":2,"names":3}"#, into: &user)
+    #expect(user.id == 9)
+    #expect(user.name == nil)
+  }
+}

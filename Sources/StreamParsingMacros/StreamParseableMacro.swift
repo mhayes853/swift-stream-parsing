@@ -136,9 +136,14 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       from: properties,
       modifierPrefix: modifierPrefix
     )
+    let schemaLines = Self.partialStructSchema(
+      from: properties,
+      modifierPrefix: modifierPrefix,
+      membersMode: membersMode
+    )
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableValue,
-        StreamParsingCore.StreamParseable {
+        StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
         \(raw: modifierPrefix)typealias Partial = Self
 
       \(raw: propertyLines)
@@ -149,8 +154,185 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
           Self()
         }
 
+        \(raw: modifierPrefix)static func streamInitialValue() -> Self {
+          Self()
+        }
+
         \(raw: registerHandlersLines)
+
+        \(raw: schemaLines)
       }
+      """
+  }
+
+  // The key word is computed here rather than at runtime. Zero padding makes it a perfect
+  // discriminator for keys of eight bytes or fewer, so those need no length check.
+  private static func paddedLeadingWord(for key: String) -> UInt64 {
+    var word: UInt64 = 0
+    for (offset, byte) in Array(key.utf8).prefix(8).enumerated() {
+      word |= UInt64(byte) << (offset * 8)
+    }
+    return word
+  }
+
+  private static func keyWordLiteral(for key: String) -> String {
+    let word = Self.paddedLeadingWord(for: key)
+    let digits = Array("0123456789ABCDEF")
+    var hex = ""
+    for shift in stride(from: 60, through: 0, by: -4) {
+      hex.append(digits[Int((word >> UInt64(shift)) & 0xF)])
+    }
+    var grouped = [String]()
+    var index = hex.startIndex
+    while index < hex.endIndex {
+      let next = hex.index(index, offsetBy: 4)
+      grouped.append(String(hex[index..<next]))
+      index = next
+    }
+    return "0x" + grouped.joined(separator: "_")
+  }
+
+  private enum FieldShape {
+    case scalarOrObject(String)
+    case array(String)
+    case dictionary(String)
+  }
+
+  private static func fieldShape(for type: TypeSyntax) -> FieldShape {
+    var unwrapped = type
+    if let optional = type.as(OptionalTypeSyntax.self) { unwrapped = optional.wrappedType }
+    if let array = unwrapped.as(ArrayTypeSyntax.self) {
+      return .array(array.element.trimmedDescription)
+    }
+    if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
+      return .dictionary(dictionary.value.trimmedDescription)
+    }
+    return .scalarOrObject(unwrapped.trimmedDescription)
+  }
+
+  private static func partialStructSchema(
+    from properties: [StoredProperty],
+    modifierPrefix: String,
+    membersMode: PartialMembersMode
+  ) -> String {
+    let active = properties.filter { !$0.isIgnored }
+
+    var matchCases = [String]()
+    var applyStringCases = [String]()
+    var applyNumberCases = [String]()
+    var applyBooleanCases = [String]()
+    var applyNullCases = [String]()
+    var enterCases = [String]()
+
+    for (index, property) in active.enumerated() {
+      for key in property.keyNames {
+        let word = Self.keyWordLiteral(for: key)
+        let guardClause = key.utf8.count > 8 ? " where key.count == \(key.utf8.count)" : ""
+        matchCases.append(
+          "    case \(word)\(guardClause): return \(index)  // \"\(key)\""
+        )
+      }
+
+      let target = "p.pointee.\(property.name)"
+      switch Self.fieldShape(for: property.type) {
+      case .scalarOrObject:
+        // Emitted into every scalar switch: the macro cannot tell from syntax which token kind
+        // the type accepts, so overload resolution decides and the dead cases optimize away.
+        applyStringCases.append("    case \(index): streamApply(&\(target), utf8: bytes)")
+        applyNumberCases.append(
+          "    case \(index): streamApply(&\(target), bytes: bytes, info: info)"
+        )
+        applyBooleanCases.append("    case \(index): streamApply(&\(target), boolean: value)")
+        applyNullCases.append("    case \(index): StreamParsing.streamApplyNull(&\(target))")
+        enterCases.append("    case \(index): return _streamEnterField(&\(target))")
+      case .array(let element):
+        enterCases.append(
+          """
+              case \(index):
+                return _streamEnterArrayField(
+                  &\(target), element: _streamSchema(for: \(element).Partial.self)
+                )
+          """
+        )
+      case .dictionary(let value):
+        enterCases.append(
+          """
+              case \(index):
+                return _streamEnterDictionaryField(
+                  &\(target), value: _streamSchema(for: \(value).Partial.self)
+                )
+          """
+        )
+      }
+    }
+
+    func switchBody(_ cases: [String]) -> String {
+      cases.isEmpty ? "" : cases.joined(separator: "\n") + "\n"
+    }
+
+    return """
+      \(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+          switch key.paddedLeadingWord() {
+      \(switchBody(matchCases))    default: return -1
+          }
+        }
+
+        \(modifierPrefix)static func streamApplyString(
+          _ storage: UnsafeMutableRawPointer, _ field: Int32,
+          _ bytes: Span<UInt8>
+        ) {
+          let p = storage.assumingMemoryBound(to: Self.self)
+          switch field {
+      \(switchBody(applyStringCases))    default: break
+          }
+        }
+
+        \(modifierPrefix)static func streamApplyNumber(
+          _ storage: UnsafeMutableRawPointer, _ field: Int32,
+          _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+        ) {
+          let p = storage.assumingMemoryBound(to: Self.self)
+          switch field {
+      \(switchBody(applyNumberCases))    default: break
+          }
+        }
+
+        \(modifierPrefix)static func streamApplyBoolean(
+          _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+        ) {
+          let p = storage.assumingMemoryBound(to: Self.self)
+          switch field {
+      \(switchBody(applyBooleanCases))    default: break
+          }
+        }
+
+        \(modifierPrefix)static func streamApplyNull(
+          _ storage: UnsafeMutableRawPointer, _ field: Int32
+        ) {
+          let p = storage.assumingMemoryBound(to: Self.self)
+          switch field {
+      \(switchBody(applyNullCases))    default: break
+          }
+        }
+
+        \(modifierPrefix)static func streamEnterField(
+          _ storage: UnsafeMutableRawPointer, _ field: Int32
+        ) -> StreamParsingCore.StreamFrame? {
+          let p = storage.assumingMemoryBound(to: Self.self)
+          switch field {
+      \(switchBody(enterCases))    default: return nil
+          }
+        }
+
+        \(modifierPrefix)static let streamSchema = StreamParsingCore.StreamSchema(
+          shape: .object,
+          matchField: Self.streamMatchField,
+          applyString: Self.streamApplyString,
+          applyNumber: Self.streamApplyNumber,
+          applyBoolean: Self.streamApplyBoolean,
+          applyNull: Self.streamApplyNull,
+          enterField: Self.streamEnterField
+        )
       """
   }
 
@@ -161,12 +343,21 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
   ) -> String {
     let lines = properties.filter { !$0.isIgnored }
       .map { property in
-        let typeDescription = property.typeName
         let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
         return
-          "  \(modifierPrefix)var \(property.name): \(typeDescription).Partial\(optionalSuffix)"
+          "  \(modifierPrefix)var \(property.name): \(Self.partialTypeName(for: property))\(optionalSuffix)"
       }
     return lines.joined(separator: "\n")
+  }
+
+  // A dictionary member becomes a StreamDictionary so the parser can hold a pointer into a
+  // value while it streams. Dictionary relocates its values on insertion, which would make
+  // partial updates impossible.
+  private static func partialTypeName(for property: StoredProperty) -> String {
+    if case .dictionary(let value) = Self.fieldShape(for: property.type) {
+      return "StreamParsingCore.StreamDictionary<\(value).Partial>"
+    }
+    return "\(property.typeName).Partial"
   }
 
   private static func partialStructInitializer(
@@ -178,10 +369,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let parameters =
       activeProperties
       .map { property in
-        let typeDescription = property.typeName
         let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
         return
-          "\(property.name): \(typeDescription).Partial\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
+          "\(property.name): \(Self.partialTypeName(for: property))\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
       }
       .joined(separator: ",\n    ")
     let assignments =
@@ -237,6 +427,11 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let argumentLines = activeProperties.enumerated()
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
+        if case .dictionary = Self.fieldShape(for: property.type) {
+          let mapped = "self.\(property.name).mapValues(\\.streamPartialValue)"
+          return
+            "    \(property.name): StreamParsingCore.StreamDictionary(\(mapped))\(suffix)"
+        }
         return "    \(property.name): self.\(property.name).streamPartialValue\(suffix)"
       }
       .joined(separator: "\n")
