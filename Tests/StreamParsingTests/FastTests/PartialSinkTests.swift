@@ -310,3 +310,50 @@ struct `Macro generated schema tests` {
     #expect(user.name == nil)
   }
 }
+
+// Key words are precomputed by the macro, and a wrong one fails silently as a key that never
+// matches. These exercise the boundaries where that is most likely: exactly the word width,
+// past it, and keys sharing their first eight bytes.
+@StreamParseable
+struct MacroKeyWidths: Equatable {
+  var a: Int = 0
+  var exactly8: Int = 0
+  var nineBytes9: Int = 0
+  var descriptionLong: Int = 0
+  var descriptionShort: Int = 0
+}
+
+@Suite
+struct `Macro key matching tests` {
+  @Test
+  func `Matches keys at and beyond the word width`() throws {
+    var value = MacroKeyWidths.Partial()
+    try parse(
+      #"{"a":1,"exactly8":2,"nineBytes9":3,"descriptionLong":4,"descriptionShort":5}"#,
+      into: &value
+    )
+    #expect(value.a == 1)
+    #expect(value.exactly8 == 2)
+    #expect(value.nineBytes9 == 3)
+    #expect(value.descriptionLong == 4)
+    #expect(value.descriptionShort == 5)
+  }
+
+  // Both of these share "descript" as their first eight bytes, so only the length distinguishes
+  // them, and a missing guard would route one into the other.
+  @Test
+  func `Distinguishes keys sharing their first eight bytes`() throws {
+    var value = MacroKeyWidths.Partial()
+    try parse(#"{"descriptionShort":5}"#, into: &value)
+    #expect(value.descriptionShort == 5)
+    #expect(value.descriptionLong == nil)
+  }
+
+  @Test
+  func `Rejects near misses of a known key`() throws {
+    var value = MacroKeyWidths.Partial()
+    try parse(#"{"exactly":1,"exactly88":2,"nineBytes":3}"#, into: &value)
+    #expect(value.exactly8 == nil)
+    #expect(value.nineBytes9 == nil)
+  }
+}

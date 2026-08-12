@@ -30,7 +30,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -48,12 +48,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -87,7 +184,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -105,12 +202,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "customKeyName", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x654B_6D6F_7473_7563 where key.count == 13:
+                return 0  // "customKeyName"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -250,7 +444,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -268,6 +462,10 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
@@ -275,6 +473,101 @@ extension BaseTestSuite {
               handlers.registerKeyedHandler(forKey: "customKeyName2", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x654B_6D6F_7473_7563 where key.count == 13:
+                return 0  // "customKeyName"
+              case 0x654B_6D6F_7473_7563 where key.count == 14:
+                return 0  // "customKeyName2"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -389,7 +682,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial
@@ -407,12 +700,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -445,7 +835,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String?.Partial
@@ -463,12 +853,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -500,7 +987,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var age: Int.Partial?
@@ -515,11 +1002,96 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_0065_6761:
+                return 0  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -555,7 +1127,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -570,11 +1142,96 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "stored", \.stored)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_6465_726F_7473:
+                return 0  // "stored"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.stored)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.stored)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -607,7 +1264,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -622,11 +1279,96 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -684,7 +1426,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -699,11 +1441,96 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "stored", \.stored)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_6465_726F_7473:
+                return 0  // "stored"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.stored, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.stored)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.stored)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -736,7 +1563,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -754,12 +1581,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -925,7 +1849,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -943,12 +1867,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -981,7 +2002,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -999,12 +2020,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            public static func streamInitialValue() -> Self {
+              Self()
+            }
+
             public static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            public static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            public static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            public static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1033,7 +2151,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1051,12 +2169,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1085,7 +2300,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           fileprivate struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             fileprivate typealias Partial = Self
 
             fileprivate var name: String.Partial?
@@ -1103,12 +2318,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            fileprivate static func streamInitialValue() -> Self {
+              Self()
+            }
+
             fileprivate static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            fileprivate static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            fileprivate static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            fileprivate static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            fileprivate static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            fileprivate static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            fileprivate static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1141,7 +2453,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -1159,12 +2471,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            public static func streamInitialValue() -> Self {
+              Self()
+            }
+
             public static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            public static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            public static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            public static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1197,7 +2606,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String?.Partial?
@@ -1215,12 +2624,109 @@ extension BaseTestSuite {
               Self()
             }
 
+            public static func streamInitialValue() -> Self {
+              Self()
+            }
+
             public static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
               handlers.registerKeyedHandler(forKey: "name", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_656D_616E:
+                return 0  // "name"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            public static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            public static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            public static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            public static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1255,7 +2761,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1273,6 +2779,10 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
@@ -1280,6 +2790,101 @@ extension BaseTestSuite {
               handlers.registerKeyedHandler(forKey: "name2", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_626F_6C62:
+                return 0  // "blob"
+              case 0x0000_0032_656D_616E:
+                return 0  // "name2"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1310,7 +2915,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1328,6 +2933,10 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
@@ -1335,6 +2944,101 @@ extension BaseTestSuite {
               handlers.registerKeyedHandler(forKey: "name2", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_626F_6C62:
+                return 0  // "blob"
+              case 0x0000_0032_656D_616E:
+                return 0  // "name2"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#
@@ -1365,7 +3069,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable {
+            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1383,6 +3087,10 @@ extension BaseTestSuite {
               Self()
             }
 
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
             static func registerHandlers(
               in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
             ) {
@@ -1390,6 +3098,101 @@ extension BaseTestSuite {
               handlers.registerKeyedHandler(forKey: "name2", \.name)
               handlers.registerKeyedHandler(forKey: "age", \.age)
             }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_626F_6C62:
+                return 0  // "blob"
+              case 0x0000_0032_656D_616E:
+                return 0  // "name2"
+              case 0x0000_0000_0065_6761:
+                return 1  // "age"
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, utf8: bytes)
+              case 1:
+                streamApply(&p.pointee.age, utf8: bytes)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, bytes: bytes, info: info)
+              case 1:
+                streamApply(&p.pointee.age, bytes: bytes, info: info)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                streamApply(&p.pointee.name, boolean: value)
+              case 1:
+                streamApply(&p.pointee.age, boolean: value)
+              default:
+                break
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                StreamParsing.streamApplyNull(&p.pointee.name)
+              case 1:
+                StreamParsing.streamApplyNull(&p.pointee.age)
+              default:
+                break
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case 0:
+                return _streamEnterField(&p.pointee.name)
+              case 1:
+                return _streamEnterField(&p.pointee.age)
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
           }
         }
         """#

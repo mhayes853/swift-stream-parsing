@@ -165,8 +165,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       """
   }
 
-  // The key word is computed here rather than at runtime. Zero padding makes it a perfect
-  // discriminator for keys of eight bytes or fewer, so those need no length check.
+  // Computed at expansion time rather than matched at runtime. Zero padding discriminates keys
+  // shorter than the word, so only those can skip the length check.
   private static func paddedLeadingWord(for key: String) -> UInt64 {
     var word: UInt64 = 0
     for (offset, byte) in Array(key.utf8).prefix(8).enumerated() {
@@ -227,7 +227,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     for (index, property) in active.enumerated() {
       for key in property.keyNames {
         let word = Self.keyWordLiteral(for: key)
-        let guardClause = key.utf8.count > 8 ? " where key.count == \(key.utf8.count)" : ""
+        // Zero padding only discriminates keys shorter than the word. A key of exactly eight
+        // bytes shares its word with any longer key having the same prefix, so it needs the
+        // length check too.
+        let guardClause = key.utf8.count >= 8 ? " where key.count == \(key.utf8.count)" : ""
         matchCases.append(
           "    case \(word)\(guardClause): return \(index)  // \"\(key)\""
         )
