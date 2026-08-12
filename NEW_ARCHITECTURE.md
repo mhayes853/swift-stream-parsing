@@ -42,6 +42,12 @@ JSON specific, so other parsers can drive the same sinks.
 
 - **Methods do not throw.** A check after every call sits on the hottest path; a sink records a
   failure and the parser reads it once per chunk. Measured 2–5%.
+- **Apply closures return a bool instead.** A schema's apply members report whether they consumed
+  the token, which is what distinguishes a key the destination does not have (ignored, as it
+  always has been) from a field that cannot hold this kind of value (a type mismatch, which the
+  registration based parser threw for). A return value is not a throw check: across the six bulk
+  benchmarks it measured within run to run noise, 14 µs/5503/458/792/18 µs/541 ns before against
+  14 µs/5335/417/750/17 µs/500 after.
 - **Collapsed and incremental forms.** `key(_:)` and `string(_:)` default to the incremental
   methods. Overriding them avoids two of every three sink calls, which dominates token dense
   payloads.

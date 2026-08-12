@@ -145,19 +145,25 @@ public func _streamEnterDictionaryField<Value: StreamInitializable>(
 
 // Partial members are optional, so a value has to exist before it can be appended to.
 @inlinable
-public func streamApply<T: StreamStringConvertible>(_ value: inout T?, utf8 bytes: Span<UInt8>) {
+public func streamApply<T: StreamStringConvertible>(
+  _ value: inout T?, utf8 bytes: Span<UInt8>
+) -> Bool {
   if value == nil { value = T.streamInitialValue() }
   value!.streamAppend(utf8: bytes)
+  return true
 }
 
 @inlinable
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
-) {
-  if let parsed = T(streamParsing: bytes, info: info) { value = parsed }
+) -> Bool {
+  guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+  value = parsed
+  return true
 }
 
 @inlinable
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T?, boolean: Bool) {
+public func streamApply<T: StreamBooleanConvertible>(_ value: inout T?, boolean: Bool) -> Bool {
   value = T(streamParsingBoolean: boolean)
+  return true
 }

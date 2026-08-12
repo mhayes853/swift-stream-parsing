@@ -13,48 +13,60 @@ import StreamParsingCore
 // These live here rather than in the core because nothing in the core needs them. The parser
 // only speaks to sinks.
 
+// Each returns whether it applied the token. The unconstrained overload returning false is what
+// turns "this field cannot hold a string" into a reportable type mismatch instead of silence.
+
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamStringConvertible>(_ value: inout T, utf8 bytes: Span<UInt8>) {
+public func streamApply<T: StreamStringConvertible>(
+  _ value: inout T, utf8 bytes: Span<UInt8>
+) -> Bool {
   value.streamAppend(utf8: bytes)
+  return true
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) {}
+public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> Bool { false }
 
 @inlinable
 @inline(__always)
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
-) {
-  if let parsed = T(streamParsing: bytes, info: info) { value = parsed }
+) -> Bool {
+  guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+  value = parsed
+  return true
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, bytes: Span<UInt8>, info: NumberInfo) {}
+public func streamApply<T>(_ value: inout T, bytes: Span<UInt8>, info: NumberInfo) -> Bool {
+  false
+}
 
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T, boolean: Bool) {
+public func streamApply<T: StreamBooleanConvertible>(_ value: inout T, boolean: Bool) -> Bool {
   value = T(streamParsingBoolean: boolean)
+  return true
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, boolean: Bool) {}
+public func streamApply<T>(_ value: inout T, boolean: Bool) -> Bool { false }
 
 @inlinable
 @inline(__always)
-public func streamApplyNull<T: StreamNullable>(_ value: inout T) {
+public func streamApplyNull<T: StreamNullable>(_ value: inout T) -> Bool {
   value = T.streamNullValue()
+  return true
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApplyNull<T>(_ value: inout T) {}
+public func streamApplyNull<T>(_ value: inout T) -> Bool { false }

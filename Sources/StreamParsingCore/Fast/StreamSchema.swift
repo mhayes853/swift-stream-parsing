@@ -26,10 +26,15 @@ public struct StreamSchema: @unchecked Sendable {
   // Returns the field identifier for a key, or -1 when the destination has no such field.
   public var matchField: @Sendable (Span<UInt8>) -> Int32
 
-  public var applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Void
-  public var applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Void
-  public var applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Void
-  public var applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Void
+  // Each returns whether the token was actually applied. A field that matched a key but has no
+  // destination for this kind of token returns false, which is what lets the sink tell a type
+  // mismatch from a key the destination simply does not have. A bool return rather than a throw,
+  // for the same reason the sink methods do not throw: a check after every call sits on the
+  // hottest path.
+  public var applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool
+  public var applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Bool
+  public var applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool
+  public var applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Bool
 
   // Resets the container stored at `field` and returns a frame for it.
   public var enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
@@ -43,12 +48,16 @@ public struct StreamSchema: @unchecked Sendable {
   public init(
     shape: Shape,
     matchField: @escaping @Sendable (Span<UInt8>) -> Int32 = { _ in -1 },
-    applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Void = { _, _, _ in },
+    applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
+      _, _, _ in false
+    },
     applyNumber: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
-    ) -> Void = { _, _, _, _ in },
-    applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Void = { _, _, _ in },
-    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Void = { _, _ in },
+    ) -> Bool = { _, _, _, _ in false },
+    applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool = {
+      _, _, _ in false
+    },
+    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
@@ -93,6 +102,7 @@ public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> S
     shape: .scalar,
     applyString: { storage, _, bytes in
       storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
+      return true
     }
   )
 }
@@ -102,8 +112,11 @@ public func _streamNumberSchema<T: StreamNumberConvertible>(_ type: T.Type) -> S
   StreamSchema(
     shape: .scalar,
     applyNumber: { storage, _, bytes, info in
-      guard let parsed = T(streamParsing: bytes, info: info) else { return }
+      // A token that does not fit the destination is a rejection, not a silent no-op, which is
+      // what reports an overflow.
+      guard let parsed = T(streamParsing: bytes, info: info) else { return false }
       storage.assumingMemoryBound(to: T.self).pointee = parsed
+      return true
     }
   )
 }
@@ -114,6 +127,7 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
     shape: .scalar,
     applyBoolean: { storage, _, value in
       storage.assumingMemoryBound(to: T.self).pointee = T(streamParsingBoolean: value)
+      return true
     }
   )
 }

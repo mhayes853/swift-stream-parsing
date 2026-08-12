@@ -257,12 +257,18 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       case .scalarOrObject:
         // Emitted into every scalar switch: the macro cannot tell from syntax which token kind
         // the type accepts, so overload resolution decides and the dead cases optimize away.
-        applyStringCases.append("    case \(index): streamApply(&\(target), utf8: bytes)")
-        applyNumberCases.append(
-          "    case \(index): streamApply(&\(target), bytes: bytes, info: info)"
+        applyStringCases.append(
+          "    case \(index): return streamApply(&\(target), utf8: bytes)"
         )
-        applyBooleanCases.append("    case \(index): streamApply(&\(target), boolean: value)")
-        applyNullCases.append("    case \(index): StreamParsing.streamApplyNull(&\(target))")
+        applyNumberCases.append(
+          "    case \(index): return streamApply(&\(target), bytes: bytes, info: info)"
+        )
+        applyBooleanCases.append(
+          "    case \(index): return streamApply(&\(target), boolean: value)"
+        )
+        applyNullCases.append(
+          "    case \(index): return StreamParsing.streamApplyNull(&\(target))"
+        )
         enterCases.append("    case \(index): return _streamEnterField(&\(target))")
       case .array(let element):
         let elementSchema = Self.schemaExpression(
@@ -301,38 +307,38 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         \(modifierPrefix)static func streamApplyString(
           _ storage: UnsafeMutableRawPointer, _ field: Int32,
           _ bytes: Span<UInt8>
-        ) {
+        ) -> Bool {
           let p = storage.assumingMemoryBound(to: Self.self)
           switch field {
-      \(switchBody(applyStringCases))    default: break
+      \(switchBody(applyStringCases))    default: return false
           }
         }
 
         \(modifierPrefix)static func streamApplyNumber(
           _ storage: UnsafeMutableRawPointer, _ field: Int32,
           _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-        ) {
+        ) -> Bool {
           let p = storage.assumingMemoryBound(to: Self.self)
           switch field {
-      \(switchBody(applyNumberCases))    default: break
+      \(switchBody(applyNumberCases))    default: return false
           }
         }
 
         \(modifierPrefix)static func streamApplyBoolean(
           _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-        ) {
+        ) -> Bool {
           let p = storage.assumingMemoryBound(to: Self.self)
           switch field {
-      \(switchBody(applyBooleanCases))    default: break
+      \(switchBody(applyBooleanCases))    default: return false
           }
         }
 
         \(modifierPrefix)static func streamApplyNull(
           _ storage: UnsafeMutableRawPointer, _ field: Int32
-        ) {
+        ) -> Bool {
           let p = storage.assumingMemoryBound(to: Self.self)
           switch field {
-      \(switchBody(applyNullCases))    default: break
+      \(switchBody(applyNullCases))    default: return false
           }
         }
 

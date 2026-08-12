@@ -102,15 +102,21 @@ public struct PartialSink<Root>: StreamParseSink {
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
-    withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+    // The empty span both materializes the destination and settles whether it accepts strings at
+    // all, so a mismatch is reported at the opening quote rather than at the first chunk.
+    let applied = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
       let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-      target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
+      return target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
+    }
+    if !applied {
+      self.scalarTarget = nil
+      self.recordFailure(.typeMismatch)
     }
   }
 
   public mutating func stringChunk(_ bytes: Span<UInt8>) {
     guard let target = self.scalarTarget else { return }
-    target.schema.applyString(target.storage, target.field, bytes)
+    _ = target.schema.applyString(target.storage, target.field, bytes)
   }
 
   public mutating func stringEnd() {
@@ -168,11 +174,22 @@ public struct PartialSink<Root>: StreamParseSink {
     }
   }
 
+  // A nil target means the destination has no such field, which is not an error: unknown keys
+  // have always been ignored. A target that refuses the token is a type mismatch, because the
+  // key matched something that cannot hold this kind of value.
   private mutating func withScalarTarget(
-    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> Void
+    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> Bool
   ) {
     guard let target = self.resolveScalarTarget() else { return }
-    body(target.storage, target.field, target.schema)
+    if !body(target.storage, target.field, target.schema) {
+      self.recordFailure(.typeMismatch)
+    }
+  }
+
+  @usableFromInline
+  mutating func recordFailure(_ reason: StreamSinkFailure.Reason) {
+    guard self.streamFailure == nil else { return }
+    self.streamFailure = StreamSinkFailure(reason: reason)
   }
 
   // A schema that accepts and discards everything, used for subtrees the destination has no

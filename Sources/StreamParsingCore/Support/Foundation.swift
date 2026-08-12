@@ -99,8 +99,9 @@
           case 3: streamAppendPersonName(&p.pointee.namePrefix, bytes)
           case 4: streamAppendPersonName(&p.pointee.nameSuffix, bytes)
           case 5: streamAppendPersonName(&p.pointee.nickname, bytes)
-          default: break
+          default: return false
           }
+          return true
         },
         applyNull: { storage, field in
           let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
@@ -112,8 +113,9 @@
           case 4: p.pointee.nameSuffix = nil
           case 5: p.pointee.nickname = nil
           case 6: p.pointee.phoneticRepresentation = nil
-          default: break
+          default: return false
           }
+          return true
         }
       )
     }

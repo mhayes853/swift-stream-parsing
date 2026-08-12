@@ -73,58 +73,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -227,58 +227,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -490,58 +490,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -725,58 +725,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -878,58 +878,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -1024,50 +1024,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -1164,50 +1164,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, utf8: bytes)
+                return streamApply(&p.pointee.stored, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, bytes: bytes, info: info)
+                return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, boolean: value)
+                return streamApply(&p.pointee.stored, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.stored)
+                return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
-                break
+                return false
               }
             }
 
@@ -1301,50 +1301,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               default:
-                break
+                return false
               }
             }
 
@@ -1463,50 +1463,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, utf8: bytes)
+                return streamApply(&p.pointee.stored, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, bytes: bytes, info: info)
+                return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.stored, boolean: value)
+                return streamApply(&p.pointee.stored, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.stored)
+                return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
-                break
+                return false
               }
             }
 
@@ -1606,58 +1606,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -1892,58 +1892,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2045,58 +2045,58 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2194,58 +2194,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2343,58 +2343,58 @@ extension BaseTestSuite {
             fileprivate static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             fileprivate static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             fileprivate static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             fileprivate static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2496,58 +2496,58 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2649,58 +2649,58 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2807,58 +2807,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -2961,58 +2961,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
@@ -3115,58 +3115,58 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, utf8: bytes)
+                return streamApply(&p.pointee.name, utf8: bytes)
               case 1:
-                streamApply(&p.pointee.age, utf8: bytes)
+                return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, bytes: bytes, info: info)
+                return streamApply(&p.pointee.name, bytes: bytes, info: info)
               case 1:
-                streamApply(&p.pointee.age, bytes: bytes, info: info)
+                return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                streamApply(&p.pointee.name, boolean: value)
+                return streamApply(&p.pointee.name, boolean: value)
               case 1:
-                streamApply(&p.pointee.age, boolean: value)
+                return streamApply(&p.pointee.age, boolean: value)
               default:
-                break
+                return false
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) {
+            ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case 0:
-                StreamParsing.streamApplyNull(&p.pointee.name)
+                return StreamParsing.streamApplyNull(&p.pointee.name)
               case 1:
-                StreamParsing.streamApplyNull(&p.pointee.age)
+                return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                break
+                return false
               }
             }
 
