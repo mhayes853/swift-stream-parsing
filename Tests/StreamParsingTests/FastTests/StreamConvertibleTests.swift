@@ -83,6 +83,64 @@ struct `Stream convertible tests` {
     }
   }
 
+  // MARK: - 128 bit integers
+
+  // The accumulator's magnitude is a UInt64, so these two types are the only ones that can hold
+  // a token it cannot. They re-scan the span instead of rejecting it, which is what the
+  // registration based parser did.
+
+  @Test
+  @available(StreamParsing128BitIntegers, *)
+  func `128 bit integers take the accumulated magnitude when it fits`() {
+    Self.span("4217") { bytes in
+      #expect(Int128(streamParsing: bytes, info: Self.info(4217, digits: 4)) == 4217)
+      #expect(UInt128(streamParsing: bytes, info: Self.info(4217, digits: 4)) == 4217)
+    }
+    Self.span("-4217") { bytes in
+      let info = Self.info(4217, digits: 4, flags: .negative)
+      #expect(Int128(streamParsing: bytes, info: info) == -4217)
+      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+    }
+  }
+
+  @Test
+  @available(StreamParsing128BitIntegers, *)
+  func `128 bit integers re-scan a magnitude too wide for the accumulator`() {
+    Self.span("170141183460469231731687303715884105727") { bytes in
+      let info = Self.info(0, digits: 39, flags: .overflowed)
+      #expect(Int128(streamParsing: bytes, info: info) == Int128.max)
+      #expect(UInt128(streamParsing: bytes, info: info) == 170_141_183_460_469_231_731_687_303_715_884_105_727)
+    }
+    Self.span("-170141183460469231731687303715884105728") { bytes in
+      let info = Self.info(0, digits: 39, flags: [.overflowed, .negative])
+      #expect(Int128(streamParsing: bytes, info: info) == Int128.min)
+      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+    }
+    Self.span("340282366920938463463374607431768211455") { bytes in
+      let info = Self.info(0, digits: 39, flags: .overflowed)
+      #expect(UInt128(streamParsing: bytes, info: info) == UInt128.max)
+      #expect(Int128(streamParsing: bytes, info: info) == nil)
+    }
+  }
+
+  @Test
+  @available(StreamParsing128BitIntegers, *)
+  func `128 bit integers reject what still does not fit`() {
+    Self.span("340282366920938463463374607431768211456") { bytes in
+      let info = Self.info(0, digits: 39, flags: .overflowed)
+      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+    }
+    // A re-scan only makes sense for a plain integer token, so these stay rejected.
+    Self.span("1.5") { bytes in
+      let info = Self.info(15, digits: 2, exponent: -1, flags: .fraction)
+      #expect(Int128(streamParsing: bytes, info: info) == nil)
+    }
+    Self.span("1e300") { bytes in
+      let info = Self.info(1, digits: 1, exponent: 300, flags: .exponent)
+      #expect(Int128(streamParsing: bytes, info: info) == nil)
+    }
+  }
+
   // MARK: - Floating point
 
   @Test

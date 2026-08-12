@@ -34,13 +34,17 @@ extension FixedWidthInteger {
     guard info.isExactInteger, !info.flags.contains(.fraction) else { return nil }
 
     if info.flags.contains(.negative) {
-      guard Self.isSigned, info.magnitude <= UInt64(Self.max.magnitude) &+ 1 else { return nil }
-      if info.magnitude == UInt64(Self.max.magnitude) &+ 1 {
+      guard Self.isSigned else { return nil }
+      // The bound is expressed in Self.Magnitude rather than UInt64, because widening the
+      // other way traps for types wider than 64 bits.
+      guard let magnitude = Self.Magnitude(exactly: info.magnitude),
+        magnitude <= Self.min.magnitude
+      else { return nil }
+      if magnitude == Self.min.magnitude {
         self = Self.min
         return
       }
-      guard let positive = Self(exactly: info.magnitude) else { return nil }
-      self = 0 &- positive
+      self = 0 &- Self(magnitude)
       return
     }
 
@@ -116,69 +120,5 @@ func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringCon
   return T(text)
 }
 
-// MARK: - Standard library conformances
-
-extension String: StreamStringConvertible {
-  public static func streamInitialValue() -> Self { "" }
-
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
-    bytes.withUnsafeBufferPointer { buffer in
-      self += String(decoding: buffer, as: UTF8.self)
-    }
-  }
-
-  public mutating func streamReserve(utf8ByteCount: Int) {
-    self.reserveCapacity(utf8ByteCount)
-  }
-}
-
-extension Bool: StreamBooleanConvertible, StreamInitializable {
-  public init(streamParsingBoolean value: Bool) { self = value }
-  public static func streamInitialValue() -> Self { false }
-}
-
-extension Optional: StreamNullable, StreamInitializable {
-  public static func streamNullValue() -> Self { nil }
-  public static func streamInitialValue() -> Self { nil }
-}
-
-extension Array: StreamInitializable {
-  public static func streamInitialValue() -> Self { [] }
-}
-
-extension Int: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Int8: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Int16: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Int32: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Int64: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension UInt: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension UInt8: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension UInt16: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension UInt32: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension UInt64: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Double: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-extension Float: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
+// The standard library's own conformances live in Support/StandardLibrary.swift, next to the
+// registration based ones they replace, so removing the old parser is a single subtraction.

@@ -24,6 +24,19 @@ public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> St
   }
 }
 
+// A wrapper with one stored property stores it at offset zero, so the wrapped type's schema can
+// be applied to a pointer to the wrapper. Same class of assumption as the optional payload
+// access above, which is why it lives here. The size check is a debug build tripwire for a
+// wrapper that turns out to carry something else.
+@inlinable
+public func _streamWrapperSchema<Wrapper, Wrapped: StreamParseableObject>(
+  _ wrapper: Wrapper.Type,
+  wrapping wrapped: Wrapped.Type
+) -> StreamSchema {
+  assert(MemoryLayout<Wrapper>.size == MemoryLayout<Wrapped>.size)
+  return Wrapped.streamSchema
+}
+
 @inlinable
 public func _streamEnterOptionalContainer<T>(
   _ value: inout T?,

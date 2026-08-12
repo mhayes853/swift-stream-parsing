@@ -115,6 +115,12 @@ values in an append-only array, inheriting the array invariant, and preserves in
 conversion to an ordered container is lossless. Lookups scan linearly and build an index only
 past a threshold.
 
+**A frame needs a stored property.** Taking the address of a computed one yields a temporary that
+dies when the inout scope ends, so the frame dangles. This rules out nesting into bridged
+Foundation structs: `PersonNameComponents` is eight bytes on Darwin, a single handle, and every
+property on it is computed. Scalars still work, because their inout scope is one call and the
+write back lands; only a frame, which outlives the call, does not.
+
 ### Optional payload access
 
 Entering a nested field needs a pointer to a stored property. `MemoryLayout.offset(of:)` requires
@@ -237,9 +243,7 @@ Bugs the tests found: `[1,]` and `{"a":1,}` accepted; number grammar declared bu
 implemented; overlong UTF-8 and encoded surrogates accepted; lone low surrogate accepted; `--1`
 parsed as `-1`.
 
-### Phase 4 — Macro and PartialSink (in progress)
-
-Done:
+### Phase 4 — Macro and PartialSink (done)
 
 - `StreamSchema` of non-capturing closures; `StreamFrame`; `PartialSink` walking a frame stack,
   with a discarding schema for subtrees under unknown keys.
@@ -251,28 +255,45 @@ Done:
   parsers drive the same `Partial`.
 - Expansions recorded through `xcodebuild` (the `swift test` CLI does not write them), then all
   38 key cases verified independently against the words their keys imply.
+- Generated code carries one comment, the field name on each key case.
+- Hand written conformances in `PartialSinkTests` converted to the macro.
+- **Differential against the old parser**: same input, both parsers, same `Partial`. It found an
+  empty string producing nil and container elements getting an inert scalar schema, and pinned
+  two places where the parsers differ and the new one is right.
 
-Remaining:
+`MockParser` still drives the old registration path. Porting it moved to Phase 6, since its only
+consumers are the stream types that phase rewrites.
 
-- Strip comments from generated code except the field name on each key case.
-- Port `MockParser` to an event recording sink.
-- Convert the hand written conformances in `PartialSinkTests` to the macro.
-- **Differential against the old parser**: same input, compare the sequence of partials, not just
-  the final value. Now unblocked, and the highest confidence check available for a rewrite this
-  size. Only possible while both parsers exist.
+### Phase 5 — Support types (done)
 
-### Phase 5 — Support types
-
-- Port `StandardLibrary`, `Foundation`, `CoreGraphics`, `SwiftCollections`, `Tagged` to the
-  conversion protocols.
-- Two are behaviour changes needing their own tests:
-  - **`Decimal` becomes exact**, rather than round tripping through `Double` via a hand rolled
-    mantissa loop.
-  - **`Data` stops being quadratic** — `streamAppend` instead of rebuilding a `String` per write.
-- `OrderedDictionary` bridging for `StreamDictionary`, which insertion order makes lossless.
+- `StandardLibrary`, `Foundation`, `CoreGraphics`, `SwiftCollections` and `Tagged` ported, with
+  the new conformances sitting next to the registration based ones they replace so Phase 6 is a
+  single subtraction.
+- **`Decimal` is exact.** It is built from the accumulated magnitude and decimal exponent, which
+  is what `Decimal` already stores, so `1.005` round trips instead of arriving as the nearest
+  `Double`. Out of range exponents and magnitudes wider than the accumulator fall back to
+  `Decimal(string:)`.
+- **`Data` is no longer quadratic** — it appends the bytes it is handed rather than rebuilding a
+  `String` from the whole accumulated value on every write.
+- **128 bit integers re-scan.** The accumulator carries magnitude in a `UInt64`, so anything
+  wider arrives flagged as overflowed with nothing usable in it. `Int128` and `UInt128` walk the
+  token instead, which is what the registration based parser did; taking the shared conversion
+  unchanged would have silently narrowed them to 64 bits.
+- The shared integer conversion bounded the negative case with `UInt64(Self.max.magnitude)`,
+  which traps for types wider than 64 bits. It is expressed in `Self.Magnitude` now.
+- `Tagged` forwards every conversion protocol to its raw value, and a tagged object applies the
+  raw value's schema to a pointer to the `Tagged`, since it has one stored property.
+- swift-collections types are **bridging destinations, not parse targets**. Container shape comes
+  from syntax, so the macro reads `Deque<Int>` as an ordinary identifier and cannot route it. A
+  member declared with one used to parse as empty in silence; a deprecated `_streamEnterField`
+  overload on `_StreamUnroutableContainer` now makes it a warning at the expansion site.
+- `OrderedDictionary` bridging both ways, which insertion order makes lossless, plus
+  `TreeDictionary` for contents only.
 
 ### Phase 6 — Conveniences and removal
 
+- Port `MockParser` to an event recording sink, or replace it with a purpose built failing sink,
+  which is all `PartialsStreamTests` needs it for.
 - `PartialsStream` as `~Copyable`; `AsyncPartialsSequence` over an internal box.
 - Keep `partials(of:from:)` and the stream types source compatible, which is what lets the bulk
   of the existing tests port unchanged.
@@ -299,5 +320,12 @@ Remaining:
   immediately.
 - Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
-  eliminated.
+  eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in
+  the same file behind a size assertion.
+- `PersonNameComponents.phoneticRepresentation` is matched but not entered, because the type has
+  no stored property for a frame to point at. A nested object there is skipped; a null still
+  clears it. Its string writes are a get, modify and set through the bridge rather than an
+  append, so a long name streamed byte by byte is quadratic.
+- swift-collections containers cannot be parsed into directly, only converted to. The macro reads
+  container shape from syntax and cannot see through a generic identifier.
 - Nested arrays throughput is below target.

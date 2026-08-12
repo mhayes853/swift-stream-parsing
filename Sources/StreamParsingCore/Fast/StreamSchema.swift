@@ -70,3 +70,9 @@ public struct StreamSchema: @unchecked Sendable {
 public protocol StreamParseableObject: StreamInitializable {
   static var streamSchema: StreamSchema { get }
 }
+
+// Container types the schema generator cannot route into. The macro decides an object from an
+// array from a dictionary by syntax alone, so it sees `Deque<Int>` as an ordinary identifier and
+// emits scalar cases that never fire. Conforming marks the type for the deprecated
+// `_streamEnterField` overload, which turns that silence into a build warning.
+public protocol _StreamUnroutableContainer {}
