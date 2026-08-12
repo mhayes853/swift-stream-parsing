@@ -92,7 +92,13 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
   }
 
   public mutating func stringBegin() {
-    self.scalarTarget = self.resolveScalarTarget()
+    let target = self.resolveScalarTarget()
+    self.scalarTarget = target
+    guard let target else { return }
+    withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+      let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
+      target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
+    }
   }
 
   public mutating func stringChunk(_ bytes: Span<UInt8>) {

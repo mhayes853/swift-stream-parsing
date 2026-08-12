@@ -3,109 +3,24 @@ import Testing
 import StreamParsing
 import StreamParsingCore
 
-// Hand written in the shape the macro will generate, so the routing design is exercised before
-// the macro has to produce it.
-
-struct SinkAddress: StreamParseableObject, Equatable {
-  var city: String?
-  var postalCode: String?
-
-  static func streamInitialValue() -> Self { Self() }
-
-  static let streamSchema = StreamSchema(
-    shape: .object,
-    matchField: { key in
-      switch key.paddedLeadingWord() {
-      case 0x0000_0000_7974_6963: return 0  // "city"
-      case 0x6F43_6C61_7473_6F70: return key.count == 10 ? 1 : -1  // "postalCode"
-      default: return -1
-      }
-    },
-    applyString: { storage, field, bytes in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      switch field {
-      case 0: streamApply(&p.pointee.city, utf8: bytes)
-      case 1: streamApply(&p.pointee.postalCode, utf8: bytes)
-      default: break
-      }
-    },
-    applyNull: { storage, field in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      switch field {
-      case 0: p.pointee.city = nil
-      case 1: p.pointee.postalCode = nil
-      default: break
-      }
-    }
-  )
+@StreamParseable
+struct SinkAddress: Equatable {
+  var city: String = ""
+  var postalCode: String = ""
 }
 
-struct SinkUser: StreamParseableObject, Equatable {
-  var id: Int?
-  var name: String?
-  var active: Bool?
-  var address: SinkAddress?
-  var scores: [Int]?
-  var settings: StreamDictionary<SinkAddress>?
-  var counts: StreamDictionary<Int>?
-
-  static func streamInitialValue() -> Self { Self() }
-
-  static let streamSchema = StreamSchema(
-    shape: .object,
-    matchField: { key in
-      switch key.paddedLeadingWord() {
-      case 0x0000_0000_0000_6469: return 0  // "id"
-      case 0x0000_0000_656D_616E: return 1  // "name"
-      case 0x0000_6576_6974_6361: return 2  // "active"
-      case 0x0073_7365_7264_6461: return 3  // "address"
-      case 0x0000_7365_726F_6373: return 4  // "scores"
-      case 0x7367_6E69_7474_6573: return 5  // "settings"
-      case 0x0000_7374_6E75_6F63: return 6  // "counts"
-      default: return -1
-      }
-    },
-    applyString: { storage, field, bytes in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 1 { streamApply(&p.pointee.name, utf8: bytes) }
-    },
-    applyNumber: { storage, field, bytes, info in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 0 { streamApply(&p.pointee.id, bytes: bytes, info: info) }
-    },
-    applyBoolean: { storage, field, value in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 2 { streamApply(&p.pointee.active, boolean: value) }
-    },
-    applyNull: { storage, field in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      switch field {
-      case 0: p.pointee.id = nil
-      case 1: p.pointee.name = nil
-      case 2: p.pointee.active = nil
-      default: break
-      }
-    },
-    enterField: { storage, field in
-      let p = storage.assumingMemoryBound(to: Self.self)
-      switch field {
-      case 3: return _streamEnterField(&p.pointee.address)
-      case 4: return _streamEnterArrayField(&p.pointee.scores, element: _streamSchema(for: Int.self))
-      case 5:
-        return _streamEnterDictionaryField(
-          &p.pointee.settings, value: _streamSchema(for: SinkAddress.self)
-        )
-      case 6:
-        return _streamEnterDictionaryField(
-          &p.pointee.counts, value: _streamSchema(for: Int.self)
-        )
-      default: return nil
-      }
-    }
-  )
+@StreamParseable
+struct SinkUser: Equatable {
+  var id: Int = 0
+  var name: String = ""
+  var active: Bool = false
+  var address: SinkAddress = SinkAddress()
+  var scores: [Int] = []
+  var settings: [String: SinkAddress] = [:]
+  var counts: [String: Int] = [:]
 }
 
-private func parse<Root: StreamParseableObject>(
+func parsePartial<Root: StreamParseableObject>(
   _ json: String, into value: inout Root, chunk: Int = .max
 ) throws {
   try withUnsafeMutablePointer(to: &value) { pointer in
@@ -130,8 +45,8 @@ private func parse<Root: StreamParseableObject>(
 struct `Partial sink tests` {
   @Test
   func `Routes scalars into matching fields`() throws {
-    var user = SinkUser()
-    try parse(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
     #expect(user.id == 42)
     #expect(user.name == "Blob")
     #expect(user.active == true)
@@ -139,8 +54,8 @@ struct `Partial sink tests` {
 
   @Test
   func `Ignores keys the destination does not have`() throws {
-    var user = SinkUser()
-    try parse(#"{"id":1,"unknown":"x","name":"Blob"}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"id":1,"unknown":"x","name":"Blob"}"#, into: &user)
     #expect(user.id == 1)
     #expect(user.name == "Blob")
   }
@@ -148,60 +63,47 @@ struct `Partial sink tests` {
   // An unknown key whose value is a container must not have its contents routed to the parent.
   @Test
   func `Skips containers under unknown keys`() throws {
-    var user = SinkUser()
-    try parse(#"{"extra":{"id":999,"name":"wrong"},"id":1}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"extra":{"id":999,"name":"wrong"},"id":1}"#, into: &user)
     #expect(user.id == 1)
     #expect(user.name == nil)
   }
 
   @Test
   func `Routes into nested objects`() throws {
-    var user = SinkUser()
-    try parse(#"{"address":{"city":"Brooklyn","postalCode":"11201"}}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"address":{"city":"Brooklyn","postalCode":"11201"}}"#, into: &user)
     #expect(user.address?.city == "Brooklyn")
     #expect(user.address?.postalCode == "11201")
   }
 
   @Test
   func `Routes into arrays of scalars`() throws {
-    var user = SinkUser()
-    try parse(#"{"scores":[1,2,3]}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"scores":[1,2,3]}"#, into: &user)
     #expect(user.scores == [1, 2, 3])
   }
 
   @Test
   func `Applies null literals`() throws {
-    var user = SinkUser()
+    var user = SinkUser.Partial()
     user.id = 7
-    try parse(#"{"id":null}"#, into: &user)
+    try parsePartial(#"{"id":null}"#, into: &user)
     #expect(user.id == nil)
   }
 
   @Test
-  func `Produces the same value at every chunk size`() throws {
-    let json = #"{"id":42,"name":"Blob Jr","active":false,"address":{"city":"NYC"},"scores":[10,20]}"#
-    var whole = SinkUser()
-    try parse(json, into: &whole)
-
-    for chunk in [1, 2, 3, 7] {
-      var chunked = SinkUser()
-      try parse(json, into: &chunked, chunk: chunk)
-      #expect(chunked == whole, "chunk \(chunk)")
-    }
-  }
-
-  @Test
   func `Routes into dictionaries of scalars`() throws {
-    var user = SinkUser()
-    try parse(#"{"counts":{"a":1,"b":2,"c":3}}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"counts":{"a":1,"b":2,"c":3}}"#, into: &user)
     #expect(user.counts?.keys == ["a", "b", "c"])
     #expect(user.counts?["b"] == 2)
   }
 
   @Test
   func `Routes into dictionaries of objects`() throws {
-    var user = SinkUser()
-    try parse(
+    var user = SinkUser.Partial()
+    try parsePartial(
       #"{"settings":{"home":{"city":"NYC"},"work":{"city":"Brooklyn","postalCode":"11201"}}}"#,
       into: &user
     )
@@ -215,105 +117,53 @@ struct `Partial sink tests` {
   @Test
   func `Dictionary values update as they stream`() throws {
     let json = #"{"settings":{"home":{"city":"Brooklyn"}}}"#
-    let bytes = Array(json.utf8)
-    let prefix = json.prefix(bytes.count - 3)  // stops mid-city, before the object closes
+    let prefix = String(json.prefix(json.utf8.count - 3))
 
-    var user = SinkUser()
+    var user = SinkUser.Partial()
     try withUnsafeMutablePointer(to: &user) { pointer in
       var parser = JSONParser()
       var sink = PartialSink(root: pointer)
-      try Array(prefix.utf8).withUnsafeBufferPointer {
-        try parser.parse($0, into: &sink)
-      }
+      try Array(prefix.utf8).withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     }
     #expect(user.settings?["home"]?.city == "Brooklyn")
   }
 
   @Test
   func `Dictionaries preserve insertion order from the payload`() throws {
-    var user = SinkUser()
-    try parse(#"{"counts":{"zebra":1,"apple":2,"mango":3}}"#, into: &user)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"counts":{"zebra":1,"apple":2,"mango":3}}"#, into: &user)
     #expect(user.counts?.keys == ["zebra", "apple", "mango"])
   }
 
   @Test
   func `Accumulates string values across chunks`() throws {
-    var user = SinkUser()
-    try parse(#"{"name":"a longer name that will be split"}"#, into: &user, chunk: 1)
+    var user = SinkUser.Partial()
+    try parsePartial(#"{"name":"a longer name that will be split"}"#, into: &user, chunk: 1)
     #expect(user.name == "a longer name that will be split")
-  }
-}
-
-// MARK: - Macro generated
-
-@StreamParseable
-struct MacroAddress: Equatable {
-  var city: String = ""
-  var postalCode: String = ""
-}
-
-@StreamParseable
-struct MacroUser: Equatable {
-  var id: Int = 0
-  var name: String = ""
-  var active: Bool = false
-  var address: MacroAddress = MacroAddress()
-  var scores: [Int] = []
-  var settings: [String: MacroAddress] = [:]
-}
-
-@Suite
-struct `Macro generated schema tests` {
-  @Test
-  func `Routes scalars into macro generated partials`() throws {
-    var user = MacroUser.Partial()
-    try parse(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
-    #expect(user.id == 42)
-    #expect(user.name == "Blob")
-    #expect(user.active == true)
-  }
-
-  @Test
-  func `Routes nested objects, arrays and dictionaries`() throws {
-    var user = MacroUser.Partial()
-    try parse(
-      #"{"address":{"city":"NYC"},"scores":[1,2,3],"settings":{"home":{"city":"Brooklyn"}}}"#,
-      into: &user
-    )
-    #expect(user.address?.city == "NYC")
-    #expect(user.scores == [1, 2, 3])
-    #expect(user.settings?["home"]?.city == "Brooklyn")
   }
 
   @Test
   func `Produces the same value at every chunk size`() throws {
-    let json = #"{"id":7,"name":"Blob Jr","address":{"city":"NYC","postalCode":"10001"},"scores":[10,20]}"#
-    var whole = MacroUser.Partial()
-    try parse(json, into: &whole)
+    let json =
+      #"{"id":42,"name":"Blob Jr","active":false,"address":{"city":"NYC"},"scores":[10,20],"counts":{"a":1}}"#
+    var whole = SinkUser.Partial()
+    try parsePartial(json, into: &whole)
 
-    for chunk in [1, 2, 5] {
-      var chunked = MacroUser.Partial()
-      try parse(json, into: &chunked, chunk: chunk)
+    for chunk in [1, 2, 3, 7] {
+      var chunked = SinkUser.Partial()
+      try parsePartial(json, into: &chunked, chunk: chunk)
       #expect(chunked.id == whole.id, "chunk \(chunk)")
       #expect(chunked.name == whole.name, "chunk \(chunk)")
+      #expect(chunked.active == whole.active, "chunk \(chunk)")
       #expect(chunked.address?.city == whole.address?.city, "chunk \(chunk)")
       #expect(chunked.scores == whole.scores, "chunk \(chunk)")
+      #expect(chunked.counts?.keys == whole.counts?.keys, "chunk \(chunk)")
     }
-  }
-
-  // The macro precomputes key words, which is the part I got wrong four times by hand.
-  @Test
-  func `Ignores keys the generated matcher does not know`() throws {
-    var user = MacroUser.Partial()
-    try parse(#"{"unknown":1,"id":9,"nam":2,"names":3}"#, into: &user)
-    #expect(user.id == 9)
-    #expect(user.name == nil)
   }
 }
 
 // Key words are precomputed by the macro, and a wrong one fails silently as a key that never
-// matches. These exercise the boundaries where that is most likely: exactly the word width,
-// past it, and keys sharing their first eight bytes.
+// matches. These exercise the boundaries where that is most likely.
 @StreamParseable
 struct MacroKeyWidths: Equatable {
   var a: Int = 0
@@ -328,7 +178,7 @@ struct `Macro key matching tests` {
   @Test
   func `Matches keys at and beyond the word width`() throws {
     var value = MacroKeyWidths.Partial()
-    try parse(
+    try parsePartial(
       #"{"a":1,"exactly8":2,"nineBytes9":3,"descriptionLong":4,"descriptionShort":5}"#,
       into: &value
     )
@@ -339,12 +189,12 @@ struct `Macro key matching tests` {
     #expect(value.descriptionShort == 5)
   }
 
-  // Both of these share "descript" as their first eight bytes, so only the length distinguishes
-  // them, and a missing guard would route one into the other.
+  // Both share "descript" as their first eight bytes, so only the length distinguishes them and
+  // a missing guard would route one into the other.
   @Test
   func `Distinguishes keys sharing their first eight bytes`() throws {
     var value = MacroKeyWidths.Partial()
-    try parse(#"{"descriptionShort":5}"#, into: &value)
+    try parsePartial(#"{"descriptionShort":5}"#, into: &value)
     #expect(value.descriptionShort == 5)
     #expect(value.descriptionLong == nil)
   }
@@ -352,7 +202,7 @@ struct `Macro key matching tests` {
   @Test
   func `Rejects near misses of a known key`() throws {
     var value = MacroKeyWidths.Partial()
-    try parse(#"{"exactly":1,"exactly88":2,"nineBytes":3}"#, into: &value)
+    try parsePartial(#"{"exactly":1,"exactly88":2,"nineBytes":3}"#, into: &value)
     #expect(value.exactly8 == nil)
     #expect(value.nineBytes9 == nil)
   }

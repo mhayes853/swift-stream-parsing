@@ -210,6 +210,22 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     return .scalarOrObject(unwrapped.trimmedDescription)
   }
 
+  private static func schemaExpression(for type: TypeSyntax) -> String {
+    var unwrapped = type
+    if let optional = type.as(OptionalTypeSyntax.self) { unwrapped = optional.wrappedType }
+    if let array = unwrapped.as(ArrayTypeSyntax.self) {
+      let element = array.element.trimmedDescription
+      return
+        "_streamArraySchema(\(element).Partial.self, element: \(Self.schemaExpression(for: array.element)))"
+    }
+    if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
+      let value = dictionary.value.trimmedDescription
+      return
+        "_streamDictionarySchema(\(value).Partial.self, value: \(Self.schemaExpression(for: dictionary.value)))"
+    }
+    return "_streamSchema(for: \(unwrapped.trimmedDescription).Partial.self)"
+  }
+
   private static func partialStructSchema(
     from properties: [StoredProperty],
     modifierPrefix: String,
@@ -249,21 +265,23 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         applyNullCases.append("    case \(index): StreamParsing.streamApplyNull(&\(target))")
         enterCases.append("    case \(index): return _streamEnterField(&\(target))")
       case .array(let element):
+        let elementSchema = Self.schemaExpression(
+          for: TypeSyntax(stringLiteral: element)
+        )
         enterCases.append(
           """
               case \(index):
-                return _streamEnterArrayField(
-                  &\(target), element: _streamSchema(for: \(element).Partial.self)
-                )
+                return _streamEnterArrayField(&\(target), element: \(elementSchema))
           """
         )
       case .dictionary(let value):
+        let valueSchema = Self.schemaExpression(
+          for: TypeSyntax(stringLiteral: value)
+        )
         enterCases.append(
           """
               case \(index):
-                return _streamEnterDictionaryField(
-                  &\(target), value: _streamSchema(for: \(value).Partial.self)
-                )
+                return _streamEnterDictionaryField(&\(target), value: \(valueSchema))
           """
         )
       }
