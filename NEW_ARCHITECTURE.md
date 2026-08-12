@@ -1,0 +1,303 @@
+# New Architecture
+
+Rewrite of the parsing core around a push based sink interface, replacing the key path handler
+registration system. Targets ~300 MB/s through the fast interface for chunked input and 30–60
+MB/s byte by byte, with the whole core usable from Embedded Swift.
+
+Every number here was measured on arm64 (M1 Pro). Where a decision went against intuition, the
+measurement that settled it is recorded, because several of them are counterintuitive enough to
+be re-litigated otherwise.
+
+---
+
+## Why
+
+The library started at **2.5–3.5 MB/s**. Profiling found the cost was not where it looked:
+
+| assumption | reality |
+|---|---|
+| Key paths are the bottleneck | At ~800 cycles/byte, dispatch is single digit percent. |
+| Branch misprediction matters | A naive byte-at-a-time switch already runs at 1520 MB/s, 5× the target. |
+| Per-byte function calls are expensive | 0.28 ns/byte. The mode switch is another 0.35. |
+| Copying a `Partial` per byte is expensive | CoW makes it O(top-level refcounted fields); ~1% difference. |
+
+What actually cost:
+
+- **One malloc per byte of string content.** `ParserByteChunkState` callers copied the buffer out
+  of the stored optional, appended, and assigned back, putting it at refcount two at the moment
+  of the append, so every scalar copied the whole accumulated value.
+- **Unspecialized generic `Sequence` iteration.** `parse(bytes:)` is generic and not inlinable,
+  so cross module callers allocated ~2 mallocs per byte just to iterate.
+- **Read-modify-write of whole subtrees.** `\.currentElement` is a computed key path, so writing
+  one byte of a nested field copied the array element out and back in.
+
+---
+
+## Design decisions
+
+### Fast interface: a token granular sink
+
+`StreamParseSink` receives events carrying borrowed `Span<UInt8>`. Format agnostic rather than
+JSON specific, so other parsers can drive the same sinks.
+
+- **Methods do not throw.** A check after every call sits on the hottest path; a sink records a
+  failure and the parser reads it once per chunk. Measured 2–5%.
+- **Collapsed and incremental forms.** `key(_:)` and `string(_:)` default to the incremental
+  methods. Overriding them avoids two of every three sink calls, which dominates token dense
+  payloads.
+- **No `Unicode.Scalar`, no `String`.** Escapes are decoded to UTF-8 inside the parser and
+  delivered as byte spans, keeping the Unicode data tables out of an embedded binary.
+
+### Runs, not bytes
+
+The parser finds the next byte needing attention and hands everything before it over in one
+piece. Scan strategy, MB/s over an 8 KB corpus:
+
+| run length | 4 | 16 | 64 | 4096 |
+|---|---|---|---|---|
+| scalar | 1401 | 1480 | 1528 | 1548 |
+| SWAR | 940 | 2373 | 5730 | 9817 |
+| **SIMD16** | **2476** | **7469** | **12770** | **21411** |
+| SIMD32 | 1680 | 2987 | 9201 | 18480 |
+
+SIMD16 wins at every run length. SWAR is worse than scalar below ~12 bytes and never beats
+SIMD16, so it is unused. SIMD32 loses on arm64 because NEON registers are 128 bits and it lowers
+to two operations plus a recombine.
+
+**simdjson style structural bitmaps are counterproductive here**: byte + table 3788 MB/s, SWAR
+bitmap 1611, SIMD16 bitmap 2824. Structurals are 20–25% of token dense JSON, so the bitmap is
+dense and iterating set bits costs more than testing bytes.
+
+### Numbers: fused scan, two words
+
+The boundary scan and magnitude accumulation happen in one pass. ns per number:
+
+| variant | small | medium | large | decimals |
+|---|---|---|---|---|
+| span only, consumer re-scans | 4.68 | 9.43 | 16.73 | 6.87 |
+| fused, checked overflow | 5.27 | 13.50 | 23.20 | 8.27 |
+| **fused, wrapping + digit count** | **2.96** | **7.47** | **11.91** | **5.52** |
+| fused, wrapping, packed word | 3.64 | 7.27 | 11.81 | 5.60 |
+
+The win is not fusion, it is **dropping per-digit overflow checks**. With
+`multipliedReportingOverflow`, fused accumulation *loses* to re-scanning. Packing into one word
+does not pay; magnitude plus a separate flags word is fastest. End to end this was +17% on a
+number dense payload.
+
+`NumberInfo` carries magnitude, decimal exponent, digit count and flags, so floats are built by
+accumulation rather than a string round trip.
+
+### Keys: precomputed words, no Dictionary
+
+ns per lookup:
+
+| strategy | 4 keys | 10 keys | 24 keys |
+|---|---|---|---|
+| static `[UInt64: Int32]` | 9.12 | 9.83 | 10.26 |
+| switch on padded word | 2.32 | — | — |
+| **hash + table** | **1.28** | **1.32** | **1.32** |
+
+`Dictionary` is 7–8× slower and flat in key count, because `Hasher` runs at every lookup. On a
+token dense payload that is ~30% of the parse. It is also a non-starter for embedded.
+
+**Zero padding discriminates keys shorter than the word only.** A key of exactly eight bytes has
+no padding and shares its word with any longer key having the same prefix, so the length check
+applies from eight bytes, not beyond it. This was a real bug found by a boundary test.
+
+### Storage: frames pointing into the value
+
+Frames hold pointers into the value being built, so partials update per byte at every depth.
+Sound because only the innermost open container is ever mutated: a buffer can only move on the
+next append, which cannot happen while the current element is open.
+
+**`Dictionary` breaks that**, since insertion can relocate every value. `StreamDictionary` keeps
+values in an append-only array, inheriting the array invariant, and preserves insertion order so
+conversion to an ordered container is lossless. Lookups scan linearly and build an index only
+past a threshold.
+
+### Optional payload access
+
+Entering a nested field needs a pointer to a stored property. `MemoryLayout.offset(of:)` requires
+a key path, and Embedded Swift rejects those outright:
+
+```
+error: cannot use key path in embedded Swift [#EmbeddedRestrictions]
+```
+
+So the frame entry helpers reinterpret a pointer to an `Optional` as a pointer to its payload,
+relying on single payload enums storing the payload at offset zero. That is an implementation
+detail rather than a guarantee. It is confined to `StreamFrameEntry.swift`, and the nested object
+and array tests exercise it end to end, so a toolchain change fails there rather than corrupting
+values silently.
+
+### Macro generated code
+
+The macro sees only syntax. It can tell an array from a dictionary from a plain identifier, but
+not whether an identifier is a nested object or a type accepting string content. Overload pairs
+resolve that: constrained does the work, unconstrained degrades harmlessly.
+
+**Overloads resolve where a generic is written, not where it is specialized.** A helper generic
+over an unconstrained element cannot pick the right overload on its behalf, and
+`@_disfavoredOverload` does not change this — the constrained overload is *inapplicable*, not
+merely disfavored. Element and value schemas are therefore built by `_streamSchema(for:)` at
+call sites where the macro has written a concrete type.
+
+Emitting every field into every apply switch is **free**: at 30 and 100 fields the generated code
+is byte identical to hand written code emitting only matching fields, because LLVM builds a
+compressed jump table and merges the dead cases. It is not free in *compile time*: 3N cases cost
+32.5 ms/struct against 16.3 ms for N. So known type names go to one switch and unknown ones to
+all of them.
+
+### Buffering
+
+Chunk size sweep, MB/s:
+
+| chunk | document | token dense |
+|---|---|---|
+| 1 B | 102 | 123 |
+| 16 B | 1780 | 503 |
+| 64 B | 3860 | 579 |
+| 256 B | 5503 | 647 |
+| 8 KB | 5695 | 685 |
+
+The curve is call amortization, not vector width. Buffering to 16 bytes for SIMD gets 31% of
+peak; 256 bytes gets 97%. But 256 bytes is ~1.3 s of latency at LLM streaming rates, so buffering
+is **not** offered as a throughput feature. A dedicated `parse(byte:)` entry point is worth ~2×
+over a one byte span through the general path.
+
+---
+
+## Results so far
+
+Fast interface, bulk, against the old parser on identical payloads:
+
+| payload | old | new |
+|---|---|---|
+| Long string 8 KB | 19.1 MB/s | **5219 MB/s** |
+| Array of structs 7 KB | 2.0 | **467** |
+| Nested arrays 4.5 KB | 0.35 | **250** |
+| Dictionary 2 KB | — | **366** |
+
+Byte by byte lands at **124–135 MB/s** on larger payloads, against 1–11 MB/s before.
+
+Caveats: nested arrays sits below the 300 target and the prototype's 378, the difference being
+validation the prototype skipped. Small payloads are dominated by one malloc per parser in the
+allocating initializer; a caller supplied buffer avoids it.
+
+---
+
+## Phase status
+
+### Phase 0 — De-risk (done)
+
+- Two module harness proving cross module specialization. Client sink within ±4% of same module.
+  Removing `@inlinable` costs ~8%, not the 2–3× feared, because default cross module optimization
+  already specializes the generic parse loop.
+- `Span` verified at the 10.15 deployment floor. Only `Array.span` needs macOS 26; the parser
+  builds its own spans.
+- Key paths confirmed rejected by Embedded Swift.
+
+### Phase 0b — Embedded smoke (done)
+
+- `EmbeddedSmoke/` builds and **links** a freestanding wasm executable, since the failures that
+  matter are link time and do not appear on Darwin.
+- `swiftly run +6.3.2 swift build --package-path EmbeddedSmoke --swift-sdk swift-6.3.2-RELEASE_wasm-embedded`
+- Does not depend on the core yet; gains that once the old parser is removed.
+
+### Phase 1 — Safe wins and test infrastructure (done)
+
+- In-place string accumulation. Quadratic term removed: 4 KB 1159→602 µs, 8 KB 2558→1149,
+  16 KB 5919→2286, with scaling ratios going from 2.2/2.3 to 1.91/1.99.
+- `withContiguousStorageIfAvailable` fast path. 8 KB document: 16,000 mallocs → 53.
+- Benchmark package tracked in the repo, with handler registration measured separately.
+- Chunk boundary harness: every payload split at every interior position plus byte by byte, with
+  failures given the same treatment as successes.
+- Pinned an existing conformance gap: unknown escapes such as `\q` are accepted.
+
+### Phase 2 — Core primitives (done)
+
+- `StreamParseSink`, `NumberInfo`, `StreamSinkFailure`.
+- SIMD16 scanners with the measurement rationale in source.
+- `StreamStringConvertible` / `StreamNumberConvertible` / `StreamBooleanConvertible` /
+  `StreamNullable` / `StreamInitializable`, plus conversion initializers on `FixedWidthInteger`
+  and `BinaryFloatingPoint`.
+- Bridging shims in `StreamParsing`, not the core.
+
+### Phase 3 — The parser (done)
+
+- `JSONParser`: `~Copyable`, `Span` and `UnsafeBufferPointer` entries plus `parse(byte:)`, typed
+  throws, owned or caller supplied buffer, container kinds in a `UInt64` bitmask.
+- Keys always buffered, giving cross chunk contiguity and 16 bytes of zeroed padding in one step.
+- Strings emitted as runs from the input, with a trailing partial UTF-8 sequence held back so
+  every span ends on a sequence boundary.
+- Escapes decoded into a reserved buffer tail, allocation free and inside the embedded subset.
+- Adversarial conformance corpus (~100 cases) written inline, each parsed whole and byte by byte.
+
+Bugs the tests found: `[1,]` and `{"a":1,}` accepted; number grammar declared but never
+implemented; overlong UTF-8 and encoded surrogates accepted; lone low surrogate accepted; `--1`
+parsed as `-1`.
+
+### Phase 4 — Macro and PartialSink (in progress)
+
+Done:
+
+- `StreamSchema` of non-capturing closures; `StreamFrame`; `PartialSink` walking a frame stack,
+  with a discarding schema for subtrees under unknown keys.
+- `StreamDictionary`, ordered and append-only, with dictionary routing through `enterKey`.
+- Frame entry helpers, underscored, with the optional layout assumption confined to one file.
+- Schema builders in `StreamParsing`.
+- Macro emits `streamMatchField` with precomputed key words, four apply switches,
+  `streamEnterField` and `streamSchema`, additively alongside the old registration so both
+  parsers drive the same `Partial`.
+- Expansions recorded through `xcodebuild` (the `swift test` CLI does not write them), then all
+  38 key cases verified independently against the words their keys imply.
+
+Remaining:
+
+- Strip comments from generated code except the field name on each key case.
+- Port `MockParser` to an event recording sink.
+- Convert the hand written conformances in `PartialSinkTests` to the macro.
+- **Differential against the old parser**: same input, compare the sequence of partials, not just
+  the final value. Now unblocked, and the highest confidence check available for a rewrite this
+  size. Only possible while both parsers exist.
+
+### Phase 5 — Support types
+
+- Port `StandardLibrary`, `Foundation`, `CoreGraphics`, `SwiftCollections`, `Tagged` to the
+  conversion protocols.
+- Two are behaviour changes needing their own tests:
+  - **`Decimal` becomes exact**, rather than round tripping through `Double` via a hand rolled
+    mantissa loop.
+  - **`Data` stops being quadratic** — `streamAppend` instead of rebuilding a `String` per write.
+- `OrderedDictionary` bridging for `StreamDictionary`, which insertion order makes lossless.
+
+### Phase 6 — Conveniences and removal
+
+- `PartialsStream` as `~Copyable`; `AsyncPartialsSequence` over an internal box.
+- Keep `partials(of:from:)` and the stream types source compatible, which is what lets the bulk
+  of the existing tests port unchanged.
+- Delete once the differential has run clean: `YAMLStreamParser.swift` (1,763 lines), JSON5
+  syntax options, `PathTrie`, `HandlerRegistration`, `ErasedPaths`, `NumberAccumulator`,
+  `ParserByteChunkState`, `StreamParserHandlers` and its 20 `register*Handler` requirements, and
+  every key path, existential, dynamic cast and metatype cast in the core.
+- Point `EmbeddedSmoke` at the real core.
+
+### Phase 7 — CI and hardening
+
+- Embedded compile job. None of the embedded blockers fail visibly on Darwin.
+- Benchmark regression job against a checked in baseline.
+- Re-measure byte by byte on a quiet machine; it varied ±40% across runs in development.
+- Revisit nested arrays, currently below the 300 target.
+
+---
+
+## Known gaps
+
+- `Float` scaled parsing rounds twice, once into `Double` and once into `Self`. It needs its own
+  bound before that path can be called exact.
+- Lone high surrogates are rejected, but the check happens at run and string end rather than
+  immediately.
+- Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
+- The optional payload assumption is an implementation detail, mitigated by tests rather than
+  eliminated.
+- Nested arrays throughput is below target.
