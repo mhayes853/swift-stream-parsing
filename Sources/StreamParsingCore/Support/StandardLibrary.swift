@@ -65,13 +65,43 @@ extension Float: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
 
+// Root conformances. Each one picks up the schema its conversion protocol implies, so a document
+// that is a bare scalar, an array or a dictionary parses into the same shapes a field would.
+
+extension String: StreamParseableRoot {}
+extension Bool: StreamParseableRoot {}
+extension Int: StreamParseableRoot {}
+extension Int8: StreamParseableRoot {}
+extension Int16: StreamParseableRoot {}
+extension Int32: StreamParseableRoot {}
+extension Int64: StreamParseableRoot {}
+extension UInt: StreamParseableRoot {}
+extension UInt8: StreamParseableRoot {}
+extension UInt16: StreamParseableRoot {}
+extension UInt32: StreamParseableRoot {}
+extension UInt64: StreamParseableRoot {}
+extension Double: StreamParseableRoot {}
+extension Float: StreamParseableRoot {}
+
+extension Array: StreamParseableRoot where Element: StreamParseableRoot {
+  public static var streamSchema: StreamSchema {
+    _streamArraySchema(Element.self, element: Element.streamSchema)
+  }
+}
+
+extension StreamDictionary: StreamParseableRoot where Value: StreamParseableRoot {
+  public static var streamSchema: StreamSchema {
+    _streamDictionarySchema(Value.self, value: Value.streamSchema)
+  }
+}
+
 // The accumulator carries magnitude in a UInt64, so a value wider than that arrives flagged as
 // overflowed with nothing usable in it. The registration based parser scanned the token for
 // these two types, so taking the shared conversion unchanged would narrow their range to 64
 // bits. They re-scan instead, which only happens for tokens that actually need it.
 
 @available(StreamParsing128BitIntegers, *)
-extension Int128: StreamNumberConvertible, StreamInitializable {
+extension Int128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
   public static func streamInitialValue() -> Self { 0 }
 
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
@@ -81,7 +111,7 @@ extension Int128: StreamNumberConvertible, StreamInitializable {
 }
 
 @available(StreamParsing128BitIntegers, *)
-extension UInt128: StreamNumberConvertible, StreamInitializable {
+extension UInt128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
   public static func streamInitialValue() -> Self { 0 }
 
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {

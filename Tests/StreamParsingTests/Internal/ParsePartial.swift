@@ -3,7 +3,7 @@ import StreamParsingCore
 
 // Drives the sink based parser end to end, which is what the support type tests want: the
 // conversion protocols are only interesting in the shape the parser actually calls them.
-func parsePartial<Root: StreamParseableObject>(
+func parsePartial<Root: StreamParseableRoot>(
   _ json: String, into value: inout Root, chunk: Int = .max
 ) throws {
   try withUnsafeMutablePointer(to: &value) { pointer in

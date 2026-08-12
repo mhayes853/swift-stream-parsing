@@ -6,7 +6,7 @@
   // Appends the bytes it is handed. The registration based path rebuilt a String from the whole
   // accumulated value on every write and re-encoded it, which made a long base64 payload
   // quadratic.
-  extension Data: StreamStringConvertible {
+  extension Data: StreamStringConvertible, StreamParseableRoot {
     public static func streamInitialValue() -> Self { Data() }
 
     public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
@@ -23,7 +23,7 @@
   // Built from the accumulated magnitude and decimal exponent, which is what Decimal already
   // stores, so a token inside its range converts exactly. The registration based path went
   // through Double and a hand rolled mantissa loop, losing anything Double could not hold.
-  extension Decimal: StreamNumberConvertible, StreamInitializable {
+  extension Decimal: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
     public static func streamInitialValue() -> Self { Decimal() }
 
     public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {

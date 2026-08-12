@@ -29,7 +29,7 @@ public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> St
 // access above, which is why it lives here. The size check is a debug build tripwire for a
 // wrapper that turns out to carry something else.
 @inlinable
-public func _streamWrapperSchema<Wrapper, Wrapped: StreamParseableObject>(
+public func _streamWrapperSchema<Wrapper, Wrapped: StreamParseableRoot>(
   _ wrapper: Wrapper.Type,
   wrapping wrapped: Wrapped.Type
 ) -> StreamSchema {

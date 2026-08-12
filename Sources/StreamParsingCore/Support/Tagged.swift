@@ -12,6 +12,13 @@
     }
   }
 
+  // One stored property, so the raw value's schema applies to a pointer to the Tagged.
+  extension Tagged: StreamParseableRoot where RawValue: StreamParseableRoot {
+    public static var streamSchema: StreamSchema {
+      _streamWrapperSchema(Self.self, wrapping: RawValue.self)
+    }
+  }
+
   extension Tagged: StreamStringConvertible where RawValue: StreamStringConvertible {
     public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
       self.rawValue.streamAppend(utf8: bytes)
@@ -41,14 +48,9 @@
     }
   }
 
-  // Tagged has one stored property, so the raw value's schema applies to a pointer to the
-  // Tagged itself.
-  extension Tagged: StreamParseableObject
-  where RawValue: StreamParseableObject & StreamInitializable {
-    public static var streamSchema: StreamSchema {
-      _streamWrapperSchema(Self.self, wrapping: RawValue.self)
-    }
-  }
+  // The schema comes from the root conformance above; this is what makes a tagged object
+  // enterable as a nested field.
+  extension Tagged: StreamParseableObject where RawValue: StreamParseableObject {}
 
   // MARK: - Legacy handler registration
 

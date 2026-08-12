@@ -3,16 +3,20 @@
 // Frames point into the value being built. Only the innermost open container is ever mutated,
 // so an element pointer stays valid for that element's lifetime: appending to an outer array
 // cannot happen while an inner one is open.
-public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
+public struct PartialSink<Root>: StreamParseSink {
   public private(set) var streamFailure: StreamSinkFailure?
 
   @usableFromInline var root: UnsafeMutableRawPointer
+  @usableFromInline var rootSchema: StreamSchema
   @usableFromInline var frames: [StreamFrame] = []
   @usableFromInline var started = false
   @usableFromInline var pendingDictionaryFrame: StreamFrame?
 
-  public init(root: UnsafeMutablePointer<Root>) {
+  // A document whose root is an array, a dictionary or a bare scalar is as valid as one rooted
+  // in an object, so the root's shape comes from its schema rather than from a constraint.
+  public init(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
     self.root = UnsafeMutableRawPointer(root)
+    self.rootSchema = schema
   }
 
   // MARK: Containers
@@ -36,7 +40,10 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
   private mutating func enterContainer(shape: StreamSchema.Shape) {
     guard self.started else {
       self.started = true
-      self.frames.append(StreamFrame(storage: self.root, schema: Root.streamSchema))
+      // A scalar destination has nothing to route a container's contents into, so the subtree is
+      // discarded rather than written through the root.
+      let schema = self.rootSchema.shape == .scalar ? Self.ignoredSchema : self.rootSchema
+      self.frames.append(StreamFrame(storage: self.root, schema: schema))
       return
     }
     guard let target = self.valueTarget() else {
@@ -140,7 +147,12 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
   @usableFromInline var scalarTarget: ScalarTarget?
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
-    guard let top = self.frames.last else { return nil }
+    guard let top = self.frames.last else {
+      // A bare scalar document never opens a container, so no frame was ever pushed and the
+      // root is the destination.
+      guard !self.started, self.rootSchema.shape == .scalar else { return nil }
+      return ScalarTarget(storage: self.root, schema: self.rootSchema, field: 0)
+    }
     switch top.schema.shape {
     case .array:
       guard let element = top.schema.appendElement(top.storage) else { return nil }
@@ -168,5 +180,11 @@ public struct PartialSink<Root: StreamParseableObject>: StreamParseSink {
   @usableFromInline
   static var ignoredSchema: StreamSchema {
     StreamSchema(shape: .object)
+  }
+}
+
+extension PartialSink where Root: StreamParseableRoot {
+  public init(root: UnsafeMutablePointer<Root>) {
+    self.init(root: root, schema: Root.streamSchema)
   }
 }

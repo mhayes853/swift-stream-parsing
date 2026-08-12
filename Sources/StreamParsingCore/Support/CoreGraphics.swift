@@ -5,7 +5,7 @@
 
   // CGFloat is not LosslessStringConvertible, so it cannot pick up the shared floating point
   // conversion and goes through Double, which is what the registration based path did too.
-  extension CGFloat: StreamNumberConvertible, StreamInitializable {
+  extension CGFloat: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
     public static func streamInitialValue() -> Self { 0 }
 
     public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {

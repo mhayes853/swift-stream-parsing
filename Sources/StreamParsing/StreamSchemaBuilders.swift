@@ -20,34 +20,22 @@ public func _streamSchema<T: StreamParseableObject>(for type: T.Type) -> StreamS
   T.streamSchema
 }
 
+// These delegate to the core's scalar schema constructors, which the root conformances also use,
+// so a type cannot be described one way as a field and another way as a root.
+
 @inlinable
 public func _streamSchema<T: StreamNumberConvertible>(for type: T.Type) -> StreamSchema {
-  StreamSchema(
-    shape: .scalar,
-    applyNumber: { storage, _, bytes, info in
-      streamApply(&storage.assumingMemoryBound(to: T.self).pointee, bytes: bytes, info: info)
-    }
-  )
+  _streamNumberSchema(T.self)
 }
 
 @inlinable
 public func _streamSchema<T: StreamStringConvertible>(for type: T.Type) -> StreamSchema {
-  StreamSchema(
-    shape: .scalar,
-    applyString: { storage, _, bytes in
-      storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
-    }
-  )
+  _streamStringSchema(T.self)
 }
 
 @inlinable
 public func _streamSchema<T: StreamBooleanConvertible>(for type: T.Type) -> StreamSchema {
-  StreamSchema(
-    shape: .scalar,
-    applyBoolean: { storage, _, value in
-      storage.assumingMemoryBound(to: T.self).pointee = T(streamParsingBoolean: value)
-    }
-  )
+  _streamBooleanSchema(T.self)
 }
 
 @_disfavoredOverload
@@ -56,42 +44,8 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
   StreamSchema(shape: .scalar)
 }
 
-// MARK: - Containers
-
-@inlinable
-public func _streamArraySchema<Element: StreamInitializable>(
-  _ type: Element.Type,
-  element: StreamSchema
-) -> StreamSchema {
-  StreamSchema(
-    shape: .array,
-    appendElement: { storage in
-      _streamAppendElement(
-        to: &storage.assumingMemoryBound(to: [Element].self).pointee,
-        initial: Element.streamInitialValue(),
-        schema: element
-      )
-    }
-  )
-}
-
-@inlinable
-public func _streamDictionarySchema<Value: StreamInitializable>(
-  _ type: Value.Type,
-  value valueSchema: StreamSchema
-) -> StreamSchema {
-  StreamSchema(
-    shape: .dictionary,
-    enterKey: { storage, key in
-      _streamEnterDictionaryValue(
-        &storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee,
-        key: key,
-        initial: Value.streamInitialValue(),
-        schema: valueSchema
-      )
-    }
-  )
-}
+// The container schema builders live in the core, next to the frame entry helpers they call and
+// the root conformances that need them.
 
 // MARK: - Field entry
 
