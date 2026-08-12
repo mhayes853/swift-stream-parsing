@@ -67,7 +67,6 @@ public struct StreamSchema: @unchecked Sendable {
   }
 }
 
-public protocol StreamParseableObject {
+public protocol StreamParseableObject: StreamInitializable {
   static var streamSchema: StreamSchema { get }
-  static func streamInitialValue() -> Self
 }

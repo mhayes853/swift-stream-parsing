@@ -1,7 +1,11 @@
 // MARK: - Protocols
 
-public protocol StreamStringConvertible {
+// Anything a container can hold, since an element has to exist before it can be written into.
+public protocol StreamInitializable {
   static func streamInitialValue() -> Self
+}
+
+public protocol StreamStringConvertible: StreamInitializable {
   mutating func streamAppend(utf8 bytes: Span<UInt8>)
   mutating func streamReserve(utf8ByteCount: Int)
 }
@@ -128,23 +132,53 @@ extension String: StreamStringConvertible {
   }
 }
 
-extension Bool: StreamBooleanConvertible {
+extension Bool: StreamBooleanConvertible, StreamInitializable {
   public init(streamParsingBoolean value: Bool) { self = value }
+  public static func streamInitialValue() -> Self { false }
 }
 
-extension Optional: StreamNullable {
+extension Optional: StreamNullable, StreamInitializable {
   public static func streamNullValue() -> Self { nil }
+  public static func streamInitialValue() -> Self { nil }
 }
 
-extension Int: StreamNumberConvertible {}
-extension Int8: StreamNumberConvertible {}
-extension Int16: StreamNumberConvertible {}
-extension Int32: StreamNumberConvertible {}
-extension Int64: StreamNumberConvertible {}
-extension UInt: StreamNumberConvertible {}
-extension UInt8: StreamNumberConvertible {}
-extension UInt16: StreamNumberConvertible {}
-extension UInt32: StreamNumberConvertible {}
-extension UInt64: StreamNumberConvertible {}
-extension Double: StreamNumberConvertible {}
-extension Float: StreamNumberConvertible {}
+extension Array: StreamInitializable {
+  public static func streamInitialValue() -> Self { [] }
+}
+
+extension Int: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Int8: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Int16: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Int32: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Int64: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension UInt: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension UInt8: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension UInt16: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension UInt32: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension UInt64: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Double: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+extension Float: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}

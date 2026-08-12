@@ -24,8 +24,8 @@ struct SinkAddress: StreamParseableObject, Equatable {
     applyString: { storage, field, bytes in
       let p = storage.assumingMemoryBound(to: Self.self)
       switch field {
-      case 0: streamApplyOptional(&p.pointee.city, utf8: bytes)
-      case 1: streamApplyOptional(&p.pointee.postalCode, utf8: bytes)
+      case 0: streamApply(&p.pointee.city, utf8: bytes)
+      case 1: streamApply(&p.pointee.postalCode, utf8: bytes)
       default: break
       }
     },
@@ -67,15 +67,15 @@ struct SinkUser: StreamParseableObject, Equatable {
     },
     applyString: { storage, field, bytes in
       let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 1 { streamApplyOptional(&p.pointee.name, utf8: bytes) }
+      if field == 1 { streamApply(&p.pointee.name, utf8: bytes) }
     },
     applyNumber: { storage, field, bytes, info in
       let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 0 { p.pointee.id = Int(streamParsing: bytes, info: info) }
+      if field == 0 { streamApply(&p.pointee.id, bytes: bytes, info: info) }
     },
     applyBoolean: { storage, field, value in
       let p = storage.assumingMemoryBound(to: Self.self)
-      if field == 2 { p.pointee.active = value }
+      if field == 2 { streamApply(&p.pointee.active, boolean: value) }
     },
     applyNull: { storage, field in
       let p = storage.assumingMemoryBound(to: Self.self)
@@ -89,75 +89,20 @@ struct SinkUser: StreamParseableObject, Equatable {
     enterField: { storage, field in
       let p = storage.assumingMemoryBound(to: Self.self)
       switch field {
-      case 3: return _streamEnterOptionalObject(&p.pointee.address)
-      case 4:
-        return _streamEnterOptionalContainer(
-          &p.pointee.scores, initial: [], schema: intArraySchema
-        )
+      case 3: return _streamEnterField(&p.pointee.address)
+      case 4: return _streamEnterArrayField(&p.pointee.scores, element: _streamSchema(for: Int.self))
       case 5:
-        return _streamEnterOptionalContainer(
-          &p.pointee.settings, initial: StreamDictionary(), schema: addressDictionarySchema
+        return _streamEnterDictionaryField(
+          &p.pointee.settings, value: _streamSchema(for: SinkAddress.self)
         )
       case 6:
-        return _streamEnterOptionalContainer(
-          &p.pointee.counts, initial: StreamDictionary(), schema: intDictionarySchema
+        return _streamEnterDictionaryField(
+          &p.pointee.counts, value: _streamSchema(for: Int.self)
         )
       default: return nil
       }
     }
   )
-}
-
-// An array of scalars: each element is appended, then written through a scalar schema.
-let intArraySchema = StreamSchema(
-  shape: .array,
-  appendElement: { storage in
-    _streamAppendElement(
-      to: &storage.assumingMemoryBound(to: [Int].self).pointee,
-      initial: 0,
-      schema: intScalarSchema
-    )
-  }
-)
-
-// Dictionary values live in append-only storage, so a frame can point at one while it is being
-// built, exactly as an array element can.
-let addressDictionarySchema = StreamSchema(
-  shape: .dictionary,
-  enterKey: { storage, key in
-    _streamEnterDictionaryValue(
-      &storage.assumingMemoryBound(to: StreamDictionary<SinkAddress>.self).pointee,
-      key: key,
-      initial: SinkAddress(),
-      schema: SinkAddress.streamSchema
-    )
-  }
-)
-
-let intDictionarySchema = StreamSchema(
-  shape: .dictionary,
-  enterKey: { storage, key in
-    _streamEnterDictionaryValue(
-      &storage.assumingMemoryBound(to: StreamDictionary<Int>.self).pointee,
-      key: key,
-      initial: 0,
-      schema: intScalarSchema
-    )
-  }
-)
-
-let intScalarSchema = StreamSchema(
-  shape: .scalar,
-  applyNumber: { storage, _, bytes, info in
-    let p = storage.assumingMemoryBound(to: Int.self)
-    if let value = Int(streamParsing: bytes, info: info) { p.pointee = value }
-  }
-)
-
-@inline(__always)
-func streamApplyOptional<T: StreamStringConvertible>(_ value: inout T?, utf8 bytes: Span<UInt8>) {
-  if value == nil { value = T.streamInitialValue() }
-  value!.streamAppend(utf8: bytes)
 }
 
 private func parse<Root: StreamParseableObject>(

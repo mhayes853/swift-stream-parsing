@@ -159,3 +159,7 @@ extension Dictionary where Key == String {
     for element in streamDictionary { self[element.key] = element.value }
   }
 }
+
+extension StreamDictionary: StreamInitializable {
+  public static func streamInitialValue() -> Self { Self() }
+}
