@@ -7,20 +7,20 @@ import Testing
 
 // Resumability is where streaming parsers break: a token straddling a chunk boundary exercises
 // carry-over state that a single call parse never touches.
-func expectChunkBoundaryEquivalence<Value: StreamParseableValue>(
+func expectChunkBoundaryEquivalence<Value: StreamParseableRoot>(
   _ json: String,
   as type: Value.Type,
-  configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration(),
+  format: JSONStreamFormat = .json(),
   sourceLocation: SourceLocation = #_sourceLocation
 ) throws {
   let bytes = Array(json.utf8)
 
-  let expected = try parseWhole(bytes, as: Value.self, configuration: configuration)
+  let expected = try parseWhole(bytes, as: Value.self, format: format)
 
   for split in 1..<max(bytes.count, 2) {
     let head = Array(bytes[..<split])
     let tail = Array(bytes[split...])
-    let actual = try parseChunks([head, tail], as: Value.self, configuration: configuration)
+    let actual = try parseChunks([head, tail], as: Value.self, format: format)
     if let difference = diff(expected, actual) {
       Issue.record(
         """
@@ -35,7 +35,7 @@ func expectChunkBoundaryEquivalence<Value: StreamParseableValue>(
     }
   }
 
-  let byteByByte = try parseChunks(bytes.map { [$0] }, as: Value.self, configuration: configuration)
+  let byteByByte = try parseChunks(bytes.map { [$0] }, as: Value.self, format: format)
   if let difference = diff(expected, byteByByte) {
     Issue.record(
       "Byte by byte produced a different value.\n\(difference)",
@@ -46,26 +46,22 @@ func expectChunkBoundaryEquivalence<Value: StreamParseableValue>(
 
 // A parser that only rejects malformed input when it happens to see it in one piece is worse
 // than one that never rejects it, so failures get the same treatment as successes.
-func expectChunkBoundaryFailureEquivalence<Value: StreamParseableValue>(
+func expectChunkBoundaryFailureEquivalence<Value: StreamParseableRoot>(
   _ json: String,
   as type: Value.Type,
-  configuration: JSONStreamParserConfiguration = JSONStreamParserConfiguration(),
+  format: JSONStreamFormat = .json(),
   sourceLocation: SourceLocation = #_sourceLocation
 ) {
   let bytes = Array(json.utf8)
 
-  guard
-    let expected = failureReason(
-      forParsing: [bytes], as: Value.self, configuration: configuration
-    )
-  else {
+  guard let expected = failureReason(forParsing: [bytes], as: Value.self, format: format) else {
     Issue.record("Expected the bulk parse to fail.", sourceLocation: sourceLocation)
     return
   }
 
   for split in 1..<max(bytes.count, 2) {
     let chunks = [Array(bytes[..<split]), Array(bytes[split...])]
-    let actual = failureReason(forParsing: chunks, as: Value.self, configuration: configuration)
+    let actual = failureReason(forParsing: chunks, as: Value.self, format: format)
     guard actual == expected else {
       Issue.record(
         "Split at \(split) reported \(String(describing: actual)) rather than \(expected).",
@@ -78,38 +74,35 @@ func expectChunkBoundaryFailureEquivalence<Value: StreamParseableValue>(
 
 // MARK: - Helpers
 
-private func parseWhole<Value: StreamParseableValue>(
+private func parseWhole<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
   as type: Value.Type,
-  configuration: JSONStreamParserConfiguration
+  format: JSONStreamFormat
 ) throws -> Value {
-  try parseChunks([bytes], as: Value.self, configuration: configuration)
+  try parseChunks([bytes], as: Value.self, format: format)
 }
 
-private func parseChunks<Value: StreamParseableValue>(
+private func parseChunks<Value: StreamParseableRoot>(
   _ chunks: [[UInt8]],
   as type: Value.Type,
-  configuration: JSONStreamParserConfiguration
+  format: JSONStreamFormat
 ) throws -> Value {
-  var parser = JSONStreamParser<Value>(configuration: configuration)
-  parser.registerHandlers()
-  var value = Value.initialParseableValue()
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
   for chunk in chunks {
-    try parser.parse(bytes: chunk, into: &value)
+    try stream.next(chunk)
   }
-  try parser.finish(reducer: &value)
-  return value
+  return try stream.finish()
 }
 
-private func failureReason<Value: StreamParseableValue>(
+private func failureReason<Value: StreamParseableRoot>(
   forParsing chunks: [[UInt8]],
   as type: Value.Type,
-  configuration: JSONStreamParserConfiguration
-) -> JSONStreamParsingError.Reason? {
+  format: JSONStreamFormat
+) -> JSONParsingError.Reason? {
   do {
-    _ = try parseChunks(chunks, as: Value.self, configuration: configuration)
+    _ = try parseChunks(chunks, as: Value.self, format: format)
     return nil
-  } catch let error as JSONStreamParsingError {
+  } catch let error as JSONParsingError {
     return error.reason
   } catch {
     return nil

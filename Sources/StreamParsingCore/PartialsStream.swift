@@ -1,101 +1,151 @@
+// MARK: - JSONStreamFormat
+
+/// Describes the parser a stream should drive.
+///
+/// A parser owns a buffer and is `~Copyable`, so it cannot be handed around as a value the way
+/// the registration based parsers were. This carries the settings instead, and each stream makes
+/// its own parser from them.
+public struct JSONStreamFormat: Hashable, Sendable {
+  /// The validation the parser performs.
+  public var configuration: JSONParserConfiguration
+
+  /// The capacity of the buffer the parser allocates for keys, numbers and escapes.
+  public var bufferCapacity: Int
+
+  public init(configuration: JSONParserConfiguration = .strict, bufferCapacity: Int = 4096) {
+    self.configuration = configuration
+    self.bufferCapacity = bufferCapacity
+  }
+
+  /// Parses JSON.
+  ///
+  /// - Parameters:
+  ///   - configuration: The validation the parser performs.
+  ///   - bufferCapacity: The capacity of the parser's buffer.
+  /// - Returns: A format describing a JSON parser.
+  public static func json(
+    configuration: JSONParserConfiguration = .strict,
+    bufferCapacity: Int = 4096
+  ) -> Self {
+    Self(configuration: configuration, bufferCapacity: bufferCapacity)
+  }
+}
+
 // MARK: - PartialsStream
 
-/// A convenience typealias for a ``PartialsStream`` for a ``StreamParser``.
-public typealias PartialsStreamOf<Parser: StreamParser> = PartialsStream<Parser.Value, Parser>
-
-/// A convenience typealias for a ``PartialsStream`` for a ``StreamParseable`` type.
-public typealias PartialsStreamFor<
-  Parseable: StreamParseable,
-  Parser: StreamParser<Parseable.Partial>
-> = PartialsStream<Parseable.Partial, Parser>
-
-/// Drives a ``StreamParser`` and exposes each incremental value state.
+/// Drives a parser and exposes each incremental value state.
 ///
 /// ```swift
-/// struct BlogPost: StreamParseable {
-///   struct Partial: StreamParseableValue, StreamParseable { ... }
+/// @StreamParseable
+/// struct BlogPost {
+///   var title: String = ""
 /// }
 ///
 /// var stream = PartialsStream(initialValue: BlogPost.Partial(), from: .json())
-/// for byte in "{\"title\":\"DocC\"}".utf8 {
+/// for byte in #"{"title":"DocC"}"#.utf8 {
 ///   _ = try stream.next(byte)
 /// }
 /// let final = try stream.finish()
 /// ```
-public struct PartialsStream<Value: StreamParseableValue, Parser: StreamParser<Value>> {
-  @usableFromInline
-  var parser: Parser
+///
+/// The value lives in its own allocation rather than inline. Frames inside the sink hold pointers
+/// into it so partials update at every depth as bytes arrive, and those pointers have to survive
+/// the stream being moved, which a stored property would not.
+public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
+  @usableFromInline let storage: UnsafeMutablePointer<Value>
 
-  @usableFromInline
-  var _current: Value
+  @usableFromInline var parser: JSONParser
+  @usableFromInline var sink: PartialSink<Value>
 
-  @usableFromInline
-  var hasFinished = false
-
-  @usableFromInline
-  var hasParserThrown = false
+  @usableFromInline var hasFinished = false
+  @usableFromInline var hasParserThrown = false
 
   /// The most recent value state emitted by the stream.
+  ///
+  /// This is a snapshot, so it stays as it was even as more bytes arrive. Reading it copies the
+  /// containers in the value; ``withView(_:)`` reads without copying when only part of the value
+  /// is needed.
   @inlinable
   public var current: Value {
-    self._current
+    self.storage.pointee.streamSnapshot()
   }
 
-  /// Installs the supplied parser and optional initial value state.
+  /// Installs a parser for the supplied format and optional initial value state.
   ///
   /// - Parameters:
   ///   - initialValue: The value state to start parsing from.
-  ///   - parser: The parser that will consume bytes.
-  @inlinable
-  public init(initialValue: Value = .initialParseableValue(), from parser: Parser) {
-    var parser = parser
-    parser.registerHandlers()
-    self.parser = parser
-    self._current = initialValue
+  ///   - format: The format describing the parser that will consume bytes.
+  public init(
+    initialValue: Value = Value.streamInitialValue(),
+    from format: JSONStreamFormat
+  ) {
+    let storage = UnsafeMutablePointer<Value>.allocate(capacity: 1)
+    storage.initialize(to: initialValue)
+    self.storage = storage
+    self.parser = JSONParser(
+      configuration: format.configuration, bufferCapacity: format.bufferCapacity
+    )
+    self.sink = PartialSink(root: storage, schema: Value.streamSchema)
   }
 
-  /// Sends a single byte into the parser and returns the updated value.
+  deinit {
+    self.storage.deinitialize(count: 1)
+    self.storage.deallocate()
+  }
+
+  /// Sends a single byte into the parser.
+  ///
+  /// Nothing is returned, because returning a value is the same thing as asking to keep one, and
+  /// that costs a snapshot. Read ``current`` or ``withView(_:)`` when a state is actually needed.
   ///
   /// - Parameter byte: Byte to feed into the parser.
-  /// - Returns: The latest parsed value after consuming the byte.
-  @inlinable
-  @discardableResult
-  public mutating func next(_ byte: UInt8) throws -> Value {
-    try self.next(CollectionOfOne(byte))
-  }
-
-  /// Feeds multiple bytes to the parser and returns the latest value.
-  ///
-  /// - Parameter bytes: The byte sequence to parse.
-  /// - Returns: The latest parsed value after consuming the bytes.
-  @inlinable
-  @discardableResult
-  public mutating func next(_ bytes: some Sequence<UInt8>) throws -> Value {
+  public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
-
     do {
-      try self.parser.parse(bytes: bytes, into: &self._current)
+      try self.parser.parse(byte: byte, into: &self.sink)
     } catch {
       self.hasParserThrown = true
       throw error
     }
+  }
 
-    return self.current
+  /// Feeds multiple bytes to the parser.
+  ///
+  /// - Parameter bytes: The byte sequence to parse.
+  public mutating func next(_ bytes: some Sequence<UInt8>) throws {
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    do {
+      try self.parse(bytes)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
+  }
+
+  private mutating func parse(_ bytes: some Sequence<UInt8>) throws {
+    let parsed: Void? = try bytes.withContiguousStorageIfAvailable { buffer in
+      try self.parser.parse(buffer, into: &self.sink)
+    }
+    guard parsed == nil else { return }
+    for byte in bytes {
+      try self.parser.parse(byte: byte, into: &self.sink)
+    }
   }
 
   /// Completes parsing and validates that the stream ended cleanly.
   ///
   /// - Returns: The final parsed value after calling ``finish()``.
-  @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
-    try self.parser.finish(reducer: &self._current)
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
     return self.current
   }
 }
-
-extension PartialsStream: Sendable
-where Value: Sendable, Parser: Sendable {}

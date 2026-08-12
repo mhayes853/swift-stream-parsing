@@ -57,6 +57,9 @@ public struct PartialMembersMode: Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
   public static let optional = Self()
 
-  /// Members are initialized to their ``initialParseableValue()`` result.
+  /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
+  public static let streamInitialValue = Self()
+
+  @available(*, deprecated, renamed: "streamInitialValue")
   public static let initialParseableValue = Self()
 }

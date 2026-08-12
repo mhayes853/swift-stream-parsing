@@ -224,7 +224,8 @@ allocating initializer; a caller supplied buffer avoids it.
 - Benchmark package tracked in the repo, with handler registration measured separately.
 - Chunk boundary harness: every payload split at every interior position plus byte by byte, with
   failures given the same treatment as successes.
-- Pinned an existing conformance gap: unknown escapes such as `\q` are accepted.
+- Pinned an existing conformance gap: unknown escapes such as `\q` are accepted. The sink based
+  parser closed it, and the test now asserts rejection.
 
 ### Phase 2 — Core primitives (done)
 
@@ -296,18 +297,35 @@ consumers are the stream types that phase rewrites.
 - `OrderedDictionary` bridging both ways, which insertion order makes lossless, plus
   `TreeDictionary` for contents only.
 
-### Phase 6 — Conveniences and removal
+### Phase 6 — Conveniences and removal (done, except EmbeddedSmoke)
 
-- Port `MockParser` to an event recording sink, or replace it with a purpose built failing sink,
-  which is all `PartialsStreamTests` needs it for.
-- `PartialsStream` as `~Copyable`; `AsyncPartialsSequence` over an internal box.
-- Keep `partials(of:from:)` and the stream types source compatible, which is what lets the bulk
-  of the existing tests port unchanged.
-- Delete once the differential has run clean: `YAMLStreamParser.swift` (1,763 lines), JSON5
-  syntax options, `PathTrie`, `HandlerRegistration`, `ErasedPaths`, `NumberAccumulator`,
-  `ParserByteChunkState`, `StreamParserHandlers` and its 20 `register*Handler` requirements, and
-  every key path, existential, dynamic cast and metatype cast in the core.
-- Point `EmbeddedSmoke` at the real core.
+- `PartialsStream` is `~Copyable` and owns the value in its own allocation, because the sink holds
+  pointers into it that have to survive the stream being moved. `AsyncPartialsSequence` keeps it
+  in a box, since `AsyncIteratorProtocol` requires a copyable conforming type.
+- `.json()` now describes a parser rather than being one: `JSONParser` owns a buffer and is
+  `~Copyable`, so `JSONStreamFormat` carries the settings and each stream builds its own.
+- Removed: `YAMLStreamParser.swift` and `JSONStreamParser.swift`, JSON5 syntax options, key
+  decoding strategies, line and column positions, `PathTrie`, `HandlerRegistration`,
+  `ErasedPaths`, `NumberAccumulator`, `ParserByteChunkState`, `DigitParsing`, `StreamParser`,
+  `StreamParserHandlers` and its 20 `register*Handler` requirements, `StreamParseableValue`,
+  `StreamParseableArrayObject`, `StreamParseableDictionaryObject`, `MockParser`. 68,000 lines
+  deleted against 1,200 added.
+- YAML support goes with it. The sink is format agnostic, so a YAML parser can be rebuilt against
+  it later; until then the library is JSON only.
+- **`partials()` handed out values that changed after the fact.** The sink writes container
+  elements through a raw pointer, which never triggers copy on write, so every state it emitted
+  shared the buffer being written into. A captured `[String]` read `[""]` and then `["a"]` two
+  bytes later. This is the bug the plan's differential was meant to catch and did not, because it
+  compared final values rather than sequences.
+- `streamSnapshot()` fixes it by rebuilding containers, and the rebuild has to recurse: a one
+  level copy fixes `[String]` and `[[Int]]` but not `[[String]]`, whose inner element is also
+  written through a raw pointer. `next()` no longer returns a value, because returning one is the
+  same thing as asking to keep one, and that is what costs a snapshot.
+- The 169 registration based JSON tests were ported. 82 per-byte state sequences survive, 13
+  covering deleted features were dropped, and 55 were regenerated against two deliberate timing
+  changes, then audited: every array is still `bytes + 1` long, and a sample across numbers,
+  literals, arrays, dictionaries and nested structs was checked against the grammar by hand.
+- Point `EmbeddedSmoke` at the real core. **Still to do.**
 
 ### Phase 7 — CI and hardening
 
@@ -324,6 +342,16 @@ consumers are the stream types that phase rewrites.
   bound before that path can be called exact.
 - Lone high surrogates are rejected, but the check happens at run and string end rather than
   immediately.
+- Two token timing changes, both inherent to the design rather than incidental. A number
+  materializes when its token ends rather than per digit, because the fused scan has nothing to
+  emit until then, and a bare number at the root therefore only lands at `finish()`. A container
+  materializes its slot on entry, so a dictionary key is visible with its initial value before the
+  value arrives.
+- Error reasons are coarser: `missingColon`, `trailingComma`, `missingComma` and
+  `missingClosingBrace` all collapse into `unexpectedToken`, and errors carry a byte offset rather
+  than a line and column.
+- `partials()` is O(n x value size), because each state it keeps has to be materialized before the
+  next write overwrites it. Reading transiently is free; keeping history is not.
 - Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
   eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in

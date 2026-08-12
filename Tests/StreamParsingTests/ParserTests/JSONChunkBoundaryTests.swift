@@ -101,13 +101,14 @@ struct `JSON chunk boundary tests` {
     expectChunkBoundaryFailureEquivalence(json, as: ChunkProfile.Partial.self)
   }
 
-  // The parser currently accepts unknown escape sequences and takes the escaped character
-  // literally, where RFC 8259 requires rejecting them. Pinned here so the leniency is a
-  // decision rather than an accident, and so a future conformance pass has to change this
-  // test deliberately.
+  // The registration based parser accepted an unknown escape and took the escaped character
+  // literally, where RFC 8259 requires rejecting it. That gap is closed: the escape is rejected,
+  // and rejected at the same point no matter where the chunk boundary falls.
   @Test
-  func `Unknown escape sequences are currently accepted`() throws {
-    try expectChunkBoundaryEquivalence(#"{"name":"bad \q escape"}"#, as: ChunkProfile.Partial.self)
+  func `Unknown escape sequences are rejected`() {
+    expectChunkBoundaryFailureEquivalence(
+      #"{"name":"bad \q escape"}"#, as: ChunkProfile.Partial.self
+    )
   }
 }
 

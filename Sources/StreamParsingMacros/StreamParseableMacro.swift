@@ -132,36 +132,62 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
-    let registerHandlersLines = Self.partialStructRegisterHandlers(
-      from: properties,
-      modifierPrefix: modifierPrefix
-    )
     let schemaLines = Self.partialStructSchema(
       from: properties,
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
+    let snapshotLines = Self.partialStructSnapshot(
+      from: properties,
+      modifierPrefix: modifierPrefix
+    )
     return """
-      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseableValue,
-        StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseable,
+        StreamParsingCore.StreamParseableObject {
         \(raw: modifierPrefix)typealias Partial = Self
 
       \(raw: propertyLines)
 
         \(raw: initializerLines)
 
-        \(raw: modifierPrefix)static func initialParseableValue() -> Self {
-          Self()
-        }
-
         \(raw: modifierPrefix)static func streamInitialValue() -> Self {
           Self()
         }
 
-        \(raw: registerHandlersLines)
+        \(raw: snapshotLines)
 
         \(raw: schemaLines)
       }
+      """
+  }
+
+  // Every member is rebuilt rather than copied, because a member that holds a heap buffer shares
+  // it with the value being parsed and the sink writes into that buffer through a raw pointer.
+  // Scalars take the protocol's default and copy nothing.
+  private static func partialStructSnapshot(
+    from properties: [StoredProperty],
+    modifierPrefix: String
+  ) -> String {
+    let active = properties.filter { !$0.isIgnored }
+    guard !active.isEmpty else {
+      return """
+        \(modifierPrefix)func streamSnapshot() -> Self {
+            Self()
+          }
+        """
+    }
+    let arguments = active.enumerated()
+      .map { index, property in
+        let comma = index == active.count - 1 ? "" : ","
+        return "      \(property.name): self.\(property.name).streamSnapshot()\(comma)"
+      }
+      .joined(separator: "\n")
+    return """
+      \(modifierPrefix)func streamSnapshot() -> Self {
+          Self(
+      \(arguments)
+          )
+        }
       """
   }
 
@@ -412,28 +438,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
           \(parameters)
         ) {
       \(assignments)
-        }
-      """
-  }
-
-  private static func partialStructRegisterHandlers(
-    from properties: [StoredProperty],
-    modifierPrefix: String
-  ) -> String {
-    let lines =
-      properties
-      .filter { !$0.isIgnored }
-      .flatMap { property in
-        property.keyNames.map { keyName in
-          "    handlers.registerKeyedHandler(forKey: \"\(keyName)\", \\.\(property.name))"
-        }
-      }
-      .joined(separator: "\n")
-    return """
-      \(modifierPrefix)static func registerHandlers(
-          in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-        ) {
-      \(lines)
         }
       """
   }
@@ -779,7 +783,7 @@ extension StreamParseableMacro {
     var defaultValueSyntax: String {
       switch self {
       case .optional: "nil"
-      case .initialParseableValue: ".initialParseableValue()"
+      case .initialParseableValue: ".streamInitialValue()"
       }
     }
 
@@ -790,7 +794,7 @@ extension StreamParseableMacro {
     static func parse(from expression: ExprSyntax) -> Self? {
       switch self.memberName(from: expression) {
       case "optional": .optional
-      case "initialParseableValue": .initialParseableValue
+      case "initialParseableValue", "streamInitialValue": .initialParseableValue
       default: nil
       }
     }

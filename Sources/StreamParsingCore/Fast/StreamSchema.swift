@@ -87,6 +87,21 @@ public struct StreamSchema: @unchecked Sendable {
 // that one, and it must not match a `String` field and hand it a frame instead of a scalar write.
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
+
+  /// A copy that shares no storage with the value being parsed, and so is safe to keep.
+  ///
+  /// The sink writes container elements through a raw pointer, which never triggers copy on
+  /// write. A value handed out while parsing continues therefore shares the buffer being written
+  /// into, and changes after the fact. Rebuilding those buffers is what makes a kept value a
+  /// snapshot of the moment rather than a window onto the present.
+  func streamSnapshot() -> Self
+}
+
+extension StreamParseableRoot {
+  // Correct for scalars, and for structs whose members are all inline: copying one already gives
+  // it storage of its own, and a later write goes through copy on write as usual. Only types
+  // that put values in a heap buffer need to override this.
+  public func streamSnapshot() -> Self { self }
 }
 
 public protocol StreamParseableObject: StreamParseableRoot {}
@@ -182,9 +197,3 @@ extension StreamParseableRoot where Self: StreamNumberConvertible {
 extension StreamParseableRoot where Self: StreamBooleanConvertible {
   public static var streamSchema: StreamSchema { _streamBooleanSchema(Self.self) }
 }
-
-// Container types the schema generator cannot route into. The macro decides an object from an
-// array from a dictionary by syntax alone, so it sees `Deque<Int>` as an ordinary identifier and
-// emits scalar cases that never fire. Conforming marks the type for the deprecated
-// `_streamEnterField` overload, which turns that silence into a build warning.
-public protocol _StreamUnroutableContainer {}

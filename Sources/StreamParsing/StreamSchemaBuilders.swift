@@ -75,32 +75,6 @@ public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {
   nil
 }
 
-// Ranks above the unconstrained fallback, so a member of a container the generator cannot route
-// into produces a warning where the macro expanded rather than parsing as an empty value.
-@available(
-  *, deprecated,
-  message: """
-    This container cannot be parsed into directly. Declare the member as an Array or a \
-    Dictionary and convert after parsing.
-    """
-)
-@inlinable
-public func _streamEnterField<T: _StreamUnroutableContainer>(_ value: inout T?) -> StreamFrame? {
-  nil
-}
-
-@available(
-  *, deprecated,
-  message: """
-    This container cannot be parsed into directly. Declare the member as an Array or a \
-    Dictionary and convert after parsing.
-    """
-)
-@inlinable
-public func _streamEnterField<T: _StreamUnroutableContainer>(_ value: inout T) -> StreamFrame? {
-  nil
-}
-
 @inlinable
 public func _streamEnterArrayField<Element: StreamInitializable>(
   _ value: inout [Element]?,

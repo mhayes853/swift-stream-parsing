@@ -31,7 +31,16 @@ public protocol StreamNullable {
 extension FixedWidthInteger {
   // A token carrying an exponent is rejected rather than scaled, matching prior behaviour.
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard info.isExactInteger, !info.flags.contains(.fraction) else { return nil }
+    guard !info.flags.contains(.fraction), info.exponent == 0 else { return nil }
+
+    // The accumulator flags anything it could not hold in a UInt64, which includes values that
+    // do fit the destination: UInt64.max is twenty digits. Walking the token settles it rather
+    // than rejecting a number the type can represent.
+    if info.flags.contains(.overflowed) {
+      guard let rescanned = _streamRescanInteger(bytes, as: Self.self) else { return nil }
+      self = rescanned
+      return
+    }
 
     if info.flags.contains(.negative) {
       guard Self.isSigned else { return nil }
@@ -117,8 +126,43 @@ func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringCon
   for i in 0..<bytes.count {
     text.unicodeScalars.append(Unicode.Scalar(bytes[i]))
   }
-  return T(text)
+  // JSON has no infinity, and a token that scales past the type's range is out of range rather
+  // than infinite, which is what the registration based parser reported too.
+  guard let parsed = T(text), parsed.isFinite else { return nil }
+  return parsed
 }
 
 // The standard library's own conformances live in Support/StandardLibrary.swift, next to the
 // registration based ones they replace, so removing the old parser is a single subtraction.
+
+// Walks the digits of an integer token. Reached only when the accumulated magnitude cannot be
+// trusted, so it is off the hot path. No String, so it stays inside the embedded subset.
+@usableFromInline
+func _streamRescanInteger<T: FixedWidthInteger>(_ bytes: Span<UInt8>, as type: T.Type) -> T? {
+  var index = 0
+  var isNegative = false
+  if index < bytes.count, bytes[index] == .asciiDash {
+    guard T.isSigned else { return nil }
+    isNegative = true
+    index &+= 1
+  }
+  guard index < bytes.count else { return nil }
+
+  var magnitude = T.Magnitude.zero
+  while index < bytes.count {
+    let byte = bytes[index]
+    guard byte >= .asciiZero, byte <= .asciiNine else { return nil }
+    let (multiplied, multiplyOverflowed) = magnitude.multipliedReportingOverflow(by: 10)
+    guard !multiplyOverflowed else { return nil }
+    let (added, addOverflowed) = multiplied.addingReportingOverflow(
+      T.Magnitude(byte &- .asciiZero)
+    )
+    guard !addOverflowed else { return nil }
+    magnitude = added
+    index &+= 1
+  }
+
+  guard isNegative else { return T(exactly: magnitude) }
+  guard magnitude <= T.min.magnitude else { return nil }
+  return magnitude == T.min.magnitude ? T.min : 0 &- T(magnitude)
+}

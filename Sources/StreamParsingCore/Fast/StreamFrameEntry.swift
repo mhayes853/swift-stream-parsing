@@ -24,6 +24,17 @@ public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> St
   }
 }
 
+// Materializes an optional in place so the wrapped type's schema can be applied to the same
+// address. Relies on the same offset zero payload layout as the entry helpers above.
+@inlinable
+public func _streamMaterializeOptional<Wrapped: StreamInitializable>(
+  _ storage: UnsafeMutableRawPointer,
+  as wrapped: Wrapped.Type
+) {
+  let pointer = storage.assumingMemoryBound(to: Wrapped?.self)
+  if pointer.pointee == nil { pointer.pointee = Wrapped.streamInitialValue() }
+}
+
 // A wrapper with one stored property stores it at offset zero, so the wrapped type's schema can
 // be applied to a pointer to the wrapper. Same class of assumption as the optional payload
 // access above, which is why it lives here. The size check is a debug build tripwire for a

@@ -15,7 +15,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -29,8 +29,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -44,19 +44,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -153,7 +149,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -169,7 +165,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -183,8 +179,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -198,19 +194,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "customKeyName", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -307,7 +299,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -429,7 +421,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -443,8 +435,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -458,20 +450,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "customKeyName", \.name)
-              handlers.registerKeyedHandler(forKey: "customKeyName2", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -570,7 +557,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -667,7 +654,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -681,34 +668,30 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial
             var age: Int.Partial
 
             init(
-              name: String.Partial = .initialParseableValue(),
-              age: Int.Partial = .initialParseableValue()
+              name: String.Partial = .streamInitialValue(),
+              age: Int.Partial = .streamInitialValue()
             ) {
               self.name = name
               self.age = age
-            }
-
-            static func initialParseableValue() -> Self {
-              Self()
             }
 
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -805,7 +788,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -820,7 +803,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String?
           var age: Int?
@@ -834,34 +817,30 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String?.Partial
             var age: Int?.Partial
 
             init(
-              name: String?.Partial = .initialParseableValue(),
-              age: Int?.Partial = .initialParseableValue()
+              name: String?.Partial = .streamInitialValue(),
+              age: Int?.Partial = .streamInitialValue()
             ) {
               self.name = name
               self.age = age
-            }
-
-            static func initialParseableValue() -> Self {
-              Self()
             }
 
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -958,7 +937,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -973,7 +952,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           static var name: String
           var age: Int
@@ -986,8 +965,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var age: Int.Partial?
@@ -998,18 +977,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1094,7 +1069,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1111,7 +1086,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var stored: String
           var computed: Int {
@@ -1126,8 +1101,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -1138,18 +1113,14 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "stored", \.stored)
+            func streamSnapshot() -> Self {
+              Self(
+                stored: self.stored.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1234,7 +1205,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1250,7 +1221,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -1263,8 +1234,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1275,18 +1246,14 @@ extension BaseTestSuite {
               self.name = name
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1371,7 +1338,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1412,7 +1379,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var stored: String
           func greet() {}
@@ -1425,8 +1392,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -1437,18 +1404,14 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "stored", \.stored)
+            func streamSnapshot() -> Self {
+              Self(
+                stored: self.stored.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1533,7 +1496,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1548,7 +1511,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           let name: String
           let age: Int
@@ -1562,8 +1525,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1577,19 +1540,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1686,7 +1645,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1834,7 +1793,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -1848,8 +1807,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1863,19 +1822,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1972,7 +1927,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -1987,7 +1942,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         public struct Person {
           public var name: String
           public var age: Int
@@ -2001,8 +1956,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          public struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -2016,19 +1971,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialParseableValue() -> Self {
-              Self()
-            }
-
             public static func streamInitialValue() -> Self {
               Self()
             }
 
-            public static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            public func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2125,7 +2076,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
       assertMacro {
         """
@@ -2136,7 +2087,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         private struct Person {
           var name: String
           var age: Int
@@ -2150,8 +2101,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -2165,19 +2116,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2274,7 +2221,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
       assertMacro {
         """
@@ -2285,7 +2232,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         fileprivate struct Person {
           var name: String
           var age: Int
@@ -2299,8 +2246,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          fileprivate struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          fileprivate struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             fileprivate typealias Partial = Self
 
             fileprivate var name: String.Partial?
@@ -2314,19 +2261,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            fileprivate static func initialParseableValue() -> Self {
-              Self()
-            }
-
             fileprivate static func streamInitialValue() -> Self {
               Self()
             }
 
-            fileprivate static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            fileprivate func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2423,7 +2366,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -2438,7 +2381,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         public struct Person {
           private var name: String
           private var age: Int
@@ -2452,8 +2395,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          public struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -2467,19 +2410,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialParseableValue() -> Self {
-              Self()
-            }
-
             public static func streamInitialValue() -> Self {
               Self()
             }
 
-            public static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            public func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2576,7 +2515,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
 
@@ -2591,7 +2530,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         public struct Person {
           private var name: String?
           private var age: Optional<Int>
@@ -2605,8 +2544,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          public struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          public struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
             public var name: String?.Partial?
@@ -2620,19 +2559,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            public static func initialParseableValue() -> Self {
-              Self()
-            }
-
             public static func streamInitialValue() -> Self {
               Self()
             }
 
-            public static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "name", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            public func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2729,7 +2664,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
     
@@ -2746,7 +2681,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -2760,8 +2695,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -2775,20 +2710,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "blob", \.name)
-              handlers.registerKeyedHandler(forKey: "name2", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2887,7 +2817,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
       assertMacro {
         """
@@ -2900,7 +2830,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -2914,8 +2844,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -2929,20 +2859,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "blob", \.name)
-              handlers.registerKeyedHandler(forKey: "name2", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -3041,7 +2966,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
       assertMacro {
         """
@@ -3054,7 +2979,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        #"""
+        """
         struct Person {
           var name: String
           var age: Int
@@ -3068,8 +2993,8 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseableValue,
-            StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -3083,20 +3008,15 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            static func initialParseableValue() -> Self {
-              Self()
-            }
-
             static func streamInitialValue() -> Self {
               Self()
             }
 
-            static func registerHandlers(
-              in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-            ) {
-              handlers.registerKeyedHandler(forKey: "blob", \.name)
-              handlers.registerKeyedHandler(forKey: "name2", \.name)
-              handlers.registerKeyedHandler(forKey: "age", \.age)
+            func streamSnapshot() -> Self {
+              Self(
+                name: self.name.streamSnapshot(),
+                age: self.age.streamSnapshot()
+              )
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -3195,7 +3115,7 @@ extension BaseTestSuite {
             )
           }
         }
-        """#
+        """
       }
     }
   }
