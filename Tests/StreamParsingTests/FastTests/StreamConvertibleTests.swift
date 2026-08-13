@@ -204,19 +204,19 @@ struct `Stream convertible tests` {
     var opaque = Opaque()
 
     Self.span("Blob") { bytes in
-      streamApply(&name, utf8: bytes)
-      streamApply(&count, utf8: bytes)
-      streamApply(&flag, utf8: bytes)
-      streamApply(&opaque, utf8: bytes)
+      #expect(streamApply(&name, utf8: bytes))
+      #expect(!streamApply(&count, utf8: bytes))
+      #expect(!streamApply(&flag, utf8: bytes))
+      #expect(!streamApply(&opaque, utf8: bytes))
     }
     Self.span("42") { bytes in
       let info = Self.info(42, digits: 2)
-      streamApply(&name, bytes: bytes, info: info)
-      streamApply(&count, bytes: bytes, info: info)
-      streamApply(&opaque, bytes: bytes, info: info)
+      #expect(!streamApply(&name, bytes: bytes, info: info))
+      #expect(streamApply(&count, bytes: bytes, info: info))
+      #expect(!streamApply(&opaque, bytes: bytes, info: info))
     }
-    streamApply(&flag, boolean: true)
-    streamApply(&count, boolean: true)
+    #expect(streamApply(&flag, boolean: true))
+    #expect(!streamApply(&count, boolean: true))
 
     #expect(name == "Blob")
     #expect(count == 42)
@@ -228,8 +228,8 @@ struct `Stream convertible tests` {
   func `Null application only affects nullable destinations`() {
     var optional: Int? = 5
     var plain = 5
-    streamApplyNull(&optional)
-    streamApplyNull(&plain)
+    #expect(streamApplyNull(&optional))
+    #expect(!streamApplyNull(&plain))
     #expect(optional == nil)
     #expect(plain == 5)
   }

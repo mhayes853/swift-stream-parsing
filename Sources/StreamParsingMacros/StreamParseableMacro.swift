@@ -819,12 +819,12 @@ extension StreamParseableMacro {
 extension StreamParseableMacro {
   private enum PartialMembersMode: Hashable {
     case optional
-    case initialParseableValue
+    case streamInitialValue
 
     var defaultValueSyntax: String {
       switch self {
       case .optional: "nil"
-      case .initialParseableValue: ".streamInitialValue()"
+      case .streamInitialValue: ".streamInitialValue()"
       }
     }
 
@@ -835,7 +835,7 @@ extension StreamParseableMacro {
     static func parse(from expression: ExprSyntax) -> Self? {
       switch self.memberName(from: expression) {
       case "optional": .optional
-      case "initialParseableValue", "streamInitialValue": .initialParseableValue
+      case "streamInitialValue": .streamInitialValue
       default: nil
       }
     }

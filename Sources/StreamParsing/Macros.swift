@@ -59,7 +59,4 @@ public struct PartialMembersMode: Sendable {
 
   /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
   public static let streamInitialValue = Self()
-
-  @available(*, deprecated, renamed: "streamInitialValue")
-  public static let initialParseableValue = Self()
 }

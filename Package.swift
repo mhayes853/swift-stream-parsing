@@ -7,6 +7,14 @@ import PackageDescription
 let streamParsing128BitIntegers =
   "AvailabilityMacro=StreamParsing128BitIntegers:macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0"
 
+#if compiler(>=6.4)
+  let suppressedAssociatedTypes = [SwiftSetting]()
+#else
+  let suppressedAssociatedTypes = [
+    SwiftSetting.enableExperimentalFeature("SuppressedAssociatedTypes")
+  ]
+#endif
+
 let package = Package(
   name: "swift-stream-parsing",
   platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
@@ -46,7 +54,7 @@ let package = Package(
     .target(
       name: "StreamParsing",
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
-      swiftSettings: [.enableExperimentalFeature("SuppressedAssociatedTypes")]
+      swiftSettings: suppressedAssociatedTypes
     ),
     .target(
       name: "StreamParsingCore",
@@ -62,10 +70,8 @@ let package = Package(
           condition: .when(traits: ["StreamParsingTagged"])
         )
       ],
-      swiftSettings: [
-        .enableExperimentalFeature(streamParsing128BitIntegers),
-        .enableExperimentalFeature("SuppressedAssociatedTypes")
-      ]
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+        + suppressedAssociatedTypes
     ),
     .macro(
       name: "StreamParsingMacros",
@@ -82,6 +88,7 @@ let package = Package(
         .product(name: "CustomDump", package: "swift-custom-dump"),
         .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
       ],
+      exclude: ["ParserTests/__Snapshots__"],
       resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
     ),

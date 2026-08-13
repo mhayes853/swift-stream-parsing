@@ -719,10 +719,10 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Initial Parseable Value Members`() {
+    func `Stream Initial Value Members`() {
       assertMacro {
         """
-        @StreamParseable(partialMembers: .initialParseableValue)
+        @StreamParseable(partialMembers: .streamInitialValue)
         struct Person {
           var name: String
           var age: Int
@@ -893,10 +893,10 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Initial Parseable Value Members With Optionals`() {
+    func `Stream Initial Value Members With Optionals`() {
       assertMacro {
         """
-        @StreamParseable(partialMembers: .initialParseableValue)
+        @StreamParseable(partialMembers: .streamInitialValue)
         struct Person {
           var name: String?
           var age: Int?
