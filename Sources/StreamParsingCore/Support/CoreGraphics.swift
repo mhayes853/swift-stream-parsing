@@ -19,5 +19,4 @@
   extension CGFloat: StreamParseable {
     public typealias Partial = Self
   }
-
 #endif

@@ -75,12 +75,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -92,9 +97,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -107,9 +112,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -121,9 +126,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -135,9 +140,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -149,9 +154,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -245,12 +250,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x654B_6D6F_7473_7563 where key.count == 13:
-                return 0  // "customKeyName"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -262,9 +272,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -277,9 +287,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -291,9 +301,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -305,9 +315,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -319,9 +329,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -521,14 +531,19 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x654B_6D6F_7473_7563 where key.count == 13:
-                return 0  // "customKeyName"
+                return Self.StreamField.name
               case 0x654B_6D6F_7473_7563 where key.count == 14:
-                return 0  // "customKeyName2"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -540,9 +555,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -555,9 +570,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -569,9 +584,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -583,9 +598,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -597,9 +612,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -774,12 +789,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -791,9 +811,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -806,9 +826,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -820,9 +840,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -834,9 +854,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -848,9 +868,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -943,12 +963,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -960,9 +985,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -975,9 +1000,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -989,9 +1014,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -1003,9 +1028,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -1017,9 +1042,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -1103,10 +1128,14 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let age: Int32 = 0
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_0065_6761:
-                return 0  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -1118,7 +1147,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -1131,7 +1160,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -1143,7 +1172,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -1155,7 +1184,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -1167,7 +1196,7 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -1255,10 +1284,14 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let stored: Int32 = 0
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473:
-                return 0  // "stored"
+                return Self.StreamField.stored
               default:
                 return -1
               }
@@ -1270,7 +1303,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, utf8: bytes)
               default:
                 return false
@@ -1283,7 +1316,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
                 return false
@@ -1295,7 +1328,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, boolean: value)
               default:
                 return false
@@ -1307,7 +1340,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
                 return false
@@ -1319,7 +1352,7 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return _streamEnterField(&p.pointee.stored)
               default:
                 return nil
@@ -1404,10 +1437,14 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               default:
                 return -1
               }
@@ -1419,7 +1456,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
               default:
                 return false
@@ -1432,7 +1469,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
               default:
                 return false
@@ -1444,7 +1481,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
               default:
                 return false
@@ -1456,7 +1493,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
               default:
                 return false
@@ -1468,7 +1505,7 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
               default:
                 return nil
@@ -1578,10 +1615,14 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let stored: Int32 = 0
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473:
-                return 0  // "stored"
+                return Self.StreamField.stored
               default:
                 return -1
               }
@@ -1593,7 +1634,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, utf8: bytes)
               default:
                 return false
@@ -1606,7 +1647,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
                 return false
@@ -1618,7 +1659,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, boolean: value)
               default:
                 return false
@@ -1630,7 +1671,7 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
                 return false
@@ -1642,7 +1683,7 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.stored:
                 return _streamEnterField(&p.pointee.stored)
               default:
                 return nil
@@ -1735,12 +1776,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -1752,9 +1798,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -1767,9 +1813,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -1781,9 +1827,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -1795,9 +1841,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -1809,9 +1855,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2037,12 +2083,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2054,9 +2105,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2069,9 +2120,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2083,9 +2134,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2097,9 +2148,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2111,9 +2162,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2206,12 +2257,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2223,9 +2279,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2238,9 +2294,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2252,9 +2308,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2266,9 +2322,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2280,9 +2336,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2371,12 +2427,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2388,9 +2449,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2403,9 +2464,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2417,9 +2478,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2431,9 +2492,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2445,9 +2506,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2536,12 +2597,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2553,9 +2619,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2568,9 +2634,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2582,9 +2648,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2596,9 +2662,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2610,9 +2676,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2705,12 +2771,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2722,9 +2793,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2737,9 +2808,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2751,9 +2822,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2765,9 +2836,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2779,9 +2850,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -2874,12 +2945,17 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
-                return 0  // "name"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -2891,9 +2967,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -2906,9 +2982,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -2920,9 +2996,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -2934,9 +3010,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -2948,9 +3024,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -3045,14 +3121,19 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62:
-                return 0  // "blob"
+                return Self.StreamField.name
               case 0x0000_0032_656D_616E:
-                return 0  // "name2"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -3064,9 +3145,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -3079,9 +3160,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -3093,9 +3174,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -3107,9 +3188,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -3121,9 +3202,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -3214,14 +3295,19 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62:
-                return 0  // "blob"
+                return Self.StreamField.name
               case 0x0000_0032_656D_616E:
-                return 0  // "name2"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -3233,9 +3319,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -3248,9 +3334,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -3262,9 +3348,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -3276,9 +3362,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -3290,9 +3376,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -3383,14 +3469,19 @@ extension BaseTestSuite {
               View(storage)
             }
 
+            private enum StreamField {
+              static let name: Int32 = 0
+              static let age: Int32 = 1
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62:
-                return 0  // "blob"
+                return Self.StreamField.name
               case 0x0000_0032_656D_616E:
-                return 0  // "name2"
+                return Self.StreamField.name
               case 0x0000_0000_0065_6761:
-                return 1  // "age"
+                return Self.StreamField.age
               default:
                 return -1
               }
@@ -3402,9 +3493,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
                 return false
@@ -3417,9 +3508,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
                 return false
@@ -3431,9 +3522,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
-              case 1:
+              case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
                 return false
@@ -3445,9 +3536,9 @@ extension BaseTestSuite {
             ) -> Bool {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
                 return false
@@ -3459,9 +3550,9 @@ extension BaseTestSuite {
             ) -> StreamParsingCore.StreamFrame? {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case 0:
+              case Self.StreamField.name:
                 return _streamEnterField(&p.pointee.name)
-              case 1:
+              case Self.StreamField.age:
                 return _streamEnterField(&p.pointee.age)
               default:
                 return nil
@@ -3482,5 +3573,159 @@ extension BaseTestSuite {
         """
       }
     }
+    @Test
+    func `Container Members Only`() {
+      assertMacro {
+        """
+        @StreamParseable
+        struct Feed {
+          var items: [Item]
+          var index: [String: Item]
+        }
+        """
+      } expansion: {
+        #"""
+        struct Feed {
+          var items: [Item]
+          var index: [String: Item]
+
+          var streamPartialValue: Partial {
+            Partial(
+              items: self.items.streamPartialValue,
+              index: StreamParsingCore.StreamDictionary(self.index.mapValues(\.streamPartialValue))
+            )
+          }
+        }
+
+        extension Feed: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject {
+            typealias Partial = Self
+
+            var items: [Item].Partial?
+            var index: StreamParsingCore.StreamDictionary<Item.Partial>?
+
+            init(
+              items: [Item].Partial? = nil,
+              index: StreamParsingCore.StreamDictionary<Item.Partial>? = nil
+            ) {
+              self.items = items
+              self.index = index
+            }
+
+            static func streamInitialValue() -> Self {
+              Self()
+            }
+
+            func streamSnapshot() -> Self {
+              Self(
+                items: self.items.streamSnapshot(),
+                index: self.index.streamSnapshot()
+              )
+            }
+
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var items: [Item].Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.items)
+              }
+
+            var index: StreamParsingCore.StreamDictionary<Item.Partial>.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.index)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
+            private enum StreamField {
+              static let items: Int32 = 0
+              static let index: Int32 = 1
+            }
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0073_6D65_7469:
+                return Self.StreamField.items
+              case 0x0000_0078_6564_6E69:
+                return Self.StreamField.index
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) -> Bool {
+              switch field {
+              default:
+                return false
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) -> Bool {
+              switch field {
+              default:
+                return false
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) -> Bool {
+              switch field {
+              default:
+                return false
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> Bool {
+              switch field {
+              default:
+                return false
+              }
+            }
+
+            static func streamEnterField(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamFrame? {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case Self.StreamField.items:
+                return _streamEnterArrayField(&p.pointee.items, element: _streamSchema(for: Item.Partial.self))
+              case Self.StreamField.index:
+                return _streamEnterDictionaryField(&p.pointee.index, value: _streamSchema(for: Item.Partial.self))
+              default:
+                return nil
+              }
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              enterField: Self.streamEnterField
+            )
+          }
+        }
+        """#
+      }
+    }
+
   }
 }

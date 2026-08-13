@@ -4,7 +4,7 @@
 import CompilerPluginSupport
 import PackageDescription
 
-let StreamParsing128BitIntegers =
+let streamParsing128BitIntegers =
   "AvailabilityMacro=StreamParsing128BitIntegers:macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0"
 
 let package = Package(
@@ -40,8 +40,7 @@ let package = Package(
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.1.0"),
-    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7"),
-    .package(url: "https://github.com/jpsim/Yams", from: "6.2.1")
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7")
   ],
   targets: [
     .target(
@@ -64,7 +63,7 @@ let package = Package(
         )
       ],
       swiftSettings: [
-        .enableExperimentalFeature(StreamParsing128BitIntegers),
+        .enableExperimentalFeature(streamParsing128BitIntegers),
         .enableExperimentalFeature("SuppressedAssociatedTypes")
       ]
     ),
@@ -81,11 +80,10 @@ let package = Package(
         "StreamParsing",
         "StreamParsingCore",
         .product(name: "CustomDump", package: "swift-custom-dump"),
-        .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
-        .product(name: "Yams", package: "Yams")
+        .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
       ],
       resources: [.process("Resources")],
-      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",
