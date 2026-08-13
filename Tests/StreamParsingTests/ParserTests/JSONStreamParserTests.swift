@@ -178,8 +178,13 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Integer Digits`() throws {
       let json = "1234"
-      let expected: [Swift.Int] = [0, 0, 0, 0, 1234]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Int>] = [
+        .run(0, 4),
+        .run(1234)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
@@ -192,71 +197,119 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Negative Integer Digits`() throws {
       let json = "-123"
-      let expected: [Swift.Int] = [0, 0, 0, 0, -123]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Int>] = [
+        .run(0, 4),
+        .run(-123)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Zero With Trailing Decimal`() throws {
       let json = "0.0"
-      let expected: [Double] = [0, 0, 0, 0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Double>] = [
+        .run(0, 4)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float Zero With Trailing Decimal`() throws {
       let json = "0.0"
-      let expected: [Float] = [0, 0, 0, 0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Float>] = [
+        .run(0, 4)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Digits`() throws {
       let json = "12.34"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 12.34]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 5),
+        .run(12.34)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Negative Double Digits`() throws {
       let json = "-12.34"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -12.34]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 6),
+        .run(-12.34)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float Digits`() throws {
       let json = "12.34"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 0.0, 12.34]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Float>] = [
+        .run(0.0, 5),
+        .run(12.34)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Exponent Digits`() throws {
       let json = "12e3"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 4),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Negative Exponent Digits`() throws {
       let json = "12e-3"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.012]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 5),
+        .run(0.012)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Positive Exponent Digits`() throws {
       let json = "12e+3"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 5),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Uppercase Exponent Digits`() throws {
       let json = "12E3"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 4),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
@@ -278,87 +331,147 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Double Positive Zero Exponent Digits`() throws {
       let json = "12e+0"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 12.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 5),
+        .run(12.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double Negative Zero Exponent Digits`() throws {
       let json = "12e-0"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 12.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 5),
+        .run(12.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float Exponent Digits`() throws {
       let json = "12e3"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Float>] = [
+        .run(0.0, 4),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float Positive Exponent Digits`() throws {
       let json = "12e+3"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Float>] = [
+        .run(0.0, 5),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float Uppercase Exponent Digits`() throws {
       let json = "12E3"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Float>] = [
+        .run(0.0, 4),
+        .run(12000.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Double With Trailing Decimal Zero`() throws {
       let json = "11.0"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 11.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 4),
+        .run(11.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Float With Trailing Decimal Zero`() throws {
       let json = "11.0"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 11.0]
-      try expectJSONStreamedValues(json, initialValue: 0, expected: expected)
+      let states: [StreamedRun<Swift.Float>] = [
+        .run(0.0, 4),
+        .run(11.0)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0, states: states
+      )
     }
 
     @Test
     func `Streams JSON Large Integer Digits`() throws {
       let json = "18446744073709551615"
-      let expected: [Swift.UInt64] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18_446_744_073_709_551_615]
-      try expectJSONStreamedValues(json, initialValue: UInt64(0), expected: expected)
+      let states: [StreamedRun<Swift.UInt64>] = [
+        .run(0, 20),
+        .run(18_446_744_073_709_551_615)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: UInt64(0), states: states
+      )
     }
 
     @Test
     func `Streams JSON Large Negative Integer Digits`() throws {
       let json = "-9223372036854775807"
-      let expected: [Swift.Int64] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -9223372036854775807]
-      try expectJSONStreamedValues(json, initialValue: Int64(0), expected: expected)
+      let states: [StreamedRun<Swift.Int64>] = [
+        .run(0, 20),
+        .run(-9223372036854775807)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: Int64(0), states: states
+      )
     }
 
     @Test
     @available(StreamParsing128BitIntegers, *)
     func `Streams JSON Large UInt128 Digits`() throws {
       let json = "340282366920938463463374607431768211455"
-      let expected: [Swift.UInt128] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 340282366920938463463374607431768211455]
-      try expectJSONStreamedValues(json, initialValue: UInt128(0), expected: expected)
+      let states: [StreamedRun<Swift.UInt128>] = [
+        .run(0, 39),
+        .run(340282366920938463463374607431768211455)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: UInt128(0), states: states
+      )
     }
 
     @Test
     @available(StreamParsing128BitIntegers, *)
     func `Streams JSON Large Negative Int128 Digits`() throws {
       let json = "-170141183460469231731687303715884105727"
-      let expected: [Swift.Int128] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -170141183460469231731687303715884105727]
-      try expectJSONStreamedValues(json, initialValue: Int128(0), expected: expected)
+      let states: [StreamedRun<Swift.Int128>] = [
+        .run(0, 40),
+        .run(-170141183460469231731687303715884105727)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: Int128(0), states: states
+      )
     }
 
     @Test
     func `Parses Double With High Precision`() throws {
       let json = "3.14159265358979323846"
-      let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.141592653589793]
-      try expectJSONStreamedValues(json, initialValue: 0.0, expected: expected)
+      let states: [StreamedRun<Swift.Double>] = [
+        .run(0.0, 22),
+        .run(3.141592653589793)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: 0.0, states: states
+      )
     }
 
     @Test
@@ -402,29 +515,55 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Integer Array`() throws {
       let json = "[1,2]"
-      let expected: [Swift.Array<Swift.Int>] = [[], [], [1], [1], [1, 2], [1, 2]]
-      try expectJSONStreamedValues(json, initialValue: [Int](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Int>>] = [
+        .run([], 2),
+        .run([1], 2),
+        .run([1, 2], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [Int](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Integer Array With Heavy Whitespace`() throws {
       let json = "[  1    ,    2   ]"
-      let expected: [Swift.Array<Swift.Int>] = [[], [], [], [], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2]]
-      try expectJSONStreamedValues(json, initialValue: [Int](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Int>>] = [
+        .run([], 4),
+        .run([1], 10),
+        .run([1, 2], 5)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [Int](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Array With Fractional And Exponential Double`() throws {
       let json = "[12.34,12e3]"
-      let expected: [Swift.Array<Swift.Double>] = [[], [], [], [], [], [], [12.34], [12.34], [12.34], [12.34], [12.34], [12.34, 12000.0], [12.34, 12000.0]]
-      try expectJSONStreamedValues(json, initialValue: [Double](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Double>>] = [
+        .run([], 6),
+        .run([12.34], 5),
+        .run([12.34, 12000.0], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [Double](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Integer 2D Array`() throws {
       let json = "[[1],[2]]"
-      let expected: [Swift.Array<Swift.Array<Swift.Int>>] = [[], [[]], [[]], [[1]], [[1]], [[1], []], [[1], []], [[1], [2]], [[1], [2]], [[1], [2]]]
-      try expectJSONStreamedValues(json, initialValue: [[Int]](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Array<Swift.Int>>>] = [
+        .run([]),
+        .run([[]], 2),
+        .run([[1]], 2),
+        .run([[1], []], 2),
+        .run([[1], [2]], 3)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [[Int]](), states: states
+      )
     }
 
     @Test
@@ -470,36 +609,71 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Boolean Array`() throws {
       let json = "[true,false]"
-      let expected: [Swift.Array<Swift.Bool>] = [[], [], [], [], [true], [true], [true], [true], [true], [true], [true, false], [true, false], [true, false]]
-      try expectJSONStreamedValues(json, initialValue: [Bool](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Bool>>] = [
+        .run([], 4),
+        .run([true], 6),
+        .run([true, false], 3)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [Bool](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Boolean 2D Array`() throws {
       let json = "[[true],[false]]"
-      let expected: [Swift.Array<Swift.Array<Swift.Bool>>] = [[], [[]], [[]], [[]], [[]], [[true]], [[true]], [[true]], [[true], []], [[true], []], [[true], []], [[true], []], [[true], []], [[true], [false]], [[true], [false]], [[true], [false]], [[true], [false]]]
-      try expectJSONStreamedValues(json, initialValue: [[Bool]](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Array<Swift.Bool>>>] = [
+        .run([]),
+        .run([[]], 4),
+        .run([[true]], 3),
+        .run([[true], []], 5),
+        .run([[true], [false]], 4)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [[Bool]](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Optional Array`() throws {
       let json = "[1,null]"
-      let expected: [Swift.Array<Swift.Optional<Swift.Int>>] = [[], [], [1], [1], [1], [1], [1, nil], [1, nil], [1, nil]]
-      try expectJSONStreamedValues(json, initialValue: [Int?](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Optional<Swift.Int>>>] = [
+        .run([], 2),
+        .run([1], 4),
+        .run([1, nil], 3)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [Int?](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Optional 2D Array`() throws {
       let json = "[[null],[1]]"
-      let expected: [Swift.Array<Swift.Array<Swift.Optional<Swift.Int>>>] = [[], [[]], [[]], [[]], [[]], [[nil]], [[nil]], [[nil]], [[nil], []], [[nil], []], [[nil], [1]], [[nil], [1]], [[nil], [1]]]
-      try expectJSONStreamedValues(json, initialValue: [[Int?]](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Array<Swift.Optional<Swift.Int>>>>] = [
+        .run([]),
+        .run([[]], 4),
+        .run([[nil]], 3),
+        .run([[nil], []], 2),
+        .run([[nil], [1]], 3)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [[Int?]](), states: states
+      )
     }
 
     @Test
     func `Streams JSON Integer 3D Array Single Element`() throws {
       let json = "[[[1]]]"
-      let expected: [Swift.Array<Swift.Array<Swift.Array<Swift.Int>>>] = [[], [[]], [[[]]], [[[]]], [[[1]]], [[[1]]], [[[1]]], [[[1]]]]
-      try expectJSONStreamedValues(json, initialValue: [[[Int]]](), expected: expected)
+      let states: [StreamedRun<Swift.Array<Swift.Array<Swift.Array<Swift.Int>>>>] = [
+        .run([]),
+        .run([[]]),
+        .run([[[]]], 2),
+        .run([[[1]]], 4)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: [[[Int]]](), states: states
+      )
     }
   }
 
@@ -515,22 +689,42 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Single Key Into Dictionary`() throws {
       let json = "{\"single\":1}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Int>] = [[:], [:], [:], [:], [:], [:], [:], [:], ["single": 0], ["single": 0], ["single": 0], ["single": 1], ["single": 1]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Int>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Int>>] = [
+        .run([:], 8),
+        .run(["single": 0], 3),
+        .run(["single": 1], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Int>(), states: states
+      )
     }
 
     @Test
     func `Streams JSON Object With Two Keys Into Dictionary`() throws {
       let json = "{\"first\":1,\"second\":2}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Int>] = [[:], [:], [:], [:], [:], [:], [:], ["first": 0], ["first": 0], ["first": 0], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1, "second": 0], ["first": 1, "second": 0], ["first": 1, "second": 0], ["first": 1, "second": 2], ["first": 1, "second": 2]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Int>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Int>>] = [
+        .run([:], 7),
+        .run(["first": 0], 3),
+        .run(["first": 1], 8),
+        .run(["first": 1, "second": 0], 3),
+        .run(["first": 1, "second": 2], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Int>(), states: states
+      )
     }
 
     @Test
     func `Streams JSON Object With Two Keys Into StreamParseable Struct`() throws {
       let json = "{\"first\":1,\"second\":2}"
-      let expected: [StreamParsingTests.TwoKeyObject.Partial] = [TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: nil, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: nil), TwoKeyObject.Partial(first: 1, second: 2), TwoKeyObject.Partial(first: 1, second: 2)]
-      try expectJSONStreamedValues(json, initialValue: TwoKeyObject.Partial(), expected: expected)
+      let states: [StreamedRun<StreamParsingTests.TwoKeyObject.Partial>] = [
+        .run(TwoKeyObject.Partial(first: nil, second: nil), 10),
+        .run(TwoKeyObject.Partial(first: 1, second: nil), 11),
+        .run(TwoKeyObject.Partial(first: 1, second: 2), 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: TwoKeyObject.Partial(), states: states
+      )
     }
 
     @Test
@@ -546,29 +740,42 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams Pretty Printed JSON Object Into Dictionary`() throws {
       let json = "{\n  \"first\": 1,\n  \"second\": 2\n}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Int>] = [[:], [:], [:], [:], [:], [:], [:], [:], [:], [:], ["first": 0], ["first": 0], ["first": 0], ["first": 0], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1], ["first": 1, "second": 0], ["first": 1, "second": 0], ["first": 1, "second": 0], ["first": 1, "second": 0], ["first": 1, "second": 2], ["first": 1, "second": 2], ["first": 1, "second": 2]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Int>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Int>>] = [
+        .run([:], 10),
+        .run(["first": 0], 4),
+        .run(["first": 1], 11),
+        .run(["first": 1, "second": 0], 4),
+        .run(["first": 1, "second": 2], 3)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Int>(), states: states
+      )
     }
 
     @Test
     func `Streams Nested JSON Object Into Dictionary Of Dictionaries`() throws {
       let json = "{\"outer\":{\"inner\":1}}"
-      let expected: [StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<Swift.Int>>] = [[:], [:], [:], [:], [:], [:], [:], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": [:]], ["outer": ["inner": 0]], ["outer": ["inner": 0]], ["outer": ["inner": 0]], ["outer": ["inner": 1]], ["outer": ["inner": 1]], ["outer": ["inner": 1]]]
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<Swift.Int>>>] = [
+        .run([:], 7),
+        .run(["outer": [:]], 9),
+        .run(["outer": ["inner": 0]], 3),
+        .run(["outer": ["inner": 1]], 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: StreamDictionary<StreamDictionary<Int>>(),
-        expected: expected
+        json, initialValue: StreamDictionary<StreamDictionary<Int>>(), states: states
       )
     }
 
     @Test
     func `Streams Nested JSON Object Into StreamParseable Struct`() throws {
       let json = "{\"nested\":{\"value\":1}}"
-      let expected: [StreamParsingTests.NestedContainer.Partial] = [NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: nil), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), NestedContainer.Partial(nested: NestedValue.Partial(value: 1)), NestedContainer.Partial(nested: NestedValue.Partial(value: 1)), NestedContainer.Partial(nested: NestedValue.Partial(value: 1))]
+      let states: [StreamedRun<StreamParsingTests.NestedContainer.Partial>] = [
+        .run(NestedContainer.Partial(nested: nil), 10),
+        .run(NestedContainer.Partial(nested: NestedValue.Partial(value: nil)), 10),
+        .run(NestedContainer.Partial(nested: NestedValue.Partial(value: 1)), 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: NestedContainer.Partial(),
-        expected: expected
+        json, initialValue: NestedContainer.Partial(), states: states
       )
     }
 
@@ -578,11 +785,12 @@ struct `JSONStreamParser tests` {
       throws
     {
       let json = "{\"nested\":{\"value\":1}}"
-      let expected: [StreamParsingTests.InitialParseableNestedContainer.Partial] = [InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 1)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 1)), InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 1))]
+      let states: [StreamedRun<StreamParsingTests.InitialParseableNestedContainer.Partial>] = [
+        .run(InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 0)), 20),
+        .run(InitialParseableNestedContainer.Partial(nested: InitialParseableNestedValue.Partial(value: 1)), 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: InitialParseableNestedContainer.Partial(),
-        expected: expected
+        json, initialValue: InitialParseableNestedContainer.Partial(), states: states
       )
     }
 
@@ -591,55 +799,80 @@ struct `JSONStreamParser tests` {
       throws
     {
       let json = "{\"level1\":{\"level2\":{\"value\":1}}}"
-      let expected: [StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<Swift.Int>>>] = [[:], [:], [:], [:], [:], [:], [:], [:], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": [:]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": [:]]], ["level1": ["level2": ["value": 0]]], ["level1": ["level2": ["value": 0]]], ["level1": ["level2": ["value": 0]]], ["level1": ["level2": ["value": 1]]], ["level1": ["level2": ["value": 1]]], ["level1": ["level2": ["value": 1]]], ["level1": ["level2": ["value": 1]]]]
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<StreamParsingCore.StreamDictionary<Swift.Int>>>>] = [
+        .run([:], 8),
+        .run(["level1": [:]], 10),
+        .run(["level1": ["level2": [:]]], 9),
+        .run(["level1": ["level2": ["value": 0]]], 3),
+        .run(["level1": ["level2": ["value": 1]]], 4)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: StreamDictionary<StreamDictionary<StreamDictionary<Int>>>(),
-        expected: expected
+        json, initialValue: StreamDictionary<StreamDictionary<StreamDictionary<Int>>>(), states: states
       )
     }
 
     @Test
     func `Streams Doubly Nested JSON Object Into StreamParseable Struct`() throws {
       let json = "{\"level1\":{\"level2\":{\"value\":1}}}"
-      let expected: [StreamParsingTests.DoubleNestedRoot.Partial] = [DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: nil), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: 1))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: 1))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: 1))), DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: 1)))]
+      let states: [StreamedRun<StreamParsingTests.DoubleNestedRoot.Partial>] = [
+        .run(DoubleNestedRoot.Partial(level1: nil), 10),
+        .run(DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: nil)), 10),
+        .run(DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: nil))), 10),
+        .run(DoubleNestedRoot.Partial(level1: DoubleNestedLevel1.Partial(level2: DoubleNestedLevel2.Partial(value: 1))), 4)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: DoubleNestedRoot.Partial(),
-        expected: expected
+        json, initialValue: DoubleNestedRoot.Partial(), states: states
       )
     }
 
     @Test
     func `Streams JSON Object With Fractional And Exponential Doubles Into Dictionary`() throws {
       let json = "{\"fractional\":12.34,\"exponential\":12e3}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Double>] = [[:], [:], [:], [:], [:], [:], [:], [:], [:], [:], [:], [:], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 0.0], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 0.0], ["fractional": 12.34, "exponential": 12000.0], ["fractional": 12.34, "exponential": 12000.0]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Double>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Double>>] = [
+        .run([:], 12),
+        .run(["fractional": 0.0], 7),
+        .run(["fractional": 12.34], 13),
+        .run(["fractional": 12.34, "exponential": 0.0], 6),
+        .run(["fractional": 12.34, "exponential": 12000.0], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Double>(), states: states
+      )
     }
 
     @Test
     func `Streams JSON Object With Nullable Value Into StreamParseable Struct`() throws {
       let json = "{\"maybe\":null}"
-      let expected: [StreamParsingTests.NullableObject.Partial] = [NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil), NullableObject.Partial(maybe: nil)]
-      try expectJSONStreamedValues(json, initialValue: NullableObject.Partial(), expected: expected)
+      let states: [StreamedRun<StreamParsingTests.NullableObject.Partial>] = [
+        .run(NullableObject.Partial(maybe: nil), 15)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: NullableObject.Partial(), states: states
+      )
     }
 
     @Test
     func `Streams JSON Object With Nested Nullable Value Into StreamParseable Struct`() throws {
       let json = "{\"inner\":{\"maybe\":null}}"
-      let expected: [StreamParsingTests.NullableNestedContainer.Partial] = [NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: nil), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil))]
+      let states: [StreamedRun<StreamParsingTests.NullableNestedContainer.Partial>] = [
+        .run(NullableNestedContainer.Partial(inner: nil), 9),
+        .run(NullableNestedContainer.Partial(inner: NullableNestedValue.Partial(maybe: nil)), 16)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: NullableNestedContainer.Partial(),
-        expected: expected
+        json, initialValue: NullableNestedContainer.Partial(), states: states
       )
     }
 
     @Test
     func `Streams JSON Object With Nullable Value Into Dictionary`() throws {
       let json = "{\"maybe\":null}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Optional<Swift.Int>>] = [[:], [:], [:], [:], [:], [:], [:], ["maybe": nil], ["maybe": nil], ["maybe": nil], ["maybe": nil], ["maybe": nil], ["maybe": nil], ["maybe": nil], ["maybe": nil]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Int?>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Optional<Swift.Int>>>] = [
+        .run([:], 7),
+        .run(["maybe": nil], 8)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Int?>(), states: states
+      )
     }
 
     @Test
@@ -675,33 +908,41 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
       let json = "{\"values\":{\"inner\":1}}"
-      let expected: [StreamParsingTests.DictionaryPropertyContainer.Partial] = [DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil), DictionaryPropertyContainer.Partial(values: nil)]
+      let states: [StreamedRun<StreamParsingTests.DictionaryPropertyContainer.Partial>] = [
+        .run(DictionaryPropertyContainer.Partial(values: nil), 23)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: DictionaryPropertyContainer.Partial(),
-        expected: expected
+        json, initialValue: DictionaryPropertyContainer.Partial(), states: states
       )
     }
 
     @Test
     func `Streams JSON Object With Array Property Into StreamParseable Struct`() throws {
       let json = "{\"numbers\":[1,2]}"
-      let expected: [StreamParsingTests.ArrayPropertyContainer.Partial] = [ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: nil), ArrayPropertyContainer.Partial(numbers: []), ArrayPropertyContainer.Partial(numbers: []), ArrayPropertyContainer.Partial(numbers: [1]), ArrayPropertyContainer.Partial(numbers: [1]), ArrayPropertyContainer.Partial(numbers: [1, 2]), ArrayPropertyContainer.Partial(numbers: [1, 2]), ArrayPropertyContainer.Partial(numbers: [1, 2])]
+      let states: [StreamedRun<StreamParsingTests.ArrayPropertyContainer.Partial>] = [
+        .run(ArrayPropertyContainer.Partial(numbers: nil), 11),
+        .run(ArrayPropertyContainer.Partial(numbers: []), 2),
+        .run(ArrayPropertyContainer.Partial(numbers: [1]), 2),
+        .run(ArrayPropertyContainer.Partial(numbers: [1, 2]), 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: ArrayPropertyContainer.Partial(),
-        expected: expected
+        json, initialValue: ArrayPropertyContainer.Partial(), states: states
       )
     }
 
     @Test
     func `Streams JSON Object With Nested Array Property Into StreamParseable Struct`() throws {
       let json = "{\"level1\":{\"level2\":{\"numbers\":[1,2]}}}"
-      let expected: [StreamParsingTests.ArrayNestedRoot.Partial] = [ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: nil), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: []))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: []))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2]))), ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2])))]
+      let states: [StreamedRun<StreamParsingTests.ArrayNestedRoot.Partial>] = [
+        .run(ArrayNestedRoot.Partial(level1: nil), 10),
+        .run(ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: nil)), 10),
+        .run(ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: nil))), 11),
+        .run(ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: []))), 2),
+        .run(ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1]))), 2),
+        .run(ArrayNestedRoot.Partial(level1: ArrayNestedLevel1.Partial(level2: ArrayNestedLevel2.Partial(numbers: [1, 2]))), 5)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: ArrayNestedRoot.Partial(),
-        expected: expected
+        json, initialValue: ArrayNestedRoot.Partial(), states: states
       )
     }
 
@@ -734,8 +975,15 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Duplicate Keys Into Dictionary Keeping Last Value`() throws {
       let json = "{\"value\":1,\"value\":2}"
-      let expected: [StreamParsingCore.StreamDictionary<Swift.Int>] = [[:], [:], [:], [:], [:], [:], [:], ["value": 0], ["value": 0], ["value": 0], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 1], ["value": 2], ["value": 2]]
-      try expectJSONStreamedValues(json, initialValue: StreamDictionary<Int>(), expected: expected)
+      let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Int>>] = [
+        .run([:], 7),
+        .run(["value": 0], 3),
+        .run(["value": 1], 10),
+        .run(["value": 2], 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: StreamDictionary<Int>(), states: states
+      )
     }
   }
 
@@ -744,22 +992,28 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Array Of StreamParseable Structs`() throws {
       let json = "[{\"value\":1}]"
-      let expected: [Swift.Array<StreamParsingTests.CombinationItem.Partial>] = [[], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1)], [CombinationItem.Partial(value: 1)], [CombinationItem.Partial(value: 1)]]
+      let states: [StreamedRun<Swift.Array<StreamParsingTests.CombinationItem.Partial>>] = [
+        .run([]),
+        .run([CombinationItem.Partial(value: nil)], 10),
+        .run([CombinationItem.Partial(value: 1)], 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: [CombinationItem.Partial](),
-        expected: expected
+        json, initialValue: [CombinationItem.Partial](), states: states
       )
     }
 
     @Test
     func `Streams JSON Array Of StreamParseable Structs With Multiple Elements`() throws {
       let json = "[{\"value\":1},{\"value\":2}]"
-      let expected: [Swift.Array<StreamParsingTests.CombinationItem.Partial>] = [[], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1)], [CombinationItem.Partial(value: 1)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)], [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]]
+      let states: [StreamedRun<Swift.Array<StreamParsingTests.CombinationItem.Partial>>] = [
+        .run([]),
+        .run([CombinationItem.Partial(value: nil)], 10),
+        .run([CombinationItem.Partial(value: 1)], 2),
+        .run([CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)], 10),
+        .run([CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)], 3)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: [CombinationItem.Partial](),
-        expected: expected
+        json, initialValue: [CombinationItem.Partial](), states: states
       )
     }
 
@@ -777,11 +1031,14 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Array Of StreamParseable Structs`() throws {
       let json = "{\"items\":[{\"value\":1}]}"
-      let expected: [StreamParsingTests.CombinationContainer.Partial] = [CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: []), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)])]
+      let states: [StreamedRun<StreamParsingTests.CombinationContainer.Partial>] = [
+        .run(CombinationContainer.Partial(items: nil), 9),
+        .run(CombinationContainer.Partial(items: [])),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), 10),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), 4)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: CombinationContainer.Partial(),
-        expected: expected
+        json, initialValue: CombinationContainer.Partial(), states: states
       )
     }
 
@@ -801,33 +1058,47 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Multi-Element Array Of StreamParseable Structs`() throws {
       let json = "{\"items\":[{\"value\":1},{\"value\":2}]}"
-      let expected: [StreamParsingTests.CombinationContainer.Partial] = [CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: []), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]), CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)])]
+      let states: [StreamedRun<StreamParsingTests.CombinationContainer.Partial>] = [
+        .run(CombinationContainer.Partial(items: nil), 9),
+        .run(CombinationContainer.Partial(items: [])),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: nil)]), 10),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1)]), 2),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: nil)]), 10),
+        .run(CombinationContainer.Partial(items: [CombinationItem.Partial(value: 1), CombinationItem.Partial(value: 2)]), 4)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: CombinationContainer.Partial(),
-        expected: expected
+        json, initialValue: CombinationContainer.Partial(), states: states
       )
     }
 
     @Test
     func `Streams Quadruple Nested JSON Object Array Array Object`() throws {
       let json = "{\"matrix\":[[{\"value\":1}]]}"
-      let expected: [StreamParsingTests.CombinationMatrixContainer.Partial] = [CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: nil), CombinationMatrixContainer.Partial(matrix: []), CombinationMatrixContainer.Partial(matrix: [[]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]]), CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]])]
+      let states: [StreamedRun<StreamParsingTests.CombinationMatrixContainer.Partial>] = [
+        .run(CombinationMatrixContainer.Partial(matrix: nil), 10),
+        .run(CombinationMatrixContainer.Partial(matrix: [])),
+        .run(CombinationMatrixContainer.Partial(matrix: [[]])),
+        .run(CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: nil)]]), 10),
+        .run(CombinationMatrixContainer.Partial(matrix: [[CombinationMatrixItem.Partial(value: 1)]]), 5)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: CombinationMatrixContainer.Partial(),
-        expected: expected
+        json, initialValue: CombinationMatrixContainer.Partial(), states: states
       )
     }
 
     @Test
     func `Streams Quadruple Nested JSON Array Object Object Array`() throws {
       let json = "[{\"inner\":{\"numbers\":[1,2]}}]"
-      let expected: [Swift.Array<StreamParsingTests.QuadArrayOuter.Partial>] = [[], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: nil)], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: []))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: []))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))], [QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))]]
+      let states: [StreamedRun<Swift.Array<StreamParsingTests.QuadArrayOuter.Partial>>] = [
+        .run([]),
+        .run([QuadArrayOuter.Partial(inner: nil)], 9),
+        .run([QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: nil))], 11),
+        .run([QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: []))], 2),
+        .run([QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1]))], 2),
+        .run([QuadArrayOuter.Partial(inner: QuadArrayInner.Partial(numbers: [1, 2]))], 5)
+      ]
       try expectJSONStreamedValues(
-        json,
-        initialValue: [QuadArrayOuter.Partial](),
-        expected: expected
+        json, initialValue: [QuadArrayOuter.Partial](), states: states
       )
     }
   }
@@ -1224,15 +1495,25 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON True`() throws {
       let json = "true"
-      let expected: [Swift.Bool] = [false, false, false, true, true]
-      try expectJSONStreamedValues(json, initialValue: false, expected: expected)
+      let states: [StreamedRun<Swift.Bool>] = [
+        .run(false, 3),
+        .run(true, 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: false, states: states
+      )
     }
 
     @Test
     func `Streams JSON False`() throws {
       let json = "false"
-      let expected: [Swift.Bool] = [true, true, true, true, false, false]
-      try expectJSONStreamedValues(json, initialValue: true, expected: expected)
+      let states: [StreamedRun<Swift.Bool>] = [
+        .run(true, 4),
+        .run(false, 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: true, states: states
+      )
     }
   }
 
@@ -1241,11 +1522,34 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Null`() throws {
       let json = "null"
-      let expected: [Swift.Optional<Swift.String>] = ["seed", "seed", "seed", nil, nil]
-      try expectJSONStreamedValues(json, initialValue: "seed", expected: expected)
+      let states: [StreamedRun<Swift.Optional<Swift.String>>] = [
+        .run("seed", 3),
+        .run(nil, 2)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: "seed", states: states
+      )
     }
   }
 
+}
+
+// The runs form, for sequences where most entries repeat their predecessor. The flat form below
+// stays for short sequences, where spelling out every state is clearer than compressing it.
+private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
+  _ json: String,
+  format: JSONStreamFormat = .json(),
+  initialValue: T,
+  states: [StreamedRun<T>],
+  fileID: StaticString = #fileID,
+  filePath: StaticString = #filePath,
+  line: UInt = #line,
+  column: UInt = #column
+) throws {
+  let values = try json.utf8.partials(initialValue: initialValue, from: format)
+  expectStates(
+    values, states, json: json, fileID: fileID, filePath: filePath, line: line, column: column
+  )
 }
 
 private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
