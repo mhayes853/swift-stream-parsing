@@ -1,8 +1,6 @@
 import Benchmark
 import StreamParsingCore
 
-// Touches every byte handed over, so the parser is never measured against a sink that ignores
-// its output. Overrides the collapsed forms, which is what a real sink would do.
 struct FastCountingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   var checksum: UInt64 = 0

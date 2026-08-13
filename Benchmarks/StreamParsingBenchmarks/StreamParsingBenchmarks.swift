@@ -1,41 +1,6 @@
 import Benchmark
 import StreamParsing
 
-// These measure the convenience layer: PartialsStream driven a byte at a time, which is what an
-// application consuming a model as it streams actually does. The parser itself is measured in
-// FastParserBenchmarks, against a sink that only counts.
-//
-// The registration based parser these used to compare against is gone, and with it the handler
-// registration benchmark: there are no handlers to register.
-
-// MARK: - Helpers
-
-/// Drives the stream byte by byte and never asks for a state, which is the floor: no snapshot,
-/// no view, just the parse.
-private func streamDiscarding<Value: StreamParseableRoot>(
-  _ bytes: [UInt8],
-  as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
-  for byte in bytes {
-    try stream.next(byte)
-  }
-  return try stream.finish()
-}
-
-/// Takes a whole snapshot after every byte, which is what `partials()` does.
-private func streamSnapshotting<Value: StreamParseableRoot>(
-  _ bytes: [UInt8],
-  as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
-  for byte in bytes {
-    try stream.next(byte)
-    blackHole(stream.current)
-  }
-  return try stream.finish()
-}
-
 // MARK: - Benchmarks
 
 let benchmarks: @Sendable () -> Void = {
@@ -57,8 +22,6 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  // The cost of keeping every state, against the cost of keeping none. This is the difference
-  // the view layer exists to let a caller avoid, and the reason `next()` stops returning a value.
   Benchmark("Stream Array of structs - snapshot per byte") { benchmark in
     for _ in benchmark.scaledIterations {
       blackHole(try streamSnapshotting(Payloads.userList, as: BenchmarkUserList.Partial.self))
@@ -71,8 +34,38 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  // Reading one member per byte through a view, against snapshotting the whole value to read the
-  // same member. Both observe every intermediate state; only one copies the containers to do it.
+  Benchmark("Stream Array of structs - bulk discarding") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamBulkDiscarding(Payloads.userList, as: BenchmarkUserList.Partial.self))
+    }
+  }
+
+  for chunk in [16, 64, 256, 1024, 4096] {
+    Benchmark("Stream Array of structs - snapshot per \(chunk)B chunk") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(
+          try streamSnapshottingChunks(
+            Payloads.userList,
+            chunk: chunk,
+            as: BenchmarkUserList.Partial.self
+          )
+        )
+      }
+    }
+
+    Benchmark("Stream Array of structs - view read per \(chunk)B chunk") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(
+          try streamViewingChunks(
+            Payloads.userList,
+            chunk: chunk,
+            as: BenchmarkUserList.Partial.self
+          ) { blackHole($0.total) }
+        )
+      }
+    }
+  }
+
   Benchmark("Stream Array of structs - view read per byte") { benchmark in
     for _ in benchmark.scaledIterations {
       var stream = PartialsStream(
@@ -100,4 +93,71 @@ let benchmarks: @Sendable () -> Void = {
   }
 
   addFastParserBenchmarks()
+}
+
+// MARK: - Helpers
+
+private func streamDiscarding<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  for byte in bytes {
+    try stream.next(byte)
+  }
+  return try stream.finish()
+}
+
+private func streamSnapshotting<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  for byte in bytes {
+    try stream.next(byte)
+    blackHole(stream.current)
+  }
+  return try stream.finish()
+}
+
+private func streamSnapshottingChunks<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  chunk: Int,
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var index = bytes.startIndex
+  while index < bytes.endIndex {
+    let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
+    try stream.next(bytes[index..<end])
+    blackHole(stream.current)
+    index = end
+  }
+  return try stream.finish()
+}
+
+private func streamViewingChunks<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  chunk: Int,
+  as type: Value.Type,
+  read: (borrowing Value.View) -> Void
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var index = bytes.startIndex
+  while index < bytes.endIndex {
+    let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
+    try stream.next(bytes[index..<end])
+    stream.withView { read($0) }
+    index = end
+  }
+  return try stream.finish()
+}
+
+private func streamBulkDiscarding<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  try stream.next(bytes)
+  return try stream.finish()
 }
