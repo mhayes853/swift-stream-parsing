@@ -70,6 +70,24 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     self.storage.pointee.streamSnapshot()
   }
 
+  /// Reads the value in place, without copying it.
+  ///
+  /// The view borrows the parser's storage, so it cannot outlive `body`: it is `~Copyable` and
+  /// arrives borrowed, which leaves no way to store it. Reading a member off it copies that
+  /// member and nothing else, so pulling one field out of a large value costs one field.
+  ///
+  /// ```swift
+  /// try stream.next(byte)
+  /// stream.withView { post in
+  ///   render(post.title)
+  /// }
+  /// ```
+  ///
+  /// Use ``current`` instead to keep a whole state.
+  public func withView<R>(_ body: (borrowing Value.View) throws -> R) rethrows -> R {
+    try body(Value.streamView(UnsafeMutableRawPointer(self.storage)))
+  }
+
   /// Installs a parser for the supplied format and optional initial value state.
   ///
   /// - Parameters:

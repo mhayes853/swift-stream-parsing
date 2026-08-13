@@ -141,6 +141,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       from: properties,
       modifierPrefix: modifierPrefix
     )
+    let viewLines = Self.partialStructView(
+      from: properties,
+      modifierPrefix: modifierPrefix
+    )
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseable,
         StreamParsingCore.StreamParseableObject {
@@ -156,8 +160,48 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
 
         \(raw: snapshotLines)
 
+        \(raw: viewLines)
+
         \(raw: schemaLines)
       }
+      """
+  }
+
+  // A projection that reads one member at a time. The macro still cannot tell a scalar from a
+  // nested object by syntax, and does not need to: every member goes through _streamMemberView,
+  // whose result type follows the member's own View. A scalar's view is the scalar, so reading it
+  // copies it; a nested object's is another projection, so reading it defers again.
+  //
+  // ~Copyable and borrowed is what stops the view escaping the parser's storage: it cannot be
+  // copied out, and a borrow cannot be consumed out.
+  private static func partialStructView(
+    from properties: [StoredProperty],
+    modifierPrefix: String
+  ) -> String {
+    let active = properties.filter { !$0.isIgnored }
+    let accessors = active
+      .map { property in
+        let type = Self.partialTypeName(for: property)
+        return """
+            \(modifierPrefix)var \(property.name): \(type).View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.\(property.name))
+              }
+          """
+      }
+      .joined(separator: "\n\n")
+    let body = active.isEmpty ? "" : "\n\(accessors)\n"
+    return """
+      \(modifierPrefix)struct View: ~Copyable {
+          \(modifierPrefix)let storage: UnsafeMutablePointer<Partial>
+
+          \(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
+            self.storage = storage.assumingMemoryBound(to: Partial.self)
+          }
+      \(body)  }
+
+        \(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+          View(storage)
+        }
       """
   }
 

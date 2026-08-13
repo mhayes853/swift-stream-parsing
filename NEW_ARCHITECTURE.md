@@ -127,6 +127,35 @@ Foundation structs: `PersonNameComponents` is eight bytes on Darwin, a single ha
 property on it is computed. Scalars still work, because their inout scope is one call and the
 write back lands; only a frame, which outlives the call, does not.
 
+### Views: paying for what you read
+
+A value handed out while parsing continues shares the buffers being written into, so keeping one
+means copying it. `current` does that, which is right for keeping a state and wrong for reading a
+field as it arrives: on a 7 KB array of structs, reading one member per byte through `current`
+costs 24 ms against 449 µs for parsing the same payload and observing nothing.
+
+`withView` hands over a projection instead. It is `~Copyable` and arrives borrowed, which is what
+stops it outliving the parser's storage: `copy` is rejected for a noncopyable type, `consume` is
+rejected on a borrow, and an implicit conversion out is rejected as consuming. Nothing needs
+`~Escapable`, which matters because that requires an experimental feature flag and the macro emits
+into the user's module.
+
+Accessors copy per member rather than per value, and a nested object yields another view, so
+reading one leaf never materializes the levels above it:
+
+| reading one member per byte, 7 KB array of structs | p50 |
+|---|---|
+| observe nothing | 449 µs |
+| **through a view** | **459 µs** |
+| through `current` | 24 ms |
+
+**The macro still cannot tell a scalar from a nested object**, and no longer needs to. Every
+member goes through `_streamMemberView`, whose result type follows the member's own `View`, and
+`View` defaults to `Self`. A scalar's view is the scalar, so reading it copies it; a nested
+object's view is a projection, so reading it defers again. The overload problem that shaped the
+rest of the generated code does not arise here, because the answer comes from an associated type
+rather than an overload.
+
 ### Optional payload access
 
 Entering a nested field needs a pointer to a stored property. `MemoryLayout.offset(of:)` requires
@@ -325,6 +354,8 @@ consumers are the stream types that phase rewrites.
   covering deleted features were dropped, and 55 were regenerated against two deliberate timing
   changes, then audited: every array is still `bytes + 1` long, and a sample across numbers,
   literals, arrays, dictionaries and nested structs was checked against the grammar by hand.
+- `withView` and the generated per-member projections, with the benchmark above as the argument
+  for them.
 - Point `EmbeddedSmoke` at the real core. **Still to do.**
 
 ### Phase 7 — CI and hardening
@@ -351,7 +382,8 @@ consumers are the stream types that phase rewrites.
   `missingClosingBrace` all collapse into `unexpectedToken`, and errors carry a byte offset rather
   than a line and column.
 - `partials()` is O(n x value size), because each state it keeps has to be materialized before the
-  next write overwrites it. Reading transiently is free; keeping history is not.
+  next write overwrites it. Reading transiently through `withView` is free; keeping history is
+  not, and measures 52x the parse on an array of structs.
 - Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
   eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in

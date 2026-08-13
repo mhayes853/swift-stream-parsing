@@ -24,6 +24,28 @@ public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> St
   }
 }
 
+// A view over an optional member, or nil when the member has not been written yet.
+//
+// The same shape works for every member the macro emits, which is what lets it stay ignorant of
+// which ones are objects: a scalar's view is the scalar, so this reads it, while a nested object's
+// view is a projection, so this defers. Relies on the offset zero payload layout, like the entry
+// helpers above.
+@inlinable
+public func _streamMemberView<T: StreamParseableRoot>(
+  _ value: UnsafeMutablePointer<T?>
+) -> T.View? {
+  guard value.pointee != nil else { return nil }
+  return T.streamView(UnsafeMutableRawPointer(value))
+}
+
+// The initialized members mode gives non-optional members, which are always present.
+@inlinable
+public func _streamMemberView<T: StreamParseableRoot>(
+  _ value: UnsafeMutablePointer<T>
+) -> T.View? {
+  T.streamView(UnsafeMutableRawPointer(value))
+}
+
 // Materializes an optional in place so the wrapped type's schema can be applied to the same
 // address. Relies on the same offset zero payload layout as the entry helpers above.
 @inlinable

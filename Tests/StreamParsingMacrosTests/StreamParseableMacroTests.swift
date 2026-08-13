@@ -55,6 +55,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -203,6 +223,26 @@ extension BaseTestSuite {
                 name: self.name.streamSnapshot(),
                 age: self.age.streamSnapshot()
               )
+            }
+
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -461,6 +501,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x654B_6D6F_7473_7563 where key.count == 13:
@@ -694,6 +754,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -843,6 +923,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String?.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int?.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -987,6 +1087,22 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_0065_6761:
@@ -1123,6 +1239,22 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var stored: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473:
@@ -1254,6 +1386,22 @@ extension BaseTestSuite {
               Self(
                 name: self.name.streamSnapshot()
               )
+            }
+
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1414,6 +1562,22 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var stored: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473:
@@ -1549,6 +1713,26 @@ extension BaseTestSuite {
                 name: self.name.streamSnapshot(),
                 age: self.age.streamSnapshot()
               )
+            }
+
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -1833,6 +2017,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -1982,6 +2186,26 @@ extension BaseTestSuite {
               )
             }
 
+            public struct View: ~Copyable {
+              public let storage: UnsafeMutablePointer<Partial>
+
+              public init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            public var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            public var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -2127,6 +2351,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -2270,6 +2514,26 @@ extension BaseTestSuite {
                 name: self.name.streamSnapshot(),
                 age: self.age.streamSnapshot()
               )
+            }
+
+            fileprivate struct View: ~Copyable {
+              fileprivate let storage: UnsafeMutablePointer<Partial>
+
+              fileprivate init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            fileprivate var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            fileprivate var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            fileprivate static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2421,6 +2685,26 @@ extension BaseTestSuite {
               )
             }
 
+            public struct View: ~Copyable {
+              public let storage: UnsafeMutablePointer<Partial>
+
+              public init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            public var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            public var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E:
@@ -2568,6 +2852,26 @@ extension BaseTestSuite {
                 name: self.name.streamSnapshot(),
                 age: self.age.streamSnapshot()
               )
+            }
+
+            public struct View: ~Copyable {
+              public let storage: UnsafeMutablePointer<Partial>
+
+              public init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            public var name: String?.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            public var age: Optional<Int>.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
@@ -2721,6 +3025,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62:
@@ -2870,6 +3194,26 @@ extension BaseTestSuite {
               )
             }
 
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62:
@@ -3017,6 +3361,26 @@ extension BaseTestSuite {
                 name: self.name.streamSnapshot(),
                 age: self.age.streamSnapshot()
               )
+            }
+
+            struct View: ~Copyable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var name: String.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+              }
+
+            var age: Int.Partial.View? {
+                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+              }
+            }
+
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {

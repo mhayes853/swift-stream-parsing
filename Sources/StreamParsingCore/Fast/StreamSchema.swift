@@ -95,6 +95,24 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// into, and changes after the fact. Rebuilding those buffers is what makes a kept value a
   /// snapshot of the moment rather than a window onto the present.
   func streamSnapshot() -> Self
+
+  /// A borrowed window onto the value, for reading part of it without copying the whole.
+  ///
+  /// Defaults to the value itself, which is what a scalar wants: there is nothing to defer. A
+  /// type with members worth reading one at a time overrides it with a projection whose accessors
+  /// copy only what they return.
+  associatedtype View: ~Copyable = Self
+
+  /// Builds a view over a value at `storage`, which must outlive the view.
+  static func streamView(_ storage: UnsafeMutableRawPointer) -> View
+}
+
+extension StreamParseableRoot {
+  // A view of a value with nothing to project is the value. Containers land here too, so reading
+  // one through a view snapshots it, which is the only safe thing to hand back.
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> Self {
+    storage.assumingMemoryBound(to: Self.self).pointee.streamSnapshot()
+  }
 }
 
 extension StreamParseableRoot {
