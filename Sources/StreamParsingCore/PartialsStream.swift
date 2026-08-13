@@ -140,6 +140,16 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     }
   }
 
+  public mutating func nextSnapshot(_ bytes: some Sequence<UInt8>) throws -> Value {
+    try self.next(bytes)
+    return self.current
+  }
+
+  public mutating func nextSnapshot(_ byte: UInt8) throws -> Value {
+    try self.next(byte)
+    return self.current
+  }
+
   private mutating func parse(_ bytes: some Sequence<UInt8>) throws {
     let parsed: Void? = try bytes.withContiguousStorageIfAvailable { buffer in
       try self.parser.parse(buffer, into: &self.sink)
