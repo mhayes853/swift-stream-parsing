@@ -114,9 +114,9 @@ struct `Stream view tests` {
     var stream = PartialsStream(initialValue: ViewProfile.Partial(), from: .json())
     try stream.next(Array(#"{"scores":[1,2"#.utf8))
     let scores = stream.withView { $0.scores }
-    #expect(scores == [1])
+    #expect(scores == [1, 2])
     try stream.next(Array("3,4]}".utf8))
-    #expect(scores == [1], "the value read out should not have followed the parse")
+    #expect(scores == [1, 2], "the value read out should not have followed the parse")
     #expect(stream.current.scores == [1, 23, 4])
   }
 

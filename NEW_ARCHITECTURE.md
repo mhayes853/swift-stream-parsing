@@ -93,6 +93,28 @@ number dense payload.
 `NumberInfo` carries magnitude, decimal exponent, digit count and flags, so floats are built by
 accumulation rather than a string round trip.
 
+**A value is reported after every digit**, so a number can be rendered as it arrives rather than
+appearing whole at its delimiter. The provisional values carry `.incomplete`, because they are not
+prefixes of the final value the way a partial string is: `1234` reports 1, then 12, then 123, and
+`-1.5e2` reports −1.5 before it reports −150. Each is a different number by an order of magnitude,
+so a consumer that cannot tolerate that has a flag to test.
+
+It costs a sink call per digit, and the cost lands entirely on number dense input:
+
+| bulk benchmark | at token end | per digit |
+|---|---|---|
+| Nested arrays (int matrix) | 17 µs | **21 µs** |
+| Array of structs | 14 µs | 14 µs |
+| Dictionary | 5419 ns | 4751 ns |
+| Flat struct | 458 ns | 459 ns |
+| Long string | 792 ns | 791 ns |
+| Nested structs | 542 ns | 542 ns |
+
+**The sink has to resolve a number's destination once, not per event.** Resolving per event
+appends a fresh array element per digit, which turned `[1,2` into `[1, 1, 2]`. Numbers are tracked
+like strings now: a target is resolved on the first event of a token and reused until one arrives
+without `.incomplete`.
+
 ### Keys: precomputed words, no Dictionary
 
 ns per lookup:
@@ -388,11 +410,10 @@ in a module that does not enable it. So the floor stays where it was rather than
   bound before that path can be called exact.
 - Lone high surrogates are rejected, but the check happens at run and string end rather than
   immediately.
-- Two token timing changes, both inherent to the design rather than incidental. A number
-  materializes when its token ends rather than per digit, because the fused scan has nothing to
-  emit until then, and a bare number at the root therefore only lands at `finish()`. A container
-  materializes its slot on entry, so a dictionary key is visible with its initial value before the
-  value arrives.
+- A container materializes its slot on entry, so a dictionary key is visible with its initial
+  value before the value arrives.
+- A provisional number is a different number, not an approaching one. `.incomplete` says so, but
+  a consumer that ignores the flag will see `100` pass through 1 and 10 on its way.
 - Error reasons are coarser: `missingColon`, `trailingComma`, `missingComma` and
   `missingClosingBrace` all collapse into `unexpectedToken`, and errors carry a byte offset rather
   than a line and column.
@@ -409,4 +430,6 @@ in a module that does not enable it. So the floor stays where it was rather than
   append, so a long name streamed byte by byte is quadratic.
 - swift-collections containers cannot be parsed into directly, only converted to. The macro reads
   container shape from syntax and cannot see through a generic identifier.
-- Nested arrays throughput is below target.
+- Nested arrays throughput is below target, and per digit number reporting moved it further from
+  it: 17 µs to 21 µs on the bulk benchmark. That payload is an integer matrix, so it pays the new
+  sink call more often than anything else measured.

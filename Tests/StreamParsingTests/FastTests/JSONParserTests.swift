@@ -41,7 +41,10 @@ struct TreeSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
 
   var value: Node? { self.root }
+  // Completed numbers only. A number is now reported after every digit, so the provisional runs
+  // are kept apart rather than mixed in with the values the document actually contains.
   private(set) var numbers = [NumberInfo]()
+  private(set) var provisionalNumbers = [NumberInfo]()
 
   mutating func beginObject() { self.frames.append(.object([], pendingKey: nil)) }
   mutating func beginArray() { self.frames.append(.array([])) }
@@ -80,6 +83,10 @@ struct TreeSink: StreamParseSink {
   mutating func stringEnd() { self.deliver(.string(self.currentString)) }
 
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard !info.flags.contains(.incomplete) else {
+      self.provisionalNumbers.append(info)
+      return
+    }
     self.numbers.append(info)
     var text = ""
     bytes.withUnsafeBufferPointer { text = String(decoding: $0, as: UTF8.self) }
@@ -215,6 +222,42 @@ struct `JSON parser tests` {
   ])
   func `Rejects malformed input`(json: String) {
     #expect(throws: JSONParsingError.self) { try parse(json) }
+  }
+
+  // A number is reported after every digit, so a caller can render it as it arrives. The
+  // provisional values are not prefixes of the final one in any useful sense: each is a
+  // different number, which is why they carry a flag saying so.
+  @Test
+  func `Reports a value after every digit`() throws {
+    let sink = try parse("[1234]")
+    #expect(sink.provisionalNumbers.map(\.magnitude) == [1, 12, 123, 1234])
+    #expect(sink.provisionalNumbers.allSatisfy { $0.flags.contains(.incomplete) })
+    #expect(sink.numbers.map(\.magnitude) == [1234])
+    #expect(sink.numbers.allSatisfy { !$0.flags.contains(.incomplete) })
+  }
+
+  // Only digits move the value, so the dot and the exponent marker report nothing of their own.
+  @Test
+  func `Reports provisional values through fractions and exponents`() throws {
+    let fraction = try parse("[1.25]")
+    #expect(fraction.provisionalNumbers.map(\.magnitude) == [1, 12, 125])
+    #expect(fraction.provisionalNumbers.map(\.exponent) == [0, -1, -2])
+
+    // -1.5e2 is -1.5 until the exponent lands, then -150: a hundredfold move, not a refinement.
+    let exponent = try parse("[-1.5e2]")
+    #expect(exponent.provisionalNumbers.map(\.magnitude) == [1, 15, 15])
+    #expect(exponent.provisionalNumbers.map(\.exponent) == [0, -1, 1])
+    #expect(exponent.numbers.map(\.exponent) == [1])
+  }
+
+  // A token split across chunks keeps reporting, and its span stays contiguous across the
+  // boundary so a consumer that re-scans the bytes sees the whole prefix.
+  @Test
+  func `Reports provisional values across a chunk boundary`() throws {
+    let sink = try parse("[-1.5e2]", chunk: 3)
+    #expect(sink.provisionalNumbers.map(\.magnitude) == [1, 15, 15])
+    #expect(sink.numbers.map(\.magnitude) == [15])
+    #expect(sink.numbers.map(\.exponent) == [1])
   }
 
   @Test

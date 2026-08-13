@@ -17,6 +17,11 @@ public struct NumberInfo: Hashable, Sendable {
     public static let fraction = Flags(rawValue: 1 << 1)
     public static let exponent = Flags(rawValue: 1 << 2)
     public static let overflowed = Flags(rawValue: 1 << 3)
+
+    /// The token is still being read, so this value describes the digits so far rather than the
+    /// number the document contains. A numeric prefix is not a value prefix: `1234` reports 1,
+    /// then 12, then 123 on the way, each a different number by an order of magnitude.
+    public static let incomplete = Flags(rawValue: 1 << 4)
   }
 
   public init(

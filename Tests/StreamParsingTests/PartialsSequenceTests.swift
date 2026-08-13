@@ -19,7 +19,7 @@ struct `PartialsSequence Tests` {
     let partials = try byteStream.partials(initialValue: [Int](), from: .json())
     expectNoDifference(
       partials,
-      [[], [], [1], [1], [1, 2], [1, 2], [1, 2, 3], [1, 2, 3]]
+      [[], [1], [1], [1, 2], [1, 2], [1, 2, 3], [1, 2, 3], [1, 2, 3]]
     )
   }
 

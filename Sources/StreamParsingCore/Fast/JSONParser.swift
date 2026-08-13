@@ -451,10 +451,16 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) -> Int {
     let start = from
     var i = from
+    // A number that began in an earlier chunk has its head in the buffer, so the provisional
+    // span has to come from there to stay contiguous. One that begins here is already
+    // contiguous in the input and needs no copy, which is the common case.
+    let spansChunks = self.bufferCount > 0
     while i < to {
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
       let digit = byte &- .asciiZero
+      var isDigit = false
       if digit < 10 {
+        isDigit = true
         if self.inExponent {
           self.exponentDigits &+= 1
           if self.explicitExponent < 10_000 {
@@ -489,6 +495,29 @@ public struct JSONParser: ~Copyable {
       } else {
         break
       }
+
+      // Past every break, so the byte is part of the token. The spanning case copies as it goes,
+      // because its span has to include the head already sitting in the buffer.
+      if spansChunks {
+        try self.appendToBuffer(base: base, from: i, count: 1)
+      }
+
+      // Only digits move the value, so only digits are worth reporting: a dot or an exponent
+      // marker on its own describes the same number as the digit before it.
+      if isDigit {
+        if spansChunks {
+          let buffered = UnsafeBufferPointer(
+            start: self.buffer.baseAddress!, count: self.bufferCount
+          )
+          self.emitProvisionalNumber(Span(_unsafeElements: buffered), into: &sink)
+        } else {
+          let prefix = UnsafeBufferPointer(
+            start: base.advanced(by: start).assumingMemoryBound(to: UInt8.self),
+            count: i &- start &+ 1
+          )
+          self.emitProvisionalNumber(Span(_unsafeElements: prefix), into: &sink)
+        }
+      }
       i &+= 1
     }
 
@@ -504,7 +533,11 @@ public struct JSONParser: ~Copyable {
       return i
     }
 
-    try self.appendToBuffer(base: base, from: start, count: i &- start)
+    // The spanning path already copied every digit it consumed, so only the non digit bytes of
+    // this run remain to be appended.
+    if !spansChunks {
+      try self.appendToBuffer(base: base, from: start, count: i &- start)
+    }
 
     guard i < to else { return i }
     try self.emitBufferedNumber(into: &sink)
@@ -520,6 +553,26 @@ public struct JSONParser: ~Copyable {
     let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
     try self.emitNumber(Span(_unsafeElements: slice), into: &sink)
     self.bufferCount = 0
+  }
+
+  // Emits the value the digits seen so far describe, without validating: a prefix of a valid
+  // token is not itself a valid token, so `1e` and `0` on the way to `01` must not be rejected
+  // here. Validation stays at the token boundary, where the grammar is decidable.
+  @inlinable
+  mutating func emitProvisionalNumber<Sink: StreamParseSink & ~Copyable>(
+    _ bytes: Span<UInt8>,
+    into sink: inout Sink
+  ) {
+    if self.digitCount > 19 { self.numberFlags.insert(.overflowed) }
+    let signedExponent = self.exponentNegative ? -self.explicitExponent : self.explicitExponent
+    let net = signedExponent &- self.fractionDigits
+    let info = NumberInfo(
+      magnitude: self.magnitude,
+      exponent: Int16(clamping: net),
+      digitCount: self.digitCount,
+      flags: self.numberFlags.union(.incomplete)
+    )
+    sink.number(bytes, info: info)
   }
 
   @inlinable

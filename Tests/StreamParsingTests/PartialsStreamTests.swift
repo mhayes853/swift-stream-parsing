@@ -48,7 +48,7 @@ struct `PartialsStream Tests` {
     for byte in "[1,2".utf8 {
       try stream.next(byte)
     }
-    #expect(stream.current == [1])
+    #expect(stream.current == [1, 2])
     #expect(throws: JSONParsingError.self) {
       _ = try stream.finish()
     }
