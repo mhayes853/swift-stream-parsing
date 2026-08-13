@@ -13,7 +13,7 @@ public struct StreamFrame {
   }
 }
 
-public struct StreamSchema: @unchecked Sendable {
+public struct StreamSchema: Sendable {
   public enum Shape: UInt8, Sendable {
     case object
     case array

@@ -1,7 +1,7 @@
 // MARK: - Protocols
 
 // Anything a container can hold, since an element has to exist before it can be written into.
-public protocol StreamInitializable {
+public protocol StreamInitializable: SendableMetatype {
   static func streamInitialValue() -> Self
 }
 
@@ -14,15 +14,15 @@ extension StreamStringConvertible {
   public mutating func streamReserve(utf8ByteCount: Int) {}
 }
 
-public protocol StreamNumberConvertible {
+public protocol StreamNumberConvertible: SendableMetatype {
   init?(streamParsing bytes: Span<UInt8>, info: NumberInfo)
 }
 
-public protocol StreamBooleanConvertible {
+public protocol StreamBooleanConvertible: SendableMetatype {
   init(streamParsingBoolean value: Bool)
 }
 
-public protocol StreamNullable {
+public protocol StreamNullable: SendableMetatype {
   static func streamNullValue() -> Self
 }
 
