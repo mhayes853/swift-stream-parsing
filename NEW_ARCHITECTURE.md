@@ -137,8 +137,10 @@ costs 24 ms against 449 µs for parsing the same payload and observing nothing.
 `withView` hands over a projection instead. It is `~Copyable` and arrives borrowed, which is what
 stops it outliving the parser's storage: `copy` is rejected for a noncopyable type, `consume` is
 rejected on a borrow, and an implicit conversion out is rejected as consuming. Nothing needs
-`~Escapable`, which matters because that requires an experimental feature flag and the macro emits
-into the user's module.
+`~Escapable`, which matters because that requires an experimental feature flag *at every use
+site*, and the macro emits into the user's module. `SuppressedAssociatedTypes` is enabled on the
+library targets alone, because suppressing the requirement is the declaration's business and
+satisfying it is not.
 
 Accessors copy per member rather than per value, and a nested object yields another view, so
 reading one leaf never materializes the levels above it:
@@ -364,10 +366,12 @@ consumers are the stream types that phase rewrites.
   strings rather than the five the test first claimed, and a sink that counts strings only in the
   collapsed `string(_:)` counts zero, because the parser buffers keys but emits strings as runs.
 
-**Swift 6.4 is now the floor.** 6.3.2 rejects `associatedtype View: ~Copyable`, which the view
-layer needs, and rejects it on Darwin as well as under the embedded compiler. That went unnoticed
-because Xcode-beta ships 6.4, so the ordinary `swift build` never saw it. It is the only thing
-6.3.2 rejects.
+**The view layer needs `SuppressedAssociatedTypes`, and only the library needs it.** 6.3.2
+rejects `associatedtype View: ~Copyable` outright, on Darwin as well as under the embedded
+compiler, which went unnoticed because Xcode-beta ships 6.4. Enabling the experimental feature on
+the two library targets is enough: a module that provides a noncopyable `View` for the associated
+type compiles without it, which was checked with a consumer standing in for macro generated code
+in a module that does not enable it. So the floor stays where it was rather than moving to 6.4.
 
 ### Phase 7 — CI and hardening
 

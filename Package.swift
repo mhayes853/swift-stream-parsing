@@ -46,7 +46,8 @@ let package = Package(
   targets: [
     .target(
       name: "StreamParsing",
-      dependencies: ["StreamParsingCore", "StreamParsingMacros"]
+      dependencies: ["StreamParsingCore", "StreamParsingMacros"],
+      swiftSettings: [.enableExperimentalFeature("SuppressedAssociatedTypes")]
     ),
     .target(
       name: "StreamParsingCore",
@@ -62,7 +63,10 @@ let package = Package(
           condition: .when(traits: ["StreamParsingTagged"])
         )
       ],
-      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
+      swiftSettings: [
+        .enableExperimentalFeature(StreamParsing128BitIntegers),
+        .enableExperimentalFeature("SuppressedAssociatedTypes")
+      ]
     ),
     .macro(
       name: "StreamParsingMacros",

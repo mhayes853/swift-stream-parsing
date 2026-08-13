@@ -1,3 +1,7 @@
+// Embedded Swift has no AsyncSequence in the 6.3 SDK and no use for one regardless: a target
+// with no scheduler is not consuming an async byte stream. Gated rather than conditionally
+// available, so the rest of the core stays embedded clean on both toolchains.
+#if !hasFeature(Embedded)
 extension AsyncSequence where Element == UInt8 {
   /// Incrementally parses bytes as a value in an async sequence.
   ///
@@ -140,3 +144,4 @@ public struct AsyncPartialsSequence<
 
 extension AsyncPartialsSequence: Sendable
 where Element: Sendable, Base: Sendable, Seq: Sendable {}
+#endif

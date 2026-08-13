@@ -16,7 +16,15 @@ them, or at link time. A compile-only check is not enough, so this produces an a
 `.wasm`, and running it checks the parse rather than just the lowering: `precondition` traps as
 `unreachable`, so a wrong answer fails the run.
 
-Swift 6.4 or newer. 6.3.2 rejects `associatedtype View: ~Copyable`, which the view layer needs.
+Builds on 6.3.2 and on 6.4. The core enables `SuppressedAssociatedTypes` for the view layer's
+`associatedtype View: ~Copyable`; consumers do not need the flag. `AsyncSequence+Partials.swift`
+is gated out under `hasFeature(Embedded)`, since the 6.3 embedded SDK has no concurrency and a
+target with no scheduler has no use for an async byte stream.
+
+```sh
+swiftly run +6.3.2 swift build --package-path EmbeddedSmoke \
+  --swift-sdk swift-6.3.2-RELEASE_wasm-embedded
+```
 
 What it covers:
 

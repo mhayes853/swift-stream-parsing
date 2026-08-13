@@ -144,11 +144,14 @@ struct EmbeddedSmoke {
         var parser = JSONParser(buffer: scratch)
         var sink = SmokeSink()
         let bad: StaticString = #"{"a":1,}"#
+        // `try?` rather than a catch: an untyped catch binds `any Error`, which embedded Swift
+        // rejects outright. The parser's throws are typed, so nothing is lost.
         bad.withUTF8Buffer { input in
-          do {
-            try parser.parse(input, into: &sink)
-            try parser.finish(into: &sink)
-          } catch {
+          if (try? parser.parse(input, into: &sink)) == nil {
+            rejected = true
+            return
+          }
+          if (try? parser.finish(into: &sink)) == nil {
             rejected = true
           }
         }
