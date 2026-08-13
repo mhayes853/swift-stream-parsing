@@ -356,7 +356,18 @@ consumers are the stream types that phase rewrites.
   literals, arrays, dictionaries and nested structs was checked against the grammar by hand.
 - `withView` and the generated per-member projections, with the benchmark above as the argument
   for them.
-- Point `EmbeddedSmoke` at the real core. **Still to do.**
+- `EmbeddedSmoke` links the real core now: it parses a payload through `JSONParser` and a hand
+  written sink, on a caller supplied buffer with no `String` or `Array` anywhere, checks counts
+  and checksums across chunk sizes 7, 3 and 1, and requires a malformed document to be rejected.
+  Running it is part of the check rather than just linking it, since `precondition` traps as
+  `unreachable` and a wrong answer fails the run. It caught two things: the payload has four
+  strings rather than the five the test first claimed, and a sink that counts strings only in the
+  collapsed `string(_:)` counts zero, because the parser buffers keys but emits strings as runs.
+
+**Swift 6.4 is now the floor.** 6.3.2 rejects `associatedtype View: ~Copyable`, which the view
+layer needs, and rejects it on Darwin as well as under the embedded compiler. That went unnoticed
+because Xcode-beta ships 6.4, so the ordinary `swift build` never saw it. It is the only thing
+6.3.2 rejects.
 
 ### Phase 7 — CI and hardening
 
