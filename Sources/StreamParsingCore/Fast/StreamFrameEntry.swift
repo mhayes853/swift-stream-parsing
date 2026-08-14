@@ -89,29 +89,27 @@ public func _streamEnterContainer<T>(_ value: inout T, schema: StreamSchema) -> 
   }
 }
 
-// Appends an element and returns a frame for it. The element pointer is only used while this
-// element is the innermost open container, so no append can move the buffer under it.
+// Opens an element and returns a frame for it. The frame points at the array's inline pending
+// slot, whose address is fixed for the lifetime of the array, so no append at any depth can move
+// it. The slot holds one element at a time, which is what makes it a requirement that no write
+// straddle a commit: a pointer kept past the next `_openElement` reaches a different element.
 @inlinable
-public func _streamAppendElement<Element>(
-  to array: inout [Element],
+public func _streamOpenElement<Element>(
+  in array: inout StreamArray<Element>,
   initial: @autoclosure () -> Element,
   schema: StreamSchema
 ) -> StreamFrame {
-  array.append(initial())
-  let index = array.count - 1
-  return array.withUnsafeMutableBufferPointer {
-    StreamFrame(storage: UnsafeMutableRawPointer($0.baseAddress! + index), schema: schema)
-  }
+  StreamFrame(storage: array._openElement(initial()), schema: schema)
 }
 
 @inlinable
-public func _streamAppendElement<Element>(
-  toOptional array: inout [Element]?,
+public func _streamOpenElement<Element>(
+  inOptional array: inout StreamArray<Element>?,
   initial: @autoclosure () -> Element,
   schema: StreamSchema
 ) -> StreamFrame {
-  if array == nil { array = [] }
-  return _streamAppendElement(to: &array!, initial: initial(), schema: schema)
+  if array == nil { array = StreamArray<Element>() }
+  return _streamOpenElement(in: &array!, initial: initial(), schema: schema)
 }
 
 @inlinable
@@ -121,10 +119,9 @@ public func _streamEnterDictionaryValue<Value>(
   initial: @autoclosure () -> Value,
   schema: StreamSchema
 ) -> StreamFrame {
-  let slot = dictionary._slot(forKey: key, initial: initial())
-  return dictionary._withValueStorage(at: slot) {
-    StreamFrame(storage: $0, schema: schema)
-  }
+  StreamFrame(
+    storage: dictionary._openValue(forKey: key, initial: initial()), schema: schema
+  )
 }
 
 @inlinable

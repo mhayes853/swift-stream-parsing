@@ -50,19 +50,19 @@ struct `Partial sink root tests` {
 
   @Test(arguments: [Int.max, 7, 1])
   func `A bare array document parses into an array root`(chunk: Int) throws {
-    #expect(try self.parse("[1,2,3]", as: [Int].self, chunk: chunk) == [1, 2, 3])
-    #expect(try self.parse("[]", as: [Int].self, chunk: chunk) == [])
+    #expect(try self.parse("[1,2,3]", as: StreamArray<Int>.self, chunk: chunk) == [1, 2, 3])
+    #expect(try self.parse("[]", as: StreamArray<Int>.self, chunk: chunk) == [])
     #expect(
-      try self.parse(#"["a","b"]"#, as: [String].self, chunk: chunk) == ["a", "b"]
+      try self.parse(#"["a","b"]"#, as: StreamArray<String>.self, chunk: chunk) == ["a", "b"]
     )
-    #expect(try self.parse("[true,false]", as: [Bool].self, chunk: chunk) == [true, false])
+    #expect(try self.parse("[true,false]", as: StreamArray<Bool>.self, chunk: chunk) == [true, false])
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `An array of objects parses at the root`(chunk: Int) throws {
     let users = try self.parse(
       #"[{"id":1,"name":"A"},{"id":2,"name":"B"}]"#,
-      as: [RootUser.Partial].self,
+      as: StreamArray<RootUser.Partial>.self,
       chunk: chunk
     )
     #expect(users.count == 2)
@@ -74,7 +74,7 @@ struct `Partial sink root tests` {
 
   @Test(arguments: [Int.max, 7, 1])
   func `Nested arrays parse at the root`(chunk: Int) throws {
-    let rows = try self.parse("[[1,2],[],[3]]", as: [[Int]].self, chunk: chunk)
+    let rows = try self.parse("[[1,2],[],[3]]", as: StreamArray<StreamArray<Int>>.self, chunk: chunk)
     #expect(rows == [[1, 2], [], [3]])
   }
 
@@ -114,7 +114,7 @@ struct `Partial sink root tests` {
 
   @Test
   func `A scalar document leaves a container root untouched`() throws {
-    #expect(try self.parse(#""x""#, as: [Int].self) == [])
-    #expect(try self.parse("1", as: [Int].self) == [])
+    #expect(try self.parse(#""x""#, as: StreamArray<Int>.self) == [])
+    #expect(try self.parse("1", as: StreamArray<Int>.self) == [])
   }
 }

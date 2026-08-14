@@ -77,17 +77,19 @@ public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {
 
 @inlinable
 public func _streamEnterArrayField<Element: StreamInitializable>(
-  _ value: inout [Element]?,
+  _ value: inout StreamArray<Element>?,
   element: StreamSchema
 ) -> StreamFrame? {
   _streamEnterOptionalContainer(
-    &value, initial: [], schema: _streamArraySchema(Element.self, element: element)
+    &value,
+    initial: StreamArray<Element>(),
+    schema: _streamArraySchema(Element.self, element: element)
   )
 }
 
 @inlinable
 public func _streamEnterArrayField<Element: StreamInitializable>(
-  _ value: inout [Element],
+  _ value: inout StreamArray<Element>,
   element: StreamSchema
 ) -> StreamFrame? {
   _streamEnterContainer(&value, schema: _streamArraySchema(Element.self, element: element))

@@ -44,7 +44,7 @@ struct `PartialsStream Tests` {
   // parser: every prefix is a legitimate state until the caller says there is no more input.
   @Test
   func `Finish Throws On An Incomplete Document`() throws {
-    var stream = PartialsStream(initialValue: [Int](), from: .json())
+    var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
     for byte in "[1,2".utf8 {
       try stream.next(byte)
     }
@@ -58,7 +58,7 @@ struct `PartialsStream Tests` {
   // survive the stream being moved. Nesting is where a stale pointer would show up.
   @Test
   func `Deeply Nested Values Update Across Bytes`() throws {
-    var stream = PartialsStream(initialValue: [[Int]](), from: .json())
+    var stream = PartialsStream(initialValue: StreamArray<StreamArray<Int>>(), from: .json())
     for byte in "[[1],[2,3]]".utf8 {
       try stream.next(byte)
     }

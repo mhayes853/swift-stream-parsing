@@ -48,13 +48,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -221,13 +214,6 @@ extension BaseTestSuite {
 
             static func streamInitialValue() -> Self {
               Self()
-            }
-
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
             }
 
             struct View: ~Copyable {
@@ -504,13 +490,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -762,13 +741,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -936,13 +908,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -1106,12 +1071,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -1262,12 +1221,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                stored: self.stored.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -1413,12 +1366,6 @@ extension BaseTestSuite {
 
             static func streamInitialValue() -> Self {
               Self()
-            }
-
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot()
-              )
             }
 
             struct View: ~Copyable {
@@ -1593,12 +1540,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                stored: self.stored.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -1747,13 +1688,6 @@ extension BaseTestSuite {
 
             static func streamInitialValue() -> Self {
               Self()
-            }
-
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
             }
 
             struct View: ~Copyable {
@@ -2056,13 +1990,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -2230,13 +2157,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            public func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             public struct View: ~Copyable {
               public let storage: UnsafeMutablePointer<Partial>
 
@@ -2400,13 +2320,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -2568,13 +2481,6 @@ extension BaseTestSuite {
 
             fileprivate static func streamInitialValue() -> Self {
               Self()
-            }
-
-            fileprivate func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
             }
 
             fileprivate struct View: ~Copyable {
@@ -2744,13 +2650,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            public func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             public struct View: ~Copyable {
               public let storage: UnsafeMutablePointer<Partial>
 
@@ -2916,13 +2815,6 @@ extension BaseTestSuite {
 
             public static func streamInitialValue() -> Self {
               Self()
-            }
-
-            public func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
             }
 
             public struct View: ~Copyable {
@@ -3094,13 +2986,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -3266,13 +3151,6 @@ extension BaseTestSuite {
 
             static func streamInitialValue() -> Self {
               Self()
-            }
-
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
             }
 
             struct View: ~Copyable {
@@ -3442,13 +3320,6 @@ extension BaseTestSuite {
               Self()
             }
 
-            func streamSnapshot() -> Self {
-              Self(
-                name: self.name.streamSnapshot(),
-                age: self.age.streamSnapshot()
-              )
-            }
-
             struct View: ~Copyable {
               let storage: UnsafeMutablePointer<Partial>
 
@@ -3615,13 +3486,6 @@ extension BaseTestSuite {
 
             static func streamInitialValue() -> Self {
               Self()
-            }
-
-            func streamSnapshot() -> Self {
-              Self(
-                items: self.items.streamSnapshot(),
-                index: self.index.streamSnapshot()
-              )
             }
 
             struct View: ~Copyable {

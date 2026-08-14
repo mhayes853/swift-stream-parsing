@@ -11,6 +11,17 @@ public struct StreamDictionary<Value> {
   @usableFromInline var storedKeys: [String]
   @usableFromInline var storedValues: [Value]
 
+  // The entry being parsed, held inline for the same reason `StreamArray` holds its open element
+  // there: the parser's frame points at a slot no other value can see, so a write through it is an
+  // ordinary mutation rather than a raw write into a buffer a kept state is sharing. Without it,
+  // every state handed out while an object streams aliases the one being written.
+  //
+  // `pendingSlot` is where the entry belongs: an existing slot when the key repeats, which is what
+  // keeps `{"a":1,"b":2,"a":3}` in its original order, or `storedValues.count` when it is new.
+  @usableFromInline var pendingKey: String?
+  @usableFromInline var pendingValue: Value?
+  @usableFromInline var pendingSlot: Int
+
   // Built only once linear scanning stops paying. Streamed objects usually carry a handful of
   // dynamic keys, where a scan beats hashing: a Dictionary lookup measured at 9 to 10 ns
   // against 1.3 ns for a comparison based match.
@@ -21,6 +32,9 @@ public struct StreamDictionary<Value> {
   public init() {
     self.storedKeys = []
     self.storedValues = []
+    self.pendingKey = nil
+    self.pendingValue = nil
+    self.pendingSlot = 0
   }
 
   public init(_ elements: some Sequence<(key: String, value: Value)>) {
@@ -33,14 +47,21 @@ public struct StreamDictionary<Value> {
     for key in dictionary.keys.sorted() { self.updateValue(dictionary[key]!, forKey: key) }
   }
 
-  public var count: Int { self.storedValues.count }
-  public var isEmpty: Bool { self.storedValues.isEmpty }
+  // The pending entry only adds to the count when its key is a new one; a repeat shadows the slot
+  // it already occupies.
+  @usableFromInline var hasPendingAppend: Bool {
+    self.pendingKey != nil && self.pendingSlot == self.storedValues.count
+  }
 
-  public var keys: [String] { self.storedKeys }
-  public var values: [Value] { self.storedValues }
+  public var count: Int { self.storedValues.count + (self.hasPendingAppend ? 1 : 0) }
+  public var isEmpty: Bool { self.count == 0 }
+
+  public var keys: [String] { self.map(\.key) }
+  public var values: [Value] { self.map(\.value) }
 
   public subscript(key: String) -> Value? {
     get {
+      if let pendingKey, pendingKey == key { return self.pendingValue }
       guard let slot = self.slot(forKey: key) else { return nil }
       return self.storedValues[slot]
     }
@@ -52,6 +73,7 @@ public struct StreamDictionary<Value> {
 
   @discardableResult
   public mutating func updateValue(_ value: Value, forKey key: String) -> Value? {
+    self.drainPending()
     if let slot = self.slot(forKey: key) {
       let previous = self.storedValues[slot]
       self.storedValues[slot] = value
@@ -59,6 +81,22 @@ public struct StreamDictionary<Value> {
     }
     self.append(value, forKey: key)
     return nil
+  }
+
+  // Writes the open entry into storage. Both paths are ordinary mutations, so a state that shares
+  // the buffers copies them here rather than seeing them change.
+  @usableFromInline
+  mutating func drainPending() {
+    guard self.pendingKey != nil else { return }
+    var key = String?.none
+    var value = Value?.none
+    swap(&key, &self.pendingKey)
+    swap(&value, &self.pendingValue)
+    if self.pendingSlot < self.storedValues.count {
+      self.storedValues[self.pendingSlot] = value.unsafelyUnwrapped
+    } else {
+      self.append(value.unsafelyUnwrapped, forKey: key.unsafelyUnwrapped)
+    }
   }
 
   @usableFromInline
@@ -90,28 +128,27 @@ public struct StreamDictionary<Value> {
 // MARK: - Parsing support
 
 extension StreamDictionary {
-  // Returns the slot for a key, appending one when the key is new. Underscored because only
-  // macro generated code has a reason to call it.
+  /// Commits the open entry and opens one for `key`, returning the address of its slot.
+  ///
+  /// A repeated key resumes from the value already stored under it rather than resetting, which is
+  /// what the slot based version did. Underscored because only the frame entry helpers call it.
   @inlinable
-  public mutating func _slot(
+  public mutating func _openValue(
     forKey key: Span<UInt8>,
     initial: @autoclosure () -> Value
-  ) -> Int {
+  ) -> UnsafeMutableRawPointer {
     var text = ""
     key.withUnsafeBufferPointer { text = String(decoding: $0, as: UTF8.self) }
-    if let existing = self.slot(forKey: text) { return existing }
-    self.append(initial(), forKey: text)
-    return self.storedValues.count - 1
-  }
-
-  @inlinable
-  public mutating func _withValueStorage<R>(
-    at slot: Int,
-    _ body: (UnsafeMutableRawPointer) -> R
-  ) -> R {
-    self.storedValues.withUnsafeMutableBufferPointer {
-      body(UnsafeMutableRawPointer($0.baseAddress! + slot))
+    self.drainPending()
+    if let existing = self.slot(forKey: text) {
+      self.pendingSlot = existing
+      self.pendingValue = self.storedValues[existing]
+    } else {
+      self.pendingSlot = self.storedValues.count
+      self.pendingValue = initial()
     }
+    self.pendingKey = text
+    return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
   }
 }
 
@@ -121,18 +158,27 @@ extension StreamDictionary: Sequence, Collection {
   public typealias Element = (key: String, value: Value)
 
   public var startIndex: Int { 0 }
-  public var endIndex: Int { self.storedValues.count }
+  public var endIndex: Int { self.count }
   public func index(after i: Int) -> Int { i + 1 }
 
   public subscript(position: Int) -> Element {
-    (key: self.storedKeys[position], value: self.storedValues[position])
+    if let pendingKey, position == self.pendingSlot {
+      return (key: pendingKey, value: self.pendingValue.unsafelyUnwrapped)
+    }
+    return (key: self.storedKeys[position], value: self.storedValues[position])
   }
 }
 
 extension StreamDictionary: Equatable where Value: Equatable {
-  // Order sensitive, because the whole point of this type is that it has one.
+  // Order sensitive, because the whole point of this type is that it has one. Element wise rather
+  // than storage wise, since two dictionaries holding the same entries can differ in whether the
+  // last one has been committed out of the pending slot yet.
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.storedKeys == rhs.storedKeys && lhs.storedValues == rhs.storedValues
+    guard lhs.count == rhs.count else { return false }
+    for position in lhs.startIndex..<lhs.endIndex where lhs[position] != rhs[position] {
+      return false
+    }
+    return true
   }
 }
 

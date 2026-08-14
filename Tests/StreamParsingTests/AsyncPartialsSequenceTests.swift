@@ -12,8 +12,8 @@ struct `AsyncPartialsSequence Tests` {
       continuation.finish()
     }
 
-    var partials = [[Int]]()
-    for try await partial in byteStream.partials(initialValue: [Int](), from: .json()) {
+    var partials = [StreamArray<Int>]()
+    for try await partial in byteStream.partials(initialValue: StreamArray<Int>(), from: .json()) {
       partials.append(partial)
     }
 
@@ -27,8 +27,8 @@ struct `AsyncPartialsSequence Tests` {
       continuation.finish()
     }
 
-    var partials = [[Int]]()
-    for try await partial in byteStream.partials(initialValue: [Int](), from: .json()) {
+    var partials = [StreamArray<Int>]()
+    for try await partial in byteStream.partials(initialValue: StreamArray<Int>(), from: .json()) {
       partials.append(partial)
     }
 

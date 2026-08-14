@@ -8,7 +8,7 @@ struct `PartialsSequence Tests` {
   func `Emits Partial For Each Chunked Byte Input`() throws {
     let byteStream: [[UInt8]] = [Array("[1,2,3]".utf8)]
 
-    let partials = try byteStream.partials(initialValue: [Int](), from: .json())
+    let partials = try byteStream.partials(initialValue: StreamArray<Int>(), from: .json())
     expectNoDifference(partials, [[1, 2, 3], [1, 2, 3]])
   }
 
@@ -16,7 +16,7 @@ struct `PartialsSequence Tests` {
   func `Emits Partial For Each Byte`() throws {
     let byteStream = Array("[1,2,3]".utf8)
 
-    let partials = try byteStream.partials(initialValue: [Int](), from: .json())
+    let partials = try byteStream.partials(initialValue: StreamArray<Int>(), from: .json())
     expectNoDifference(
       partials,
       [[], [1], [1], [1, 2], [1, 2], [1, 2, 3], [1, 2, 3], [1, 2, 3]]

@@ -149,6 +149,41 @@ Foundation structs: `PersonNameComponents` is eight bytes on Darwin, a single ha
 property on it is computed. Scalars still work, because their inout scope is one call and the
 write back lands; only a frame, which outlives the call, does not.
 
+### Schemas: a reference, not a value
+
+`StreamSchema` began as a struct of eight closures, ~136 bytes, on the argument that non-capturing
+closures are thin function pointers: no allocation, no existential, no metatype. That was true and
+beside the point. It is stored by value in `StreamFrame`, in the frame stack and in `ScalarTarget`,
+so `frames.last`, the write back on every key and `T.streamSchema` on every element entry each
+copied all eight. A 110 byte flat struct with six members cost 275 retains.
+
+Making it a `final class`, p50:
+
+| | value | reference |
+| --- | --- | --- |
+| Array of structs, bulk | 251 µs | **79 µs** |
+| Array of structs, view read per 4 KB chunk | 255 µs | **79 µs** |
+| Array of structs, byte fed | 514 µs | **350 µs** |
+| Flat struct | 9.4 µs | **6.3 µs** |
+| Twitter 631 KB | 27 ms | **23 ms** |
+| retains, 100 users | 13,000 | **2,101** |
+
+**Malloc counts are identical everywhere**, which is what settles where the cost was: with a class
+every schema construction allocates, and none appeared, so nothing is built on the hot path and the
+retains were pure copying. All 21 fast interface benchmarks are unchanged within noise. Bulk gains
+3.2x where byte feeding gains 1.5x, because byte feeding is dominated by per byte parser entry and
+the sink is a smaller share of it.
+
+**Going further does not pay.** Holding the schema in the frame by pointer or unowned reference
+would remove the remaining ~2,100 retains, worth ~8 µs against 79 µs. It also forces the schema
+tree to be built once, because container schemas are per entry temporaries: `_streamEnterArrayField`
+builds a fresh array schema on every entry and the frame it returns is its only owner. A macro
+codegen change and an unchecked lifetime invariant, for 10%.
+
+What the change costs: a shared class refcount is one contended cache line, so many streams parsing
+the same type concurrently now contend where copying immortal closure contexts did not. Nothing
+here measures concurrency.
+
 ### Views: paying for what you read
 
 A value handed out while parsing continues shares the buffers being written into, so keeping one
@@ -277,6 +312,13 @@ and the only thing that moves it is feed granularity. Snapshotting after each 4 
 faster than byte fed parsing that observes nothing at all, so the guidance is to hand over the
 chunk that arrived rather than to observe less often.
 
+Every convenience layer number above predates the schema reference change, which took the same
+payload from 251 µs to 79 µs in bulk.
+
+`twitter.json` (631 KB, from yyjson_benchmark) is the first non-synthetic payload measured. Fast
+interface: 649–675 MB/s bulk, 473 at 64 B chunks, 171–177 byte by byte. The long string figure
+above is a memcpy benchmark by comparison, and this is the number worth quoting.
+
 ---
 
 ## Phase status
@@ -378,7 +420,7 @@ consumers are the stream types that phase rewrites.
 - `OrderedDictionary` bridging both ways, which insertion order makes lossless, plus
   `TreeDictionary` for contents only.
 
-### Phase 6 — Conveniences and removal (done, except EmbeddedSmoke)
+### Phase 6 — Conveniences and removal (done)
 
 - `PartialsStream` is `~Copyable` and owns the value in its own allocation, because the sink holds
   pointers into it that have to survive the stream being moved. `AsyncPartialsSequence` keeps it
@@ -425,10 +467,37 @@ in a module that does not enable it. So the floor stays where it was rather than
 
 ### Phase 7 — CI and hardening
 
-- Embedded compile job. None of the embedded blockers fail visibly on Darwin.
-- Benchmark regression job against a checked in baseline.
+- Embedded compile job (done). The wasm job installs the SDK, builds `EmbeddedSmoke` and runs it
+  under wasmtime, since a wrong answer has to fail rather than merely link. None of the embedded
+  blockers fail visibly on Darwin.
+- Benchmark regression job against a checked in baseline. A `pre-arc` baseline exists locally and
+  is 11 MB, which is more than belongs in the repo: the metric set or sample count wants trimming
+  first.
 - Re-measure byte by byte on a quiet machine; it varied ±40% across runs in development.
 - Revisit nested arrays, currently below the 300 target.
+- The full benchmark suite died once with SIGSEGV partway through and has not reproduced in six
+  runs since, with no crash report on disk. Raw pointers into array buffers make that worth
+  pinning rather than forgetting. Note that there are no longer any raw pointers into array
+  buffers, so if it reproduces the cause is elsewhere.
+
+### Phase 8 — StreamArray (done)
+
+- `StreamArray`, with the measurements above as the argument for its shape.
+- `Array`'s `StreamParseableRoot` conformance and `_streamAppendElement` removed, so no path writes
+  into an `Array` buffer through a raw pointer. `Array.Partial` is `StreamArray<Element.Partial>`,
+  which is the source breaking part: a root array is written `StreamArray<Int>()` now.
+- `streamSnapshot()` removed from the protocol, along with the macro's member wise implementation
+  and the recursive rebuild. A plain value copy is the snapshot.
+- **Removing it is what found the remaining aliasing.** Every one of the 292 tests passed except
+  seven, and all seven were `StreamDictionary` states showing a value that had not arrived yet,
+  because the dictionary still wrote into a shared buffer through a raw pointer. That is the same
+  bug `partials()` had, isolated to the one container that had not been converted.
+- `StreamDictionary` therefore has a `pendingKey`/`pendingValue` pair on the same rule: the open
+  entry is written inline and committed when the next one opens. A repeated key resumes from the
+  value already stored and commits back to its original slot, so `{"a":1,"b":2,"a":3}` keeps its
+  order. Its storage is still flat, which is a performance question rather than a correctness one.
+- `Codable` and `CustomReflectable` on `StreamArray`, both guarded out of the embedded build.
+  Without the mirror every custom dump and recorded snapshot shows the blocks and the pending slot.
 
 ---
 
@@ -445,9 +514,13 @@ in a module that does not enable it. So the floor stays where it was rather than
 - Error reasons are coarser: `missingColon`, `trailingComma`, `missingComma` and
   `missingClosingBrace` all collapse into `unexpectedToken`, and errors carry a byte offset rather
   than a line and column.
-- `partials()` is O(n x value size), because each state it keeps has to be materialized before the
-  next write overwrites it. Reading transiently through `withView` is free; keeping history is
-  not, and measures 52x the parse on an array of structs.
+- Keeping every state costs about twice the parse on an array of structs, down from 269x, because
+  a snapshot still copies the open element at each depth. Reading transiently through `withView`
+  is still cheaper.
+- `StreamDictionary` has an open entry slot and so hands out correct states, but its storage is
+  still flat: `storedKeys` and `storedValues` copy in full when a kept state shares them, and
+  appending a key to a shared `index` copies and rehashes the whole table. Correct, not yet
+  blocked.
 - Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
   eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in
@@ -461,15 +534,482 @@ in a module that does not enable it. So the floor stays where it was rather than
 - Nested arrays throughput is below target, and per digit number reporting moved it further from
   it: 17 µs to 21 µs on the bulk benchmark. That payload is an integer matrix, so it pays the new
   sink call more often than anything else measured.
+- A shared schema refcount is one contended cache line, so concurrent parses of the same type
+  contend where the value typed schema did not. No benchmark covers concurrency.
+- The Twitter benchmark model declares `screenName` and `followersCount`, which never match
+  `screen_name` and `followers_count`, so those members are always nil and the benchmark measures
+  more of the discard path than it appears to. Both benchmark files also use `try?`, so a payload
+  that aborted early would score as fast.
 
 ---
 
-## Other Tasks
+## Freezing the completed prefix
 
-So "the extreme case" is really "arrays and dictionaries observed per byte" — not snapshots in general.
+Built in phase 8. Snapshot cost was quadratic where parse cost is linear. Per byte snapshotting against the discarding
+floor:
 
-Three levers, cheapest first. Your chunk-size parameter is the obvious one: cost is exactly linear in snapshot count, so a knob buys the factor directly — 64 B chunks turn 20 ms into 477 µs, and it's a policy layer over the existing stream with no risk. I'd frame it as "snapshot every N bytes" or, more meaningfully, "snapshot on element boundaries", which coalesces naturally and gives a caller states that mean something rather than arbitrary byte cuts.
+| payload | discarding | snapshot per byte | retains |
+| --- | --- | --- | --- |
+| 10 users, ~600 B | 53 µs | 433 µs | 8.8K |
+| 100 users, 6.3 KB | 516 µs | 24 ms | 658K |
+| 400 users, 25 KB | 2.2 ms | 379 ms | 11M |
 
-Freezing the completed prefix is the structural fix. Everything left of the parse cursor is immutable — users[k] never changes once closed — so a snapshot only needs to copy the spine and could share completed elements by reference. That converts O(bytes × elements) into O(bytes) and would take the 400-user case from 311 ms toward its 1.8 ms parse floor. It needs a storage type where completed elements live in immutable blocks, so it's real work, and it's the thing I'd prototype behind these benchmarks rather than commit to blind.
+Mallocs stay at roughly one per snapshot at every size, so the cost is refcount traffic over copied
+elements rather than allocation. An 8 KB document snapshotted per byte costs 569 µs and 88 retains,
+which is what makes this arrays and dictionaries observed per byte, not snapshots in general.
 
-Making container writes CoW-friendly — routing element writes through the Array API instead of raw pointers — would make snapshots lazy like strings, but it puts a uniqueness check on the hot path for every write, penalising the common discarding case to speed up the rare one. I'd rule that one out.
+Everything left of the parse cursor is immutable — `users[k]` never changes once closed — so a
+snapshot only needs its own copy of the open element. `Array` cannot express that: any divergence
+from a shared buffer copies all of it, which is why `streamSnapshot()` is a full recursive rebuild.
+
+### The open element goes outside the storage
+
+Where the open element lives decides the shape of the whole thing. Put it *outside* the sealed
+storage, in a `pending` slot held inline in the container, and three things fall out together:
+
+- **A plain value copy is already a correct snapshot.** Sealed storage is immutable, `pending` is
+  copied inline, and nested containers recurse through ordinary value semantics. The recursive
+  rebuild in `streamSnapshot()` stops being necessary.
+- **The raw pointer bypass that caused the `partials()` bug disappears.** The parser's frame points
+  at the `pending` slot, and writes through it are ordinary mutations that respect the slot
+  contents' own copy on write. Nothing writes into element storage another value can see.
+- **Committing an element is the only operation that touches shared storage**, and it happens once
+  per element rather than once per byte.
+
+Chunking then bounds what that commit costs. With a plain `Array` behind `pending`, the first append
+after a snapshot copies all n elements, so per byte snapshotting costs O(n) per element — better
+than today and still quadratic. With fixed size blocks only the filling block is ever copied, so the
+same append costs at most B and the quadratic term becomes n·B.
+
+**No new sink event is needed.** A container commits its pending element when the next one opens,
+and readers see `pending` as the last element until then — which is what keeps an incomplete element
+visible while it streams. `endArray` needs nothing; the element simply stays pending until
+conversion. This matters because the sink has no notion of closing an element today: frames are
+popped without telling the container.
+
+### What the commit costs
+
+Moving the open element out of the buffer means every element is copied out of `pending` when the
+next one opens, where today it is filled in place and never copied. That is the price of the whole
+design and it lands on the discarding path, so it was measured before anything was built. An
+isolated append loop, p50 wall clock, against the append helper as it exists today. `narrow` is
+`Int?`/`String?`/`String?`, matching `BenchmarkUser.Partial`; the payload's names are 15 bytes or
+fewer and so are inline small strings, leaving one heap string per element. `wide` is four heap
+strings plus two numbers.
+
+| | array in place | pending, copied out | **pending, swapped out** |
+| --- | --- | --- | --- |
+| narrow, 100 | 8.0 µs | 10 µs | **7.6 µs** |
+| narrow, 400 | 29 µs | 38 µs | **29 µs** |
+| wide, 100 | 9 µs | 13 µs | **10 µs** |
+| wide, 400 | 35 µs | 49 µs | **39 µs** |
+
+**How the element leaves the slot matters more than that it leaves at all.** Reading it out and
+letting the reassignment destroy the original is two element sized copies; swapping a nil in is one,
+and the optimizer takes it as a move. `consume self.pending` is not the way to say that:
+
+```
+error: 'consume' can only be used to partially consume storage of a noncopyable type
+```
+
+With the swap the tax is nothing on a user shaped element and 11% on a fat one, *within the append
+loop*. That loop is around 10% of the bulk parse — 8.0 µs against the 78 µs the array of structs
+bulk benchmark measures — so end to end it is 0–1%. The cost tracks element size rather than
+refcounted field count, because there is no per element retain traffic: the move leaves nothing to
+retain.
+
+Two things went the other way from the estimate. **Blocks allocate less than `Array`, not more**:
+9 mallocs against 7 at wide 100, because `reserveCapacity(B)` per block beats geometric growth once
+there are a few blocks. And the per element retain tax estimated at ~5% is not there at all.
+
+### What the snapshot saves
+
+400 elements at 63 snapshots each, which is the user payload's byte count per element, so 25,200
+snapshots:
+
+| | array rebuild | pending copy | |
+| --- | --- | --- | --- |
+| dropped immediately | 84 ms, 25K mallocs, 5.08M retains | **86 µs**, 19 mallocs, 1.6K retains | 977x |
+| 16 deep window | 85 ms | **1.91 ms**, 426 mallocs, 83K retains | 44x |
+
+The dropped row is the methodology the existing benchmarks use, so it is what the 379 ms above is
+comparable to. The window row keeps history, which is the case the tables have never measured: it
+forces the tail to be shared at every append, so every commit pays its O(B) copy and every
+snapshot's retains are real. At 1.91 ms against a real byte fed 400 user parse of 1.49 ms, keeping
+16 states roughly doubles the parse. Today it is 379 ms against 2.2 ms.
+
+Correctness was checked alongside, with `blockCapacity` at 4 so that seals happen while snapshots
+share the spine: the `pending` slot keeps one address across every element and every seal, the live
+value reads back correctly, and snapshots taken *mid string* hold their own value while the parser
+keeps appending to the open element. No uniqueness handling is written anywhere — `ContiguousArray`
+does it.
+
+### Measured end to end
+
+Built, and measured against the same benchmarks on the same machine in the same session rather
+than against the tables above, which predate several other changes. p50 wall clock:
+
+| | before | after | |
+| --- | --- | --- | --- |
+| Array of structs, bulk, discarding | 78 µs, 115 mallocs, 2201 retains | 81 µs, 112, 2103 | −4% |
+| 100 users, byte fed, discarding | 360 µs, 115, 2101 | 351 µs, 112, 2003 | — |
+| 400 users, byte fed, discarding | 1486 µs, 417, 9001 | 1465 µs, 423, 8612 | — |
+| 100 users, snapshot per byte | 25 ms, 6398, 647K | **735 µs**, 112, 21K | 34x |
+| 400 users, snapshot per byte | 394 ms, 26K, 11M | **3.06 ms**, 423, 87K | 129x |
+| 8 KB document, snapshot per byte | 570 µs, 13, 17 | 560 µs, 13, 15 | — |
+
+**Snapshotting no longer allocates.** Mallocs on the per byte path drop from 6,398 to 112, which is
+the parse's own count: a snapshot used to cost an allocation and now costs a few retains. The
+document row is the control — it has no containers, so nothing should move, and nothing does.
+
+The discarding path is flat everywhere except the bulk benchmark, which is 4% slower. That is the
+commit copy, and it shows up there rather than in the byte fed rows because bulk parsing is the
+case where the append loop is the largest share of the work. It is the price the tables above
+predicted, landing where they predicted it.
+
+Snapshot per byte of 400 users is now 2.1x the discarding parse of the same payload, against 269x
+before, so keeping every state is finally the same order of magnitude as the parse rather than
+three orders above it.
+
+### Where the allocations went
+
+Those benchmarks drop each state before the next byte, so nothing is shared when a write happens
+and copy on write never fires. The allocations did not disappear, they became **conditional on the
+application keeping something**, which is worth measuring separately because the benchmarks never
+have. 100 users, states held in a rolling window or all at once:
+
+| retention | old mallocs | new mallocs | old p50 | new p50 |
+| --- | --- | --- | --- | --- |
+| dropped immediately | 6398 | **112** | 25 ms | **0.74 ms** |
+| window of 4 | 6589 | **399** | 24 ms | **0.85 ms** |
+| window of 16 | 6589 | **399** | 24 ms | **0.85 ms** |
+| window of 64 | 6589 | **399** | 24 ms | **0.85 ms** |
+| every state | 6589 | **399** | 25 ms | **0.76 ms** |
+
+**Both sides are flat in retention depth, and that is the point.** The old rebuild allocated per
+snapshot whether or not the snapshot was kept, so dropping one cost the same as keeping it. The new
+one allocates per *divergence point*: the first commit after a snapshot copies the filling block,
+and every later snapshot then shares the new block, so holding 6,293 states costs exactly what
+holding 4 costs. 287 mallocs over the parse floor across 100 elements is about three per element —
+one tail block copy per commit while shared, one spine copy per 32 commits, and the open element's
+own buffers.
+
+**Except for the element's own storage, which is unchanged.** An 8 KB document held at every byte:
+
+| | old | new |
+| --- | --- | --- |
+| mallocs | 7994 | 7994 |
+| retains | 16K | 16K |
+| p50 | 2.95 ms | 3.20 ms |
+
+One allocation per append, because a retained state shares the `String` buffer and the parser's
+next append copies it. Nothing in the container design touches that, and nothing was expected to:
+the old `streamSnapshot()` shared string buffers too, since `String`'s was the identity. This is
+the remaining quadratic, it lives in the element rather than the container, and the chunk size knob
+is the lever for it.
+
+So the guidance splits by value shape rather than by observation frequency. A consumer that renders
+each state and drops it now pays nothing at all. One that keeps history of a container shaped value
+pays a bounded per element cost that does not grow with how much history it keeps. One that keeps
+history of a value with a long streaming string field still pays per byte of that string.
+
+### The spine does not need to be unsafe
+
+An append only spine behind an unsafe pointer with a per value count would make a snapshot O(1)
+rather than O(1) amortised. It is not worth it, for two reasons.
+
+**A snapshot's spine cost is already O(1).** Copying `[ContiguousArray<Element>]` retains one buffer
+object, not one per block. The 16 deep window run shows 83K retains over 25,200 snapshots, 3.3 each:
+the blocks buffer, the tail buffer, and the open element's string. Nothing element wise.
+
+The quadratic term that remains is spine *appends while shared* — once per B elements, copying n/B
+references, so (n/B)² over the parse. Against the per snapshot floor of 3·n·bytesPerElement, the
+ratio is n / (3·B²·bytesPerElement), so at B=32 and 63 bytes per element the spine only overtakes
+the cost that cannot be removed at **n ≈ 200,000 elements**. At 400 it is 144 retains against 75,000.
+
+**And "prior blocks are read only" does not make it safe.** The blocks are; the spine storage is
+not. Appending reallocates the buffer, so a snapshot read on another thread races the parser on the
+buffer pointer itself rather than on any block. A spin lock closes that by putting an acquire on
+every read of every sealed element, which is the path this feature exists to make cheap, and it
+turns `@unchecked Sendable` from "what `Array` does" into a claim that has to be argued.
+
+If n ever reaches that range the answer is a **spine of spines** — the same chunking one level up,
+which keeps ordinary copy on write and costs a second shift and mask on indexing. Noted rather than
+built, because nothing streams 200,000 elements today.
+
+### Sketch
+
+```swift
+public struct StreamArray<Element> {
+  // Sealed on commit and never written again, so copies share them and a snapshot retains one
+  // buffer object rather than one per block. Every sealed block is exactly `blockCapacity` long,
+  // which keeps indexing a shift and a mask rather than a search over prefix sums.
+  //
+  // No wrapper class: a ContiguousArray is already a single refcounted pointer, so the spine copies
+  // for the same cost, and copy on write for the filling block comes for free instead of being
+  // written by hand.
+  @usableFromInline var blocks: [ContiguousArray<Element>]
+  @usableFromInline var tail: ContiguousArray<Element>
+  // The element being parsed. Held here rather than in `tail` so the parser's frame points at a
+  // slot no other value can see, and so its address survives every append.
+  @usableFromInline var pending: Element?
+
+  // A power of two, so `blocks.count << shift` is the sealed count and no separate field is needed.
+  @usableFromInline static var blockCapacity: Int { 32 }
+}
+
+extension StreamArray: RandomAccessCollection, MutableCollection {
+  public typealias Index = Int
+  public var startIndex: Int { 0 }
+  // (blocks.count << shift) + tail.count + (pending == nil ? 0 : 1)
+  public var endIndex: Int { ... }
+  // Sealed, then tail, then pending. The setter writes through `blocks[i][j]`, which copies the one
+  // block it touches when a snapshot shares it.
+  public subscript(position: Int) -> Element { get { ... } set { ... } }
+}
+
+extension StreamArray: ExpressibleByArrayLiteral {}
+extension StreamArray: Equatable where Element: Equatable {}
+extension StreamArray: Hashable where Element: Hashable {}
+extension StreamArray: @unchecked Sendable where Element: Sendable {}
+
+extension Array {
+  public init(_ elements: StreamArray<Element>)
+}
+
+extension StreamArray {
+  // The parser's door. Commits the previous pending element into `tail` by swapping it out, then
+  // returns the address of the new pending slot for a frame to hold.
+  @usableFromInline
+  mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer
+}
+```
+
+### What this does to the three hazards
+
+1. **A user mutates one snapshot and another sees it.** Gone. Every write to sealed storage goes
+   through the checked subscript, which copies the one block it touches. There is no unchecked door
+   into shared storage at all: the only unchecked write is into `pending`, which is inline and
+   private to each value.
+2. **The parser writes below the frozen line.** Gone once `StreamDictionary.storedValues` is one of
+   these. `updateValue` writing an existing key's slot for `{"a":{…},"b":1,"a":{…}}` goes through
+   the same checked subscript, so it copies a frozen block rather than mutating it.
+3. **An element's own storage.** Unchanged. A snapshot shares an element's `String` by refcount, so
+   the parser's next append to it copies. True today as well, and the benchmarks do not measure it:
+   `blackHole(stream.current)` drops each snapshot before the next append, so keeping history costs
+   more than the tables show.
+
+That is the argument for chunking over the alternative of an append only buffer with a per value
+visible count, which the spine measurement above settles: the count version buys nothing a snapshot
+can feel, and costs synchronisation to be safe.
+
+A persistent bitmapped trie also gives O(1) snapshots safely, but pays path copying and allocation on
+every append, penalising the discarding case to speed up the rare one. Ruled out on the same grounds
+as routing element writes through the `Array` API.
+
+### The open path is inline all the way down
+
+With the open element outside the storage at every level, the whole path from root to parse cursor is
+inline storage: the root allocation holds the partial, a container member holds a `pending` slot, the
+element in it holds the next container, and so on. No heap buffer appears anywhere along it.
+
+Frame validity used to rest on an argument about mutation order — only the innermost open container
+is written, and a buffer can only move on the next append. It rests on layout now: an inner append
+cannot invalidate an outer frame, because the outer container's open element was never in a buffer
+to begin with. That is the version worth defending, because it survives someone editing the sink.
+
+What it needs in return is an invariant the sink does not currently state: **no write may straddle a
+commit.** A stale element pointer used to reach a stale-but-owned slot; it now reaches a *different*
+element. It holds today — `numberTarget` clears on the first event without `.incomplete`,
+`scalarTarget` clears at `stringEnd`, and frames pop before the next container opens — but nothing
+enforces it, and per digit number reporting is exactly the sort of thing that would break it.
+
+### Costs and open questions
+
+- `Partial` array members become `StreamArray<Element>` rather than `[Element]`. Macro generated, but
+  visible to anyone reading a partial, and the 82 recorded per byte state sequences are written
+  against array literals — `Equatable` plus `ExpressibleByArrayLiteral` should keep them compiling.
+  This is the API cost of the whole plan. It also reaches `Array.Partial`, a public typealias, so it
+  is not confined to generated members.
+- `Array`'s `StreamParseableRoot` conformance and `_streamAppendElement` go, since leaving them would
+  leave a live path that writes into an `Array` buffer through a raw pointer, which is the hazard
+  this replaces.
+- `streamSnapshot()` comes out of the protocol entirely: a plain value copy is a correct snapshot
+  once every container is one of these, so the requirement, the macro's member wise implementation
+  and the recursive rebuild all go together.
+- The container grows by one inline element, since `pending` is stored rather than referenced.
+  Bounded by the depth cap of 64.
+- `RangeReplaceableCollection` is a question rather than a given. A general `replaceSubrange` on a
+  blocked structure can rebuild from a flat array, leaving only `append` specialised, but it may be
+  better not to conform than to conform slowly.
+- `Sendable` needs `@unchecked` with the copy on write argument written out, as `Array` itself
+  relies on.
+- B is a tuning knob and nothing here measures it — 32 was assumed throughout. The spine result
+  removes the pressure toward large B, leaving only the O(B) commit after a snapshot, which argues
+  for smaller. Worth a sweep once the real type exists.
+- Whether a block should ever be sealed early — on snapshot rather than when full — which would make
+  a commit O(1) after a snapshot instead of O(B), at the price of variable length blocks and a
+  binary search over prefix sums for every subscript. Against: reads are what this is for.
+- `Mirror` renders the blocks, tail and pending slot into every custom dump and recorded snapshot,
+  so the type needs `CustomReflectable` to read as a collection — guarded, since `Mirror` is outside
+  the embedded subset. Done.
+- `StreamDictionary` needs the same treatment. It has the pending slot, so it is correct; its
+  storage is still flat. That is the next section.
+
+A chunk size knob remains the cheapest lever and needs none of this: cost is exactly linear in
+snapshot count, so 64 B chunks turn 20 ms into 477 µs. "Snapshot on element boundaries" is the
+version worth offering, since it coalesces naturally and gives states that mean something.
+
+---
+
+## Next: StreamDictionary
+
+Phase 8 gave `StreamDictionary` an open entry slot, because removing `streamSnapshot()` made its
+absence a correctness bug rather than a performance one. What it did not do is change the storage
+behind that slot:
+
+```swift
+public struct StreamDictionary<Value> {
+  var storedKeys: [String]      // flat
+  var storedValues: [Value]     // flat
+  var pendingKey: String?       // done in phase 8
+  var pendingValue: Value?      // done in phase 8
+  var pendingSlot: Int          // done in phase 8
+  var index: [String: Int]?     // flat, and the interesting one
+}
+```
+
+So a kept state shares three buffers, and the next committed entry copies all of them in full. The
+array measurements say what that costs: the same shape of problem, one order of magnitude smaller
+because a dictionary entry commits once per key rather than once per element.
+
+### The two easy fields
+
+`storedKeys` and `storedValues` become `StreamArray<String>` and `StreamArray<Value>`, and
+everything the array work established carries over unchanged: an append while shared copies one
+block instead of the whole buffer, a snapshot's copy retains one buffer object per field, and the
+cost is per divergence point rather than per retained state. Committing a repeated key writes
+`storedValues[slot] = value` through the checked subscript, which copies the one block it lands in.
+
+Their own `pending` slots go unused, since the dictionary keeps its open entry in its own inline
+pair — it has to, because `StreamArray.pending` can only express a *new* element and a repeated key
+has to resume in the slot it already occupies. Two unused `Element?` slots is the price and it is
+the right one; collapsing the two levels of pending would mean teaching `StreamArray` about a case
+only the dictionary has.
+
+**The alternative of one `StreamArray<Entry>` is rejected on scan locality.** Interleaving keys and
+values halves the block bookkeeping, but the linear key scan is the thing this type is fastest at —
+1.3 ns against 9–10 ns for `Dictionary` — and striding it over `Value` sized elements is how that
+gets lost. Keys stay in their own contiguous run.
+
+### The index is the real question
+
+`index` is a `[String: Int]` built once the entry count passes eight. Appending a key to a shared
+one copies *and rehashes* the whole table, so under retention it is O(n) per key and O(n²) per
+parse — which is the cost phase 8 removed from arrays, reintroduced by one field.
+
+Nothing here can be blocked, so the options are different in kind:
+
+- **Drop it and always scan.** Cheapest to build and removes a `Dictionary` from the core. Costs
+  O(n) per lookup, so O(n²) per parse for a dictionary with many dynamic keys — which may be worse
+  than what it fixes.
+- **Box it in a class and share it.** A shared *mutable* index is safe by construction here, which
+  is not obvious and worth writing down: slots are stable, since keys are only appended and a
+  repeated key reuses its slot, so an entry a snapshot has not seen yet maps to a slot it does not
+  have. A bounds check against the reader's own count turns that into "absent", which is the right
+  answer. The problem is not correctness, it is that `Dictionary` insertion can reallocate while a
+  reader is hashing, so a snapshot read on another thread races the parser. Same objection that
+  ruled out the unsafe spine, and it would take `Sendable` from checked to `@unchecked` plus a lock.
+- **Copy on write the box.** Safe, and exactly the wrong amortisation: one full table copy per
+  divergence point means one per key committed, so O(n²) again.
+- **Per block indexes, sealed with the block.** Immutable once sealed, so sharing is free and no
+  synchronisation is needed. Lookup consults n/B tables instead of one, which at B=32 turns a single
+  hash into 32 for a 1024 key dictionary. Better than scanning 1024 keys, worse than one lookup.
+
+**None of these is obviously right, so this one gets measured before it gets built.** The number
+that decides it is what the index actually buys at realistic key counts: index against pure linear
+scan at 8, 32, 128 and 512 dynamic keys, on the parse and on lookup after it. If the crossover is
+far enough out that streamed objects rarely reach it, dropping the index is the answer and the whole
+question disappears. If not, per block indexes are the only option that needs no invariant defended
+and no lock taken.
+
+There is a second reason to want that number: **`Dictionary` in the core may already be an embedded
+blocker that nothing tests.** `EmbeddedSmoke` does not exercise `StreamDictionary`, and the key
+lookup design notes elsewhere that `Dictionary` is "a non-starter for embedded". Whether that
+applies to this use is unverified either way, and it is one line of smoke test to find out.
+
+### On the hot path, not just under retention
+
+`_openValue` decodes the key span into a `String` on every entry, including one whose key is already
+present. Past fifteen bytes that is an allocation per occurrence, paid on the discarding path where
+nothing is retained at all. Matching the span against the stored keys *before* materialising a
+`String` removes it, and the padded leading word the schema layer already computes for static keys
+is the obvious tool.
+
+### Plumbing the array pass established
+
+- `RandomAccessCollection` rather than `Collection`. Indexing is O(1) once the storage is blocked,
+  and the conformance is free.
+- `CustomReflectable`, for the same reason `StreamArray` needed it, and with evidence: the phase 8
+  test failures printed `StreamDictionary(storedKeys: […], storedValues: […], index: nil)`, and it
+  would now print the three pending fields as well. It should read as a dictionary.
+- `Codable`, guarded, so a partial with a dictionary member encodes the way `StreamArray` does.
+- `keys` and `values` allocate an array each since phase 8 changed them from stored property
+  returns to `map`. They should be lazy projections, not copies.
+- `Sendable` stays checked as long as the index does not become a class — one more entry on that
+  side of the ledger.
+
+### Behaviour pinned first (done)
+
+`ContainerReentryTests` and `SnapshotStabilityTests`, 28 cases, written before touching the
+storage so the conversion has something to diverge from. Two of the three things they were meant
+to record turned out differently than expected, and one of them is a bug.
+
+**Re-entry is one rule for containers and two for scalars.** A repeated key whose value is a
+container *resumes* the container the first occurrence built, in all four places it can happen: an
+array field, an object field, a dictionary field, and a dictionary value. A repeated dictionary key
+keeps its original slot, so `{"a":[1],"b":[9],"a":[2]}` gives `["a": [1, 2], "b": [9]]` with the
+order intact. `StreamSchema.enterField` claimed to reset the container; it never has, and the
+comment is corrected.
+
+Scalars do not agree with each other. A repeated **number replaces**, because applying a number
+assigns. A repeated **string concatenates**, because applying a string appends and a second
+occurrence is indistinguishable from a second chunk of the first — so `{"name":"first",
+"name":"second"}` reads back as `"firstsecond"`. Nothing chose that; it falls out of
+`streamApply`. It is recorded rather than endorsed.
+
+**A container arriving at a scalar dictionary value leaks its elements into the value.** Everywhere
+else this is discarded: a scalar root substitutes the discarding schema, and a scalar object field
+yields no frame so the subtree is skipped. `PartialSink.valueTarget` hands back the frame `enterKey`
+produced without checking that its shape can hold a container, so the array is entered carrying the
+*scalar's* schema and every element is written straight into it, last one winning:
+
+```swift
+try parse(#"{"a":[2,3]}"#, as: StreamDictionary<Int>.self)   // ["a": 3], should be ["a": 0]
+```
+
+Not a re-entry problem — it happens on the first occurrence — and not new, but the dictionary is
+the only destination that does it. The other two only discard by accident of returning nil; neither
+checks anything. The fix is a shape check in the `.dictionary` case of `valueTarget`, and it belongs
+with this work rather than before it, since that function is what the rework touches. Pinned to the
+current answer in the meantime, marked as recording a bug.
+
+**Snapshot stability composes at every shape tested, unchanged.** Every state of a byte fed parse
+compared against a rendering of itself taken when it was handed out — arrays, nested arrays, arrays
+across a block seal, dictionaries, dictionaries of arrays, dictionaries of dictionaries, arrays of
+dictionaries, a dictionary of arrays of arrays, macro generated partials with both container kinds,
+and states taken before a repeated key writes into a slot they hold. This is the test the original
+differential could not be: it compares sequences rather than final values, which is precisely why
+the `partials()` bug survived it.
+
+### Order
+
+1. ~~Pin the behaviour, so the conversion has something to diverge from.~~ Done.
+2. `storedKeys` and `storedValues` to `StreamArray`. Mechanical; correctness is already in place.
+3. Extend the retention benchmarks to a dictionary payload, which is a `BenchmarkCounts` case in a
+   harness that already exists, and confirm the flat-in-depth result holds.
+4. Measure what the index buys, then resolve it.
+5. The key materialisation on the hot path, and the `valueTarget` shape check.
+6. Plumbing, and a `StreamDictionary` line in `EmbeddedSmoke`.
+
+Steps 2 and 3 are the ones with a known answer. Step 4 is the one worth the argument.

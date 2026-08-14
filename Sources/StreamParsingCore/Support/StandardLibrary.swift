@@ -83,35 +83,13 @@ extension UInt64: StreamParseableRoot {}
 extension Double: StreamParseableRoot {}
 extension Float: StreamParseableRoot {}
 
-extension Array: StreamParseableRoot where Element: StreamParseableRoot {
-  public static var streamSchema: StreamSchema {
-    _streamArraySchema(Element.self, element: Element.streamSchema)
-  }
-
-  // reserveCapacity plus append forces a fresh buffer. Sharing one is the whole problem: the sink
-  // writes elements through a raw pointer, so nothing uniquifies on its behalf. The recursion is
-  // required rather than tidy, because an inner element is written through a raw pointer too.
-  public func streamSnapshot() -> Self {
-    var copy = [Element]()
-    copy.reserveCapacity(self.count)
-    for element in self { copy.append(element.streamSnapshot()) }
-    return copy
-  }
-}
+// `Array` is a bridging destination rather than a parse target. Parsing into one means writing
+// elements through a raw pointer into a buffer other values can be sharing, which is what made
+// kept states change after the fact; `StreamArray` exists so that path does not exist.
 
 extension StreamDictionary: StreamParseableRoot where Value: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
     _streamDictionarySchema(Value.self, value: Value.streamSchema)
-  }
-
-  public func streamSnapshot() -> Self {
-    var copy = Self()
-    copy.storedKeys.reserveCapacity(self.storedKeys.count)
-    copy.storedValues.reserveCapacity(self.storedValues.count)
-    for slot in self.storedValues.indices {
-      copy.append(self.storedValues[slot].streamSnapshot(), forKey: self.storedKeys[slot])
-    }
-    return copy
   }
 }
 
@@ -233,10 +211,10 @@ extension UInt128: StreamParseable {
 // MARK: - Array
 
 extension Array: StreamParseable where Element: StreamParseable {
-  public typealias Partial = [Element.Partial]
+  public typealias Partial = StreamArray<Element.Partial>
 
-  public var streamPartialValue: [Element.Partial] {
-    self.map(\.streamPartialValue)
+  public var streamPartialValue: StreamArray<Element.Partial> {
+    StreamArray(self.lazy.map(\.streamPartialValue))
   }
 }
 
@@ -274,10 +252,6 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
 // and a null still clears it. The payload sits at offset zero, the same assumption the frame
 // entry helpers rely on.
 extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
-  public func streamSnapshot() -> Self {
-    self?.streamSnapshot()
-  }
-
   public static var streamSchema: StreamSchema {
     StreamSchema(
       shape: Wrapped.streamSchema.shape,

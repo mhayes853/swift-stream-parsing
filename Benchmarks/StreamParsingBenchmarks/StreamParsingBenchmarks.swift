@@ -133,6 +133,7 @@ let benchmarks: @Sendable () -> Void = {
   }
 
   addFastParserBenchmarks()
+  retentionBenchmarks()
 }
 
 // MARK: - Helpers

@@ -1,6 +1,3 @@
-// Static routing description for a value. Every member is a non-capturing closure, so it is a
-// thin function pointer: no context allocation, no existential, no metatype.
-
 public struct StreamFrame {
   public var storage: UnsafeMutableRawPointer
   public var schema: StreamSchema
@@ -36,7 +33,11 @@ public final class StreamSchema: Sendable {
   public let applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool
   public let applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Bool
 
-  // Resets the container stored at `field` and returns a frame for it.
+  // Returns a frame for the container stored at `field`, materializing it when absent. It is not
+  // reset when present, so a key that repeats resumes the container the first occurrence built
+  // rather than replacing it. `ContainerReentryTests` pins that, along with the scalar cases,
+  // which do not agree with each other: a repeated string concatenates and a repeated number
+  // replaces.
   public let enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
 
   // Appends an element and returns a frame for it. Arrays only.
@@ -88,14 +89,6 @@ public final class StreamSchema: Sendable {
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
 
-  /// A copy that shares no storage with the value being parsed, and so is safe to keep.
-  ///
-  /// The sink writes container elements through a raw pointer, which never triggers copy on
-  /// write. A value handed out while parsing continues therefore shares the buffer being written
-  /// into, and changes after the fact. Rebuilding those buffers is what makes a kept value a
-  /// snapshot of the moment rather than a window onto the present.
-  func streamSnapshot() -> Self
-
   /// A borrowed window onto the value, for reading part of it without copying the whole.
   ///
   /// Defaults to the value itself, which is what a scalar wants: there is nothing to defer. A
@@ -108,18 +101,14 @@ public protocol StreamParseableRoot: StreamInitializable {
 }
 
 extension StreamParseableRoot {
-  // A view of a value with nothing to project is the value. Containers land here too, so reading
-  // one through a view snapshots it, which is the only safe thing to hand back.
+  // A view of a value with nothing to project is the value, so reading it copies it. That copy is
+  // a correct snapshot on its own: every container the parser writes into holds its open element
+  // in an inline slot, so a copy shares only storage that is sealed and never written again, and
+  // the open element's own buffers copy on write at the parser's next append. This is what
+  // replaced a recursive `streamSnapshot()` rebuild.
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> Self {
-    storage.assumingMemoryBound(to: Self.self).pointee.streamSnapshot()
+    storage.assumingMemoryBound(to: Self.self).pointee
   }
-}
-
-extension StreamParseableRoot {
-  // Correct for scalars, and for structs whose members are all inline: copying one already gives
-  // it storage of its own, and a later write goes through copy on write as usual. Only types
-  // that put values in a heap buffer need to override this.
-  public func streamSnapshot() -> Self { self }
 }
 
 public protocol StreamParseableObject: StreamParseableRoot {}
@@ -175,8 +164,8 @@ public func _streamArraySchema<Element: StreamInitializable>(
   StreamSchema(
     shape: .array,
     appendElement: { storage in
-      _streamAppendElement(
-        to: &storage.assumingMemoryBound(to: [Element].self).pointee,
+      _streamOpenElement(
+        in: &storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee,
         initial: Element.streamInitialValue(),
         schema: element
       )

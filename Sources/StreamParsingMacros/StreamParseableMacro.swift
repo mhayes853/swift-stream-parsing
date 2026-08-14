@@ -137,10 +137,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
-    let snapshotLines = Self.partialStructSnapshot(
-      from: properties,
-      modifierPrefix: modifierPrefix
-    )
     let viewLines = Self.partialStructView(
       from: properties,
       modifierPrefix: modifierPrefix
@@ -157,8 +153,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         \(raw: modifierPrefix)static func streamInitialValue() -> Self {
           Self()
         }
-
-        \(raw: snapshotLines)
 
         \(raw: viewLines)
 
@@ -194,33 +188,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
 
         \(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
           View(storage)
-        }
-      """
-  }
-
-  private static func partialStructSnapshot(
-    from properties: [StoredProperty],
-    modifierPrefix: String
-  ) -> String {
-    let active = properties.filter { !$0.isIgnored }
-    guard !active.isEmpty else {
-      return """
-        \(modifierPrefix)func streamSnapshot() -> Self {
-            Self()
-          }
-        """
-    }
-    let arguments = active.enumerated()
-      .map { index, property in
-        let comma = index == active.count - 1 ? "" : ","
-        return "      \(property.name): self.\(property.name).streamSnapshot()\(comma)"
-      }
-      .joined(separator: "\n")
-    return """
-      \(modifierPrefix)func streamSnapshot() -> Self {
-          Self(
-      \(arguments)
-          )
         }
       """
   }

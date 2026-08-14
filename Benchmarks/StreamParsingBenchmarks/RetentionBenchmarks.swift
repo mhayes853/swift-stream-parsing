@@ -1,0 +1,73 @@
+import Benchmark
+import Foundation
+import StreamParsing
+
+// Where the allocations went.
+//
+// The snapshot benchmarks drop each state before the next byte arrives, so nothing is ever shared
+// at the moment of a write and copy on write never fires. That is what takes the per byte malloc
+// count from one per snapshot to zero, and it means the cost is now decided by how long the
+// application holds a state rather than by how often it takes one.
+//
+// These hold states instead: a rolling window, and every state at once.
+
+@inline(never)
+private func streamSnapshottingRetained<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  window: Int,
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var kept = [Value?](repeating: nil, count: max(window, 1))
+  var taken = 0
+  for byte in bytes {
+    try stream.next(byte)
+    kept[taken % window] = stream.current
+    taken += 1
+  }
+  blackHole(kept.count)
+  return try stream.finish()
+}
+
+@inline(never)
+private func streamSnapshottingAll<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  as type: Value.Type
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var kept = [Value]()
+  kept.reserveCapacity(bytes.count)
+  for byte in bytes {
+    try stream.next(byte)
+    kept.append(stream.current)
+  }
+  blackHole(kept.count)
+  return try stream.finish()
+}
+
+func retentionBenchmarks() {
+  for window in [4, 16, 64] {
+    Benchmark("Retention 100 users - window \(window)") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(
+          try streamSnapshottingRetained(
+            Payloads.userList, window: window, as: BenchmarkUserList.Partial.self
+          )
+        )
+      }
+    }
+  }
+
+  Benchmark("Retention 100 users - keep all") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamSnapshottingAll(Payloads.userList, as: BenchmarkUserList.Partial.self))
+    }
+  }
+
+  // A long string in one field, to separate the container's copies from the open element's own.
+  Benchmark("Retention 8KB document - keep all") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamSnapshottingAll(Payloads.document, as: BenchmarkDocument.Partial.self))
+    }
+  }
+}

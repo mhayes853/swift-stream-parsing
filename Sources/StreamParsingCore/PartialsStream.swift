@@ -62,12 +62,13 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   /// The most recent value state emitted by the stream.
   ///
-  /// This is a snapshot, so it stays as it was even as more bytes arrive. Reading it copies the
-  /// containers in the value; ``withView(_:)`` reads without copying when only part of the value
-  /// is needed.
+  /// This is a snapshot, so it stays as it was even as more bytes arrive: every container holds
+  /// its open element in an inline slot, so a copy shares only sealed storage that is never
+  /// written again. Reading it still copies the open element at each depth; ``withView(_:)``
+  /// reads without copying when only part of the value is needed.
   @inlinable
   public var current: Value {
-    self.storage.pointee.streamSnapshot()
+    self.storage.pointee
   }
 
   /// Reads the value in place, without copying it.
