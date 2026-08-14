@@ -13,7 +13,7 @@ public struct StreamFrame {
   }
 }
 
-public struct StreamSchema: Sendable {
+public final class StreamSchema: Sendable {
   public enum Shape: UInt8, Sendable {
     case object
     case array
@@ -21,29 +21,29 @@ public struct StreamSchema: Sendable {
     case scalar
   }
 
-  public var shape: Shape
+  public let shape: Shape
 
   // Returns the field identifier for a key, or -1 when the destination has no such field.
-  public var matchField: @Sendable (Span<UInt8>) -> Int32
+  public let matchField: @Sendable (Span<UInt8>) -> Int32
 
   // Each returns whether the token was actually applied. A field that matched a key but has no
   // destination for this kind of token returns false, which is what lets the sink tell a type
   // mismatch from a key the destination simply does not have. A bool return rather than a throw,
   // for the same reason the sink methods do not throw: a check after every call sits on the
   // hottest path.
-  public var applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool
-  public var applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Bool
-  public var applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool
-  public var applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Bool
+  public let applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool
+  public let applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Bool
+  public let applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool
+  public let applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Bool
 
   // Resets the container stored at `field` and returns a frame for it.
-  public var enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
+  public let enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
 
   // Appends an element and returns a frame for it. Arrays only.
-  public var appendElement: @Sendable (UnsafeMutableRawPointer) -> StreamFrame?
+  public let appendElement: @Sendable (UnsafeMutableRawPointer) -> StreamFrame?
 
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
-  public var enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
+  public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
   public init(
     shape: Shape,

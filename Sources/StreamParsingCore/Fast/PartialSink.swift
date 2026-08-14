@@ -214,9 +214,11 @@ public struct PartialSink<Root>: StreamParseSink {
   // field for. Without it an unknown key's nested object would be routed to the parent.
   @usableFromInline
   static var ignoredSchema: StreamSchema {
-    StreamSchema(shape: .object)
+    ignoredStreamSchema
   }
 }
+
+@usableFromInline let ignoredStreamSchema = StreamSchema(shape: .object)
 
 extension PartialSink where Root: StreamParseableRoot {
   public init(root: UnsafeMutablePointer<Root>) {
