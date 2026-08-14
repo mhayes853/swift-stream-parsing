@@ -15,7 +15,7 @@ be re-litigated otherwise.
 The library started at **2.5–3.5 MB/s**. Profiling found the cost was not where it looked:
 
 | assumption | reality |
-|---|---|
+| --- | --- |
 | Key paths are the bottleneck | At ~800 cycles/byte, dispatch is single digit percent. |
 | Branch misprediction matters | A naive byte-at-a-time switch already runs at 1520 MB/s, 5× the target. |
 | Per-byte function calls are expensive | 0.28 ns/byte. The mode switch is another 0.35. |
@@ -60,7 +60,7 @@ The parser finds the next byte needing attention and hands everything before it 
 piece. Scan strategy, MB/s over an 8 KB corpus:
 
 | run length | 4 | 16 | 64 | 4096 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | scalar | 1401 | 1480 | 1528 | 1548 |
 | SWAR | 940 | 2373 | 5730 | 9817 |
 | **SIMD16** | **2476** | **7469** | **12770** | **21411** |
@@ -79,7 +79,7 @@ dense and iterating set bits costs more than testing bytes.
 The boundary scan and magnitude accumulation happen in one pass. ns per number:
 
 | variant | small | medium | large | decimals |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | span only, consumer re-scans | 4.68 | 9.43 | 16.73 | 6.87 |
 | fused, checked overflow | 5.27 | 13.50 | 23.20 | 8.27 |
 | **fused, wrapping + digit count** | **2.96** | **7.47** | **11.91** | **5.52** |
@@ -102,7 +102,7 @@ so a consumer that cannot tolerate that has a flag to test.
 It costs a sink call per digit, and the cost lands entirely on number dense input:
 
 | bulk benchmark | at token end | per digit |
-|---|---|---|
+| --- | --- | --- |
 | Nested arrays (int matrix) | 17 µs | **21 µs** |
 | Array of structs | 14 µs | 14 µs |
 | Dictionary | 5419 ns | 4751 ns |
@@ -120,7 +120,7 @@ without `.incomplete`.
 ns per lookup:
 
 | strategy | 4 keys | 10 keys | 24 keys |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | static `[UInt64: Int32]` | 9.12 | 9.83 | 10.26 |
 | switch on padded word | 2.32 | — | — |
 | **hash + table** | **1.28** | **1.32** | **1.32** |
@@ -168,7 +168,7 @@ Accessors copy per member rather than per value, and a nested object yields anot
 reading one leaf never materializes the levels above it:
 
 | reading one member per byte, 7 KB array of structs | p50 |
-|---|---|
+| --- | --- |
 | observe nothing | 449 µs |
 | **through a view** | **459 µs** |
 | through `current` | 24 ms |
@@ -218,7 +218,7 @@ all of them.
 Chunk size sweep, MB/s:
 
 | chunk | document | token dense |
-|---|---|---|
+| --- | --- | --- |
 | 1 B | 102 | 123 |
 | 16 B | 1780 | 503 |
 | 64 B | 3860 | 579 |
@@ -237,7 +237,7 @@ over a one byte span through the general path.
 Fast interface, bulk, against the old parser on identical payloads:
 
 | payload | old | new |
-|---|---|---|
+| --- | --- | --- |
 | Long string 8 KB | 19.1 MB/s | **5219 MB/s** |
 | Array of structs 7 KB | 2.0 | **467** |
 | Nested arrays 4.5 KB | 0.35 | **250** |
@@ -248,6 +248,34 @@ Byte by byte lands at **124–135 MB/s** on larger payloads, against 1–11 MB/s
 Caveats: nested arrays sits below the 300 target and the prototype's 378, the difference being
 validation the prototype skipped. Small payloads are dominated by one malloc per parser in the
 allocating initializer; a caller supplied buffer avoids it.
+
+Convenience layer against the old parser, 6293 byte array of structs, p50 with the same four
+metrics enabled on both sides. Recorded here because the old baselines have been deleted and
+these are the last measurements taken against them:
+
+| scenario | old | new | | old mallocs | new |
+| --- | --- | --- | --- | --- | --- |
+| whole payload, no observation | 3.6 ms | 161 µs | 22x | 4352 | 115 |
+| byte fed, no observation | 15.0 ms | 423 µs | 36x | 18,000 | 115 |
+| value after every byte | 15.0 ms | 20.0 ms | **0.8x** | 18,000 | 6398 |
+
+The old library has no chunked benchmark, so its 3.6 ms bulk number is the floor a chunked run
+would have started from. Against that floor:
+
+| chunk | snapshots | snapshot per chunk | vs old | view read per chunk | vs old |
+| --- | --- | --- | --- | --- | --- |
+| 16 B | 394 | 1.4 ms | 2.5x | 204 µs | 17.5x |
+| 64 B | 99 | 477 µs | 7.5x | 173 µs | 20.6x |
+| 256 B | 25 | 238 µs | 15.0x | 164 µs | 21.8x |
+| 1 KB | 7 | 183 µs | 19.5x | 161 µs | 21.9x |
+| 4 KB | 2 | 167 µs | 21.4x | 161 µs | 22.2x |
+| 1 B | 6293 | 20.0 ms | 0.2x | 439 µs | 8.1x |
+
+**Only per byte snapshotting loses to the old parser**, and the crossover is around one snapshot
+per two bytes. The view path is flat: reading a member never allocates beyond the parse's own 115,
+and the only thing that moves it is feed granularity. Snapshotting after each 4 KB chunk is
+faster than byte fed parsing that observes nothing at all, so the guidance is to hand over the
+chunk that arrived rather than to observe less often.
 
 ---
 
@@ -433,3 +461,15 @@ in a module that does not enable it. So the floor stays where it was rather than
 - Nested arrays throughput is below target, and per digit number reporting moved it further from
   it: 17 µs to 21 µs on the bulk benchmark. That payload is an integer matrix, so it pays the new
   sink call more often than anything else measured.
+
+---
+
+## Other Tasks
+
+So "the extreme case" is really "arrays and dictionaries observed per byte" — not snapshots in general.
+
+Three levers, cheapest first. Your chunk-size parameter is the obvious one: cost is exactly linear in snapshot count, so a knob buys the factor directly — 64 B chunks turn 20 ms into 477 µs, and it's a policy layer over the existing stream with no risk. I'd frame it as "snapshot every N bytes" or, more meaningfully, "snapshot on element boundaries", which coalesces naturally and gives a caller states that mean something rather than arbitrary byte cuts.
+
+Freezing the completed prefix is the structural fix. Everything left of the parse cursor is immutable — users[k] never changes once closed — so a snapshot only needs to copy the spine and could share completed elements by reference. That converts O(bytes × elements) into O(bytes) and would take the 400-user case from 311 ms toward its 1.8 ms parse floor. It needs a storage type where completed elements live in immutable blocks, so it's real work, and it's the thing I'd prototype behind these benchmarks rather than commit to blind.
+
+Making container writes CoW-friendly — routing element writes through the Array API instead of raw pointers — would make snapshots lazy like strings, but it puts a uniqueness check on the hot path for every write, penalising the common discarding case to speed up the rare one. I'd rule that one out.

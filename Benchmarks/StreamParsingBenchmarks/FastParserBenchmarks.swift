@@ -37,16 +37,60 @@ struct FastCountingSink: StreamParseSink {
   mutating func null() { self.tokens &+= 1 }
 }
 
+func addFastParserBenchmarks() {
+  var payloadConfiguration = Benchmark.defaultConfiguration
+  payloadConfiguration.metrics.append(contentsOf: [.throughput, payloadMegabytesPerSecond])
+
+  let payloads: [(String, [UInt8])] = [
+    ("Flat struct", Payloads.flat),
+    ("Nested structs", Payloads.nested),
+    ("Array of structs", Payloads.userList),
+    ("Nested arrays", Payloads.matrix),
+    ("Dictionary", Payloads.counts),
+    ("Long string", Payloads.document),
+    ("Twitter", Payloads.twitter),
+  ]
+
+  for (name, payload) in payloads {
+    Benchmark(
+      "Fast \(name) - bulk",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(runFastParser(payload, chunk: .max))
+      }
+    }
+
+    Benchmark(
+      "Fast \(name) - 64B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(runFastParser(payload, chunk: 64))
+      }
+    }
+
+    Benchmark(
+      "Fast \(name) - byte by byte",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(runFastParserByteAtATime(payload))
+      }
+    }
+  }
+}
+
 private func runFastParser(_ payload: [UInt8], chunk: Int) -> UInt64 {
   var parser = JSONParser()
   var sink = FastCountingSink()
   payload.withUnsafeBufferPointer { buffer in
-    var i = 0
-    while i < buffer.count {
-      let count = min(chunk, buffer.count - i)
-      let slice = UnsafeBufferPointer(start: buffer.baseAddress! + i, count: count)
+    var offset = 0
+    while offset < buffer.count {
+      let count = min(chunk, buffer.count - offset)
+      let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
       try? parser.parse(slice, into: &sink)
-      i += count
+      offset += count
     }
   }
   try? parser.finish(into: &sink)
@@ -61,35 +105,4 @@ private func runFastParserByteAtATime(_ payload: [UInt8]) -> UInt64 {
   }
   try? parser.finish(into: &sink)
   return sink.checksum
-}
-
-func addFastParserBenchmarks() {
-  let payloads: [(String, [UInt8])] = [
-    ("Flat struct", Payloads.flat),
-    ("Nested structs", Payloads.nested),
-    ("Array of structs", Payloads.userList),
-    ("Nested arrays", Payloads.matrix),
-    ("Dictionary", Payloads.counts),
-    ("Long string", Payloads.document),
-  ]
-
-  for (name, payload) in payloads {
-    Benchmark("Fast \(name) - bulk") { benchmark in
-      for _ in benchmark.scaledIterations {
-        blackHole(runFastParser(payload, chunk: .max))
-      }
-    }
-
-    Benchmark("Fast \(name) - 64B chunks") { benchmark in
-      for _ in benchmark.scaledIterations {
-        blackHole(runFastParser(payload, chunk: 64))
-      }
-    }
-
-    Benchmark("Fast \(name) - byte by byte") { benchmark in
-      for _ in benchmark.scaledIterations {
-        blackHole(runFastParserByteAtATime(payload))
-      }
-    }
-  }
 }

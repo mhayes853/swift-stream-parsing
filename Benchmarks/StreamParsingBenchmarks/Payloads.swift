@@ -1,3 +1,5 @@
+import Foundation
+
 // MARK: - Payloads
 
 enum Payloads {
@@ -16,6 +18,8 @@ enum Payloads {
   )
 
   static let userList = Array(Self.makeUserList(count: 100).utf8)
+  static let userList10 = Array(Self.makeUserList(count: 10).utf8)
+  static let userList400 = Array(Self.makeUserList(count: 400).utf8)
 
   static let matrix = Array(Self.makeMatrix(rows: 40, columns: 25).utf8)
 
@@ -23,8 +27,20 @@ enum Payloads {
 
   static let document = Array(Self.makeDocument(bodyLength: 8_000).utf8)
 
-  /// Half and double sized variants of ``document``, used to check how string accumulation
-  /// scales with the length of a single value.
+  static let twitter: [UInt8] = {
+    guard let url = Bundle.module.url(
+      forResource: "twitter",
+      withExtension: "json",
+      subdirectory: "Resources"
+    ) else {
+      preconditionFailure("twitter.json benchmark payload is missing")
+    }
+    guard let data = try? Data(contentsOf: url) else {
+      preconditionFailure("twitter.json benchmark payload could not be loaded")
+    }
+    return Array(data)
+  }()
+
   static let documentHalf = Array(Self.makeDocument(bodyLength: 4_000).utf8)
   static let documentDouble = Array(Self.makeDocument(bodyLength: 16_000).utf8)
 

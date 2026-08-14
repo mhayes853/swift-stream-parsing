@@ -21,6 +21,7 @@ let package = Package(
         .product(name: "Benchmark", package: "benchmark")
       ],
       path: "StreamParsingBenchmarks",
+      resources: [.copy("Resources")],
       plugins: [.plugin(name: "BenchmarkPlugin", package: "benchmark")]
     )
   ],

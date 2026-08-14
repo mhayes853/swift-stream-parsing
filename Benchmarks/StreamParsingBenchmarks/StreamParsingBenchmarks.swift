@@ -1,7 +1,14 @@
 import Benchmark
+import Foundation
 import StreamParsing
 
 // MARK: - Benchmarks
+
+let payloadMegabytesPerSecond = BenchmarkMetric.custom(
+  "Payload MB/s",
+  polarity: .prefersLarger,
+  useScalingFactor: false
+)
 
 let benchmarks: @Sendable () -> Void = {
   Benchmark.defaultConfiguration = Benchmark.Configuration(
@@ -92,10 +99,58 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
+  for (name, payload) in [
+    ("10 users", Payloads.userList10),
+    ("100 users", Payloads.userList),
+    ("400 users", Payloads.userList400)
+  ] {
+    Benchmark("Scaling \(name) - discarding") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(try streamDiscarding(payload, as: BenchmarkUserList.Partial.self))
+      }
+    }
+
+    Benchmark("Scaling \(name) - snapshot per byte") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(try streamSnapshotting(payload, as: BenchmarkUserList.Partial.self))
+      }
+    }
+  }
+
+  Benchmark("Scaling 8KB document - snapshot per byte") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamSnapshotting(Payloads.document, as: BenchmarkDocument.Partial.self))
+    }
+  }
+
+  var twitterConfiguration = Benchmark.defaultConfiguration
+  twitterConfiguration.metrics.append(contentsOf: [.throughput, payloadMegabytesPerSecond])
+
+  Benchmark("Stream Twitter - discarding", configuration: twitterConfiguration) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
+      blackHole(try? streamDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self))
+    }
+  }
+
   addFastParserBenchmarks()
 }
 
 // MARK: - Helpers
+
+func measurePayloadThroughput(
+  _ benchmark: Benchmark,
+  payload: [UInt8],
+  work: () -> Void
+) {
+  let start = DispatchTime.now().uptimeNanoseconds
+  for _ in benchmark.scaledIterations {
+    work()
+  }
+  let elapsed = DispatchTime.now().uptimeNanoseconds - start
+  let bytes = Double(payload.count * benchmark.scaledIterations.count)
+  let megabytesPerSecond = bytes / Double(elapsed) * 1_000_000_000 / 1_000_000
+  benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
+}
 
 private func streamDiscarding<Value: StreamParseableRoot>(
   _ bytes: [UInt8],

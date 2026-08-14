@@ -61,6 +61,27 @@ struct BenchmarkCounts: Equatable {
   var counts: [String: Int] = [:]
 }
 
+// MARK: - Twitter
+
+@StreamParseable
+struct BenchmarkTwitter: Equatable {
+  var statuses: [BenchmarkTweet] = []
+}
+
+@StreamParseable
+struct BenchmarkTweet: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUser = BenchmarkTwitterUser()
+}
+
+@StreamParseable
+struct BenchmarkTwitterUser: Equatable {
+  var name: String = ""
+  var screenName: String = ""
+  var followersCount: Int = 0
+}
+
 // MARK: - Long strings
 
 @StreamParseable
