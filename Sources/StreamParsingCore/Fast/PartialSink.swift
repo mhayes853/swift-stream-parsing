@@ -40,14 +40,18 @@ public struct PartialSink<Root>: StreamParseSink {
   private mutating func enterContainer(shape: StreamSchema.Shape) {
     guard self.started else {
       self.started = true
-      // A scalar destination has nothing to route a container's contents into, so the subtree is
-      // discarded rather than written through the root.
-      let schema = self.rootSchema.shape == .scalar ? Self.ignoredSchema : self.rootSchema
+      // A root that cannot hold this kind of container has nothing to route its contents into, so
+      // the subtree is discarded rather than written through the root.
+      let schema = self.rootSchema.shape.canHold(container: shape)
+        ? self.rootSchema
+        : Self.ignoredSchema
       self.frames.append(StreamFrame(storage: self.root, schema: schema))
       return
     }
-    guard let target = self.valueTarget() else {
-      // No destination for this container, so its contents are skipped rather than misrouted.
+    guard let target = self.valueTarget(), target.schema.shape.canHold(container: shape) else {
+      // No destination for this container, or one whose shape cannot hold it, so its contents are
+      // skipped rather than misrouted. The slot the target resolution already materialized keeps
+      // its initial value: an array element stays appended and a dictionary key stays present.
       self.frames.append(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
       return
     }
@@ -55,7 +59,9 @@ public struct PartialSink<Root>: StreamParseSink {
   }
 
   // Produces the frame a value should be written through, appending an array element first when
-  // the enclosing container is an array.
+  // the enclosing container is an array. Whether the frame can hold the value that arrives is the
+  // caller's question, not this one's: a scalar frame is the right answer for a scalar and the
+  // wrong one for a container.
   private mutating func valueTarget() -> StreamFrame? {
     guard let top = self.frames.last else { return nil }
     switch top.schema.shape {

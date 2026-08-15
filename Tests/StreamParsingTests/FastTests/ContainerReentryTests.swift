@@ -160,11 +160,22 @@ struct `Container re-entry tests` {
     #expect(failure.reason == .typeMismatch)
   }
 
-  // MARK: - A container arriving at a scalar destination
+  // MARK: - A container arriving at a destination that cannot hold it
 
-  // Everywhere else, a container with nowhere to go is discarded: the root substitutes a
-  // discarding schema when its own shape is scalar, and an object field does the same because
-  // entering a scalar field yields no frame.
+  // A container is written through the frame its destination resolves to, and that frame used to
+  // be pushed without asking whether its shape could hold a container at all. A scalar frame
+  // cannot: it ignores keys and applies every token to itself, so an array reaching one wrote
+  // every element into it and the last one won.
+  //
+  // Two of these discarded correctly before the check existed, by accident of resolving to no
+  // frame rather than by rejecting one. The rest leaked. `Shape.canHold(container:)` is what makes
+  // the answer the same everywhere, and what makes the container kind passed to `enterContainer`
+  // load bearing rather than ignored.
+  //
+  // Discarded, not rejected. A container at a destination that cannot hold it is silent, where a
+  // scalar at a destination that cannot hold it throws — see the type mismatch test above. The
+  // asymmetry is not chosen: an object field resolves to no frame for a key it does not have and
+  // for a scalar field alike, so the two cannot be told apart from here.
 
   @Test
   func `A container at a scalar root is discarded`() throws {
@@ -177,27 +188,75 @@ struct `Container re-entry tests` {
     #expect(inner.a == 1, "the array's elements must not reach the scalar field")
   }
 
-  // BUG, pinned rather than endorsed. A dictionary *value* is the one destination that does not
-  // discard: `PartialSink.valueTarget` hands back the frame `enterKey` produced without checking
-  // that its shape can hold a container, so the array is entered with the scalar's own schema and
-  // every element is written straight into it. The last one wins, so `[2,3]` reads back as 3.
-  //
-  // The other two cases above only discard by accident of returning nil, which is why this one
-  // slipped: the object path checks nothing either, it just has nothing to hand back.
   @Test(arguments: [Int.max, 7, 1])
-  func `A container at a scalar dictionary value leaks its elements into the value`(
-    chunk: Int
-  ) throws {
+  func `A container at a scalar dictionary value is discarded`(chunk: Int) throws {
     let counts = try self.parse(#"{"a":1,"a":[2,3]}"#, as: StreamDictionary<Int>.self, chunk: chunk)
     #expect(counts.count == 1)
-    #expect(counts["a"] == 3, "records the bug: should be 1, the array should have been discarded")
+    #expect(counts["a"] == 1, "the array's elements must not reach the value")
   }
 
-  // The same leak without a repeat, to show it is not about re-entry at all.
+  // The same case without a repeat, to show it is not about re-entry at all. The key keeps the
+  // slot `enterKey` materialised for it, so it is present holding the initial value.
   @Test
-  func `A container at a scalar dictionary value leaks on first occurrence too`() throws {
+  func `A container at a scalar dictionary value on first occurrence keeps the initial value`()
+    throws
+  {
     let counts = try self.parse(#"{"a":[2,3]}"#, as: StreamDictionary<Int>.self)
-    #expect(counts["a"] == 3, "records the bug: should be 0")
+    #expect(counts == ["a": 0])
+  }
+
+  // An element resolves the same way a dictionary value does, and leaked the same way. The
+  // element stays appended holding its initial value, for the same reason the dictionary key
+  // stays present: resolving the target is what materialises the slot.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A container at a scalar array element is discarded`(chunk: Int) throws {
+    #expect(try self.parse("[[2,3]]", as: StreamArray<Int>.self, chunk: chunk) == [0])
+    #expect(try self.parse(#"[{"a":1}]"#, as: StreamArray<Int>.self, chunk: chunk) == [0])
+  }
+
+  // Mismatched container kinds, rather than a container at a scalar. An object reaching an array
+  // has no more business there than it does at a scalar, and it used to be entered carrying the
+  // array's own schema, so the object's values were appended as elements.
+  @Test(arguments: [Int.max, 7, 1])
+  func `An object at an array destination is discarded`(chunk: Int) throws {
+    let rows = try self.parse(#"[{"a":1}]"#, as: StreamArray<StreamArray<Int>>.self, chunk: chunk)
+    #expect(rows == [[]])
+
+    let model = try self.parse(#"{"values":{"a":1}}"#, as: ReentryModel.Partial.self, chunk: chunk)
+    #expect(model.values == [], "the object's values must not be appended as elements")
+
+    #expect(try self.parse(#"{"a":1}"#, as: StreamArray<Int>.self, chunk: chunk) == [])
+  }
+
+  // The reverse pairing, which discarded correctly already. Pinned so that the check cannot be
+  // narrowed to the cases that were broken.
+  @Test(arguments: [Int.max, 7, 1])
+  func `An array at an object or dictionary destination is discarded`(chunk: Int) throws {
+    let model = try self.parse(#"{"nested":[1,2],"counts":[3,4]}"#, as: ReentryModel.Partial.self, chunk: chunk)
+    #expect(model.nested == ReentryInner.Partial())
+    #expect(model.counts == [:])
+
+    #expect(try self.parse("[1,2]", as: StreamDictionary<Int>.self, chunk: chunk) == [:])
+
+    let objects = try self.parse(
+      #"{"x":[1,2]}"#, as: StreamDictionary<ReentryInner.Partial>.self, chunk: chunk
+    )
+    #expect(objects == ["x": ReentryInner.Partial()])
+  }
+
+  // A discarded subtree must not swallow what follows it, which is the thing a frame push/pop
+  // imbalance would break.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A discarded container does not disturb the rest of the document`(chunk: Int) throws {
+    let model = try self.parse(
+      #"{"name":"x","nested":[1,[2],{"deep":3}],"values":[7],"counts":{"k":1}}"#,
+      as: ReentryModel.Partial.self,
+      chunk: chunk
+    )
+    #expect(model.name == "x")
+    #expect(model.nested == ReentryInner.Partial())
+    #expect(model.values == [7], "the fields after the discarded subtree still parse")
+    #expect(model.counts == ["k": 1])
   }
 
   // MARK: - Array elements

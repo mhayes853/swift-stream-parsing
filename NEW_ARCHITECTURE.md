@@ -412,7 +412,9 @@ consumers are the stream types that phase rewrites.
 - The shared integer conversion bounded the negative case with `UInt64(Self.max.magnitude)`,
   which traps for types wider than 64 bits. It is expressed in `Self.Magnitude` now.
 - `Tagged` forwards every conversion protocol to its raw value, and a tagged object applies the
-  raw value's schema to a pointer to the `Tagged`, since it has one stored property.
+  raw value's schema to a pointer to the `Tagged`, since it has one stored property. The same
+  shape later solved `PersonNameComponents.phoneticRepresentation`: a frame does not have to
+  point at the value it describes, only at something whose address outlives it.
 - swift-collections types are **bridging destinations, not parse targets**. Container shape comes
   from syntax, so the macro reads `Deque<Int>` as an ordinary identifier and cannot route it. A
   member declared with one used to parse as empty in silence; a deprecated `_streamEnterField`
@@ -508,7 +510,16 @@ in a module that does not enable it. So the floor stays where it was rather than
 - Lone high surrogates are rejected, but the check happens at run and string end rather than
   immediately.
 - A container materializes its slot on entry, so a dictionary key is visible with its initial
-  value before the value arrives.
+  value before the value arrives. Load bearing rather than merely tolerated since the shape check:
+  a container discarded for arriving at a destination that cannot hold it leaves the slot behind,
+  so `{"a":[2,3]}` into a `StreamDictionary<Int>` reads `["a": 0]`.
+- A container at a destination that cannot hold it is discarded silently, where a scalar at a
+  destination that cannot hold it throws `.typeMismatch`. An object field cannot distinguish a key
+  it does not have from a field that cannot hold a container, which is what keeps the container
+  direction quiet everywhere rather than in one shape only.
+- `null` is accepted where the destination is optional and rejected where it is not, so it clears
+  any member of a macro generated `Partial` but is a mismatch in a `StreamArray<Int>`. It follows
+  from `applyNull` rather than from a decision about JSON null.
 - A provisional number is a different number, not an approaching one. `.incomplete` says so, but
   a consumer that ignores the flag will see `100` pass through 1 and 10 on its way.
 - Error reasons are coarser: `missingColon`, `trailingComma`, `missingComma` and
@@ -526,12 +537,15 @@ in a module that does not enable it. So the floor stays where it was rather than
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
   eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in
   the same file behind a size assertion.
-- `PersonNameComponents.phoneticRepresentation` is matched but not entered, because the type has
-  no stored property for a frame to point at. A nested object there is skipped; a null still
-  clears it. Its string writes are a get, modify and set through the bridge rather than an
-  append, so a long name streamed byte by byte is quadratic.
+- `PersonNameComponents` string writes are a get, modify and set through the bridge rather than an
+  append, so a long name streamed byte by byte is quadratic. That is the whole of what the type's
+  lack of stored properties costs now: `phoneticRepresentation` is entered rather than skipped,
+  by pointing the frame at the parent and reaching the field through the bridge on every write.
 - swift-collections containers cannot be parsed into directly, only converted to. The macro reads
-  container shape from syntax and cannot see through a generic identifier.
+  container shape from syntax and cannot see through a generic identifier. Declaring a member with
+  one does not compile — the generated `Partial` asks for `Deque<Int>.Partial`, which does not
+  exist — so it is caught at build time rather than parsing as empty. The message names the
+  missing `Partial` rather than the real problem, which is the part worth improving.
 - Nested arrays throughput is below target, and per digit number reporting moved it further from
   it: 17 µs to 21 µs on the bulk benchmark. That payload is an integer matrix, so it pays the new
   sink call more often than anything else measured.
@@ -1170,6 +1184,63 @@ checks anything. The fix is a shape check in the `.dictionary` case of `valueTar
 with this work rather than before it, since that function is what the rework touches. Pinned to the
 current answer in the meantime, marked as recording a bug.
 
+#### Fixed, and it was never dictionary specific (done)
+
+The suspicion recorded in step 6 below was right and understated. Probing every destination a
+container can reach found **six leaking sites, not one**, and the dictionary was merely the one
+that had been noticed:
+
+| destination | input | was | is |
+| --- | --- | --- | --- |
+| `StreamArray<Int>` element | `[[2,3]]` | `[3]` | `[0]` |
+| `StreamArray<Int>` element | `[{"a":1}]` | `[1]` | `[0]` |
+| `StreamArray<StreamArray<Int>>` | `[{"a":1}]` | `[[1]]` | `[[]]` |
+| `[Int]` object field | `{"values":{"a":1}}` | `[1]` | `[]` |
+| `StreamArray<Int>` root | `{"a":1}` | `[1]` | `[]` |
+| `StreamDictionary<Int>` value | `{"a":[2,3]}` | `3` | `0` |
+
+**The mechanism is broader than a missing check on a dictionary value.** A scalar frame ignores
+keys and applies every token to itself, so *any* container reaching one has its contents written
+straight in. An array frame is the same one level up: an object reaching it has its values appended
+as elements, because `key` sets a `pendingField` the array schema never reads and the values then
+resolve through `appendElement`. So mismatched container *kinds* leak as well as containers at
+scalars, which the plan did not anticipate at all.
+
+The root cause is one line: `enterContainer(shape:)` took the container kind and never looked at
+it. The fix is `Shape.canHold(container:)` — an object reaches an object or a dictionary, an array
+reaches an array, a scalar reaches nothing — tested once in `enterContainer`, covering the root
+case and `valueTarget`'s three cases together. Malloc and retain counts are unchanged at every
+benchmark, which is the check that a per container branch costs nothing measurable.
+
+**A discarded container still leaves the slot its target resolution materialised.** Resolving the
+target is what appends the element or creates the key, and it happens before the shape is known, so
+`{"a":[2,3]}` gives `["a": 0]` rather than `[:]`. That is the same behaviour the entry gap below
+describes, and the fix now depends on it rather than merely tolerating it.
+
+**The opposite pairing already worked, and is now covered.** When the container shape is right and
+the *contents* are wrong — `["a","b"]` into a `StreamArray<Int>`, `{"a":"x"}` into a
+`StreamDictionary<Int>` — the destination matched and then refused the token, so it throws
+`.typeMismatch` at every depth. That was true before the shape check and was only tested through
+object fields; elements and dictionary values resolve through different branches of
+`resolveScalarTarget` and now have their own cases. A rejected element leaves its slot at the
+initial value and parsing stops there, so `[1,"a",3]` throws holding `[1, 0]` — the same rule as a
+discarded container, for the same reason.
+
+**`null` is accepted exactly where the destination is optional**, which was never written down.
+It is not special cased anywhere; it goes through `applyNull` like every other token, so it lands
+on whether the destination can represent absence. Every member of a macro generated `Partial` is
+optional, so `{"count":null}` clears the field; a `StreamArray<Int>` element is an `Int` with
+nowhere to put it, so `[1,null]` is a mismatch. `StreamArray<Int?>` accepts it. The split follows
+the types rather than the container kind, which is why it is worth stating rather than fixing.
+
+**Discarded, not rejected**, which leaves a real asymmetry: a *scalar* arriving at a container
+destination throws `.typeMismatch`, while a *container* arriving at a scalar destination is silent.
+Neither answer was chosen — the first falls out of `applyNumber` returning false, the second out of
+the object path resolving to no frame. Making both throw is possible everywhere except an object
+field, where `enterField` returns nil for a key the destination lacks and for a scalar field alike,
+so the two cannot be told apart. Rather than make objects the one shape that stays quiet, everything
+stays quiet. Recorded as an open question, not as a decision worth defending.
+
 **Snapshot stability composes at every shape tested, unchanged.** Every state of a byte fed parse
 compared against a rendering of itself taken when it was handed out — arrays, nested arrays, arrays
 across a block seal, dictionaries, dictionaries of arrays, dictionaries of dictionaries, arrays of
@@ -1216,10 +1287,10 @@ storage change, so it stays available and unspent.
    2x on the discarding path, for the reason recorded above. The storage stays flat.
 4. ~~The index, and `_openValue` rewritten around a span lookup.~~ Done, with the sweep re-run.
 5. ~~Resolve duplicate keys.~~ Resume.
-6. The `valueTarget` shape check, which may not be dictionary specific — `enterContainer` is
-   `valueTarget`'s only caller, and the `.array` case appends an element unconditionally, so an
-   array of scalars receiving a container may leak the same way. Untested; if it does, one check on
-   `target.schema.shape` covers both.
+6. ~~The `valueTarget` shape check, which may not be dictionary specific.~~ Done, and it was not:
+   six sites leaked rather than one, including mismatched container kinds, which the plan did not
+   anticipate. One check on `Shape.canHold(container:)` in `enterContainer` covers all of them. See
+   the section above.
 7. ~~Plumbing, and a `StreamDictionary` line in `EmbeddedSmoke`.~~ The type/init smoke links; a
    deeper embedded `_openValue` smoke is blocked by the embedded Swift runtime's missing Unicode
    normalization symbols when a new key would be materialized.

@@ -112,22 +112,87 @@
     }
 
     // PersonNameComponents is a single bridged handle with no stored properties, so there is no
-    // address for a frame to point at and a nested object under this key is skipped. Recorded
-    // rather than left to be discovered, because the surrounding keys keep working.
-    @Test
-    func `PersonNameComponents skips a nested phonetic representation`() throws {
+    // address for a frame to point at. The frame points at the parent instead, carrying a schema
+    // that reaches the field through the bridge, which is what lets this be entered rather than
+    // skipped.
+    @Test(arguments: [Int.max, 7, 1])
+    func `PersonNameComponents enters a nested phonetic representation`(chunk: Int) throws {
       var value = FoundationValues.Partial()
       try parsePartial(
         """
-        {"name":{"givenName":"Blob","phoneticRepresentation":{"givenName":"blahb"},\
-        "familyName":"Johnson"}}
+        {"name":{"givenName":"Blob","phoneticRepresentation":{"givenName":"blahb",\
+        "familyName":"jon-sun"},"familyName":"Johnson"}}
+        """,
+        into: &value,
+        chunk: chunk
+      )
+      let name = try #require(value.name)
+      #expect(name.givenName == "Blob", "the keys around it still route to the parent")
+      #expect(name.familyName == "Johnson")
+      let phonetic = try #require(name.phoneticRepresentation)
+      #expect(phonetic.givenName == "blahb")
+      #expect(phonetic.familyName == "jon-sun")
+    }
+
+    // Entry materialises the slot the way every other container does, so the key arriving at all
+    // is what makes it present.
+    @Test
+    func `PersonNameComponents materialises an empty phonetic representation`() throws {
+      var value = FoundationValues.Partial()
+      try parsePartial(#"{"name":{"phoneticRepresentation":{}}}"#, into: &value)
+      let name = try #require(value.name)
+      #expect(name.phoneticRepresentation != nil)
+    }
+
+    @Test
+    func `PersonNameComponents clears a phonetic member on null`() throws {
+      var value = FoundationValues.Partial()
+      try parsePartial(
+        """
+        {"name":{"phoneticRepresentation":{"givenName":"blahb","familyName":null}}}
         """,
         into: &value
       )
       let name = try #require(value.name)
-      #expect(name.givenName == "Blob")
-      #expect(name.familyName == "Johnson")
-      #expect(name.phoneticRepresentation == nil)
+      let phonetic = try #require(name.phoneticRepresentation)
+      #expect(phonetic.givenName == "blahb")
+      #expect(phonetic.familyName == nil)
+    }
+
+    // Foundation ignores a phonetic representation's own phonetic representation, so the key is
+    // not matched at that level and falls through as an unknown one rather than recursing.
+    @Test
+    func `A phonetic representation does not nest again`() throws {
+      var value = FoundationValues.Partial()
+      try parsePartial(
+        """
+        {"name":{"phoneticRepresentation":{"givenName":"blahb",\
+        "phoneticRepresentation":{"givenName":"deeper"}}}}
+        """,
+        into: &value
+      )
+      let name = try #require(value.name)
+      let phonetic = try #require(name.phoneticRepresentation)
+      #expect(phonetic.givenName == "blahb")
+      #expect(phonetic.phoneticRepresentation == nil)
+    }
+
+    // A repeated key resumes the value already there, which is the rule everywhere else. Worth
+    // pinning here because the field is reached through a bridge rather than through storage.
+    @Test
+    func `A repeated phonetic representation key merges`() throws {
+      var value = FoundationValues.Partial()
+      try parsePartial(
+        """
+        {"name":{"phoneticRepresentation":{"givenName":"blahb"},\
+        "phoneticRepresentation":{"familyName":"jon-sun"}}}
+        """,
+        into: &value
+      )
+      let name = try #require(value.name)
+      let phonetic = try #require(name.phoneticRepresentation)
+      #expect(phonetic.givenName == "blahb")
+      #expect(phonetic.familyName == "jon-sun")
     }
 
     @Test

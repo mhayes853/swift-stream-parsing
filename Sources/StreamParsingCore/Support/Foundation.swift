@@ -63,42 +63,43 @@
   // `Foundation conversion tests`, because writing them by hand is exactly what produced four
   // wrong literals out of nine before the macro took the job over.
   //
-  // `phoneticRepresentation` is matched but not entered. PersonNameComponents is eight bytes on
-  // Darwin, a single handle to a bridged reference, so every one of its properties is computed.
-  // Taking the address of one yields a stack temporary that dies when the inout scope ends, and
-  // a frame pointing there dangles. Frames require stored properties, and this type has none, so
-  // a nested object under that key is skipped rather than misrouted. A null still clears it.
+  // PersonNameComponents is eight bytes on Darwin, a single handle to a bridged reference, so
+  // every one of its properties is computed. Taking the address of one yields a stack temporary
+  // that dies when the inout scope ends, so each string write is a get, modify and set through
+  // the bridge rather than an append. That is quadratic in the length of a name streamed byte by
+  // byte, which is the tradeoff for a type that offers no storage to accumulate into.
   //
-  // For the same reason each string write is a get, modify and set through the bridge rather
-  // than an append. That is quadratic in the length of a name streamed byte by byte, which is
-  // the tradeoff for a type that offers no storage to accumulate into.
+  // `phoneticRepresentation` is entered rather than skipped, and the same absence of storage is
+  // what decides how. A frame needs an address that outlives the call that produced it, which no
+  // property here can give, so the frame points at the *parent* carrying a schema that reaches
+  // the field through the bridge on every write. Same shape as `Tagged`, which applies its raw
+  // value's schema to a pointer to the `Tagged` itself.
   extension PersonNameComponents: StreamInitializable, StreamParseableObject {
     public static func streamInitialValue() -> Self { Self() }
+
+    fileprivate enum StreamField {
+      static let familyName: Int32 = 0
+      static let givenName: Int32 = 1
+      static let middleName: Int32 = 2
+      static let namePrefix: Int32 = 3
+      static let nameSuffix: Int32 = 4
+      static let nickname: Int32 = 5
+      static let phoneticRepresentation: Int32 = 6
+    }
 
     public static var streamSchema: StreamSchema {
       StreamSchema(
         shape: .object,
-        matchField: { key in
-          switch key.paddedLeadingWord() {
-          case 0x614E_796C_696D_6166 where key.count == 10: return 0  // "familyName"
-          case 0x6D61_4E6E_6576_6967 where key.count == 9: return 1  // "givenName"
-          case 0x614E_656C_6464_696D where key.count == 10: return 2  // "middleName"
-          case 0x6665_7250_656D_616E where key.count == 10: return 3  // "namePrefix"
-          case 0x6666_7553_656D_616E where key.count == 10: return 4  // "nameSuffix"
-          case 0x656D_616E_6B63_696E where key.count == 8: return 5  // "nickname"
-          case 0x6369_7465_6E6F_6870 where key.count == 22: return 6  // "phoneticRepresentation"
-          default: return -1
-          }
-        },
+        matchField: streamMatchPersonNameField,
         applyString: { storage, field, bytes in
           let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
           switch field {
-          case 0: streamAppendPersonName(&p.pointee.familyName, bytes)
-          case 1: streamAppendPersonName(&p.pointee.givenName, bytes)
-          case 2: streamAppendPersonName(&p.pointee.middleName, bytes)
-          case 3: streamAppendPersonName(&p.pointee.namePrefix, bytes)
-          case 4: streamAppendPersonName(&p.pointee.nameSuffix, bytes)
-          case 5: streamAppendPersonName(&p.pointee.nickname, bytes)
+          case Self.StreamField.familyName: streamAppendPersonName(&p.pointee.familyName, bytes)
+          case Self.StreamField.givenName: streamAppendPersonName(&p.pointee.givenName, bytes)
+          case Self.StreamField.middleName: streamAppendPersonName(&p.pointee.middleName, bytes)
+          case Self.StreamField.namePrefix: streamAppendPersonName(&p.pointee.namePrefix, bytes)
+          case Self.StreamField.nameSuffix: streamAppendPersonName(&p.pointee.nameSuffix, bytes)
+          case Self.StreamField.nickname: streamAppendPersonName(&p.pointee.nickname, bytes)
           default: return false
           }
           return true
@@ -106,25 +107,88 @@
         applyNull: { storage, field in
           let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
           switch field {
-          case 0: p.pointee.familyName = nil
-          case 1: p.pointee.givenName = nil
-          case 2: p.pointee.middleName = nil
-          case 3: p.pointee.namePrefix = nil
-          case 4: p.pointee.nameSuffix = nil
-          case 5: p.pointee.nickname = nil
-          case 6: p.pointee.phoneticRepresentation = nil
+          case Self.StreamField.familyName: p.pointee.familyName = nil
+          case Self.StreamField.givenName: p.pointee.givenName = nil
+          case Self.StreamField.middleName: p.pointee.middleName = nil
+          case Self.StreamField.namePrefix: p.pointee.namePrefix = nil
+          case Self.StreamField.nameSuffix: p.pointee.nameSuffix = nil
+          case Self.StreamField.nickname: p.pointee.nickname = nil
+          case Self.StreamField.phoneticRepresentation: p.pointee.phoneticRepresentation = nil
           default: return false
           }
           return true
+        },
+        enterField: { storage, field in
+          guard field == Self.StreamField.phoneticRepresentation else { return nil }
+          let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
+          if p.pointee.phoneticRepresentation == nil {
+            p.pointee.phoneticRepresentation = PersonNameComponents()
+          }
+          return StreamFrame(storage: storage, schema: personNamePhoneticSchema)
         }
       )
     }
   }
 
-  // A top level function rather than a closure, so the schema's members stay non-capturing.
+  // Reached through the parent's storage, so every write reads the field out, changes one name
+  // and puts it back. Built once rather than per entry, since it captures nothing and the parent
+  // hands out the same one every time.
+  private let personNamePhoneticSchema = StreamSchema(
+    shape: .object,
+    // Foundation ignores a phonetic representation's own phonetic representation, so the key is
+    // not matched here and falls through as an unknown one.
+    matchField: { key in
+      let field = streamMatchPersonNameField(key)
+      return field == PersonNameComponents.StreamField.phoneticRepresentation ? -1 : field
+    },
+    applyString: { storage, field, bytes in
+      streamModifyPhonetic(storage, field) { streamAppendPersonName(&$0, bytes) }
+    },
+    applyNull: { storage, field in
+      streamModifyPhonetic(storage, field) { $0 = nil }
+    }
+  )
+
+  // Top level functions rather than closures, so the schemas' members stay non-capturing.
+
+  private func streamMatchPersonNameField(_ key: Span<UInt8>) -> Int32 {
+    typealias StreamField = PersonNameComponents.StreamField
+    switch key.paddedLeadingWord() {
+    case 0x614E_796C_696D_6166 where key.count == 10: return StreamField.familyName
+    case 0x6D61_4E6E_6576_6967 where key.count == 9: return StreamField.givenName
+    case 0x614E_656C_6464_696D where key.count == 10: return StreamField.middleName
+    case 0x6665_7250_656D_616E where key.count == 10: return StreamField.namePrefix
+    case 0x6666_7553_656D_616E where key.count == 10: return StreamField.nameSuffix
+    case 0x656D_616E_6B63_696E where key.count == 8: return StreamField.nickname
+    case 0x6369_7465_6E6F_6870 where key.count == 22: return StreamField.phoneticRepresentation
+    default: return -1
+    }
+  }
+
   private func streamAppendPersonName(_ value: inout String?, _ bytes: Span<UInt8>) {
     if value == nil { value = "" }
     value!.streamAppend(utf8: bytes)
+  }
+
+  private func streamModifyPhonetic(
+    _ storage: UnsafeMutableRawPointer,
+    _ field: Int32,
+    _ body: (inout String?) -> Void
+  ) -> Bool {
+    typealias StreamField = PersonNameComponents.StreamField
+    let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
+    var phonetic = p.pointee.phoneticRepresentation ?? PersonNameComponents()
+    switch field {
+    case StreamField.familyName: body(&phonetic.familyName)
+    case StreamField.givenName: body(&phonetic.givenName)
+    case StreamField.middleName: body(&phonetic.middleName)
+    case StreamField.namePrefix: body(&phonetic.namePrefix)
+    case StreamField.nameSuffix: body(&phonetic.nameSuffix)
+    case StreamField.nickname: body(&phonetic.nickname)
+    default: return false
+    }
+    p.pointee.phoneticRepresentation = phonetic
+    return true
   }
 
   // MARK: - Legacy handler registration

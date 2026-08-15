@@ -16,6 +16,20 @@ public final class StreamSchema: Sendable {
     case array
     case dictionary
     case scalar
+
+    // Whether a container of `kind` can be written through a destination of this shape. A JSON
+    // object reaches both an object and a dictionary; every other pairing is a mismatch, and a
+    // mismatched container is discarded rather than written through whatever it landed on.
+    //
+    // Without this a scalar destination accepts the contents of any container that reaches it,
+    // because a scalar frame ignores keys and applies every token to itself: `[2,3]` arriving at
+    // a `StreamDictionary<Int>` value wrote 2 and then 3 into it.
+    public func canHold(container kind: Shape) -> Bool {
+      switch (self, kind) {
+      case (.object, .object), (.dictionary, .object), (.array, .array): true
+      default: false
+      }
+    }
   }
 
   public let shape: Shape
