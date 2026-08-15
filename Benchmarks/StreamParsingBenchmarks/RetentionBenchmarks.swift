@@ -70,4 +70,49 @@ func retentionBenchmarks() {
       blackHole(try streamSnapshottingAll(Payloads.document, as: BenchmarkDocument.Partial.self))
     }
   }
+
+  // The dictionary swept by key count. `storedKeys`, `storedValues` and the index are all flat, so
+  // the retained rows are where the copy and rehash per divergence point shows up, and the
+  // discarding rows are where the scan and the key materialisation do.
+  for count in Payloads.keyCounts {
+    let payload = Payloads.countsByKeyCount[count]!
+
+    Benchmark("Dictionary \(count) keys - discarding") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(try streamDictionaryDiscarding(payload))
+      }
+    }
+
+    Benchmark("Dictionary \(count) keys - snapshot per byte") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(try streamSnapshottingAll(payload, as: BenchmarkCounts.Partial.self))
+      }
+    }
+
+    Benchmark("Dictionary \(count) keys - window 16") { benchmark in
+      for _ in benchmark.scaledIterations {
+        blackHole(
+          try streamSnapshottingRetained(payload, window: 16, as: BenchmarkCounts.Partial.self)
+        )
+      }
+    }
+  }
+
+  Benchmark("Dictionary 128 long keys - discarding") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamDictionaryDiscarding(Payloads.countsLongKeys))
+    }
+  }
+
+  dictionaryAllocationBenchmarks()
+  keyLookupBenchmarks()
+}
+
+@inline(never)
+private func streamDictionaryDiscarding(_ bytes: [UInt8]) throws -> BenchmarkCounts.Partial {
+  var stream = PartialsStream(initialValue: BenchmarkCounts.Partial(), from: .json())
+  for byte in bytes {
+    try stream.next(byte)
+  }
+  return try stream.finish()
 }

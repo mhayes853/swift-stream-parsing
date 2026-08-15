@@ -517,10 +517,11 @@ in a module that does not enable it. So the floor stays where it was rather than
 - Keeping every state costs about twice the parse on an array of structs, down from 269x, because
   a snapshot still copies the open element at each depth. Reading transiently through `withView`
   is still cheaper.
-- `StreamDictionary` has an open entry slot and so hands out correct states, but its storage is
-  still flat: `storedKeys` and `storedValues` copy in full when a kept state shares them, and
-  appending a key to a shared `index` copies and rehashes the whole table. Correct, not yet
-  blocked.
+- `StreamDictionary` storage is flat by measurement rather than by omission: blocking it cost 2x on
+  the discarding path, because a dictionary reads its storage back on every lookup. So a kept state
+  still shares three buffers that copy in full per divergence point, and retention is still
+  quadratic in key count — 3.5x the discarding parse at 512 keys against 2.5x at 32. The rehash is
+  gone, the constant is 8–19% better, and the shape is unchanged.
 - Depth is capped at 64 by the container bitmask; deeper nesting is rejected rather than spilled.
 - The optional payload assumption is an implementation detail, mitigated by tests rather than
   eliminated. `Tagged` adds a second case of it, a single stored property at offset zero, kept in
@@ -902,49 +903,224 @@ values halves the block bookkeeping, but the linear key scan is the thing this t
 1.3 ns against 9–10 ns for `Dictionary` — and striding it over `Value` sized elements is how that
 gets lost. Keys stay in their own contiguous run.
 
-### The index is the real question
+### The index: measured, and `Dictionary` loses outright
 
 `index` is a `[String: Int]` built once the entry count passes eight. Appending a key to a shared
 one copies *and rehashes* the whole table, so under retention it is O(n) per key and O(n²) per
 parse — which is the cost phase 8 removed from arrays, reintroduced by one field.
 
-Nothing here can be blocked, so the options are different in kind:
+The question was framed as a crossover: how many keys before an index beats a scan. The measurement
+answered a different question, because **a byte keyed index over flat `Int32` arrays beats
+`[String: Int]` at every size and on every axis**, which makes the crossover a detail. ns per
+lookup, p50, absent keys generated in the same shape and length as present ones so a miss is not
+rejected for free by a length check:
 
-- **Drop it and always scan.** Cheapest to build and removes a `Dictionary` from the core. Costs
-  O(n) per lookup, so O(n²) per parse for a dictionary with many dynamic keys — which may be worse
-  than what it fixes.
-- **Box it in a class and share it.** A shared *mutable* index is safe by construction here, which
-  is not obvious and worth writing down: slots are stable, since keys are only appended and a
-  repeated key reuses its slot, so an entry a snapshot has not seen yet maps to a slot it does not
-  have. A bounds check against the reader's own count turns that into "absent", which is the right
-  answer. The problem is not correctness, it is that `Dictionary` insertion can reallocate while a
-  reader is hashing, so a snapshot read on another thread races the parser. Same objection that
-  ruled out the unsafe spine, and it would take `Sendable` from checked to `@unchecked` plus a lock.
-- **Copy on write the box.** Safe, and exactly the wrong amortisation: one full table copy per
-  divergence point means one per key committed, so O(n²) again.
-- **Per block indexes, sealed with the block.** Immutable once sealed, so sharing is free and no
-  synchronisation is needed. Lookup consults n/B tables instead of one, which at B=32 turns a single
-  hash into 32 for a 1024 key dictionary. Better than scanning 1024 keys, worse than one lookup.
+| strategy | hit 8 | hit 32 | hit 128 | hit 512 | miss 512 | build 512 |
+| --- | --- | --- | --- | --- | --- | --- |
+| materialising scan (today's) | 26.0 | 59.9 | 179.7 | 664 | 1328 | 670 |
+| span scan | 15.6 | 27.3 | 85.9 | 320 | 621 | 322 |
+| leading word scan | 10.5 | 11.7 | 34.5 | 111 | 199 | 121 |
+| whole key hash scan | 15.6 | 16.9 | 47.9 | 143 | 254 | 125 |
+| `[String: Int]` | 41.6 | 33.8 | 34.8 | 35.2 | 46.9 | 119 |
+| **flat chained index prototype** | **15.6** | **13.0** | **12.4** | **14.2** | **10.1** | **39.1** |
 
-**None of these is obviously right, so this one gets measured before it gets built.** The number
-that decides it is what the index actually buys at realistic key counts: index against pure linear
-scan at 8, 32, 128 and 512 dynamic keys, on the parse and on lookup after it. If the crossover is
-far enough out that streamed objects rarely reach it, dropping the index is the answer and the whole
-question disappears. If not, per block indexes are the only option that needs no invariant defended
-and no lock taken.
+Those keys differ from the first byte, which is what an object's field names look like. Repeating it
+with keys that all share their first eight bytes — `key_number_N`, which is what the counts payload
+actually produces — kills the leading word and leaves everything else standing:
 
-There is a second reason to want that number: **`Dictionary` in the core may already be an embedded
-blocker that nothing tests.** `EmbeddedSmoke` does not exercise `StreamDictionary`, and the key
-lookup design notes elsewhere that `Dictionary` is "a non-starter for embedded". Whether that
-applies to this use is unverified either way, and it is one line of smoke test to find out.
+| strategy | hit 8 | hit 32 | hit 128 | hit 512 |
+| --- | --- | --- | --- | --- |
+| span scan | 20.8 | 43.0 | 132.8 | 549 |
+| leading word scan | 26.0 | 46.9 | 148.4 | 639 |
+| whole key hash scan | 15.6 | 18.2 | 47.9 | 143 |
+| `[String: Int]` | 41.6 | 37.8 | 37.5 | 37.1 |
+| **flat chained index prototype** | **15.6** | **15.6** | **17.3** | **17.3** |
+
+**A leading word is the wrong prefilter for dynamic keys.** It is the right one for the schema
+layer, where the keys are a struct's field names and differ early; a dictionary's keys are data and
+routinely share a prefix. A whole key hash costs one walk over the span and cannot be fooled.
+
+The chained rows above are the flat-array prototype, not the shipped dictionary. The benchmark now
+also registers `StreamDictionary` itself under `StreamDictionary (String lookup)`, so changes to
+the real open-addressed table cannot silently be measured only against a copy. That isolated row
+uses the public `String` subscript and therefore includes String materialization; the parser's
+borrowed-span path remains represented by the end-to-end `Dictionary` benchmarks below.
+
+The crossover the plan asked for does exist, for the options that keep no index at all: a scan
+matches `[String: Int]` at ~32 keys with prefixed keys and ~128 with diverse ones. Against the parse
+it is smaller than it looks, because the discarding parse costs ~1.1 µs per key — dropping the index
+entirely would cost ~9% at 128 keys and ~43% at 512.
+
+Parse level, `BenchmarkCounts` byte fed, which is the retention half:
+
+| keys | discarding | window 16 | snapshot per byte |
+| --- | --- | --- | --- |
+| 8 | 9.3 µs, 13 mallocs | 19.0 µs, 21 | 17.0 µs, 21 |
+| 32 | 35.0 µs, 19 | 82.0 µs, 92 | 73.0 µs, 92 |
+| 128 | 141 µs, 25 | 391 µs, 380 | 356 µs, 380 |
+| 512 | 601 µs, 31 | 2.37 ms, 1532 | 2.30 ms, 1532 |
+
+**Three mallocs per key under retention**, one per flat buffer per divergence point, exactly the
+shape the array work removed. The time ratio climbs with n — 2.0x at 8 keys, 3.9x at 512 — which is
+the quadratic term. The discarding row is flat per key, so today's index is doing its job on the hot
+path and the cost is entirely in what a kept state shares.
+
+So the four options the plan listed are settled without needing to choose between them. Boxing the
+index in a class and copying it on write are both moot, because the structure that replaces
+`Dictionary` is two `Int32` arrays rather than a hash table. Per block indexes are unnecessary,
+because only one of those arrays is randomly written. And dropping the index is not free enough to
+prefer.
+
+### The index: one table, one entry buffer
+
+A lookup hashes the span once, probes a flat slot table, and compares a stored `UInt64` before it
+touches any bytes. The key and its hash live in one buffer, and the table is open addressed, both
+for the same reason: **what a retained state pays tracks the number of buffers it shares, not their
+size.** That was not the starting design, and the measurement that changed it is below.
+
+What makes it fit this type rather than merely being faster:
+
+- **One randomly written field.** `table` is `Int32` slots, so a commit while shared copies four
+  bytes per slot with no hashing and no refcount traffic — against `[String: Int]`, which rehashes
+  every key and retains every `String`.
+- **The stored hash doubles as the rebuild source.** Growth rebuilds the table from the entries'
+  hashes in one pass and never looks at a key again.
+- **Insertion order survives.** The table maps a key to a slot; `entries` is still the order the
+  keys arrived in. Making the dictionary unordered was on the table as the price of fixing this,
+  and it turns out not to be one.
+- **No `Dictionary` in the core.** FNV-1a over a span is a loop and a multiply, which is inside the
+  embedded subset with nothing to verify.
+- **`Sendable` stays checked.** Every field is a value type, so nothing is asserted.
+
+**A fixed hash is a hash flooding surface, and the bound is the reason it is acceptable.**
+`Dictionary` seeds `Hasher` per process precisely so that crafted keys cannot force every entry into
+one bucket; FNV-1a with a fixed basis can be collided deliberately by anyone who can choose the keys
+in a payload, which for a streaming parser is any untrusted input. What stops that from mattering is
+that a fully collided chain **degrades to the whole key hash scan row above**, since the chain walk
+compares a `UInt64` per step and only falls through to bytes on a match: 143 ns at 512 keys rather
+than something unbounded. The attack buys a factor of ten on a path that is 1% of the parse.
+
+#### Shape
+
+```swift
+@usableFromInline
+struct StreamDictionaryEntry: Hashable, Sendable {
+  @usableFromInline var hash: UInt64
+  @usableFromInline var key: String
+}
+
+public struct StreamDictionary<Value> {
+  // The key and the hash that guards it, in one buffer so a probe reads one cache line and a
+  // retained state copies one thing.
+  @usableFromInline var entries: ContiguousArray<StreamDictionaryEntry>
+  @usableFromInline var storedValues: [Value]
+
+  // Open addressed slot table, -1 where empty, held at half load since linear probing degrades
+  // sharply past that. Nil below the threshold, where a scan over `entries` measures the same and
+  // costs no table at all.
+  @usableFromInline var table: ContiguousArray<Int32>?
+
+  // The open entry. `pendingSlot` is -1 when none is open, an existing slot when the key repeats,
+  // and `storedValues.count` when it is new. `pendingKey` and `pendingHash` are needed only in
+  // that last case, which is what keeps a repeated key from materialising a `String` at all.
+  @usableFromInline var pendingKey: String?
+  @usableFromInline var pendingValue: Value?
+  @usableFromInline var pendingHash: UInt64
+  @usableFromInline var pendingSlot: Int32
+
+  @usableFromInline static var indexThreshold: Int { 8 }
+}
+
+extension StreamDictionary {
+  // One walk over the span, no `String`. The fixed basis is what makes this available to embedded;
+  // see the flooding note above for why that is affordable.
+  @usableFromInline static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64
+
+  // Compares the stored hash, then the bytes. `table == nil` scans `entries` directly, which is the
+  // same comparison without the probe.
+  @usableFromInline func slot(forKey key: UnsafeBufferPointer<UInt8>, hash: UInt64) -> Int32?
+
+  @usableFromInline mutating func append(_ value: Value, forKey key: String, hash: UInt64)
+  // Takes the first free probe for a key already known to be absent, which is what lets it stop at
+  // the first empty rather than comparing anything.
+  @usableFromInline mutating func claim(slot: Int32, hash: UInt64)
+  // Rebuilt from the entries' stored hashes, so growth hashes nothing and never looks at a key.
+  @usableFromInline mutating func rebuildTable()
+}
+
+extension StreamDictionary {
+  /// Commits the open entry and opens one for `key`, returning the address of its slot.
+  ///
+  /// Hashes the span, resolves the slot, and materialises a `String` only when the key is new.
+  @inlinable
+  public mutating func _openValue(
+    forKey key: Span<UInt8>,
+    initial: @autoclosure () -> Value
+  ) -> UnsafeMutableRawPointer
+}
+```
+
+#### Built, and both structural guesses were wrong
+
+The plan said to block `storedKeys` and `storedValues` the way `StreamArray` blocks an array's
+elements, and to chain the index through a `heads`/`next` pair. Both were built and measured, and
+both lost. p50 wall clock on the byte fed `BenchmarkCounts` sweep, mallocs at 128 keys retained:
+
+| configuration | buffers | disc. 128 | disc. 512 | window 16 @128 | mallocs |
+| --- | --- | --- | --- | --- | --- |
+| `[String: Int]`, flat (before) | 3 | 141 µs | 601 µs | 391 µs | 380 |
+| chained index, every field blocked | 5 | 287 | 1190 | 713 | 654 |
+| chained index, every field flat | 5 | 135 | 558 | 427 | 637 |
+| **one table, merged entry, flat** | **3** | **132** | **549** | **359** | **380** |
+
+**Blocking the storage cost 2x on the discarding path**, which is the row that matters most because
+it is the path that always runs. The reason is a difference between the two containers that the plan
+read straight past: an array is written and never read back while parsing, so a block indexed
+subscript costs nothing on the hot path — but a dictionary *reads its own storage on every lookup*,
+so every key comparison pays the sealed count, the shift, the mask and a block retain. Blocking is
+right for a container the parser only appends to, and wrong for one it searches.
+
+**And a retained state's cost tracks buffer count, not buffer size.** Going from three flat buffers
+to five — keys, values, hashes, next, heads — took retention mallocs from 380 to 637 even with every
+field flat, because copy on write fires once per buffer per divergence point regardless of how many
+bytes each holds. That is what rules out parallel arrays here and what makes the hash travel inside
+the entry and the chain collapse into one open addressed table. Three buffers in, three buffers out,
+and the malloc counts come back **identical to the old implementation at every size** — 13/19/25/31
+discarding, 21/92/380/1532 retained — which is the check that the structure really is the same shape
+and only the contents changed.
+
+Against the old implementation, the shipped version is 6–9% faster discarding at 128 and 512 keys,
+parity at 8 and 32, 7% faster on the long key payload (264 → 246 µs), and 8–19% faster under
+retention (391 → 359 µs at 128, 2.37 → 1.91 ms at 512). Every array, document and Twitter benchmark
+is unchanged.
+
+The end to end win is far smaller than the 3x the lookup microbenchmark shows, and that is expected
+rather than disappointing: the discarding parse costs ~1.1 µs per key, so a lookup that goes from 37
+ns to 13 is worth a few percent of it. **The reasons to have done it are the ones that are not
+speed** — `Dictionary` is out of the core, a repeated key no longer materialises a `String`, and
+`Sendable` stays checked.
+
+**The retention quadratic is reduced, not removed.** Three flat buffers still copy in full per
+divergence point, so 512 keys retained is still 3.5x its discarding parse against 2.5x at 32 keys.
+Blocking was the plan's answer and it costs more on the hot path than it saves on the cold one. The
+way out, if it ever matters, is that **the table is derivable state that only the live parse needs**
+— a snapshot could scan. Holding it in the sink's frame rather than in the value would remove it
+from every copy, at the cost of giving frames owned storage and a lifetime, which they do not have
+today.
 
 ### On the hot path, not just under retention
 
-`_openValue` decodes the key span into a `String` on every entry, including one whose key is already
-present. Past fifteen bytes that is an allocation per occurrence, paid on the discarding path where
-nothing is retained at all. Matching the span against the stored keys *before* materialising a
-`String` removes it, and the padded leading word the schema layer already computes for static keys
-is the obvious tool.
+`_openValue` decodes the key span into a `String` only for a new key. Past fifteen bytes the old
+implementation paid an allocation per occurrence on the discarding path, where nothing is retained
+at all. The open-addressed index removes it rather than needing separate work: the probe compares
+hashes and then bytes, so a repeated key never becomes a `String`. The older chained row is retained
+below only as a structural comparison. Measured on 36 byte keys at 128 entries, per lookup:
+
+| | ns | mallocs |
+| --- | --- | --- |
+| `[String: Int]` | 125.0 | one per lookup |
+| materialising scan | 414.1 | one per lookup |
+| **flat chained index prototype** | **40.4** | **none** |
 
 ### Plumbing the array pass established
 
@@ -1002,14 +1178,48 @@ and states taken before a repeated key writes into a slot they hold. This is the
 differential could not be: it compares sequences rather than final values, which is precisely why
 the `partials()` bug survived it.
 
+### Duplicate keys: resume
+
+Decided: a repeated key keeps resuming the value already stored under it, which is what the reentry
+tests pin and what the shipped implementation does. `storedValues[slot] = value` is the one write
+that lands below the frozen line, and it is safe because the parser only ever writes `pendingValue`,
+which is inline. The alternatives were weighed and are recorded here because the argument for them
+survives the decision:
+
+- **Reject.** Storage becomes strictly append only, and no frame ever points into it. It does not
+  remove the lookup, since detecting a duplicate *is* the lookup. RFC 8259 permits repeated names
+  and every other parser accepts them, so this is the one place the library would refuse a document
+  that `JSONSerialization` takes.
+- **Shadow.** Append the repeat and let it hide the earlier slot. Append only without rejecting
+  anything, and **lookup is free**: a chain is newest first, so the first match is already the live
+  one. The cost is iteration — `count`, `keys`, `values` and the positional subscript have to skip
+  shadowed slots, which without metadata is O(n) per entry. One `duplicateCount` field fixes it:
+  zero in the common case, so iteration stays a straight walk and only pays when a duplicate
+  actually arrived. A per slot `shadowed` bit would be the obvious alternative and is the wrong one,
+  since setting it writes into a sealed slot, which is the thing being removed.
+
+Shadowing is a **semantic change, not a storage one**, which is what settled it: `{"a":[1],"a":[2]}`
+would become `[2]` rather than the pinned `[1, 2]`, because the second occurrence starts a fresh
+container instead of resuming. That is last one wins, which is what most parsers do, and it
+incidentally fixes the string concatenation the reentry tests recorded as unendorsed —
+`{"name":"first","name":"second"}` would read `"second"` rather than `"firstsecond"`. Rewriting
+behaviour that 28 cases were just written to pin is not something to do as a side effect of a
+storage change, so it stays available and unspent.
+
 ### Order
 
 1. ~~Pin the behaviour, so the conversion has something to diverge from.~~ Done.
-2. `storedKeys` and `storedValues` to `StreamArray`. Mechanical; correctness is already in place.
-3. Extend the retention benchmarks to a dictionary payload, which is a `BenchmarkCounts` case in a
-   harness that already exists, and confirm the flat-in-depth result holds.
-4. Measure what the index buys, then resolve it.
-5. The key materialisation on the hot path, and the `valueTarget` shape check.
-6. Plumbing, and a `StreamDictionary` line in `EmbeddedSmoke`.
-
-Steps 2 and 3 are the ones with a known answer. Step 4 is the one worth the argument.
+2. ~~Measure what the index buys, then resolve it.~~ Done: the flat chained prototype above, which
+   also answered the key materialisation question; the shipped implementation is the one-table
+   open-addressed index described below.
+3. ~~`storedKeys` and `storedValues` to `StreamArray`.~~ Built, measured, reverted: blocking costs
+   2x on the discarding path, for the reason recorded above. The storage stays flat.
+4. ~~The index, and `_openValue` rewritten around a span lookup.~~ Done, with the sweep re-run.
+5. ~~Resolve duplicate keys.~~ Resume.
+6. The `valueTarget` shape check, which may not be dictionary specific — `enterContainer` is
+   `valueTarget`'s only caller, and the `.array` case appends an element unconditionally, so an
+   array of scalars receiving a container may leak the same way. Untested; if it does, one check on
+   `target.schema.shape` covers both.
+7. ~~Plumbing, and a `StreamDictionary` line in `EmbeddedSmoke`.~~ The type/init smoke links; a
+   deeper embedded `_openValue` smoke is blocked by the embedded Swift runtime's missing Unicode
+   normalization symbols when a new key would be materialized.

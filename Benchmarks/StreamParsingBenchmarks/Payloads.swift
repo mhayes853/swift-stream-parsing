@@ -25,6 +25,44 @@ enum Payloads {
 
   static let counts = Array(Self.makeCounts(count: 100).utf8)
 
+  static let countsByKeyCount = Dictionary(
+    uniqueKeysWithValues: Self.keyCounts.map { ($0, Array(Self.makeCounts(count: $0).utf8)) }
+  )
+
+  // Keys past fifteen bytes are heap allocated rather than inline, which is what decides whether
+  // materialising one on every entry costs a malloc.
+  static let countsLongKeys = Array(Self.makeCounts(count: 128, keyPrefix: Self.longKeyPrefix).utf8)
+
+  // One long key repeated many times isolates the allocation avoided when a resumed dictionary
+  // value is opened from its borrowed span rather than from a newly materialised String.
+  static let repeatedLongKeyDocument = Array(Self.makeRepeatedLongKeyDocument(count: 256).utf8)
+
+  static let repeatedLongKey = "repeated_dictionary_key_with_a_much_longer_name_"
+
+  static let keyCounts = [8, 32, 128, 512]
+
+  static let shortKeyPrefix = "key_number_"
+  static let longKeyPrefix = "key_number_with_a_much_longer_name_"
+
+  static func countKeys(_ count: Int, prefix: String, from start: Int = 0) -> [[UInt8]] {
+    (start..<(start + count)).map { Array("\(prefix)\($0)".utf8) }
+  }
+
+  // Field names that differ from the first byte, which is what an object's keys look like and
+  // what a leading word prefilter is actually good at.
+  static func diverseKeys(_ count: Int, from start: Int) -> [[UInt8]] {
+    (start..<(start + count)).map { index in
+      let stem = Self.keyStems[index % Self.keyStems.count]
+      return Array("\(stem)_\(index)".utf8)
+    }
+  }
+
+  private static let keyStems = [
+    "id", "name", "email", "created", "updated", "status", "count", "total", "user", "items",
+    "price", "quantity", "label", "kind", "source", "target", "score", "rank", "tags", "owner",
+    "body", "title", "url", "parent", "child", "depth"
+  ]
+
   static let document = Array(Self.makeDocument(bodyLength: 8_000).utf8)
 
   static let twitter: [UInt8] = {
@@ -65,11 +103,18 @@ enum Payloads {
     return "{\"rows\":[\(rows)]}"
   }
 
-  private static func makeCounts(count: Int) -> String {
+  private static func makeCounts(count: Int, keyPrefix: String = Payloads.shortKeyPrefix) -> String {
     let entries = (0..<count)
-      .map { "\"key_number_\($0)\":\($0)" }
+      .map { "\"\(keyPrefix)\($0)\":\($0)" }
       .joined(separator: ",")
     return "{\"counts\":{\(entries)}}"
+  }
+
+  private static func makeRepeatedLongKeyDocument(count: Int) -> String {
+    let entries = (0..<count)
+      .map { "\"\(Self.repeatedLongKey)\":\($0)" }
+      .joined(separator: ",")
+    return "{\(entries)}"
   }
 
   private static func makeDocument(bodyLength: Int) -> String {

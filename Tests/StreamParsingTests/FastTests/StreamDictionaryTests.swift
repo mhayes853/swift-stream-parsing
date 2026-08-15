@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsingCore
@@ -76,4 +77,70 @@ struct `Stream dictionary tests` {
     #expect(dictionary.count == 2)
     #expect(!dictionary.isEmpty)
   }
+
+  @Test
+  func `Handles Many Keys Sharing The Initial Probe Slot`() {
+    let keys = adversarialKeys(count: 40)
+    var dictionary = StreamDictionary<Int>()
+    for (value, key) in keys.enumerated() {
+      dictionary.updateValue(value, forKey: key)
+    }
+
+    expectNoDifference(dictionary.map(\.key), keys)
+    expectNoDifference(dictionary.map(\.value), keys.indices.map { $0 })
+    for (value, key) in keys.enumerated() {
+      #expect(dictionary[key] == value)
+    }
+    #expect(dictionary["probe_collision_missing"] == nil)
+  }
+
+  @Test
+  func `Resumes A Value Through A Borrowed Key Span`() {
+    var dictionary = StreamDictionary<Int>()
+    let key = Array("span_key".utf8)
+
+    key.withUnsafeBufferPointer { buffer in
+      let pointer = dictionary._openValue(
+        forKey: Span(_unsafeElements: buffer),
+        initial: 1
+      )
+      pointer.assumingMemoryBound(to: Int.self).pointee = 1
+    }
+    key.withUnsafeBufferPointer { buffer in
+      let pointer = dictionary._openValue(
+        forKey: Span(_unsafeElements: buffer),
+        initial: 2
+      )
+      pointer.assumingMemoryBound(to: Int.self).pointee = 9
+    }
+
+    #expect(dictionary["span_key"] == 9)
+    dictionary.updateValue(10, forKey: "next_key")
+    #expect(dictionary["span_key"] == 9)
+  }
+}
+
+// All generated keys land in slot zero for every table size used while these entries are
+// inserted. This exercises linear probing across the threshold and each table rebuild without
+// relying on a probabilistic collision.
+private func adversarialKeys(count: Int) -> [String] {
+  var keys = [String]()
+  var candidate = 0
+  while keys.count < count {
+    let key = "probe_collision_\(candidate)"
+    if fnv1a(key) & 127 == 0 {
+      keys.append(key)
+    }
+    candidate += 1
+  }
+  return keys
+}
+
+private func fnv1a(_ key: String) -> UInt64 {
+  var hash = UInt64(0xcbf2_9ce4_8422_2325)
+  for byte in key.utf8 {
+    hash ^= UInt64(byte)
+    hash &*= 0x100_0000_01b3
+  }
+  return hash
 }

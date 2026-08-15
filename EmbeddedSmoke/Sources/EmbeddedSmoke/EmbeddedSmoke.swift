@@ -10,10 +10,10 @@ import StreamParsingCore
 // The parser is given a caller supplied buffer rather than the allocating initializer, which is
 // how it is meant to be used where there is no heap to speak of.
 
-// MARK: - A sink that keeps no heap allocated state
+// MARK: - Sinks
 
 /// Folds the document into counters and a checksum, so the whole path from bytes to values is
-/// exercised without a String, an Array, or anything else that allocates.
+/// exercised without a String, an Array, or anything else that allocates in the sink.
 struct SmokeSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
 
@@ -147,6 +147,13 @@ struct EmbeddedSmoke {
         precondition(split.stringByteChecksum == whole.stringByteChecksum)
         precondition(split.magnitudeSum == whole.magnitudeSum)
       }
+
+      // The type and its empty storage must still compile and link on the target. Exercising
+      // `_openValue` for a new key is intentionally left to the host tests: the current embedded
+      // Swift runtime does not provide the Unicode normalization symbols needed to materialize a
+      // String from an arbitrary key span.
+      let dictionary = StreamDictionary<Int>()
+      precondition(dictionary.isEmpty)
 
       // A malformed document has to be rejected here too, not just on Darwin.
       var rejected = false
