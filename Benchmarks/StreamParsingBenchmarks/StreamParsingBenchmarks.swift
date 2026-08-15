@@ -128,15 +128,43 @@ let benchmarks: @Sendable () -> Void = {
 
   Benchmark("Stream Twitter - discarding", configuration: twitterConfiguration) { benchmark in
     measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
-      blackHole(try? streamDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self))
+      blackHole(expectParses { try streamDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self) })
+    }
+  }
+
+  Benchmark("Stream Twitter - bulk discarding", configuration: twitterConfiguration) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
+      blackHole(
+        expectParses { try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self) }
+      )
+    }
+  }
+
+  Benchmark(
+    "Stream Twitter - discarding, matched keys", configuration: twitterConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
+      blackHole(
+        expectParses { try streamDiscarding(Payloads.twitter, as: BenchmarkTwitterMatched.Partial.self) }
+      )
     }
   }
 
   addFastParserBenchmarks()
   retentionBenchmarks()
+  stringAppendBenchmarks()
 }
 
 // MARK: - Helpers
+
+// A `try?` in a benchmark closure scores an aborted parse as fast, so failures trap instead.
+func expectParses<Value>(_ work: () throws -> Value) -> Value {
+  do {
+    return try work()
+  } catch {
+    preconditionFailure("Benchmark payload failed to parse: \(error)")
+  }
+}
 
 func measurePayloadThroughput(
   _ benchmark: Benchmark,

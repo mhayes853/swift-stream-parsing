@@ -48,6 +48,10 @@ func addFastParserBenchmarks() {
     ("Nested arrays", Payloads.matrix),
     ("Dictionary", Payloads.counts),
     ("Long string", Payloads.document),
+    ("Escaped string", Payloads.escapedString),
+    ("Unicode escaped string", Payloads.unicodeEscapedString),
+    ("Non-ASCII string", Payloads.nonASCIIString),
+    ("Pretty printed users", Payloads.prettyUserList),
     ("Twitter", Payloads.twitter),
   ]
 
@@ -57,7 +61,7 @@ func addFastParserBenchmarks() {
       configuration: payloadConfiguration
     ) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(runFastParser(payload, chunk: .max))
+        blackHole(expectParses { try runFastParser(payload, chunk: .max) })
       }
     }
 
@@ -66,7 +70,7 @@ func addFastParserBenchmarks() {
       configuration: payloadConfiguration
     ) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(runFastParser(payload, chunk: 64))
+        blackHole(expectParses { try runFastParser(payload, chunk: 64) })
       }
     }
 
@@ -75,34 +79,34 @@ func addFastParserBenchmarks() {
       configuration: payloadConfiguration
     ) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(runFastParserByteAtATime(payload))
+        blackHole(expectParses { try runFastParserByteAtATime(payload) })
       }
     }
   }
 }
 
-private func runFastParser(_ payload: [UInt8], chunk: Int) -> UInt64 {
+private func runFastParser(_ payload: [UInt8], chunk: Int) throws -> UInt64 {
   var parser = JSONParser()
   var sink = FastCountingSink()
-  payload.withUnsafeBufferPointer { buffer in
+  try payload.withUnsafeBufferPointer { buffer in
     var offset = 0
     while offset < buffer.count {
       let count = min(chunk, buffer.count - offset)
       let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
-      try? parser.parse(slice, into: &sink)
+      try parser.parse(slice, into: &sink)
       offset += count
     }
   }
-  try? parser.finish(into: &sink)
+  try parser.finish(into: &sink)
   return sink.checksum
 }
 
-private func runFastParserByteAtATime(_ payload: [UInt8]) -> UInt64 {
+private func runFastParserByteAtATime(_ payload: [UInt8]) throws -> UInt64 {
   var parser = JSONParser()
   var sink = FastCountingSink()
   for byte in payload {
-    try? parser.parse(byte: byte, into: &sink)
+    try parser.parse(byte: byte, into: &sink)
   }
-  try? parser.finish(into: &sink)
+  try parser.finish(into: &sink)
   return sink.checksum
 }

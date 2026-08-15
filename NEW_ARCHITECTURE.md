@@ -507,8 +507,9 @@ in a module that does not enable it. So the floor stays where it was rather than
 
 - `Float` scaled parsing rounds twice, once into `Double` and once into `Self`. It needs its own
   bound before that path can be called exact.
-- Lone high surrogates are rejected, but the check happens at run and string end rather than
-  immediately.
+- ~~Lone high surrogates are rejected, but the check happens at run and string end rather than
+  immediately.~~ Fixed with the adversarial round's surrogate bugs: every event that can follow a
+  high surrogate now checks for one, so a pair is severed exactly where it breaks.
 - A container materializes its slot on entry, so a dictionary key is visible with its initial
   value before the value arrives. Load bearing rather than merely tolerated since the shape check:
   a container discarded for arriving at a destination that cannot hold it leaves the slot behind,
@@ -551,10 +552,12 @@ in a module that does not enable it. So the floor stays where it was rather than
   sink call more often than anything else measured.
 - A shared schema refcount is one contended cache line, so concurrent parses of the same type
   contend where the value typed schema did not. No benchmark covers concurrency.
-- The Twitter benchmark model declares `screenName` and `followersCount`, which never match
+- ~~The Twitter benchmark model declares `screenName` and `followersCount`, which never match
   `screen_name` and `followers_count`, so those members are always nil and the benchmark measures
   more of the discard path than it appears to. Both benchmark files also use `try?`, so a payload
-  that aborted early would score as fast.
+  that aborted early would score as fast.~~ Both settled by measurement and by fix: a matched keys
+  model measures identically — the distortion was in what the number meant, not what it was — and
+  the runners now trap on a parse failure. See the adversarial round below.
 
 ---
 
@@ -1294,3 +1297,179 @@ storage change, so it stays available and unspent.
 7. ~~Plumbing, and a `StreamDictionary` line in `EmbeddedSmoke`.~~ The type/init smoke links; a
    deeper embedded `_openValue` smoke is blocked by the embedded Swift runtime's missing Unicode
    normalization symbols when a new key would be materialized.
+
+---
+
+## Adversarial round: string shapes, whitespace, and two blind spots
+
+The long string benchmark is a memcpy by comparison — one SIMD run the length of the body — so
+the string shapes that defeat the run scanner were measured, each sized to the same ~8 KB. p50,
+MB/s:
+
+| payload | bulk | 64 B chunks | byte by byte |
+| --- | --- | --- | --- |
+| Long string (control) | 9655 | — | — |
+| Escaped string, every third byte `\n` or `\t` | 369 | 321 | 161 |
+| Unicode escaped, everything `\uXXXX`, half surrogate pairs | 390 | 337 | 200 |
+| Non-ASCII, mixed 2/3/4 byte sequences | 1347 | 1003 | 168 |
+| Pretty printed users | 652 | 554 | 160 |
+| Array of structs, compact (control) | 459 | — | 147 |
+
+- **Escape density is a 26x cliff, and still clears the target.** Roughly 8 ns per escape across
+  the state transitions, the scratch emission and the extra sink call. For escape heavy input the
+  number worth quoting is ~370 MB/s.
+- **The full UTF-8 validator costs 7x against the ASCII prefilter and is not a bottleneck.**
+  1.35 GB/s bulk. Byte fed non-ASCII lands with every other byte fed payload, so the pending
+  sequence path is a correctness problem (below), not a performance one.
+- **Whitespace is settled: the scanner stays scalar.** The same content pretty printed costs
+  17 µs against 14 µs compact — indentation is skipped at ~1.5 GB/s by the plain loop, so a SIMD
+  whitespace scanner would buy ~2 µs on an 11 KB payload. Measured so it stops being a question.
+- **The Twitter model mismatch never moved the number.** A matched keys model (`screen_name`,
+  `followers_count`) measures identically — 22 ms, 566 mallocs, 29 MB/s byte fed, both ways —
+  because the two writes it adds are an inline small string and an `Int`. The mismatch distorted
+  what the benchmark meant, not what it measured. Both models stay registered so that stays true,
+  and the runners now trap on a parse failure instead of `try?` scoring an aborted parse as fast.
+
+### Bugs found by the same pass
+
+The conformance corpus had two blind spots: its invalid UTF-8 cases were the only ones never
+parsed byte by byte, and no case put an escape inside an object key. Both hid real bugs, pinned
+in `AdversarialConformanceTests` and fixed in the section after this one:
+
+- **A key whose first character is an escape is rejected.** `{"\n":1}` and `{"\u0041":1}` fail
+  with `unexpectedToken`, parsed whole or split at any position. `consumeStringRun` drops the
+  key/string distinction on entering the escape state, and `emitScratch` recovers it from
+  `bufferCount > 0` — which is false exactly when the escape is the key's first character, so the
+  decoded byte is emitted as string content and the rest of the key parses as a string value. The
+  `state == .inKey` test there is dead code: the state is `.escape` or `.unicode` at every call.
+- **Invalid UTF-8 is accepted whenever the sequence straddles a chunk boundary, which includes
+  all byte fed input.** `completePendingUTF8` reassembles a held sequence and emits it without
+  validating, and consumes continuation bytes blindly — overlongs, encoded surrogates and out of
+  range leads all pass when split after the lead byte, and `"\xC3` followed by `"` swallows the
+  closing quote as a continuation byte, turning a document rejected whole into one accepted
+  split.
+- **Almost pairs of surrogate escapes are accepted.** A second `\uD800` silently overwrites a
+  pending high surrogate, and a simple escape between a high and a low does not sever the pair —
+  `"\uD800\n\uDC00"` parses, with the `\n` emitted before the combined scalar, reordering the
+  content.
+- **Error offsets are chunk relative.** `error(_:)` reports `consumedByteCount`, which only
+  advances at the end of `parse`, so every error names the offset of the chunk it was thrown in
+  — byte 0, for a whole document parse. `checkSink` gets it right by adding the loop index;
+  `finish` then adds `consumedByteCount` to itself. Diagnostics only, and wrong everywhere.
+- A number longer than the buffer parses in bulk, where it stays contiguous in the input, and
+  throws `bufferExhausted` byte fed, where it must be accumulated: the same document accepted or
+  rejected by feed granularity. Keys at least fail both ways.
+
+### Fixed, and what the fixes cost
+
+The three acceptance bugs are fixed, the suite that pinned them is green alongside the other 337,
+the corpus's invalid UTF-8 cases now split like everything else, and `EmbeddedSmoke` builds and
+passes under wasmer with the fixed core.
+
+- The key/string distinction is a stored `isKeyToken`, set at each opening quote, replacing the
+  `bufferCount > 0` inference that failed for a key opening with an escape. `stateAfterEscape`
+  and `emitScratch` read it, and the dead `state == .inKey` test is gone.
+- `completePendingUTF8` admits only continuation bytes — a structural byte now ends the sequence
+  instead of being swallowed — and validation splits across the boundary: the hold rejects
+  invalid leads before holding anything, completion checks the second byte constraints. Routing
+  the assembled sequence through the contiguous validator instead cost 32% of byte fed non-ASCII
+  throughput, almost all of it the ASCII prescan, so the split is measured rather than stylistic.
+- A pending high surrogate is checked at every event that can follow it — a simple escape, a
+  second high surrogate, a non surrogate scalar, a content run, the closing quote — so a severed
+  pair is rejected at the escape that severs it rather than accepted, reordered, or caught late.
+
+Costs are measured against pristine controls stashed and run in the same session, because the
+first session's numbers had drifted: the same pristine parser that measured 188 MB/s on byte fed
+Twitter measures 141 in this one. p50 MB/s:
+
+| | pristine control | fixed |
+| --- | --- | --- |
+| Twitter, byte by byte | 141 | 142 |
+| Twitter, bulk | 730 | 730 |
+| Non-ASCII string, byte by byte | 158 | 142 |
+| Escaped string, bulk | 357 | 334 |
+| Unicode escaped string, bulk | 378 | 377 |
+
+Two costs are real: ~10% on byte fed non-ASCII, which is validation existing where there was
+none, and ~7% on escape dense strings, one load and branch per escape for the severed pair
+check. Twitter, which is both at once, pays nothing measurable.
+
+Still open from the list above: the chunk relative error offsets and the long number feed
+asymmetry — diagnostics and consistency rather than acceptance.
+
+### The gap between the convenience layer and the sink
+
+Twitter, p50, the same payload on every row:
+
+| | bulk | byte by byte |
+| --- | --- | --- |
+| fast interface, counting sink | 719 MB/s | 188 MB/s |
+| convenience layer, discarding | 296 MB/s, 293 mallocs | 29 MB/s |
+| gap | 2.4x | 6.5x |
+
+The gap tripling as chunks shrink is the diagnostic: per token costs amortize with chunk size and
+per byte costs do not. The known per byte cost is `String.streamAppend`, which is
+`self += String(decoding:)` — a whole `String` materialized per chunk, re-validating UTF-8 the
+parser already validated, which bulk pays once per run and byte fed pays once per content byte.
+The counting sink row is the floor.
+
+### Plumbing is not the gap
+
+The first theory tried was sink plumbing: the whole frame copy and write back in `key(_:)`
+replaced with an in-place `pendingField` write, cached scalar targets holding the one apply
+closure a token repeats instead of a schema reference so that copying a target touches no
+refcount, and `stringBegin`'s temporary allocation for its empty probe span removed. Built,
+measured, and reverted. p50, retains:
+
+| Stream, discarding | baseline | all trims | minus thin targets |
+| --- | --- | --- | --- |
+| Array of structs, bulk | 75 µs, 2103 | 75 µs, 2204 | 81 µs*, 2303 |
+| Array of structs, byte fed | 325 µs, 2003 | 324 µs, 2104 | 338 µs*, 2203 |
+| Flat struct | 5.2 µs, 45 | 5.2 µs, 48 | 5.3 µs, 47 |
+| Long string, byte fed | 500 µs, 15 | 506 µs, 15 | 509 µs, 17 |
+
+*Noisy run — p100 spiked to milliseconds — but the retain counts are exact.
+
+**Wall clock never moved beyond noise, and every trim added retains.** Reading a closure out of
+the schema class copies its context, which is a retain the cached reference never paid. The frame
+copy and write back per key compiles to nothing. A control run on the pristine file afterward
+reproduced the baseline to the retain, so the counts are deterministic and the differences were
+real: ARC already elides every copy the trims were aimed at, and the sink's plumbing is optimal
+in exactly the ways it looks wasteful.
+
+What the Long string row proves is where the gap actually lives. An 8 KB string fed byte by byte
+costs 500 µs with fifteen retains and thirteen mallocs — ~61 ns per content byte of pure
+`String.streamAppend`, with nothing else on the path. Scalar conversion is the gap; the plumbing
+around it is free.
+
+### The append itself, isolated
+
+`String.streamAppend` re-validates UTF-8 the parser already validated, so skipping that walk via
+`String(unsafeUninitializedCapacity:)` was the surviving cheap theory. Measured against today's
+`+= String(decoding:)` and against accumulating raw bytes and materializing once, which is the
+floor any accumulation redesign would buy. p50, `StringAppendBenchmarks`:
+
+| 8 KB ASCII accumulated | `+= String(decoding:)` | unsafe init | byte buffer |
+| --- | --- | --- | --- |
+| by 1 B | 194 µs | 242 µs | **35 µs** |
+| by 64 B | 13 µs | 14 µs | **1.9 µs** |
+| by 4096 B | 792 ns | 792 ns | 792 ns |
+| fresh 14 B token, one append | 83 ns, 0 mallocs | 83 ns | — |
+| fresh 23 B token, one append | 167 ns, 1 malloc | 208 ns | — |
+
+**Validation is not the cost either.** The unvalidated construction is identical at every size
+that matters and *worse* at one byte, because its setup overhead exceeds the ASCII validation it
+skips — `String(decoding:)`'s ASCII path is already a memcpy. What costs is the fixed ~20 ns of
+per call append machinery, which vanishes into the copy at 4 KB and dominates at 1 B.
+
+So the split is clean:
+
+- **At 4 KB chunks there is nothing left to win inside `streamAppend`.** All three strategies
+  measure identically. The convenience layer at realistic chunk sizes is bounded by per token
+  costs — one intermediate `String` and one heap allocation per 15+ byte field — which the fresh
+  token rows put at 83–167 ns, and which no change short of not producing a `String` removes.
+- **At small feeds only two things win, and both change where bytes accumulate**: batching in the
+  sink and flushing per token or per read turns the 1 B column into the 64 B column, ~15x on the
+  append path; a byte buffer accumulation type is worth another 7x past that and is the only lever
+  that also touches bulk. That is the `StreamString` discussion, parked as an API question — the
+  measurements here are what it would buy.

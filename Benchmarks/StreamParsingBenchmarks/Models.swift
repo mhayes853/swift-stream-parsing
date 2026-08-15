@@ -82,6 +82,28 @@ struct BenchmarkTwitterUser: Equatable {
   var followersCount: Int = 0
 }
 
+// `BenchmarkTwitterUser.screenName` and `.followersCount` never match the payload's snake_case
+// keys, so that benchmark measures more of the discard path than it appears to. This variant
+// declares the keys the payload actually contains, keeping the write path measured alongside it.
+@StreamParseable
+struct BenchmarkTwitterMatched: Equatable {
+  var statuses: [BenchmarkTweetMatched] = []
+}
+
+@StreamParseable
+struct BenchmarkTweetMatched: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUserMatched = BenchmarkTwitterUserMatched()
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserMatched: Equatable {
+  var name: String = ""
+  var screen_name: String = ""
+  var followers_count: Int = 0
+}
+
 // MARK: - Long strings
 
 @StreamParseable

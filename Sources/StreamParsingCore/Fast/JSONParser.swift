@@ -87,6 +87,12 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var unicodeRemaining = 0
   @usableFromInline var highSurrogate: UInt32 = 0
 
+  // Whether the string token being read is a key. The escape and unicode states are shared
+  // between keys and string values, so this has to be remembered rather than derived:
+  // `bufferCount > 0` cannot stand in for it, because a key whose first character is an escape
+  // has buffered nothing yet, and misrouting it emitted the decoded byte as string content.
+  @usableFromInline var isKeyToken = false
+
   @usableFromInline var literalKind: UInt8 = 0
   @usableFromInline var literalIndex = 0
 
@@ -234,6 +240,7 @@ public struct JSONParser: ~Copyable {
         sink.endArray()
         self.pop()
       case .asciiQuote:
+        self.isKeyToken = false
         sink.stringBegin()
         self.state = .inString
       case .asciiLowerT: self.startLiteral(kind: 0)
@@ -267,6 +274,7 @@ public struct JSONParser: ~Copyable {
     case .key, .firstKey:
       switch byte {
       case .asciiQuote:
+        self.isKeyToken = true
         self.bufferCount = 0
         self.state = .inKey
       case .asciiObjectEnd:
@@ -366,6 +374,11 @@ public struct JSONParser: ~Copyable {
       self.state = .unicode
       return
     }
+    // A high surrogate must be followed immediately by a low surrogate escape. Any other escape
+    // severs the pair, and emitting it first would also reorder the content around the error.
+    if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+      throw self.error(.invalidEscape)
+    }
     let decoded: UInt8
     switch byte {
     case .asciiQuote, .asciiBackslash, .asciiSlash: decoded = byte
@@ -395,6 +408,10 @@ public struct JSONParser: ~Copyable {
 
     let scalar = self.unicodeValue
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
+      // A second high surrogate would silently replace the pending one, leaving the first lone.
+      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+        throw self.error(.invalidEscape)
+      }
       self.highSurrogate = scalar
       self.state = self.stateAfterEscape
       return
@@ -411,6 +428,10 @@ public struct JSONParser: ~Copyable {
       self.highSurrogate = 0
       try self.emitScalar(combined, into: &sink)
     } else {
+      // A pending high surrogate followed by any scalar but a low surrogate is lone.
+      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+        throw self.error(.invalidEscape)
+      }
       try self.emitScalar(scalar, into: &sink)
     }
     self.state = self.stateAfterEscape
@@ -418,7 +439,7 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   var stateAfterEscape: State {
-    self.bufferCount > 0 || self.state == .inKey ? .inKey : .inString
+    self.isKeyToken ? .inKey : .inString
   }
 
   // MARK: Numbers
@@ -705,6 +726,14 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) {
     let count = to &- from
     guard count <= 4 else { throw self.error(.invalidUTF8) }
+    // An invalid lead can be rejected before anything is held, which leaves completion with only
+    // the second byte constraints to check.
+    if self.configuration.validatesUTF8 {
+      let lead = base.load(fromByteOffset: from, as: UInt8.self)
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else {
+        throw self.error(.invalidUTF8)
+      }
+    }
     for offset in 0..<count {
       self.buffer[self.buffer.count &- 8 &+ offset] =
         base.load(fromByteOffset: from &+ offset, as: UInt8.self)
@@ -712,6 +741,11 @@ public struct JSONParser: ~Copyable {
     self.pendingUTF8Count = count
   }
 
+  // Only continuation bytes are taken, and the reassembled sequence goes through the same
+  // validation a contiguous one would. Filling blindly swallowed whatever byte came next — a
+  // closing quote, structurally — and emitting without validating accepted overlongs, encoded
+  // surrogates and out of range leads whenever the split fell inside the sequence, which is
+  // every sequence when fed byte by byte.
   @inlinable
   mutating func completePendingUTF8<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, count n: Int, into sink: inout Sink
@@ -722,15 +756,46 @@ public struct JSONParser: ~Copyable {
     var have = self.pendingUTF8Count
     var i = 0
     while have < needed && i < n {
-      self.buffer[tailStart &+ have] = base.load(fromByteOffset: i, as: UInt8.self)
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      guard byte >= .utf8ContinuationFloor, byte < .utf8TwoByteFloor else { break }
+      self.buffer[tailStart &+ have] = byte
       have &+= 1
       i &+= 1
     }
-    guard have == needed else {
-      self.pendingUTF8Count = have
-      return n
+    if have < needed {
+      if i == n {
+        self.pendingUTF8Count = have
+        return n
+      }
+      // The next byte is not a continuation, so the sequence is truncated. Unchecked parsing
+      // emits the fragment and lets the byte be what it is, matching what the bulk path does
+      // with a truncated sequence mid chunk.
+      if self.configuration.validatesUTF8 { throw self.error(.invalidUTF8) }
+      self.pendingUTF8Count = 0
+      let slice = UnsafeBufferPointer(start: self.buffer.baseAddress! + tailStart, count: have)
+      sink.stringChunk(Span(_unsafeElements: slice))
+      return i
     }
     self.pendingUTF8Count = 0
+    // The fill loop admitted only continuation bytes and the hold rejected invalid leads, so the
+    // sequence is valid unless its second byte encodes an overlong, a surrogate or a scalar past
+    // U+10FFFF — the same second byte constraints the contiguous validator applies, without its
+    // ASCII prescan, which measured 32% of byte fed non-ASCII throughput.
+    if self.configuration.validatesUTF8, needed > 1 {
+      let second = self.buffer[tailStart &+ 1]
+      switch lead {
+      case .utf8ThreeByteFloor:
+        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8) }
+      case .utf8SurrogateLead:
+        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8) }
+      case .utf8FourByteFloor:
+        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8) }
+      case .utf8MaximumLead:
+        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8) }
+      default:
+        break
+      }
+    }
     let slice = UnsafeBufferPointer(start: self.buffer.baseAddress! + tailStart, count: needed)
     sink.stringChunk(Span(_unsafeElements: slice))
     return i
@@ -832,7 +897,7 @@ public struct JSONParser: ~Copyable {
     count: Int, into sink: inout Sink
   ) throws(JSONParsingError) {
     let at = self.escapeScratchOffset
-    if self.state == .inKey || self.bufferCount > 0 {
+    if self.isKeyToken {
       try self.appendToBuffer(
         base: UnsafeRawPointer(self.buffer.baseAddress! + at), from: 0, count: count
       )

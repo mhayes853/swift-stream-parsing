@@ -65,6 +65,25 @@ enum Payloads {
 
   static let document = Array(Self.makeDocument(bodyLength: 8_000).utf8)
 
+  // The long string benchmark is a memcpy by comparison: one SIMD run the length of the body.
+  // These three are the string shapes that defeat the run scanner, sized to the same ~8 KB.
+
+  // Every third byte is an escape, so no run exceeds two bytes and the parse is dominated by the
+  // per escape state machine and scratch emission.
+  static let escapedString = Array(Self.makeEscapedDocument(repetitions: 1_300).utf8)
+
+  // Six or twelve input bytes per character, all through the unicode escape path, half of the
+  // characters surrogate pairs.
+  static let unicodeEscapedString = Array(Self.makeUnicodeEscapedDocument(repetitions: 333).utf8)
+
+  // Mixed two, three and four byte sequences, so the full UTF-8 validator runs on every chunk in
+  // bulk and every character crosses the pending sequence path byte by byte.
+  static let nonASCIIString = Array(Self.makeNonASCIIDocument(repetitions: 727).utf8)
+
+  // The same content as `userList`, pretty printed, so roughly a third of the payload is the
+  // indentation the scalar whitespace scanner walks.
+  static let prettyUserList = Array(Self.makePrettyUserList(count: 100).utf8)
+
   static let twitter: [UInt8] = {
     guard let url = Bundle.module.url(
       forResource: "twitter",
@@ -115,6 +134,46 @@ enum Payloads {
       .map { "\"\(Self.repeatedLongKey)\":\($0)" }
       .joined(separator: ",")
     return "{\(entries)}"
+  }
+
+  private static func makeEscapedDocument(repetitions: Int) -> String {
+    let body = String(repeating: #"a\nb\t"#, count: repetitions)
+    return "{\"title\":\"Escapes\",\"body\":\"\(body)\"}"
+  }
+
+  private static func makeUnicodeEscapedDocument(repetitions: Int) -> String {
+    // é, €, and 😀 as a surrogate pair, all through the \u path.
+    let esc = "\u{5C}"
+    let unit = "\(esc)u00e9\(esc)u20ac\(esc)ud83d\(esc)ude00"
+    let body = String(repeating: unit, count: repetitions)
+    return "{\"title\":\"Unicode escapes\",\"body\":\"\(body)\"}"
+  }
+
+  private static func makeNonASCIIDocument(repetitions: Int) -> String {
+    let body = String(repeating: "éαあ😀", count: repetitions)
+    return "{\"title\":\"Non-ASCII\",\"body\":\"\(body)\"}"
+  }
+
+  private static func makePrettyUserList(count: Int) -> String {
+    let users = (0..<count)
+      .map { index in
+        """
+              {
+                "id": \(index),
+                "name": "User Number \(index)",
+                "email": "user\(index)@example.com"
+              }
+        """
+      }
+      .joined(separator: ",\n")
+    return """
+      {
+        "users": [
+      \(users)
+        ],
+        "total": \(count)
+      }
+      """
   }
 
   private static func makeDocument(bodyLength: Int) -> String {

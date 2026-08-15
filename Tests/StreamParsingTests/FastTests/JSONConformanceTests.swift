@@ -146,14 +146,17 @@ struct `JSON conformance tests` {
       [0x22, 0xF5, 0x80, 0x80, 0x80, 0x22],  // beyond U+10FFFF
       [0x22, 0xFF, 0x22],              // never valid
     ]
+    // Byte by byte as well as whole, like every other case: these were the only rejection cases
+    // not split, and the split was exactly where the pending sequence path accepted them.
     for bytes in invalid {
-      var threw = false
-      do {
-        try Self.parse(bytes, chunk: .max)
-      } catch {
-        threw = true
+      for chunk in [Int.max, 1] {
+        #expect(
+          throws: (any Error).self,
+          "Invalid UTF-8 \(bytes.map { String($0, radix: 16) }) at chunk \(chunk == .max ? "whole" : "1")"
+        ) {
+          try Self.parse(bytes, chunk: chunk)
+        }
       }
-      #expect(threw, "Accepted invalid UTF-8 \(bytes.map { String($0, radix: 16) })")
     }
   }
 
