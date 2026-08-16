@@ -1,6 +1,7 @@
 import Benchmark
 import Foundation
 import StreamParsing
+import StreamParsingCore
 
 // MARK: - Benchmarks
 
@@ -47,6 +48,20 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
+  // What validation costs through the convenience layer, where the parse is a smaller share of
+  // the total than it is at the sink.
+  Benchmark("Stream Array of structs - bulk discarding unchecked") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(
+        try streamBulkDiscarding(
+          Payloads.userList,
+          as: BenchmarkUserList.Partial.self,
+          format: .json(configuration: .unchecked)
+        )
+      )
+    }
+  }
+
   for chunk in [16, 64, 256, 1024, 4096] {
     Benchmark("Stream Array of structs - snapshot per \(chunk)B chunk") { benchmark in
       for _ in benchmark.scaledIterations {
@@ -86,22 +101,10 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  Benchmark("Stream Array of structs - snapshot read per byte") { benchmark in
-    for _ in benchmark.scaledIterations {
-      var stream = PartialsStream(
-        initialValue: BenchmarkUserList.Partial(), from: .json()
-      )
-      for byte in Payloads.userList {
-        try stream.next(byte)
-        blackHole(stream.current.total)
-      }
-      blackHole(try stream.finish())
-    }
-  }
-
+  // 100 users is the payload every `Stream Array of structs` row above uses, so its two scaling
+  // rows were literal duplicates of them and are gone. These are the other two points.
   for (name, payload) in [
     ("10 users", Payloads.userList10),
-    ("100 users", Payloads.userList),
     ("400 users", Payloads.userList400)
   ] {
     Benchmark("Scaling \(name) - discarding") { benchmark in
@@ -123,37 +126,13 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  var twitterConfiguration = Benchmark.defaultConfiguration
-  twitterConfiguration.metrics.append(contentsOf: [.throughput, payloadMegabytesPerSecond])
-
-  Benchmark("Stream Twitter - discarding", configuration: twitterConfiguration) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
-      blackHole(expectParses { try streamDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self) })
-    }
-  }
-
-  Benchmark("Stream Twitter - bulk discarding", configuration: twitterConfiguration) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
-      blackHole(
-        expectParses { try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self) }
-      )
-    }
-  }
-
-  Benchmark(
-    "Stream Twitter - discarding, matched keys", configuration: twitterConfiguration
-  ) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
-      blackHole(
-        expectParses { try streamDiscarding(Payloads.twitter, as: BenchmarkTwitterMatched.Partial.self) }
-      )
-    }
-  }
-
   addFastParserBenchmarks()
+  parserShapeBenchmarks()
+  realWorldBenchmarks()
   retentionBenchmarks()
+  dictionaryAllocationBenchmarks()
+  keyLookupBenchmarks()
   stringAppendBenchmarks()
-  numberParseBenchmarks()
 }
 
 // MARK: - Helpers
@@ -182,18 +161,19 @@ func measurePayloadThroughput(
   benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
 }
 
-private func streamDiscarding<Value: StreamParseableRoot>(
+func streamDiscarding<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
-  as type: Value.Type
+  as type: Value.Type,
+  format: JSONStreamFormat = .json()
 ) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
   for byte in bytes {
     try stream.next(byte)
   }
   return try stream.finish()
 }
 
-private func streamSnapshotting<Value: StreamParseableRoot>(
+func streamSnapshotting<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
   as type: Value.Type
 ) throws -> Value {
@@ -205,7 +185,7 @@ private func streamSnapshotting<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-private func streamSnapshottingChunks<Value: StreamParseableRoot>(
+func streamSnapshottingChunks<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type
@@ -221,7 +201,7 @@ private func streamSnapshottingChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-private func streamViewingChunks<Value: StreamParseableRoot>(
+func streamViewingChunks<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type,
@@ -238,11 +218,12 @@ private func streamViewingChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-private func streamBulkDiscarding<Value: StreamParseableRoot>(
+func streamBulkDiscarding<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
-  as type: Value.Type
+  as type: Value.Type,
+  format: JSONStreamFormat = .json()
 ) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
   try stream.next(bytes)
   return try stream.finish()
 }

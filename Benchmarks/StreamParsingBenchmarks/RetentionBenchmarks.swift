@@ -103,9 +103,6 @@ func retentionBenchmarks() {
       blackHole(try streamDictionaryDiscarding(Payloads.countsLongKeys))
     }
   }
-
-  dictionaryAllocationBenchmarks()
-  keyLookupBenchmarks()
 }
 
 @inline(never)

@@ -12,28 +12,6 @@ struct BenchmarkProfile: Equatable {
   var isActive: Bool = false
 }
 
-// MARK: - Nested
-
-@StreamParseable
-struct BenchmarkAddress: Equatable {
-  var street: String = ""
-  var city: String = ""
-  var postalCode: String = ""
-}
-
-@StreamParseable
-struct BenchmarkCompany: Equatable {
-  var name: String = ""
-  var address: BenchmarkAddress = BenchmarkAddress()
-}
-
-@StreamParseable
-struct BenchmarkEmployee: Equatable {
-  var id: Int = 0
-  var name: String = ""
-  var company: BenchmarkCompany = BenchmarkCompany()
-}
-
 // MARK: - Arrays
 
 @StreamParseable
@@ -49,9 +27,78 @@ struct BenchmarkUserList: Equatable {
   var total: Int = 0
 }
 
+// MARK: - Schema width
+
+// Forty-eight members, because key matching scans precomputed leading words and its cost is in
+// the member count of the type rather than in the payload. Nothing else in the suite declares
+// more than six.
 @StreamParseable
-struct BenchmarkMatrix: Equatable {
-  var rows: [[Int]] = []
+struct BenchmarkWide: Equatable {
+  var field0: Int = 0
+  var field1: Int = 0
+  var field2: Int = 0
+  var field3: Int = 0
+  var field4: Int = 0
+  var field5: Int = 0
+  var field6: Int = 0
+  var field7: Int = 0
+  var field8: Int = 0
+  var field9: Int = 0
+  var field10: Int = 0
+  var field11: Int = 0
+  var field12: Int = 0
+  var field13: Int = 0
+  var field14: Int = 0
+  var field15: Int = 0
+  var field16: Int = 0
+  var field17: Int = 0
+  var field18: Int = 0
+  var field19: Int = 0
+  var field20: Int = 0
+  var field21: Int = 0
+  var field22: Int = 0
+  var field23: Int = 0
+  var field24: Int = 0
+  var field25: Int = 0
+  var field26: Int = 0
+  var field27: Int = 0
+  var field28: Int = 0
+  var field29: Int = 0
+  var field30: Int = 0
+  var field31: Int = 0
+  var field32: Int = 0
+  var field33: Int = 0
+  var field34: Int = 0
+  var field35: Int = 0
+  var field36: Int = 0
+  var field37: Int = 0
+  var field38: Int = 0
+  var field39: Int = 0
+  var field40: Int = 0
+  var field41: Int = 0
+  var field42: Int = 0
+  var field43: Int = 0
+  var field44: Int = 0
+  var field45: Int = 0
+  var field46: Int = 0
+  var field47: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkWideRows: Equatable {
+  var rows: [BenchmarkWide] = []
+}
+
+// MARK: - Numbers
+
+@StreamParseable
+struct BenchmarkIntegers: Equatable {
+  var values: [UInt64] = []
+}
+
+@StreamParseable
+struct BenchmarkFloats: Equatable {
+  var values: [Double] = []
 }
 
 // MARK: - Dictionaries
@@ -102,6 +149,31 @@ struct BenchmarkTwitterUserMatched: Equatable {
   var name: String = ""
   var screen_name: String = ""
   var followers_count: Int = 0
+}
+
+// MARK: - LLM message
+
+@StreamParseable
+struct BenchmarkLLMMessage: Equatable {
+  var id: String = ""
+  var role: String = ""
+  var model: String = ""
+  var content: [BenchmarkContentBlock] = []
+  var stop_reason: String = ""
+  var usage: BenchmarkUsage = BenchmarkUsage()
+}
+
+@StreamParseable
+struct BenchmarkContentBlock: Equatable {
+  var type: String = ""
+  var text: String = ""
+  var name: String = ""
+}
+
+@StreamParseable
+struct BenchmarkUsage: Equatable {
+  var input_tokens: Int = 0
+  var output_tokens: Int = 0
 }
 
 // MARK: - Long strings

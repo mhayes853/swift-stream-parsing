@@ -84,22 +84,70 @@ enum Payloads {
   // indentation the scalar whitespace scanner walks.
   static let prettyUserList = Array(Self.makePrettyUserList(count: 100).utf8)
 
-  static let twitter: [UInt8] = {
+  // MARK: - Depth
+
+  // Depth is capped at 64 by the container bitmask, and a frame is pushed and popped per level.
+  // Nothing else in the suite nests past three, so these are the only measurements of that spine.
+  static let deepObjects63 = Array(Self.makeDeepObjects(depth: 63).utf8)
+  static let deepObjects16 = Array(Self.makeDeepObjects(depth: 16).utf8)
+  static let deepArrays63 = Array(Self.makeDeepArrays(depth: 63).utf8)
+
+  // MARK: - Schema width
+
+  // Key matching is a scan over precomputed leading words, so its cost is in the member count of
+  // the type being parsed into, not in the payload. These hit the first member, the last, and a
+  // key the schema does not declare at all.
+  static let wideFirst = Array(Self.makeWideDocument(hitting: .first).utf8)
+  static let wideLast = Array(Self.makeWideDocument(hitting: .last).utf8)
+  static let wideMiss = Array(Self.makeWideDocument(hitting: .absent).utf8)
+
+  // MARK: - Numbers in situ
+
+  // The number strategy benchmarks are micro-benchmarks over bare corpora. These are the same
+  // token shapes inside a document, through the real parser: 17-19 digit ids are what the
+  // eight-digit block was chosen for, and floats with exponents are what `canada.json` is.
+  static let largeIntegers = Array(Self.makeNumberArray(count: 2_000) { index in
+    "\(1_000_000_000_000_000_000 &+ UInt64(index) &* 7_919)"
+  }.utf8)
+
+  static let floats = Array(Self.makeNumberArray(count: 2_000) { index in
+    "\(index % 180 - 90).\(index % 1_000_000)e\(index % 17 - 8)"
+  }.utf8)
+
+  // MARK: - Real world
+
+  static let twitter = Self.resource("twitter")
+
+  // The rest of the yyjson_benchmark corpus. Each covers a shape the synthetic payloads only
+  // approximate: `canada` is float-heavy geometry, `citm_catalog` is deeply nested with heavily
+  // repeated keys, `gsoc-2018` is large with long strings, `twitterescaped` is the same document
+  // as `twitter` with every non-ASCII character written as a `\u` escape, and `github_events`
+  // is a small API response.
+  static let canada = Self.resource("canada")
+  static let citmCatalog = Self.resource("citm_catalog")
+  static let gsoc2018 = Self.resource("gsoc-2018")
+  static let githubEvents = Self.resource("github_events")
+  static let twitterEscaped = Self.resource("twitterescaped")
+
+  // An assistant message response: many content blocks of markdown prose and fenced code, so the
+  // payload is dominated by long strings carrying `\n` and `\"` escapes, with tool-use objects
+  // and small integers between them. This is the shape the convenience layer exists for, and the
+  // only benchmark payload that is both large and escape-heavy.
+  static let llmMessage = Self.resource("llm_message")
+
+  private static func resource(_ name: String) -> [UInt8] {
     guard let url = Bundle.module.url(
-      forResource: "twitter",
+      forResource: name,
       withExtension: "json",
       subdirectory: "Resources"
     ) else {
-      preconditionFailure("twitter.json benchmark payload is missing")
+      preconditionFailure("\(name).json benchmark payload is missing")
     }
     guard let data = try? Data(contentsOf: url) else {
-      preconditionFailure("twitter.json benchmark payload could not be loaded")
+      preconditionFailure("\(name).json benchmark payload could not be loaded")
     }
     return Array(data)
-  }()
-
-  static let documentHalf = Array(Self.makeDocument(bodyLength: 4_000).utf8)
-  static let documentDouble = Array(Self.makeDocument(bodyLength: 16_000).utf8)
+  }
 
   private static func makeUserList(count: Int) -> String {
     let users = (0..<count)
@@ -174,6 +222,40 @@ enum Payloads {
         "total": \(count)
       }
       """
+  }
+
+  private static func makeDeepObjects(depth: Int) -> String {
+    String(repeating: "{\"a\":", count: depth) + "1" + String(repeating: "}", count: depth)
+  }
+
+  private static func makeDeepArrays(depth: Int) -> String {
+    String(repeating: "[", count: depth) + "1" + String(repeating: "]", count: depth)
+  }
+
+  enum WideHit {
+    case first
+    case last
+    case absent
+  }
+
+  // Repeated so the scan is measured rather than the parse around it, and every entry hits the
+  // same member so a run reports one position on the curve instead of its average.
+  private static func makeWideDocument(hitting hit: WideHit, count: Int = 256) -> String {
+    let key =
+      switch hit {
+      case .first: Self.wideKeys.first!
+      case .last: Self.wideKeys.last!
+      case .absent: "not_a_declared_member"
+      }
+    let entries = (0..<count).map { "{\"\(key)\":\($0)}" }.joined(separator: ",")
+    return "{\"rows\":[\(entries)]}"
+  }
+
+  // Matches `BenchmarkWide`'s members in declaration order.
+  static let wideKeys = (0..<48).map { "field\($0)" }
+
+  private static func makeNumberArray(count: Int, token: (Int) -> String) -> String {
+    "{\"values\":[\((0..<count).map(token).joined(separator: ","))]}"
   }
 
   private static func makeDocument(bodyLength: Int) -> String {

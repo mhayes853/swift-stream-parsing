@@ -545,7 +545,10 @@ in a module that does not enable it. So the floor stays where it was rather than
   it: 17 µs to 21 µs on the bulk benchmark. That payload is an integer matrix, so it pays the new
   sink call more often than anything else measured.
 - A shared schema refcount is one contended cache line, so concurrent parses of the same type
-  contend where the value typed schema did not. No benchmark covers concurrency.
+  contend where the value typed schema did not. `ConcurrentParsingTests` now pins correctness
+  under concurrent parses of one type — many tasks, chunked and bulk, each result compared against
+  a serial parse of the same payload — but nothing measures the contention, which is the part that
+  would show up as a throughput cliff rather than as a wrong answer.
 - ~~The Twitter benchmark model declares `screenName` and `followersCount`, which never match
   `screen_name` and `followers_count`, so those members are always nil and the benchmark measures
   more of the discard path than it appears to. Both benchmark files also use `try?`, so a payload
@@ -1499,14 +1502,22 @@ measurement that installed it compared fused accumulation against a consumer re-
 digit emission; with one emission per token the comparison inverts at every corpus size. The
 shipped combination is the greedy SIMD16 class scan with 8-digit blocks in the digit runs: the
 block costs 1–3 ns on short tokens against plain SIMD16 and pays 2.2x on 17–19 digit ids, which
-is what a document id is. `NumberParseBenchmarks.swift` keeps all six variants registered and
-cross-checks them against each other before timing anything.
+is what a document id is.
+
+`NumberParseBenchmarks.swift` kept all six variants registered and cross-checked them against
+each other before timing anything. It has since been deleted, because keeping it was a mistake of
+exactly the kind this document is supposed to catch: the six strategies were private
+re-implementations, so when the eight-digit block moved from SWAR to SIMD (below), production
+changed and the file's "shipped" row did not. It measured a fork of the parser, and no benchmark
+could have caught that. The numbers above stand as the record of the decision; the number path is
+now measured through the real parser, on payloads of the same token shapes, by the `Numbers` rows
+in `ParserShapeBenchmarks.swift`.
 
 ### Digit block width
 
-The block above began as a 64-bit SWAR conversion. `DigitAccumulateBenchmarks.swift` isolates
-just the digit-run-to-integer step and walks the width, because a block tier only fires on runs
-at least as long as itself. ns per digit run, p50, relative to SWAR8:
+The block above began as a 64-bit SWAR conversion. The measurement isolated just the
+digit-run-to-integer step and walked the width, because a block tier only fires on runs at least
+as long as itself. ns per digit run, p50, relative to SWAR8:
 
 | strategy | 4d | 1–4d | 8d | 5–8d | 9–15d | 16d | 17–19d |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1528,6 +1539,14 @@ more than the block saves. Two-digit values still fit a byte, so the first reduc
 stays in `SIMD8<UInt8>` and the all-lanes test is spelled as a 64-bit compare over a 0/1 lane
 vector. The first draft measured *slower than scalar on runs the block never touched* before
 that was fixed.
+
+The benchmark that produced this table is not in the tree, and cannot be: `streamParseEightDigits`
+and the scanners around it are `package`, and the benchmark suite is a separate SwiftPM package,
+so it cannot see them. That is why the deleted number strategy file forked them in the first
+place. The block is covered by `StreamScannerTests` for correctness and by the `Numbers` payload
+rows for its effect end to end, but the width comparison above cannot currently be re-run. Making
+the scanners `public` under an underscored name — as `StreamDictionary._openValue` already is —
+would fix that, at the cost of a wider public surface.
 
 Wider is not better below 16 digits, and narrower does not reach: in `twitter.json` only 12.9%
 of digit runs are exactly four long, since 1–3 digit runs outnumber four-digit ones four to
@@ -1623,3 +1642,120 @@ nothing measurable anywhere, which is what "arithmetic on the error path only" p
 What whole emission costs: byte fed consumers see nothing while a number token is open. A
 consumer rendering a stream of large integers digit by digit lost that ability, and part
 boundary emission is the design to revisit if one ever exists.
+
+---
+
+## The benchmark suite: production only, and the shapes nobody measured
+
+The suite had grown to 305 benchmarks, and 182 of them — 60% — were seven key table strategies
+swept over two key shapes and four counts. Six of the seven were prototypes whose decision had
+shipped; the seventh was the real `StreamDictionary`, measured through its `String` subscript
+rather than through `_openValue(forKey:)`, which is the route the parser takes. So the largest
+group in the suite was archaeology, and the part of it that was not measured the wrong entry
+point.
+
+The rule now: **a benchmark measures shipped code.** A strategy comparison earns its table in
+this document and is then deleted. Keeping the losers looks like diligence and is the opposite —
+`NumberParseBenchmarks.swift` is the proof, above. The one exception is a decision that has been
+made and *not applied*: `StringAppendBenchmarks` still registers `unsafe init` and `byte buffer`
+against production's `streamAppend`, because that replacement has not landed.
+
+Removed: six prototype key tables (`Keys` goes from 182 rows to 31), six forked number strategies
+(30), the materialising dictionary sink, and three Stream rows that were duplicates — `Scaling 100
+users` in both variants was the same call on the same payload as `Stream Array of structs`, and
+`snapshot read per byte` differed from `snapshot per byte` only in what the blackHole took.
+
+One row was dropped for being wrong rather than redundant. The span route's "miss" benchmark
+probed absent keys through `_openValue`, which has no non-inserting form — so it was measuring an
+insert, which `build` already measures, and paying a full dictionary copy per iteration to do it.
+That copy is also what intermittently tripped the harness's retain accounting.
+
+### What had no coverage at all
+
+Five axes, all of them shipped surface:
+
+| axis | why it was a hole |
+| --- | --- |
+| `JSONParserConfiguration.unchecked` | shipped, three separate checks, **zero** benchmarks — all 308 ran `.strict` |
+| `bufferCapacity` | defaults to 4096, never swept; the supplied-buffer initializer appeared once, hardcoded |
+| depth | capped at 64 by the container bitmask; nothing else in the suite nested past three |
+| chunk boundaries | every chunked row fed powers of two, which land inside a token only by accident |
+| schema width | key matching scans member words; no model declared more than six members |
+
+### What validation costs
+
+`bulk` against `bulk unchecked`, MB/s p50, same session:
+
+| payload | strict | unchecked | |
+| --- | --- | --- | --- |
+| LLM message | 1370 | **3213** | 2.3x |
+| Twitter | 705 | 873 | +24% |
+| GSoC 2018 | 1888 | 2165 | +15% |
+| GitHub events | 889 | 988 | +11% |
+| Twitter escaped | 438 | 471 | +8% |
+| CITM catalog | 964 | 1024 | +6% |
+| Canada | 671 | 674 | — |
+
+**Validation's share is set by how much of the payload is string content, not by size.** Canada
+is coordinate pairs and pays nothing for checks it never runs; the LLM message is long ASCII
+prose with escapes and more than doubles. Twitter escaped moving less than Twitter is the same
+fact from the other side: its non-ASCII arrives as `\u` escapes, which the escape path handles
+rather than the UTF-8 validator. The convenience layer dilutes all of it — LLM message bulk
+discarding goes 300 to 349 MB/s, +16%, because the parse is the smaller half of that number.
+
+### Buffer capacity, depth, schema width
+
+Capacity is flat: 64, 256, 4096 and 65536 B all parse the array of structs at 16–17 µs, so the
+default costs nothing and shrinking it buys nothing. What the setting decides is whether a
+document parses at all — see `BufferCapacityTests`. The parser's own malloc is real but small:
+417 ns and one malloc allocating, against 333 ns and zero supplied, on the flat struct.
+
+Depth costs about 27 ns per level (objects, 16 levels 625 ns against 63 levels 1875 ns), and an
+array level is less than half an object level — 750 ns for 63 array levels — which is the key
+that is not there.
+
+Schema width was the surprise: hitting the first of 48 members and hitting the last measure the
+same, 83 µs both, with an undeclared key at 78 µs. **Key matching is not linear in member count.**
+The generated matcher switches on the leading word rather than scanning, so the "scan over
+precomputed words" framing used elsewhere in this document describes the fallback, not the cost.
+
+### Real datasets
+
+`twitter.json` was the only non-synthetic payload, and it is the easy member of its corpus. The
+rest of `yyjson_benchmark`'s set is in `Resources/` now — `canada` (float geometry), `citm_catalog`
+(deep, repeated keys), `gsoc-2018` (large, long strings), `twitterescaped`, `github_events` —
+plus a generated `llm_message.json`: an assistant message of escaped markdown, fenced code and
+tool-use objects, which is the shape the convenience layer exists for and the only large payload
+in the suite that is also escape-dense. Three of these are bigger than any cache the parse runs
+in, which nothing else here was.
+
+Bulk, MB/s p50: GSoC 1888, LLM message 1370, CITM 964, GitHub events 889, Twitter 705, Canada 671,
+Twitter escaped 438. **Canada and Twitter escaped are the floor, and both for the same reason** —
+per-byte work the SIMD run scanner cannot skip, coordinates in one case and six-byte `\u` escapes
+in the other.
+
+Real chunk sizes are covered where they were not before: 16 KB is a TLS record, and the LLM rows
+sweep 1400 (an MTU), 16 KB and 64 KB. The convenience layer is flat across all three — view read
+290/308/310 MB/s — which extends the earlier finding that feed granularity, not observation
+frequency, is what moves the view path.
+
+NDJSON is deliberately absent: the parser rejects a second top-level document with
+`trailingContent`, so there is nothing to measure until that is a supported mode.
+
+### Tests, where speed is not the question
+
+Concurrency and malformed input were on the list of missing benchmarks and are tests instead,
+because what matters about them is whether they are correct. `ConcurrentParsingTests` puts many
+tasks on one type's shared schema and compares every result against a serial parse of the same
+payload. Depth and buffer capacity are both: `DepthLimitTests` pins the cap from both sides, in
+both container kinds, and under alternating nesting that puts a different bit at every level;
+`BufferCapacityTests` pins which tokens the capacity actually bounds.
+
+That last suite corrected a wrong assumption on the way in. Capacity does not bound a *string* of
+any kind, escaped or not — strings are emitted as chunks, so they drain the buffer as they fill
+it, and a 16 KB escaped body decodes intact at a 64 B capacity. Only keys and numbers have to
+arrive whole. The suite pins both halves, since "capacity is the longest token in the document" is
+the natural reading and it is wrong in the direction that matters.
+
+The suite is 201 benchmarks now, against 305 — a third the size, covering five axes it did not
+touch before and one dataset family it had only the friendliest member of.
