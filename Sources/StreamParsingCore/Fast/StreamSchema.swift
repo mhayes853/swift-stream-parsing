@@ -18,8 +18,7 @@ public final class StreamSchema: Sendable {
     case scalar
 
     // Whether a container of `kind` can be written through a destination of this shape. A JSON
-    // object reaches both an object and a dictionary; every other pairing is a mismatch, and a
-    // mismatched container is discarded rather than written through whatever it landed on.
+    // object reaches both an object and a dictionary; every other pairing is a type mismatch.
     //
     // Without this a scalar destination accepts the contents of any container that reaches it,
     // because a scalar frame ignores keys and applies every token to itself: `[2,3]` arriving at

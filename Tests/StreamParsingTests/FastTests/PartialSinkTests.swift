@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -146,6 +147,8 @@ struct `Partial sink tests` {
 @StreamParseable
 struct MacroKeyWidths: Equatable {
   var a: Int = 0
+  var abcdefghX: Int = 0
+  var abcdefghijklmnopX: Int = 0
   var exactly8: Int = 0
   var nineBytes9: Int = 0
   var descriptionLong: Int = 0
@@ -158,14 +161,26 @@ struct `Macro key matching tests` {
   func `Matches keys at and beyond the word width`() throws {
     var value = MacroKeyWidths.Partial()
     try parsePartial(
-      #"{"a":1,"exactly8":2,"nineBytes9":3,"descriptionLong":4,"descriptionShort":5}"#,
+      #"""
+      {
+        "a": 1,
+        "abcdefghX": 2,
+        "abcdefghijklmnopX": 3,
+        "exactly8": 4,
+        "nineBytes9": 5,
+        "descriptionLong": 6,
+        "descriptionShort": 7
+      }
+      """#,
       into: &value
     )
     #expect(value.a == 1)
-    #expect(value.exactly8 == 2)
-    #expect(value.nineBytes9 == 3)
-    #expect(value.descriptionLong == 4)
-    #expect(value.descriptionShort == 5)
+    #expect(value.abcdefghX == 2)
+    #expect(value.abcdefghijklmnopX == 3)
+    #expect(value.exactly8 == 4)
+    #expect(value.nineBytes9 == 5)
+    #expect(value.descriptionLong == 6)
+    #expect(value.descriptionShort == 7)
   }
 
   // Both share "descript" as their first eight bytes, so only the length distinguishes them and
@@ -181,8 +196,23 @@ struct `Macro key matching tests` {
   @Test
   func `Rejects near misses of a known key`() throws {
     var value = MacroKeyWidths.Partial()
-    try parsePartial(#"{"exactly":1,"exactly88":2,"nineBytes":3}"#, into: &value)
-    #expect(value.exactly8 == nil)
-    #expect(value.nineBytes9 == nil)
+    try parsePartial(
+      #"""
+      {
+        "a\u0000": 1,
+        "abcdefghY": 2,
+        "abcdefghijklmnopY": 3,
+        "exactly": 4,
+        "exactly88": 5,
+        "nineBytes": 6
+      }
+      """#,
+      into: &value
+    )
+    expectNoDifference(value.a, nil)
+    expectNoDifference(value.abcdefghX, nil)
+    expectNoDifference(value.abcdefghijklmnopX, nil)
+    expectNoDifference(value.exactly8, nil)
+    expectNoDifference(value.nineBytes9, nil)
   }
 }

@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -103,18 +104,33 @@ struct `Partial sink root tests` {
 
   // MARK: - Mismatched roots
 
-  // A container has nothing to write into a scalar destination, so its contents are discarded
-  // rather than routed through the root.
-  @Test
-  func `A container document leaves a scalar root untouched`() throws {
-    #expect(try self.parse(#"{"a":"x"}"#, as: String.self) == "")
-    #expect(try self.parse(#"["x"]"#, as: String.self) == "")
-    #expect(try self.parse("[1,2]", as: Int.self) == 0)
+  private func failure<Root: StreamParseableRoot>(
+    _ json: String, as type: Root.Type
+  ) -> StreamSinkFailure.Reason? {
+    do {
+      _ = try self.parse(json, as: type)
+      return nil
+    } catch let error as JSONParsingError {
+      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
+      return failure.reason
+    } catch {
+      return nil
+    }
   }
 
   @Test
-  func `A scalar document leaves a container root untouched`() throws {
-    #expect(try self.parse(#""x""#, as: StreamArray<Int>.self) == [])
-    #expect(try self.parse("1", as: StreamArray<Int>.self) == [])
+  func `A container document is rejected by a scalar root`() {
+    expectNoDifference(self.failure(#"{"a":"x"}"#, as: String.self), .typeMismatch)
+    expectNoDifference(self.failure(#"["x"]"#, as: String.self), .typeMismatch)
+    expectNoDifference(self.failure("[1,2]", as: Int.self), .typeMismatch)
+  }
+
+  @Test
+  func `A scalar document is rejected by a container root`() {
+    expectNoDifference(
+      self.failure(#""x""#, as: StreamArray<Int>.self),
+      .typeMismatch
+    )
+    expectNoDifference(self.failure("1", as: StreamArray<Int>.self), .typeMismatch)
   }
 }

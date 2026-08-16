@@ -5,7 +5,7 @@ import Testing
 @Suite
 struct `AsyncPartialsSequence Tests` {
   @Test
-  func `Emits Partial For Each Chunked Async Byte Input`() async throws {
+  func `Emits Partial For Each Chunked Async Byte Input And Completion`() async throws {
     let byteStream = AsyncStream<[UInt8]> { continuation in
       continuation.yield(Array("[1,2".utf8))
       continuation.yield(Array(",3]".utf8))
@@ -17,11 +17,11 @@ struct `AsyncPartialsSequence Tests` {
       partials.append(partial)
     }
 
-    expectNoDifference(partials, [[1], [1, 2, 3]])
+    expectNoDifference(partials, [[1], [1, 2, 3], [1, 2, 3]])
   }
 
   @Test
-  func `Emits Partial For Each Async Byte`() async throws {
+  func `Emits Partial For Each Async Byte And Completion`() async throws {
     let byteStream = AsyncStream<UInt8> { continuation in
       for byte in "[1,2]".utf8 { continuation.yield(byte) }
       continuation.finish()
@@ -32,7 +32,7 @@ struct `AsyncPartialsSequence Tests` {
       partials.append(partial)
     }
 
-    expectNoDifference(partials, [[], [], [1], [1], [1, 2]])
+    expectNoDifference(partials, [[], [], [1], [1], [1, 2], [1, 2]])
   }
 
   @Test
@@ -47,7 +47,22 @@ struct `AsyncPartialsSequence Tests` {
       partials.append(partial)
     }
 
-    expectNoDifference(partials, ["", "a", "ab", "ab"])
+    expectNoDifference(partials, ["", "a", "ab", "ab", "ab"])
+  }
+
+  @Test
+  func `Emits A Number Finalized At End Of Input`() async throws {
+    let byteStream = AsyncStream<UInt8> { continuation in
+      continuation.yield(0x31)
+      continuation.finish()
+    }
+
+    var partials = [Int]()
+    for try await partial in byteStream.partials(initialValue: 0, from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials, [0, 1])
   }
 
   // The iterator holds the stream in a box, since PartialsStream owns a parser buffer and an

@@ -175,16 +175,23 @@ package func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> I
 // MARK: - Key words
 
 extension Span where Element == UInt8 {
-  // Zero padding makes this a perfect discriminator for keys of eight bytes or fewer, so a
-  // generated matcher can switch on the word without also checking the length.
+  // A generated matcher switches on the leading word, then checks the count and any remaining
+  // words. The count is load bearing even below eight bytes: JSON keys can contain a decoded NUL,
+  // which is otherwise indistinguishable from the zero padding.
   @inlinable
   @inline(__always)
   public func paddedLeadingWord() -> UInt64 {
+    self.paddedWord(at: 0)
+  }
+
+  @inlinable
+  @inline(__always)
+  public func paddedWord(at start: Int) -> UInt64 {
     var word: UInt64 = 0
-    let limit = Swift.min(self.count, 8)
-    var i = 0
-    while i < limit {
-      word |= UInt64(self[i]) << (i &* 8)
+    let end = Swift.min(self.count, start &+ 8)
+    var i = start
+    while i < end {
+      word |= UInt64(self[i]) << ((i &- start) &* 8)
       i &+= 1
     }
     return word

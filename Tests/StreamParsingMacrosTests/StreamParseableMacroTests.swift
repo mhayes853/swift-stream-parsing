@@ -75,9 +75,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -243,9 +243,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x654B_6D6F_7473_7563 where key.count == 13:
+              case 0x654B_6D6F_7473_7563 where key.count == 13 && key.paddedWord(at: 8) == 0x0000_0065_6D61_4E79:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -517,11 +517,11 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x654B_6D6F_7473_7563 where key.count == 13:
+              case 0x654B_6D6F_7473_7563 where key.count == 13 && key.paddedWord(at: 8) == 0x0000_0065_6D61_4E79:
                 return Self.StreamField.name
-              case 0x654B_6D6F_7473_7563 where key.count == 14:
+              case 0x654B_6D6F_7473_7563 where key.count == 14 && key.paddedWord(at: 8) == 0x0000_3265_6D61_4E79:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -768,9 +768,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -935,9 +935,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -1093,7 +1093,7 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -1243,7 +1243,7 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_6465_726F_7473:
+              case 0x0000_6465_726F_7473 where key.count == 6:
                 return Self.StreamField.stored
               default:
                 return -1
@@ -1390,7 +1390,7 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
               default:
                 return -1
@@ -1562,7 +1562,7 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_6465_726F_7473:
+              case 0x0000_6465_726F_7473 where key.count == 6:
                 return Self.StreamField.stored
               default:
                 return -1
@@ -1717,9 +1717,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2017,9 +2017,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2184,9 +2184,9 @@ extension BaseTestSuite {
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2347,9 +2347,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2510,9 +2510,9 @@ extension BaseTestSuite {
 
             fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2677,9 +2677,9 @@ extension BaseTestSuite {
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -2844,9 +2844,9 @@ extension BaseTestSuite {
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E:
+              case 0x0000_0000_656D_616E where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -3013,11 +3013,11 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_626F_6C62:
+              case 0x0000_0000_626F_6C62 where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0032_656D_616E:
+              case 0x0000_0032_656D_616E where key.count == 5:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -3180,11 +3180,11 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_626F_6C62:
+              case 0x0000_0000_626F_6C62 where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0032_656D_616E:
+              case 0x0000_0032_656D_616E where key.count == 5:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -3347,11 +3347,11 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0000_626F_6C62:
+              case 0x0000_0000_626F_6C62 where key.count == 4:
                 return Self.StreamField.name
-              case 0x0000_0032_656D_616E:
+              case 0x0000_0032_656D_616E where key.count == 5:
                 return Self.StreamField.name
-              case 0x0000_0000_0065_6761:
+              case 0x0000_0000_0065_6761 where key.count == 3:
                 return Self.StreamField.age
               default:
                 return -1
@@ -3515,9 +3515,9 @@ extension BaseTestSuite {
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
-              case 0x0000_0073_6D65_7469:
+              case 0x0000_0073_6D65_7469 where key.count == 5:
                 return Self.StreamField.items
-              case 0x0000_0078_6564_6E69:
+              case 0x0000_0078_6564_6E69 where key.count == 5:
                 return Self.StreamField.index
               default:
                 return -1

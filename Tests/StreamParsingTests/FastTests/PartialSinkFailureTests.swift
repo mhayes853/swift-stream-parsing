@@ -134,10 +134,10 @@ struct `Partial sink failure tests` {
 
   // MARK: - Elements and values, not just fields
 
-  // The complement of the shape check in `enterContainer`. That one handles a container reaching a
-  // destination that cannot hold it, and discards. This is the opposite pairing — the container
-  // shape is right and the contents are not — and it rejects, because the destination matched and
-  // then refused the token.
+  // The complement of the shape check in `enterContainer`. That one rejects a container reaching
+  // a destination that cannot hold it. This is the opposite pairing — the container shape is right
+  // and the contents are not — and it also rejects, because the destination matched and then
+  // refused the token.
   //
   // The tests above only ever reach an object field. An element and a dictionary value resolve
   // through different branches of `resolveScalarTarget`, so they are covered separately.
@@ -224,8 +224,8 @@ struct `Partial sink failure tests` {
   // MARK: - What the partial holds when it stops
 
   // Resolving a target is what materialises the slot, and it happens before the token is applied,
-  // so a rejected element is present holding its initial value. Same rule as a discarded
-  // container, which leaves the slot behind for the same reason.
+  // so a rejected element is present holding its initial value. A rejected container leaves its
+  // slot behind for the same reason.
   //
   // Parsing stops at the rejected token rather than running on to the end of the chunk, so the
   // elements after it never arrive.

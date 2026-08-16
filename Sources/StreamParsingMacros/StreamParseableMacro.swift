@@ -192,16 +192,16 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       """
   }
 
-  private static func paddedLeadingWord(for key: String) -> UInt64 {
+  private static func paddedWord(for key: String, at start: Int = 0) -> UInt64 {
     var word: UInt64 = 0
-    for (offset, byte) in Array(key.utf8).prefix(8).enumerated() {
+    for (offset, byte) in Array(key.utf8).dropFirst(start).prefix(8).enumerated() {
       word |= UInt64(byte) << (offset * 8)
     }
     return word
   }
 
-  private static func keyWordLiteral(for key: String) -> String {
-    let word = Self.paddedLeadingWord(for: key)
+  private static func keyWordLiteral(for key: String, at start: Int = 0) -> String {
+    let word = Self.paddedWord(for: key, at: start)
     let digits = Array("0123456789ABCDEF")
     var hex = ""
     for shift in stride(from: 60, through: 0, by: -4) {
@@ -215,6 +215,19 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       index = next
     }
     return "0x" + grouped.joined(separator: "_")
+  }
+
+  private static func keyMatchGuard(for key: String) -> String {
+    let count = key.utf8.count
+    var conditions = ["key.count == \(count)"]
+    var offset = 8
+    while offset < count {
+      conditions.append(
+        "key.paddedWord(at: \(offset)) == \(Self.keyWordLiteral(for: key, at: offset))"
+      )
+      offset += 8
+    }
+    return " where " + conditions.joined(separator: " && ")
   }
 
   private enum FieldShape {
@@ -278,7 +291,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       let field = "Self.StreamField.\(property.name)"
       for key in property.keyNames {
         let word = Self.keyWordLiteral(for: key)
-        let guardClause = key.utf8.count >= 8 ? " where key.count == \(key.utf8.count)" : ""
+        let guardClause = Self.keyMatchGuard(for: key)
         cases.match.append("    case \(word)\(guardClause): return \(field)")
       }
 

@@ -121,9 +121,10 @@ ns per lookup:
 `Dictionary` is 7–8× slower and flat in key count, because `Hasher` runs at every lookup. On a
 token dense payload that is ~30% of the parse. It is also a non-starter for embedded.
 
-**Zero padding discriminates keys shorter than the word only.** A key of exactly eight bytes has
-no padding and shares its word with any longer key having the same prefix, so the length check
-applies from eight bytes, not beyond it. This was a real bug found by a boundary test.
+**The leading word is only a dispatch key, not an equality check.** Every case also checks the
+decoded UTF-8 length: without that, a short key followed by a decoded NUL collides with zero
+padding. Keys longer than eight bytes compare each remaining padded word as well, so equal-length
+keys sharing their first eight bytes cannot alias. Both were real bugs found by boundary tests.
 
 ### Storage: frames pointing into the value
 
@@ -504,13 +505,11 @@ in a module that does not enable it. So the floor stays where it was rather than
   immediately.~~ Fixed with the adversarial round's surrogate bugs: every event that can follow a
   high surrogate now checks for one, so a pair is severed exactly where it breaks.
 - A container materializes its slot on entry, so a dictionary key is visible with its initial
-  value before the value arrives. Load bearing rather than merely tolerated since the shape check:
-  a container discarded for arriving at a destination that cannot hold it leaves the slot behind,
-  so `{"a":[2,3]}` into a `StreamDictionary<Int>` reads `["a": 0]`.
-- A container at a destination that cannot hold it is discarded silently, where a scalar at a
-  destination that cannot hold it throws `.typeMismatch`. An object field cannot distinguish a key
-  it does not have from a field that cannot hold a container, which is what keeps the container
-  direction quiet everywhere rather than in one shape only.
+  value before the value arrives. A mismatched container now throws `.typeMismatch`, but it can
+  still leave that initial slot in the partial value observed when the error is caught.
+- ~~A container at a destination that cannot hold it is discarded silently.~~ Known destinations
+  now throw `.typeMismatch`, matching scalar behavior. Unknown object keys remain discardable:
+  `pendingField == -1` distinguishes them from known fields whose schemas reject the container.
 - `null` is accepted where the destination is optional and rejected where it is not, so it clears
   any member of a macro generated `Partial` but is a mismatch in a `StreamArray<Int>`. It follows
   from `applyNull` rather than from a decision about JSON null.

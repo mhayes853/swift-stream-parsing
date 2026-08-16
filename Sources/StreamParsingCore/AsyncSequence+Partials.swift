@@ -96,7 +96,8 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   }
 }
 
-/// An `AsyncSequence` that incrementally parses a byte stream.
+/// An `AsyncSequence` that emits a partial after each input element and one finalized value when
+/// the input ends.
 public struct AsyncPartialsSequence<
   Element: StreamParseableRoot,
   Base: AsyncSequence,
@@ -122,11 +123,13 @@ public struct AsyncPartialsSequence<
     var baseIterator: Base.AsyncIterator
     let box: Box
     let bytes: @Sendable (Base.Element) -> Seq
+    var hasEmittedFinal = false
 
     public mutating func next() async throws -> Element? {
+      guard !self.hasEmittedFinal else { return nil }
       guard let nextValue = try await self.baseIterator.next() else {
-        try self.box.stream.finish()
-        return nil
+        self.hasEmittedFinal = true
+        return try self.box.stream.finish()
       }
       try self.box.stream.next(self.bytes(nextValue))
       return self.box.stream.current

@@ -824,13 +824,17 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams JSON Object With Dictionary Property Into StreamParseable Struct`() throws {
+    func `A Direct StreamDictionary Property Is Rejected Until Generic Routing Is Added`() {
       let json = "{\"values\":{\"inner\":1}}"
-      let states: [StreamedRun<StreamParsingTests.DictionaryPropertyContainer.Partial>] = [
-        .run(DictionaryPropertyContainer.Partial(values: nil), 23)
-      ]
-      try expectJSONStreamedValues(
-        json, initialValue: DictionaryPropertyContainer.Partial(), states: states
+      let error = #expect(throws: JSONParsingError.self) {
+        try json.utf8.partials(
+          initialValue: DictionaryPropertyContainer.Partial(),
+          from: .json()
+        )
+      }
+      expectNoDifference(
+        error?.reason,
+        .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
       )
     }
 
@@ -963,9 +967,13 @@ struct `JSONStreamParser tests` {
     @Test
     func `Streams JSON Object With Empty Array Of StreamParseable Structs`() throws {
       let json = "{\"items\":[]}"
-      let beforeArray = Array(repeating: CombinationContainer.Partial(), count: 9)
-      let afterArray = Array(repeating: CombinationContainer.Partial(items: []), count: 4)
-      let expected = [CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: nil), CombinationContainer.Partial(items: []), CombinationContainer.Partial(items: []), CombinationContainer.Partial(items: []), CombinationContainer.Partial(items: [])]
+      let states: [StreamedRun<StreamParsingTests.CombinationContainer.Partial>] = [
+        .run(CombinationContainer.Partial(items: nil), 9),
+        .run(CombinationContainer.Partial(items: []), 4)
+      ]
+      try expectJSONStreamedValues(
+        json, initialValue: CombinationContainer.Partial(), states: states
+      )
     }
 
     @Test
