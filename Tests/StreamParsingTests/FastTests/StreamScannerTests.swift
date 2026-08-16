@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsingCore
@@ -18,6 +19,19 @@ struct `Stream scanner tests` {
 
   private static func withBase<R>(_ bytes: [UInt8], _ body: (UnsafeRawPointer) -> R) -> R {
     bytes.withUnsafeBytes { body($0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)!) }
+  }
+
+  // Wrapping arithmetic is what keeps the block path congruent with this loop past 2^64, so the
+  // reference wraps too rather than trapping.
+  private static func naiveAccumulate(
+    _ bytes: [UInt8], from: Int, to: Int, into magnitude: inout UInt64
+  ) -> Int {
+    var index = from
+    while index < to, bytes[index] &- 0x30 < 10 {
+      magnitude = magnitude &* 10 &+ UInt64(bytes[index] &- 0x30)
+      index += 1
+    }
+    return index
   }
 
   // MARK: - String runs
@@ -102,6 +116,80 @@ struct `Stream scanner tests` {
       streamContainsNonASCII(base: $0, from: 0, to: bytes.count)
     }
     #expect(!actual)
+  }
+
+  // MARK: - Digit runs
+
+  // The block path only engages past eight bytes and hands the remainder to a scalar tail, so
+  // the interesting cases are every length and every start offset around that boundary. Digits
+  // dominate the alphabet so runs are long enough to reach the block rather than stopping in
+  // the tail every time.
+  @Test
+  func `Digit accumulation matches a naive scan at every length and offset`() {
+    var generator = SystemRandomNumberGenerator()
+    for length in 0...40 {
+      for _ in 0..<20 {
+        var bytes = (0..<length).map { _ in UInt8.random(in: 0x30...0x39, using: &generator) }
+        for index in bytes.indices where Int.random(in: 0..<10, using: &generator) == 0 {
+          bytes[index] = UInt8.random(in: 0x20...0x2F, using: &generator)
+        }
+        for from in 0...length {
+          var expectedMagnitude: UInt64 = 0
+          let expectedEnd = Self.naiveAccumulate(
+            bytes, from: from, to: length, into: &expectedMagnitude
+          )
+          var actualMagnitude: UInt64 = 0
+          let actualEnd = Self.withBase(bytes) {
+            streamAccumulateDigits(base: $0, from: from, to: length, into: &actualMagnitude)
+          }
+          expectNoDifference(actualEnd, expectedEnd, "length \(length) from \(from)")
+          expectNoDifference(actualMagnitude, expectedMagnitude, "length \(length) from \(from)")
+        }
+      }
+    }
+  }
+
+  // A 20+ digit run overflows `UInt64`, and the block and scalar paths only agree there if both
+  // wrap. This is the case a document id lands on.
+  @Test
+  func `Digit accumulation wraps congruently with the scalar loop past the magnitude limit`() {
+    for length in 19...40 {
+      let bytes = (0..<length).map { UInt8(0x31 + UInt8($0 % 9)) }
+      var expectedMagnitude: UInt64 = 0
+      let expectedEnd = Self.naiveAccumulate(
+        bytes, from: 0, to: length, into: &expectedMagnitude
+      )
+      var actualMagnitude: UInt64 = 0
+      let actualEnd = Self.withBase(bytes) {
+        streamAccumulateDigits(base: $0, from: 0, to: length, into: &actualMagnitude)
+      }
+      expectNoDifference(actualEnd, expectedEnd, "length \(length)")
+      expectNoDifference(actualMagnitude, expectedMagnitude, "length \(length)")
+    }
+  }
+
+  // The accumulator folds into whatever is already there, which is how a fraction's digits
+  // continue the integer part's magnitude.
+  @Test
+  func `Digit accumulation folds into a non-zero starting magnitude`() {
+    let bytes = Array("123456789".utf8)
+    var magnitude: UInt64 = 42
+    let end = Self.withBase(bytes) {
+      streamAccumulateDigits(base: $0, from: 0, to: bytes.count, into: &magnitude)
+    }
+    expectNoDifference(end, 9)
+    expectNoDifference(magnitude, 42 * 1_000_000_000 + 123_456_789)
+  }
+
+  @Test
+  func `Digit accumulation stops at the first non-digit`() {
+    let bytes = Array("12345678901234.99".utf8)
+    var magnitude: UInt64 = 0
+    let end = Self.withBase(bytes) {
+      streamAccumulateDigits(base: $0, from: 0, to: bytes.count, into: &magnitude)
+    }
+    expectNoDifference(end, 14)
+    expectNoDifference(magnitude, 12_345_678_901_234)
   }
 
   // MARK: - Newlines

@@ -443,7 +443,7 @@ public struct JSONParser: ~Copyable {
   // the whole token at its end — sign, integer digits, fraction, exponent — so the per-byte
   // state machine is gone and a number is reported exactly once, complete. The strategy table
   // is in NEW_ARCHITECTURE.md: deferring the parse beat the fused per-byte accumulation on
-  // every corpus measured, and 8-digit SWAR blocks are 2.2x on 17-19 digit ids.
+  // every corpus measured, and 8-digit blocks are 2.2x on 17-19 digit ids.
   @inlinable
   mutating func consumeNumber<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,

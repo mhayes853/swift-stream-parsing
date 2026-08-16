@@ -1498,10 +1498,50 @@ once. Strategies measured on 512-token corpora, ns per number, p50:
 **The fused per byte loop loses to everything once it no longer has to emit.** The original
 measurement that installed it compared fused accumulation against a consumer re-scan under per
 digit emission; with one emission per token the comparison inverts at every corpus size. The
-shipped combination is the greedy SIMD16 class scan with 8-digit SWAR blocks in the digit runs:
-SWAR costs 1–3 ns on short tokens against plain SIMD16 and pays 2.2x on 17–19 digit ids, which
+shipped combination is the greedy SIMD16 class scan with 8-digit blocks in the digit runs: the
+block costs 1–3 ns on short tokens against plain SIMD16 and pays 2.2x on 17–19 digit ids, which
 is what a document id is. `NumberParseBenchmarks.swift` keeps all six variants registered and
 cross-checks them against each other before timing anything.
+
+### Digit block width
+
+The block above began as a 64-bit SWAR conversion. `DigitAccumulateBenchmarks.swift` isolates
+just the digit-run-to-integer step and walks the width, because a block tier only fires on runs
+at least as long as itself. ns per digit run, p50, relative to SWAR8:
+
+| strategy | 4d | 1–4d | 8d | 5–8d | 9–15d | 16d | 17–19d |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| scalar | 0.88x | 0.88x | 1.36x | 0.96x | 1.68x | 2.04x | 2.49x |
+| SWAR4 | **0.71x** | 0.98x | 1.00x | **0.85x** | 1.01x | 1.15x | 1.26x |
+| SIMD4 | 0.76x | 0.98x | 1.14x | 0.90x | 1.10x | 1.27x | 1.23x |
+| SWAR8 | 1.00x | 1.00x | 1.00x | 1.00x | 1.00x | 1.00x | 1.00x |
+| **SIMD8** | 1.00x | 1.00x | **0.93x** | 0.97x | 1.03x | **0.88x** | **0.87x** |
+| SIMD16 | 1.01x | 0.98x | 1.50x | 1.11x | 1.72x | 0.82x | 0.79x |
+| SWAR8+SWAR4 | 0.78x | 1.02x | 1.00x | 0.84x | 0.99x | 0.95x | 1.02x |
+| SIMD16+SIMD8+SIMD4 | 0.90x | 1.12x | 1.00x | 0.95x | 1.10x | 0.92x | 0.96x |
+
+**SIMD8 is the same 8-digit block through NEON lanes instead of GPR multiplies, and it wins
+7–13% wherever the block fires with no penalty where it does not**, so it replaced the SWAR
+form in `streamParseEightDigits`. Two results are worth keeping. Widening a whole vector up
+front calls an out-of-line `SIMD16<UInt16>(truncatingIfNeeded:)`, and `all(mask)` lowers to an
+out-of-line `SIMD.max()`; either one forces a stack frame onto the accumulate loop and costs
+more than the block saves. Two-digit values still fit a byte, so the first reduction stage
+stays in `SIMD8<UInt8>` and the all-lanes test is spelled as a 64-bit compare over a 0/1 lane
+vector. The first draft measured *slower than scalar on runs the block never touched* before
+that was fixed.
+
+Wider is not better below 16 digits, and narrower does not reach: in `twitter.json` only 12.9%
+of digit runs are exactly four long, since 1–3 digit runs outnumber four-digit ones four to
+one, so a 4-wide tier idles on most of the short runs it was meant to serve. At four digits the
+answer is also not SIMD but a narrower SWAR — Swift's `SIMD4<UInt8>` is a 32-bit vector the
+compiler promotes to 16-bit lanes inside a stack frame. Ladders all land within 0.95–1.08x:
+each extra tier costs a bounds check and a failed validation on the runs it cannot serve.
+
+Keep the size of this in view. Digit accumulation is **~2.2% of a `twitter.json` parse**
+(7823 digit runs at ~5.3 ns against 1949 µs), so the whole spread from scalar to the best block
+is under 0.4% end to end, and SIMD8 over SWAR8 is ~0.03% — below run-to-run variance, and
+confirmed as such: p0 held at 1878 µs across the swap. It was taken because it is free and
+strictly better, not because it is visible.
 
 The shape, in `consumeNumber`:
 
