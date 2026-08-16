@@ -1,0 +1,132 @@
+import Testing
+
+import StreamParsing
+import StreamParsingCore
+
+// Every error names the absolute offset of the byte it was detected at, and that offset must
+// not depend on how the input was chunked. Before this suite, `error()` reported the offset of
+// the chunk an error was thrown in — byte 0 for every bulk parse — and `finish` double-counted
+// sink failures.
+@Suite
+struct `Error offset tests` {
+  private static func parse(_ bytes: [UInt8], splitAt: Int) throws {
+    var parser = JSONParser()
+    var sink = CountingConformanceSink()
+    try bytes.withUnsafeBufferPointer { buffer in
+      let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
+      let second = UnsafeBufferPointer(
+        start: buffer.baseAddress! + splitAt, count: buffer.count - splitAt
+      )
+      if !first.isEmpty { try parser.parse(first, into: &sink) }
+      if !second.isEmpty { try parser.parse(second, into: &sink) }
+    }
+    try parser.finish(into: &sink)
+  }
+
+  private static func failure(_ bytes: [UInt8], splitAt: Int) -> JSONParsingError? {
+    do {
+      try Self.parse(bytes, splitAt: splitAt)
+      return nil
+    } catch let error as JSONParsingError {
+      return error
+    } catch {
+      return nil
+    }
+  }
+
+  private static func bytewiseFailure(_ bytes: [UInt8]) -> JSONParsingError? {
+    var parser = JSONParser()
+    var sink = CountingConformanceSink()
+    do {
+      for byte in bytes {
+        try parser.parse(byte: byte, into: &sink)
+      }
+      try parser.finish(into: &sink)
+      return nil
+    } catch {
+      return error
+    }
+  }
+
+  // MARK: - The offset does not depend on feed granularity
+
+  // Sink-rejection offsets are exempt by design: a sink records its failure and the parser reads
+  // it once per state machine step, so where it surfaces tracks the step, not the token.
+  @Test(arguments: [
+    "[1, x]",
+    #"{"a":}"#,
+    "[trux]",
+    "[--1]",
+    "[1e--2]",
+    "[1.2.3]",
+    "[01]",
+    #"{"a" 1}"#,
+    #""ab\q""#,
+    "\"a\u{5C}uD800\u{5C}uD801\"",
+    "[1,]",
+    "[1]]",
+  ])
+  func `Reports the same offset at every split`(json: String) {
+    let bytes = Array(json.utf8)
+    guard let expected = Self.failure(bytes, splitAt: bytes.count) else {
+      Issue.record("Expected the bulk parse of \(json) to fail.")
+      return
+    }
+    for split in 0...bytes.count {
+      let actual = Self.failure(bytes, splitAt: split)
+      #expect(actual == expected, "\(json) split at \(split)")
+    }
+    #expect(Self.bytewiseFailure(bytes) == expected, "\(json) byte by byte")
+  }
+
+  // Invalid UTF-8 reports the sequence's lead byte, whether the sequence was validated in place
+  // or reassembled across a boundary.
+  @Test
+  func `Reports invalid UTF-8 at the sequence lead at every split`() {
+    let bytes: [UInt8] = Array(#"["ab"#.utf8) + [0xE0, 0x80, 0x80] + Array(#""]"#.utf8)
+    guard let expected = Self.failure(bytes, splitAt: bytes.count) else {
+      Issue.record("Expected the overlong sequence to be rejected.")
+      return
+    }
+    #expect(expected.byteOffset == 4)
+    for split in 0...bytes.count {
+      #expect(Self.failure(bytes, splitAt: split) == expected, "split at \(split)")
+    }
+    #expect(Self.bytewiseFailure(bytes) == expected, "byte by byte")
+  }
+
+  // MARK: - The offset names the right byte
+
+  @Test(arguments: [
+    ("[1, x]", JSONParsingError.Reason.unexpectedToken, 4),  // the x
+    (#"{"a" 1}"#, .unexpectedToken, 5),  // the 1 where a colon belongs
+    ("[trux]", .invalidLiteral, 4),  // the x inside the literal
+    ("[--1]", .invalidNumber, 4),  // detected at the token's final delimiter
+    ("[1e--2]", .invalidNumber, 6),
+    ("[01]", .invalidNumber, 3),
+    (#""ab\q""#, .invalidEscape, 4),  // the q
+    (#"{"a":1}}"#, .trailingContent, 7),  // the second brace
+    ("[1,]", .unexpectedToken, 3),
+  ])
+  func `Reports the detection byte in a bulk parse`(
+    json: String, reason: JSONParsingError.Reason, offset: Int
+  ) {
+    let bytes = Array(json.utf8)
+    let error = Self.failure(bytes, splitAt: bytes.count)
+    #expect(error == JSONParsingError(reason: reason, byteOffset: offset), "\(json)")
+  }
+
+  @Test
+  func `Reports end of input for errors finish detects`() {
+    let bytes = Array(#"{"a":1"#.utf8)
+    let error = Self.failure(bytes, splitAt: bytes.count)
+    #expect(error == JSONParsingError(reason: .unterminatedContainer, byteOffset: 6))
+  }
+
+  @Test
+  func `Reports depth exceeded at the bracket that crossed the limit`() {
+    let bytes = [UInt8](repeating: UInt8(ascii: "["), count: 70)
+    let error = Self.failure(bytes, splitAt: bytes.count)
+    #expect(error == JSONParsingError(reason: .depthExceeded, byteOffset: 64))
+  }
+}

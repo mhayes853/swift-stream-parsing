@@ -113,10 +113,12 @@ struct `Stream view tests` {
   func `A container read from a view does not change afterwards`() throws {
     var stream = PartialsStream(initialValue: ViewProfile.Partial(), from: .json())
     try stream.next(Array(#"{"scores":[1,2"#.utf8))
+    // The trailing 2 is an open token — the next chunk continues it into 23 — so the state
+    // read here holds only the committed element.
     let scores = stream.withView { $0.scores }
-    #expect(scores == [1, 2])
+    #expect(scores == [1])
     try stream.next(Array("3,4]}".utf8))
-    #expect(scores == [1, 2], "the value read out should not have followed the parse")
+    #expect(scores == [1], "the value read out should not have followed the parse")
     #expect(stream.current.scores == [1, 23, 4])
   }
 

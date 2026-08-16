@@ -29,7 +29,7 @@ private struct SpanDictionaryAllocationSink: StreamParseSink {
           let value = Int(streamParsing: bytes, info: info)
     else { return }
     pendingValue.assumingMemoryBound(to: Int.self).pointee = value
-    if !info.flags.contains(.incomplete) { self.pendingValue = nil }
+    self.pendingValue = nil
   }
 
   mutating func boolean(_ value: Bool) {}

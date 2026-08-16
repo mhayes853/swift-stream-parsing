@@ -17,7 +17,7 @@ struct `AsyncPartialsSequence Tests` {
       partials.append(partial)
     }
 
-    expectNoDifference(partials, [[1, 2], [1, 2, 3]])
+    expectNoDifference(partials, [[1], [1, 2, 3]])
   }
 
   @Test
@@ -32,7 +32,7 @@ struct `AsyncPartialsSequence Tests` {
       partials.append(partial)
     }
 
-    expectNoDifference(partials, [[], [1], [1], [1, 2], [1, 2]])
+    expectNoDifference(partials, [[], [], [1], [1], [1, 2]])
   }
 
   @Test

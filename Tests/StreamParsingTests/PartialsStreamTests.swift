@@ -48,7 +48,8 @@ struct `PartialsStream Tests` {
     for byte in "[1,2".utf8 {
       try stream.next(byte)
     }
-    #expect(stream.current == [1, 2])
+    // The trailing 2 is still an open token, so it is not part of any state yet.
+    #expect(stream.current == [1])
     #expect(throws: JSONParsingError.self) {
       _ = try stream.finish()
     }

@@ -76,6 +76,11 @@ dense and iterating set bits costs more than testing bytes.
 
 ### Numbers: fused scan, two words
 
+**Superseded by "Numbers, whole" at the end of this document.** The fused design below was
+measured under per digit emission; with whole-token emission the comparison inverts, and the
+shipped parser is a greedy SIMD16 scan with a structured whole-token parse. The table stays
+because it records what was true under the old constraint.
+
 The boundary scan and magnitude accumulation happen in one pass. ns per number:
 
 | variant | small | medium | large | decimals |
@@ -93,27 +98,15 @@ number dense payload.
 `NumberInfo` carries magnitude, decimal exponent, digit count and flags, so floats are built by
 accumulation rather than a string round trip.
 
-**A value is reported after every digit**, so a number can be rendered as it arrives rather than
-appearing whole at its delimiter. The provisional values carry `.incomplete`, because they are not
-prefixes of the final value the way a partial string is: `1234` reports 1, then 12, then 123, and
-`-1.5e2` reports −1.5 before it reports −150. Each is a different number by an order of magnitude,
-so a consumer that cannot tolerate that has a flag to test.
-
-It costs a sink call per digit, and the cost lands entirely on number dense input:
-
-| bulk benchmark | at token end | per digit |
-| --- | --- | --- |
-| Nested arrays (int matrix) | 17 µs | **21 µs** |
-| Array of structs | 14 µs | 14 µs |
-| Dictionary | 5419 ns | 4751 ns |
-| Flat struct | 458 ns | 459 ns |
-| Long string | 792 ns | 791 ns |
-| Nested structs | 542 ns | 542 ns |
-
-**The sink has to resolve a number's destination once, not per event.** Resolving per event
-appends a fresh array element per digit, which turned `[1,2` into `[1, 1, 2]`. Numbers are tracked
-like strings now: a target is resolved on the first event of a token and reused until one arrives
-without `.incomplete`.
+~~**A value is reported after every digit.**~~ Reversed — see "Numbers, whole" below. The
+provisional values were never prefixes of the final value the way a partial string is: `1234`
+reports 1, then 12, then 123, and `-1.5e2` reports −1.5 before it reports −150, each a different
+number by an order of magnitude. Emitting at part boundaries instead (integer part, then decimal
+part) was considered and rejected on the same ground, because the exponent case still jumps from
+1.5 to 150 at the delimiter. A number is now reported exactly once, whole, at its token's end,
+`.incomplete` is gone from `NumberInfo.Flags`, and the per-digit sink call with it. That also
+deleted the sink's number target machinery: with one event per token, resolving per event is
+correct again, so `PartialSink.number` is a plain scalar apply like `boolean`.
 
 ### Keys: precomputed words, no Dictionary
 
@@ -521,11 +514,13 @@ in a module that does not enable it. So the floor stays where it was rather than
 - `null` is accepted where the destination is optional and rejected where it is not, so it clears
   any member of a macro generated `Partial` but is a mismatch in a `StreamArray<Int>`. It follows
   from `applyNull` rather than from a decision about JSON null.
-- A provisional number is a different number, not an approaching one. `.incomplete` says so, but
-  a consumer that ignores the flag will see `100` pass through 1 and 10 on its way.
+- ~~A provisional number is a different number, not an approaching one.~~ Resolved by removing
+  provisional reporting entirely: a number is emitted once, whole, at its token's end, and
+  `.incomplete` no longer exists. See "Numbers, whole".
 - Error reasons are coarser: `missingColon`, `trailingComma`, `missingComma` and
   `missingClosingBrace` all collapse into `unexpectedToken`, and errors carry a byte offset rather
-  than a line and column.
+  than a line and column. The offset is absolute and chunking-independent now — see "Numbers,
+  whole" for the accounting fix that made it so.
 - Keeping every state costs about twice the parse on an array of structs, down from 269x, because
   a snapshot still copies the open element at each depth. Reading transiently through `withView`
   is still cheaper.
@@ -838,9 +833,10 @@ to begin with. That is the version worth defending, because it survives someone 
 
 What it needs in return is an invariant the sink does not currently state: **no write may straddle a
 commit.** A stale element pointer used to reach a stale-but-owned slot; it now reaches a *different*
-element. It holds today — `numberTarget` clears on the first event without `.incomplete`,
+element. It holds today — numbers are single-event so no number target survives a token,
 `scalarTarget` clears at `stringEnd`, and frames pop before the next container opens — but nothing
-enforces it, and per digit number reporting is exactly the sort of thing that would break it.
+enforces it. Per digit number reporting was exactly the sort of thing that would have broken it,
+and its removal (see "Numbers, whole") is what retired the risk.
 
 ### Costs and open questions
 
@@ -1394,8 +1390,9 @@ Two costs are real: ~10% on byte fed non-ASCII, which is validation existing whe
 none, and ~7% on escape dense strings, one load and branch per escape for the severed pair
 check. Twitter, which is both at once, pays nothing measurable.
 
-Still open from the list above: the chunk relative error offsets and the long number feed
-asymmetry — diagnostics and consistency rather than acceptance.
+Still open from the list above at the time: the chunk relative error offsets, since fixed (see
+"Numbers, whole"), and the long number feed asymmetry, which remains — a number longer than the
+buffer parses in bulk and throws `bufferExhausted` byte fed.
 
 ### The gap between the convenience layer and the sink
 
@@ -1473,3 +1470,117 @@ So the split is clean:
   append path; a byte buffer accumulation type is worth another 7x past that and is the only lever
   that also touches bulk. That is the `StreamString` discussion, parked as an API question — the
   measurements here are what it would buy.
+
+---
+
+## Numbers, whole: greedy scan, structured parse
+
+Per digit reporting is gone. A number is emitted exactly once, complete, at its token's end.
+Part-boundary emission — the integer part at the first `.` or `e`, then the final value — was
+the intermediate design, and it died on the exponent case: `1.5e2` still jumps from 1.5 to 150
+at the delimiter, so the provisional value is still a different number, just less often. Whole
+emission also removes the per digit sink call, the sink's number target machinery, and the last
+provisional writer the "no write may straddle a commit" invariant had to worry about.
+
+What whole emission buys structurally: the scan no longer needs to accumulate anything, so
+finding the token and parsing it separate cleanly, and the parse can look at the whole token at
+once. Strategies measured on 512-token corpora, ns per number, p50:
+
+| strategy | small 1–4d | medium 5–10d | large 17–19d | decimals | exponents |
+| --- | --- | --- | --- | --- | --- |
+| fused scalar (the old shape) | 19.5 | 41.0 | 91.8 | 31.2 | 27.3 |
+| two-pass scalar | 15.1 | 27.3 | 56.6 | 18.1 | 23.4 |
+| two-pass SWAR8 | 15.7 | 25.4 | 33.2 | 18.9 | 23.4 |
+| greedy scalar | 13.4 | 25.4 | 54.7 | 17.7 | 19.5 |
+| greedy SIMD16 | **12.6** | 23.4 | 50.8 | **16.9** | **19.5** |
+| **greedy SIMD16+SWAR8** | 13.4 | **16.9** | **23.4** | 19.5 | 21.5 |
+
+**The fused per byte loop loses to everything once it no longer has to emit.** The original
+measurement that installed it compared fused accumulation against a consumer re-scan under per
+digit emission; with one emission per token the comparison inverts at every corpus size. The
+shipped combination is the greedy SIMD16 class scan with 8-digit SWAR blocks in the digit runs:
+SWAR costs 1–3 ns on short tokens against plain SIMD16 and pays 2.2x on 17–19 digit ids, which
+is what a document id is. `NumberParseBenchmarks.swift` keeps all six variants registered and
+cross-checks them against each other before timing anything.
+
+The shape, in `consumeNumber`:
+
+- **The boundary scan is greedy over the byte class** — digits, `.`, `e`, `E`, `+`, `-` —
+  which makes it stateless: no booleans survive a chunk boundary, `resetNumber` is
+  `bufferCount = 0`, and eleven parser fields are gone. Placement is not the scan's business.
+- **The parse is one structured walk at the token's end**: sign, integer digits, fraction,
+  exponent. The grammar is the segment order, so validation falls out of the walk — a byte the
+  grammar has no place for fails the final position check instead of a tracked flag. Digit runs
+  go through `streamAccumulateDigits`, wrapping-congruent with the scalar loop so overflowed
+  magnitudes agree between paths.
+- **A token that reaches the chunk's end is buffered whole** and parsed when its delimiter
+  arrives, which replaced the old spanning path's byte-at-a-time copy with one append per chunk.
+  Byte fed input pays a class test and a one-byte append per byte where it used to run the full
+  state machine and a sink call per digit.
+
+**The structured walk found an acceptance bug the per byte rules had:** `1e--2` and `1e+-2`
+parsed, because each sign only checked that no exponent digit had arrived yet, and a second sign
+still satisfied that. The walk has one place for a sign, so doubled signs are rejected by shape.
+Pinned in `Rejects doubled exponent signs`.
+
+Semantics that moved, all deliberate:
+
+- A malformed token with trailing class bytes — `1.2.3`, `1-2`, `1e2e3` — is now one token
+  rejected as `.invalidNumber` at its end, where the old rules emitted a valid prefix and then
+  threw `.unexpectedToken` at the byte that broke them. The sink no longer sees a number the
+  document does not contain on the way to an error.
+- An open number contributes nothing to any emitted state: `[1,2` byte fed reads `[1]` until the
+  token ends, where it used to read `[1, 2]` with 2 still growing. The 82 recorded per byte
+  sequences were regenerated through the existing `STREAM_PARSING_RECORD` harness and re-audited:
+  every array is still bytes + 1 long, and values land at their delimiters.
+- Unchecked parsing (`validatesNumberGrammar: false`) takes the same walk without the guards and
+  ignores trailing class bytes, degrading harmlessly as before.
+
+### Error offsets: absolute, and independent of chunking
+
+Fixed alongside, since `emitNumber` needed a position to report anyway. `error()` now takes the
+chunk-local detection offset and adds `consumedByteCount`, so every error names the absolute
+position of the byte it was detected at:
+
+- Errors detected at a token's completion — a key validated whole, a number parsed whole — name
+  the token's final byte, which is the same byte at every split.
+- Invalid UTF-8 names the sequence's lead byte in both the contiguous validator and the
+  reassembly path: a sequence held across a boundary reports `consumedByteCount` *minus* the
+  bytes already held, so bulk and byte fed agree.
+- `finish` reports end of input, and its `checkSink` call no longer adds `consumedByteCount` to
+  a count that already contains it, which was the double-counting path.
+- Sink-rejection offsets remain granularity-dependent by design: a sink records a failure and
+  the parser reads it once per state machine step, so where it surfaces tracks the step.
+
+`ErrorOffsetTests` pins both halves: the same `JSONParsingError` — reason and offset — at every
+split position for a dozen malformed documents, and the exact detection byte for each error kind
+in bulk, which previously reported 0 for all of them. The chunk boundary failure harness now
+compares whole errors rather than reasons alone.
+
+### Measured end to end
+
+Same machine, same session, against a pristine control run. p50:
+
+| benchmark | control | whole emission | |
+| --- | --- | --- | --- |
+| Fast Nested arrays, bulk | 21 µs, 188 MB/s | **17 µs, 231 MB/s** | +23% |
+| Fast Nested arrays, byte fed | 44 µs, 90 MB/s | **39 µs, 101 MB/s** | +12% |
+| Fast Dictionary, bulk | 5043 ns, 391 MB/s | **4667 ns, 424 MB/s** | +8% |
+| Fast Dictionary, byte fed | 18 µs, 106 MB/s | **16 µs, 123 MB/s** | +16% |
+| Fast Twitter, bulk | 901 µs, 701 MB/s | **862 µs, 732 MB/s** | +4% |
+| Fast Twitter, byte fed | 4.58 ms, 137 MB/s | **4.24 ms, 149 MB/s** | +9% |
+| Fast Array of structs, bulk | 14 µs, 442 MB/s | 14 µs, 460 MB/s | +4% |
+| Fast Long string, bulk (control payload) | 917 ns | 917 ns | — |
+| Stream Array of structs, bulk | 75 µs | **69 µs** | +8% |
+| Stream Array of structs, byte fed | 325 µs | 331 µs | noise |
+| Stream Twitter, bulk | 2.18 ms | **1.99 ms** | +9% |
+| Stream Twitter, byte fed | 22 ms | 22 ms | — |
+
+The cost lands where per digit reporting's cost did — number dense payloads — with the sign
+flipped, and nested arrays finally clears the 17 µs the per digit table used as its "at token
+end" column. The string payload is the control and does not move. The offset accounting costs
+nothing measurable anywhere, which is what "arithmetic on the error path only" predicts.
+
+What whole emission costs: byte fed consumers see nothing while a number token is open. A
+consumer rendering a stream of large integers digit by digit lost that ability, and part
+boundary emission is the design to revisit if one ever exists.

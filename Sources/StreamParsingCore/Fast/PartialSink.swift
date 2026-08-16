@@ -129,22 +129,9 @@ public struct PartialSink<Root>: StreamParseSink {
     self.scalarTarget = nil
   }
 
-  // A number arrives as a run of values, one per digit, so its destination is resolved once and
-  // updated after that. Resolving per event would append a fresh array element per digit, which
-  // turned `[1,2` into `[1, 1, 2]`. Strings have always worked this way; numbers do now too.
   public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    if !self.inNumber {
-      self.numberTarget = self.resolveScalarTarget()
-      self.inNumber = true
-    }
-    let target = self.numberTarget
-    if !info.flags.contains(.incomplete) {
-      self.inNumber = false
-      self.numberTarget = nil
-    }
-    guard let target else { return }
-    if !target.schema.applyNumber(target.storage, target.field, bytes, info) {
-      self.recordFailure(.typeMismatch)
+    self.withScalarTarget { storage, field, schema in
+      schema.applyNumber(storage, field, bytes, info)
     }
   }
 
@@ -170,11 +157,6 @@ public struct PartialSink<Root>: StreamParseSink {
   }
 
   @usableFromInline var scalarTarget: ScalarTarget?
-
-  // Tracked separately from the target itself, because a number under a key the destination does
-  // not have resolves to no target at all, and that still has to count as being mid-number.
-  @usableFromInline var numberTarget: ScalarTarget?
-  @usableFromInline var inNumber = false
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
     guard let top = self.frames.last else {

@@ -71,18 +71,6 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var bufferCount = 0
   @usableFromInline var ownsBuffer: Bool
 
-  @usableFromInline var magnitude: UInt64 = 0
-  @usableFromInline var digitCount: UInt16 = 0
-  @usableFromInline var fractionDigits: Int32 = 0
-  @usableFromInline var explicitExponent: Int32 = 0
-  @usableFromInline var numberFlags = NumberInfo.Flags()
-  @usableFromInline var inExponent = false
-  @usableFromInline var sawDot = false
-  @usableFromInline var exponentNegative = false
-  @usableFromInline var exponentDigits = 0
-  @usableFromInline var integerDigits: Int32 = 0
-  @usableFromInline var firstIntegerDigitIsZero = false
-
   @usableFromInline var unicodeValue: UInt32 = 0
   @usableFromInline var unicodeRemaining = 0
   @usableFromInline var highSurrogate: UInt32 = 0
@@ -198,20 +186,20 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) {
     switch self.state {
     case .number:
-      try self.emitBufferedNumber(into: &sink)
+      try self.emitBufferedNumber(into: &sink, reportAt: 0)
       self.state = .done
     case .value, .firstValue, .key, .firstKey, .afterKey:
-      throw self.error(.unexpectedToken)
+      throw self.error(.unexpectedToken, at: 0)
     case .inString, .inKey, .escape, .unicode:
-      throw self.error(.unterminatedString)
+      throw self.error(.unterminatedString, at: 0)
     case .literal:
-      throw self.error(.invalidLiteral)
+      throw self.error(.invalidLiteral, at: 0)
     case .afterValue, .done:
       break
     }
-    if self.depth > 0 { throw self.error(.unterminatedContainer) }
-    if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8) }
-    try self.checkSink(&sink, at: self.consumedByteCount)
+    if self.depth > 0 { throw self.error(.unterminatedContainer, at: 0) }
+    if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8, at: 0) }
+    try self.checkSink(&sink, at: 0)
   }
 
   // MARK: Structural
@@ -222,20 +210,21 @@ public struct JSONParser: ~Copyable {
     at offset: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Bool {
+    let at = offset &- 1
     switch self.state {
     case .value, .firstValue:
       switch byte {
       case .asciiObjectStart:
         sink.beginObject()
-        try self.push(isObject: true, at: offset)
+        try self.push(isObject: true, at: at)
         self.state = .firstKey
       case .asciiArrayStart:
         sink.beginArray()
-        try self.push(isObject: false, at: offset)
+        try self.push(isObject: false, at: at)
         self.state = .firstValue
       case .asciiArrayEnd:
         guard self.state == .firstValue, self.depth > 0, !self.topIsObject else {
-          throw self.error(.unexpectedToken)
+          throw self.error(.unexpectedToken, at: at)
         }
         sink.endArray()
         self.pop()
@@ -251,24 +240,24 @@ public struct JSONParser: ~Copyable {
         self.state = .number
         return true
       default:
-        throw self.error(.unexpectedToken)
+        throw self.error(.unexpectedToken, at: at)
       }
 
     case .afterValue:
       switch byte {
       case .asciiComma:
-        guard self.depth > 0 else { throw self.error(.unexpectedToken) }
+        guard self.depth > 0 else { throw self.error(.unexpectedToken, at: at) }
         self.state = self.topIsObject ? .key : .value
       case .asciiArrayEnd:
-        guard self.depth > 0, !self.topIsObject else { throw self.error(.unexpectedToken) }
+        guard self.depth > 0, !self.topIsObject else { throw self.error(.unexpectedToken, at: at) }
         sink.endArray()
         self.pop()
       case .asciiObjectEnd:
-        guard self.depth > 0, self.topIsObject else { throw self.error(.unexpectedToken) }
+        guard self.depth > 0, self.topIsObject else { throw self.error(.unexpectedToken, at: at) }
         sink.endObject()
         self.pop()
       default:
-        throw self.error(.unexpectedToken)
+        throw self.error(.unexpectedToken, at: at)
       }
 
     case .key, .firstKey:
@@ -279,23 +268,23 @@ public struct JSONParser: ~Copyable {
         self.state = .inKey
       case .asciiObjectEnd:
         guard self.state == .firstKey, self.depth > 0, self.topIsObject else {
-          throw self.error(.unexpectedToken)
+          throw self.error(.unexpectedToken, at: at)
         }
         sink.endObject()
         self.pop()
       default:
-        throw self.error(.unexpectedToken)
+        throw self.error(.unexpectedToken, at: at)
       }
 
     case .afterKey:
-      guard byte == .asciiColon else { throw self.error(.unexpectedToken) }
+      guard byte == .asciiColon else { throw self.error(.unexpectedToken, at: at) }
       self.state = .value
 
     case .done:
-      throw self.error(.trailingContent)
+      throw self.error(.trailingContent, at: at)
 
     default:
-      throw self.error(.unexpectedToken)
+      throw self.error(.unexpectedToken, at: at)
     }
     return false
   }
@@ -318,14 +307,14 @@ public struct JSONParser: ~Copyable {
 
     if end > i {
       if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape)
+        throw self.error(.invalidEscape, at: i)
       }
       if isKey {
-        try self.appendToBuffer(base: base, from: i, count: end &- i)
+        try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
       } else {
         let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
         if emitEnd > i {
-          try self.validateUTF8IfNeeded(base: base, from: i, to: emitEnd)
+          try self.validateUTF8IfNeeded(base: base, from: i, to: emitEnd, reportAt: nil)
           let slice = UnsafeBufferPointer(
             start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
             count: emitEnd &- i
@@ -342,13 +331,14 @@ public struct JSONParser: ~Copyable {
     guard i < to else { return i }
 
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
+    let byteAt = i
     i &+= 1
     if byte == .asciiQuote {
       if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape)
+        throw self.error(.invalidEscape, at: byteAt)
       }
       if isKey {
-        try self.emitBufferedKey(into: &sink)
+        try self.emitBufferedKey(into: &sink, reportAt: byteAt)
         self.state = .afterKey
       } else {
         sink.stringEnd()
@@ -357,7 +347,7 @@ public struct JSONParser: ~Copyable {
     } else if byte == .asciiBackslash {
       self.state = .escape
     } else {
-      throw self.error(.unterminatedString)
+      throw self.error(.unterminatedString, at: byteAt)
     }
     return i
   }
@@ -377,7 +367,7 @@ public struct JSONParser: ~Copyable {
     // A high surrogate must be followed immediately by a low surrogate escape. Any other escape
     // severs the pair, and emitting it first would also reorder the content around the error.
     if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-      throw self.error(.invalidEscape)
+      throw self.error(.invalidEscape, at: offset &- 1)
     }
     let decoded: UInt8
     switch byte {
@@ -388,10 +378,10 @@ public struct JSONParser: ~Copyable {
     case .asciiLowerB: decoded = .asciiBackspace
     case .asciiLowerF: decoded = .asciiFormFeed
     default:
-      guard !self.configuration.validatesLiterals else { throw self.error(.invalidEscape) }
+      guard !self.configuration.validatesLiterals else { throw self.error(.invalidEscape, at: offset &- 1) }
       decoded = byte
     }
-    try self.emitDecoded(byte: decoded, into: &sink)
+    try self.emitDecoded(byte: decoded, into: &sink, reportAt: offset &- 1)
     self.state = self.stateAfterEscape
   }
 
@@ -401,7 +391,7 @@ public struct JSONParser: ~Copyable {
     at offset: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) {
-    guard let value = Self.hexValue(byte) else { throw self.error(.invalidEscape) }
+    guard let value = Self.hexValue(byte) else { throw self.error(.invalidEscape, at: offset &- 1) }
     self.unicodeValue = (self.unicodeValue << 4) | value
     self.unicodeRemaining &-= 1
     guard self.unicodeRemaining == 0 else { return }
@@ -410,7 +400,7 @@ public struct JSONParser: ~Copyable {
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       // A second high surrogate would silently replace the pending one, leaving the first lone.
       if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape)
+        throw self.error(.invalidEscape, at: offset &- 1)
       }
       self.highSurrogate = scalar
       self.state = self.stateAfterEscape
@@ -419,20 +409,20 @@ public struct JSONParser: ~Copyable {
     if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate == 0,
       self.configuration.validatesUTF8
     {
-      throw self.error(.invalidEscape)
+      throw self.error(.invalidEscape, at: offset &- 1)
     }
     if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate != 0 {
       let combined =
         .utf8ThreeByteCeiling &+ ((self.highSurrogate &- .highSurrogateFloor) << 10)
         &+ (scalar &- .lowSurrogateFloor)
       self.highSurrogate = 0
-      try self.emitScalar(combined, into: &sink)
+      try self.emitScalar(combined, into: &sink, reportAt: offset &- 1)
     } else {
       // A pending high surrogate followed by any scalar but a low surrogate is lone.
       if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape)
+        throw self.error(.invalidEscape, at: offset &- 1)
       }
-      try self.emitScalar(scalar, into: &sink)
+      try self.emitScalar(scalar, into: &sink, reportAt: offset &- 1)
     }
     self.state = self.stateAfterEscape
   }
@@ -446,23 +436,14 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func resetNumber() {
-    self.magnitude = 0
-    self.digitCount = 0
-    self.fractionDigits = 0
-    self.explicitExponent = 0
-    self.numberFlags = []
-    self.inExponent = false
-    self.sawDot = false
-    self.exponentNegative = false
-    self.exponentDigits = 0
-    self.integerDigits = 0
-    self.firstIntegerDigitIsZero = false
     self.bufferCount = 0
   }
 
-  // Fused: the boundary scan and the magnitude accumulation happen in one pass, using wrapping
-  // arithmetic and a digit count check rather than per digit overflow checks. Measured 17%
-  // faster end to end on a number dense payload.
+  // The scan is greedy over the number byte class and the parse is one structured walk over
+  // the whole token at its end — sign, integer digits, fraction, exponent — so the per-byte
+  // state machine is gone and a number is reported exactly once, complete. The strategy table
+  // is in NEW_ARCHITECTURE.md: deferring the parse beat the fused per-byte accumulation on
+  // every corpus measured, and 8-digit SWAR blocks are 2.2x on 17-19 digit ids.
   @inlinable
   mutating func consumeNumber<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
@@ -470,155 +451,118 @@ public struct JSONParser: ~Copyable {
     to: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
-    let start = from
-    var i = from
-    // A number that began in an earlier chunk has its head in the buffer, so the provisional
-    // span has to come from there to stay contiguous. One that begins here is already
-    // contiguous in the input and needs no copy, which is the common case.
-    let spansChunks = self.bufferCount > 0
-    while i < to {
-      let byte = base.load(fromByteOffset: i, as: UInt8.self)
-      let digit = byte &- .asciiZero
-      var isDigit = false
-      if digit < 10 {
-        isDigit = true
-        if self.inExponent {
-          self.exponentDigits &+= 1
-          if self.explicitExponent < 10_000 {
-            self.explicitExponent = self.explicitExponent &* 10 &+ Int32(digit)
-          }
-        } else {
-          self.magnitude = self.magnitude &* 10 &+ UInt64(digit)
-          self.digitCount &+= 1
-          if self.sawDot {
-            self.fractionDigits &+= 1
-          } else {
-            self.integerDigits &+= 1
-            if self.integerDigits == 1 { self.firstIntegerDigitIsZero = digit == 0 }
-          }
-        }
-      } else if byte == .asciiDot, !self.sawDot, !self.inExponent {
-        self.sawDot = true
-        self.numberFlags.insert(.fraction)
-      } else if byte == .asciiLowerE || byte == .asciiUpperE, !self.inExponent {
-        self.inExponent = true
-        self.numberFlags.insert(.exponent)
-      } else if byte == .asciiDash {
-        if self.inExponent && self.exponentDigits == 0 {
-          self.exponentNegative = true
-        } else if self.digitCount == 0, !self.sawDot, !self.numberFlags.contains(.negative) {
-          self.numberFlags.insert(.negative)
-        } else {
-          break
-        }
-      } else if byte == .asciiPlus {
-        guard self.inExponent, self.exponentDigits == 0 else { break }
-      } else {
-        break
-      }
-
-      // Past every break, so the byte is part of the token. The spanning case copies as it goes,
-      // because its span has to include the head already sitting in the buffer.
-      if spansChunks {
-        try self.appendToBuffer(base: base, from: i, count: 1)
-      }
-
-      // Only digits move the value, so only digits are worth reporting: a dot or an exponent
-      // marker on its own describes the same number as the digit before it.
-      if isDigit {
-        if spansChunks {
-          let buffered = UnsafeBufferPointer(
-            start: self.buffer.baseAddress!, count: self.bufferCount
-          )
-          self.emitProvisionalNumber(Span(_unsafeElements: buffered), into: &sink)
-        } else {
-          let prefix = UnsafeBufferPointer(
-            start: base.advanced(by: start).assumingMemoryBound(to: UInt8.self),
-            count: i &- start &+ 1
-          )
-          self.emitProvisionalNumber(Span(_unsafeElements: prefix), into: &sink)
-        }
-      }
-      i &+= 1
+    let end = streamNumberRunEnd(base: base, from: from, to: to)
+    if end == to {
+      // The token may continue in the next chunk, so its bytes are carried whole; a document
+      // that ends inside a number is settled by finish().
+      try self.appendToBuffer(base: base, from: from, count: end &- from, reportAt: end)
+      return end
     }
-
-    // A token that both starts and ends inside this chunk is already contiguous, so it can be
-    // handed over in place. Only one spanning a boundary needs the copy.
-    if i < to, self.bufferCount == 0 {
-      let slice = UnsafeBufferPointer(
-        start: base.advanced(by: start).assumingMemoryBound(to: UInt8.self),
-        count: i &- start
-      )
-      try self.emitNumber(Span(_unsafeElements: slice), into: &sink)
-      self.state = .afterValue
-      return i
+    if self.bufferCount == 0 {
+      try self.emitNumber(base: base, from: from, to: end, into: &sink, reportAt: end)
+    } else {
+      try self.appendToBuffer(base: base, from: from, count: end &- from, reportAt: end)
+      try self.emitBufferedNumber(into: &sink, reportAt: end)
     }
-
-    // The spanning path already copied every digit it consumed, so only the non digit bytes of
-    // this run remain to be appended.
-    if !spansChunks {
-      try self.appendToBuffer(base: base, from: start, count: i &- start)
-    }
-
-    guard i < to else { return i }
-    try self.emitBufferedNumber(into: &sink)
     self.state = .afterValue
-    return i
+    return end
   }
 
   @inlinable
   mutating func emitBufferedNumber<Sink: StreamParseSink & ~Copyable>(
-    into sink: inout Sink
+    into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     let count = self.bufferCount
-    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
-    try self.emitNumber(Span(_unsafeElements: slice), into: &sink)
+    try self.emitNumber(
+      base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count, into: &sink,
+      reportAt: reportAt
+    )
     self.bufferCount = 0
   }
 
-  // Emits the value the digits seen so far describe, without validating: a prefix of a valid
-  // token is not itself a valid token, so `1e` and `0` on the way to `01` must not be rejected
-  // here. Validation stays at the token boundary, where the grammar is decidable.
-  @inlinable
-  mutating func emitProvisionalNumber<Sink: StreamParseSink & ~Copyable>(
-    _ bytes: Span<UInt8>,
-    into sink: inout Sink
-  ) {
-    if self.digitCount > 19 { self.numberFlags.insert(.overflowed) }
-    let signedExponent = self.exponentNegative ? -self.explicitExponent : self.explicitExponent
-    let net = signedExponent &- self.fractionDigits
-    let info = NumberInfo(
-      magnitude: self.magnitude,
-      exponent: Int16(clamping: net),
-      digitCount: self.digitCount,
-      flags: self.numberFlags.union(.incomplete)
-    )
-    sink.number(bytes, info: info)
-  }
-
+  // Parses and validates in the same walk: the grammar is the segment order itself, so a byte
+  // the grammar has no place for fails the final position check rather than a tracked flag.
+  // That is also what rejects doubled exponent signs, which the per-byte rules accepted.
+  // Unchecked parsing takes the same walk without the guards and ignores trailing class bytes.
   @inlinable
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(
-    _ bytes: Span<UInt8>,
-    into sink: inout Sink
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    into sink: inout Sink,
+    reportAt: Int
   ) throws(JSONParsingError) {
-    if self.configuration.validatesNumberGrammar {
-      guard self.integerDigits > 0 else { throw self.error(.invalidNumber) }
-      guard self.integerDigits == 1 || !self.firstIntegerDigitIsZero else {
-        throw self.error(.invalidNumber)
-      }
-      guard !self.sawDot || self.fractionDigits > 0 else { throw self.error(.invalidNumber) }
-      guard !self.inExponent || self.exponentDigits > 0 else { throw self.error(.invalidNumber) }
+    let validates = self.configuration.validatesNumberGrammar
+    var flags = NumberInfo.Flags()
+    var i = from
+    if i < to, base.load(fromByteOffset: i, as: UInt8.self) == .asciiDash {
+      flags.insert(.negative)
+      i &+= 1
     }
-    if self.digitCount > 19 { self.numberFlags.insert(.overflowed) }
-    let signedExponent = self.exponentNegative ? -self.explicitExponent : self.explicitExponent
-    let net = signedExponent &- self.fractionDigits
+
+    var magnitude: UInt64 = 0
+    let integerStart = i
+    i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude)
+    let integerDigits = i &- integerStart
+    if validates {
+      guard integerDigits > 0 else { throw self.error(.invalidNumber, at: reportAt) }
+      if integerDigits > 1, base.load(fromByteOffset: integerStart, as: UInt8.self) == .asciiZero {
+        throw self.error(.invalidNumber, at: reportAt)
+      }
+    }
+
+    var fractionDigits = 0
+    if i < to, base.load(fromByteOffset: i, as: UInt8.self) == .asciiDot {
+      flags.insert(.fraction)
+      i &+= 1
+      let fractionStart = i
+      i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude)
+      fractionDigits = i &- fractionStart
+      if validates, fractionDigits == 0 { throw self.error(.invalidNumber, at: reportAt) }
+    }
+
+    var explicitExponent: Int32 = 0
+    var exponentNegative = false
+    if i < to, (base.load(fromByteOffset: i, as: UInt8.self) | 0x20) == .asciiLowerE {
+      flags.insert(.exponent)
+      i &+= 1
+      if i < to {
+        let sign = base.load(fromByteOffset: i, as: UInt8.self)
+        if sign == .asciiDash {
+          exponentNegative = true
+          i &+= 1
+        } else if sign == .asciiPlus {
+          i &+= 1
+        }
+      }
+      let exponentStart = i
+      while i < to {
+        let digit = base.load(fromByteOffset: i, as: UInt8.self) &- .asciiZero
+        guard digit < 10 else { break }
+        if explicitExponent < 10_000 {
+          explicitExponent = explicitExponent &* 10 &+ Int32(digit)
+        }
+        i &+= 1
+      }
+      if validates, i == exponentStart { throw self.error(.invalidNumber, at: reportAt) }
+    }
+
+    if validates, i != to { throw self.error(.invalidNumber, at: reportAt) }
+
+    let totalDigits = integerDigits &+ fractionDigits
+    if totalDigits > 19 { flags.insert(.overflowed) }
+    let signedExponent = exponentNegative ? -explicitExponent : explicitExponent
     let info = NumberInfo(
-      magnitude: self.magnitude,
-      exponent: Int16(clamping: net),
-      digitCount: self.digitCount,
-      flags: self.numberFlags
+      magnitude: magnitude,
+      exponent: Int16(clamping: Int(signedExponent) &- fractionDigits),
+      digitCount: UInt16(truncatingIfNeeded: totalDigits),
+      flags: flags
     )
-    sink.number(bytes, info: info)
+    let slice = UnsafeBufferPointer(
+      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self),
+      count: to &- from
+    )
+    sink.number(Span(_unsafeElements: slice), info: info)
   }
 
   // MARK: Literals
@@ -649,7 +593,7 @@ public struct JSONParser: ~Copyable {
     while i < to && self.literalIndex < expected.count {
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
       if self.configuration.validatesLiterals && byte != expected[self.literalIndex] {
-        throw self.error(.invalidLiteral)
+        throw self.error(.invalidLiteral, at: i)
       }
       self.literalIndex &+= 1
       i &+= 1
@@ -669,13 +613,13 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func appendToBuffer(
-    base: UnsafeRawPointer, from: Int, count: Int
+    base: UnsafeRawPointer, from: Int, count: Int, reportAt: Int
   ) throws(JSONParsingError) {
     guard count > 0 else { return }
     guard self.bufferCount &+ count &+ StreamParsingLayout.keyPaddingByteCount
       <= self.buffer.count
     else {
-      throw self.error(.bufferExhausted)
+      throw self.error(.bufferExhausted, at: reportAt)
     }
     UnsafeMutableRawPointer(self.buffer.baseAddress! + self.bufferCount)
       .copyMemory(from: base.advanced(by: from), byteCount: count)
@@ -684,11 +628,11 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func emitBufferedKey<Sink: StreamParseSink & ~Copyable>(
-    into sink: inout Sink
+    into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     let count = self.bufferCount
     try self.validateUTF8IfNeeded(
-      base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count
+      base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count, reportAt: reportAt
     )
     // Zero the padding so a matcher loading a whole vector sees defined bytes.
     for offset in count..<(count &+ StreamParsingLayout.keyPaddingByteCount) {
@@ -725,13 +669,13 @@ public struct JSONParser: ~Copyable {
     base: UnsafeRawPointer, from: Int, to: Int
   ) throws(JSONParsingError) {
     let count = to &- from
-    guard count <= 4 else { throw self.error(.invalidUTF8) }
+    guard count <= 4 else { throw self.error(.invalidUTF8, at: from) }
     // An invalid lead can be rejected before anything is held, which leaves completion with only
     // the second byte constraints to check.
     if self.configuration.validatesUTF8 {
       let lead = base.load(fromByteOffset: from, as: UInt8.self)
       guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else {
-        throw self.error(.invalidUTF8)
+        throw self.error(.invalidUTF8, at: from)
       }
     }
     for offset in 0..<count {
@@ -751,6 +695,7 @@ public struct JSONParser: ~Copyable {
     base: UnsafeRawPointer, count n: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     let tailStart = self.buffer.count &- 8
+    let leadAt = -self.pendingUTF8Count
     let lead = self.buffer[tailStart]
     let needed = Self.sequenceLength(lead)
     var have = self.pendingUTF8Count
@@ -770,7 +715,7 @@ public struct JSONParser: ~Copyable {
       // The next byte is not a continuation, so the sequence is truncated. Unchecked parsing
       // emits the fragment and lets the byte be what it is, matching what the bulk path does
       // with a truncated sequence mid chunk.
-      if self.configuration.validatesUTF8 { throw self.error(.invalidUTF8) }
+      if self.configuration.validatesUTF8 { throw self.error(.invalidUTF8, at: leadAt) }
       self.pendingUTF8Count = 0
       let slice = UnsafeBufferPointer(start: self.buffer.baseAddress! + tailStart, count: have)
       sink.stringChunk(Span(_unsafeElements: slice))
@@ -785,13 +730,13 @@ public struct JSONParser: ~Copyable {
       let second = self.buffer[tailStart &+ 1]
       switch lead {
       case .utf8ThreeByteFloor:
-        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8) }
+        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8, at: leadAt) }
       case .utf8SurrogateLead:
-        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8) }
+        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8, at: leadAt) }
       case .utf8FourByteFloor:
-        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8) }
+        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8, at: leadAt) }
       case .utf8MaximumLead:
-        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8) }
+        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8, at: leadAt) }
       default:
         break
       }
@@ -812,7 +757,7 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func validateUTF8IfNeeded(
-    base: UnsafeRawPointer, from: Int, to: Int
+    base: UnsafeRawPointer, from: Int, to: Int, reportAt: Int?
   ) throws(JSONParsingError) {
     guard self.configuration.validatesUTF8 else { return }
     guard streamContainsNonASCII(base: base, from: from, to: to) else { return }
@@ -823,25 +768,25 @@ public struct JSONParser: ~Copyable {
         i &+= 1
         continue
       }
-      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else { throw self.error(.invalidUTF8) }
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       let needed = Self.sequenceLength(lead)
-      guard i &+ needed <= to else { throw self.error(.invalidUTF8) }
+      guard i &+ needed <= to else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       for offset in 1..<needed {
         let continuation = base.load(fromByteOffset: i &+ offset, as: UInt8.self)
         guard continuation >= .utf8ContinuationFloor, continuation < .utf8TwoByteFloor else {
-          throw self.error(.invalidUTF8)
+          throw self.error(.invalidUTF8, at: reportAt ?? i)
         }
       }
       let second = base.load(fromByteOffset: i &+ 1, as: UInt8.self)
       switch lead {
       case .utf8ThreeByteFloor:
-        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8) }
+        guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       case .utf8SurrogateLead:
-        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8) }
+        guard second <= .utf8SurrogateCeiling else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       case .utf8FourByteFloor:
-        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8) }
+        guard second >= .utf8FourByteLowerBound else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       case .utf8MaximumLead:
-        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8) }
+        guard second <= .utf8MaximumSecond else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       default:
         break
       }
@@ -858,7 +803,7 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func emitScalar<Sink: StreamParseSink & ~Copyable>(
-    _ value: UInt32, into sink: inout Sink
+    _ value: UInt32, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     let at = self.escapeScratchOffset
     let count: Int
@@ -881,25 +826,26 @@ public struct JSONParser: ~Copyable {
       self.buffer[at &+ 3] = UInt8(0x80 | (value & .utf8ContinuationMask))
       count = 4
     }
-    try self.emitScratch(count: count, into: &sink)
+    try self.emitScratch(count: count, into: &sink, reportAt: reportAt)
   }
 
   @inlinable
   mutating func emitDecoded<Sink: StreamParseSink & ~Copyable>(
-    byte: UInt8, into sink: inout Sink
+    byte: UInt8, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     self.buffer[self.escapeScratchOffset] = byte
-    try self.emitScratch(count: 1, into: &sink)
+    try self.emitScratch(count: 1, into: &sink, reportAt: reportAt)
   }
 
   @inlinable
   mutating func emitScratch<Sink: StreamParseSink & ~Copyable>(
-    count: Int, into sink: inout Sink
+    count: Int, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     let at = self.escapeScratchOffset
     if self.isKeyToken {
       try self.appendToBuffer(
-        base: UnsafeRawPointer(self.buffer.baseAddress! + at), from: 0, count: count
+        base: UnsafeRawPointer(self.buffer.baseAddress! + at), from: 0, count: count,
+        reportAt: reportAt
       )
       return
     }
@@ -916,7 +862,7 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func push(isObject: Bool, at offset: Int) throws(JSONParsingError) {
-    guard self.depth < Self.maximumDepth else { throw self.error(.depthExceeded) }
+    guard self.depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: offset) }
     if isObject {
       self.containers |= 1 << UInt64(self.depth)
     } else {
@@ -933,9 +879,12 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Diagnostics
 
+  // Every error reports the absolute offset of the byte it was detected at, so the position a
+  // document fails at does not depend on how it was chunked. Errors detected at a token's
+  // completion — a key validated whole, a number parsed whole — name the token's final byte.
   @inlinable
-  func error(_ reason: JSONParsingError.Reason) -> JSONParsingError {
-    JSONParsingError(reason: reason, byteOffset: self.consumedByteCount)
+  func error(_ reason: JSONParsingError.Reason, at offset: Int) -> JSONParsingError {
+    JSONParsingError(reason: reason, byteOffset: self.consumedByteCount &+ offset)
   }
 
   @inlinable

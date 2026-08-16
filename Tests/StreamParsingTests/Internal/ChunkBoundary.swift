@@ -45,7 +45,9 @@ func expectChunkBoundaryEquivalence<Value: StreamParseableRoot>(
 }
 
 // A parser that only rejects malformed input when it happens to see it in one piece is worse
-// than one that never rejects it, so failures get the same treatment as successes.
+// than one that never rejects it, so failures get the same treatment as successes. The whole
+// error is compared — reason and byte offset — since a position that moves with the chunking
+// is a diagnostic that cannot be trusted.
 func expectChunkBoundaryFailureEquivalence<Value: StreamParseableRoot>(
   _ json: String,
   as type: Value.Type,
@@ -54,14 +56,14 @@ func expectChunkBoundaryFailureEquivalence<Value: StreamParseableRoot>(
 ) {
   let bytes = Array(json.utf8)
 
-  guard let expected = failureReason(forParsing: [bytes], as: Value.self, format: format) else {
+  guard let expected = parsingFailure(forParsing: [bytes], as: Value.self, format: format) else {
     Issue.record("Expected the bulk parse to fail.", sourceLocation: sourceLocation)
     return
   }
 
   for split in 1..<max(bytes.count, 2) {
     let chunks = [Array(bytes[..<split]), Array(bytes[split...])]
-    let actual = failureReason(forParsing: chunks, as: Value.self, format: format)
+    let actual = parsingFailure(forParsing: chunks, as: Value.self, format: format)
     guard actual == expected else {
       Issue.record(
         "Split at \(split) reported \(String(describing: actual)) rather than \(expected).",
@@ -94,16 +96,16 @@ private func parseChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-private func failureReason<Value: StreamParseableRoot>(
+private func parsingFailure<Value: StreamParseableRoot>(
   forParsing chunks: [[UInt8]],
   as type: Value.Type,
   format: JSONStreamFormat
-) -> JSONParsingError.Reason? {
+) -> JSONParsingError? {
   do {
     _ = try parseChunks(chunks, as: Value.self, format: format)
     return nil
   } catch let error as JSONParsingError {
-    return error.reason
+    return error
   } catch {
     return nil
   }

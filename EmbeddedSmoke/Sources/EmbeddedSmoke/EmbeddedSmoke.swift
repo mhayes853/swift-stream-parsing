@@ -22,7 +22,6 @@ struct SmokeSink: StreamParseSink {
   var keys = 0
   var strings = 0
   var numbers = 0
-  var provisionalNumbers = 0
   var booleans = 0
   var nulls = 0
 
@@ -66,13 +65,8 @@ struct SmokeSink: StreamParseSink {
 
   mutating func stringEnd() {}
 
-  // A number is reported after every digit, so the provisional runs are counted apart from the
-  // values the document actually contains. A sink that lumps them together counts the digits.
+  // Exactly one event per number token, whole, at its end.
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    if info.flags.contains(.incomplete) {
-      self.provisionalNumbers &+= 1
-      return
-    }
     self.numbers &+= 1
     self.magnitudeSum = self.magnitudeSum &+ info.magnitude
     // Exercises the conversion path too, not just the scan.
@@ -126,8 +120,6 @@ struct EmbeddedSmoke {
       precondition(whole.keys == 8)
       precondition(whole.strings == 4)
       precondition(whole.numbers == 2)
-      // "4217" and "-1.5e2": four digits plus three, reported one at a time.
-      precondition(whole.provisionalNumbers == 7)
       precondition(whole.booleans == 1)
       precondition(whole.nulls == 1)
 
@@ -140,7 +132,6 @@ struct EmbeddedSmoke {
         precondition(split.keys == whole.keys)
         precondition(split.strings == whole.strings)
         precondition(split.numbers == whole.numbers)
-        precondition(split.provisionalNumbers == whole.provisionalNumbers)
         precondition(split.booleans == whole.booleans)
         precondition(split.nulls == whole.nulls)
         precondition(split.keyWordChecksum == whole.keyWordChecksum)
