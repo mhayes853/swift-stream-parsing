@@ -15,3 +15,10 @@ extension StreamParseable where Partial == Self {
     self
   }
 }
+
+extension StreamParseable
+where Self: RawRepresentable, RawValue: StreamParseable, Partial == RawValue.Partial {
+  public var streamPartialValue: Partial {
+    self.rawValue.streamPartialValue
+  }
+}

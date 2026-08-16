@@ -69,6 +69,16 @@ public func _streamEnterField<T: StreamParseableObject>(_ value: inout T) -> Str
   _streamEnterObject(&value)
 }
 
+// The source spelling did not identify a built-in container. Resolve through the actual partial
+// storage type instead, which covers aliases, generic spelling and user-defined containers.
+@_disfavoredOverload
+@inlinable
+public func _streamEnterField<T: StreamContainerPartial>(_ value: inout T) -> StreamFrame? {
+  withUnsafeMutablePointer(to: &value) {
+    T.streamContainerFrame(at: UnsafeMutableRawPointer($0))
+  }
+}
+
 @_disfavoredOverload
 @inlinable
 public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {

@@ -824,17 +824,34 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `A Direct StreamDictionary Property Is Rejected Until Generic Routing Is Added`() {
+    func `Parses A Direct StreamDictionary Property`() throws {
       let json = "{\"values\":{\"inner\":1}}"
-      let error = #expect(throws: JSONParsingError.self) {
-        try json.utf8.partials(
-          initialValue: DictionaryPropertyContainer.Partial(),
-          from: .json()
-        )
-      }
+      let values = try json.utf8.partials(
+        initialValue: DictionaryPropertyContainer.Partial(),
+        from: .json()
+      )
       expectNoDifference(
-        error?.reason,
-        .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
+        values.last,
+        DictionaryPropertyContainer.Partial(values: StreamDictionary(["inner": 1]))
+      )
+    }
+
+    @Test
+    func `Routes Containers From Their Resolved Partial Types`() throws {
+      let json =
+        "{\"numbers\":[1,2],\"counts\":{\"a\":3},\"optionalNumbers\":[],\"rawNumbers\":[4,5]}"
+      let values = try json.utf8.partials(
+        initialValue: ResolvedContainer.Partial(),
+        from: .json()
+      )
+      expectNoDifference(
+        values.last,
+        ResolvedContainer.Partial(
+          numbers: StreamArray([1, 2]),
+          counts: StreamDictionary(["a": 3]),
+          optionalNumbers: StreamArray<Int>(),
+          rawNumbers: StreamArray([4, 5])
+        )
       )
     }
 
@@ -1606,6 +1623,31 @@ struct EmptyObject: Equatable {}
 struct DictionaryPropertyContainer: Equatable {
   var values: StreamDictionary<Int>
 }
+
+typealias ResolvedNumbers = Array<Int>
+typealias ResolvedCounts = Dictionary<String, Int>
+
+struct RawNumbers: RawRepresentable, Hashable, Sendable {
+  let rawValue: [Int]
+
+  init?(rawValue: [Int]) {
+    self.rawValue = rawValue
+  }
+}
+
+extension RawNumbers: StreamParseable {
+  typealias Partial = RawValue.Partial
+}
+
+@StreamParseable
+struct ResolvedContainer: Equatable {
+  var numbers: ResolvedNumbers
+  var counts: ResolvedCounts
+  var optionalNumbers: ResolvedNumbers?
+  var rawNumbers: RawNumbers
+}
+
+extension ResolvedContainer.Partial: Equatable {}
 
 @StreamParseable
 struct ArrayPropertyContainer: Equatable {

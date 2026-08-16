@@ -124,6 +124,23 @@ extension StreamParseableRoot {
   }
 }
 
+/// A partial that can receive an incoming container when stored as a field.
+///
+/// The entry operation lives on the resolved partial type, so aliases and generic wrappers do not
+/// need to expose their shape in source syntax. A partial whose storage is described directly by
+/// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
+public protocol StreamContainerPartial: StreamParseableRoot {
+  /// Returns the frame that writes a container into `storage`.
+  static func streamContainerFrame(at storage: UnsafeMutableRawPointer) -> StreamFrame
+}
+
+extension StreamContainerPartial {
+  @inlinable
+  public static func streamContainerFrame(at storage: UnsafeMutableRawPointer) -> StreamFrame {
+    StreamFrame(storage: storage, schema: Self.streamSchema)
+  }
+}
+
 public protocol StreamParseableObject: StreamParseableRoot {}
 
 // MARK: - Scalar schemas

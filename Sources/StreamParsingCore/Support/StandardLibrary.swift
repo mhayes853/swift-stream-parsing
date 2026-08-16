@@ -87,7 +87,8 @@ extension Float: StreamParseableRoot {}
 // elements through a raw pointer into a buffer other values can be sharing, which is what made
 // kept states change after the fact; `StreamArray` exists so that path does not exist.
 
-extension StreamDictionary: StreamParseableRoot where Value: StreamParseableRoot {
+extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
+where Value: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
     _streamDictionarySchema(Value.self, value: Value.streamSchema)
   }
@@ -285,5 +286,14 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         return Wrapped.streamSchema.enterKey(storage, key)
       }
     )
+  }
+}
+
+extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {
+  public static func streamContainerFrame(
+    at storage: UnsafeMutableRawPointer
+  ) -> StreamFrame {
+    _streamMaterializeOptional(storage, as: Wrapped.self)
+    return Wrapped.streamContainerFrame(at: storage)
   }
 }

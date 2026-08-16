@@ -245,7 +245,8 @@ extension StreamArray: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
 
-extension StreamArray: StreamParseableRoot where Element: StreamParseableRoot {
+extension StreamArray: StreamParseableRoot, StreamContainerPartial
+where Element: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
     _streamArraySchema(Element.self, element: Element.streamSchema)
   }
