@@ -402,54 +402,142 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) -> Int {
     let isKey = self.state == .inKey
     var i = from
-    let end = streamStringRunEnd(base: base, from: i, to: to)
+    while true {
+      let end = streamStringRunEnd(base: base, from: i, to: to)
 
-    if end > i {
-      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape, at: i)
+      if end > i {
+        if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+          throw self.error(.invalidEscape, at: i)
+        }
+        if isKey {
+          try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
+        } else {
+          let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
+          if emitEnd > i {
+            try self.validateUTF8IfNeeded(base: base, from: i, to: emitEnd, reportAt: nil)
+            let slice = UnsafeBufferPointer(
+              start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
+              count: emitEnd &- i
+            )
+            sink.stringChunk(Span(_unsafeElements: slice))
+          }
+          if emitEnd < end {
+            try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
+          }
+        }
+        i = end
       }
-      if isKey {
-        try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
+
+      guard i < to else { return i }
+
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      let byteAt = i
+      i &+= 1
+      if byte == .asciiQuote {
+        if self.highSurrogate != 0, self.configuration.validatesUTF8 {
+          throw self.error(.invalidEscape, at: byteAt)
+        }
+        if isKey {
+          try self.emitBufferedKey(into: &sink, reportAt: byteAt)
+          self.state = .afterKey
+        } else {
+          sink.stringEnd()
+          self.state = .afterValue
+          i = self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
+        }
+        return i
+      } else if byte == .asciiBackslash {
+        // Decoding the escape here keeps the scan going; the states exist for the escape that
+        // straddles a chunk boundary and for the ones carrying diagnostics.
+        if let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
+          i = fused
+          continue
+        }
+        self.state = .escape
+        return i
       } else {
-        let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
-        if emitEnd > i {
-          try self.validateUTF8IfNeeded(base: base, from: i, to: emitEnd, reportAt: nil)
-          let slice = UnsafeBufferPointer(
-            start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
-            count: emitEnd &- i
-          )
-          sink.stringChunk(Span(_unsafeElements: slice))
-        }
-        if emitEnd < end {
-          try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
-        }
+        throw self.error(.unterminatedString, at: byteAt)
       }
-      i = end
+    }
+  }
+
+
+  // The escape states are per byte: `\n` costs the dispatcher two iterations, `\uXXXX` five and a
+  // surrogate pair eleven, all to produce at most four bytes of content. When the whole escape is
+  // present in the chunk, decoding it here and returning its end lets `consumeStringRun` keep
+  // scanning without ever handing control back.
+  //
+  // Only escapes with no diagnostics attached are fused. A bad hex digit, a lone surrogate, an
+  // unrecognised escape character, a pending high surrogate, or an escape running past the end of
+  // the chunk all return nil and fall back to the per byte states. That is what keeps error offsets
+  // and resumption identical: this path never reports anything, so it cannot report it in the
+  // wrong place, and it commits nothing before it knows it can finish.
+  @inlinable
+  @inline(__always)
+  mutating func fusedEscapeEnd<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+  ) throws(JSONParsingError) -> Int? {
+    guard self.highSurrogate == 0, from < to else { return nil }
+    let selector = base.load(fromByteOffset: from, as: UInt8.self)
+    guard selector != .asciiLowerU else {
+      return try self.fusedUnicodeEscapeEnd(base: base, from: from, to: to, into: &sink)
+    }
+    let decoded: UInt8
+    switch selector {
+    case .asciiQuote, .asciiBackslash, .asciiSlash: decoded = selector
+    case .asciiLowerN: decoded = .asciiLineFeed
+    case .asciiLowerR: decoded = .asciiCarriageReturn
+    case .asciiLowerT: decoded = .asciiTab
+    case .asciiLowerB: decoded = .asciiBackspace
+    case .asciiLowerF: decoded = .asciiFormFeed
+    default: return nil
+    }
+    try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
+    return from &+ 1
+  }
+
+  // Out of line, and for the same reason the whitespace vector body is: this is inlined into
+  // `consumeStringRun`, and the hex decode plus the surrogate pair handling is dead weight in it
+  // for any document whose escapes are all one character. Spelling it inline alongside the simple
+  // escapes above cost `Fast Escaped string` — `a\nb\t` repeated, no `\u` in it at all — 18.5%,
+  // and every string heavy document 1-5%, while the documents it exists for kept their gain either
+  // way. A `\u` escape is five bytes of work and saves five dispatcher iterations, so it can
+  // afford the call; `\n` is one byte and cannot.
+  @inlinable
+  @inline(never)
+  mutating func fusedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+  ) throws(JSONParsingError) -> Int? {
+    guard from &+ 5 <= to, let scalar = streamHexQuad(base: base, from: from &+ 1) else {
+      return nil
+    }
+    var value = scalar
+    var end = from &+ 5
+
+    if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
+      // A pair is twelve bytes and has to be complete and well formed to be fused; a high
+      // surrogate followed by anything else is a diagnostic, so it goes to the per byte path.
+      // The bounds test is first, so the halfword load below stays inside the chunk.
+      guard end &+ 6 <= to,
+        UInt16(littleEndian: base.loadUnaligned(fromByteOffset: end, as: UInt16.self))
+          == streamUnicodeEscapePrefix,
+        let low = streamHexQuad(base: base, from: end &+ 2),
+        low >= .lowSurrogateFloor, low <= .lowSurrogateCeiling
+      else {
+        return nil
+      }
+      value =
+        .utf8ThreeByteCeiling &+ ((scalar &- .highSurrogateFloor) << 10)
+        &+ (low &- .lowSurrogateFloor)
+      end &+= 6
+    } else if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling {
+      // Lone low surrogate: rejected when validating, passed through when not. Both are the per
+      // byte path's business.
+      return nil
     }
 
-    guard i < to else { return i }
-
-    let byte = base.load(fromByteOffset: i, as: UInt8.self)
-    let byteAt = i
-    i &+= 1
-    if byte == .asciiQuote {
-      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape, at: byteAt)
-      }
-      if isKey {
-        try self.emitBufferedKey(into: &sink, reportAt: byteAt)
-        self.state = .afterKey
-      } else {
-        sink.stringEnd()
-        self.state = .afterValue
-        i = self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
-      }
-    } else if byte == .asciiBackslash {
-      self.state = .escape
-    } else {
-      throw self.error(.unterminatedString, at: byteAt)
-    }
-    return i
+    try self.emitScalar(value, into: &sink, reportAt: from)
+    return end
   }
 
   @inlinable

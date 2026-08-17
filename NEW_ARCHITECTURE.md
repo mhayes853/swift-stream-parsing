@@ -237,6 +237,47 @@ The cost is byte fed feeding, 2–6% across the board, for the same reason the c
 there: a one byte chunk can never contain the bytes being fused, so the test is pure overhead.
 Streaming at realistic chunk sizes gains fully — the 16 KB rows track the bulk rows throughout.
 
+### Escapes decoded in the string run
+
+An escape was the most dispatcher-expensive thing in the format: `\\n` cost two iterations,
+`\\uXXXX` five, and a surrogate pair eleven, all to produce at most four bytes of content. When the
+whole escape is in the chunk, `consumeStringRun` decodes it and keeps scanning.
+`streamHexQuad` takes the four hex digits as one `SIMD4<UInt8>`: fold case with the 0x20 bit that
+digits already carry, test the digit and letter ranges together, select nibbles from whichever
+matched, and weight them by place value in one multiply.
+
+| document | before | after | Δ |
+| --- | ---: | ---: | ---: |
+| twitterescaped | 513 | 724 | **+41.1%** |
+| twitterescaped, unchecked | 547 | 805 | **+47.2%** |
+| unicode escapes (synthetic) | 410 | 1019 | **+148.5%** |
+| gsoc-2018 | 2413 | 2521 | +4.5% |
+| llm_message | 1712 | 1735 | +1.3% |
+| citm_catalog / twitter / canada / github_events | — | — | ±0.4% |
+
+**Corpus aggregate 1259 → 1324 MB/s, +5.1%.**
+
+**Only the simple escapes are inlined, and that split is the whole result.** With the `\\u` decode
+spelled inline next to them, `Fast Escaped string` — `a\\nb\\t` repeated, not one `\\u` in it — lost
+**18.5%**, and every string heavy document 1–5%, while the escape dense documents gained either
+way. Moving `fusedUnicodeEscapeEnd` out of line turned that −18.5% into +2.6% and *increased* the
+wins it was supposed to cost (+41.1% against +39.0% on `twitterescaped`). A `\\u` escape is five
+bytes of work saving five dispatcher iterations, so it can afford a call; `\\n` is one byte and
+cannot.
+
+This is the third time the same rule decided a design, at a third level of the call tree — the
+parse loop for whitespace, `consumeStringRun` for the fusions, and now inside the fusion itself.
+`parse` is 1252 bytes throughout; `consumeStringRun` went 1372 → 1780 and holds only the escapes
+that are cheap enough to belong there.
+
+**Only escapes with no diagnostics attached are fused.** A bad hex digit, a lone surrogate, an
+unrecognised escape character, a pending high surrogate, or an escape running past the chunk all
+return nil and fall back to the per byte states, which commit nothing first. That is what keeps
+error offsets and resumption identical: the fused path never reports anything, so it cannot report
+it in the wrong place. `JSONChunkBoundaryTests` pins `\\u0041`, `\\u00e9`, `\\u20ac`, `\\u0000` and
+surrogate pairs at every split, including the boundaries *inside* a pair, which is where the
+twelve byte fusion hands back to the state machine mid-escape.
+
 ### Discovering whitespace instead of scanning for it
 
 Most JSON on a wire is minified, so the lookahead scan's one compare per structural byte buys

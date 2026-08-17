@@ -38,6 +38,18 @@ struct `JSON chunk boundary tests` {
     #"{"text":"Aé€"}"#,
     #"{"text":"😀"}"#,
     #"{"text":"tab\there and A mixed"}"#,
+    // A `\u` escape is decoded whole when all six of its bytes are in the chunk and byte by byte
+    // when they are not, and a surrogate pair the same at twelve, so both forms have to agree at
+    // every one of those boundaries -- including the two inside the pair.
+    #"{"text":"\u0041"}"#,
+    #"{"text":"\u00e9"}"#,
+    #"{"text":"\u20ac"}"#,
+    #"{"text":"a\u0041b"}"#,
+    #"{"text":"\ud83d\ude00"}"#,
+    #"{"text":"a\ud83d\ude00b"}"#,
+    #"{"text":"\u00e9\u20ac\ud83d\ude00"}"#,
+    #"{"text":"\u0000"}"#,
+    #"{"text":"x\n\u00e9\t\ud83d\ude00\\y"}"#,
   ])
   func `Escapes parse identically at every split`(json: String) throws {
     try expectChunkBoundaryEquivalence(json, as: ChunkText.Partial.self)
