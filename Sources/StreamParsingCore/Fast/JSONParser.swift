@@ -216,6 +216,8 @@ public struct JSONParser: ~Copyable {
   //
   // `checkSink` still runs per byte rather than per run: a sink that rejects a token has to stop
   // the parse at the token it rejected, and where that surfaces is what `ErrorOffsetTests` pins.
+  // `fuseAfterValue` carries the other half of that guarantee, since it can move the cursor
+  // between a rejection and the check that reads it.
   // Out of line by force, with `consumeStructural` folded into it by force: left alone the
   // optimizer did exactly the inverse — it inlined this loop into `parse`, growing the dispatcher
   // from 1284 to 1424 bytes, and still called `consumeStructural` once per byte, which is the call
@@ -350,13 +352,26 @@ public struct JSONParser: ~Copyable {
   //
   // Inlined into the two value-end sites deliberately. Both are already out of line, so the
   // duplication lands in `consumeStringRun` and `consumeNumber` rather than in `parse`.
+  //
+  // A sink that has already failed stops the fusion, which is a correctness requirement rather
+  // than an optimisation. `parse` reads the sink's failure once per token with the cursor as the
+  // offset, so a fusion that ran first moved that cursor past the comma and onto the *next*
+  // token before the rejection surfaced: `[1,2]` with a sink refusing numbers reported byte 3,
+  // the `2`, for a rejection of the `1`. It also delivered the next token's `stringBegin` to a
+  // sink that had already failed. Bailing here leaves the cursor at the token end, which is the
+  // offset the unfused path reports, so where a rejection surfaces no longer depends on whether
+  // the bytes after it happened to be fusable.
+  //
+  // The test is third, after the two register compares, and it reads the same field `checkSink`
+  // reads a few instructions later, so it is a load that was going to happen anyway.
   @inlinable
   @inline(__always)
   mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
   ) -> Int {
     guard self.depth > 0, from < to,
-      base.load(fromByteOffset: from, as: UInt8.self) == .asciiComma
+      base.load(fromByteOffset: from, as: UInt8.self) == .asciiComma,
+      sink.streamFailure == nil
     else {
       return from
     }
@@ -406,9 +421,7 @@ public struct JSONParser: ~Copyable {
       let end = streamStringRunEnd(base: base, from: i, to: to)
 
       if end > i {
-        if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-          throw self.error(.invalidEscape, at: i)
-        }
+        if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: i) }
         if isKey {
           try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
         } else {
@@ -434,9 +447,7 @@ public struct JSONParser: ~Copyable {
       let byteAt = i
       i &+= 1
       if byte == .asciiQuote {
-        if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-          throw self.error(.invalidEscape, at: byteAt)
-        }
+        if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: byteAt) }
         if isKey {
           try self.emitBufferedKey(into: &sink, reportAt: byteAt)
           self.state = .afterKey
@@ -553,9 +564,9 @@ public struct JSONParser: ~Copyable {
       return
     }
     // A high surrogate must be followed immediately by a low surrogate escape. Any other escape
-    // severs the pair, and emitting it first would also reorder the content around the error.
-    if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-      throw self.error(.invalidEscape, at: offset &- 1)
+    // severs the pair, and severing it first is also what keeps the content in order around it.
+    if self.highSurrogate != 0 {
+      try self.severHighSurrogate(into: &sink, reportAt: offset &- 1)
     }
     let decoded: UInt8
     switch byte {
@@ -587,8 +598,8 @@ public struct JSONParser: ~Copyable {
     let scalar = self.unicodeValue
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       // A second high surrogate would silently replace the pending one, leaving the first lone.
-      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape, at: offset &- 1)
+      if self.highSurrogate != 0 {
+        try self.severHighSurrogate(into: &sink, reportAt: offset &- 1)
       }
       self.highSurrogate = scalar
       self.state = self.stateAfterEscape
@@ -607,12 +618,44 @@ public struct JSONParser: ~Copyable {
       try self.emitScalar(combined, into: &sink, reportAt: offset &- 1)
     } else {
       // A pending high surrogate followed by any scalar but a low surrogate is lone.
-      if self.highSurrogate != 0, self.configuration.validatesUTF8 {
-        throw self.error(.invalidEscape, at: offset &- 1)
+      if self.highSurrogate != 0 {
+        try self.severHighSurrogate(into: &sink, reportAt: offset &- 1)
       }
       try self.emitScalar(scalar, into: &sink, reportAt: offset &- 1)
     }
     self.state = self.stateAfterEscape
+  }
+
+  // Settles a high surrogate that turned out to have no low surrogate after it. Every event that
+  // can follow one calls this, and the point is that it *clears* the field on both paths, not
+  // just on the throwing one.
+  //
+  // Leaving it set was a real bug rather than an untidiness. Every check used to read
+  // `highSurrogate != 0, validatesUTF8`, so with validation off nothing ever cleared it: the
+  // pending surrogate survived `stringEnd`, and the next `\uDC00` anywhere later in the document
+  // combined with it. `["\uD83D","\uDE00"]` unchecked emitted an empty first string and put
+  // U+1F600 in the *second* one. It also pinned `fusedEscapeEnd`, which opens with
+  // `highSurrogate == 0`, off for the rest of the parse, so every later escape in the document
+  // fell back to the per byte states.
+  //
+  // Unchecked emits the lone surrogate rather than dropping it, which is not a new decision: the
+  // lone *low* surrogate path below already does exactly that, and the two halves of the same
+  // malformed pair should not disagree about whether they survive.
+  //
+  // Out of line, and tested for at the call sites rather than here. Two of the four callers are
+  // in `consumeStringRun`, once per literal run and once per closing quote, so the common path
+  // has to be a compare against zero and nothing else.
+  @inlinable
+  @inline(never)
+  mutating func severHighSurrogate<Sink: StreamParseSink & ~Copyable>(
+    into sink: inout Sink, reportAt: Int
+  ) throws(JSONParsingError) {
+    guard !self.configuration.validatesUTF8 else {
+      throw self.error(.invalidEscape, at: reportAt)
+    }
+    let pending = self.highSurrogate
+    self.highSurrogate = 0
+    try self.emitScalar(pending, into: &sink, reportAt: reportAt)
   }
 
   @inlinable

@@ -145,4 +145,100 @@ struct `Error offset tests` {
     let error = Self.failure(bytes, splitAt: bytes.count)
     #expect(error == JSONParsingError(reason: .depthExceeded, byteOffset: 64))
   }
+
+  // MARK: - Sink rejections
+
+  // A sink rejection is the one error the parser does not detect itself, so its offset comes
+  // entirely from where the cursor happens to be when `checkSink` reads the failure. That made it
+  // the one error `fuseAfterValue` could move: fusing consumed the comma and the next token's
+  // first byte before the check ran, so a rejected `1` in `[1,2]` reported byte 3.
+  //
+  // Both rows below are values whose successor is fusable — a comma then a value — which is the
+  // only shape where the two paths could ever have disagreed.
+  private static func sinkFailure<S: StreamParseSink>(
+    _ json: String, sink: consuming S, splitAt: Int
+  ) -> JSONParsingError? {
+    var parser = JSONParser()
+    var sink = sink
+    let bytes = Array(json.utf8)
+    do {
+      try bytes.withUnsafeBufferPointer { buffer in
+        let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
+        let second = UnsafeBufferPointer(
+          start: buffer.baseAddress! + splitAt, count: buffer.count - splitAt
+        )
+        if !first.isEmpty { try parser.parse(first, into: &sink) }
+        if !second.isEmpty { try parser.parse(second, into: &sink) }
+      }
+      try parser.finish(into: &sink)
+      return nil
+    } catch let error as JSONParsingError {
+      return error
+    } catch {
+      return nil
+    }
+  }
+
+  @Test(arguments: 0...5)
+  func `Reports a rejected number at its own token, not the next`(splitAt: Int) {
+    let error = Self.sinkFailure("[1,2]", sink: RejectingSink(rejecting: .number), splitAt: splitAt)
+    #expect(error?.reason == .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    #expect(error?.byteOffset == 2, "split at \(splitAt)")
+  }
+
+  @Test(arguments: 0...9)
+  func `Reports a rejected string at its own token, not the next`(splitAt: Int) {
+    let error = Self.sinkFailure(
+      #"["a","b"]"#, sink: RejectingSink(rejecting: .string), splitAt: splitAt
+    )
+    #expect(error?.reason == .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    #expect(error?.byteOffset == 4, "split at \(splitAt)")
+  }
+
+  // The parse has to stop at the rejection, not carry on into the next token's events.
+  @Test
+  func `Delivers no further tokens after a rejection`() {
+    var parser = JSONParser()
+    var sink = RejectingSink(rejecting: .string)
+    let bytes = Array(#"["a","b"]"#.utf8)
+    _ = try? bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    #expect(sink.startedStrings == 1)
+  }
+}
+
+// Fails on the first token of one kind, and records how many string tokens it was told about, so
+// a fusion that ran past a rejection shows up as an event count as well as an offset.
+private struct RejectingSink: StreamParseSink {
+  enum Kind { case number, string }
+
+  let rejecting: Kind
+  var streamFailure: StreamSinkFailure?
+  var startedStrings = 0
+
+  init(rejecting: Kind) {
+    self.rejecting = rejecting
+  }
+
+  private mutating func fail() {
+    if self.streamFailure == nil {
+      self.streamFailure = StreamSinkFailure(reason: .typeMismatch)
+    }
+  }
+
+  mutating func beginObject() {}
+  mutating func endObject() {}
+  mutating func beginArray() {}
+  mutating func endArray() {}
+  mutating func key(_ bytes: Span<UInt8>) {}
+  mutating func keyBegin() {}
+  mutating func keyChunk(_ bytes: Span<UInt8>) {}
+  mutating func keyEnd() {}
+  mutating func stringBegin() { self.startedStrings &+= 1 }
+  mutating func stringChunk(_ bytes: Span<UInt8>) {}
+  mutating func stringEnd() { if self.rejecting == .string { self.fail() } }
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+    if self.rejecting == .number { self.fail() }
+  }
+  mutating func boolean(_ value: Bool) {}
+  mutating func null() {}
 }

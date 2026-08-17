@@ -208,9 +208,38 @@ private func numberBenchmarks() {
   }
 }
 
+// MARK: - Container field entry
+
+// `PartialSink` resolves a container field's destination through `StreamSchema.enterField`, which
+// runs once per container *occurrence* rather than once per type. Every other model in the suite
+// declares its containers on the root, so that call happens once per document and its cost is
+// invisible. `BenchmarkEntryList` declares three of them on a repeated element instead, which is
+// what a real response looks like, and enters container fields 600 times per document.
+//
+// The sink row is the same payload through `FastCountingSink`, which has no schema at all, so the
+// difference between the two is what routing through one costs on this shape.
+private func containerFieldBenchmarks() {
+  Benchmark("Fields per element - bulk discarding", configuration: payloadConfiguration) { b in
+    measurePayloadThroughput(b, payload: Payloads.entryList) {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(Payloads.entryList, as: BenchmarkEntryList.Partial.self)
+        }
+      )
+    }
+  }
+
+  Benchmark("Fields per element - sink only", configuration: payloadConfiguration) { b in
+    measurePayloadThroughput(b, payload: Payloads.entryList) {
+      blackHole(expectParses { try runFastParser(Payloads.entryList, chunk: .max) })
+    }
+  }
+}
+
 func parserShapeBenchmarks() {
   depthBenchmarks()
   schemaWidthBenchmarks()
+  containerFieldBenchmarks()
   bufferCapacityBenchmarks()
   chunkBoundaryBenchmarks()
   numberBenchmarks()

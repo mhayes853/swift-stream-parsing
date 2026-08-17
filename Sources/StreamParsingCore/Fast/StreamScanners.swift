@@ -289,6 +289,51 @@ package func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> I
 
 // MARK: - Key words
 
+// Eight key bytes as one little-endian word. This is the first thing a generated matcher does to
+// every object key in a document, so it is on the hot path of every object heavy parse.
+//
+// It used to be a byte at a time loop, which is what the sixteen bytes of zero padding behind a
+// key span were introduced to make unnecessary: `StreamParsingLayout.keyPaddingByteCount` exists
+// so a matcher can load a whole word without a bounds check, and the one function that had the
+// guarantee did not take it.
+//
+// The wide load is bounded by the span rather than by the padding, deliberately. `paddedWord` is
+// public on `Span<UInt8>`, so it has to be correct on a span that carries no padding at all;
+// reading into the padding would make every caller outside the parser a potential overread for a
+// gain the ladder below already collects.
+//
+// Under eight bytes it is a halving ladder rather than a vector. NEON has no masked load, so a
+// partial vector cannot be read without either overreading or a per lane loop, and the ladder
+// settles any tail in at most three loads and three predictable branches against the loop's seven
+// iterations. Most JSON keys land here — `id`, `text`, `user`, `name` — so the tail is the case
+// worth spelling out, not the fallback.
+@inlinable
+@inline(__always)
+package func streamPaddedWord(base: UnsafeRawPointer, from: Int, to: Int) -> UInt64 {
+  let available = to &- from
+  if available >= 8 {
+    return UInt64(littleEndian: base.loadUnaligned(fromByteOffset: from, as: UInt64.self))
+  }
+  guard available > 0 else { return 0 }
+
+  var word: UInt64 = 0
+  var offset = from
+  if available & 4 != 0 {
+    word = UInt64(UInt32(littleEndian: base.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
+    offset &+= 4
+  }
+  if available & 2 != 0 {
+    let half = UInt64(UInt16(littleEndian: base.loadUnaligned(fromByteOffset: offset, as: UInt16.self)))
+    word |= half << UInt64((offset &- from) &* 8)
+    offset &+= 2
+  }
+  if available & 1 != 0 {
+    let byte = UInt64(base.load(fromByteOffset: offset, as: UInt8.self))
+    word |= byte << UInt64((offset &- from) &* 8)
+  }
+  return word
+}
+
 extension Span where Element == UInt8 {
   // A generated matcher switches on the leading word, then checks the count and any remaining
   // words. The count is load bearing even below eight bytes: JSON keys can contain a decoded NUL,
@@ -302,14 +347,13 @@ extension Span where Element == UInt8 {
   @inlinable
   @inline(__always)
   public func paddedWord(at start: Int) -> UInt64 {
-    var word: UInt64 = 0
-    let end = Swift.min(self.count, start &+ 8)
-    var i = start
-    while i < end {
-      word |= UInt64(self[i]) << ((i &- start) &* 8)
-      i &+= 1
+    self.withUnsafeBufferPointer { buffer in
+      streamPaddedWord(
+        base: UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped),
+        from: start,
+        to: buffer.count
+      )
     }
-    return word
   }
 
   @inlinable

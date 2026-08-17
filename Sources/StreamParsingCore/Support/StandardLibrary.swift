@@ -253,21 +253,29 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
 // and a null still clears it. The payload sits at offset zero, the same assumption the frame
 // entry helpers rely on.
 extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
+  // The wrapped schema is resolved once and captured, not read inside each closure.
+  //
+  // `Wrapped.streamSchema` is a computed property for every scalar and container root — it builds
+  // a fresh `StreamSchema` on each access, since a stored static cannot be declared in a generic
+  // type or a protocol extension. Reading it inside the closures therefore allocated one per
+  // *token* routed through an optional destination, rather than one per schema. Capturing it here
+  // is what makes the delegation cost a call.
   public static var streamSchema: StreamSchema {
-    StreamSchema(
-      shape: Wrapped.streamSchema.shape,
-      matchField: { key in Wrapped.streamSchema.matchField(key) },
+    let wrapped = Wrapped.streamSchema
+    return StreamSchema(
+      shape: wrapped.shape,
+      matchField: { key in wrapped.matchField(key) },
       applyString: { storage, field, bytes in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.applyString(storage, field, bytes)
+        return wrapped.applyString(storage, field, bytes)
       },
       applyNumber: { storage, field, bytes, info in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.applyNumber(storage, field, bytes, info)
+        return wrapped.applyNumber(storage, field, bytes, info)
       },
       applyBoolean: { storage, field, value in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.applyBoolean(storage, field, value)
+        return wrapped.applyBoolean(storage, field, value)
       },
       applyNull: { storage, _ in
         storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
@@ -275,15 +283,15 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       },
       enterField: { storage, field in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.enterField(storage, field)
+        return wrapped.enterField(storage, field)
       },
       appendElement: { storage in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.appendElement(storage)
+        return wrapped.appendElement(storage)
       },
       enterKey: { storage, key in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return Wrapped.streamSchema.enterKey(storage, key)
+        return wrapped.enterKey(storage, key)
       }
     )
   }

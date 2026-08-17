@@ -25,6 +25,10 @@ enum Payloads {
 
   static let counts = Array(Self.makeCounts(count: 100).utf8)
 
+  // Three container fields per element rather than per document. 200 elements, so 600 container
+  // field entries against the 1 that `userList` and `wideRows` each make.
+  static let entryList = Array(Self.makeEntryList(count: 200).utf8)
+
   // Literals are 3.4% of `twitter`'s bytes and under 0.6% of every other real document's, so no
   // corpus payload can resolve a change to the literal path. This one is 62% literal bytes: a
   // feature-flag object, which is the shape that actually is.
@@ -173,6 +177,18 @@ enum Payloads {
       }
       .joined(separator: ",")
     return "{\"rows\":[\(rows)]}"
+  }
+
+  private static func makeEntryList(count: Int) -> String {
+    let entries = (0..<count)
+      .map { index in
+        """
+        {"id":\(index),"entities":{"hashtags":["tag\(index)","swift"],\
+        "mentions":[\(index),\(index &+ 1)],"sizes":{"small":\(index),"large":\(index &* 2)}}}
+        """
+      }
+      .joined(separator: ",")
+    return "{\"entries\":[\(entries)]}"
   }
 
   private static func makeCounts(count: Int, keyPrefix: String = Payloads.shortKeyPrefix) -> String {

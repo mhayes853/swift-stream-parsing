@@ -234,4 +234,44 @@ struct `Key word tests` {
     #expect(Self.word("descriptionLong") == Self.word("descriptionShort"))
     #expect(Self.word("descriptionLong") == Self.word("descript"))
   }
+
+  // The wide load and the halving ladder that replaced the byte loop have to agree with it at
+  // every length and every offset, including the ones the ladder reaches by a different route:
+  // 4+2+1 for seven bytes, 4+1 for five, 2+1 for three. Checked against the byte loop itself
+  // rather than against literals, so the property under test is "same answer, fewer loads".
+  private static func referenceWord(_ bytes: [UInt8], at start: Int) -> UInt64 {
+    var word: UInt64 = 0
+    var i = start
+    while i < Swift.min(bytes.count, start &+ 8) {
+      word |= UInt64(bytes[i]) << ((i &- start) &* 8)
+      i &+= 1
+    }
+    return word
+  }
+
+  @Test
+  func `Padded words agree with the byte loop at every length and offset`() {
+    for count in 0...24 {
+      // Distinct, non-zero, and not ascending, so a swapped byte or a wrong shift shows up.
+      let bytes = (0..<count).map { UInt8(truncatingIfNeeded: ($0 &* 37) ^ 0xA5 | 1) }
+      for start in 0...count {
+        let actual = bytes.withUnsafeBufferPointer {
+          Span(_unsafeElements: $0).paddedWord(at: start)
+        }
+        #expect(actual == Self.referenceWord(bytes, at: start), "count \(count), start \(start)")
+      }
+    }
+  }
+
+  // A span with no padding behind it must still be read within its own bounds. This is the case
+  // that stops the wide load from being taken unconditionally, so it is worth its own row: the
+  // last byte of the array is the last byte of the span.
+  @Test
+  func `Reads only within an unpadded span`() {
+    var bytes: [UInt8] = [0x61, 0x62, 0x63]
+    let word = bytes.withUnsafeMutableBufferPointer {
+      Span(_unsafeElements: UnsafeBufferPointer($0)).paddedLeadingWord()
+    }
+    #expect(word == 0x0000_0000_0063_6261)
+  }
 }

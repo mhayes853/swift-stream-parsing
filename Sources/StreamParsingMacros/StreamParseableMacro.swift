@@ -243,6 +243,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     var applyBoolean = [String]()
     var applyNull = [String]()
     var enter = [String]()
+    // One stored schema per container field. See `containerSchemaConstants`.
+    var containerSchemas = [String]()
   }
 
   private static func fieldShape(for type: TypeSyntax) -> FieldShape {
@@ -271,6 +273,14 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         "_streamDictionarySchema(\(value).Partial.self, value: \(Self.schemaExpression(for: dictionary.value)))"
     }
     return "_streamSchema(for: \(unwrapped.trimmedDescription).Partial.self)"
+  }
+
+  // A container field's schema, stored once per type rather than built once per container. These
+  // are `private` because nothing outside `streamEnterField` reads them, and they are emitted
+  // even when the type has no container fields costs nothing, since the list is empty then.
+  private static func containerSchemaConstants(_ constants: [String]) -> String {
+    guard !constants.isEmpty else { return "" }
+    return constants.joined(separator: "\n  ") + "\n\n  "
   }
 
   private static func fieldConstants(for properties: [StoredProperty]) -> String {
@@ -311,24 +321,20 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
           "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
         )
         cases.enter.append("    case \(field): return _streamEnterField(&\(target))")
-      case .array(let element):
-        let elementSchema = Self.schemaExpression(
-          for: TypeSyntax(stringLiteral: element)
+      case .array, .dictionary:
+        // Stored, not rebuilt. `StreamSchema` is a class and `enterField` runs once per container
+        // *occurrence*, so building the field's schema here spent an allocation — two, counting
+        // the element's — on every `[` and `{` that reached this field. A model whose containers
+        // sit on the root hides that, because it enters them once per document; one whose
+        // containers sit on a repeated element does not. `Fields per element` measures it.
+        let constant = "streamContainerSchema_\(property.name)"
+        cases.containerSchemas.append(
+          "private static let \(constant) = \(Self.schemaExpression(for: property.type))"
         )
         cases.enter.append(
           """
               case \(field):
-                return _streamEnterArrayField(&\(target), element: \(elementSchema))
-          """
-        )
-      case .dictionary(let value):
-        let valueSchema = Self.schemaExpression(
-          for: TypeSyntax(stringLiteral: value)
-        )
-        cases.enter.append(
-          """
-              case \(field):
-                return _streamEnterDictionaryField(&\(target), value: \(valueSchema))
+                return _streamEnterContainerField(&\(target), schema: Self.\(constant))
           """
         )
       }
@@ -353,7 +359,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     }
 
     return """
-      \(Self.fieldConstants(for: active))\(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+      \(Self.fieldConstants(for: active))\(Self.containerSchemaConstants(cases.containerSchemas))\(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
           switch key.paddedLeadingWord() {
       \(switchBody(cases.match))    default: return -1
           }

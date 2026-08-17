@@ -2031,3 +2031,189 @@ the natural reading and it is wrong in the direction that matters.
 
 The suite is 201 benchmarks now, against 305 — a third the size, covering five axes it did not
 touch before and one dataset family it had only the friendliest member of.
+
+---
+
+## Review round: state that outlived its token, an offset a fusion moved, and a schema per `[`
+
+A read through the whole of `Fast/` looking for correctness, with the performance cost of each fix
+measured rather than argued. Four findings, all confirmed against the built library before
+anything was changed, and all four fixed here. The measurements below are one session's; a
+pristine control was run in the same session wherever a number was close, since the machine drifts
+about 25% between sessions.
+
+### A lone high surrogate outlived its own string
+
+Every check on the pending high surrogate read `highSurrogate != 0, validatesUTF8`. With
+validation off the second condition was false, so *nothing cleared the field* — the throw was the
+only thing that had ever reset it. The half pair survived `stringEnd` and paired with a low
+surrogate in a later token:
+
+```
+["\uD83D","\uDE00"]  unchecked
+  →  stringBegin, stringEnd,               // first string: empty
+     stringBegin, chunk F0 9F 98 80, stringEnd   // U+1F600, in the *second* string
+```
+
+Two separate string tokens, and the emoji belongs to neither. It also pinned the fused escape path
+off for the rest of the document, since `fusedEscapeEnd` opens with `highSurrogate == 0`, so every
+later escape fell back to the per byte states.
+
+`severHighSurrogate` now settles it at all four sites that can follow a high surrogate, and clears
+the field on both paths rather than only on the throwing one. Unchecked emits the lone surrogate
+as WTF-8, which is not a new decision: the lone *low* surrogate path already did exactly that, and
+the two halves of one broken pair should not disagree about whether they survive.
+
+Out of line, with the `!= 0` test left at the call sites, because two of the four are in
+`consumeStringRun` — once per literal run and once per closing quote — and the common path has to
+stay one compare against zero. Measured no regression anywhere and a little better on the
+documents that carry escapes at all: unicode escapes -2.0%, LLM message -3.7%, twitterescaped and
+`Fast Escaped string` flat. The old condition loaded `validatesUTF8` on that path and the new one
+does not, which is the likeliest source of the difference.
+
+### A sink rejection reported the wrong byte, and got one more token after it
+
+`parse` reads the sink's failure once per token with the cursor as the offset. `fuseAfterValue`
+runs *before* that read and moves the cursor past the comma and onto the next token, so:
+
+| document | sink rejects | reported | should be |
+|:---------|:-------------|---------:|----------:|
+| `[1,2]`  | `number`     |        3 |         2 |
+| `["a","b"]` | `stringEnd` |       6 |         4 |
+
+Byte 3 is the `2` — a different value from the one that was refused. The string case also
+delivered `stringBegin` for `"b"` to a sink that had already failed. Nothing pinned this:
+`ErrorOffsetTests` had no sink rejection case at all, and `PartialSinkFailureTests` checked the
+reason without the offset.
+
+The fusion now bails when the sink has already failed, which leaves the cursor at the token end —
+the same offset the unfused path reports. That is the point: where a rejection surfaces no longer
+depends on whether the bytes after it happened to be fusable, which is the same guarantee the rest
+of `ErrorOffsetTests` exists for. Both new rows are checked at every split position.
+
+The test is third in the guard, after the two register compares, and reads the field `checkSink`
+reads a few instructions later. Cost, against a rerun of the same build to separate it from noise:
+
+| payload | before | after | run to run spread |
+|:--------|-------:|------:|------------------:|
+| Canada | 848 MB/s | 842 | 0.2% |
+| Nested arrays | 353 | 349 | 0.0% |
+| Array of structs | 553 | 545 | 0.4% |
+| GSoC 2018 | 2523 | 2493 | 1.0% |
+| CITM catalog | 1476 | 1478 | — |
+
+Under 1% and mostly inside the spread, including on `canada`, which is the payload that punished
+the last test added at this site by -3.8%. This one is on the far side of the comma compare, so
+the commas that fuse nothing never reach it.
+
+### A `StreamSchema` per `[`, and the benchmark that could not see it
+
+`StreamSchema` is a class, and `enterField` runs once per container *occurrence*. The macro emitted
+the field's schema as an argument expression:
+
+```swift
+case StreamField.hashtags:
+  return _streamEnterArrayField(&p.pointee.hashtags, element: _streamSchema(for: String.Partial.self))
+```
+
+so every `[` reaching that field allocated the element schema and then the array schema — two
+class instances and a closure context, measured at 17.5 and 18.1 ns, against the 12.6-23.4 ns this
+document budgets for a whole *number*. `Int.streamSchema === Int.streamSchema` is `false`, and so
+is `StreamArray<Int>.streamSchema === StreamArray<Int>.streamSchema`: those are computed
+properties, because a stored static cannot be declared in a generic type or a protocol extension.
+Only the macro's own `static let streamSchema` was ever shared.
+
+**No benchmark in the suite could see this**, which is the part worth keeping. Every model here
+declared its containers on the *root* — `statuses`, `rows`, `content`, `values` — so `enterField`
+ran once per document and the cost rounded to nothing. Real responses do not look like that;
+twitter's `entities` carries three container fields inside each of a hundred statuses.
+`Fields per element` is that shape, 200 elements with three container fields each, and it is a
+prerequisite for the fix rather than a decoration on it.
+
+The macro now hoists each container field's schema to a `private static let` on the generated
+`Partial` and passes it to `_streamEnterContainerField`, which takes a finished schema instead of
+an element's. The `element:` pair it replaces is gone.
+
+| | before | after | |
+|:---|---:|---:|---:|
+| Fields per element — malloc | 2,017 | 816 | **-59.5%** |
+| Fields per element — wall p50 | 631 µs | 509 µs | **-19.3%** |
+| Fields per element — throughput | 33 MB/s | 41 MB/s | **+24%** |
+| Schema 48 members — malloc | 17 | 16 | -1 (the one root array) |
+| Twitter matched keys — malloc | 293 | 292 | -1 (ditto) |
+
+The residual 816 is container storage — a `StreamArray` tail and a `StreamDictionary`'s two
+buffers per element — not schemas. And the one-allocation drop on every root-container model is
+the arithmetic confirming why the old suite was blind to it.
+
+`Optional.streamSchema` was the same defect in a worse place: its closures called
+`Wrapped.streamSchema` *inside* each apply, so a scalar behind an optional destination allocated a
+schema per **token**. It resolves the wrapped schema once and captures it now.
+
+What is not fixed: the computed `streamSchema` on scalar roots, `StreamArray` and
+`StreamDictionary` still builds per access. Generic static stored properties are rejected outright
+by the compiler, so there is nowhere to put the cache that does not cost a lock, and a lock in the
+core is worse than the allocation for an embedded target. After the hoist those accessors are
+reached once per `Partial` type and once per parse for a root, not per container, so the remaining
+exposure is the aliased-container spelling that routes through `StreamContainerPartial`.
+
+### `paddedWord` had the padding and did not take it
+
+`StreamParsingLayout.keyPaddingByteCount` — sixteen zeroed bytes behind every key span — exists so
+a generated matcher can load a whole word without a bounds check. `paddedWord`, the one function
+with that guarantee and the first thing a matcher does to every key in a document, was a byte at a
+time loop.
+
+It is a bounded wide load now: one 8-byte load when the span has eight bytes left, and a 4/2/1
+halving ladder for the tail. Bounded by the *span* rather than by the padding, deliberately —
+`paddedWord` is public on `Span<UInt8>`, so it has to be correct on a span that carries no padding,
+and reading into the padding would make every caller outside the parser an overread for a gain the
+ladder already collects. No vector below eight bytes: NEON has no masked load, so a partial vector
+cannot be read without overreading or a per lane loop, and most JSON keys are short — `id`, `text`,
+`user`, `name` — so the tail is the case worth spelling out rather than the fallback.
+
+The function itself, timed against the loop it replaced over a realistic key mix in one binary:
+**6.35 ns → 0.98 ns per key, -84.6%.** At document level, through the raw sink that calls it on
+every key:
+
+| payload | before | after |
+|:--------|-------:|------:|
+| CITM catalog | 1476 MB/s | 1498 |
+| Twitter | 945 | 957 |
+| GSoC 2018 | 2493 | 2511 |
+| Array of structs | 545 | 551 |
+
++0.7% to +3.3%, and about the same through the partials path. `Schema 48 members` cannot resolve
+it: those rows are ~80 µs with wall clock quantized to 1 µs, so their own noise floor is 1.25% and
+they moved ±2.6% in both directions across runs of the same build.
+
+### A note on reading these numbers
+
+`Real GSoC 2018` showed -3.8% in the combined after run and reproduced on a recheck, which looked
+like a regression until it was isolated. Run alone against a stashed pristine control in the same
+session it is equal or faster at every percentile — p0 2591/2592, p50 2501/2513 — and run inside
+the seventeen benchmark batch it drops to 2427. It is the largest payload in the suite at 3.2 MB,
+so it is the one most sensitive to the cache and thermal state the preceding benchmarks leave
+behind. Batch position is a variable here, and a number from a filtered run is not comparable to
+one from a batch containing it.
+
+### Also found, not fixed
+
+- `PartialSink.keyChunk` routes each fragment through `key(_:)`, so a multi-chunk key would keep
+  only the last fragment's match and, for a dictionary, create an entry per fragment. Unreachable:
+  `emitBufferedKey` always emits a key whole. But `keyBegin`/`keyChunk`/`keyEnd` are protocol
+  requirements the parser advertises and `PartialSink` cannot honour, so one of the two should go.
+  `PartialSink.string(_:)` is the same shape — it resolves a fresh target, which on an array
+  destination is a second `appendElement`.
+- `JSONParser.init(buffer:)` has no minimum size check. The allocating initializer floors capacity
+  at 64 and `BufferCapacityTests` pins that; the caller supplied one takes anything, and
+  `escapeScratchOffset` at `count - 4` and the pending UTF-8 hold at `count - 8` are outside a
+  buffer under sixteen bytes. `appendToBuffer`'s guard covers the key and number region only.
+- `resolveScalarTarget` does not clear `pendingDictionaryFrame` where `valueTarget` does, so the
+  frame outlives the value and its storage pointer is invalidated by the next `_openValue`. Latent
+  — every value is preceded by a key that overwrites it — but it is the one place the "an element
+  pointer stays valid for that element's lifetime" invariant is not enforced by construction.
+- A raw control byte inside a string reports `.unterminatedString`, because that is the only
+  remaining `else` in `consumeStringRun`. Reasons are coarse by decision; this one is misleading.
+- `finish()` emits a buffered number before it checks depth, so `[1` delivers `number(1)` and then
+  throws `unterminatedContainer`.

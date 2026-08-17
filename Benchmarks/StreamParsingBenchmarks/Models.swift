@@ -89,6 +89,34 @@ struct BenchmarkWideRows: Equatable {
   var rows: [BenchmarkWide] = []
 }
 
+// MARK: - Repeated container fields
+
+// Container fields inside a repeated element, which no other model here has: every one of them
+// declares its arrays and dictionaries on the root, so `enterField` runs for them once per
+// document. Real responses do not look like that — twitter's `entities.hashtags`, `urls` and
+// `user_mentions` are three container fields inside each of a hundred statuses — and `enterField`
+// runs once per container *occurrence*, so that shape enters container fields hundreds of times
+// where these models enter them once. Both element kinds are present because an array of a
+// macro generated type resolves its element schema differently from an array of a scalar.
+
+@StreamParseable
+struct BenchmarkEntities: Equatable {
+  var hashtags: [String] = []
+  var mentions: [Int] = []
+  var sizes: [String: Int] = [:]
+}
+
+@StreamParseable
+struct BenchmarkEntry: Equatable {
+  var id: Int = 0
+  var entities: BenchmarkEntities = BenchmarkEntities()
+}
+
+@StreamParseable
+struct BenchmarkEntryList: Equatable {
+  var entries: [BenchmarkEntry] = []
+}
+
 // MARK: - Numbers
 
 @StreamParseable

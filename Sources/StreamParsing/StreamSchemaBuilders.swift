@@ -85,46 +85,26 @@ public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {
   nil
 }
 
+// Takes the field's finished schema rather than its element's, so the schema can be a stored
+// static on the generated `Partial` and the entry is a materialize and a frame.
+//
+// These replaced a pair that took `element:` and built `_streamArraySchema` on every call.
+// `enterField` runs once per container occurrence, so that was an allocation per `[` — two with
+// the element schema — for a value the type could only ever have one of.
 @inlinable
-public func _streamEnterArrayField<Element: StreamInitializable>(
-  _ value: inout StreamArray<Element>?,
-  element: StreamSchema
+public func _streamEnterContainerField<T: StreamInitializable>(
+  _ value: inout T?,
+  schema: StreamSchema
 ) -> StreamFrame? {
-  _streamEnterOptionalContainer(
-    &value,
-    initial: StreamArray<Element>(),
-    schema: _streamArraySchema(Element.self, element: element)
-  )
+  _streamEnterOptionalContainer(&value, initial: T.streamInitialValue(), schema: schema)
 }
 
 @inlinable
-public func _streamEnterArrayField<Element: StreamInitializable>(
-  _ value: inout StreamArray<Element>,
-  element: StreamSchema
+public func _streamEnterContainerField<T>(
+  _ value: inout T,
+  schema: StreamSchema
 ) -> StreamFrame? {
-  _streamEnterContainer(&value, schema: _streamArraySchema(Element.self, element: element))
-}
-
-@inlinable
-public func _streamEnterDictionaryField<Value: StreamInitializable>(
-  _ value: inout StreamDictionary<Value>,
-  value valueSchema: StreamSchema
-) -> StreamFrame? {
-  _streamEnterContainer(
-    &value, schema: _streamDictionarySchema(Value.self, value: valueSchema)
-  )
-}
-
-@inlinable
-public func _streamEnterDictionaryField<Value: StreamInitializable>(
-  _ value: inout StreamDictionary<Value>?,
-  value valueSchema: StreamSchema
-) -> StreamFrame? {
-  _streamEnterOptionalContainer(
-    &value,
-    initial: StreamDictionary<Value>(),
-    schema: _streamDictionarySchema(Value.self, value: valueSchema)
-  )
+  _streamEnterContainer(&value, schema: schema)
 }
 
 // MARK: - Optional aware scalar application

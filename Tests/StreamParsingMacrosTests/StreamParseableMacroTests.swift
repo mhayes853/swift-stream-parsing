@@ -3513,6 +3513,9 @@ extension BaseTestSuite {
               static let index: Int32 = 1
             }
 
+            private static let streamContainerSchema_items = _streamArraySchema(Item.Partial.self, element: _streamSchema(for: Item.Partial.self))
+            private static let streamContainerSchema_index = _streamDictionarySchema(Item.Partial.self, value: _streamSchema(for: Item.Partial.self))
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0073_6D65_7469 where key.count == 5:
@@ -3568,9 +3571,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.items:
-                return _streamEnterArrayField(&p.pointee.items, element: _streamSchema(for: Item.Partial.self))
+                return _streamEnterContainerField(&p.pointee.items, schema: Self.streamContainerSchema_items)
               case Self.StreamField.index:
-                return _streamEnterDictionaryField(&p.pointee.index, value: _streamSchema(for: Item.Partial.self))
+                return _streamEnterContainerField(&p.pointee.index, schema: Self.streamContainerSchema_index)
               default:
                 return nil
               }
