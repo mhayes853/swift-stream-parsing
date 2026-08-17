@@ -120,6 +120,59 @@ byte, which cost `twitter` byte by byte 20%.
 A scalar loop behind the same early-out was also measured and lost 2–5% *everywhere*, including
 rows it cannot touch — the early-out only pays when the run scan behind it is the vector one.
 
+### The parse loop is a dispatcher, and a structural byte costs a call
+
+Read the release binary before designing anything here. For `FastCountingSink`, `parse` is **1284
+bytes, 322 instructions, 18 calls and no SIMD at all**: it is a thin dispatcher, and every token
+class — `consumeStructural` (1044 B), `consumeStringRun` (1204 B), `consumeNumber` (928 B),
+`consumeUnicodeDigit` (356 B) — is a separate function it calls out to. Only `streamWhitespaceEnd`
+(68 B) is small enough to be inlined into it.
+
+So **a structural byte's cost is a call, a return and a re-entry into the dispatch switch**, not
+the byte's own work. That reframes the whole loop: structural bytes are 20–25% of token dense
+JSON and they arrive in runs — `},{"`, `":`, `,"`, `[[` — and each byte of a run was paying that
+round trip. `consumeStructuralRun` keeps the loop while the state stays structural, so a run costs
+one call. `State`'s cases are ordered with the seven structural ones first so the loop's exit test
+is one unsigned compare.
+
+**The `@inline` attributes on it are load bearing, not tuning.** Left to choose, the optimizer did
+the exact inverse of the design on both axes:
+
+| | HEAD | unforced | forced |
+| --- | ---: | ---: | ---: |
+| `parse` | 1284 | 1424 | **1252** |
+| `consumeStructural` | 1044 | 1064 | **0** |
+| `consumeStructuralRun` | – | 0 | **1240** |
+
+It inlined the *run loop* into `parse`, growing the dispatcher, and still called
+`consumeStructural` once per byte — the call the run exists to delete. `@inline(never)` on the run
+and `@inline(__always)` on `consumeStructural` produce the intended shape: the run is one
+self-contained function, and `parse` ends up smaller than it started. Benchmarking the unforced
+build would have shown the idea failing on its own merits when it had simply not been built.
+
+Measured with a control either side of the candidate (controls agreed within 1–8%, all drift in
+one direction, so each row is quoted as the range against both):
+
+| document | before | after | Δ |
+| --- | ---: | ---: | ---: |
+| citm_catalog | 1211 | 1425 | +16 to +20% |
+| canada | 679 | 776 | +14 to +15% |
+| twitter | 808 | 911 | +10 to +16% |
+| github_events | 962 | 1073 | +11 to +13% |
+| gsoc-2018 | 2134 | 2187 | +2 to +4% |
+| twitterescaped | 473 | 501 | +3 to +10% |
+| llm_message | 1640 | 1646 | ±1% |
+
+**Corpus aggregate 1071 → 1181 MB/s, +10.2%.** `canada` is the result worth noting: 0% whitespace
+and almost nothing but `[`, `,` and numbers, so it is nearly pure structural runs and gains 15%
+from a change that touches no scanning at all. `llm_message` is flat because it is one long string
+value — it has almost no structural runs to coalesce.
+
+The cost lands where the run cannot form: fed one byte at a time a run is always length one, so
+the loop is pure overhead, and `Fast Pretty printed users` and `Fast Unicode escaped string` lose
+7–8% byte by byte. The real corpus byte-fed rows gain anyway (`llm_message` +8%, `twitterescaped`
++4%), so this was kept.
+
 ### Discovering whitespace instead of scanning for it
 
 Most JSON on a wire is minified, so the lookahead scan's one compare per structural byte buys

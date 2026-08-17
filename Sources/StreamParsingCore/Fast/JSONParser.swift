@@ -53,10 +53,17 @@ public struct JSONParsingError: Error, Hashable, Sendable {
 // MARK: - JSONParser
 
 public struct JSONParser: ~Copyable {
+  // The structural states are declared first, and `done` is grouped with them rather than left at
+  // the end, so "is this still a structural state" is one unsigned compare. `consumeStructuralRun`
+  // asks it once per byte, which is the only reason the order matters; nothing depends on the
+  // numeric values otherwise.
   @usableFromInline
   enum State: UInt8 {
-    case value, firstValue, afterValue, key, firstKey, afterKey, inString, inKey, escape
-    case unicode, number, literal, done
+    case value, firstValue, afterValue, key, firstKey, afterKey, done
+    case inString, inKey, escape, unicode, number, literal
+
+    @inlinable
+    var isStructural: Bool { self.rawValue <= State.done.rawValue }
   }
 
   // 1 = object, 0 = array. Depth beyond `maximumDepth` is rejected rather than spilled, which
@@ -149,11 +156,7 @@ public struct JSONParser: ~Copyable {
     while i < n {
       switch self.state {
       case .value, .firstValue, .afterValue, .key, .firstKey, .afterKey, .done:
-        i = streamWhitespaceEnd(base: base, from: i, to: n)
-        if i == n { break }
-        let byte = base.load(fromByteOffset: i, as: UInt8.self)
-        i &+= 1
-        if try self.consumeStructural(byte, at: i, into: &sink) { i &-= 1 }
+        i = try self.consumeStructuralRun(base: base, from: i, to: n, into: &sink)
 
       case .inString, .inKey:
         i = try self.consumeStringRun(base: base, from: i, to: n, into: &sink)
@@ -204,7 +207,47 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Structural
 
+  // Structural bytes arrive in runs — `},{"`, `":`, `,"`, `[[` — and `parse` is a dispatcher that
+  // calls out once per token, so each byte of such a run used to cost a call, a return and a
+  // re-entry into the dispatch switch. Measured on the release build, `parse` is 1284 bytes with
+  // the handlers all out of line, so that round trip, not the byte's own work, is what a
+  // structural byte costs. The loop stays here while the state stays structural, which turns a run
+  // into one call.
+  //
+  // `checkSink` still runs per byte rather than per run: a sink that rejects a token has to stop
+  // the parse at the token it rejected, and where that surfaces is what `ErrorOffsetTests` pins.
+  // Out of line by force, with `consumeStructural` folded into it by force: left alone the
+  // optimizer did exactly the inverse — it inlined this loop into `parse`, growing the dispatcher
+  // from 1284 to 1424 bytes, and still called `consumeStructural` once per byte, which is the call
+  // this exists to delete. `parse` stays a thin dispatcher and the run owns its own registers.
   @inlinable
+  @inline(never)
+  mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) -> Int {
+    var i = from
+    while i < to {
+      i = streamWhitespaceEnd(base: base, from: i, to: to)
+      if i == to { break }
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      i &+= 1
+      // A number is the one token whose first byte belongs to the token itself, so the run ends
+      // and the byte is handed back for `.number` to re-read.
+      if try self.consumeStructural(byte, at: i, into: &sink) {
+        i &-= 1
+        break
+      }
+      try self.checkSink(&sink, at: i)
+      if !self.state.isStructural { break }
+    }
+    return i
+  }
+
+  @inlinable
+  @inline(__always)
   mutating func consumeStructural<Sink: StreamParseSink & ~Copyable>(
     _ byte: UInt8,
     at offset: Int,
