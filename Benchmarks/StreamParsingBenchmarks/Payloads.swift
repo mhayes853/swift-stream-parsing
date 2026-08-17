@@ -25,6 +25,11 @@ enum Payloads {
 
   static let counts = Array(Self.makeCounts(count: 100).utf8)
 
+  // Literals are 3.4% of `twitter`'s bytes and under 0.6% of every other real document's, so no
+  // corpus payload can resolve a change to the literal path. This one is 62% literal bytes: a
+  // feature-flag object, which is the shape that actually is.
+  static let literals = Array(Self.makeLiterals(count: 600).utf8)
+
   static let countsByKeyCount = Dictionary(
     uniqueKeysWithValues: Self.keyCounts.map { ($0, Array(Self.makeCounts(count: $0).utf8)) }
   )
@@ -175,6 +180,14 @@ enum Payloads {
       .map { "\"\(keyPrefix)\($0)\":\($0)" }
       .joined(separator: ",")
     return "{\"counts\":{\(entries)}}"
+  }
+
+  private static func makeLiterals(count: Int) -> String {
+    let values = ["true", "false", "null"]
+    let entries = (0..<count)
+      .map { "\"f\($0)\":\(values[$0 % values.count])" }
+      .joined(separator: ",")
+    return "{\(entries)}"
   }
 
   private static func makeRepeatedLongKeyDocument(count: Int) -> String {

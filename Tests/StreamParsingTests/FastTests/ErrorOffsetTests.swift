@@ -55,7 +55,19 @@ struct `Error offset tests` {
   @Test(arguments: [
     "[1, x]",
     #"{"a":}"#,
+    // Every position of every literal, because a literal is the one token whose comparison a
+    // whole-token fast path would change: it is a fixed word, and the offset a mismatch reports
+    // has to keep naming the byte that differs rather than the token's start.
+    "[txue]",
+    "[trxe]",
     "[trux]",
+    "[fxlse]",
+    "[faxse]",
+    "[falxe]",
+    "[falsx]",
+    "[nxll]",
+    "[nuxl]",
+    "[nulx]",
     "[--1]",
     "[1e--2]",
     "[1.2.3]",

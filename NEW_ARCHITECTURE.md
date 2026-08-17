@@ -74,6 +74,120 @@ to two operations plus a recombine.
 bitmap 1611, SIMD16 bitmap 2824. Structurals are 20–25% of token dense JSON, so the bitmap is
 dense and iterating set bits costs more than testing bytes.
 
+### Whitespace: one compare in front of the run scan
+
+Whitespace was the last class still scanned a byte at a time, at four compares each, and it runs
+before *every* structural byte. How much there is to find is a property of the document, not of
+JSON. Counting runs outside strings:
+
+| document | whitespace | runs | 1 byte | ≥ 16 bytes |
+| --- | ---: | ---: | ---: | ---: |
+| canada | 0% | 0 | – | – |
+| llm_message | 17% | 0 | – | – |
+| github_events | 19% | 2526 | 45% | 0% |
+| gsoc-2018 | 19% | 41713 | 45% | 0% |
+| twitter | 26% | 28826 | 46% | 2% |
+| citm_catalog | 71% | 76337 | 34% | 59% |
+
+`llm_message` is the instructive one: 17% whitespace, none of it where this scan can see it. It is
+all inside string values, so the scan's job there is to leave, 100% of the time.
+
+So the shipped form is **one compare, then out of line**: every whitespace byte is ≤ 0x20 and
+every byte that may legally follow one is > 0x20, which settles the empty case without touching a
+vector, and only what survives is scanned SIMD16 like every other class.
+
+**What the inlined body costs is the whole design constraint here, and it is not the scan.** This
+is `@inline(__always)` into the parse loop, so anything spelled in it is paid in that loop's
+register pressure by every document — including ones the code never runs on. Three variants, p50
+MB/s change against the pristine control:
+
+| variant | citm | twitter | twitterescaped | unicode escapes |
+| --- | ---: | ---: | ---: | ---: |
+| vector body inlined | +22% | +7% | −18% | −35% |
+| one byte run peeled inline | +20% | +8% | −18% | −34% |
+| **shipped: one compare, then out of line** | **+21%** | **+7%** | **−1%** | **−2%** |
+
+`twitterescaped` is 0.5% whitespace and `unicode escapes` has none. Both lose 18–35% to code that
+never executes on them, and both recover the moment it moves out of line. The peel was an attempt
+to buy back the one byte run — 45% of runs everywhere — and it re-triggered the cliff for a 1–3%
+gain on `github_events`, so it was dropped. The single compare and the vector body are the two
+things worth inlining and out-lining respectively; there is no third thing to add.
+
+The width test guarding the vector call is not a tail guard. Fed one byte at a time `to - from`
+is 1 at every call, and routing that through the vector body splats four constants to scan one
+byte, which cost `twitter` byte by byte 20%.
+
+A scalar loop behind the same early-out was also measured and lost 2–5% *everywhere*, including
+rows it cannot touch — the early-out only pays when the run scan behind it is the vector one.
+
+### Discovering whitespace instead of scanning for it
+
+Most JSON on a wire is minified, so the lookahead scan's one compare per structural byte buys
+nothing on `canada` or `llm_message`. The obvious fix is to stop looking ahead: every state's byte
+switch already has an arm for bytes it does not recognise — it is where `unexpectedToken` is
+thrown from — and a whitespace byte is exactly such a byte. Let it fall in there, consume the run
+whole, and a minified document pays *literally zero*, not even a compare. No flag, no prediction,
+no warmup, self-adapting by construction.
+
+It was built and it is 10–18% slower nearly everywhere:
+
+| document | lookahead scan | discovered in dispatch |
+| --- | ---: | ---: |
+| citm_catalog | 1214 | 1015 (−17%) |
+| twitter | 818 | 681 (−17%) |
+| twitterescaped | 476 | 395 (−17%) |
+| github_events | 962 | 848 (−12%) |
+| gsoc-2018 | 2120 | 1898 (−10%) |
+| canada | 676 | 660 (−2%) |
+| llm_message | 1594 | 1633 (+2%) |
+| unicode escapes | 393 | 269 (−32%) |
+
+**`canada` is the whole argument.** It has zero whitespace, so "pays literally zero" was
+arithmetically true for it — and it still lost 2%. The saving was real and irrelevant, because the
+reasoning was about the wrong resource.
+
+There is one whitespace test in the lookahead design and there are *five* in this one: `.value`,
+`.afterValue`, `.key`, `.afterKey` and `.done` each reject unrecognised bytes separately, so each
+needs its own copy. `consumeStructural` is `@inlinable` and inlines into the parse loop, so the
+change removed one compare from the loop body and added five, plus a three-case enum return.
+The loop got bigger, and by now the pattern is unmistakable: `twitterescaped` −17% and unicode
+escapes −32% are the same two documents, with the same two numbers, that rejected the inlined
+vector body and the inlined one-byte peel above. Whitespace is ~0% of both. They are not measuring
+whitespace handling at all, they are measuring how much code is in the loop.
+
+**One compare in one place beats zero compares in five places.** The parse loop is register bound,
+not work bound, and any restructuring that pays for a saving with duplicated code in that loop
+will lose no matter how sound the saving looks in isolation. `llm_message` gaining 2% is the only
+thing that went as predicted, and it is the one document whose whitespace is entirely inside
+string values, so the loop never grew for it in the first place.
+
+Kept from the attempt: `JSONConformanceTests` now pins whitespace in every legal position for each
+of the four whitespace bytes, that the control bytes below 0x20 which are *not* whitespace are
+still rejected in each of those positions, and that a whitespace-only document is rejected.
+Trailing whitespace is the one worth keeping a test on — it is the only thing `.done` ever
+legally sees, and a design that stops scanning ahead has to teach that arm the difference.
+
+### Literals are already fast enough to be unmeasurable
+
+`consumeLiteral` walking a `static let [[UInt8]]` looks like an obvious win to replace with one
+masked word compare: `true` and `null` are a `UInt32`, `false` a `UInt32` and a byte. It was
+built, and it is a wash.
+
+Literals are 3.4% of `twitter`'s bytes, 0.55% of `github_events`', 0.29% of `citm_catalog`'s and
+0.01% of `gsoc-2018`'s, so no real document can resolve the change at all. Against a purpose
+built 62% literal payload (`Payloads.literals`, kept as `Fast Literals`, which is the only
+benchmark in the suite that exercises this path):
+
+| variant | bulk | byte by byte |
+| --- | ---: | ---: |
+| **shipped: byte loop over the nested array** | **345** | **147** |
+| masked word compare | 346 | 138 |
+
+Even where literals are most of the document the word compare is +0.3% bulk and −6% byte fed,
+where the whole-token path can never fire and is pure added branch. The array is a compile time
+constant and the optimizer was already folding the indirection the rewrite existed to remove.
+Reverted, and recorded here so it is not rebuilt.
+
 ### Numbers: fused scan, two words
 
 **Superseded by "Numbers, whole" at the end of this document.** The fused design below was

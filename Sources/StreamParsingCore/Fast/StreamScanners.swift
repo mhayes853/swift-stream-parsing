@@ -45,9 +45,48 @@ package func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
   return to
 }
 
+// This runs before every structural byte, and how much whitespace it finds is a property of the
+// document, not of JSON. Measured over the corpus, as runs *outside* strings:
+//
+//   document        whitespace    runs   1 byte   >= 16 bytes
+//   canada                   0%       0        -             -
+//   llm_message             17%       0        -             -   (all of it inside string values)
+//   github_events           19%    2526      45%            0%
+//   gsoc-2018               19%   41713      45%            0%
+//   twitter                 26%   28826      46%            2%
+//   citm_catalog            71%   76337      34%           59%
+//
+// So it is one test in front of two scans. Every JSON whitespace byte is <= 0x20 and every byte
+// that may legally follow one is > 0x20, so a single compare settles the no-whitespace case —
+// which is the whole of `canada` and `llm_message` and half of every other document — without
+// touching a vector. What survives is a run, and runs are scanned SIMD16 like every other class.
+//
+// **The inlined body has to stay this small, and that is the constraint, not the scan.** This is
+// `@inline(__always)` into the parse loop, so anything spelled here is paid for in that loop's
+// register pressure by every document, including ones with no whitespace at all. Two further
+// variants were measured and both were rejected on documents the added code never runs on:
+//
+//   variant                            citm    twitter   twitterescaped   unicode escapes
+//   vector body inlined here          +22%       +7%             -18%              -35%
+//   one byte run peeled here          +20%       +8%             -18%              -34%
+//   **shipped: one compare, then out of line**  **+21%**  **+7%**   **-1%**        **-2%**
+//
+// The width test below is what keeps the byte fed path off the vector body: `to &- from` is 1 at
+// every call there, and routing that through it splats four constants to scan a single byte,
+// which cost `twitter` byte by byte 20%.
 @inlinable
 @inline(__always)
 package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  if from < to, base.load(fromByteOffset: from, as: UInt8.self) > .asciiSpace { return from }
+  if to &- from < streamScannerVectorWidth {
+    return streamWhitespaceScalarEnd(base: base, from: from, to: to)
+  }
+  return streamWhitespaceRunEnd(base: base, from: from, to: to)
+}
+
+@inlinable
+@inline(__always)
+package func streamWhitespaceScalarEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var i = from
   while i < to {
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
@@ -59,6 +98,36 @@ package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> 
     i &+= 1
   }
   return i
+}
+
+// Kept out of line deliberately. Inlining the vector body into the parse loop measured 18-35%
+// *slower* on escape dense documents, which contain no whitespace for it to scan at all: the
+// loop's own register pressure is the cost, not the scan.
+@inlinable
+@inline(never)
+package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  var i = from
+  let space = SIMD16<UInt8>(repeating: .asciiSpace)
+  let tab = SIMD16<UInt8>(repeating: .asciiTab)
+  let lineFeed = SIMD16<UInt8>(repeating: .asciiLineFeed)
+  let carriageReturn = SIMD16<UInt8>(repeating: .asciiCarriageReturn)
+
+  while i &+ streamScannerVectorWidth <= to {
+    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let hit = chunk .== space .| chunk .== tab .| chunk .== lineFeed .| chunk .== carriageReturn
+    if !all(hit) {
+      let miss = .!hit
+#if canImport(simd)
+      let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: miss)
+      return i &+ Int(simd_reduce_min(candidates))
+#else
+      for lane in 0..<streamScannerVectorWidth where miss[lane] { return i &+ lane }
+#endif
+    }
+    i &+= streamScannerVectorWidth
+  }
+  return streamWhitespaceScalarEnd(base: base, from: i, to: to)
 }
 
 // Finds the first byte outside the number token class: digits, '.', 'e', 'E', '+', '-'. The
