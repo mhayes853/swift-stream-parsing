@@ -3,20 +3,77 @@
 // Frames point into the value being built. Only the innermost open container is ever mutated,
 // so an element pointer stays valid for that element's lifetime: appending to an outer array
 // cannot happen while an inner one is open.
-public struct PartialSink<Root>: StreamParseSink {
+public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   public private(set) var streamFailure: StreamSinkFailure?
 
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var rootSchema: StreamSchema
-  @usableFromInline var frames: [StreamFrame] = []
   @usableFromInline var started = false
   @usableFromInline var pendingDictionaryFrame: StreamFrame?
+
+  // The frame stack, one fixed allocation rather than an `Array`.
+  //
+  // The parser caps depth at `JSONParser.maximumDepth` and rejects anything past it, so the stack
+  // has a known bound and never grows. What that buys is not the allocation — there was one either
+  // way — but the bookkeeping `Array` charges to be resizable: a uniqueness check on every
+  // mutation and a bounds check on every read, both of which `key(_:)` used to pay per key, since
+  // it read the top frame out, edited it and wrote it back. A key now edits the top frame where it
+  // sits.
+  //
+  // Capacity is the cap plus one because the cap is checked *after* the sink is told the container
+  // opened: `consumeStructural` calls `beginObject` and then `push`, so the frame for the rejected
+  // depth arrives before the parse throws.
+  @usableFromInline let frames: UnsafeMutablePointer<StreamFrame>
+  @usableFromInline var frameCount = 0
+
+  // Frames there was no room for. A container that could not be pushed must not pop one that
+  // could, and a caller that catches the depth error and keeps feeding gets more `beginObject`
+  // calls after it, so overflow has to stay balanced rather than merely not crash once.
+  @usableFromInline var droppedFrameCount = 0
+
+  @usableFromInline
+  static var frameCapacity: Int { JSONParser.maximumDepth + 1 }
 
   // A document whose root is an array, a dictionary or a bare scalar is as valid as one rooted
   // in an object, so the root's shape comes from its schema rather than from a constraint.
   public init(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
     self.root = UnsafeMutableRawPointer(root)
     self.rootSchema = schema
+    self.frames = .allocate(capacity: Self.frameCapacity)
+  }
+
+  deinit {
+    self.frames.deinitialize(count: self.frameCount)
+    self.frames.deallocate()
+  }
+
+  // MARK: Frame stack
+
+  @usableFromInline
+  var topFrame: UnsafeMutablePointer<StreamFrame>? {
+    self.frameCount > 0 ? self.frames + (self.frameCount &- 1) : nil
+  }
+
+  @usableFromInline
+  mutating func pushFrame(_ frame: StreamFrame) {
+    guard self.frameCount < Self.frameCapacity else {
+      self.droppedFrameCount &+= 1
+      self.recordFailure(.depthExceeded)
+      return
+    }
+    (self.frames + self.frameCount).initialize(to: frame)
+    self.frameCount &+= 1
+  }
+
+  @usableFromInline
+  mutating func popFrame() {
+    guard self.droppedFrameCount == 0 else {
+      self.droppedFrameCount &-= 1
+      return
+    }
+    guard self.frameCount > 0 else { return }
+    self.frameCount &-= 1
+    (self.frames + self.frameCount).deinitialize(count: 1)
   }
 
   // MARK: Containers
@@ -30,11 +87,11 @@ public struct PartialSink<Root>: StreamParseSink {
   }
 
   public mutating func endObject() {
-    _ = self.frames.popLast()
+    self.popFrame()
   }
 
   public mutating func endArray() {
-    _ = self.frames.popLast()
+    self.popFrame()
   }
 
   private mutating func enterContainer(shape: StreamSchema.Shape) {
@@ -43,7 +100,7 @@ public struct PartialSink<Root>: StreamParseSink {
       let canHoldContainer = self.rootSchema.shape.canHold(container: shape)
       if !canHoldContainer { self.recordFailure(.typeMismatch) }
       let schema = canHoldContainer ? self.rootSchema : Self.ignoredSchema
-      self.frames.append(StreamFrame(storage: self.root, schema: schema))
+      self.pushFrame(StreamFrame(storage: self.root, schema: schema))
       return
     }
 
@@ -52,26 +109,25 @@ public struct PartialSink<Root>: StreamParseSink {
       // A container under an unknown object key is ignored. Every other missing target describes
       // a known destination whose schema cannot accept a container.
       if hasKnownDestination { self.recordFailure(.typeMismatch) }
-      self.frames.append(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
       return
     }
     guard target.schema.shape.canHold(container: shape) else {
       self.recordFailure(.typeMismatch)
-      self.frames.append(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
       return
     }
-    self.frames.append(target)
+    self.pushFrame(target)
   }
 
   private var hasKnownValueDestination: Bool {
-    self.frames.last.map { top in
-      switch top.schema.shape {
-      case .array: true
-      case .object: top.pendingField >= 0
-      case .dictionary: self.pendingDictionaryFrame != nil
-      case .scalar: true
-      }
-    } ?? false
+    guard let top = self.topFrame else { return false }
+    switch top.pointee.schema.shape {
+    case .array: return true
+    case .object: return top.pointee.pendingField >= 0
+    case .dictionary: return self.pendingDictionaryFrame != nil
+    case .scalar: return true
+    }
   }
 
   // Produces the frame a value should be written through, appending an array element first when
@@ -79,13 +135,13 @@ public struct PartialSink<Root>: StreamParseSink {
   // caller's question, not this one's: a scalar frame is the right answer for a scalar and the
   // wrong one for a container.
   private mutating func valueTarget() -> StreamFrame? {
-    guard let top = self.frames.last else { return nil }
-    switch top.schema.shape {
+    guard let top = self.topFrame else { return nil }
+    switch top.pointee.schema.shape {
     case .array:
-      return top.schema.appendElement(top.storage)
+      return top.pointee.schema.appendElement(top.pointee.storage)
     case .object:
-      guard top.pendingField >= 0 else { return nil }
-      return top.schema.enterField(top.storage, top.pendingField)
+      guard top.pointee.pendingField >= 0 else { return nil }
+      return top.pointee.schema.enterField(top.pointee.storage, top.pointee.pendingField)
     case .dictionary:
       defer { self.pendingDictionaryFrame = nil }
       return self.pendingDictionaryFrame
@@ -97,15 +153,14 @@ public struct PartialSink<Root>: StreamParseSink {
   // MARK: Keys
 
   public mutating func key(_ bytes: Span<UInt8>) {
-    guard var top = self.frames.last else { return }
-    if top.schema.shape == .dictionary {
+    guard let top = self.topFrame else { return }
+    if top.pointee.schema.shape == .dictionary {
       // The key span does not outlive this call, so the value's frame is resolved now rather
       // than remembered and resolved when the value arrives.
-      self.pendingDictionaryFrame = top.schema.enterKey(top.storage, bytes)
+      self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
       return
     }
-    top.pendingField = top.schema.matchField(bytes)
-    self.frames[self.frames.count - 1] = top
+    top.pointee.pendingField = top.pointee.schema.matchField(bytes)
   }
 
   public mutating func keyBegin() {}
@@ -175,7 +230,7 @@ public struct PartialSink<Root>: StreamParseSink {
   @usableFromInline var scalarTarget: ScalarTarget?
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
-    guard let top = self.frames.last else {
+    guard let top = self.topFrame else {
       // A bare scalar document never opens a container, so no frame was ever pushed and the
       // root is the destination.
       guard !self.started else { return nil }
@@ -185,18 +240,20 @@ public struct PartialSink<Root>: StreamParseSink {
       }
       return ScalarTarget(storage: self.root, schema: self.rootSchema, field: 0)
     }
-    switch top.schema.shape {
+    switch top.pointee.schema.shape {
     case .array:
-      guard let element = top.schema.appendElement(top.storage) else { return nil }
+      guard let element = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
       return ScalarTarget(storage: element.storage, schema: element.schema, field: 0)
     case .object:
-      guard top.pendingField >= 0 else { return nil }
-      return ScalarTarget(storage: top.storage, schema: top.schema, field: top.pendingField)
+      guard top.pointee.pendingField >= 0 else { return nil }
+      return ScalarTarget(
+        storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField
+      )
     case .dictionary:
       guard let frame = self.pendingDictionaryFrame else { return nil }
       return ScalarTarget(storage: frame.storage, schema: frame.schema, field: 0)
     case .scalar:
-      return ScalarTarget(storage: top.storage, schema: top.schema, field: 0)
+      return ScalarTarget(storage: top.pointee.storage, schema: top.pointee.schema, field: 0)
     }
   }
 

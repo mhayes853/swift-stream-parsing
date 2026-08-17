@@ -127,6 +127,7 @@ let benchmarks: @Sendable () -> Void = {
   }
 
   addFastParserBenchmarks()
+  layerOverheadBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
   retentionBenchmarks()

@@ -179,6 +179,26 @@ struct BenchmarkTwitterUserMatched: Equatable {
   var followers_count: Int = 0
 }
 
+// The same container spine as `BenchmarkTwitterMatched`, with every scalar key renamed so that no
+// scalar ever matches. Containers are still entered and elements still appended, so the difference
+// against the matched model is what materializing the values costs — `String` construction and
+// number conversion — with the routing that reaches them held constant.
+@StreamParseable
+struct BenchmarkTwitterStructure: Equatable {
+  var statuses: [BenchmarkTweetStructure] = []
+}
+
+@StreamParseable
+struct BenchmarkTweetStructure: Equatable {
+  var absent_scalar: Int = 0
+  var user: BenchmarkTwitterUserStructure = BenchmarkTwitterUserStructure()
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserStructure: Equatable {
+  var absent_scalar: Int = 0
+}
+
 // MARK: - LLM message
 
 @StreamParseable
@@ -202,6 +222,25 @@ struct BenchmarkContentBlock: Equatable {
 struct BenchmarkUsage: Equatable {
   var input_tokens: Int = 0
   var output_tokens: Int = 0
+}
+
+// `BenchmarkLLMMessage`'s spine with the scalars renamed, for the same split as
+// `BenchmarkTwitterStructure`. This is the payload where the answer matters most: it is the one
+// dominated by long escaped strings, so it is where `String` materialization should show up.
+@StreamParseable
+struct BenchmarkLLMMessageStructure: Equatable {
+  var content: [BenchmarkContentBlockStructure] = []
+  var usage: BenchmarkUsageStructure = BenchmarkUsageStructure()
+}
+
+@StreamParseable
+struct BenchmarkContentBlockStructure: Equatable {
+  var absent_scalar: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkUsageStructure: Equatable {
+  var absent_scalar: Int = 0
 }
 
 // MARK: - Long strings

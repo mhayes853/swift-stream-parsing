@@ -118,6 +118,16 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// that costs a snapshot. Read ``current`` or ``withView(_:)`` when a state is actually needed.
   ///
   /// - Parameter byte: Byte to feed into the parser.
+  ///
+  /// Inlinable because it is not otherwise: `JSONParser.parse` is generic over the sink and
+  /// specializes into its caller, and a caller in another module cannot specialize what it cannot
+  /// see. Left opaque, one byte through this method costs a call into `StreamParsingCore` and an
+  /// unspecialized parse; measured on `LayerOverheadBenchmarks`, that was half the wall clock of
+  /// every byte fed row — `Layer Array of structs byte by byte - stream` 325 µs → 151 µs, `Layer
+  /// LLM message byte by byte - stream` 68 ms → 38 ms — and 3% of the bulk rows. Both land the
+  /// stream exactly on the raw `PartialSink` numbers, so the wrapper's own bookkeeping is free
+  /// and this attribute was the whole of its cost.
+  @inlinable
   public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     do {
@@ -131,6 +141,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// Feeds multiple bytes to the parser.
   ///
   /// - Parameter bytes: The byte sequence to parse.
+  @inlinable
   public mutating func next(_ bytes: some Sequence<UInt8>) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     do {
@@ -151,7 +162,8 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     return self.current
   }
 
-  private mutating func parse(_ bytes: some Sequence<UInt8>) throws {
+  @usableFromInline
+  mutating func parse(_ bytes: some Sequence<UInt8>) throws {
     let parsed: Void? = try bytes.withContiguousStorageIfAvailable { buffer in
       try self.parser.parse(buffer, into: &self.sink)
     }
@@ -164,6 +176,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// Completes parsing and validates that the stream ended cleanly.
   ///
   /// - Returns: The final parsed value after calling ``finish()``.
+  @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
