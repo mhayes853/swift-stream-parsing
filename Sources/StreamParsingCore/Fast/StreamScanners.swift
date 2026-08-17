@@ -1,3 +1,7 @@
+#if canImport(simd)
+  import simd
+#endif
+
 // Measured on arm64 over an 8 KB corpus at varying run lengths (MB/s):
 //
 //   run length      4       16      64     4096
@@ -23,7 +27,13 @@ package func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
     if any(hit) {
+#if canImport(simd)
+      let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: hit)
+      return i &+ Int(simd_reduce_min(candidates))
+#else
       for lane in 0..<streamScannerVectorWidth where hit[lane] { return i &+ lane }
+#endif
     }
     i &+= streamScannerVectorWidth
   }
@@ -144,11 +154,17 @@ package func streamAccumulateDigits(
 @inlinable
 @inline(__always)
 package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
+#if !canImport(simd)
   let high = SIMD16<UInt8>(repeating: .utf8ContinuationFloor)
+#endif
   var i = from
   while i &+ streamScannerVectorWidth <= to {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+#if canImport(simd)
+    if simd_reduce_max(chunk) >= .utf8ContinuationFloor { return true }
+#else
     if any(chunk .>= high) { return true }
+#endif
     i &+= streamScannerVectorWidth
   }
   while i < to {
