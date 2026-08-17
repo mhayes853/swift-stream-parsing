@@ -332,6 +332,62 @@ public struct JSONParser: ~Copyable {
     return false
   }
 
+
+  // A value inside a container is followed by `,` and then the next value's first byte. Measured
+  // across the corpus there is never whitespace before the comma (166,449 of them, 100%) and 7-25
+  // bytes of it after, so this is a compare, the existing SIMD whitespace scan, and a dispatch on
+  // one byte.
+  //
+  // The point is not those bytes, it is that consuming *all* of them leaves nothing structural
+  // before the next value's content, so the `consumeStructuralRun` call for this member
+  // disappears entirely. That is the test a fusion has to pass to be worth anything here: fusing
+  // the colon after a key looked identical on paper and bought nothing, because the value's
+  // opening quote still followed it and the run had to happen anyway.
+  //
+  // Arrays are handled as well as objects, and not for symmetry: with only the object case, every
+  // comma in `canada` — 111,129 of them, all inside arrays of numbers — paid the test and got
+  // nothing, and it measured -3.8%.
+  //
+  // Inlined into the two value-end sites deliberately. Both are already out of line, so the
+  // duplication lands in `consumeStringRun` and `consumeNumber` rather than in `parse`.
+  @inlinable
+  @inline(__always)
+  mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+  ) -> Int {
+    guard self.depth > 0, from < to,
+      base.load(fromByteOffset: from, as: UInt8.self) == .asciiComma
+    else {
+      return from
+    }
+    let next = streamWhitespaceEnd(base: base, from: from &+ 1, to: to)
+    guard next < to else { return from }
+    let byte = base.load(fromByteOffset: next, as: UInt8.self)
+
+    if self.topIsObject {
+      guard byte == .asciiQuote else { return from }
+      self.isKeyToken = true
+      self.bufferCount = 0
+      self.state = .inKey
+      return next &+ 1
+    }
+
+    switch byte {
+    case .asciiQuote:
+      self.isKeyToken = false
+      sink.stringBegin()
+      self.state = .inString
+      return next &+ 1
+    case .asciiDash, .asciiZero ... .asciiNine:
+      // The first byte of a number belongs to the number, so it is left for `.number` to re-read.
+      self.resetNumber()
+      self.state = .number
+      return next
+    default:
+      return from
+    }
+  }
+
   // MARK: Strings
 
   // Keys are always copied into the buffer, which gives contiguity across chunks and the
@@ -386,6 +442,7 @@ public struct JSONParser: ~Copyable {
       } else {
         sink.stringEnd()
         self.state = .afterValue
+        i = self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
       }
     } else if byte == .asciiBackslash {
       self.state = .escape
@@ -508,7 +565,7 @@ public struct JSONParser: ~Copyable {
       try self.emitBufferedNumber(into: &sink, reportAt: end)
     }
     self.state = .afterValue
-    return end
+    return self.fuseAfterValue(base: base, from: end, to: to, into: &sink)
   }
 
   @inlinable

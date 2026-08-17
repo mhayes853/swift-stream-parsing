@@ -73,6 +73,10 @@ struct `Error offset tests` {
     "[1.2.3]",
     "[01]",
     #"{"a" 1}"#,
+    // The colon is peeked for directly after a key's closing quote, so a non-colon byte there
+    // must report identically whether it is adjacent or behind whitespace, and whether or not the
+    // chunk happens to end between the two.
+    #"{"a"1}"#,
     #""ab\q""#,
     "\"a\u{5C}uD800\u{5C}uD801\"",
     "[1,]",

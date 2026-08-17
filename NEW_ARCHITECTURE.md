@@ -173,6 +173,70 @@ the loop is pure overhead, and `Fast Pretty printed users` and `Fast Unicode esc
 7–8% byte by byte. The real corpus byte-fed rows gain anyway (`llm_message` +8%, `twitterescaped`
 +4%), so this was kept.
 
+### The run loop subsumes the transition it would have been fused with
+
+The colon after a key looked like the best fusion available: it follows the key's closing quote
+with no whitespace between them in every document measured — 61,145 keys across the corpus, no
+exceptions, because no printer emits `"key" :` — so peeking one byte from `consumeStringRun` hits
+100% of the time and skips a dispatcher round trip. It was built, and the corpus aggregate moved
+from 1187 to 1188 MB/s. Nothing.
+
+Trace the calls and it is not close, it is exactly zero. Parsing `"a":"b"` after the run loop
+exists:
+
+- `consumeStringRun` reads the key, sees the quote, leaves in `.afterKey`
+- `consumeStructuralRun` reads `:` → `.value`, *stays in its loop* because that is structural,
+  reads `"` → `.inString`, leaves
+- `consumeStringRun` reads the value
+
+Fusing the colon moves it into the first call — and the second call still has to happen, for the
+quote. **One compare added, no call removed.** The run loop had already coalesced the colon with
+the byte after it, which is the thing that made the round trip disappear in the first place.
+
+The distinction that matters for anything similar: **a fusion only pays if it consumes everything
+structural before the next non-structural token**, because otherwise the run loop still runs. The
+colon fails that test — a value's opening quote always follows it.
+
+Byte fed feeding is where the peek is pure loss — the chunk ends at the quote, so `i < to` fails
+and the compare never hits — and every byte fed row lost 3–6%.
+
+### Fusing the comma, which does pass that test
+
+The `,` after a value passes where the colon failed: consuming the comma, the whitespace after it
+and the next value's first byte leaves nothing structural behind, so the whole
+`consumeStructuralRun` call for that member disappears. `fuseAfterValue` runs at the two sites a
+value can close, `consumeStringRun` and `consumeNumber`.
+
+**Covering only objects is worse than covering neither.** The first version fused `,` + `"` for
+object members only, and `canada` — 111,129 commas, every one inside an array of numbers — paid
+the test on each and got nothing back:
+
+| document | control | objects only | objects + arrays |
+| --- | ---: | ---: | ---: |
+| canada | 780 | 750 (−3.8%) | **843 (+8.1%)** |
+| citm_catalog | 1421 | 1497 (+5.3%) | 1483 (+4.4%) |
+| gsoc-2018 | 2273 | 2425 (+6.6%) | 2335 (+2.7%) |
+| github_events | 1081 | 1198 (+10.1%) | 1115 (+3.1%) |
+| twitter | 908 | 963 (+6.8%) | 952 (+4.8%) |
+| twitterescaped | 500 | 518 (+3.6%) | 513 (+2.6%) |
+| llm_message | 1647 | 1744 (+6.2%) | 1635 (−0.7%) |
+| **aggregate** | **1190** | **1214 (+2.0%)** | **1246 (+4.7%)** |
+
+Adding the array arm costs the object dense documents 1–7% — the helper is inlined at two sites,
+so it is bigger code in both — and buys 12% on `canada`. The aggregate prefers it because `canada`
+is 2.25 MB of the 9.6 MB corpus, and because arrays of numbers are a real shape: coordinates,
+embeddings, time series. `llm_message` is the one that goes the other way, and it is one long
+string value with almost no commas either way.
+
+`parse` stays 1252 bytes through all of it. The growth lands in `consumeStringRun` (996 → 1372)
+and `consumeNumber` (912 → 1272), which is the point of putting the fusion there: those are
+already out of line, so the duplication that sank the whitespace-in-dispatch attempt is harmless
+here. **Where code is added matters more than how much.**
+
+The cost is byte fed feeding, 2–6% across the board, for the same reason the colon peek lost
+there: a one byte chunk can never contain the bytes being fused, so the test is pure overhead.
+Streaming at realistic chunk sizes gains fully — the 16 KB rows track the bulk rows throughout.
+
 ### Discovering whitespace instead of scanning for it
 
 Most JSON on a wire is minified, so the lookahead scan's one compare per structural byte buys
