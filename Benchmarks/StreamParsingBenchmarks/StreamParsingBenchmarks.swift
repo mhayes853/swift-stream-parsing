@@ -12,6 +12,14 @@ let payloadMegabytesPerSecond = BenchmarkMetric.custom(
 )
 
 let benchmarks: @Sendable () -> Void = {
+  // Every payload is a `static let`, so an unloaded one initializes the first time a benchmark
+  // reads it — inside a measured region, and for the corpus payloads that means `Bundle.module`
+  // and `URL` resource loading counted against the first iteration's wall clock and mallocs.
+  // Touching them here moves that to registration. It also stops the suite crashing: three runs
+  // died in `NSURL` resource caching and in the runtime's conformance cache, each time in whatever
+  // row happened to trip the lazy load, which reads as a parser crash and is not one.
+  Payloads.warmUp()
+
   Benchmark.defaultConfiguration = Benchmark.Configuration(
     metrics: [.cpuTotal, .wallClock, .mallocCountTotal, .retainCount, .releaseCount],
     warmupIterations: 3,
@@ -128,6 +136,7 @@ let benchmarks: @Sendable () -> Void = {
 
   addFastParserBenchmarks()
   layerOverheadBenchmarks()
+  schemaDispatchBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
   retentionBenchmarks()

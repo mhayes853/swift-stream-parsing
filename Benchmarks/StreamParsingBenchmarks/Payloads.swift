@@ -144,6 +144,24 @@ enum Payloads {
   // only benchmark payload that is both large and escape-heavy.
   static let llmMessage = Self.resource("llm_message")
 
+  // Forces every payload to initialize before any benchmark runs. Called once from the
+  // registration closure; see the note there for why this is not optional.
+  static func warmUp() {
+    let all: [[UInt8]] = [
+      Self.flat, Self.nested, Self.userList, Self.userList10, Self.userList400, Self.matrix,
+      Self.counts, Self.entryList, Self.literals, Self.countsLongKeys,
+      Self.repeatedLongKeyDocument, Self.document, Self.escapedString, Self.unicodeEscapedString,
+      Self.nonASCIIString, Self.prettyUserList, Self.deepObjects63, Self.deepObjects16,
+      Self.deepArrays63, Self.wideFirst, Self.wideLast, Self.wideMiss, Self.largeIntegers,
+      Self.floats, Self.twitter, Self.canada, Self.citmCatalog, Self.gsoc2018, Self.githubEvents,
+      Self.twitterEscaped, Self.llmMessage
+    ]
+    var total = 0
+    for payload in all { total &+= payload.count }
+    for payload in Self.countsByKeyCount.values { total &+= payload.count }
+    precondition(total > 0)
+  }
+
   private static func resource(_ name: String) -> [UInt8] {
     guard let url = Bundle.module.url(
       forResource: name,

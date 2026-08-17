@@ -152,15 +152,28 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Keys
 
+  // One load and one switch over the routing the schema precomputed. The `ignore` case is the one
+  // worth having: a schema with no matcher answers -1 to every key, and reaching that answer
+  // through the closure costs the load, the retain, the indirect call and the release that any
+  // other schema call costs. The frames standing over subtrees the destination has no field for
+  // are exactly those schemas, and they see most of the keys in a document a model only partly
+  // declares — 52% of `twitter.json`'s.
   public mutating func key(_ bytes: Span<UInt8>) {
     guard let top = self.topFrame else { return }
-    if top.pointee.schema.shape == .dictionary {
+    // Read through the frame each time rather than bound to a local. A local outlives the call it
+    // is passed to, and `enterKey` takes the frame's own storage, so the optimizer has to keep the
+    // schema alive across it — which is a retain, and cost one per entry on the dictionary path.
+    // Read in place it is a borrow, and the loads fold.
+    switch top.pointee.schema.keyRouting {
+    case .match:
+      top.pointee.pendingField = top.pointee.schema.matchField(bytes)
+    case .dictionary:
       // The key span does not outlive this call, so the value's frame is resolved now rather
       // than remembered and resolved when the value arrives.
       self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
-      return
+    case .ignore:
+      top.pointee.pendingField = -1
     }
-    top.pointee.pendingField = top.pointee.schema.matchField(bytes)
   }
 
   public mutating func keyBegin() {}

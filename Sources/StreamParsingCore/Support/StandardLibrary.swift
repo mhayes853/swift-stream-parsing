@@ -262,9 +262,13 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
   // is what makes the delegation cost a call.
   public static var streamSchema: StreamSchema {
     let wrapped = Wrapped.streamSchema
+    // Propagated rather than always wrapped, so an optional around a destination that matches no
+    // keys stays a destination that matches no keys and skips the call the same way.
+    let delegated: @Sendable (Span<UInt8>) -> Int32 = { key in wrapped.matchField(key) }
+    let matchField: (@Sendable (Span<UInt8>) -> Int32)? = wrapped.ignoresKeys ? nil : delegated
     return StreamSchema(
       shape: wrapped.shape,
-      matchField: { key in wrapped.matchField(key) },
+      matchField: matchField,
       applyString: { storage, field, bytes in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyString(storage, field, bytes)

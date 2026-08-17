@@ -33,6 +33,31 @@ public final class StreamSchema: Sendable {
 
   public let shape: Shape
 
+  // Where a key arriving at this schema has to go, precomputed into one byte.
+  //
+  // A schema call costs a closure load, a retain, an indirect call and a release — 17 ns against
+  // 4.6 ns for a bare function pointer, measured in `SchemaDispatchBenchmarks` — and a schema with
+  // no matcher spends all of it to reach `{ _ in -1 }`. That is not a rare case: the schema stood
+  // up for a subtree the destination has no field for is this one, and 52% of `twitter.json`'s
+  // 13,345 keys are inside such a subtree when parsed into a model that declares part of it, which
+  // is what a model normally does.
+  //
+  // One byte rather than a `shape == .dictionary` test followed by a matcher test, because the
+  // dictionary test was already on this path: routing the two questions through a single load and
+  // a single switch is what keeps the schemas that *do* match from paying for the ones that do not.
+  @usableFromInline
+  enum KeyRouting: UInt8, Sendable {
+    case match
+    case dictionary
+    case ignore
+  }
+
+  @usableFromInline let keyRouting: KeyRouting
+
+  // Whether this schema declares no matcher. Read when one schema is wrapped in another, so the
+  // wrapper does not install a matcher over a destination that has none.
+  @usableFromInline let ignoresKeys: Bool
+
   // Returns the field identifier for a key, or -1 when the destination has no such field.
   public let matchField: @Sendable (Span<UInt8>) -> Int32
 
@@ -59,9 +84,11 @@ public final class StreamSchema: Sendable {
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
+  // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
+  // carries rather than one indistinguishable from a matcher that happens to answer -1.
   public init(
     shape: Shape,
-    matchField: @escaping @Sendable (Span<UInt8>) -> Int32 = { _ in -1 },
+    matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
     applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
       _, _, _ in false
     },
@@ -79,7 +106,11 @@ public final class StreamSchema: Sendable {
     }
   ) {
     self.shape = shape
-    self.matchField = matchField
+    self.ignoresKeys = matchField == nil
+    // A dictionary routes keys through `enterKey` whether or not it also carries a matcher, which
+    // is the order the sink already applied.
+    self.keyRouting = shape == .dictionary ? .dictionary : (matchField == nil ? .ignore : .match)
+    self.matchField = matchField ?? { _ in -1 }
     self.applyString = applyString
     self.applyNumber = applyNumber
     self.applyBoolean = applyBoolean
