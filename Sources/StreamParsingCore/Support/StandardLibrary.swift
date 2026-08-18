@@ -302,10 +302,19 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 }
 
 extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {
+  // The wrapped schema, not a materializing wrapper around it: the frame this type hands out has
+  // always carried `Wrapped`'s schema, with the optional settled at entry rather than per token.
+  @inlinable
+  public static var streamContainerSchema: StreamSchema {
+    Wrapped.streamContainerSchema
+  }
+
+  @inlinable
   public static func streamContainerFrame(
-    at storage: UnsafeMutableRawPointer
+    at storage: UnsafeMutableRawPointer,
+    schema: StreamSchema
   ) -> StreamFrame {
     _streamMaterializeOptional(storage, as: Wrapped.self)
-    return Wrapped.streamContainerFrame(at: storage)
+    return Wrapped.streamContainerFrame(at: storage, schema: schema)
   }
 }

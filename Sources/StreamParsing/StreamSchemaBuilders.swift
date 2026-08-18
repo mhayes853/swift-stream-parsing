@@ -1,3 +1,6 @@
+// swiftlint:disable identifier_name
+// Everything here is underscored macro-support API: public because generated code in client
+// modules must reach it, underscored because nothing else should.
 import StreamParsingCore
 
 // Schema construction for macro generated code.
@@ -47,25 +50,57 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
 // The container schema builders live in the core, next to the frame entry helpers they call and
 // the root conformances that need them.
 
+// MARK: - Hoisted container schemas
+
+// The schema a field's `streamContainerFrame` will install, or nil when the field's storage is
+// not a container at all. The macro calls this once per field into a `private static let`, so
+// the schema exists exactly once per `Partial` type and outlives every frame that borrows it —
+// where reading `T.streamSchema` inside the entry allocated a schema per container occurrence
+// whose only owner was the frame itself.
+//
+// The overload pair mirrors `_streamEnterField`'s: the constrained one fires for exactly the
+// storage types whose entry produces a frame, so a nil here means the entry answers nil too.
+@inlinable
+public func _streamContainerSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema? {
+  T.streamContainerSchema
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamContainerSchema<T>(for type: T.Type) -> StreamSchema? {
+  nil
+}
+
 // MARK: - Field entry
 
 // Degrades to nil rather than failing to compile when the field is not a nested object, which
-// is what lets the macro emit an entry case for every field without knowing which are.
+// is what lets the macro emit an entry case for every field without knowing which are. Every
+// overload takes the hoisted `containerSchema` so the macro can emit one call shape; only the
+// `StreamContainerPartial` one reads it.
 @inlinable
-public func _streamEnterField<T: StreamParseableObject>(_ value: inout T?) -> StreamFrame? {
+public func _streamEnterField<T: StreamParseableObject>(
+  _ value: inout T?,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
   _streamEnterOptionalObject(&value)
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamEnterField<T>(_ value: inout T?) -> StreamFrame? {
+public func _streamEnterField<T>(
+  _ value: inout T?,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
   nil
 }
 
 // The initialized members mode gives non-optional members, so every entry point needs a
 // counterpart that takes the value directly.
 @inlinable
-public func _streamEnterField<T: StreamParseableObject>(_ value: inout T) -> StreamFrame? {
+public func _streamEnterField<T: StreamParseableObject>(
+  _ value: inout T,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
   _streamEnterObject(&value)
 }
 
@@ -73,15 +108,23 @@ public func _streamEnterField<T: StreamParseableObject>(_ value: inout T) -> Str
 // storage type instead, which covers aliases, generic spelling and user-defined containers.
 @_disfavoredOverload
 @inlinable
-public func _streamEnterField<T: StreamContainerPartial>(_ value: inout T) -> StreamFrame? {
+public func _streamEnterField<T: StreamContainerPartial>(
+  _ value: inout T,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
   withUnsafeMutablePointer(to: &value) {
-    T.streamContainerFrame(at: UnsafeMutableRawPointer($0))
+    // Non-nil by construction: `_streamContainerSchema(for:)` resolves its constrained overload
+    // for exactly the types that resolve this one.
+    T.streamContainerFrame(at: UnsafeMutableRawPointer($0), schema: containerSchema.unsafelyUnwrapped)
   }
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamEnterField<T>(_ value: inout T) -> StreamFrame? {
+public func _streamEnterField<T>(
+  _ value: inout T,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
   nil
 }
 

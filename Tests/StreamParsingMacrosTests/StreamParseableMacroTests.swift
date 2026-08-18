@@ -73,6 +73,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -148,9 +151,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -241,6 +244,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x654B_6D6F_7473_7563 where key.count == 13 && key.paddedWord(at: 8) == 0x0000_0065_6D61_4E79:
@@ -316,9 +322,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -515,6 +521,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x654B_6D6F_7473_7563 where key.count == 13 && key.paddedWord(at: 8) == 0x0000_0065_6D61_4E79:
@@ -592,9 +601,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -766,6 +775,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -841,9 +853,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -933,6 +945,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String?.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int?.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -1008,9 +1023,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -1091,6 +1106,8 @@ extension BaseTestSuite {
               static let age: Int32 = 0
             }
 
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_0065_6761 where key.count == 3:
@@ -1156,7 +1173,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -1241,6 +1258,8 @@ extension BaseTestSuite {
               static let stored: Int32 = 0
             }
 
+            private static let streamContainerSchema_stored = _streamContainerSchema(for: (String.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473 where key.count == 6:
@@ -1306,7 +1325,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
-                return _streamEnterField(&p.pointee.stored)
+                return _streamEnterField(&p.pointee.stored, containerSchema: Self.streamContainerSchema_stored)
               default:
                 return nil
               }
@@ -1388,6 +1407,8 @@ extension BaseTestSuite {
               static let name: Int32 = 0
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -1453,7 +1474,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               default:
                 return nil
               }
@@ -1560,6 +1581,8 @@ extension BaseTestSuite {
               static let stored: Int32 = 0
             }
 
+            private static let streamContainerSchema_stored = _streamContainerSchema(for: (String.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_6465_726F_7473 where key.count == 6:
@@ -1625,7 +1648,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
-                return _streamEnterField(&p.pointee.stored)
+                return _streamEnterField(&p.pointee.stored, containerSchema: Self.streamContainerSchema_stored)
               default:
                 return nil
               }
@@ -1715,6 +1738,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -1790,9 +1816,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2015,6 +2041,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2090,9 +2119,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2182,6 +2211,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2257,9 +2289,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2345,6 +2377,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2420,9 +2455,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2508,6 +2543,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             fileprivate static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2583,9 +2621,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2675,6 +2713,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2750,9 +2791,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -2842,6 +2883,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String?.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Optional<Int>.Partial).self)
+
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_616E where key.count == 4:
@@ -2917,9 +2961,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -3011,6 +3055,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62 where key.count == 4:
@@ -3088,9 +3135,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -3178,6 +3225,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62 where key.count == 4:
@@ -3255,9 +3305,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }
@@ -3345,6 +3395,9 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_626F_6C62 where key.count == 4:
@@ -3422,9 +3475,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name)
+                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
               case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age)
+                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
               default:
                 return nil
               }

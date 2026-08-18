@@ -119,6 +119,32 @@ struct BenchmarkEntryList: Equatable {
   var entries: [BenchmarkEntry] = []
 }
 
+// The same shape as `BenchmarkEntryList`, with every container field spelled through an alias
+// the macro cannot see through. That routes container entry through `StreamContainerPartial`
+// instead of the hoisted syntax path, which was the one route left minting a schema per
+// container occurrence — and the one whose schema had no owner but the frame.
+typealias BenchmarkAliasedTags = [String]
+typealias BenchmarkAliasedMentions = [Int]
+typealias BenchmarkAliasedSizes = [String: Int]
+
+@StreamParseable
+struct BenchmarkAliasedEntities: Equatable {
+  var hashtags: BenchmarkAliasedTags = []
+  var mentions: BenchmarkAliasedMentions = []
+  var sizes: BenchmarkAliasedSizes = [:]
+}
+
+@StreamParseable
+struct BenchmarkAliasedEntry: Equatable {
+  var id: Int = 0
+  var entities: BenchmarkAliasedEntities = BenchmarkAliasedEntities()
+}
+
+@StreamParseable
+struct BenchmarkAliasedEntryList: Equatable {
+  var entries: [BenchmarkAliasedEntry] = []
+}
+
 // MARK: - Numbers
 
 @StreamParseable
@@ -224,6 +250,7 @@ struct BenchmarkTweetMatched: Equatable {
   var user: BenchmarkTwitterUserMatched = BenchmarkTwitterUserMatched()
 }
 
+// swiftlint:disable identifier_name
 @StreamParseable
 struct BenchmarkTwitterUserMatched: Equatable {
   var name: String = ""
@@ -294,6 +321,7 @@ struct BenchmarkContentBlockStructure: Equatable {
 struct BenchmarkUsageStructure: Equatable {
   var absent_scalar: Int = 0
 }
+// swiftlint:enable identifier_name
 
 // MARK: - Long strings
 

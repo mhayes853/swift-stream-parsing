@@ -320,13 +320,14 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         cases.applyNull.append(
           "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
         )
-        cases.enter.append("    case \(field): return _streamEnterField(&\(target))")
+        let constant = "streamContainerSchema_\(property.name)"
+        cases.containerSchemas.append(
+          "private static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
+        )
+        cases.enter.append(
+          "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
+        )
       case .array, .dictionary:
-        // Stored, not rebuilt. `StreamSchema` is a class and `enterField` runs once per container
-        // *occurrence*, so building the field's schema here spent an allocation — two, counting
-        // the element's — on every `[` and `{` that reached this field. A model whose containers
-        // sit on the root hides that, because it enters them once per document; one whose
-        // containers sit on a repeated element does not. `Fields per element` measures it.
         let constant = "streamContainerSchema_\(property.name)"
         cases.containerSchemas.append(
           "private static let \(constant) = \(Self.schemaExpression(for: property.type))"

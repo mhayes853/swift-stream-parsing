@@ -161,14 +161,35 @@ extension StreamParseableRoot {
 /// need to expose their shape in source syntax. A partial whose storage is described directly by
 /// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
 public protocol StreamContainerPartial: StreamParseableRoot {
-  /// Returns the frame that writes a container into `storage`.
-  static func streamContainerFrame(at storage: UnsafeMutableRawPointer) -> StreamFrame
+  /// The schema ``streamContainerFrame(at:schema:)`` installs.
+  ///
+  /// Separated from the frame so a caller can resolve it once and store it: `streamSchema` is a
+  /// computed property on every generic partial, so reading it per entry allocates per container
+  /// occurrence, and the schema built for one entry died with that entry's frame — the only
+  /// schema in the system without a durable owner. The macro hoists this value into a
+  /// `private static let` on the generated `Partial` and passes it back per entry.
+  static var streamContainerSchema: StreamSchema { get }
+
+  /// Returns the frame that writes a container into `storage`, carrying a resolved
+  /// ``streamContainerSchema``.
+  static func streamContainerFrame(
+    at storage: UnsafeMutableRawPointer,
+    schema: StreamSchema
+  ) -> StreamFrame
 }
 
 extension StreamContainerPartial {
   @inlinable
-  public static func streamContainerFrame(at storage: UnsafeMutableRawPointer) -> StreamFrame {
-    StreamFrame(storage: storage, schema: Self.streamSchema)
+  public static var streamContainerSchema: StreamSchema {
+    Self.streamSchema
+  }
+
+  @inlinable
+  public static func streamContainerFrame(
+    at storage: UnsafeMutableRawPointer,
+    schema: StreamSchema
+  ) -> StreamFrame {
+    StreamFrame(storage: storage, schema: schema)
   }
 }
 

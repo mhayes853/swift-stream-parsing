@@ -143,8 +143,8 @@ private func chunkBoundaryBenchmarks() {
 
   for (name, payload) in payloads {
     for chunk in [3, 7, 13] {
-      Benchmark("Boundary \(name) - \(chunk)B chunks", configuration: payloadConfiguration) { b in
-        measurePayloadThroughput(b, payload: payload) {
+      Benchmark("Boundary \(name) - \(chunk)B chunks", configuration: payloadConfiguration) { benchmark in
+        measurePayloadThroughput(benchmark, payload: payload) {
           blackHole(expectParses { try runFastParser(payload, chunk: chunk) })
         }
       }
@@ -181,8 +181,8 @@ private func numberBenchmarks() {
 
     // Number grammar validation is one of the three checks `.unchecked` turns off, and this is
     // the payload shape where it has the most to do.
-    Benchmark("Numbers \(name) - bulk unchecked", configuration: payloadConfiguration) { b in
-      measurePayloadThroughput(b, payload: payload) {
+    Benchmark("Numbers \(name) - bulk unchecked", configuration: payloadConfiguration) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
         blackHole(expectParses { try runFastParser(payload, chunk: .max, configuration: .unchecked) })
       }
     }
@@ -219,8 +219,8 @@ private func numberBenchmarks() {
 // The sink row is the same payload through `FastCountingSink`, which has no schema at all, so the
 // difference between the two is what routing through one costs on this shape.
 private func containerFieldBenchmarks() {
-  Benchmark("Fields per element - bulk discarding", configuration: payloadConfiguration) { b in
-    measurePayloadThroughput(b, payload: Payloads.entryList) {
+  Benchmark("Fields per element - bulk discarding", configuration: payloadConfiguration) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.entryList) {
       blackHole(
         expectParses {
           try streamBulkDiscarding(Payloads.entryList, as: BenchmarkEntryList.Partial.self)
@@ -229,9 +229,26 @@ private func containerFieldBenchmarks() {
     }
   }
 
-  Benchmark("Fields per element - sink only", configuration: payloadConfiguration) { b in
-    measurePayloadThroughput(b, payload: Payloads.entryList) {
+  Benchmark("Fields per element - sink only", configuration: payloadConfiguration) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.entryList) {
       blackHole(expectParses { try runFastParser(Payloads.entryList, chunk: .max) })
+    }
+  }
+
+  // The same payload into the aliased model, whose container fields the macro cannot identify
+  // from syntax. That entry resolves through `StreamContainerPartial` with a hoisted schema
+  // constant; before the hoist it built a fresh schema per container occurrence, and the malloc
+  // column against the row above is where that shows.
+  Benchmark(
+    "Fields per element - bulk discarding, aliased",
+    configuration: payloadConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.entryList) {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(Payloads.entryList, as: BenchmarkAliasedEntryList.Partial.self)
+        }
+      )
     }
   }
 }
