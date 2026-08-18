@@ -185,20 +185,17 @@ public struct StreamDictionary<Value> {
 // MARK: - Lookup
 
 extension StreamDictionary {
-  // FNV-1a. A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the
-  // embedded subset. Deliberately collided keys degrade the chain walk to the scan it replaces,
-  // since every step compares a `UInt64` before it compares bytes, so the worst case is bounded by
-  // the measured scan rather than being unbounded.
+  // A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the embedded
+  // subset. Deliberately collided keys degrade the chain walk to the scan it replaces, since every
+  // step compares a `UInt64` before it compares bytes, so the worst case is bounded by the measured
+  // scan rather than being unbounded.
+  //
+  // The mix itself is `streamHashBytes`, which reads sixteen bytes per vector load into two
+  // independent accumulators. It replaced FNV-1a, whose per byte multiply chain was the cost.
   @usableFromInline
   static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64 {
-    var hash = UInt64(0xcbf2_9ce4_8422_2325)
-    var offset = 0
-    while offset < key.count {
-      hash ^= UInt64(key[offset])
-      hash &*= 0x100_0000_01b3
-      offset &+= 1
-    }
-    return hash
+    guard let base = key.baseAddress else { return streamHashBytes(base: emptyKeyAddress, count: 0) }
+    return streamHashBytes(base: UnsafeRawPointer(base), count: key.count)
   }
 
   @usableFromInline
@@ -244,17 +241,15 @@ extension StreamDictionary {
     return equal
   }
 
+  // Sixteen bytes per compare through `streamBytesEqual`, which is what a resumed key and every
+  // colliding probe walk.
   @usableFromInline
   static func bytesEqual(_ lhs: UnsafeBufferPointer<UInt8>, _ rhs: UnsafeBufferPointer<UInt8>)
     -> Bool
   {
     guard lhs.count == rhs.count else { return false }
-    var offset = 0
-    while offset < lhs.count {
-      guard lhs[offset] == rhs[offset] else { return false }
-      offset &+= 1
-    }
-    return true
+    guard let left = lhs.baseAddress, let right = rhs.baseAddress else { return true }
+    return streamBytesEqual(UnsafeRawPointer(left), UnsafeRawPointer(right), count: lhs.count)
   }
 }
 
@@ -356,4 +351,28 @@ extension StreamDictionary: StreamParseable where Value: StreamParseableRoot {
   public typealias Partial = Self
 
   public var streamPartialValue: Self { self }
+}
+
+// An empty buffer has no base address, and hashing zero bytes never reads one; this gives the
+// hash a non-null address to be handed rather than a branch inside it.
+@usableFromInline
+nonisolated(unsafe) let emptyKeyAddress = UnsafeRawPointer(bitPattern: 0x1000).unsafelyUnwrapped
+
+// MARK: - Breakdown hooks (temporary)
+
+// Underscored shims so the benchmark package, which is a separate package and cannot see
+// `package` or `@usableFromInline` symbols, can time the pieces of `_openValue` against the whole.
+// Remove with the measurement they support.
+extension StreamDictionary {
+  public static func _benchmarkHash(_ key: Span<UInt8>) -> UInt64 {
+    key.withUnsafeBufferPointer { Self.hash($0) }
+  }
+
+  public func _benchmarkSlot(_ key: Span<UInt8>, hash: UInt64) -> Int32 {
+    key.withUnsafeBufferPointer { self.slot(forKey: $0, hash: hash) ?? -1 }
+  }
+
+  public mutating func _benchmarkDrain() {
+    self.drainPending()
+  }
 }

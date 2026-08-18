@@ -368,3 +368,88 @@ extension Span where Element == UInt8 {
     return true
   }
 }
+
+// MARK: - Key hashing and comparison
+
+// A key's hash, vectored where the length allows it.
+//
+// This replaced FNV-1a walked one byte at a time. FNV's cost is not the arithmetic but its shape:
+// every byte's multiply depends on the previous byte's, so a twelve byte key is a chain of twelve
+// multiply latencies that no amount of instruction level parallelism can overlap. `key_number_42`
+// is thirteen bytes, which is what a counts-style document is made of.
+//
+// Two accumulators fed from one SIMD16 load break that chain in half, and the whole 16 byte block
+// costs one vector load, one vector xor and two multiplies that issue together.
+//
+// The tail is a bounded word ladder rather than a masked vector, for the reason `streamPaddedWord`
+// already documents: NEON has no masked load, so a partial vector cannot be read without either
+// overreading or a per lane loop. Keys shorter than sixteen bytes — which is most of them — skip
+// the loop entirely and cost at most two bounded loads.
+//
+// Nothing here is serialized, so the byte order the words are read in only has to agree with
+// itself: a key of a given length always takes the same path, and both entry points hash through
+// this function.
+@inlinable
+@inline(__always)
+package func streamHashBytes(base: UnsafeRawPointer, count: Int) -> UInt64 {
+  let prime0: UInt64 = 0x9E37_79B9_7F4A_7C15
+  let prime1: UInt64 = 0xC2B2_AE3D_27D4_EB4F
+
+  var a = prime0 ^ UInt64(UInt(bitPattern: count))
+  var b = prime1
+
+  var i = 0
+  while i &+ 16 <= count {
+    let block = unsafeBitCast(
+      base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self), to: SIMD2<UInt64>.self
+    )
+    a = (a ^ block[0]) &* prime0
+    b = (b ^ block[1]) &* prime1
+    i &+= 16
+  }
+
+  if i < count {
+    let width = Swift.min(count &- i, 8)
+    a = (a ^ streamPaddedWord(base: base, from: i, to: i &+ width)) &* prime0
+    i &+= width
+    if i < count {
+      b = (b ^ streamPaddedWord(base: base, from: i, to: count)) &* prime1
+    }
+  }
+
+  // Avalanche, so that keys differing in one byte land in different buckets rather than in
+  // adjacent ones: the table masks the low bits and linear probing punishes clustering.
+  var hash = a ^ b
+  hash ^= hash >> 33
+  hash = hash &* 0xFF51_AFD7_ED55_8CCD
+  hash ^= hash >> 29
+  return hash
+}
+
+// Byte equality, sixteen bytes at a time.
+//
+// The lanes are xored and the difference read as two words, rather than compared into a mask:
+// `any(mask)` lowers to an out-of-line reduction call, which is the same reason
+// `streamIsEightDigits` spells its all-lanes test by hand.
+@inlinable
+@inline(__always)
+package func streamBytesEqual(
+  _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer, count: Int
+) -> Bool {
+  var i = 0
+  while i &+ 16 <= count {
+    let left = lhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let right = rhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let difference = unsafeBitCast(left ^ right, to: SIMD2<UInt64>.self)
+    guard difference[0] | difference[1] == 0 else { return false }
+    i &+= 16
+  }
+  while i < count {
+    let width = Swift.min(count &- i, 8)
+    guard streamPaddedWord(base: lhs, from: i, to: i &+ width)
+      == streamPaddedWord(base: rhs, from: i, to: i &+ width)
+    else { return false }
+    i &+= width
+  }
+  return true
+}
