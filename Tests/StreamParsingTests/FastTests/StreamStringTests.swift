@@ -313,6 +313,32 @@ struct `Stream string tests` {
   }
 }
 
+@Test(arguments: [63, 64, 65])
+func `Values Around The Small Storage Boundary Preserve Value Semantics`(count: Int) {
+  let content = String(repeating: "s", count: count)
+  var value = StreamString(content)
+  let snapshot = value
+  value.append("!")
+  #expect(String(snapshot) == content)
+  #expect(String(value) == content + "!")
+}
+
+@Test
+func `Reserved And Incrementally Accumulated Values Compare And Hash Equally`() {
+  var reserved = StreamString()
+  reserved.streamReserve(utf8ByteCount: 128)
+  reserved.append("short value")
+  var incremental = StreamString()
+  for byte in "short value".utf8 {
+    withUnsafePointer(to: byte) { pointer in
+      let buffer = UnsafeBufferPointer(start: pointer, count: 1)
+      incremental.streamAppend(utf8: Span(_unsafeElements: buffer))
+    }
+  }
+  #expect(reserved == incremental)
+  #expect(reserved.hashValue == incremental.hashValue)
+}
+
 @Test(arguments: [0, 7, 8, 15, 16, 17, 511, 512, 513, 8_191])
 func `Ordering Uses The First Difference Across SIMD And Block Boundaries`(offset: Int) {
   var lowBytes = Array(repeating: UInt8(ascii: "m"), count: offset &+ 2)

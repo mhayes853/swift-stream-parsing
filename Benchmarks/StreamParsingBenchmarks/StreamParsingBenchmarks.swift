@@ -183,6 +183,22 @@ func streamDiscarding<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
+func streamDiscardingChunks<Value: StreamParseableRoot>(
+  _ bytes: [UInt8],
+  chunk: Int,
+  as type: Value.Type,
+  format: JSONStreamFormat = .json()
+) throws -> Value {
+  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
+  var index = bytes.startIndex
+  while index < bytes.endIndex {
+    let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
+    try stream.next(bytes[index..<end])
+    index = end
+  }
+  return try stream.finish()
+}
+
 func streamSnapshotting<Value: StreamParseableRoot>(
   _ bytes: [UInt8],
   as type: Value.Type

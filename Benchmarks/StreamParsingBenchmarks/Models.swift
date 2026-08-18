@@ -164,6 +164,110 @@ struct BenchmarkCounts: Equatable {
   var counts: [String: Int] = [:]
 }
 
+// MARK: - Canada
+
+@StreamParseable
+struct BenchmarkCanada: Hashable, Sendable {
+  var type: String = ""
+  var features: [BenchmarkCanadaFeature] = []
+}
+
+@StreamParseable
+struct BenchmarkCanadaFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
+  var geometry: BenchmarkCanadaGeometry = BenchmarkCanadaGeometry()
+}
+
+@StreamParseable
+struct BenchmarkCanadaProperties: Hashable, Sendable {
+  var name: String = ""
+}
+
+@StreamParseable
+struct BenchmarkCanadaGeometry: Hashable, Sendable {
+  var type: String = ""
+  var coordinates: [[[Double]]] = []
+}
+
+// MARK: - GSoC 2018
+
+// The document is a dictionary keyed by numeric project identifiers. Keys beginning with `@`
+// cannot be represented as Swift member names and are intentionally ignored; the fields below
+// retain the long string values and nested organizations which define this corpus's shape.
+@StreamParseable
+struct BenchmarkGSoCProject: Hashable, Sendable {
+  var name: String = ""
+  var description: String = ""
+  var sponsor: BenchmarkGSoCOrganization = BenchmarkGSoCOrganization()
+  var author: BenchmarkGSoCOrganization = BenchmarkGSoCOrganization()
+}
+
+@StreamParseable
+struct BenchmarkGSoCOrganization: Hashable, Sendable {
+  var name: String = ""
+  var disambiguatingDescription: String = ""
+  var description: String = ""
+  var url: String = ""
+  var logo: String = ""
+}
+
+// MARK: - GitHub events
+
+// swiftlint:disable identifier_name
+@StreamParseable
+struct BenchmarkGitHubEvent: Hashable, Sendable {
+  var type: String = ""
+  var created_at: String = ""
+  var actor: BenchmarkGitHubActor = BenchmarkGitHubActor()
+  var repo: BenchmarkGitHubRepository = BenchmarkGitHubRepository()
+  var payload: BenchmarkGitHubPayload = BenchmarkGitHubPayload()
+  var id: String = ""
+}
+
+@StreamParseable
+struct BenchmarkGitHubActor: Hashable, Sendable {
+  var gravatar_id: String = ""
+  var login: String = ""
+  var avatar_url: String = ""
+  var url: String = ""
+  var id: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkGitHubRepository: Hashable, Sendable {
+  var url: String = ""
+  var id: Int = 0
+  var name: String = ""
+}
+
+@StreamParseable
+struct BenchmarkGitHubPayload: Hashable, Sendable {
+  var commits: [BenchmarkGitHubCommit] = []
+  var distinct_size: Int = 0
+  var ref: String = ""
+  var push_id: Int = 0
+  var head: String = ""
+  var before: String = ""
+  var size: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkGitHubCommit: Hashable, Sendable {
+  var url: String = ""
+  var message: String = ""
+  var distinct: Bool = false
+  var sha: String = ""
+  var author: BenchmarkGitHubCommitAuthor = BenchmarkGitHubCommitAuthor()
+}
+
+@StreamParseable
+struct BenchmarkGitHubCommitAuthor: Hashable, Sendable {
+  var email: String = ""
+  var name: String = ""
+}
+// swiftlint:enable identifier_name
+
 // MARK: - CITM catalog
 
 // The one real payload whose top level is dictionaries — `events` alone is 184 dynamic keys —
