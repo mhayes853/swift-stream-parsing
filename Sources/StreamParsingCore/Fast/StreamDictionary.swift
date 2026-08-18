@@ -364,14 +364,17 @@ nonisolated(unsafe) let emptyKeyAddress = UnsafeRawPointer(bitPattern: 0x1000).u
 // `package` or `@usableFromInline` symbols, can time the pieces of `_openValue` against the whole.
 // Remove with the measurement they support.
 extension StreamDictionary {
+  @_spi(Benchmarking)
   public static func _benchmarkHash(_ key: Span<UInt8>) -> UInt64 {
     key.withUnsafeBufferPointer { Self.hash($0) }
   }
 
+  @_spi(Benchmarking)
   public func _benchmarkSlot(_ key: Span<UInt8>, hash: UInt64) -> Int32 {
     key.withUnsafeBufferPointer { self.slot(forKey: $0, hash: hash) ?? -1 }
   }
 
+  @_spi(Benchmarking)
   public mutating func _benchmarkDrain() {
     self.drainPending()
   }

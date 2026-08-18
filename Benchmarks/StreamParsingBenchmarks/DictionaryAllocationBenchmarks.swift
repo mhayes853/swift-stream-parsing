@@ -66,4 +66,3 @@ private func runSpanDictionaryAllocation(_ payload: [UInt8]) -> Int {
     return sink.dictionary.count
   }
 }
-

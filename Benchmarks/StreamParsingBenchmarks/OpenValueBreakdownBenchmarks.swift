@@ -1,5 +1,5 @@
 import Benchmark
-import StreamParsingCore
+@_spi(Benchmarking) import StreamParsingCore
 
 // TEMPORARY: where `_openValue` spends its time.
 //
