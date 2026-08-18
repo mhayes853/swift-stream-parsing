@@ -230,6 +230,10 @@ func layerOverheadBenchmarks() {
     modes: [.bulk, .chunks(16_384)]
   )
   addLayerRows(
+    "CITM catalog", Payloads.citmCatalog, as: BenchmarkCITM.Partial.self,
+    modes: [.bulk, .chunks(16_384)]
+  )
+  addLayerRows(
     "LLM message", Payloads.llmMessage, as: BenchmarkLLMMessage.Partial.self,
     modes: [.bulk, .chunks(16_384), .byteByByte]
   )

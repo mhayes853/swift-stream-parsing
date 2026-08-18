@@ -1,3 +1,5 @@
+// Snake_case fields are deliberate: a model's member names must byte-match the JSON keys in the
+// real payloads, or the benchmark measures the discard path instead of the write path.
 import StreamParsing
 
 // MARK: - Flat
@@ -134,6 +136,56 @@ struct BenchmarkFloats: Equatable {
 @StreamParseable
 struct BenchmarkCounts: Equatable {
   var counts: [String: Int] = [:]
+}
+
+// MARK: - CITM catalog
+
+// The one real payload whose top level is dictionaries — `events` alone is 184 dynamic keys —
+// so this is the model that routes real data through `StreamDictionary._openValue` rather than
+// through the synthetic `Dictionary` rows.
+@StreamParseable
+struct BenchmarkCITM: Equatable {
+  var areaNames: [String: String] = [:]
+  var seatCategoryNames: [String: String] = [:]
+  var events: [String: BenchmarkCITMEvent] = [:]
+  var performances: [BenchmarkCITMPerformance] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMEvent: Equatable {
+  var id: Int = 0
+  var name: String = ""
+  var subTopicIds: [Int] = []
+  var topicIds: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMPerformance: Equatable {
+  var eventId: Int = 0
+  var id: Int = 0
+  var start: Int = 0
+  var venueCode: String = ""
+  var prices: [BenchmarkCITMPrice] = []
+  var seatCategories: [BenchmarkCITMSeatCategory] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMPrice: Equatable {
+  var amount: Int = 0
+  var audienceSubCategoryId: Int = 0
+  var seatCategoryId: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkCITMSeatCategory: Equatable {
+  var seatCategoryId: Int = 0
+  var areas: [BenchmarkCITMArea] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMArea: Equatable {
+  var areaId: Int = 0
+  var blockIds: [Int] = []
 }
 
 // MARK: - Twitter

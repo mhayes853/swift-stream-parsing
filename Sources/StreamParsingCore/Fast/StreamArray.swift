@@ -56,13 +56,13 @@ public struct StreamArray<Element> {
 
   // Appends past the pending slot, which is what every path other than the parser wants: a user
   // appending to a parsed array adds after the open element rather than replacing it.
-  @usableFromInline
+  @inlinable
   mutating func appendSealed(_ element: Element) {
     self.drainPending()
     self.commit(element)
   }
 
-  @usableFromInline
+  @inlinable
   mutating func drainPending() {
     // Swapped out rather than read out. Reading leaves the original to be destroyed by the
     // reassignment, which is two element sized copies where this is one, and measured 30% worse on
@@ -74,7 +74,7 @@ public struct StreamArray<Element> {
     self.commit(taken.unsafelyUnwrapped)
   }
 
-  @usableFromInline
+  @inlinable
   mutating func commit(_ element: Element) {
     if self.tail.capacity < Self.blockCapacity {
       self.tail.reserveCapacity(Self.blockCapacity)
@@ -267,6 +267,7 @@ extension StreamArray {
   /// pointer stays valid until the next call, which is what the sink guarantees by resolving an
   /// element's destination once per element rather than once per token.
   @inlinable
+  // swiftlint:disable:next identifier_name
   public mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
     self.drainPending()
     self.pending = initial

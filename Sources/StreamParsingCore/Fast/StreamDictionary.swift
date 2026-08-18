@@ -120,7 +120,7 @@ public struct StreamDictionary<Value> {
 
   // Writes the open entry into storage. Both paths are ordinary mutations, so a state that shares
   // the buffers copies them here rather than seeing them change.
-  @usableFromInline
+  @inlinable
   mutating func drainPending() {
     guard self.pendingSlot >= 0 else { return }
     var key = String?.none
@@ -138,7 +138,7 @@ public struct StreamDictionary<Value> {
     }
   }
 
-  @usableFromInline
+  @inlinable
   mutating func append(_ value: Value, forKey key: String, hash: UInt64) {
     let slot = Int32(self.entries.count)
     self.entries.append(StreamDictionaryEntry(hash: hash, key: key))
@@ -156,7 +156,7 @@ public struct StreamDictionary<Value> {
 
   // Takes the first free probe for a key already known to be absent, which is what lets it stop at
   // the first empty rather than comparing anything.
-  @usableFromInline
+  @inlinable
   mutating func claim(slot: Int32, hash: UInt64) {
     let mask = self.table.unsafelyUnwrapped.count - 1
     var probe = Int(hash & UInt64(mask))
@@ -165,7 +165,7 @@ public struct StreamDictionary<Value> {
   }
 
   // Rebuilt from the entries' stored hashes, so growth hashes nothing and never looks at a key.
-  @usableFromInline
+  @inlinable
   mutating func rebuildTable() {
     var capacity = 16
     while capacity < self.entries.count * 2 { capacity &*= 2 }
@@ -192,7 +192,7 @@ extension StreamDictionary {
   //
   // The mix itself is `streamHashBytes`, which reads sixteen bytes per vector load into two
   // independent accumulators. It replaced FNV-1a, whose per byte multiply chain was the cost.
-  @usableFromInline
+  @inlinable
   static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64 {
     guard let base = key.baseAddress else { return streamHashBytes(base: emptyKeyAddress, count: 0) }
     return streamHashBytes(base: UnsafeRawPointer(base), count: key.count)
@@ -204,7 +204,7 @@ extension StreamDictionary {
     return key.withUTF8 { Self.hash($0) }
   }
 
-  @usableFromInline
+  @inlinable
   func slot(forKey key: UnsafeBufferPointer<UInt8>, hash: UInt64) -> Int32? {
     guard let table = self.table else {
       var slot = 0
@@ -231,7 +231,7 @@ extension StreamDictionary {
     return key.withUTF8 { buffer in self.slot(forKey: buffer, hash: Self.hash(buffer)) }
   }
 
-  @usableFromInline
+  @inlinable
   func keyMatches(_ slot: Int, _ key: UnsafeBufferPointer<UInt8>) -> Bool {
     let stored = self.entries[slot].key
     let equal = stored.utf8.withContiguousStorageIfAvailable { storage in
@@ -243,10 +243,11 @@ extension StreamDictionary {
 
   // Sixteen bytes per compare through `streamBytesEqual`, which is what a resumed key and every
   // colliding probe walk.
-  @usableFromInline
-  static func bytesEqual(_ lhs: UnsafeBufferPointer<UInt8>, _ rhs: UnsafeBufferPointer<UInt8>)
-    -> Bool
-  {
+  @inlinable
+  static func bytesEqual(
+    _ lhs: UnsafeBufferPointer<UInt8>,
+    _ rhs: UnsafeBufferPointer<UInt8>
+  ) -> Bool {
     guard lhs.count == rhs.count else { return false }
     guard let left = lhs.baseAddress, let right = rhs.baseAddress else { return true }
     return streamBytesEqual(UnsafeRawPointer(left), UnsafeRawPointer(right), count: lhs.count)
