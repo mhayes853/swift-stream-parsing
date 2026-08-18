@@ -143,7 +143,6 @@ let benchmarks: @Sendable () -> Void = {
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()
   keyLookupBenchmarks()
-  stringAppendBenchmarks()
 }
 
 // MARK: - Helpers

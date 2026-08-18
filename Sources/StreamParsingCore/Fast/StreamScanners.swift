@@ -1,3 +1,5 @@
+// Short indices and accumulators keep the scanner kernels close to their measured operations.
+// swiftlint:disable identifier_name
 #if canImport(simd)
   import simd
 #endif
@@ -452,4 +454,41 @@ package func streamBytesEqual(
     i &+= width
   }
   return true
+}
+
+// Lexicographic byte ordering, sixteen bytes at a time. The return follows `memcmp`: negative,
+// zero or positive according to the first unequal byte. Locating that byte from the xor keeps
+// the agreeing prefix in registers rather than walking the underlying memory a second time.
+@inlinable
+@inline(__always)
+package func streamCompareBytes(
+  _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer, count: Int
+) -> Int {
+  var i = 0
+  while i &+ 16 <= count {
+    let left = lhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let right = rhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let difference = unsafeBitCast(left ^ right, to: SIMD2<UInt64>.self)
+    if difference[0] | difference[1] != 0 {
+      let half = difference[0] == 0 ? 1 : 0
+      let bits = UInt64(littleEndian: difference[half])
+      let lane = half &* 8 &+ bits.trailingZeroBitCount / 8
+      return left[lane] < right[lane] ? -1 : 1
+    }
+    i &+= 16
+  }
+  while i < count {
+    let width = Swift.min(count &- i, 8)
+    let left = streamPaddedWord(base: lhs, from: i, to: i &+ width)
+    let right = streamPaddedWord(base: rhs, from: i, to: i &+ width)
+    let difference = left ^ right
+    if difference != 0 {
+      let shift = difference.trailingZeroBitCount & ~7
+      let leftByte = UInt8(truncatingIfNeeded: left >> shift)
+      let rightByte = UInt8(truncatingIfNeeded: right >> shift)
+      return leftByte < rightByte ? -1 : 1
+    }
+    i &+= width
+  }
+  return 0
 }

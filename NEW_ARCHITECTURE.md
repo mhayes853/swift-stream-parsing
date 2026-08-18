@@ -1743,7 +1743,8 @@ So the split is clean:
   sink and flushing per token or per read turns the 1 B column into the 64 B column, ~15x on the
   append path; a byte buffer accumulation type is worth another 7x past that and is the only lever
   that also touches bulk. That is the `StreamString` discussion, parked as an API question — the
-  measurements here are what it would buy.
+  measurements here are what it would buy. (Since answered and landed; see "StreamString: bytes
+  accumulate, `String` is a read" below.)
 
 ---
 
@@ -2095,7 +2096,7 @@ The test is third in the guard, after the two register compares, and reads the f
 reads a few instructions later. Cost, against a rerun of the same build to separate it from noise:
 
 | payload | before | after | run to run spread |
-|:--------|-------:|------:|------------------:|
+| :-------- | -------: | ------: | ------------------: |
 | Canada | 848 MB/s | 842 | 0.2% |
 | Nested arrays | 353 | 349 | 0.0% |
 | Array of structs | 553 | 545 | 0.4% |
@@ -2135,7 +2136,7 @@ The macro now hoists each container field's schema to a `private static let` on 
 an element's. The `element:` pair it replaces is gone.
 
 | | before | after | |
-|:---|---:|---:|---:|
+| :--- | ---: | ---: | ---: |
 | Fields per element — malloc | 2,017 | 816 | **-59.5%** |
 | Fields per element — wall p50 | 631 µs | 509 µs | **-19.3%** |
 | Fields per element — throughput | 33 MB/s | 41 MB/s | **+24%** |
@@ -2177,7 +2178,7 @@ The function itself, timed against the loop it replaced over a realistic key mix
 every key:
 
 | payload | before | after |
-|:--------|-------:|------:|
+| :-------- | -------: | ------: |
 | CITM catalog | 1476 MB/s | 1498 |
 | Twitter | 945 | 957 |
 | GSoC 2018 | 2493 | 2511 |
@@ -2217,3 +2218,169 @@ one from a batch containing it.
   remaining `else` in `consumeStringRun`. Reasons are coarse by decision; this one is misleading.
 - `finish()` emits a buffered number before it checks depth, so `[1` delivers `number(1)` and then
   throws `unterminatedContainer`.
+
+---
+
+## StreamString: bytes accumulate, `String` is a read
+
+The accumulation type "The append itself, isolated" priced and parked is now in. `String.Partial`
+is `StreamString`, so every parsed string field accumulates raw UTF-8 and decodes when read,
+rather than materializing an intermediate `String` per chunk — where a chunk is an
+escape-delimited run, which for escaped markdown meant one per ~80 bytes even in bulk.
+
+The layout is `StreamArray`'s, for `StreamArray`'s reasons: sealed 512-byte `ContiguousArray`
+blocks plus a filling tail, so a snapshot shares sealed storage forever and an append after a
+snapshot copies at most the tail. One property `StreamArray` does not have falls out of sealing
+exactly on fill: the block boundaries are a function of the byte count alone, so two equal
+strings pair up block for block — equality is a paired memcmp and hashing feeds the hasher
+identical chunks without normalizing anything. The tail's first allocation is sized to the bytes
+in hand rather than to 512, because most JSON strings are one short append and a 512-byte
+reservation per screen name is the allocation profile this type exists to remove; a tail that
+grows a second time jumps straight to 512.
+
+The API question answered itself by precedent: `Array.Partial` is `StreamArray` and
+`Dictionary.Partial` is `StreamDictionary` for storage reasons, and a string under accumulation
+has the same reasons. The macro already emits `String.Partial` for field types, so the flip
+routed every generated `Partial` with no macro change. Substrings are byte offsets — `utf8` is a
+`RandomAccessCollection` view, `String(value.utf8[n...])` decodes just the suffix, and a range
+inside one block decodes in place with no gathering copy. Materialization always takes the
+repairing decode, because unchecked-mode bytes can be invalid UTF-8 and an unvalidated
+construction is not an option on any path. Equality is byte-wise where `String`'s is canonical —
+NFC and NFD spellings compare unequal here, as they do in the JSON grammar — and heterogeneous
+`==` against `String` exists in the optional shapes, because a partial's fields are optional and
+`partial.title == expected` is the comparison every client writes. That operator set is why the
+382 existing tests compiled and passed with zero edits.
+
+Measured on the same 30-row `Layer` batch as the session's pristine baseline, p50, with the
+counting-sink controls inside the known drift (LLM 1876→1831, Twitter 919→907, CITM 1454→1451):
+
+| Layer, partial sink | before | after | mallocs |
+| --- | --- | --- | --- |
+| LLM message bulk | 382 MB/s, 2798 µs | **600 MB/s, 1782 µs** | 9088 → 6019 |
+| LLM message 16KB chunks | 382 MB/s | **599 MB/s** | 9144 → 6022 |
+| LLM message byte by byte | 30 MB/s, 35 ms | **62 MB/s, 17 ms** | 3735 → 6283 |
+| Twitter bulk | 515 MB/s | 512 MB/s | 288 → 327 |
+| CITM catalog bulk | 408 MB/s | 399 MB/s | 1932 → 2201 |
+
+The stream rows track their partial-sink rows as before (LLM bulk 379 → 586 MB/s). The document
+the convenience layer exists for got +57% in bulk and 2.05x byte-fed, which is the escape-run
+arithmetic paying out: the value-materialization gap on LLM message was 2082 µs and the append
+path's share of it is gone.
+
+`StringAppendBenchmarks` now measures the production type against `String`'s own conformance
+(which remains the path for a `String` used directly as a root), and the isolation agrees with
+the layer rows about where each side wins. p50, 8 KB accumulated then materialized:
+
+| | by 1 B | by 64 B | by 4096 B | fresh 14 B | fresh 23 B |
+| --- | --- | --- | --- | --- | --- |
+| `String.streamAppend` | 199 µs | 13 µs | 833 ns | 83 ns, 0 mallocs | 208 ns |
+| `StreamString` | **42 µs** | **4.6 µs** | 2.8 µs | 208 ns, 1 malloc | 208 ns |
+
+The two right columns are the accepted costs in isolation: at 4 KB chunks the block seals and the
+gathering decode cost more than `String`'s single append — though this row materializes every
+iteration, which the parse path only does when a field is read — and a fresh sub-15-byte token
+pays the tail malloc that `String`'s inline form avoided. Those are exactly the shapes behind
+Twitter's and CITM's flat-but-not-better rows.
+
+Two costs were accepted knowingly. Twitter and CITM wall clock is flat at the drift boundary, but
+their malloc counts rose (+39, +269): a string that fit `String`'s 15-byte inline form cost zero
+mallocs and every non-empty `StreamString` allocates one tail. An inline small form inside
+`StreamString` is the follow-up if those payloads ever need the mallocs back; it was not bought
+here because the wall clock says it is not yet being paid for. And byte-fed LLM message still
+sits at 62 MB/s against the counting sink's 127: the per-byte append is now a uniqueness check, a
+capacity check and a store, so what remains is the per-chunk scalar-target resolution — the
+"batching in the sink" lever, which is the other half of the split the append measurements
+predicted and is untouched.
+
+Also untouched by design: CITM's 150K retains on the dictionary key path and Twitter's routing
+gap (919 counting vs 556 partial with no values written), which are the next two largest costs in
+the layer and are not string problems.
+
+### The `StringProtocol` question, and the bridge instead
+
+`StreamString` cannot conform to `StringProtocol` and should not try: the protocol constrains
+`Index == String.Index`, which is opaque and only mintable from an actual `String`'s views, and
+`Element == Character`, which requires grapheme segmentation the stdlib does not expose — and the
+stdlib's contract names `String` and `Substring` as the only valid conformers, which generic code
+(see `_ephemeralString`, specialized for exactly those two) is entitled to assume. A conformance
+that compiles would materialize a `String` inside nearly every requirement, reinstating the cost
+the type exists to remove, under `String`'s canonical semantics where `StreamString`'s identity
+is deliberately byte-wise.
+
+What shipped instead: byte-wise `hasPrefix`/`hasSuffix`/`contains` (one `streamBytesEqual` walk
+per block the window touches, sharing `utf8Matches` with `==`; `contains` is a first-byte scan,
+quadratic only for the pathological caller), and `Substring.init(_:)` from a `StreamString` or a
+`utf8` slice as the explicit bridge — one repairing decode, then the full `String` API for
+anything generic over `StringProtocol`. Equality and the gather copy also now go through
+`streamBytesEqual` and one-memcpy-per-block respectively; a fully contiguous backing was
+considered and rejected because a single region would relocate on growth, which is exactly what
+sealed-block sharing exists to avoid. Marking `streamAppend` `@inlinable` measured flat (594 vs
+600 MB/s on `Layer LLM message bulk - partial sink`, batch position noise): `append(utf8:)`
+already specialized through the inlinable schema closure, so the attribute is consistency, not
+speed.
+
+The comparison surface got its own rows (`StringCompareBenchmarks`), because nothing on the parse
+path compares strings and the `Layer` rows are blind to it. Measured against an `elementsEqual`
+control, stash-style in one session, p50 on equal operands (equality's worst case):
+
+| | `streamBytesEqual` | `elementsEqual` control | `String == String` |
+| --- | --- | --- | --- |
+| compare 23 B | 42 ns | 83 ns | — |
+| compare 8 KB | **250 ns** | 10 µs | 625 ns, 1 malloc |
+| compare 8 KB vs `String` | 333 ns | 10 µs | — |
+| contains, match at end of 8 KB | 7.7 µs | 7.7 µs | — |
+| hasSuffix 6 B of 8 KB | 83 ns | 83 ns | — |
+
+`elementsEqual` over `UnsafeBufferPointer<UInt8>` never becomes a memcmp — ~1.2 ns per byte, 40x
+under the SIMD16 walk at 8 KB — so the shared-helper rewrite is what makes block-paired equality
+faster than `String`'s own `==` on the same bytes. Ordering uses the sibling
+`streamCompareBytes` kernel: it finds the first unequal SIMD lane from the xor and compares that
+lane directly, rather than probing equality and then walking the same window again. Dedicated
+ordering rows pinned the effect, p50 wall clock in the same session:
+
+| ordering | equality probe + byte walk | `streamCompareBytes` |
+| --- | --- | --- |
+| 23 B, difference at end | 83 ns | 83 ns |
+| 8 KB, equal | 333 ns | 292 ns |
+| 8 KB, difference at byte 511 | 250 ns | **83 ns** |
+| 8 KB, difference at value end | 500 ns | **292 ns** |
+
+The searchers moved not at all: `contains` is bounded by its per-byte first-byte scan through the
+view subscript, not by the match, which is where a SIMD scan would go if a real workload ever
+cares; `hasSuffix` is one 6-byte compare either way.
+
+### The API round: scalars, forward characters, and one index currency
+
+The collection story landed where the `StringProtocol` analysis pointed: conformances live on
+views, not on the type. `unicodeScalars` is a `BidirectionalCollection` of `Unicode.Scalar` with
+`Int` byte-offset indices — the same currency as `utf8`, so an index moves freely between the
+views — decoding table-free (the narrowed second-byte ranges reject overlong forms and
+surrogates) and repairing ill-formed bytes as one U+FFFD per byte, the same policy as the
+`String` decode, so the views cannot disagree about garbage.
+
+`characters` is a forward `Sequence` of the same `Character` values produced by iterating a
+`String`. Grapheme segmentation is not public API and its tables are not something this package
+should carry, so a small decoded window delegates each boundary to `String`'s own breaker; the
+window grows when an extended grapheme cluster fills it. The sequence deliberately does not vend
+integer character indices: `StreamString`'s integers are UTF-8 byte offsets, while `String` uses
+opaque `String.Index` values to distinguish valid character boundaries.
+
+The rest of the round: `append` (StringProtocol / `StreamString` block-wise / `Character`),
+`+=`/`+`, `TextOutputStream` (an accumulator is an output stream — `print(x, to: &value)`
+appends), `TextOutputStreamable` (block-at-a-time with cuts backed off to scalar boundaries, so
+no chunk decodes a torn character and the whole value is never materialized), custom string
+interpolation (segments append as bytes; the reflection catch-all is `#if !Embedded`, which the
+wasm build enforced by failing until it was), `Comparable` (byte-wise lexicographic, which for
+UTF-8 *is* scalar-value order, through one SIMD-backed pass per 512-byte window), and a quoted
+`debugDescription`. Declined on the standing principle that members never materialize: `count`
+(grapheme count would lie or decode; `utf8Count` stays the only
+spelling), `lowercased()`/case mapping, and locale- or regex-anything.
+
+`range(of:from:)` closed the round once the index contract was settled: offsets the type hands
+out denote real boundaries; offsets a caller invents denote bytes, and the API answers for the
+byte named. The result is `Range<Int>` in the one currency — it feeds `utf8[range]` and
+`String(_:)`/`Substring(_:)` directly — with the byte-wise consequences stated rather than
+hidden: a match in well-formed text is scalar-aligned by UTF-8 self-synchronization, not
+necessarily grapheme-cluster-aligned (searching `"e"` finds the `e` inside a decomposed `"é"`,
+pinned in tests). `contains` is now `range(of:) != nil`, and the resumable `from:` parameter is
+the marker-scanning loop the delta use case wanted.

@@ -15,8 +15,11 @@ extension String: StreamStringConvertible {
 }
 
 extension Bool: StreamBooleanConvertible, StreamInitializable {
-  public init(streamParsingBoolean value: Bool) { self = value }
   public static func streamInitialValue() -> Self { false }
+
+  public init(streamParsingBoolean value: Bool) {
+    self = value
+  }
 }
 
 extension Optional: StreamNullable, StreamInitializable {
@@ -31,36 +34,47 @@ extension Array: StreamInitializable {
 extension Int: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Int8: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Int16: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Int32: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Int64: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension UInt: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension UInt8: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension UInt16: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension UInt32: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension UInt64: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Double: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
+
 extension Float: StreamNumberConvertible, StreamInitializable {
   public static func streamInitialValue() -> Self { 0 }
 }
@@ -102,19 +116,21 @@ where Value: StreamParseableRoot {
 @available(StreamParsing128BitIntegers, *)
 extension Int128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
   public static func streamInitialValue() -> Self { 0 }
-
 }
 
 @available(StreamParsing128BitIntegers, *)
 extension UInt128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
   public static func streamInitialValue() -> Self { 0 }
-
 }
 
 // MARK: - String
 
 extension String: StreamParseable {
-  public typealias Partial = Self
+  public typealias Partial = StreamString
+
+  public var streamPartialValue: StreamString {
+    StreamString(self)
+  }
 }
 
 // MARK: - Double
@@ -302,8 +318,6 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 }
 
 extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {
-  // The wrapped schema, not a materializing wrapper around it: the frame this type hands out has
-  // always carried `Wrapped`'s schema, with the optional settled at entry rather than per token.
   @inlinable
   public static var streamContainerSchema: StreamSchema {
     Wrapped.streamContainerSchema
