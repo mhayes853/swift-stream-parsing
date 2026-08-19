@@ -28,8 +28,9 @@ public struct StreamArray<Element> {
   // over prefix sums.
   @usableFromInline var blocks: [ContiguousArray<Element>]
 
-  // The filling block. The only place `blockCapacity` shows up as a cost, since this is what a
-  // commit copies when a snapshot shares it.
+  // The filling block. Its first allocation is deliberately smaller than `blockCapacity`; it
+  // promotes once if needed, while every tail after the first sealed block starts at full size.
+  // This is what a commit copies when a snapshot shares it.
   @usableFromInline var tail: ContiguousArray<Element>
 
   // The element being parsed, or nil when none is open. Reads see it as the last element, which is
@@ -37,6 +38,7 @@ public struct StreamArray<Element> {
   @usableFromInline var pending: Element?
 
   // A power of two, so the sealed count is `blocks.count << blockShift` and needs no stored field.
+  @usableFromInline static var initialTailCapacity: Int { 8 }
   @usableFromInline static var blockShift: Int { 5 }
   @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
   @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
@@ -76,8 +78,12 @@ public struct StreamArray<Element> {
 
   @inlinable
   mutating func commit(_ element: Element) {
-    if self.tail.capacity < Self.blockCapacity {
-      self.tail.reserveCapacity(Self.blockCapacity)
+    let neededCapacity = self.tail.count &+ 1
+    if self.tail.capacity < neededCapacity {
+      let reservation = self.blocks.isEmpty && self.tail.isEmpty
+        ? Self.initialTailCapacity
+        : Self.blockCapacity
+      self.tail.reserveCapacity(reservation)
     }
     self.tail.append(element)
     guard self.tail.count == Self.blockCapacity else { return }
