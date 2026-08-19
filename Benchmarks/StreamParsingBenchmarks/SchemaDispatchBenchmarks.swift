@@ -20,10 +20,21 @@ import StreamParsingCore
 //                   load and a branch with no ARC, and the pair copies for free
 //   direct          the same matcher called statically: the floor a fully specialized sink would
 //                   reach, and what the indirect call itself costs against it
+//   witness         a static requirement called through `any P.Type` stored on the class: the same
+//                   two words as a closure — a table and a context — with type metadata as the
+//                   context instead of a refcounted box, so the call is the indirect one without
+//                   the ARC. The generic row is the same thing on a generic witness, which is what
+//                   the array and dictionary builders need: they must reach `Element` at call
+//                   time, and metadata is exactly the context a thin pointer cannot carry.
 //
-// Measured, p0, per call: direct 3.2 ns, thin 4.6 ns, thick 17.0 ns, bitcast pair 29 ns. The
-// indirect call is nearly free — 1.4 ns over a static one — and the ARC around it is 12.4 ns, so a
-// schema call is mostly its own refcounting.
+// Measured, p0, per call: direct 3.2 ns, generic witness 4.2 ns, witness 4.8 ns, thin 4.8 ns,
+// thick 17.0 ns, bitcast pair 29.9 ns. The indirect call is nearly free — around 1.5 ns over a
+// static one — and the ARC around it is 12 ns, so a schema call is mostly its own refcounting.
+//
+// The witness rows are the decision: a static requirement through `any P.Type` costs what a bare
+// function pointer costs, 3.5x less than the closure it replaces, and the generic witness is no
+// slower than the concrete one — so carrying `Element` as metadata is free, which is the property
+// the array and dictionary builders need and the one `@convention(thin)` cannot provide.
 //
 // The thin row is `@convention(c)` rather than `@convention(thin)`. Thin is what a redesign would
 // want, because it accepts any Swift type where `c` accepts only C representable ones, and it is
@@ -71,7 +82,35 @@ private func matchProbeFieldThin(
 
 // MARK: - The representations
 
-private final class ThickSchema: @unchecked Sendable {
+// A metatype is not refcounted, so storing one and calling a static requirement through it is a
+// witness table load and an indirect call with no retain/release pair around it.
+private protocol ProbeWitness: Sendable {
+  static func matchField(_ base: UnsafeRawPointer, _ count: Int) -> Int32
+}
+
+private enum ProbeObjectWitness: ProbeWitness {
+  static func matchField(_ base: UnsafeRawPointer, _ count: Int) -> Int32 {
+    matchProbeField(base, count)
+  }
+}
+
+// The shape `_streamArraySchema` would take: a witness carrying a generic parameter it needs at
+// call time. Mechanically the same dispatch, measured separately in case the metadata costs.
+private enum ProbeGenericWitness<Element>: ProbeWitness {
+  static func matchField(_ base: UnsafeRawPointer, _ count: Int) -> Int32 {
+    matchProbeField(base, count)
+  }
+}
+
+private final class WitnessSchema: Sendable {
+  let witness: any ProbeWitness.Type
+
+  init(witness: any ProbeWitness.Type) {
+    self.witness = witness
+  }
+}
+
+private final class ThickSchema: Sendable {
   let matchField: @Sendable (UnsafeRawPointer, Int) -> Int32
 
   init(matchField: @escaping @Sendable (UnsafeRawPointer, Int) -> Int32) {
@@ -79,16 +118,16 @@ private final class ThickSchema: @unchecked Sendable {
   }
 }
 
-private final class ThinSchema: @unchecked Sendable {
+private final class ThinSchema: Sendable {
   let matchField: @convention(c) (UnsafeRawPointer?, UnsafeRawPointer, Int) -> Int32
-  let context: UnsafeRawPointer?
+  let context: UInt
 
   init(
     matchField: @convention(c) (UnsafeRawPointer?, UnsafeRawPointer, Int) -> Int32,
     context: UnsafeRawPointer?
   ) {
     self.matchField = matchField
-    self.context = context
+    self.context = context.map { UInt(bitPattern: $0) } ?? 0
   }
 }
 
@@ -98,13 +137,13 @@ private final class ThinSchema: @unchecked Sendable {
 // closure itself is kept alive in `retained` so the context word stays valid. Calling it means
 // rebuilding the function value with `unsafeBitCast`, which is the part worth measuring: whether
 // the optimizer still insists on retaining what it rebuilt.
-private final class PairSchema: @unchecked Sendable {
-  let pair: (UnsafeRawPointer, UnsafeRawPointer?)
-  let retained: Any
+private final class PairSchema: Sendable {
+  let pair: (UInt, UInt?)
+  let retained: @Sendable (UnsafeRawPointer, Int) -> Int32
 
   init(matchField: @escaping @Sendable (UnsafeRawPointer, Int) -> Int32) {
     self.retained = matchField
-    self.pair = unsafeBitCast(matchField, to: (UnsafeRawPointer, UnsafeRawPointer?).self)
+    self.pair = unsafeBitCast(matchField, to: (UInt, UInt?).self)
   }
 
   @inline(__always)
@@ -118,6 +157,10 @@ private final class PairSchema: @unchecked Sendable {
 private nonisolated(unsafe) var thick = ThickSchema(matchField: matchProbeFieldThick)
 private nonisolated(unsafe) var thin = ThinSchema(matchField: matchProbeFieldThin, context: nil)
 private nonisolated(unsafe) var pair = PairSchema(matchField: matchProbeFieldThick)
+private nonisolated(unsafe) var witness = WitnessSchema(witness: ProbeObjectWitness.self)
+private nonisolated(unsafe) var genericWitness = WitnessSchema(
+  witness: ProbeGenericWitness<StreamString>.self
+)
 
 // MARK: - Registration
 
@@ -149,7 +192,9 @@ func schemaDispatchBenchmarks() {
     for _ in benchmark.scaledIterations {
       for _ in 0..<repeats {
         for (base, count) in storage {
-          blackHole(thin.matchField(thin.context, UnsafeRawPointer(base), count))
+          blackHole(
+            thin.matchField(UnsafeRawPointer(bitPattern: thin.context), UnsafeRawPointer(base), count)
+          )
         }
       }
     }
@@ -160,6 +205,26 @@ func schemaDispatchBenchmarks() {
       for _ in 0..<repeats {
         for (base, count) in storage {
           blackHole(pair.callMatchField(UnsafeRawPointer(base), count))
+        }
+      }
+    }
+  }
+
+  Benchmark("Dispatch witness metatype - 1002 calls") { benchmark in
+    for _ in benchmark.scaledIterations {
+      for _ in 0..<repeats {
+        for (base, count) in storage {
+          blackHole(witness.witness.matchField(UnsafeRawPointer(base), count))
+        }
+      }
+    }
+  }
+
+  Benchmark("Dispatch generic witness metatype - 1002 calls") { benchmark in
+    for _ in benchmark.scaledIterations {
+      for _ in 0..<repeats {
+        for (base, count) in storage {
+          blackHole(genericWitness.witness.matchField(UnsafeRawPointer(base), count))
         }
       }
     }

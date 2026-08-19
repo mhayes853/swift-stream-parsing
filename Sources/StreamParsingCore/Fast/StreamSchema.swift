@@ -193,7 +193,12 @@ extension StreamContainerPartial {
   }
 }
 
-public protocol StreamParseableObject: StreamParseableRoot {}
+// Refines `StreamContainerPartial` so that a nested object field's schema is hoisted by its
+// parent exactly as a container field's is. Without that the entry read `T.streamSchema` per
+// occurrence, which is a stored static for a generated `Partial` and a freshly built schema for
+// any hand-written conformance — `PersonNameComponents` is one — leaving the frame as its only
+// owner. That is invisible while a frame retains its schema and fatal once a frame borrows it.
+public protocol StreamParseableObject: StreamContainerPartial {}
 
 // MARK: - Scalar schemas
 

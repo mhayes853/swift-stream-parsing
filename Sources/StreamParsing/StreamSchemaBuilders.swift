@@ -82,7 +82,9 @@ public func _streamEnterField<T: StreamParseableObject>(
   _ value: inout T?,
   containerSchema: StreamSchema?
 ) -> StreamFrame? {
-  _streamEnterOptionalObject(&value)
+  // Non-nil by construction: `_streamContainerSchema(for:)` resolves through
+  // `StreamContainerPartial`, which `StreamParseableObject` refines.
+  _streamEnterOptionalObject(&value, schema: containerSchema.unsafelyUnwrapped)
 }
 
 @_disfavoredOverload
@@ -101,7 +103,7 @@ public func _streamEnterField<T: StreamParseableObject>(
   _ value: inout T,
   containerSchema: StreamSchema?
 ) -> StreamFrame? {
-  _streamEnterObject(&value)
+  _streamEnterObject(&value, schema: containerSchema.unsafelyUnwrapped)
 }
 
 // The source spelling did not identify a built-in container. Resolve through the actual partial

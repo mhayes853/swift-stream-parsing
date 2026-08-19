@@ -2384,3 +2384,151 @@ hidden: a match in well-formed text is scalar-aligned by UTF-8 self-synchronizat
 necessarily grapheme-cluster-aligned (searching `"e"` finds the `e` inside a decomposed `"é"`,
 pinned in tests). `contains` is now `range(of:) != nil`, and the resumable `from:` parameter is
 the marker-scanning loop the delta use case wanted.
+
+## Routing: frames borrow their schema, and two rewrites that measurement rejected
+
+`StreamString` moved `LLM message`'s partial sink from 382 to 600 MB/s, so the question became
+what the *other* documents were spending. The counting sink is the control: the same parse with
+a sink that counts tokens and does nothing else, so counting minus partial is what routing a
+token into a value costs and nothing more.
+
+The `partial sink, no values` row existed only for `Twitter` and `LLM message`, which is the pair
+that answered least. Adding it for the three widest gaps meant solving one problem first: the
+control renames scalar keys so nothing matches, and that cannot work on a **dictionary**, which
+matches every key by construction and treats a value its schema refuses as a type mismatch rather
+than an ignored key. So the dictionary control sits one level lower — `BenchmarkDiscardedScalar`
+opens the entry under its key and accepts and discards the token — which holds `enterKey` and the
+entry's storage constant and removes only the scalar conversion. Narrower than the object control,
+and it is exactly the narrowness that made the answer legible.
+
+Bulk, p50, one batch:
+
+| Payload | counting | no values | matched | routing | values | routing share |
+|---|---:|---:|---:|---:|---:|---:|
+| Dictionary | 540 | 102 | 103 | 7.95 ns/B | −0.10 ns/B | **100%** |
+| CITM catalog | 1451 | 437 | 405 | 1.60 ns/B | 0.18 ns/B | 90% |
+| Twitter | 935 | 551 | 525 | 0.75 ns/B | 0.09 ns/B | 89% |
+| Array of structs | 547 | 205 | 111 | 3.05 ns/B | 4.13 ns/B | 42% |
+| LLM message | 1768 | 1505 | 608 | 0.10 ns/B | 0.98 ns/B | 9% |
+
+`Dictionary` settles it: 540 → 102 without writing a value, and writing all 100 values costs
+nothing measurable — identical mallocs, identical retains. The 5.3x gap is `enterKey` and opening
+the entry. `CITM catalog` says the same at scale: 135,000 of its 150,000 retains and 1,690 of its
+1,692 mallocs happen with no value written. `LLM message` is the inverse and confirms
+`StreamString` did its job — 91% of what is left there is writing bytes. `Array of structs` is the
+one payload where values are the larger half, at 4.13 ns/B against `LLM message`'s 0.98: that is
+`StreamString` paying block allocation on 200 tiny strings, which is the inline-small-form
+follow-up, not a routing problem.
+
+Building those rows surfaced two sharp edges. `runLayerPartialSink` never checked
+`sink.streamFailure` — a rejection is recorded, not thrown, so the first versions of the models
+measured the bail-out path and read as fast rows; there is now a `precondition` there, and it
+caught the second edge immediately. `_streamSchema(for:)` picks a schema **by overload, not by
+conformance**, so a hand-written `StreamParseableRoot` matching none of the convertible overloads
+lands on the `@_disfavoredOverload` catch-all — a scalar schema that refuses every token — and its
+own `streamSchema` is never read. `StreamParseableObject` is the conformance that forwards.
+
+### Durability before borrowing
+
+The plan was to stop `PartialSink` retaining the schema in every frame it copies. That is sound
+only while every schema a frame can carry outlives the parse, and the claim that it already did
+was wrong. The macro hoists `private static let streamContainerSchema_<field>` and passes it to
+`_streamEnterField`, but the `StreamParseableObject` overload **ignored** it and called
+`_streamEnterObject`, which reads `T.streamSchema` per entry. For a generated `Partial` that is a
+stored static, so it was harmless. For a hand-written conformance whose `streamSchema` is computed
+it allocated a fresh schema per entry whose only owner was the frame — `PersonNameComponents` in
+`Support/Foundation.swift` is one in this tree, and it is exactly the retroactive-conformance shape
+a user would write.
+
+So `StreamParseableObject` now refines `StreamContainerPartial`, and the object entry helpers take
+the schema rather than reading it. The parent evaluates a child's `streamSchema` once into its own
+`private static let`, which means a retroactive conformance gets durability without its author
+doing anything. That closes the ownership graph: an object or container field's schema is the
+parent's hoisted static, an element or value schema is captured by the container schema that
+produced it, the root's is `rootSchema`, and an ignored subtree's is `ignoredStreamSchema`.
+
+### The witness rewrite, measured and rejected
+
+`SchemaDispatchBenchmarks` prices a schema call through a stored `@Sendable` closure at 17.0 ns
+against 4.6 ns for a bare function pointer, the difference being one retain/release pair. The
+replacement was going to be a witness metatype: `any StreamSchemaWitness.Type` stored on the
+schema, which carries the same two words a closure does with type metadata as the context, and
+metadata is not refcounted. `@convention(thin)` is not an option — it cannot carry metadata, and
+forming a thin function *reference* crashes the compiler under Swift 6 mode.
+
+The dispatch measured exactly as predicted: **witness 4.8 ns, generic witness 4.2 ns, thin 4.8 ns,
+thick closure 17.0 ns, direct 3.2 ns.** Carrying a generic parameter costs nothing. Both rows are
+kept in the file.
+
+It made the parser slower anyway, in two independent ways, and both are the reason this section
+records a rejection rather than a design.
+
+The generic builders were the larger half: **Dictionary 103 → 36 MB/s, CITM 405 → 269, Array of
+structs 111 → 90.** `_streamArraySchema` and `_streamDictionarySchema` are `@inlinable`, so the
+closure body they built was *specialized* at the schema-construction site — `Element` concrete,
+`StreamArray<Element>` laid out, `streamInitialValue()` direct. A generic witness reached through
+an existential metatype is not specialized: every one of those goes through runtime generic
+metadata. The step-1 probe missed it because the generic probe never touched its parameter, which
+is the flaw in that measurement worth remembering.
+
+The object path was the smaller half and a wash on its own — Twitter +1.7%, LLM −0.5%, CITM −2.5% —
+while *adding* retains (Dictionary 313 → 513, CITM 150,000 → 164,000), because a protocol witness
+passes its arguments owned rather than guaranteed, so handing `self` to the witness costs a pair.
+
+The premise was wrong at the real call site. The 17 ns closure cost is real in a micro-benchmark
+that defeats the optimizer with a global `var`; in `PartialSink` the schema is reached through
+`top.pointee.schema` in the same module and the closure load is already a borrow. Twitter's
+16,000 retains against roughly 37,000 schema calls was the evidence sitting in the results the
+whole time: it was never one retain per call.
+
+### What did work: `BorrowedFrame`
+
+`StreamFrame` is unchanged — a schema handed across the public API is an ordinary strong reference.
+`PartialSink` lowers to a `BorrowedFrame` with an `unowned(unsafe)` schema the moment it receives
+one and never stores a `StreamFrame`, so the frame stack, `pendingDictionaryFrame` and the frame
+half of the scalar target stop retaining. The struct is trivial, so pushing and popping a frame is
+a store and a decrement and `deinitialize` on the stack is a no-op.
+
+| Payload | before | after | retains |
+|---|---:|---:|---|
+| Dictionary — partial sink | 103 | **119** (+15.5%) | 313 → 311 |
+| CITM catalog — partial sink | 405 | **429** (+5.9%) | 150,000 → **129,000** |
+| Twitter — partial sink | 525 | 534 | 16,000 → **13,000** |
+| LLM message — partial sink | 608 | 603 | 13,000 → 12,000 |
+| Array of structs — partial sink | 111 | 111 | 1,913 → 1,811 |
+
+The counting-sink rows moved −4.6% to +5.1% across the same two runs with nothing touching them,
+so that is the session's noise floor and only `Dictionary` and `CITM catalog` clear it on wall
+clock. The retain counts are exact and clear it everywhere. `Dictionary` gains 15% while saving
+two retains, which says its win is the trivial frame — a store instead of an ARC pair on every
+`pendingDictionaryFrame` set and clear — rather than the retains.
+
+`ScalarTarget.schema` stayed **strong**, against the plan and because of the measurement.
+Borrowing it made `LLM message` go 604 → 485 MB/s with retains rising 12,000 → 37,000: a stored
+closure loaded off an `unowned(unsafe)` reference has to be converted to a strong one first, where
+the same load off a strong stored property is a borrow the optimizer gets for free, and that
+target is re-read once per `stringChunk`. Twitter, which routes many short scalars and few chunks,
+preferred the borrow by 11%. The string path is the larger of the two.
+
+### The tripwire
+
+`unowned(unsafe)` trades a guarantee for speed, so the violation has to be reported rather than
+discovered. `StreamSchemaBorrowAudit` holds every borrowed schema **weakly** and checks for
+deallocation at `pushFrame` and at scalar resolution. A weak reference rather than a refcount:
+`isKnownUniquelyReferenced` at the borrow depends on whether the caller's temporary is still
+alive, which differs between `-Onone` and `-O`, so it both false-positives and false-negatives.
+Deallocation is the thing that actually matters. It is per sink rather than global, so there is
+no shared mutable state to race on, and `#if DEBUG && !hasFeature(Embedded)` because Embedded
+Swift has no `weak`.
+
+`SchemaBorrowAuditTests` proves it fires — a tripwire that cannot trip reads as a guarantee and
+is worse than none. The failing model is hand-written because the macro hoists a nested schema and
+so cannot express the mistake, and the test observes stderr rather than only the exit status, so
+it cannot pass on an unrelated crash.
+
+Still open, and now measured rather than suspected: `Dictionary` at 119 MB/s against a 515 MB/s
+counting sink is still the worst ratio in the suite, and it is `enterKey` and `StreamDictionary`'s
+entry, not the schema call. The byte-fed floor is untouched — every byte-fed row sits at 9–12 ns/B
+regardless of payload, including `Long string`, which is 8 KB of two tokens, because
+`consumeStringRun` buffers keys but emits string values straight from the input span and so fires
+`stringChunk` once per byte.

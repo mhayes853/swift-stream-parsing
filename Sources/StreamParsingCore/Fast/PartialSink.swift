@@ -1,3 +1,101 @@
+// A `StreamFrame` whose schema is borrowed rather than owned.
+//
+// The sink lowers to this the moment it receives a frame and never stores a `StreamFrame`, so the
+// frame stack, the pending dictionary frame and the scalar target stop retaining. `StreamFrame`
+// itself is unchanged: a schema handed across the public API is an ordinary strong reference, and
+// only the sink's internal copies borrow.
+//
+// This is trivial, so pushing and popping a frame is a store and a decrement rather than an ARC
+// pair, and `deinitialize` on the stack is a no-op.
+//
+// Sound only while every schema a frame can carry outlives the parse. That already holds: an
+// object or container field's schema is the `private static let` its parent hoists, an element or
+// value schema is captured by the container schema that produced it, the root's is
+// `rootSchema`, and an ignored subtree's is `ignoredStreamSchema`. `StreamSchemaBorrowAudit`
+// checks it in debug builds rather than trusting it.
+@usableFromInline
+struct BorrowedFrame {
+  @usableFromInline var storage: UnsafeMutableRawPointer
+  @usableFromInline unowned(unsafe) var schema: StreamSchema
+  @usableFromInline var pendingField: Int32
+
+  @usableFromInline
+  init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
+    self.storage = storage
+    self.schema = schema
+    self.pendingField = pendingField
+  }
+
+  @usableFromInline
+  init(borrowing frame: StreamFrame) {
+    self.storage = frame.storage
+    self.schema = frame.schema
+    self.pendingField = frame.pendingField
+  }
+}
+
+// Embedded Swift has no `weak`, so the audit compiles out there along with the calls to it. That
+// is not a gap worth closing: a schema without a durable owner is a mistake a conformance makes,
+// and it is caught by any non-Embedded debug build of the same conformance.
+#if DEBUG && !hasFeature(Embedded)
+  // Whether the schemas the sink borrowed outlived the frames that borrowed them.
+  //
+  // A schema whose only owner is the frame it arrived in is deallocated the instant that frame is
+  // lowered, and every later use of it is a use after free — the failure this design trades safety
+  // for, and one that otherwise surfaces as a crash somewhere with nothing pointing back at the
+  // cause. A hand written `enterField` that builds its schema on the spot is how it happens.
+  //
+  // A weak reference is the test rather than a refcount. `isKnownUniquelyReferenced` at the borrow
+  // depends on whether the caller's temporary is still alive, which differs between -Onone and -O,
+  // so it both false-positives and false-negatives. Deallocation is the thing that actually
+  // matters, and a weak reference reports exactly that.
+  //
+  // Per sink rather than global, so there is no shared mutable state to race on and the identity
+  // of a schema that died is still in hand when the report is made.
+  @usableFromInline
+  struct StreamSchemaBorrowAudit {
+    @usableFromInline
+    struct Borrow {
+      @usableFromInline weak var schema: StreamSchema?
+      @usableFromInline let identity: ObjectIdentifier
+
+      @usableFromInline
+      init(_ schema: StreamSchema) {
+        self.schema = schema
+        self.identity = ObjectIdentifier(schema)
+      }
+    }
+
+    @usableFromInline var borrows: [Borrow] = []
+
+    @usableFromInline
+    init() {}
+
+    // One entry per distinct schema, not per frame: a document enters the same schema once per
+    // occurrence and there are only ever a handful of them.
+    @usableFromInline
+    mutating func record(_ schema: StreamSchema) {
+      let identity = ObjectIdentifier(schema)
+      guard !self.borrows.contains(where: { $0.identity == identity }) else { return }
+      self.borrows.append(Borrow(schema))
+    }
+
+    @usableFromInline
+    func verify() {
+      for borrow in self.borrows where borrow.schema == nil {
+        preconditionFailure(
+          """
+          A StreamFrame's schema was deallocated while the sink still borrowed it, which means the \
+          frame was its only owner. Schema \(borrow.identity) has to be stored somewhere that \
+          outlives the parse — the `private static let` the macro hoists onto the enclosing \
+          Partial, or a stored `let` next to the conformance that builds it.
+          """
+        )
+      }
+    }
+  }
+#endif
+
 // Routes parse events into a value described by a StreamSchema.
 //
 // Frames point into the value being built. Only the innermost open container is ever mutated,
@@ -9,7 +107,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var rootSchema: StreamSchema
   @usableFromInline var started = false
-  @usableFromInline var pendingDictionaryFrame: StreamFrame?
+  @usableFromInline var pendingDictionaryFrame: BorrowedFrame?
 
   // The frame stack, one fixed allocation rather than an `Array`.
   //
@@ -23,13 +121,27 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // Capacity is the cap plus one because the cap is checked *after* the sink is told the container
   // opened: `consumeStructural` calls `beginObject` and then `push`, so the frame for the rejected
   // depth arrives before the parse throws.
-  @usableFromInline let frames: UnsafeMutablePointer<StreamFrame>
+  @usableFromInline let frames: UnsafeMutablePointer<BorrowedFrame>
   @usableFromInline var frameCount = 0
 
   // Frames there was no room for. A container that could not be pushed must not pop one that
   // could, and a caller that catches the depth error and keeps feeding gets more `beginObject`
   // calls after it, so overflow has to stay balanced rather than merely not crash once.
   @usableFromInline var droppedFrameCount = 0
+
+  #if DEBUG && !hasFeature(Embedded)
+    @usableFromInline var audit = StreamSchemaBorrowAudit()
+  #endif
+
+  // Lowers a frame the schema handed back, recording the borrow so a debug build can tell whether
+  // the schema outlives it.
+  @usableFromInline
+  mutating func borrow(_ frame: StreamFrame) -> BorrowedFrame {
+    #if DEBUG && !hasFeature(Embedded)
+      self.audit.record(frame.schema)
+    #endif
+    return BorrowedFrame(borrowing: frame)
+  }
 
   @usableFromInline
   static var frameCapacity: Int { JSONParser.maximumDepth + 1 }
@@ -50,12 +162,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // MARK: Frame stack
 
   @usableFromInline
-  var topFrame: UnsafeMutablePointer<StreamFrame>? {
+  var topFrame: UnsafeMutablePointer<BorrowedFrame>? {
     self.frameCount > 0 ? self.frames + (self.frameCount &- 1) : nil
   }
 
   @usableFromInline
-  mutating func pushFrame(_ frame: StreamFrame) {
+  mutating func pushFrame(_ frame: BorrowedFrame) {
+    #if DEBUG && !hasFeature(Embedded)
+      self.audit.verify()
+    #endif
     guard self.frameCount < Self.frameCapacity else {
       self.droppedFrameCount &+= 1
       self.recordFailure(.depthExceeded)
@@ -100,7 +215,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       let canHoldContainer = self.rootSchema.shape.canHold(container: shape)
       if !canHoldContainer { self.recordFailure(.typeMismatch) }
       let schema = canHoldContainer ? self.rootSchema : Self.ignoredSchema
-      self.pushFrame(StreamFrame(storage: self.root, schema: schema))
+      self.pushFrame(BorrowedFrame(storage: self.root, schema: schema))
       return
     }
 
@@ -109,12 +224,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       // A container under an unknown object key is ignored. Every other missing target describes
       // a known destination whose schema cannot accept a container.
       if hasKnownDestination { self.recordFailure(.typeMismatch) }
-      self.pushFrame(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(BorrowedFrame(storage: self.root, schema: Self.ignoredSchema))
       return
     }
     guard target.schema.shape.canHold(container: shape) else {
       self.recordFailure(.typeMismatch)
-      self.pushFrame(StreamFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(BorrowedFrame(storage: self.root, schema: Self.ignoredSchema))
       return
     }
     self.pushFrame(target)
@@ -134,14 +249,18 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // the enclosing container is an array. Whether the frame can hold the value that arrives is the
   // caller's question, not this one's: a scalar frame is the right answer for a scalar and the
   // wrong one for a container.
-  private mutating func valueTarget() -> StreamFrame? {
+  private mutating func valueTarget() -> BorrowedFrame? {
     guard let top = self.topFrame else { return nil }
     switch top.pointee.schema.shape {
     case .array:
-      return top.pointee.schema.appendElement(top.pointee.storage)
+      guard let frame = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
+      return self.borrow(frame)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
-      return top.pointee.schema.enterField(top.pointee.storage, top.pointee.pendingField)
+      guard
+        let frame = top.pointee.schema.enterField(top.pointee.storage, top.pointee.pendingField)
+      else { return nil }
+      return self.borrow(frame)
     case .dictionary:
       defer { self.pendingDictionaryFrame = nil }
       return self.pendingDictionaryFrame
@@ -171,6 +290,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       // The key span does not outlive this call, so the value's frame is resolved now rather
       // than remembered and resolved when the value arrives.
       self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
+        .map { self.borrow($0) }
     case .ignore:
       top.pointee.pendingField = -1
     }
@@ -236,6 +356,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline
   struct ScalarTarget {
     var storage: UnsafeMutableRawPointer
+    // Strong, unlike `BorrowedFrame`, and measured rather than assumed. Borrowing here made things
+    // worse: a stored closure loaded off an `unowned(unsafe)` reference has to be converted to a
+    // strong one first, where the same load off a strong stored property is a borrow the optimizer
+    // gets for free. `Layer LLM message bulk - partial sink` went 604 -> 485 MB/s with retains
+    // rising 12,000 -> 37,000, because this target is re-read once per `stringChunk` and that
+    // document is the one made of long strings. Twitter, which routes many short scalars and few
+    // chunks, preferred the borrow by 11% — the string path is the larger of the two.
     var schema: StreamSchema
     var field: Int32
   }
@@ -243,6 +370,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var scalarTarget: ScalarTarget?
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
+    #if DEBUG && !hasFeature(Embedded)
+      self.audit.verify()
+    #endif
     guard let top = self.topFrame else {
       // A bare scalar document never opens a container, so no frame was ever pushed and the
       // root is the destination.
@@ -256,7 +386,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     switch top.pointee.schema.shape {
     case .array:
       guard let element = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
-      return ScalarTarget(storage: element.storage, schema: element.schema, field: 0)
+      let borrowed = self.borrow(element)
+      return ScalarTarget(storage: borrowed.storage, schema: borrowed.schema, field: 0)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
       return ScalarTarget(

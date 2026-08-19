@@ -9,18 +9,27 @@
 //
 // Underscored because nothing outside macro generated code has any reason to call these.
 
+// Both take the schema rather than reading `T.streamSchema`, so the frame borrows a schema the
+// parent already owns. Reading it here built one per occurrence for every conformance whose
+// `streamSchema` is computed rather than stored, and the frame was its only owner.
 @inlinable
-public func _streamEnterOptionalObject<T: StreamParseableObject>(_ value: inout T?) -> StreamFrame {
+public func _streamEnterOptionalObject<T: StreamParseableObject>(
+  _ value: inout T?,
+  schema: StreamSchema
+) -> StreamFrame {
   if value == nil { value = T.streamInitialValue() }
   return withUnsafeMutablePointer(to: &value) {
-    StreamFrame(storage: UnsafeMutableRawPointer($0), schema: T.streamSchema)
+    StreamFrame(storage: UnsafeMutableRawPointer($0), schema: schema)
   }
 }
 
 @inlinable
-public func _streamEnterObject<T: StreamParseableObject>(_ value: inout T) -> StreamFrame {
+public func _streamEnterObject<T: StreamParseableObject>(
+  _ value: inout T,
+  schema: StreamSchema
+) -> StreamFrame {
   withUnsafeMutablePointer(to: &value) {
-    StreamFrame(storage: UnsafeMutableRawPointer($0), schema: T.streamSchema)
+    StreamFrame(storage: UnsafeMutableRawPointer($0), schema: schema)
   }
 }
 

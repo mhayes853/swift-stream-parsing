@@ -434,3 +434,112 @@ struct BenchmarkDocument: Equatable {
   var title: String = ""
   var body: String = ""
 }
+
+// MARK: - Structure only controls
+
+// The `no values` control for a dictionary.
+//
+// Every other structure-only model renames its scalar keys so nothing matches, and that trick
+// cannot work on a dictionary: a dictionary matches every key by construction, and a value its
+// schema refuses is a type mismatch rather than an ignored key, so the parse would fail instead
+// of routing. The control has to sit one level lower — the entry is still opened under its key,
+// and the schema that receives the token accepts it and writes nothing.
+//
+// So the dictionary split is narrower than the object one: it holds `enterKey` and the entry's
+// storage constant and removes only the scalar conversion. That is the honest reading, and it is
+// the one that matters, because whether the dictionary path costs what it costs in `enterKey` or
+// in the conversion is exactly the open question.
+//
+// One `Int` of storage, so the dictionary grows the same way it does with the real value type.
+//
+// `StreamParseableObject` rather than `StreamParseableRoot`, which is the non-obvious part.
+// `_streamSchema(for:)` picks a schema by overload rather than by conformance, and a
+// `StreamParseableRoot` matching none of the convertible overloads lands on the disfavored
+// catch-all — a scalar schema that refuses every token. The custom `streamSchema` below is never
+// read, and the row records a type mismatch instead of a parse. Only the `StreamParseableObject`
+// overload forwards to `T.streamSchema`.
+struct BenchmarkDiscardedScalar: Equatable, StreamInitializable, StreamParseableObject {
+  var value: Int = 0
+
+  static func streamInitialValue() -> Self { Self() }
+
+  static var streamSchema: StreamSchema {
+    StreamSchema(
+      shape: .scalar,
+      applyString: { _, _, _ in true },
+      applyNumber: { _, _, _, _ in true },
+      applyBoolean: { _, _, _ in true },
+      applyNull: { _, _ in true }
+    )
+  }
+}
+
+extension BenchmarkDiscardedScalar: StreamParseable {
+  typealias Partial = Self
+}
+
+// swiftlint:disable identifier_name
+
+// `BenchmarkUserList`'s spine with the scalars renamed, like `BenchmarkTwitterStructure`. The
+// array is still entered and all 100 elements are still appended.
+@StreamParseable
+struct BenchmarkUserListStructure: Equatable {
+  var users: [BenchmarkUserStructure] = []
+  var absent_total: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkUserStructure: Equatable {
+  var absent_scalar: Int = 0
+}
+
+// `BenchmarkCounts` with the dictionary's value discarded rather than converted.
+@StreamParseable
+struct BenchmarkCountsStructure: Equatable {
+  var counts: [String: BenchmarkDiscardedScalar] = [:]
+}
+
+// `BenchmarkCITM`'s spine. The two `[String: String]` maps and the object map keep their shape
+// and lose their values through `BenchmarkDiscardedScalar`; the object subtrees rename their
+// scalars the way `BenchmarkTwitterStructure` does. Containers are entered, elements appended and
+// dictionary entries opened exactly as the matched model does.
+@StreamParseable
+struct BenchmarkCITMStructure: Equatable {
+  var areaNames: [String: BenchmarkDiscardedScalar] = [:]
+  var seatCategoryNames: [String: BenchmarkDiscardedScalar] = [:]
+  var events: [String: BenchmarkCITMEventStructure] = [:]
+  var performances: [BenchmarkCITMPerformanceStructure] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMEventStructure: Equatable {
+  var absent_scalar: Int = 0
+  var subTopicIds: [BenchmarkDiscardedScalar] = []
+  var topicIds: [BenchmarkDiscardedScalar] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMPerformanceStructure: Equatable {
+  var absent_scalar: Int = 0
+  var prices: [BenchmarkCITMPriceStructure] = []
+  var seatCategories: [BenchmarkCITMSeatCategoryStructure] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMPriceStructure: Equatable {
+  var absent_scalar: Int = 0
+}
+
+@StreamParseable
+struct BenchmarkCITMSeatCategoryStructure: Equatable {
+  var absent_scalar: Int = 0
+  var areas: [BenchmarkCITMAreaStructure] = []
+}
+
+@StreamParseable
+struct BenchmarkCITMAreaStructure: Equatable {
+  var absent_scalar: Int = 0
+  var blockIds: [BenchmarkDiscardedScalar] = []
+}
+
+// swiftlint:enable identifier_name

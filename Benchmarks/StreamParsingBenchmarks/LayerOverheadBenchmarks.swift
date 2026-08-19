@@ -118,6 +118,11 @@ func runLayerPartialSink<Value: StreamParseableRoot>(
   }
   var sink = PartialSink(root: storage)
   try feed(payload, mode, into: &sink)
+  // A sink rejection is recorded rather than thrown, so without this a model that does not fit
+  // its payload measures the bail-out path and reads as a fast row. The structure-only models are
+  // exactly the ones at risk: they are hand-edited to stop matching, and a rename that turns an
+  // ignored key into a type mismatch is invisible otherwise.
+  precondition(sink.streamFailure == nil, "Partial sink rejected the payload: \(sink.streamFailure!)")
   blackHole(storage.pointee)
 }
 
@@ -243,5 +248,19 @@ func layerOverheadBenchmarks() {
   )
   addValueMaterializationRows(
     "LLM message", Payloads.llmMessage, structureOnly: BenchmarkLLMMessageStructure.Partial.self
+  )
+
+  // The three payloads whose counting-to-partial gap is widest and whose split was never
+  // measured. `CITM catalog` and `Dictionary` are the ones worth having: both are dictionary
+  // routed, and a dictionary's control removes only the scalar conversion, so a row that barely
+  // moves says the cost is in `enterKey` and the entry rather than in the value.
+  addValueMaterializationRows(
+    "Array of structs", Payloads.userList, structureOnly: BenchmarkUserListStructure.Partial.self
+  )
+  addValueMaterializationRows(
+    "Dictionary", Payloads.counts, structureOnly: BenchmarkCountsStructure.Partial.self
+  )
+  addValueMaterializationRows(
+    "CITM catalog", Payloads.citmCatalog, structureOnly: BenchmarkCITMStructure.Partial.self
   )
 }
