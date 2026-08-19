@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -17,11 +18,13 @@ struct `Buffer capacity tests` {
     var sink = CountingConformanceSink()
     let bytes = Array(json.utf8)
     try bytes.withUnsafeBufferPointer { input in
-      var i = 0
-      while i < input.count {
-        let count = Swift.min(chunk, input.count - i)
-        try parser.parse(UnsafeBufferPointer(start: input.baseAddress! + i, count: count), into: &sink)
-        i += count
+      var offset = 0
+      while offset < input.count {
+        let count = Swift.min(chunk, input.count - offset)
+        try parser.parse(
+          UnsafeBufferPointer(start: input.baseAddress! + offset, count: count), into: &sink
+        )
+        offset += count
       }
     }
     try parser.finish(into: &sink)
@@ -94,7 +97,7 @@ struct `Buffer capacity tests` {
       index = end
     }
     let document = try stream.finish()
-    expectNoDifference(document.body, expected)
+    expectNoDifference(document.body.map { String($0) }, expected as String?)
   }
 
   // The failure is a property of the token and the capacity, not of where the chunks fell.

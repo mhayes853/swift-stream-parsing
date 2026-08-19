@@ -87,6 +87,7 @@ public struct JSONParser: ~Copyable {
   // `bufferCount > 0` cannot stand in for it, because a key whose first character is an escape
   // has buffered nothing yet, and misrouting it emitted the decoded byte as string content.
   @usableFromInline var isKeyToken = false
+  @usableFromInline var keyContainsNonASCII = false
 
   @usableFromInline var literalKind: UInt8 = 0
   @usableFromInline var literalIndex = 0
@@ -310,6 +311,7 @@ public struct JSONParser: ~Copyable {
       case .asciiQuote:
         self.isKeyToken = true
         self.bufferCount = 0
+        self.keyContainsNonASCII = false
         self.state = .inKey
       case .asciiObjectEnd:
         guard self.state == .firstKey, self.depth > 0, self.topIsObject else {
@@ -383,6 +385,7 @@ public struct JSONParser: ~Copyable {
       guard byte == .asciiQuote else { return from }
       self.isKeyToken = true
       self.bufferCount = 0
+      self.keyContainsNonASCII = false
       self.state = .inKey
       return next &+ 1
     }
@@ -416,18 +419,34 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     let isKey = self.state == .inKey
+    let tracksNonASCII = self.configuration.validatesUTF8
     var i = from
     while true {
-      let end = streamStringRunEnd(base: base, from: i, to: to)
+      let run = if tracksNonASCII {
+        streamStringRun(base: base, from: i, to: to)
+      } else {
+        StreamStringRun(
+          end: streamStringRunEnd(base: base, from: i, to: to),
+          containsNonASCII: false
+        )
+      }
+      let end = run.end
 
       if end > i {
         if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: i) }
         if isKey {
+          self.keyContainsNonASCII = self.keyContainsNonASCII || run.containsNonASCII
           try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
         } else {
           let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
           if emitEnd > i {
-            try self.validateUTF8IfNeeded(base: base, from: i, to: emitEnd, reportAt: nil)
+            try self.validateUTF8IfNeeded(
+              base: base,
+              from: i,
+              to: emitEnd,
+              containsNonASCII: run.containsNonASCII,
+              reportAt: nil
+            )
             let slice = UnsafeBufferPointer(
               start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
               count: emitEnd &- i
@@ -848,8 +867,13 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
     let count = self.bufferCount
+    let base = UnsafeRawPointer(self.buffer.baseAddress!)
     try self.validateUTF8IfNeeded(
-      base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count, reportAt: reportAt
+      base: base,
+      from: 0,
+      to: count,
+      containsNonASCII: self.keyContainsNonASCII,
+      reportAt: reportAt
     )
     // Zero the padding so a matcher loading a whole vector sees defined bytes.
     for offset in count..<(count &+ StreamParsingLayout.keyPaddingByteCount) {
@@ -858,6 +882,7 @@ public struct JSONParser: ~Copyable {
     let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
     sink.key(Span(_unsafeElements: slice))
     self.bufferCount = 0
+    self.keyContainsNonASCII = false
   }
 
   // MARK: UTF-8
@@ -974,10 +999,14 @@ public struct JSONParser: ~Copyable {
 
   @inlinable
   mutating func validateUTF8IfNeeded(
-    base: UnsafeRawPointer, from: Int, to: Int, reportAt: Int?
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    containsNonASCII: Bool,
+    reportAt: Int?
   ) throws(JSONParsingError) {
     guard self.configuration.validatesUTF8 else { return }
-    guard streamContainsNonASCII(base: base, from: from, to: to) else { return }
+    guard containsNonASCII else { return }
     var i = from
     while i < to {
       let lead = base.load(fromByteOffset: i, as: UInt8.self)

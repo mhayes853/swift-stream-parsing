@@ -54,7 +54,7 @@ struct `Stream scanner tests` {
           let actual = Self.withBase(bytes) {
             streamStringRunEnd(base: $0, from: from, to: length)
           }
-          #expect(actual == expected, "length \(length) from \(from)")
+          expectNoDifference(actual, expected, "length \(length) from \(from)")
         }
       }
     }
@@ -104,7 +104,7 @@ struct `Stream scanner tests` {
         let actual = Self.withBase(bytes) {
           streamContainsNonASCII(base: $0, from: 0, to: length)
         }
-        #expect(actual == expected, "length \(length) position \(position)")
+        expectNoDifference(actual, expected, "length \(length) position \(position)")
       }
     }
   }
@@ -115,7 +115,7 @@ struct `Stream scanner tests` {
     let actual = Self.withBase(bytes) {
       streamContainsNonASCII(base: $0, from: 0, to: bytes.count)
     }
-    #expect(!actual)
+    expectNoDifference(!actual, true)
   }
 
   // MARK: - Digit runs
@@ -224,9 +224,9 @@ struct `Key word tests` {
   // difference.
   @Test
   func `Short keys of differing length produce differing words`() {
-    #expect(Self.word("name") != Self.word("names"))
-    #expect(Self.word("a") != Self.word("aa"))
-    #expect(Self.word("id") != Self.word("di"))
+    expectNoDifference(Self.word("name") != Self.word("names"), true)
+    expectNoDifference(Self.word("a") != Self.word("aa"), true)
+    expectNoDifference(Self.word("id") != Self.word("di"), true)
   }
 
   @Test
@@ -258,7 +258,7 @@ struct `Key word tests` {
         let actual = bytes.withUnsafeBufferPointer {
           Span(_unsafeElements: $0).paddedWord(at: start)
         }
-        #expect(actual == Self.referenceWord(bytes, at: start), "count \(count), start \(start)")
+        expectNoDifference(actual, Self.referenceWord(bytes, at: start), "count \(count), start \(start)")
       }
     }
   }

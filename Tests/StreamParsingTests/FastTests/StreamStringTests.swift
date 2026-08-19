@@ -1,4 +1,5 @@
 import Foundation
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -50,7 +51,7 @@ struct `Stream string tests` {
   @Test
   func `Appending nothing allocates nothing and stays empty`() {
     let value = self.accumulated([], chunk: 1)
-    #expect(value.isEmpty)
+    expectNoDifference(value.isEmpty, true)
     expectNoDifference(value.utf8Count, 0)
     expectNoDifference(String(value), "")
   }
@@ -86,13 +87,13 @@ struct `Stream string tests` {
     let expected = "compared against a variable"
     let value = StreamString(expected)
     let optional = StreamString?.some(value)
-    expectNoDifference(value, expected)
-    expectNoDifference(expected, value)
-    expectNoDifference(optional, expected)
-    expectNoDifference(expected, optional)
-    #expect(value != expected + "!")
-    #expect(StreamString?.none != expected)
-    expectNoDifference(value, expected[...])
+    expectNoDifference(value, StreamString(expected))
+    expectNoDifference(StreamString(expected), value)
+    expectNoDifference(optional, StreamString?.some(value))
+    expectNoDifference(StreamString?.some(value), optional)
+    expectNoDifference(value != expected + "!", true)
+    expectNoDifference(StreamString?.none != expected, true)
+    expectNoDifference(value, StreamString(expected[...]))
   }
 
   @Test
@@ -102,7 +103,7 @@ struct `Stream string tests` {
     let composed = StreamString("\u{E9}")
     let decomposed = StreamString("e\u{301}")
     expectNoDifference("\u{E9}", String("e\u{301}"))
-    #expect(composed != decomposed)
+    expectNoDifference(composed != decomposed, true)
   }
 
   // MARK: - Reading
@@ -125,21 +126,21 @@ struct `Stream string tests` {
     let value = self.accumulated(
       Array((String(repeating: "p", count: 500) + "needle in a haystack").utf8), chunk: 64
     )
-    #expect(value.hasPrefix("ppp"))
-    #expect(value.hasPrefix(""))
-    #expect(!value.hasPrefix("q"))
-    #expect(value.hasSuffix("haystack"))
-    #expect(value.hasSuffix(""))
-    #expect(!value.hasSuffix("needle"))
-    #expect(value.contains("needle in"))
-    #expect(value.contains(""))
-    #expect(!value.contains("needle out"))
-    #expect(!StreamString().contains("x"))
+    expectNoDifference(value.hasPrefix("ppp"), true)
+    expectNoDifference(value.hasPrefix(""), true)
+    expectNoDifference(!value.hasPrefix("q"), true)
+    expectNoDifference(value.hasSuffix("haystack"), true)
+    expectNoDifference(value.hasSuffix(""), true)
+    expectNoDifference(!value.hasSuffix("needle"), true)
+    expectNoDifference(value.contains("needle in"), true)
+    expectNoDifference(value.contains(""), true)
+    expectNoDifference(!value.contains("needle out"), true)
+    expectNoDifference(!StreamString().contains("x"), true)
     // Longer than the content is a plain miss, not a bounds trap.
-    #expect(!StreamString("ab").hasPrefix("abc"))
-    #expect(!StreamString("ab").hasSuffix("abc"))
+    expectNoDifference(!StreamString("ab").hasPrefix("abc"), true)
+    expectNoDifference(!StreamString("ab").hasSuffix("abc"), true)
     // Byte-wise, like `==`: an NFD spelling does not match an NFC prefix.
-    #expect(!StreamString("e\u{301}tude").hasPrefix("\u{E9}"))
+    expectNoDifference(!StreamString("e\u{301}tude").hasPrefix("\u{E9}"), true)
   }
 
   @Test
@@ -153,12 +154,12 @@ struct `Stream string tests` {
     expectNoDifference(Substring(value.utf8[first!]), "marker")
     let second = value.range(of: "marker", from: first!.upperBound)
     expectNoDifference(second, 522..<528)
-    #expect(value.range(of: "marker", from: second!.upperBound) == nil)
-    #expect(value.range(of: "absent") == nil)
+    expectNoDifference(value.range(of: "marker", from: second!.upperBound), nil)
+    expectNoDifference(value.range(of: "absent"), nil)
     expectNoDifference(value.range(of: "end")?.upperBound, value.utf8Count)
     expectNoDifference(value.range(of: ""), 0..<0)
     expectNoDifference(value.range(of: "", from: 5), 5..<5)
-    #expect(value.range(of: "longer than the tail", from: value.utf8Count) == nil)
+    expectNoDifference(value.range(of: "longer than the tail", from: value.utf8Count), nil)
     // Byte-wise honesty: the search lands mid-cluster inside a decomposed character.
     let decomposed = StreamString("e\u{301}!")
     expectNoDifference(decomposed.range(of: "e"), 0..<1)
@@ -219,7 +220,7 @@ struct `Stream string tests` {
     let joined = StreamString("a") + StreamString("b")
     expectNoDifference(joined, "ab")
     print("printed", terminator: "", to: &value)
-    #expect(value.hasSuffix("!printed"))
+    expectNoDifference(value.hasSuffix("!printed"), true)
   }
 
   @Test
@@ -241,17 +242,17 @@ struct `Stream string tests` {
 
   @Test
   func `Ordering is byte wise scalar order`() {
-    #expect(StreamString("abc") < StreamString("abd"))
-    #expect(StreamString("ab") < StreamString("abc"))
-    #expect(!(StreamString("abc") < StreamString("abc")))
+    expectNoDifference(StreamString("abc") < StreamString("abd"), true)
+    expectNoDifference(StreamString("ab") < StreamString("abc"), true)
+    expectNoDifference(!(StreamString("abc") < StreamString("abc")), true)
     // Scalar-value order: U+00E9 sorts after ASCII, and byte-wise agrees.
-    #expect(StreamString("z") < StreamString("\u{E9}"))
+    expectNoDifference(StreamString("z") < StreamString("\u{E9}"), true)
     // A difference in the second 512-byte window.
     let sharedHead = String(repeating: "s", count: 600)
     let low = self.accumulated(Array((sharedHead + "a").utf8), chunk: 64)
     let high = self.accumulated(Array((sharedHead + "b").utf8), chunk: .max)
-    #expect(low < high)
-    #expect(!(high < low))
+    expectNoDifference(low < high, true)
+    expectNoDifference(!(high < low), true)
     expectNoDifference([StreamString("b"), "a", "c"].sorted(), ["a", "b", "c"])
   }
 
@@ -295,7 +296,9 @@ struct `Stream string tests` {
       #"{"title":"The Title","body":"\#(body)"}"#, into: &value, chunk: chunk
     )
     expectNoDifference(value.title, "The Title")
-    expectNoDifference(value.body, body.replacingOccurrences(of: "\\n", with: "\n"))
+    expectNoDifference(
+      value.body.map(String.init), body.replacingOccurrences(of: "\\n", with: "\n") as String?
+    )
   }
 
   @Test
@@ -349,6 +352,6 @@ func `Ordering Uses The First Difference Across SIMD And Block Boundaries`(offse
   highBytes[offset &+ 1] = UInt8(ascii: "a")
   let low = StreamString(String(decoding: lowBytes, as: UTF8.self))
   let high = StreamString(String(decoding: highBytes, as: UTF8.self))
-  #expect(low < high)
-  #expect(!(high < low))
+  expectNoDifference(low < high, true)
+  expectNoDifference(!(high < low), true)
 }

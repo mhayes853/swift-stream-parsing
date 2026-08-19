@@ -28,11 +28,11 @@ struct `Stream dictionary tests` {
     for i in 0..<40 {
       dictionary.updateValue(i, forKey: "key\(i)")
       for j in 0...i {
-        #expect(dictionary["key\(j)"] == j, "after \(i + 1) insertions")
+        expectNoDifference(dictionary["key\(j)"], j, "after \(i + 1) insertions")
       }
     }
     expectNoDifference(dictionary.count, 40)
-    #expect(dictionary["missing"] == nil)
+    expectNoDifference(dictionary["missing"], nil)
   }
 
   @Test
@@ -51,7 +51,7 @@ struct `Stream dictionary tests` {
     let first: StreamDictionary<Int> = ["a": 1, "b": 2]
     let second: StreamDictionary<Int> = ["b": 2, "a": 1]
     let third: StreamDictionary<Int> = ["a": 1, "b": 2]
-    #expect(first != second)
+    expectNoDifference(first != second, true)
     expectNoDifference(first, third)
   }
 
@@ -75,7 +75,7 @@ struct `Stream dictionary tests` {
     expectNoDifference(pairs[1].key, "two")
     expectNoDifference(pairs[1].value, "2")
     expectNoDifference(dictionary.count, 2)
-    #expect(!dictionary.isEmpty)
+    expectNoDifference(!dictionary.isEmpty, true)
   }
 
   @Test
@@ -91,7 +91,7 @@ struct `Stream dictionary tests` {
     for (value, key) in keys.enumerated() {
       expectNoDifference(dictionary[key], value)
     }
-    #expect(dictionary["probe_collision_missing"] == nil)
+    expectNoDifference(dictionary["probe_collision_missing"], nil)
   }
 
   @Test

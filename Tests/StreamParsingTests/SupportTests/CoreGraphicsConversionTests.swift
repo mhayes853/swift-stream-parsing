@@ -1,5 +1,6 @@
 #if StreamParsingCoreGraphics && canImport(CoreGraphics)
   import CoreGraphics
+  import CustomDump
   import Testing
 
   import StreamParsing

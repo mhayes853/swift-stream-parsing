@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -31,8 +32,7 @@ struct `Snapshot stability tests` {
   // Feeds one byte at a time, keeping every state along with what it looked like when taken.
   private func expectStable<Value: StreamParseableRoot>(
     _ json: String,
-    as type: Value.Type,
-    sourceLocation: SourceLocation = #_sourceLocation
+    as type: Value.Type
   ) throws {
     var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
     var kept = [(rendering: String, value: Value)]()
@@ -44,15 +44,12 @@ struct `Snapshot stability tests` {
     try stream.finish()
 
     for (offset, state) in kept.enumerated() {
-      #expect(
-        String(describing: state.value) == state.rendering,
+      expectNoDifference(String(describing: state.value), state.rendering,
         """
         the state taken after byte \(offset) changed after the fact
         was:   \(state.rendering)
         is now: \(String(describing: state.value))
-        """,
-        sourceLocation: sourceLocation
-      )
+        """)
     }
   }
 

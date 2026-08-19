@@ -1,4 +1,5 @@
 import StreamParsing
+import CustomDump
 import Testing
 
 @Suite

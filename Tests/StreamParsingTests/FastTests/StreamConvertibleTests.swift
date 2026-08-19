@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -51,14 +52,14 @@ struct `Stream convertible tests` {
   @Test
   func `Values beyond the destination range are rejected`() {
     Self.span("256") { bytes in
-      #expect(UInt8(streamParsing: bytes, info: Self.info(256, digits: 3)) == nil)
+      expectNoDifference(UInt8(streamParsing: bytes, info: Self.info(256, digits: 3)), nil)
     }
     Self.span("-129") { bytes in
       let info = Self.info(129, digits: 3, flags: .negative)
-      #expect(Int8(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int8(streamParsing: bytes, info: info), nil)
     }
     Self.span("128") { bytes in
-      #expect(Int8(streamParsing: bytes, info: Self.info(128, digits: 3)) == nil)
+      expectNoDifference(Int8(streamParsing: bytes, info: Self.info(128, digits: 3)), nil)
     }
   }
 
@@ -66,8 +67,8 @@ struct `Stream convertible tests` {
   func `Overflowed magnitudes are rejected rather than truncated`() {
     Self.span("99999999999999999999999") { bytes in
       let info = Self.info(0, digits: 23, flags: .overflowed)
-      #expect(Int(streamParsing: bytes, info: info) == nil)
-      #expect(UInt64(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int(streamParsing: bytes, info: info), nil)
+      expectNoDifference(UInt64(streamParsing: bytes, info: info), nil)
     }
   }
 
@@ -75,11 +76,11 @@ struct `Stream convertible tests` {
   func `Fractional and exponential tokens are not integers`() {
     Self.span("1.5") { bytes in
       let info = Self.info(15, digits: 2, exponent: -1, flags: .fraction)
-      #expect(Int(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int(streamParsing: bytes, info: info), nil)
     }
     Self.span("1e3") { bytes in
       let info = Self.info(1, digits: 1, exponent: 3, flags: .exponent)
-      #expect(Int(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int(streamParsing: bytes, info: info), nil)
     }
   }
 
@@ -99,7 +100,7 @@ struct `Stream convertible tests` {
     Self.span("-4217") { bytes in
       let info = Self.info(4217, digits: 4, flags: .negative)
       expectNoDifference(Int128(streamParsing: bytes, info: info), -4217)
-      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(UInt128(streamParsing: bytes, info: info), nil)
     }
   }
 
@@ -114,12 +115,12 @@ struct `Stream convertible tests` {
     Self.span("-170141183460469231731687303715884105728") { bytes in
       let info = Self.info(0, digits: 39, flags: [.overflowed, .negative])
       expectNoDifference(Int128(streamParsing: bytes, info: info), Int128.min)
-      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(UInt128(streamParsing: bytes, info: info), nil)
     }
     Self.span("340282366920938463463374607431768211455") { bytes in
       let info = Self.info(0, digits: 39, flags: .overflowed)
       expectNoDifference(UInt128(streamParsing: bytes, info: info), UInt128.max)
-      #expect(Int128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), nil)
     }
   }
 
@@ -128,16 +129,16 @@ struct `Stream convertible tests` {
   func `128 bit integers reject what still does not fit`() {
     Self.span("340282366920938463463374607431768211456") { bytes in
       let info = Self.info(0, digits: 39, flags: .overflowed)
-      #expect(UInt128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(UInt128(streamParsing: bytes, info: info), nil)
     }
     // A re-scan only makes sense for a plain integer token, so these stay rejected.
     Self.span("1.5") { bytes in
       let info = Self.info(15, digits: 2, exponent: -1, flags: .fraction)
-      #expect(Int128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), nil)
     }
     Self.span("1e300") { bytes in
       let info = Self.info(1, digits: 1, exponent: 300, flags: .exponent)
-      #expect(Int128(streamParsing: bytes, info: info) == nil)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), nil)
     }
   }
 
@@ -204,23 +205,23 @@ struct `Stream convertible tests` {
     var opaque = Opaque()
 
     Self.span("Blob") { bytes in
-      #expect(streamApply(&name, utf8: bytes))
-      #expect(!streamApply(&count, utf8: bytes))
-      #expect(!streamApply(&flag, utf8: bytes))
-      #expect(!streamApply(&opaque, utf8: bytes))
+      expectNoDifference(streamApply(&name, utf8: bytes), true)
+      expectNoDifference(!streamApply(&count, utf8: bytes), true)
+      expectNoDifference(!streamApply(&flag, utf8: bytes), true)
+      expectNoDifference(!streamApply(&opaque, utf8: bytes), true)
     }
     Self.span("42") { bytes in
       let info = Self.info(42, digits: 2)
-      #expect(!streamApply(&name, bytes: bytes, info: info))
-      #expect(streamApply(&count, bytes: bytes, info: info))
-      #expect(!streamApply(&opaque, bytes: bytes, info: info))
+      expectNoDifference(!streamApply(&name, bytes: bytes, info: info), true)
+      expectNoDifference(streamApply(&count, bytes: bytes, info: info), true)
+      expectNoDifference(!streamApply(&opaque, bytes: bytes, info: info), true)
     }
-    #expect(streamApply(&flag, boolean: true))
-    #expect(!streamApply(&count, boolean: true))
+    expectNoDifference(streamApply(&flag, boolean: true), true)
+    expectNoDifference(!streamApply(&count, boolean: true), true)
 
     expectNoDifference(name, "Blob")
     expectNoDifference(count, 42)
-    #expect(flag)
+    expectNoDifference(flag, true)
     expectNoDifference(opaque, Opaque())
   }
 
@@ -228,9 +229,9 @@ struct `Stream convertible tests` {
   func `Null application only affects nullable destinations`() {
     var optional: Int? = 5
     var plain = 5
-    #expect(streamApplyNull(&optional))
-    #expect(!streamApplyNull(&plain))
-    #expect(optional == nil)
+    expectNoDifference(streamApplyNull(&optional), true)
+    expectNoDifference(!streamApplyNull(&plain), true)
+    expectNoDifference(optional, nil)
     expectNoDifference(plain, 5)
   }
 }

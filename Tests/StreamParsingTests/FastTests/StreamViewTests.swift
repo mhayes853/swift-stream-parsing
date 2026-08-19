@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -47,8 +48,8 @@ struct `Stream view tests` {
     let stream = try self.stream(#"{"id":42}"#)
     stream.withView { profile in
       expectNoDifference(profile.id, 42)
-      #expect(profile.name == nil)
-      #expect(profile.scores == nil)
+      expectNoDifference(profile.name, nil)
+      expectNoDifference(profile.scores, nil)
     }
   }
 
@@ -118,7 +119,7 @@ struct `Stream view tests` {
     let scores = stream.withView { $0.scores }
     expectNoDifference(scores, [1])
     try stream.next(Array("3,4]}".utf8))
-    #expect(scores == [1], "the value read out should not have followed the parse")
+    expectNoDifference(scores, [1], "the value read out should not have followed the parse")
     expectNoDifference(stream.current.scores, [1, 23, 4])
   }
 
@@ -129,7 +130,7 @@ struct `Stream view tests` {
     let name = stream.withView { $0.name }
     expectNoDifference(name, "Bl")
     try stream.next(Array(#"ob"}"#.utf8))
-    #expect(name == "Bl", "the value read out should not have followed the parse")
+    expectNoDifference(name, "Bl", "the value read out should not have followed the parse")
   }
 
   // MARK: - Equivalence with a snapshot
@@ -149,7 +150,7 @@ struct `Stream view tests` {
       expectNoDifference(profile.scores, snapshot.scores)
       switch profile.address {
       case .some(let address): expectNoDifference(address.city, snapshot.address?.city)
-      case .none: #expect(snapshot.address == nil)
+      case .none: expectNoDifference(snapshot.address == nil, true)
       }
     }
   }

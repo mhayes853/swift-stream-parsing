@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -80,8 +81,8 @@ struct `Partial sink failure tests` {
 
   @Test
   func `A number inside the destination range is accepted`() {
-    #expect(self.failure(#"{"small":127}"#) == nil)
-    #expect(self.failure(#"{"small":-128}"#) == nil)
+    expectNoDifference(self.failure(#"{"small":127}"#), nil)
+    expectNoDifference(self.failure(#"{"small":-128}"#), nil)
   }
 
   // MARK: - Not failures
@@ -97,7 +98,7 @@ struct `Partial sink failure tests` {
     ]
   )
   func `A key the destination does not have is still ignored`(json: String) {
-    #expect(self.failure(json) == nil)
+    expectNoDifference(self.failure(json), nil)
   }
 
   @Test
@@ -203,8 +204,8 @@ struct `Partial sink failure tests` {
 
   @Test(arguments: [Int.max, 7, 1])
   func `Null is accepted by an optional element or field`(chunk: Int) throws {
-    #expect(self.failure("[null]", as: StreamArray<Int?>.self, chunk: chunk) == nil)
-    #expect(self.failure(#"{"count":null}"#, chunk: chunk) == nil)
+    expectNoDifference(self.failure("[null]", as: StreamArray<Int?>.self, chunk: chunk), nil)
+    expectNoDifference(self.failure(#"{"count":null}"#, chunk: chunk), nil)
 
     var elements = StreamArray<Int?>()
     try parsePartial("[null]", into: &elements, chunk: chunk)
@@ -225,12 +226,12 @@ struct `Partial sink failure tests` {
     #expect(throws: JSONParsingError.self) {
       try parsePartial(#"[1,"a",3]"#, into: &elements, chunk: chunk)
     }
-    #expect(elements == [1, 0], "the rejected element is present, and 3 never arrives")
+    expectNoDifference(elements, [1, 0], "the rejected element is present, and 3 never arrives")
 
     var counts = StreamDictionary<Int>()
     #expect(throws: JSONParsingError.self) {
       try parsePartial(#"{"a":"x"}"#, into: &counts, chunk: chunk)
     }
-    #expect(counts == ["a": 0], "the key stays, holding the value it was materialised with")
+    expectNoDifference(counts, ["a": 0], "the key stays, holding the value it was materialised with")
   }
 }

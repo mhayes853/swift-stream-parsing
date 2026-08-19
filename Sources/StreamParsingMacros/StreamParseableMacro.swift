@@ -64,7 +64,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       )
     ]
   }
+}
 
+extension StreamParseableMacro {
   private static func requireStructDecl(
     declaration: some DeclGroupSyntax
   ) throws -> StructDeclSyntax {
@@ -522,10 +524,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
 
   private static func modifierPrefix(for accessModifier: String?) -> String {
     accessModifier.map { "\($0) " } ?? ""
-  }
-
-  private static func isOptionalType(_ type: TypeSyntax) -> Bool {
-    type.is(OptionalTypeSyntax.self) || type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self)
   }
 
   private static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {

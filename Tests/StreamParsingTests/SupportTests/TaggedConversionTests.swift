@@ -1,4 +1,5 @@
 #if StreamParsingTagged
+  import CustomDump
   import Tagged
   import Testing
 

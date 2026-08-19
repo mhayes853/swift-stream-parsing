@@ -1,4 +1,5 @@
 import Foundation
+import CustomDump
 import Testing
 
 import StreamParsingCore
@@ -185,7 +186,7 @@ struct `JSON parser tests` {
     let reference = try JSONSerialization.jsonObject(
       with: Data(json.utf8), options: [.fragmentsAllowed]
     )
-    #expect(describe(node) == describe(reference), "\(json)")
+    expectNoDifference(describe(node), describe(reference), "\(json)")
   }
 
   @Test(arguments: valid)
@@ -193,7 +194,7 @@ struct `JSON parser tests` {
     let whole = try #require(parse(json).value)
     for chunk in [1, 2, 3, 5, 8] {
       let chunked = try #require(parse(json, chunk: chunk).value)
-      #expect(chunked == whole, "\(json) at chunk \(chunk)")
+      expectNoDifference(chunked, whole, "\(json) at chunk \(chunk)")
     }
   }
 
@@ -257,18 +258,18 @@ struct `JSON parser tests` {
 
     expectNoDifference(infos[0].magnitude, 42)
     expectNoDifference(infos[0].exponent, 0)
-    #expect(!infos[0].flags.contains(.negative))
+    expectNoDifference(!infos[0].flags.contains(.negative), true)
 
     expectNoDifference(infos[1].magnitude, 7)
-    #expect(infos[1].flags.contains(.negative))
+    expectNoDifference(infos[1].flags.contains(.negative), true)
 
     expectNoDifference(infos[2].magnitude, 15)
     expectNoDifference(infos[2].exponent, -1)
-    #expect(infos[2].flags.contains(.fraction))
+    expectNoDifference(infos[2].flags.contains(.fraction), true)
 
     expectNoDifference(infos[3].magnitude, 1)
     expectNoDifference(infos[3].exponent, 3)
-    #expect(infos[3].flags.contains(.exponent))
+    expectNoDifference(infos[3].flags.contains(.exponent), true)
 
     expectNoDifference(infos[4].magnitude, 9825)
     expectNoDifference(infos[4].exponent, -2)
@@ -278,7 +279,7 @@ struct `JSON parser tests` {
   func `Flags magnitudes beyond nineteen digits as overflowed`() throws {
     let sink = try parse(#"[99999999999999999999999]"#)
     let info = try #require(sink.numbers.first)
-    #expect(info.flags.contains(.overflowed))
+    expectNoDifference(info.flags.contains(.overflowed), true)
   }
 
   @Test

@@ -1,4 +1,5 @@
 #if StreamParsingFoundation && canImport(Foundation)
+  import CustomDump
   import Foundation
   import Testing
 
@@ -63,7 +64,7 @@
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":1.005}"#, into: &value)
       expectNoDifference(value.amount, Decimal(string: "1.005"))
-      #expect(value.amount != Decimal(1.005))
+      expectNoDifference(value.amount != Decimal(1.005), true)
     }
 
     @Test(arguments: ["1.5e3", "1.5E3", "15e-1", "-2e2", "0e0"])
@@ -127,7 +128,7 @@
         chunk: chunk
       )
       let name = try #require(value.name)
-      #expect(name.givenName == "Blob", "the keys around it still route to the parent")
+      expectNoDifference(name.givenName, "Blob", "the keys around it still route to the parent")
       expectNoDifference(name.familyName, "Johnson")
       let phonetic = try #require(name.phoneticRepresentation)
       expectNoDifference(phonetic.givenName, "blahb")
@@ -141,7 +142,7 @@
       var value = FoundationValues.Partial()
       try parsePartial(#"{"name":{"phoneticRepresentation":{}}}"#, into: &value)
       let name = try #require(value.name)
-      #expect(name.phoneticRepresentation != nil)
+      expectNoDifference(name.phoneticRepresentation != nil, true)
     }
 
     @Test
@@ -156,7 +157,7 @@
       let name = try #require(value.name)
       let phonetic = try #require(name.phoneticRepresentation)
       expectNoDifference(phonetic.givenName, "blahb")
-      #expect(phonetic.familyName == nil)
+      expectNoDifference(phonetic.familyName, nil)
     }
 
     // Foundation ignores a phonetic representation's own phonetic representation, so the key is
@@ -174,7 +175,7 @@
       let name = try #require(value.name)
       let phonetic = try #require(name.phoneticRepresentation)
       expectNoDifference(phonetic.givenName, "blahb")
-      #expect(phonetic.phoneticRepresentation == nil)
+      expectNoDifference(phonetic.phoneticRepresentation, nil)
     }
 
     // A repeated key resumes the value already there, which is the rule everywhere else. Worth
@@ -204,8 +205,8 @@
       )
       let name = try #require(value.name)
       expectNoDifference(name.givenName, "Blob")
-      #expect(name.nickname == nil)
-      #expect(name.familyName == nil)
+      expectNoDifference(name.nickname, nil)
+      expectNoDifference(name.familyName, nil)
     }
 
     @Test
@@ -217,7 +218,7 @@
       )
       let name = try #require(value.name)
       expectNoDifference(name.givenName, "Blob")
-      #expect(name.familyName == nil)
+      expectNoDifference(name.familyName, nil)
     }
 
     // The key words in the schema are written by hand, which is exactly what produced four wrong

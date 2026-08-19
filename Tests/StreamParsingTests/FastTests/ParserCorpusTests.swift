@@ -180,7 +180,7 @@ struct `Parser corpus tests` {
   func `Strings and escapes decode`(json: String, expected: String) throws {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
-    expectNoDifference(value.text, expected)
+    expectNoDifference(value.text.map(String.init), expected as String?)
     try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 
@@ -205,7 +205,7 @@ struct `Parser corpus tests` {
   func `Multi byte UTF-8 decodes intact`(json: String, expected: String) throws {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
-    expectNoDifference(value.text, expected)
+    expectNoDifference(value.text.map(String.init), expected as String?)
     try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 
@@ -215,6 +215,6 @@ struct `Parser corpus tests` {
   func `An empty nested object is materialized`(json: String) throws {
     var value = DiffEmployee.Partial()
     try parsePartial(json, into: &value)
-    #expect(value.company != nil)
+    expectNoDifference(value.company != nil, true)
   }
 }

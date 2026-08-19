@@ -46,7 +46,7 @@ struct `Partial sink tests` {
     var user = SinkUser.Partial()
     try parsePartial(#"{"extra":{"id":999,"name":"wrong"},"id":1}"#, into: &user)
     expectNoDifference(user.id, 1)
-    #expect(user.name == nil)
+    expectNoDifference(user.name, nil)
   }
 
   @Test
@@ -69,7 +69,7 @@ struct `Partial sink tests` {
     var user = SinkUser.Partial()
     user.id = 7
     try parsePartial(#"{"id":null}"#, into: &user)
-    #expect(user.id == nil)
+    expectNoDifference(user.id, nil)
   }
 
   @Test
@@ -132,12 +132,12 @@ struct `Partial sink tests` {
     for chunk in [1, 2, 3, 7] {
       var chunked = SinkUser.Partial()
       try parsePartial(json, into: &chunked, chunk: chunk)
-      #expect(chunked.id == whole.id, "chunk \(chunk)")
-      #expect(chunked.name == whole.name, "chunk \(chunk)")
-      #expect(chunked.active == whole.active, "chunk \(chunk)")
-      #expect(chunked.address?.city == whole.address?.city, "chunk \(chunk)")
-      #expect(chunked.scores == whole.scores, "chunk \(chunk)")
-      #expect(chunked.counts?.keys == whole.counts?.keys, "chunk \(chunk)")
+      expectNoDifference(chunked.id, whole.id, "chunk \(chunk)")
+      expectNoDifference(chunked.name, whole.name, "chunk \(chunk)")
+      expectNoDifference(chunked.active, whole.active, "chunk \(chunk)")
+      expectNoDifference(chunked.address?.city, whole.address?.city, "chunk \(chunk)")
+      expectNoDifference(chunked.scores, whole.scores, "chunk \(chunk)")
+      expectNoDifference(chunked.counts?.keys, whole.counts?.keys, "chunk \(chunk)")
     }
   }
 }
@@ -190,7 +190,7 @@ struct `Macro key matching tests` {
     var value = MacroKeyWidths.Partial()
     try parsePartial(#"{"descriptionShort":5}"#, into: &value)
     expectNoDifference(value.descriptionShort, 5)
-    #expect(value.descriptionLong == nil)
+    expectNoDifference(value.descriptionLong, nil)
   }
 
   @Test

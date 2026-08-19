@@ -2,6 +2,7 @@
   import BitCollections
   import DequeModule
   import HashTreeCollections
+  import CustomDump
   import OrderedCollections
   import Testing
 
@@ -59,10 +60,10 @@
 
     @Test
     func `Bridged collections start empty`() {
-      #expect(Deque<Int>.streamInitialValue().isEmpty)
-      #expect(BitArray.streamInitialValue().isEmpty)
-      #expect(OrderedDictionary<String, Int>.streamInitialValue().isEmpty)
-      #expect(TreeDictionary<String, Int>.streamInitialValue().isEmpty)
+      expectNoDifference(Deque<Int>.streamInitialValue().isEmpty, true)
+      expectNoDifference(BitArray.streamInitialValue().isEmpty, true)
+      expectNoDifference(OrderedDictionary<String, true, Int>.streamInitialValue().isEmpty)
+      expectNoDifference(TreeDictionary<String, true, Int>.streamInitialValue().isEmpty)
     }
   }
 #endif

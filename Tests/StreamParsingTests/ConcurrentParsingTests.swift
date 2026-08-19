@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -63,7 +64,7 @@ struct `Concurrent parsing tests` {
 
     expectNoDifference(results.count, 64)
     for index in 0..<64 {
-      #expect(results[index] ?? nil == expected[index])
+      expectNoDifference(results[index] ?? nil, expected[index])
     }
   }
 
@@ -79,7 +80,7 @@ struct `Concurrent parsing tests` {
           (try? Self.parse(Self.payload(1), chunk: .max)).map { swiftLiteral($0) } == expected
         }
       }
-      for await ok in group { #expect(ok) }
+      for await ok in group { expectNoDifference(ok, true) }
     }
   }
 
@@ -99,7 +100,7 @@ struct `Concurrent parsing tests` {
           return (try? stream.finish()).map { $0.total == index } ?? false
         }
       }
-      for await ok in group { #expect(ok) }
+      for await ok in group { expectNoDifference(ok, true) }
     }
   }
 }

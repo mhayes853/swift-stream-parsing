@@ -17,8 +17,91 @@
 
 @inlinable package var streamScannerVectorWidth: Int { 16 }
 
+// The string scanner already loads every byte needed to find a quote, escape or control byte.
+// Carrying the high-bit observation with the end index lets validated string values skip a second
+// ASCII-only pass. The flag is exact: bytes after the first terminating lane are masked out.
+@usableFromInline
+package struct StreamStringRun: Hashable, Sendable {
+  @usableFromInline package let end: Int
+  @usableFromInline package let containsNonASCII: Bool
+
+  @usableFromInline
+  package init(end: Int, containsNonASCII: Bool) {
+    self.end = end
+    self.containsNonASCII = containsNonASCII
+  }
+}
+
 @inlinable
 @inline(__always)
+package func streamVectorContainsNonASCII(_ bytes: SIMD16<UInt8>) -> Bool {
+#if canImport(simd)
+  simd_reduce_max(bytes) >= .utf8ContinuationFloor
+#else
+  any(bytes .>= SIMD16<UInt8>(repeating: .utf8ContinuationFloor))
+#endif
+}
+
+@inlinable
+@inline(__always)
+package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> StreamStringRun {
+  if from < to {
+    let first = base.load(fromByteOffset: from, as: UInt8.self)
+    if first == .asciiQuote || first == .asciiBackslash || first < .asciiSpace {
+      return StreamStringRun(end: from, containsNonASCII: false)
+    }
+  }
+
+  let quote = SIMD16<UInt8>(repeating: .asciiQuote)
+  let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)
+  let space = SIMD16<UInt8>(repeating: .asciiSpace)
+  let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+
+  var scanned = SIMD16<UInt8>.zero
+  var i = from
+  while i &+ streamScannerVectorWidth <= to {
+    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
+    if any(hit) {
+#if canImport(simd)
+      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: hit)
+      let lane = Int(simd_reduce_min(candidates))
+      let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
+      let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+      return StreamStringRun(
+        end: i &+ lane,
+        containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
+      )
+#else
+      for lane in 0..<streamScannerVectorWidth where hit[lane] {
+        let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
+        let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+        return StreamStringRun(
+          end: i &+ lane,
+          containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
+        )
+      }
+#endif
+    }
+    scanned |= chunk
+    i &+= streamScannerVectorWidth
+  }
+  var containsNonASCII = streamVectorContainsNonASCII(scanned)
+  while i < to {
+    let byte = base.load(fromByteOffset: i, as: UInt8.self)
+    if byte == .asciiQuote || byte == .asciiBackslash || byte < .asciiSpace {
+      return StreamStringRun(end: i, containsNonASCII: containsNonASCII)
+    }
+    containsNonASCII = containsNonASCII || byte >= .utf8ContinuationFloor
+    i &+= 1
+  }
+  return StreamStringRun(end: to, containsNonASCII: containsNonASCII)
+}
+
+// Unchecked parsing does not consume the UTF-8 observation. Keeping its original end-only kernel
+// out of line prevents both SIMD bodies from inflating the validated parser's string loop.
+@inlinable
+@inline(never)
 package func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   let quote = SIMD16<UInt8>(repeating: .asciiQuote)
   let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)

@@ -93,7 +93,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"values":[1,2],"values":[3]}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.values == [1, 2, 3], "the second array appends rather than replacing")
+    expectNoDifference(model.values, [1, 2, 3], "the second array appends rather than replacing")
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -101,7 +101,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"nested":{"a":1},"nested":{"b":2}}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.nested == ReentryInner.Partial(a: 1, b: 2), "the second object merges")
+    expectNoDifference(model.nested, ReentryInner.Partial(a: 1, b: 2), "the second object merges")
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -111,7 +111,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"counts":{"a":1},"counts":{"b":2}}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.counts == ["a": 1, "b": 2], "the second dictionary merges")
+    expectNoDifference(model.counts, ["a": 1, "b": 2], "the second dictionary merges")
   }
 
   // A field repeated with a value that is a container both times, where the inner key repeats too.
@@ -133,7 +133,7 @@ struct `Container re-entry tests` {
       #"{"a":[1],"b":[9],"a":[2]}"#, as: StreamDictionary<StreamArray<Int>>.self, chunk: chunk
     )
     expectNoDifference(counts.count, 2)
-    #expect(counts.keys == ["a", "b"], "the repeated key stays in its original position")
+    expectNoDifference(counts.keys, ["a", "b"], "the repeated key stays in its original position")
     expectNoDifference(counts["a"], [1, 2])
     expectNoDifference(counts["b"], [9])
   }
@@ -270,7 +270,7 @@ struct `Container re-entry tests` {
       chunk: chunk
     )
     expectNoDifference(model.name, "x")
-    #expect(model.values == [7], "the fields after the unknown subtree still parse")
+    expectNoDifference(model.values, [7], "the fields after the unknown subtree still parse")
     expectNoDifference(model.counts, ["k": 1])
   }
 

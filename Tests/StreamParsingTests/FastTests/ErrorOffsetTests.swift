@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -90,9 +91,9 @@ struct `Error offset tests` {
     }
     for split in 0...bytes.count {
       let actual = Self.failure(bytes, splitAt: split)
-      #expect(actual == expected, "\(json) split at \(split)")
+      expectNoDifference(actual, expected, "\(json) split at \(split)")
     }
-    #expect(Self.bytewiseFailure(bytes) == expected, "\(json) byte by byte")
+    expectNoDifference(Self.bytewiseFailure(bytes), expected, "\(json) byte by byte")
   }
 
   // Invalid UTF-8 reports the sequence's lead byte, whether the sequence was validated in place
@@ -106,9 +107,9 @@ struct `Error offset tests` {
     }
     expectNoDifference(expected.byteOffset, 4)
     for split in 0...bytes.count {
-      #expect(Self.failure(bytes, splitAt: split) == expected, "split at \(split)")
+      expectNoDifference(Self.failure(bytes, splitAt: split), expected, "split at \(split)")
     }
-    #expect(Self.bytewiseFailure(bytes) == expected, "byte by byte")
+    expectNoDifference(Self.bytewiseFailure(bytes), expected, "byte by byte")
   }
 
   // MARK: - The offset names the right byte
@@ -129,7 +130,7 @@ struct `Error offset tests` {
   ) {
     let bytes = Array(json.utf8)
     let error = Self.failure(bytes, splitAt: bytes.count)
-    #expect(error == JSONParsingError(reason: reason, byteOffset: offset), "\(json)")
+    expectNoDifference(error, JSONParsingError(reason: reason, byteOffset: offset), "\(json)")
   }
 
   @Test
@@ -183,7 +184,7 @@ struct `Error offset tests` {
   func `Reports a rejected number at its own token, not the next`(splitAt: Int) {
     let error = Self.sinkFailure("[1,2]", sink: RejectingSink(rejecting: .number), splitAt: splitAt)
     expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
-    #expect(error?.byteOffset == 2, "split at \(splitAt)")
+    expectNoDifference(error?.byteOffset, 2, "split at \(splitAt)")
   }
 
   @Test(arguments: 0...9)
@@ -192,7 +193,7 @@ struct `Error offset tests` {
       #"["a","b"]"#, sink: RejectingSink(rejecting: .string), splitAt: splitAt
     )
     expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
-    #expect(error?.byteOffset == 4, "split at \(splitAt)")
+    expectNoDifference(error?.byteOffset, 4, "split at \(splitAt)")
   }
 
   // The parse has to stop at the rejection, not carry on into the next token's events.
