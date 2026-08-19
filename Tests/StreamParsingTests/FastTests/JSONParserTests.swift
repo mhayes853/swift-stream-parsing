@@ -1,4 +1,5 @@
 import Foundation
+import CustomDump
 import Testing
 
 import StreamParsingCore
@@ -185,7 +186,7 @@ struct `JSON parser tests` {
     let reference = try JSONSerialization.jsonObject(
       with: Data(json.utf8), options: [.fragmentsAllowed]
     )
-    #expect(describe(node) == describe(reference), "\(json)")
+    expectNoDifference(describe(node), describe(reference), "\(json)")
   }
 
   @Test(arguments: valid)
@@ -193,7 +194,7 @@ struct `JSON parser tests` {
     let whole = try #require(parse(json).value)
     for chunk in [1, 2, 3, 5, 8] {
       let chunked = try #require(parse(json, chunk: chunk).value)
-      #expect(chunked == whole, "\(json) at chunk \(chunk)")
+      expectNoDifference(chunked, whole, "\(json) at chunk \(chunk)")
     }
   }
 
@@ -223,11 +224,11 @@ struct `JSON parser tests` {
   @Test
   func `Reports a number once, whole`() throws {
     let sink = try parse("[1234]")
-    #expect(sink.numbers.map(\.magnitude) == [1234])
+    expectNoDifference(sink.numbers.map(\.magnitude), [1234])
 
     let exponent = try parse("[-1.5e2]")
-    #expect(exponent.numbers.map(\.magnitude) == [15])
-    #expect(exponent.numbers.map(\.exponent) == [1])
+    expectNoDifference(exponent.numbers.map(\.magnitude), [15])
+    expectNoDifference(exponent.numbers.map(\.exponent), [1])
   }
 
   // A token split across chunks reports the same single value, and its span stays contiguous
@@ -236,8 +237,8 @@ struct `JSON parser tests` {
   func `Reports the same single value across a chunk boundary`() throws {
     for chunk in [1, 2, 3, 5] {
       let sink = try parse("[-1.5e2]", chunk: chunk)
-      #expect(sink.numbers.map(\.magnitude) == [15])
-      #expect(sink.numbers.map(\.exponent) == [1])
+      expectNoDifference(sink.numbers.map(\.magnitude), [15])
+      expectNoDifference(sink.numbers.map(\.exponent), [1])
     }
   }
 
@@ -255,30 +256,30 @@ struct `JSON parser tests` {
     let infos = sink.numbers
     try #require(infos.count == 5)
 
-    #expect(infos[0].magnitude == 42)
-    #expect(infos[0].exponent == 0)
-    #expect(!infos[0].flags.contains(.negative))
+    expectNoDifference(infos[0].magnitude, 42)
+    expectNoDifference(infos[0].exponent, 0)
+    expectNoDifference(!infos[0].flags.contains(.negative), true)
 
-    #expect(infos[1].magnitude == 7)
-    #expect(infos[1].flags.contains(.negative))
+    expectNoDifference(infos[1].magnitude, 7)
+    expectNoDifference(infos[1].flags.contains(.negative), true)
 
-    #expect(infos[2].magnitude == 15)
-    #expect(infos[2].exponent == -1)
-    #expect(infos[2].flags.contains(.fraction))
+    expectNoDifference(infos[2].magnitude, 15)
+    expectNoDifference(infos[2].exponent, -1)
+    expectNoDifference(infos[2].flags.contains(.fraction), true)
 
-    #expect(infos[3].magnitude == 1)
-    #expect(infos[3].exponent == 3)
-    #expect(infos[3].flags.contains(.exponent))
+    expectNoDifference(infos[3].magnitude, 1)
+    expectNoDifference(infos[3].exponent, 3)
+    expectNoDifference(infos[3].flags.contains(.exponent), true)
 
-    #expect(infos[4].magnitude == 9825)
-    #expect(infos[4].exponent == -2)
+    expectNoDifference(infos[4].magnitude, 9825)
+    expectNoDifference(infos[4].exponent, -2)
   }
 
   @Test
   func `Flags magnitudes beyond nineteen digits as overflowed`() throws {
     let sink = try parse(#"[99999999999999999999999]"#)
     let info = try #require(sink.numbers.first)
-    #expect(info.flags.contains(.overflowed))
+    expectNoDifference(info.flags.contains(.overflowed), true)
   }
 
   @Test

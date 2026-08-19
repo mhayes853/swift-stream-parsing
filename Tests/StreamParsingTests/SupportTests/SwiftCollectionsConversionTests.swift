@@ -2,6 +2,7 @@
   import BitCollections
   import DequeModule
   import HashTreeCollections
+  import CustomDump
   import OrderedCollections
   import Testing
 
@@ -26,18 +27,18 @@
 
       let counts = try #require(value.counts)
       let ordered = OrderedDictionary(counts)
-      #expect(Array(ordered.keys) == ["zebra", "apple", "mango"])
-      #expect(ordered["zebra"] == 1)
-      #expect(ordered["apple"] == 4)
-      #expect(ordered["mango"] == 3)
+      expectNoDifference(Array(ordered.keys), ["zebra", "apple", "mango"])
+      expectNoDifference(ordered["zebra"], 1)
+      expectNoDifference(ordered["apple"], 4)
+      expectNoDifference(ordered["mango"], 3)
     }
 
     @Test
     func `OrderedDictionary bridging round trips`() {
       let ordered: OrderedDictionary<String, Int> = ["c": 3, "a": 1, "b": 2]
       let stream = StreamDictionary(ordered)
-      #expect(stream.keys == ["c", "a", "b"])
-      #expect(OrderedDictionary(stream) == ordered)
+      expectNoDifference(stream.keys, ["c", "a", "b"])
+      expectNoDifference(OrderedDictionary(stream), ordered)
     }
 
     // TreeDictionary has no order to preserve, so only the contents survive.
@@ -47,22 +48,22 @@
       try parsePartial(#"{"counts":{"a":1,"b":2}}"#, into: &value)
 
       let tree = TreeDictionary(try #require(value.counts))
-      #expect(tree == ["a": 1, "b": 2])
+      expectNoDifference(tree, ["a": 1, "b": 2])
     }
 
     @Test
     func `Array members convert to a Deque after parsing`() throws {
       var value = CollectionsValues.Partial()
       try parsePartial(#"{"scores":[3,1,2]}"#, into: &value)
-      #expect(Deque(try #require(value.scores)) == [3, 1, 2])
+      expectNoDifference(Deque(try #require(value.scores)), [3, 1, 2])
     }
 
     @Test
     func `Bridged collections start empty`() {
-      #expect(Deque<Int>.streamInitialValue().isEmpty)
-      #expect(BitArray.streamInitialValue().isEmpty)
-      #expect(OrderedDictionary<String, Int>.streamInitialValue().isEmpty)
-      #expect(TreeDictionary<String, Int>.streamInitialValue().isEmpty)
+      expectNoDifference(Deque<Int>.streamInitialValue().isEmpty, true)
+      expectNoDifference(BitArray.streamInitialValue().isEmpty, true)
+      expectNoDifference(OrderedDictionary<String, true, Int>.streamInitialValue().isEmpty)
+      expectNoDifference(TreeDictionary<String, true, Int>.streamInitialValue().isEmpty)
     }
   }
 #endif

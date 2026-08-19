@@ -9,16 +9,16 @@ struct `Stream dictionary tests` {
   func `Preserves insertion order`() {
     var dictionary = StreamDictionary<Int>()
     for key in ["zebra", "apple", "mango"] { dictionary.updateValue(0, forKey: key) }
-    #expect(dictionary.keys == ["zebra", "apple", "mango"])
-    #expect(dictionary.map(\.key) == ["zebra", "apple", "mango"])
+    expectNoDifference(dictionary.keys, ["zebra", "apple", "mango"])
+    expectNoDifference(dictionary.map(\.key), ["zebra", "apple", "mango"])
   }
 
   @Test
   func `Updating an existing key keeps its position`() {
     var dictionary: StreamDictionary<Int> = ["a": 1, "b": 2, "c": 3]
     dictionary.updateValue(99, forKey: "a")
-    #expect(dictionary.keys == ["a", "b", "c"])
-    #expect(dictionary["a"] == 99)
+    expectNoDifference(dictionary.keys, ["a", "b", "c"])
+    expectNoDifference(dictionary["a"], 99)
   }
 
   // The index is built lazily, so lookups must agree either side of the threshold.
@@ -28,11 +28,11 @@ struct `Stream dictionary tests` {
     for i in 0..<40 {
       dictionary.updateValue(i, forKey: "key\(i)")
       for j in 0...i {
-        #expect(dictionary["key\(j)"] == j, "after \(i + 1) insertions")
+        expectNoDifference(dictionary["key\(j)"], j, "after \(i + 1) insertions")
       }
     }
-    #expect(dictionary.count == 40)
-    #expect(dictionary["missing"] == nil)
+    expectNoDifference(dictionary.count, 40)
+    expectNoDifference(dictionary["missing"], nil)
   }
 
   @Test
@@ -41,9 +41,9 @@ struct `Stream dictionary tests` {
     for i in 0..<20 { dictionary.updateValue(i, forKey: "key\(i)") }
     dictionary.updateValue(999, forKey: "key3")
     dictionary.updateValue(1000, forKey: "key19")
-    #expect(dictionary["key3"] == 999)
-    #expect(dictionary["key19"] == 1000)
-    #expect(dictionary.count == 20)
+    expectNoDifference(dictionary["key3"], 999)
+    expectNoDifference(dictionary["key19"], 1000)
+    expectNoDifference(dictionary.count, 20)
   }
 
   @Test
@@ -51,31 +51,31 @@ struct `Stream dictionary tests` {
     let first: StreamDictionary<Int> = ["a": 1, "b": 2]
     let second: StreamDictionary<Int> = ["b": 2, "a": 1]
     let third: StreamDictionary<Int> = ["a": 1, "b": 2]
-    #expect(first != second)
-    #expect(first == third)
+    expectNoDifference(first != second, true)
+    expectNoDifference(first, third)
   }
 
   @Test
   func `Bridges to and from Dictionary`() {
     let stream: StreamDictionary<Int> = ["a": 1, "b": 2, "c": 3]
     let plain = Dictionary(stream)
-    #expect(plain == ["a": 1, "b": 2, "c": 3])
+    expectNoDifference(plain, ["a": 1, "b": 2, "c": 3])
 
     let roundTripped = StreamDictionary(plain)
-    #expect(Dictionary(roundTripped) == plain)
+    expectNoDifference(Dictionary(roundTripped), plain)
   }
 
   @Test
   func `Is a collection of key value pairs in order`() {
     let dictionary: StreamDictionary<String> = ["one": "1", "two": "2"]
     let pairs = Array(dictionary)
-    #expect(pairs.count == 2)
-    #expect(pairs[0].key == "one")
-    #expect(pairs[0].value == "1")
-    #expect(pairs[1].key == "two")
-    #expect(pairs[1].value == "2")
-    #expect(dictionary.count == 2)
-    #expect(!dictionary.isEmpty)
+    expectNoDifference(pairs.count, 2)
+    expectNoDifference(pairs[0].key, "one")
+    expectNoDifference(pairs[0].value, "1")
+    expectNoDifference(pairs[1].key, "two")
+    expectNoDifference(pairs[1].value, "2")
+    expectNoDifference(dictionary.count, 2)
+    expectNoDifference(!dictionary.isEmpty, true)
   }
 
   @Test
@@ -89,9 +89,9 @@ struct `Stream dictionary tests` {
     expectNoDifference(dictionary.map(\.key), keys)
     expectNoDifference(dictionary.map(\.value), keys.indices.map { $0 })
     for (value, key) in keys.enumerated() {
-      #expect(dictionary[key] == value)
+      expectNoDifference(dictionary[key], value)
     }
-    #expect(dictionary["probe_collision_missing"] == nil)
+    expectNoDifference(dictionary["probe_collision_missing"], nil)
   }
 
   @Test
@@ -114,9 +114,9 @@ struct `Stream dictionary tests` {
       pointer.assumingMemoryBound(to: Int.self).pointee = 9
     }
 
-    #expect(dictionary["span_key"] == 9)
+    expectNoDifference(dictionary["span_key"], 9)
     dictionary.updateValue(10, forKey: "next_key")
-    #expect(dictionary["span_key"] == 9)
+    expectNoDifference(dictionary["span_key"], 9)
   }
 
   @Test

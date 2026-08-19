@@ -1533,7 +1533,7 @@ private func expectJSONStreamedValuesBeforeError<T: StreamParseableRoot & Equata
     Issue.record("Expected JSONParsingError to be captured.")
     return
   }
-  #expect(error.reason == reason)
+  expectNoDifference(error.reason, reason)
   expectNoDifference(partials, expected)
 }
 
@@ -1549,9 +1549,9 @@ private func expectJSONParsingError<T: StreamParseableRoot>(
   }
 
   let error = try #require(thrownError)
-  #expect(error.reason == reason)
+  expectNoDifference(error.reason, reason)
   if let byteOffset {
-    #expect(error.byteOffset == byteOffset)
+    expectNoDifference(error.byteOffset, byteOffset)
   }
 }
 
@@ -1827,7 +1827,7 @@ struct `JSONDump tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try stream.next(Array(data))
     }
-    #expect(error?.reason == .depthExceeded)
+    expectNoDifference(error?.reason, .depthExceeded)
   }
 
   private func assertSnapshot<Value: StreamParseableRoot & Encodable>(

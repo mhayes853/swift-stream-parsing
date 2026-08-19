@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -17,11 +18,13 @@ struct `Buffer capacity tests` {
     var sink = CountingConformanceSink()
     let bytes = Array(json.utf8)
     try bytes.withUnsafeBufferPointer { input in
-      var i = 0
-      while i < input.count {
-        let count = Swift.min(chunk, input.count - i)
-        try parser.parse(UnsafeBufferPointer(start: input.baseAddress! + i, count: count), into: &sink)
-        i += count
+      var offset = 0
+      while offset < input.count {
+        let count = Swift.min(chunk, input.count - offset)
+        try parser.parse(
+          UnsafeBufferPointer(start: input.baseAddress! + offset, count: count), into: &sink
+        )
+        offset += count
       }
     }
     try parser.finish(into: &sink)
@@ -56,13 +59,13 @@ struct `Buffer capacity tests` {
   @Test
   func `A key longer than capacity is rejected`() {
     let key = String(repeating: "k", count: 4_096)
-    #expect(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: 1)?.reason == .bufferExhausted)
+    expectNoDifference(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: 1)?.reason, .bufferExhausted)
   }
 
   @Test
   func `A number longer than capacity is rejected`() {
     let number = String(repeating: "9", count: 4_096)
-    #expect(Self.failure("[\(number)]", capacity: 64, chunk: 1)?.reason == .bufferExhausted)
+    expectNoDifference(Self.failure("[\(number)]", capacity: 64, chunk: 1)?.reason, .bufferExhausted)
   }
 
   // Strings are the exception, and both halves of it are worth pinning because the useful
@@ -94,16 +97,14 @@ struct `Buffer capacity tests` {
       index = end
     }
     let document = try stream.finish()
-    #expect(document.body == expected)
+    expectNoDifference(document.body.map { String($0) }, expected as String?)
   }
 
   // The failure is a property of the token and the capacity, not of where the chunks fell.
   @Test(arguments: [1, 3, 7, 64])
   func `Exhaustion does not depend on chunking`(chunk: Int) {
     let key = String(repeating: "k", count: 512)
-    #expect(
-      Self.failure("{\"\(key)\":1}", capacity: 64, chunk: chunk)?.reason == .bufferExhausted
-    )
+    expectNoDifference(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: chunk)?.reason, .bufferExhausted)
   }
 
   // The convenience layer carries the same setting through `JSONStreamFormat`, and it has to

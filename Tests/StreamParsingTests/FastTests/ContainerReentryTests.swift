@@ -69,13 +69,13 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"name":"first","name":"second"}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.name == "firstsecond")
+    expectNoDifference(model.name, "firstsecond")
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A repeated number field replaces`(chunk: Int) throws {
     let inner = try self.parse(#"{"a":1,"a":2}"#, as: ReentryInner.Partial.self, chunk: chunk)
-    #expect(inner.a == 2)
+    expectNoDifference(inner.a, 2)
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -83,7 +83,7 @@ struct `Container re-entry tests` {
     let values = try self.parse(
       #"{"a":"x","a":"y"}"#, as: StreamDictionary<String>.self, chunk: chunk
     )
-    #expect(values["a"] == "xy")
+    expectNoDifference(values["a"], "xy")
   }
 
   // MARK: - Object fields
@@ -93,7 +93,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"values":[1,2],"values":[3]}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.values == [1, 2, 3], "the second array appends rather than replacing")
+    expectNoDifference(model.values, [1, 2, 3], "the second array appends rather than replacing")
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -101,7 +101,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"nested":{"a":1},"nested":{"b":2}}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.nested == ReentryInner.Partial(a: 1, b: 2), "the second object merges")
+    expectNoDifference(model.nested, ReentryInner.Partial(a: 1, b: 2), "the second object merges")
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -111,7 +111,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"counts":{"a":1},"counts":{"b":2}}"#, as: ReentryModel.Partial.self, chunk: chunk
     )
-    #expect(model.counts == ["a": 1, "b": 2], "the second dictionary merges")
+    expectNoDifference(model.counts, ["a": 1, "b": 2], "the second dictionary merges")
   }
 
   // A field repeated with a value that is a container both times, where the inner key repeats too.
@@ -120,7 +120,7 @@ struct `Container re-entry tests` {
     let model = try self.parse(
       #"{"counts":{"a":1},"counts":{"a":2}}"#, as: ReentryModel.Partial.self
     )
-    #expect(model.counts == ["a": 2])
+    expectNoDifference(model.counts, ["a": 2])
   }
 
   // MARK: - Dictionary values
@@ -132,10 +132,10 @@ struct `Container re-entry tests` {
     let counts = try self.parse(
       #"{"a":[1],"b":[9],"a":[2]}"#, as: StreamDictionary<StreamArray<Int>>.self, chunk: chunk
     )
-    #expect(counts.count == 2)
-    #expect(counts.keys == ["a", "b"], "the repeated key stays in its original position")
-    #expect(counts["a"] == [1, 2])
-    #expect(counts["b"] == [9])
+    expectNoDifference(counts.count, 2)
+    expectNoDifference(counts.keys, ["a", "b"], "the repeated key stays in its original position")
+    expectNoDifference(counts["a"], [1, 2])
+    expectNoDifference(counts["b"], [9])
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -143,8 +143,8 @@ struct `Container re-entry tests` {
     let objects = try self.parse(
       #"{"x":{"a":1},"x":{"b":2}}"#, as: StreamDictionary<ReentryInner.Partial>.self, chunk: chunk
     )
-    #expect(objects.count == 1)
-    #expect(objects["x"] == ReentryInner.Partial(a: 1, b: 2))
+    expectNoDifference(objects.count, 1)
+    expectNoDifference(objects["x"], ReentryInner.Partial(a: 1, b: 2))
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -156,7 +156,7 @@ struct `Container re-entry tests` {
       as: StreamDictionary<StreamDictionary<Int>>.self,
       chunk: chunk
     )
-    #expect(nested["x"] == ["a": 1, "b": 2])
+    expectNoDifference(nested["x"], ["a": 1, "b": 2])
   }
 
   // A repeated key whose second value is a scalar where the first was a container. The
@@ -172,7 +172,7 @@ struct `Container re-entry tests` {
       Issue.record("expected a sink rejection, got \(String(describing: error?.reason))")
       return
     }
-    #expect(failure.reason == .typeMismatch)
+    expectNoDifference(failure.reason, .typeMismatch)
   }
 
   // MARK: - A container arriving at a destination that cannot hold it
@@ -269,9 +269,9 @@ struct `Container re-entry tests` {
       as: ReentryModel.Partial.self,
       chunk: chunk
     )
-    #expect(model.name == "x")
-    #expect(model.values == [7], "the fields after the unknown subtree still parse")
-    #expect(model.counts == ["k": 1])
+    expectNoDifference(model.name, "x")
+    expectNoDifference(model.values, [7], "the fields after the unknown subtree still parse")
+    expectNoDifference(model.counts, ["k": 1])
   }
 
   // MARK: - Array elements
@@ -283,6 +283,6 @@ struct `Container re-entry tests` {
     let rows = try self.parse(
       "[[1],[2],[3]]", as: StreamArray<StreamArray<Int>>.self, chunk: chunk
     )
-    #expect(rows == [[1], [2], [3]])
+    expectNoDifference(rows, [[1], [2], [3]])
   }
 }

@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -54,12 +55,12 @@ struct `Partial sink failure tests` {
     ]
   )
   func `A token the matched field cannot hold is rejected`(json: String) {
-    #expect(self.failure(json) == .typeMismatch)
+    expectNoDifference(self.failure(json), .typeMismatch)
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A mismatch is reported at every chunk size`(chunk: Int) {
-    #expect(self.failure(#"{"count":"nope"}"#, chunk: chunk) == .typeMismatch)
+    expectNoDifference(self.failure(#"{"count":"nope"}"#, chunk: chunk), .typeMismatch)
   }
 
   // MARK: - Values that do not fit
@@ -75,13 +76,13 @@ struct `Partial sink failure tests` {
     ]
   )
   func `A number the destination cannot hold is rejected`(json: String) {
-    #expect(self.failure(json) == .typeMismatch)
+    expectNoDifference(self.failure(json), .typeMismatch)
   }
 
   @Test
   func `A number inside the destination range is accepted`() {
-    #expect(self.failure(#"{"small":127}"#) == nil)
-    #expect(self.failure(#"{"small":-128}"#) == nil)
+    expectNoDifference(self.failure(#"{"small":127}"#), nil)
+    expectNoDifference(self.failure(#"{"small":-128}"#), nil)
   }
 
   // MARK: - Not failures
@@ -97,7 +98,7 @@ struct `Partial sink failure tests` {
     ]
   )
   func `A key the destination does not have is still ignored`(json: String) {
-    #expect(self.failure(json) == nil)
+    expectNoDifference(self.failure(json), nil)
   }
 
   @Test
@@ -107,11 +108,11 @@ struct `Partial sink failure tests` {
       #"{"count":42,"name":"Blob","flag":true,"scores":[1,2],"nested":{"id":9}}"#,
       into: &value
     )
-    #expect(value.count == 42)
-    #expect(value.name == "Blob")
-    #expect(value.flag == true)
-    #expect(value.scores == [1, 2])
-    #expect(value.nested?.id == 9)
+    expectNoDifference(value.count, 42)
+    expectNoDifference(value.name, "Blob")
+    expectNoDifference(value.flag, true)
+    expectNoDifference(value.scores, [1, 2])
+    expectNoDifference(value.nested?.id, 9)
   }
 
   // MARK: - Failure propagation
@@ -122,14 +123,14 @@ struct `Partial sink failure tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try parsePartial(#"{"count":"nope"}"#, into: &value)
     }
-    #expect(error?.reason == .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
   }
 
   // The first rejection is the one reported, so an error does not get overwritten by whatever
   // the rest of the document happens to do.
   @Test
   func `The first rejection is the one reported`() {
-    #expect(self.failure(#"{"count":"nope","name":42}"#) == .typeMismatch)
+    expectNoDifference(self.failure(#"{"count":"nope","name":42}"#), .typeMismatch)
   }
 
   // MARK: - Elements and values, not just fields
@@ -159,41 +160,33 @@ struct `Partial sink failure tests` {
 
   @Test(arguments: [Int.max, 7, 1])
   func `An array element the destination cannot hold is rejected`(chunk: Int) {
-    #expect(self.failure(#"["a","b"]"#, as: StreamArray<Int>.self, chunk: chunk) == .typeMismatch)
-    #expect(self.failure("[true]", as: StreamArray<Int>.self, chunk: chunk) == .typeMismatch)
-    #expect(self.failure("[1,2]", as: StreamArray<String>.self, chunk: chunk) == .typeMismatch)
-    #expect(self.failure("[true]", as: StreamArray<String>.self, chunk: chunk) == .typeMismatch)
-    #expect(self.failure("[1]", as: StreamArray<Bool>.self, chunk: chunk) == .typeMismatch)
+    expectNoDifference(self.failure(#"["a","b"]"#, as: StreamArray<Int>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure("[true]", as: StreamArray<Int>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure("[1,2]", as: StreamArray<String>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure("[true]", as: StreamArray<String>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure("[1]", as: StreamArray<Bool>.self, chunk: chunk), .typeMismatch)
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A dictionary value the destination cannot hold is rejected`(chunk: Int) {
     let dictionary = StreamDictionary<Int>.self
-    #expect(self.failure(#"{"a":"x"}"#, as: dictionary, chunk: chunk) == .typeMismatch)
-    #expect(self.failure(#"{"a":true}"#, as: dictionary, chunk: chunk) == .typeMismatch)
-    #expect(
-      self.failure(#"{"a":1}"#, as: StreamDictionary<String>.self, chunk: chunk) == .typeMismatch
-    )
+    expectNoDifference(self.failure(#"{"a":"x"}"#, as: dictionary, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure(#"{"a":true}"#, as: dictionary, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure(#"{"a":1}"#, as: StreamDictionary<String>.self, chunk: chunk), .typeMismatch)
   }
 
   // The array field case the tests above stop short of: `{"scores":"not an array"}` rejects the
   // array itself, and this rejects an element of an array that was accepted.
   @Test(arguments: [Int.max, 7, 1])
   func `An element of an array field is rejected on its own`(chunk: Int) {
-    #expect(self.failure(#"{"scores":["a"]}"#, chunk: chunk) == .typeMismatch)
-    #expect(self.failure(#"{"scores":[1,true]}"#, chunk: chunk) == .typeMismatch)
+    expectNoDifference(self.failure(#"{"scores":["a"]}"#, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure(#"{"scores":[1,true]}"#, chunk: chunk), .typeMismatch)
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A mismatch nested inside a container is still rejected`(chunk: Int) {
-    #expect(
-      self.failure(#"[["a"]]"#, as: StreamArray<StreamArray<Int>>.self, chunk: chunk)
-        == .typeMismatch
-    )
-    #expect(
-      self.failure(#"{"a":["x"]}"#, as: StreamDictionary<StreamArray<Int>>.self, chunk: chunk)
-        == .typeMismatch
-    )
+    expectNoDifference(self.failure(#"[["a"]]"#, as: StreamArray<StreamArray<Int>>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure(#"{"a":["x"]}"#, as: StreamDictionary<StreamArray<Int>>.self, chunk: chunk), .typeMismatch)
   }
 
   // MARK: - Null, which is accepted exactly where the destination is optional
@@ -205,20 +198,18 @@ struct `Partial sink failure tests` {
   // nowhere to put it.
   @Test(arguments: [Int.max, 7, 1])
   func `Null is rejected by a non optional element or value`(chunk: Int) {
-    #expect(self.failure("[1,null]", as: StreamArray<Int>.self, chunk: chunk) == .typeMismatch)
-    #expect(
-      self.failure(#"{"a":null}"#, as: StreamDictionary<Int>.self, chunk: chunk) == .typeMismatch
-    )
+    expectNoDifference(self.failure("[1,null]", as: StreamArray<Int>.self, chunk: chunk), .typeMismatch)
+    expectNoDifference(self.failure(#"{"a":null}"#, as: StreamDictionary<Int>.self, chunk: chunk), .typeMismatch)
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `Null is accepted by an optional element or field`(chunk: Int) throws {
-    #expect(self.failure("[null]", as: StreamArray<Int?>.self, chunk: chunk) == nil)
-    #expect(self.failure(#"{"count":null}"#, chunk: chunk) == nil)
+    expectNoDifference(self.failure("[null]", as: StreamArray<Int?>.self, chunk: chunk), nil)
+    expectNoDifference(self.failure(#"{"count":null}"#, chunk: chunk), nil)
 
     var elements = StreamArray<Int?>()
     try parsePartial("[null]", into: &elements, chunk: chunk)
-    #expect(elements == [nil])
+    expectNoDifference(elements, [nil])
   }
 
   // MARK: - What the partial holds when it stops
@@ -235,12 +226,12 @@ struct `Partial sink failure tests` {
     #expect(throws: JSONParsingError.self) {
       try parsePartial(#"[1,"a",3]"#, into: &elements, chunk: chunk)
     }
-    #expect(elements == [1, 0], "the rejected element is present, and 3 never arrives")
+    expectNoDifference(elements, [1, 0], "the rejected element is present, and 3 never arrives")
 
     var counts = StreamDictionary<Int>()
     #expect(throws: JSONParsingError.self) {
       try parsePartial(#"{"a":"x"}"#, into: &counts, chunk: chunk)
     }
-    #expect(counts == ["a": 0], "the key stays, holding the value it was materialised with")
+    expectNoDifference(counts, ["a": 0], "the key stays, holding the value it was materialised with")
   }
 }

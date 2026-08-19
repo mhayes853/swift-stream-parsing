@@ -28,35 +28,33 @@ struct `Partial sink root tests` {
 
   @Test(arguments: [Int.max, 7, 1])
   func `A bare string document parses into a string root`(chunk: Int) throws {
-    #expect(try self.parse(#""Blob""#, as: String.self, chunk: chunk) == "Blob")
-    #expect(try self.parse(#""""#, as: String.self, chunk: chunk) == "")
-    #expect(try self.parse(#""a\nb é€""#, as: String.self, chunk: chunk) == "a\nb é€")
+    expectNoDifference(try self.parse(#""Blob""#, as: String.self, chunk: chunk), "Blob")
+    expectNoDifference(try self.parse(#""""#, as: String.self, chunk: chunk), "")
+    expectNoDifference(try self.parse(#""a\nb é€""#, as: String.self, chunk: chunk), "a\nb é€")
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A bare number document parses into a number root`(chunk: Int) throws {
-    #expect(try self.parse("42", as: Int.self, chunk: chunk) == 42)
-    #expect(try self.parse("-17", as: Int.self, chunk: chunk) == -17)
-    #expect(try self.parse("3.25", as: Double.self, chunk: chunk) == 3.25)
-    #expect(try self.parse("-1.5e2", as: Double.self, chunk: chunk) == -150)
+    expectNoDifference(try self.parse("42", as: Int.self, chunk: chunk), 42)
+    expectNoDifference(try self.parse("-17", as: Int.self, chunk: chunk), -17)
+    expectNoDifference(try self.parse("3.25", as: Double.self, chunk: chunk), 3.25)
+    expectNoDifference(try self.parse("-1.5e2", as: Double.self, chunk: chunk), -150)
   }
 
   @Test
   func `A bare boolean document parses into a boolean root`() throws {
-    #expect(try self.parse("true", as: Bool.self) == true)
-    #expect(try self.parse("false", as: Bool.self) == false)
+    expectNoDifference(try self.parse("true", as: Bool.self), true)
+    expectNoDifference(try self.parse("false", as: Bool.self), false)
   }
 
   // MARK: - Array roots
 
   @Test(arguments: [Int.max, 7, 1])
   func `A bare array document parses into an array root`(chunk: Int) throws {
-    #expect(try self.parse("[1,2,3]", as: StreamArray<Int>.self, chunk: chunk) == [1, 2, 3])
-    #expect(try self.parse("[]", as: StreamArray<Int>.self, chunk: chunk) == [])
-    #expect(
-      try self.parse(#"["a","b"]"#, as: StreamArray<String>.self, chunk: chunk) == ["a", "b"]
-    )
-    #expect(try self.parse("[true,false]", as: StreamArray<Bool>.self, chunk: chunk) == [true, false])
+    expectNoDifference(try self.parse("[1,2,3]", as: StreamArray<Int>.self, chunk: chunk), [1, 2, 3])
+    expectNoDifference(try self.parse("[]", as: StreamArray<Int>.self, chunk: chunk), [])
+    expectNoDifference(try self.parse(#"["a","b"]"#, as: StreamArray<String>.self, chunk: chunk), ["a", "b"])
+    expectNoDifference(try self.parse("[true,false]", as: StreamArray<Bool>.self, chunk: chunk), [true, false])
   }
 
   @Test(arguments: [Int.max, 7, 1])
@@ -66,17 +64,17 @@ struct `Partial sink root tests` {
       as: StreamArray<RootUser.Partial>.self,
       chunk: chunk
     )
-    #expect(users.count == 2)
-    #expect(users.first?.id == 1)
-    #expect(users.first?.name == "A")
-    #expect(users.last?.id == 2)
-    #expect(users.last?.name == "B")
+    expectNoDifference(users.count, 2)
+    expectNoDifference(users.first?.id, 1)
+    expectNoDifference(users.first?.name, "A")
+    expectNoDifference(users.last?.id, 2)
+    expectNoDifference(users.last?.name, "B")
   }
 
   @Test(arguments: [Int.max, 7, 1])
   func `Nested arrays parse at the root`(chunk: Int) throws {
     let rows = try self.parse("[[1,2],[],[3]]", as: StreamArray<StreamArray<Int>>.self, chunk: chunk)
-    #expect(rows == [[1, 2], [], [3]])
+    expectNoDifference(rows, [[1, 2], [], [3]])
   }
 
   // MARK: - Dictionary roots
@@ -86,10 +84,10 @@ struct `Partial sink root tests` {
     let counts = try self.parse(
       #"{"b":2,"a":1,"c":3}"#, as: StreamDictionary<Int>.self, chunk: chunk
     )
-    #expect(counts.keys == ["b", "a", "c"])
-    #expect(counts["a"] == 1)
-    #expect(counts["b"] == 2)
-    #expect(counts["c"] == 3)
+    expectNoDifference(counts.keys, ["b", "a", "c"])
+    expectNoDifference(counts["a"], 1)
+    expectNoDifference(counts["b"], 2)
+    expectNoDifference(counts["c"], 3)
   }
 
   @Test
@@ -98,8 +96,8 @@ struct `Partial sink root tests` {
       #"{"first":{"id":1,"name":"A"}}"#,
       as: StreamDictionary<RootUser.Partial>.self
     )
-    #expect(users["first"]?.id == 1)
-    #expect(users["first"]?.name == "A")
+    expectNoDifference(users["first"]?.id, 1)
+    expectNoDifference(users["first"]?.name, "A")
   }
 
   // MARK: - Mismatched roots

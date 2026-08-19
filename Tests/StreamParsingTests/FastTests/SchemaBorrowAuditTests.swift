@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsing
@@ -78,7 +79,7 @@ struct SchemaBorrowAuditTests {
       try parse(#"{"nested":{"value":1}}"#, as: AuditDangling.self)
     }
     let message = String(decoding: result.standardErrorContent, as: UTF8.self)
-    #expect(message.contains("deallocated while the sink still borrowed it"))
+    expectNoDifference(message.contains("deallocated while the sink still borrowed it"), true)
   }
 
   @Test("A schema with a durable owner does not trip the audit")

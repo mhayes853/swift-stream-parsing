@@ -1,3 +1,4 @@
+import CustomDump
 import Testing
 
 import StreamParsingCore
@@ -64,8 +65,8 @@ struct `JSON parser buffer tests` {
   func `Key spans carry readable zeroed padding`() throws {
     var sink = KeyPaddingSink()
     try parse(#"{"id":1,"name":"a","aLongerKeyName":2}"#, into: &sink)
-    #expect(sink.keys == ["id", "name", "aLongerKeyName"])
-    #expect(sink.paddingWasZeroed)
+    expectNoDifference(sink.keys, ["id", "name", "aLongerKeyName"])
+    expectNoDifference(sink.paddingWasZeroed, true)
   }
 
   // A key whose closing quote is the final byte of a chunk is the case where handing out a
@@ -77,8 +78,8 @@ struct `JSON parser buffer tests` {
     for split in 1..<bytes.count {
       var sink = KeyPaddingSink()
       try parse(json, into: &sink, chunk: split)
-      #expect(sink.keys == ["name"], "split \(split)")
-      #expect(sink.paddingWasZeroed, "split \(split)")
+      expectNoDifference(sink.keys, ["name"], "split \(split)")
+      expectNoDifference(sink.paddingWasZeroed, true, "split \(split)")
     }
   }
 
@@ -86,8 +87,8 @@ struct `JSON parser buffer tests` {
   func `Key padding holds byte by byte`() throws {
     var sink = KeyPaddingSink()
     try parse(#"{"alpha":1,"beta":2}"#, into: &sink, chunk: 1)
-    #expect(sink.keys == ["alpha", "beta"])
-    #expect(sink.paddingWasZeroed)
+    expectNoDifference(sink.keys, ["alpha", "beta"])
+    expectNoDifference(sink.paddingWasZeroed, true)
   }
 
   // MARK: - Buffer exhaustion
@@ -103,7 +104,7 @@ struct `JSON parser buffer tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try parse("{\"\(key)\":1}", into: &sink, buffer: storage)
     }
-    #expect(error?.reason == .bufferExhausted)
+    expectNoDifference(error?.reason, .bufferExhausted)
   }
 
   @Test
@@ -114,8 +115,8 @@ struct `JSON parser buffer tests` {
 
     var sink = KeyPaddingSink()
     try parse(#"{"reasonablyLongKeyName":1}"#, into: &sink, buffer: storage)
-    #expect(sink.keys == ["reasonablyLongKeyName"])
-    #expect(sink.paddingWasZeroed)
+    expectNoDifference(sink.keys, ["reasonablyLongKeyName"])
+    expectNoDifference(sink.paddingWasZeroed, true)
   }
 
   // A number contained in one chunk is already contiguous and is handed over in place, so the
@@ -143,6 +144,6 @@ struct `JSON parser buffer tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try parse("[\(digits)]", into: &sink, chunk: 1, buffer: storage)
     }
-    #expect(error?.reason == .bufferExhausted)
+    expectNoDifference(error?.reason, .bufferExhausted)
   }
 }
