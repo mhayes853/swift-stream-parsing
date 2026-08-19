@@ -19,6 +19,9 @@ let benchmarks: @Sendable () -> Void = {
   // died in `NSURL` resource caching and in the runtime's conformance cache, each time in whatever
   // row happened to trip the lazy load, which reads as a parser crash and is not one.
   Payloads.warmUp()
+  if ProcessInfo.processInfo.environment["STREAM_PARSING_COLLISION_REPORT"] == "1" {
+    reportRealWorldDictionaryCollisions()
+  }
 
   Benchmark.defaultConfiguration = Benchmark.Configuration(
     metrics: [.cpuTotal, .wallClock, .mallocCountTotal, .retainCount, .releaseCount],

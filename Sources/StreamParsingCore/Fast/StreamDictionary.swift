@@ -44,11 +44,9 @@ public struct StreamDictionary<Value> {
   //
   // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats, which is what
   // keeps `{"a":1,"b":2,"a":3}` in its original order, and `storedValues.count` when it is new.
-  // `pendingKey` and `pendingHash` are needed only in that last case, so a repeated key never
-  // becomes a `String` at all.
-  @usableFromInline var pendingKey: String?
+  // A new key is inserted into `entries` and the table immediately, so those can lead
+  // `storedValues` by one while its value remains in the stable pending slot.
   @usableFromInline var pendingValue: Value?
-  @usableFromInline var pendingHash: UInt64
   @usableFromInline var pendingSlot: Int32
 
   @usableFromInline static var indexThreshold: Int { 8 }
@@ -57,9 +55,7 @@ public struct StreamDictionary<Value> {
     self.entries = ContiguousArray<StreamDictionaryEntry>()
     self.storedValues = [Value]()
     self.table = nil
-    self.pendingKey = nil
     self.pendingValue = nil
-    self.pendingHash = 0
     self.pendingSlot = -1
   }
 
@@ -73,22 +69,13 @@ public struct StreamDictionary<Value> {
     for key in dictionary.keys.sorted() { self.updateValue(dictionary[key]!, forKey: key) }
   }
 
-  // The pending entry only adds to the count when its key is a new one; a repeat shadows the slot
-  // it already occupies.
-  @usableFromInline
-  var hasPendingAppend: Bool {
-    self.pendingSlot >= 0 && Int(self.pendingSlot) == self.storedValues.count
-  }
-
-  // A resumed entry's key is already stored; only a new one carries it in `pendingKey`.
   @usableFromInline
   var pendingEntryKey: String? {
     guard self.pendingSlot >= 0 else { return nil }
-    let slot = Int(self.pendingSlot)
-    return slot < self.entries.count ? self.entries[slot].key : self.pendingKey
+    return self.entries[Int(self.pendingSlot)].key
   }
 
-  public var count: Int { self.storedValues.count + (self.hasPendingAppend ? 1 : 0) }
+  public var count: Int { self.entries.count }
   public var isEmpty: Bool { self.count == 0 }
 
   public var keys: [String] { self.map(\.key) }
@@ -123,35 +110,47 @@ public struct StreamDictionary<Value> {
   @inlinable
   mutating func drainPending() {
     guard self.pendingSlot >= 0 else { return }
-    var key = String?.none
     var value = Value?.none
-    swap(&key, &self.pendingKey)
     swap(&value, &self.pendingValue)
     let slot = Int(self.pendingSlot)
-    let hash = self.pendingHash
     self.pendingSlot = -1
-    self.pendingHash = 0
     if slot < self.storedValues.count {
       self.storedValues[slot] = value.unsafelyUnwrapped
     } else {
-      self.append(value.unsafelyUnwrapped, forKey: key.unsafelyUnwrapped, hash: hash)
+      self.storedValues.append(value.unsafelyUnwrapped)
     }
   }
 
   @inlinable
   mutating func append(_ value: Value, forKey key: String, hash: UInt64) {
+    self.appendEntry(forKey: key, hash: hash)
+    self.storedValues.append(value)
+  }
+
+  @discardableResult
+  @inlinable
+  mutating func appendEntry(
+    forKey key: String,
+    hash: UInt64,
+    vacantBucket: Int = -1
+  ) -> Int32 {
     let slot = Int32(self.entries.count)
     self.entries.append(StreamDictionaryEntry(hash: hash, key: key))
-    self.storedValues.append(value)
     guard self.table != nil else {
       if self.entries.count > Self.indexThreshold { self.rebuildTable() }
-      return
+      return slot
     }
     guard self.entries.count * 2 <= self.table.unsafelyUnwrapped.count else {
       self.rebuildTable()
-      return
+      return slot
+    }
+    if vacantBucket >= 0 {
+      assert(self.table.unsafelyUnwrapped[vacantBucket] < 0)
+      self.table![vacantBucket] = slot
+      return slot
     }
     self.claim(slot: slot, hash: hash)
+    return slot
   }
 
   // Takes the first free probe for a key already known to be absent, which is what lets it stop at
@@ -204,12 +203,20 @@ extension StreamDictionary {
     return key.withUTF8 { Self.hash($0) }
   }
 
+  // On an indexed miss, hands the empty bucket back so insertion does not walk the same probe
+  // chain again. It remains unchanged for the small linear scan and every successful lookup.
   @inlinable
-  func slot(forKey key: UnsafeBufferPointer<UInt8>, hash: UInt64) -> Int32? {
+  func slot(
+    forKey key: UnsafeBufferPointer<UInt8>,
+    hash: UInt64,
+    vacantBucket: inout Int
+  ) -> Int32? {
     guard let table = self.table else {
       var slot = 0
       while slot < self.entries.count {
-        if self.entries[slot].hash == hash, self.keyMatches(slot, key) { return Int32(slot) }
+        if self.entries[slot].hash == hash, self.keyMatches(slot, key) {
+          return Int32(slot)
+        }
         slot &+= 1
       }
       return nil
@@ -218,11 +225,22 @@ extension StreamDictionary {
     var probe = Int(hash & UInt64(mask))
     while true {
       let slot = table[probe]
-      guard slot >= 0 else { return nil }
+      guard slot >= 0 else {
+        vacantBucket = probe
+        return nil
+      }
       let position = Int(slot)
-      if self.entries[position].hash == hash, self.keyMatches(position, key) { return slot }
+      if self.entries[position].hash == hash, self.keyMatches(position, key) {
+        return slot
+      }
       probe = (probe &+ 1) & mask
     }
+  }
+
+  @inlinable
+  func slot(forKey key: UnsafeBufferPointer<UInt8>, hash: UInt64) -> Int32? {
+    var vacantBucket = -1
+    return self.slot(forKey: key, hash: hash, vacantBucket: &vacantBucket)
   }
 
   @usableFromInline
@@ -270,16 +288,20 @@ extension StreamDictionary {
     self.drainPending()
     key.withUnsafeBufferPointer { buffer in
       let hash = Self.hash(buffer)
-      self.pendingHash = hash
-      guard let existing = self.slot(forKey: buffer, hash: hash) else {
-        self.pendingSlot = Int32(self.storedValues.count)
-        self.pendingKey = String(decoding: buffer, as: UTF8.self)
+      var vacantBucket = -1
+      if let existing = self.slot(
+        forKey: buffer, hash: hash, vacantBucket: &vacantBucket
+      ) {
+        self.pendingSlot = existing
+        self.pendingValue = self.storedValues[Int(existing)]
+      } else {
+        self.pendingSlot = self.appendEntry(
+          forKey: String(decoding: buffer, as: UTF8.self),
+          hash: hash,
+          vacantBucket: vacantBucket
+        )
         self.pendingValue = initial()
-        return
       }
-      self.pendingSlot = existing
-      self.pendingKey = nil
-      self.pendingValue = self.storedValues[Int(existing)]
     }
     return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
   }
@@ -379,4 +401,10 @@ extension StreamDictionary {
   public mutating func _benchmarkDrain() {
     self.drainPending()
   }
+
+  @_spi(Benchmarking)
+  public var _benchmarkStoredHashes: [UInt64] {
+    self.entries.map(\.hash)
+  }
+
 }

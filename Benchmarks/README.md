@@ -12,6 +12,11 @@ swift package --package-path Benchmarks --allow-writing-to-package-directory ben
 swift package --package-path Benchmarks benchmark baseline compare <name>
 ```
 
+Set `STREAM_PARSING_COLLISION_REPORT=1` on `benchmark list` to replay `StreamDictionary`'s table
+growth over the dynamic-key maps in CITM catalog and GSoC 2018. The report separates occupied
+buckets visited while proving an insertion absent from those visited while placing entries and
+rebuilding the table.
+
 ## What is measured, and what is not
 
 Everything here runs against shipped code. Strategy comparisons that chose an implementation are

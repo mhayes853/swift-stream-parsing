@@ -1,7 +1,7 @@
 import CustomDump
 import Testing
 
-import StreamParsingCore
+@testable import StreamParsingCore
 
 @Suite
 struct `Stream dictionary tests` {
@@ -118,6 +118,64 @@ struct `Stream dictionary tests` {
     dictionary.updateValue(10, forKey: "next_key")
     #expect(dictionary["span_key"] == 9)
   }
+
+  @Test
+  func `Indexes A New Key Before Its Value Is Drained`() {
+    var dictionary = StreamDictionary<Int>()
+    for value in 0..<8 {
+      dictionary.updateValue(value, forKey: "key_\(value)")
+    }
+    let key = Array("key_8".utf8)
+
+    key.withUnsafeBufferPointer { buffer in
+      let pointer = dictionary._openValue(
+        forKey: Span(_unsafeElements: buffer),
+        initial: 8
+      )
+      pointer.assumingMemoryBound(to: Int.self).pointee = 80
+    }
+
+    expectNoDifference(dictionary.entries.count, 9)
+    expectNoDifference(dictionary.storedValues.count, 8)
+    expectNoDifference(dictionary.table?.count, 32)
+    expectNoDifference(dictionary["key_8"], 80)
+
+    dictionary.updateValue(9, forKey: "key_9")
+    expectNoDifference(dictionary.storedValues.count, 10)
+    expectNoDifference(dictionary["key_8"], 80)
+    expectNoDifference(dictionary["key_9"], 9)
+  }
+
+  @Test
+  func `An Indexed Miss Claims Its Located Vacant Bucket`() {
+    let keys = adversarialKeys(count: 11)
+    var dictionary = StreamDictionary<Int>()
+    for (value, key) in keys.prefix(10).enumerated() {
+      dictionary.updateValue(value, forKey: key)
+    }
+    let key = Array(keys[10].utf8)
+    var vacantBucket = -1
+    let existing = key.withUnsafeBufferPointer { buffer in
+      dictionary.slot(
+        forKey: buffer,
+        hash: StreamDictionary<Int>.hash(buffer),
+        vacantBucket: &vacantBucket
+      )
+    }
+
+    expectNoDifference(existing, nil)
+    expectNoDifference(vacantBucket, 10)
+
+    key.withUnsafeBufferPointer { buffer in
+      dictionary._openValue(
+        forKey: Span(_unsafeElements: buffer),
+        initial: 10
+      ).assumingMemoryBound(to: Int.self).pointee = 100
+    }
+
+    expectNoDifference(dictionary.table?[10], 10)
+    expectNoDifference(dictionary[keys[10]], 100)
+  }
 }
 
 // All generated keys land in slot zero for every table size used while these entries are
@@ -128,19 +186,10 @@ private func adversarialKeys(count: Int) -> [String] {
   var candidate = 0
   while keys.count < count {
     let key = "probe_collision_\(candidate)"
-    if fnv1a(key) & 127 == 0 {
+    if StreamDictionary<Int>.hash(key) & 127 == 0 {
       keys.append(key)
     }
     candidate += 1
   }
   return keys
-}
-
-private func fnv1a(_ key: String) -> UInt64 {
-  var hash = UInt64(0xcbf2_9ce4_8422_2325)
-  for byte in key.utf8 {
-    hash ^= UInt64(byte)
-    hash &*= 0x100_0000_01b3
-  }
-  return hash
 }
