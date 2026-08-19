@@ -17,16 +17,16 @@
     func `CGFloat converts through Double`(chunk: Int) throws {
       var value = CoreGraphicsValues.Partial()
       try parsePartial(#"{"width":320.5,"height":-1.25e2}"#, into: &value, chunk: chunk)
-      #expect(value.width == 320.5)
-      #expect(value.height == -125)
+      expectNoDifference(value.width, 320.5)
+      expectNoDifference(value.height, -125)
     }
 
     @Test
     func `CGFloat takes whole numbers from the accumulated magnitude`() throws {
       var value = CoreGraphicsValues.Partial()
       try parsePartial(#"{"width":1024,"height":0}"#, into: &value)
-      #expect(value.width == 1024)
-      #expect(value.height == 0)
+      expectNoDifference(value.width, 1024)
+      expectNoDifference(value.height, 0)
     }
   }
 #endif

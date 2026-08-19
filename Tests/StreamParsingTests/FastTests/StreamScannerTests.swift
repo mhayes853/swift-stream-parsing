@@ -68,7 +68,7 @@ struct `Stream scanner tests` {
       let actual = Self.withBase(bytes) {
         streamStringRunEnd(base: $0, from: 0, to: bytes.count)
       }
-      #expect(actual == 33)
+      expectNoDifference(actual, 33)
     }
   }
 
@@ -80,7 +80,7 @@ struct `Stream scanner tests` {
     let actual = Self.withBase(bytes) {
       streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
     }
-    #expect(actual == 4)
+    expectNoDifference(actual, 4)
   }
 
   @Test
@@ -89,7 +89,7 @@ struct `Stream scanner tests` {
     let actual = Self.withBase(bytes) {
       streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
     }
-    #expect(actual == 3)
+    expectNoDifference(actual, 3)
   }
 
   // MARK: - ASCII detection
@@ -200,7 +200,7 @@ struct `Stream scanner tests` {
     let actual = Self.withBase(bytes) {
       streamNewlineCount(base: $0, from: 0, to: bytes.count)
     }
-    #expect(actual == 4)
+    expectNoDifference(actual, 4)
   }
 }
 
@@ -213,10 +213,10 @@ struct `Key word tests` {
 
   @Test
   func `Padded words match hand computed little endian values`() {
-    #expect(Self.word("id") == 0x0000_0000_0000_6469)
-    #expect(Self.word("name") == 0x0000_0000_656D_616E)
-    #expect(Self.word("isActive") == 0x6576_6974_6341_7369)
-    #expect(Self.word("") == 0)
+    expectNoDifference(Self.word("id"), 0x0000_0000_0000_6469)
+    expectNoDifference(Self.word("name"), 0x0000_0000_656D_616E)
+    expectNoDifference(Self.word("isActive"), 0x6576_6974_6341_7369)
+    expectNoDifference(Self.word(""), 0)
   }
 
   // Zero padding is what lets a generated matcher switch on the word alone: two distinct keys
@@ -231,8 +231,8 @@ struct `Key word tests` {
 
   @Test
   func `Long keys share a word only through their first eight bytes`() {
-    #expect(Self.word("descriptionLong") == Self.word("descriptionShort"))
-    #expect(Self.word("descriptionLong") == Self.word("descript"))
+    expectNoDifference(Self.word("descriptionLong"), Self.word("descriptionShort"))
+    expectNoDifference(Self.word("descriptionLong"), Self.word("descript"))
   }
 
   // The wide load and the halving ladder that replaced the byte loop have to agree with it at
@@ -272,6 +272,6 @@ struct `Key word tests` {
     let word = bytes.withUnsafeMutableBufferPointer {
       Span(_unsafeElements: UnsafeBufferPointer($0)).paddedLeadingWord()
     }
-    #expect(word == 0x0000_0000_0063_6261)
+    expectNoDifference(word, 0x0000_0000_0063_6261)
   }
 }

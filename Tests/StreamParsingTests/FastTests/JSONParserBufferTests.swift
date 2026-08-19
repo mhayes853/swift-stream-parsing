@@ -64,7 +64,7 @@ struct `JSON parser buffer tests` {
   func `Key spans carry readable zeroed padding`() throws {
     var sink = KeyPaddingSink()
     try parse(#"{"id":1,"name":"a","aLongerKeyName":2}"#, into: &sink)
-    #expect(sink.keys == ["id", "name", "aLongerKeyName"])
+    expectNoDifference(sink.keys, ["id", "name", "aLongerKeyName"])
     #expect(sink.paddingWasZeroed)
   }
 
@@ -86,7 +86,7 @@ struct `JSON parser buffer tests` {
   func `Key padding holds byte by byte`() throws {
     var sink = KeyPaddingSink()
     try parse(#"{"alpha":1,"beta":2}"#, into: &sink, chunk: 1)
-    #expect(sink.keys == ["alpha", "beta"])
+    expectNoDifference(sink.keys, ["alpha", "beta"])
     #expect(sink.paddingWasZeroed)
   }
 
@@ -103,7 +103,7 @@ struct `JSON parser buffer tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try parse("{\"\(key)\":1}", into: &sink, buffer: storage)
     }
-    #expect(error?.reason == .bufferExhausted)
+    expectNoDifference(error?.reason, .bufferExhausted)
   }
 
   @Test
@@ -114,7 +114,7 @@ struct `JSON parser buffer tests` {
 
     var sink = KeyPaddingSink()
     try parse(#"{"reasonablyLongKeyName":1}"#, into: &sink, buffer: storage)
-    #expect(sink.keys == ["reasonablyLongKeyName"])
+    expectNoDifference(sink.keys, ["reasonablyLongKeyName"])
     #expect(sink.paddingWasZeroed)
   }
 
@@ -143,6 +143,6 @@ struct `JSON parser buffer tests` {
     let error = #expect(throws: JSONParsingError.self) {
       try parse("[\(digits)]", into: &sink, chunk: 1, buffer: storage)
     }
-    #expect(error?.reason == .bufferExhausted)
+    expectNoDifference(error?.reason, .bufferExhausted)
   }
 }

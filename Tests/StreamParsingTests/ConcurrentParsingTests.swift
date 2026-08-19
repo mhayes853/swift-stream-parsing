@@ -61,7 +61,7 @@ struct `Concurrent parsing tests` {
       return collected
     }
 
-    #expect(results.count == 64)
+    expectNoDifference(results.count, 64)
     for index in 0..<64 {
       #expect(results[index] ?? nil == expected[index])
     }

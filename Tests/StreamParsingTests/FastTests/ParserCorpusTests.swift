@@ -104,12 +104,12 @@ struct `Parser corpus tests` {
       #"{"id":4,"name":"Blob Johnson","email":"b@e.com","age":42,"score":98.25,"isActive":true}"#,
       into: &value
     )
-    #expect(value.id == 4)
-    #expect(value.name == "Blob Johnson")
-    #expect(value.email == "b@e.com")
-    #expect(value.age == 42)
-    #expect(value.score == 98.25)
-    #expect(value.isActive == true)
+    expectNoDifference(value.id, 4)
+    expectNoDifference(value.name, "Blob Johnson")
+    expectNoDifference(value.email, "b@e.com")
+    expectNoDifference(value.age, 42)
+    expectNoDifference(value.score, 98.25)
+    expectNoDifference(value.isActive, true)
   }
 
   @Test(arguments: [
@@ -127,10 +127,10 @@ struct `Parser corpus tests` {
       #"{"id":7,"company":{"name":"Point-Free","address":{"street":"123 Way","city":"Brooklyn"}}}"#,
       into: &value
     )
-    #expect(value.id == 7)
-    #expect(value.company?.name == "Point-Free")
-    #expect(value.company?.address?.street == "123 Way")
-    #expect(value.company?.address?.city == "Brooklyn")
+    expectNoDifference(value.id, 7)
+    expectNoDifference(value.company?.name, "Point-Free")
+    expectNoDifference(value.company?.address?.street, "123 Way")
+    expectNoDifference(value.company?.address?.city, "Brooklyn")
   }
 
   @Test(arguments: [
@@ -148,9 +148,9 @@ struct `Parser corpus tests` {
     try parsePartial(
       #"{"users":[{"id":1,"name":"A"},{"id":2,"name":"B"}],"total":2}"#, into: &value
     )
-    #expect(value.total == 2)
-    #expect(value.users?.map(\.id) == [1, 2])
-    #expect(value.users?.map(\.name) == ["A", "B"])
+    expectNoDifference(value.total, 2)
+    expectNoDifference(value.users?.map(\.id), [1, 2])
+    expectNoDifference(value.users?.map(\.name), ["A", "B"])
   }
 
   @Test(arguments: [
@@ -166,7 +166,7 @@ struct `Parser corpus tests` {
   func `Nested array elements land in the right row`() throws {
     var value = DiffMatrix.Partial()
     try parsePartial(#"{"rows":[[1,2,3],[],[4]]}"#, into: &value)
-    #expect(value.rows == [[1, 2, 3], [], [4]])
+    expectNoDifference(value.rows, [[1, 2, 3], [], [4]])
   }
 
   @Test(arguments: [
@@ -180,7 +180,7 @@ struct `Parser corpus tests` {
   func `Strings and escapes decode`(json: String, expected: String) throws {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
-    #expect(value.text == expected)
+    expectNoDifference(value.text, expected)
     try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 
@@ -190,7 +190,7 @@ struct `Parser corpus tests` {
   func `An empty string is an empty value rather than nil`() throws {
     var value = DiffText.Partial()
     try parsePartial(#"{"text":""}"#, into: &value)
-    #expect(value.text == "")
+    expectNoDifference(value.text, "")
   }
 
   // MARK: - Where the registration based parser was wrong
@@ -205,7 +205,7 @@ struct `Parser corpus tests` {
   func `Multi byte UTF-8 decodes intact`(json: String, expected: String) throws {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
-    #expect(value.text == expected)
+    expectNoDifference(value.text, expected)
     try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 

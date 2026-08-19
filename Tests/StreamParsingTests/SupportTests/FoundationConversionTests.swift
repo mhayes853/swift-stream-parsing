@@ -20,7 +20,7 @@
     func `Data accumulates string content`(chunk: Int) throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"blob":"hello world"}"#, into: &value, chunk: chunk)
-      #expect(value.blob == Data("hello world".utf8))
+      expectNoDifference(value.blob, Data("hello world".utf8))
     }
 
     // The registration based path rebuilt a String from the whole accumulated value on every
@@ -31,14 +31,14 @@
       let payload = String(repeating: "QUJDREVGR0hJSg", count: 512)
       var value = FoundationValues.Partial()
       try parsePartial(#"{"blob":"\#(payload)"}"#, into: &value, chunk: 1)
-      #expect(value.blob == Data(payload.utf8))
+      expectNoDifference(value.blob, Data(payload.utf8))
     }
 
     @Test
     func `Data preserves multi byte UTF-8 and escapes`() throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"blob":"Aé€😀\n\t"}"#, into: &value)
-      #expect(value.blob == Data("Aé€😀\n\t".utf8))
+      expectNoDifference(value.blob, Data("Aé€😀\n\t".utf8))
     }
 
     // MARK: - Decimal
@@ -55,14 +55,14 @@
     func `Decimal converts exactly`(literal: String) throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":\#(literal)}"#, into: &value)
-      #expect(value.amount == Decimal(string: literal))
+      expectNoDifference(value.amount, Decimal(string: literal))
     }
 
     @Test
     func `Decimal through Double would have lost these`() throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":1.005}"#, into: &value)
-      #expect(value.amount == Decimal(string: "1.005"))
+      expectNoDifference(value.amount, Decimal(string: "1.005"))
       #expect(value.amount != Decimal(1.005))
     }
 
@@ -70,7 +70,7 @@
     func `Decimal converts exponent forms`(literal: String) throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":\#(literal)}"#, into: &value)
-      #expect(value.amount == Decimal(string: literal))
+      expectNoDifference(value.amount, Decimal(string: literal))
     }
 
     // Wider than the accumulator's UInt64 magnitude, so this reaches the string fallback.
@@ -79,14 +79,14 @@
       let literal = "123456789012345678901234567890"
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":\#(literal)}"#, into: &value)
-      #expect(value.amount == Decimal(string: literal))
+      expectNoDifference(value.amount, Decimal(string: literal))
     }
 
     @Test(arguments: [Int.max, 7, 1])
     func `Decimal is chunk size independent`(chunk: Int) throws {
       var value = FoundationValues.Partial()
       try parsePartial(#"{"amount":-98765.4321}"#, into: &value, chunk: chunk)
-      #expect(value.amount == Decimal(string: "-98765.4321"))
+      expectNoDifference(value.amount, Decimal(string: "-98765.4321"))
     }
 
     // MARK: - PersonNameComponents
@@ -103,12 +103,12 @@
         chunk: chunk
       )
       let name = try #require(value.name)
-      #expect(name.namePrefix == "Dr")
-      #expect(name.givenName == "Blob")
-      #expect(name.middleName == "Q")
-      #expect(name.familyName == "Johnson")
-      #expect(name.nameSuffix == "Jr")
-      #expect(name.nickname == "Blobby")
+      expectNoDifference(name.namePrefix, "Dr")
+      expectNoDifference(name.givenName, "Blob")
+      expectNoDifference(name.middleName, "Q")
+      expectNoDifference(name.familyName, "Johnson")
+      expectNoDifference(name.nameSuffix, "Jr")
+      expectNoDifference(name.nickname, "Blobby")
     }
 
     // PersonNameComponents is a single bridged handle with no stored properties, so there is no
@@ -128,10 +128,10 @@
       )
       let name = try #require(value.name)
       #expect(name.givenName == "Blob", "the keys around it still route to the parent")
-      #expect(name.familyName == "Johnson")
+      expectNoDifference(name.familyName, "Johnson")
       let phonetic = try #require(name.phoneticRepresentation)
-      #expect(phonetic.givenName == "blahb")
-      #expect(phonetic.familyName == "jon-sun")
+      expectNoDifference(phonetic.givenName, "blahb")
+      expectNoDifference(phonetic.familyName, "jon-sun")
     }
 
     // Entry materialises the slot the way every other container does, so the key arriving at all
@@ -155,7 +155,7 @@
       )
       let name = try #require(value.name)
       let phonetic = try #require(name.phoneticRepresentation)
-      #expect(phonetic.givenName == "blahb")
+      expectNoDifference(phonetic.givenName, "blahb")
       #expect(phonetic.familyName == nil)
     }
 
@@ -173,7 +173,7 @@
       )
       let name = try #require(value.name)
       let phonetic = try #require(name.phoneticRepresentation)
-      #expect(phonetic.givenName == "blahb")
+      expectNoDifference(phonetic.givenName, "blahb")
       #expect(phonetic.phoneticRepresentation == nil)
     }
 
@@ -191,8 +191,8 @@
       )
       let name = try #require(value.name)
       let phonetic = try #require(name.phoneticRepresentation)
-      #expect(phonetic.givenName == "blahb")
-      #expect(phonetic.familyName == "jon-sun")
+      expectNoDifference(phonetic.givenName, "blahb")
+      expectNoDifference(phonetic.familyName, "jon-sun")
     }
 
     @Test
@@ -203,7 +203,7 @@
         into: &value
       )
       let name = try #require(value.name)
-      #expect(name.givenName == "Blob")
+      expectNoDifference(name.givenName, "Blob")
       #expect(name.nickname == nil)
       #expect(name.familyName == nil)
     }
@@ -216,7 +216,7 @@
         into: &value
       )
       let name = try #require(value.name)
-      #expect(name.givenName == "Blob")
+      expectNoDifference(name.givenName, "Blob")
       #expect(name.familyName == nil)
     }
 
@@ -231,10 +231,10 @@
       ]
     )
     func `Hand written key words encode the keys they claim`(key: String, field: Int32) {
-      #expect(Self.matchField(key) == field)
-      #expect(Self.matchField(key + "s") == -1)
-      #expect(Self.matchField(String(key.dropLast())) == -1)
-      #expect(Self.matchField(key.uppercased()) == -1)
+      expectNoDifference(Self.matchField(key), field)
+      expectNoDifference(Self.matchField(key + "s"), -1)
+      expectNoDifference(Self.matchField(String(key.dropLast())), -1)
+      expectNoDifference(Self.matchField(key.uppercased()), -1)
     }
 
     private static func matchField(_ key: String) -> Int32 {

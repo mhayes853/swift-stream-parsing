@@ -104,7 +104,7 @@ struct `Error offset tests` {
       Issue.record("Expected the overlong sequence to be rejected.")
       return
     }
-    #expect(expected.byteOffset == 4)
+    expectNoDifference(expected.byteOffset, 4)
     for split in 0...bytes.count {
       #expect(Self.failure(bytes, splitAt: split) == expected, "split at \(split)")
     }
@@ -136,14 +136,14 @@ struct `Error offset tests` {
   func `Reports end of input for errors finish detects`() {
     let bytes = Array(#"{"a":1"#.utf8)
     let error = Self.failure(bytes, splitAt: bytes.count)
-    #expect(error == JSONParsingError(reason: .unterminatedContainer, byteOffset: 6))
+    expectNoDifference(error, JSONParsingError(reason: .unterminatedContainer, byteOffset: 6))
   }
 
   @Test
   func `Reports depth exceeded at the bracket that crossed the limit`() {
     let bytes = [UInt8](repeating: UInt8(ascii: "["), count: 70)
     let error = Self.failure(bytes, splitAt: bytes.count)
-    #expect(error == JSONParsingError(reason: .depthExceeded, byteOffset: 64))
+    expectNoDifference(error, JSONParsingError(reason: .depthExceeded, byteOffset: 64))
   }
 
   // MARK: - Sink rejections
@@ -182,7 +182,7 @@ struct `Error offset tests` {
   @Test(arguments: 0...5)
   func `Reports a rejected number at its own token, not the next`(splitAt: Int) {
     let error = Self.sinkFailure("[1,2]", sink: RejectingSink(rejecting: .number), splitAt: splitAt)
-    #expect(error?.reason == .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
     #expect(error?.byteOffset == 2, "split at \(splitAt)")
   }
 
@@ -191,7 +191,7 @@ struct `Error offset tests` {
     let error = Self.sinkFailure(
       #"["a","b"]"#, sink: RejectingSink(rejecting: .string), splitAt: splitAt
     )
-    #expect(error?.reason == .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
     #expect(error?.byteOffset == 4, "split at \(splitAt)")
   }
 
@@ -202,7 +202,7 @@ struct `Error offset tests` {
     var sink = RejectingSink(rejecting: .string)
     let bytes = Array(#"["a","b"]"#.utf8)
     _ = try? bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-    #expect(sink.startedStrings == 1)
+    expectNoDifference(sink.startedStrings, 1)
   }
 }
 

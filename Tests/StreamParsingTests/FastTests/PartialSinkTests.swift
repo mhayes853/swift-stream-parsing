@@ -27,17 +27,17 @@ struct `Partial sink tests` {
   func `Routes scalars into matching fields`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
-    #expect(user.id == 42)
-    #expect(user.name == "Blob")
-    #expect(user.active == true)
+    expectNoDifference(user.id, 42)
+    expectNoDifference(user.name, "Blob")
+    expectNoDifference(user.active, true)
   }
 
   @Test
   func `Ignores keys the destination does not have`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"id":1,"unknown":"x","name":"Blob"}"#, into: &user)
-    #expect(user.id == 1)
-    #expect(user.name == "Blob")
+    expectNoDifference(user.id, 1)
+    expectNoDifference(user.name, "Blob")
   }
 
   // An unknown key whose value is a container must not have its contents routed to the parent.
@@ -45,7 +45,7 @@ struct `Partial sink tests` {
   func `Skips containers under unknown keys`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"extra":{"id":999,"name":"wrong"},"id":1}"#, into: &user)
-    #expect(user.id == 1)
+    expectNoDifference(user.id, 1)
     #expect(user.name == nil)
   }
 
@@ -53,15 +53,15 @@ struct `Partial sink tests` {
   func `Routes into nested objects`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"address":{"city":"Brooklyn","postalCode":"11201"}}"#, into: &user)
-    #expect(user.address?.city == "Brooklyn")
-    #expect(user.address?.postalCode == "11201")
+    expectNoDifference(user.address?.city, "Brooklyn")
+    expectNoDifference(user.address?.postalCode, "11201")
   }
 
   @Test
   func `Routes into arrays of scalars`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"scores":[1,2,3]}"#, into: &user)
-    #expect(user.scores == [1, 2, 3])
+    expectNoDifference(user.scores, [1, 2, 3])
   }
 
   @Test
@@ -76,8 +76,8 @@ struct `Partial sink tests` {
   func `Routes into dictionaries of scalars`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"counts":{"a":1,"b":2,"c":3}}"#, into: &user)
-    #expect(user.counts?.keys == ["a", "b", "c"])
-    #expect(user.counts?["b"] == 2)
+    expectNoDifference(user.counts?.keys, ["a", "b", "c"])
+    expectNoDifference(user.counts?["b"], 2)
   }
 
   @Test
@@ -87,9 +87,9 @@ struct `Partial sink tests` {
       #"{"settings":{"home":{"city":"NYC"},"work":{"city":"Brooklyn","postalCode":"11201"}}}"#,
       into: &user
     )
-    #expect(user.settings?.keys == ["home", "work"])
-    #expect(user.settings?["home"]?.city == "NYC")
-    #expect(user.settings?["work"]?.postalCode == "11201")
+    expectNoDifference(user.settings?.keys, ["home", "work"])
+    expectNoDifference(user.settings?["home"]?.city, "NYC")
+    expectNoDifference(user.settings?["work"]?.postalCode, "11201")
   }
 
   // The point of the append-only storage: a nested value inside a dictionary updates as it
@@ -105,21 +105,21 @@ struct `Partial sink tests` {
       var sink = PartialSink(root: pointer)
       try Array(prefix.utf8).withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     }
-    #expect(user.settings?["home"]?.city == "Brooklyn")
+    expectNoDifference(user.settings?["home"]?.city, "Brooklyn")
   }
 
   @Test
   func `Dictionaries preserve insertion order from the payload`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"counts":{"zebra":1,"apple":2,"mango":3}}"#, into: &user)
-    #expect(user.counts?.keys == ["zebra", "apple", "mango"])
+    expectNoDifference(user.counts?.keys, ["zebra", "apple", "mango"])
   }
 
   @Test
   func `Accumulates string values across chunks`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"name":"a longer name that will be split"}"#, into: &user, chunk: 1)
-    #expect(user.name == "a longer name that will be split")
+    expectNoDifference(user.name, "a longer name that will be split")
   }
 
   @Test
@@ -174,13 +174,13 @@ struct `Macro key matching tests` {
       """#,
       into: &value
     )
-    #expect(value.a == 1)
-    #expect(value.abcdefghX == 2)
-    #expect(value.abcdefghijklmnopX == 3)
-    #expect(value.exactly8 == 4)
-    #expect(value.nineBytes9 == 5)
-    #expect(value.descriptionLong == 6)
-    #expect(value.descriptionShort == 7)
+    expectNoDifference(value.a, 1)
+    expectNoDifference(value.abcdefghX, 2)
+    expectNoDifference(value.abcdefghijklmnopX, 3)
+    expectNoDifference(value.exactly8, 4)
+    expectNoDifference(value.nineBytes9, 5)
+    expectNoDifference(value.descriptionLong, 6)
+    expectNoDifference(value.descriptionShort, 7)
   }
 
   // Both share "descript" as their first eight bytes, so only the length distinguishes them and
@@ -189,7 +189,7 @@ struct `Macro key matching tests` {
   func `Distinguishes keys sharing their first eight bytes`() throws {
     var value = MacroKeyWidths.Partial()
     try parsePartial(#"{"descriptionShort":5}"#, into: &value)
-    #expect(value.descriptionShort == 5)
+    expectNoDifference(value.descriptionShort, 5)
     #expect(value.descriptionLong == nil)
   }
 

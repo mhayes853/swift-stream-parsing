@@ -99,15 +99,15 @@ struct `Adversarial conformance tests` {
   func `Routes a key whose first character is an escape`() throws {
     var counts = StreamDictionary<Int>()
     try parsePartial("{\"\(esc)u0041\": 1, \"b\": 2}", into: &counts)
-    #expect(counts["A"] == 1)
-    #expect(counts["b"] == 2)
+    expectNoDifference(counts["A"], 1)
+    expectNoDifference(counts["b"], 2)
   }
 
   @Test
   func `Routes a key with an escape in the middle`() throws {
     var counts = StreamDictionary<Int>()
     try parsePartial("{\"a\(esc)nb\": 1}", into: &counts)
-    #expect(counts["a\nb"] == 1)
+    expectNoDifference(counts["a\nb"], 1)
   }
 
   // MARK: - Invalid UTF-8 across chunk boundaries
@@ -184,7 +184,7 @@ struct `Adversarial conformance tests` {
 
     // WTF-8, which is what the lone *low* surrogate path already emits, so both halves of a
     // broken pair survive the same way rather than one vanishing into the next token.
-    #expect(sink.strings == [[0xED, 0xA0, 0xBD], [0xED, 0xB8, 0x80]])
+    expectNoDifference(sink.strings, [[0xED, 0xA0, 0xBD], [0xED, 0xB8, 0x80]])
   }
 
   @Test
@@ -196,9 +196,9 @@ struct `Adversarial conformance tests` {
       try json.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
       try parser.finish(into: &sink)
     }
-    #expect(error?.reason == .invalidEscape)
+    expectNoDifference(error?.reason, .invalidEscape)
     // The closing quote of the *first* string, not somewhere in the second.
-    #expect(error?.byteOffset == 8)
+    expectNoDifference(error?.byteOffset, 8)
   }
 
   // The severed surrogate must also stop pinning the fused escape path off. `fusedEscapeEnd`
@@ -211,8 +211,8 @@ struct `Adversarial conformance tests` {
     var sink = StringCollectingSink()
     try json.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     try parser.finish(into: &sink)
-    #expect(sink.strings.count == 2)
-    #expect(sink.strings[1] == Array("a\nb\tc".utf8))
+    expectNoDifference(sink.strings.count, 2)
+    expectNoDifference(sink.strings[1], Array("a\nb\tc".utf8))
   }
 }
 

@@ -56,13 +56,13 @@ struct `Buffer capacity tests` {
   @Test
   func `A key longer than capacity is rejected`() {
     let key = String(repeating: "k", count: 4_096)
-    #expect(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: 1)?.reason == .bufferExhausted)
+    expectNoDifference(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: 1)?.reason, .bufferExhausted)
   }
 
   @Test
   func `A number longer than capacity is rejected`() {
     let number = String(repeating: "9", count: 4_096)
-    #expect(Self.failure("[\(number)]", capacity: 64, chunk: 1)?.reason == .bufferExhausted)
+    expectNoDifference(Self.failure("[\(number)]", capacity: 64, chunk: 1)?.reason, .bufferExhausted)
   }
 
   // Strings are the exception, and both halves of it are worth pinning because the useful
@@ -94,16 +94,14 @@ struct `Buffer capacity tests` {
       index = end
     }
     let document = try stream.finish()
-    #expect(document.body == expected)
+    expectNoDifference(document.body, expected)
   }
 
   // The failure is a property of the token and the capacity, not of where the chunks fell.
   @Test(arguments: [1, 3, 7, 64])
   func `Exhaustion does not depend on chunking`(chunk: Int) {
     let key = String(repeating: "k", count: 512)
-    #expect(
-      Self.failure("{\"\(key)\":1}", capacity: 64, chunk: chunk)?.reason == .bufferExhausted
-    )
+    expectNoDifference(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: chunk)?.reason, .bufferExhausted)
   }
 
   // The convenience layer carries the same setting through `JSONStreamFormat`, and it has to

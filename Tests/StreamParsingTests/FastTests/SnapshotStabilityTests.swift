@@ -150,14 +150,14 @@ struct `Snapshot stability tests` {
   func `The stable shapes parse correctly`() throws {
     var groups = StreamDictionary<StreamArray<Int>>()
     try parsePartial(#"{"a":[1,2],"b":[3]}"#, into: &groups)
-    #expect(groups == ["a": [1, 2], "b": [3]])
+    expectNoDifference(groups, ["a": [1, 2], "b": [3]])
 
     var deep = StreamDictionary<StreamArray<StreamArray<Int>>>()
     try parsePartial(#"{"a":[[1],[2,3]]}"#, into: &deep)
-    #expect(deep == ["a": [[1], [2, 3]]])
+    expectNoDifference(deep, ["a": [[1], [2, 3]]])
 
     var model = StabilityModel.Partial()
     try parsePartial(#"{"groups":{"a":[1,2],"b":[3]}}"#, into: &model)
-    #expect(model.groups == ["a": [1, 2], "b": [3]])
+    expectNoDifference(model.groups, ["a": [1, 2], "b": [3]])
   }
 }

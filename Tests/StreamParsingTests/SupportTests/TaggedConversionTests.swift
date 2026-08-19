@@ -34,9 +34,9 @@
         into: &value,
         chunk: chunk
       )
-      #expect(value.id == 42)
-      #expect(value.email == "blob@example.com")
-      #expect(value.active == true)
+      expectNoDifference(value.id, 42)
+      expectNoDifference(value.email, "blob@example.com")
+      expectNoDifference(value.active, true)
     }
 
     // Tagged has one stored property, so the raw value's schema applies to a pointer to the
@@ -49,16 +49,16 @@
         into: &value,
         chunk: chunk
       )
-      #expect(value.id == 1)
-      #expect(value.profile?.rawValue.city == "Brooklyn")
-      #expect(value.profile?.rawValue.zip == 11215)
+      expectNoDifference(value.id, 1)
+      expectNoDifference(value.profile?.rawValue.city, "Brooklyn")
+      expectNoDifference(value.profile?.rawValue.zip, 11215)
     }
 
     @Test
     func `A tagged string accumulates across chunks`() throws {
       var value = TaggedValues.Partial()
       try parsePartial(#"{"email":"a\nvery\tlong é€ address"}"#, into: &value, chunk: 1)
-      #expect(value.email == "a\nvery\tlong é€ address")
+      expectNoDifference(value.email, "a\nvery\tlong é€ address")
     }
   }
 #endif

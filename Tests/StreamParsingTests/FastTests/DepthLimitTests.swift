@@ -53,8 +53,8 @@ struct `Depth limit tests` {
 
   @Test(arguments: [65, 66, 128])
   func `Nesting past the cap is rejected`(depth: Int) {
-    #expect(Self.failure(Self.objects(depth))?.reason == .depthExceeded)
-    #expect(Self.failure(Self.arrays(depth))?.reason == .depthExceeded)
+    expectNoDifference(Self.failure(Self.objects(depth))?.reason, .depthExceeded)
+    expectNoDifference(Self.failure(Self.arrays(depth))?.reason, .depthExceeded)
   }
 
   // The cap is a property of the document, not of how it arrived, so a byte fed nest has to fail
@@ -62,9 +62,9 @@ struct `Depth limit tests` {
   @Test(arguments: [1, 3, .max])
   func `The cap does not depend on chunking`(chunk: Int) throws {
     try Self.parse(Self.objects(64), chunk: chunk)
-    #expect(Self.failure(Self.objects(65), chunk: chunk)?.reason == .depthExceeded)
+    expectNoDifference(Self.failure(Self.objects(65), chunk: chunk)?.reason, .depthExceeded)
     try Self.parse(Self.arrays(64), chunk: chunk)
-    #expect(Self.failure(Self.arrays(65), chunk: chunk)?.reason == .depthExceeded)
+    expectNoDifference(Self.failure(Self.arrays(65), chunk: chunk)?.reason, .depthExceeded)
   }
 
   // Alternating kinds put a different bit at every level, so a mask that shifted wrong would
@@ -89,10 +89,10 @@ struct `Depth limit tests` {
   // shallow enough to be legal still has to be closed by the right kind.
   @Test
   func `A container closed by the wrong kind is rejected at every depth`() {
-    #expect(Self.failure(#"{"a":[1}"#)?.reason == .unexpectedToken)
-    #expect(Self.failure(#"[{"a":1]"#)?.reason == .unexpectedToken)
+    expectNoDifference(Self.failure(#"{"a":[1}"#)?.reason, .unexpectedToken)
+    expectNoDifference(Self.failure(#"[{"a":1]"#)?.reason, .unexpectedToken)
 
     let deep = String(repeating: #"{"a":"#, count: 63)
-    #expect(Self.failure(deep + "[1}" + String(repeating: "}", count: 63))?.reason == .unexpectedToken)
+    expectNoDifference(Self.failure(deep + "[1}" + String(repeating: "}", count: 63))?.reason, .unexpectedToken)
   }
 }

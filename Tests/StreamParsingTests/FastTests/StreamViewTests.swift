@@ -36,9 +36,9 @@ struct `Stream view tests` {
   func `A view reads scalar members`() throws {
     let stream = try self.stream(#"{"id":42,"name":"Blob","active":true}"#)
     stream.withView { profile in
-      #expect(profile.id == 42)
-      #expect(profile.name == "Blob")
-      #expect(profile.active == true)
+      expectNoDifference(profile.id, 42)
+      expectNoDifference(profile.name, "Blob")
+      expectNoDifference(profile.active, true)
     }
   }
 
@@ -46,7 +46,7 @@ struct `Stream view tests` {
   func `A member that has not arrived reads as nil`() throws {
     let stream = try self.stream(#"{"id":42}"#)
     stream.withView { profile in
-      #expect(profile.id == 42)
+      expectNoDifference(profile.id, 42)
       #expect(profile.name == nil)
       #expect(profile.scores == nil)
     }
@@ -56,8 +56,8 @@ struct `Stream view tests` {
   func `A view reads container members`() throws {
     let stream = try self.stream(#"{"scores":[1,2,3],"counts":{"a":1}}"#)
     stream.withView { profile in
-      #expect(profile.scores == [1, 2, 3])
-      #expect(profile.counts?["a"] == 1)
+      expectNoDifference(profile.scores, [1, 2, 3])
+      expectNoDifference(profile.counts?["a"], 1)
     }
   }
 
@@ -69,8 +69,8 @@ struct `Stream view tests` {
     stream.withView { profile in
       switch profile.address {
       case .some(let address):
-        #expect(address.city == "Brooklyn")
-        #expect(address.postalCode == "11215")
+        expectNoDifference(address.city, "Brooklyn")
+        expectNoDifference(address.postalCode, "11215")
       case .none:
         Issue.record("Expected an address view.")
       }
@@ -97,11 +97,11 @@ struct `Stream view tests` {
   func `A view taken later sees later bytes`() throws {
     var stream = PartialsStream(initialValue: ViewProfile.Partial(), from: .json())
     try stream.next(Array(#"{"name":"Bl"#.utf8))
-    stream.withView { #expect($0.name == "Bl") }
+    stream.withView { expectNoDifference($0.name, "Bl") }
     try stream.next(Array(#"ob","id":7}"#.utf8))
     stream.withView {
-      #expect($0.name == "Blob")
-      #expect($0.id == 7)
+      expectNoDifference($0.name, "Blob")
+      expectNoDifference($0.id, 7)
     }
   }
 
@@ -116,10 +116,10 @@ struct `Stream view tests` {
     // The trailing 2 is an open token — the next chunk continues it into 23 — so the state
     // read here holds only the committed element.
     let scores = stream.withView { $0.scores }
-    #expect(scores == [1])
+    expectNoDifference(scores, [1])
     try stream.next(Array("3,4]}".utf8))
     #expect(scores == [1], "the value read out should not have followed the parse")
-    #expect(stream.current.scores == [1, 23, 4])
+    expectNoDifference(stream.current.scores, [1, 23, 4])
   }
 
   @Test
@@ -127,7 +127,7 @@ struct `Stream view tests` {
     var stream = PartialsStream(initialValue: ViewProfile.Partial(), from: .json())
     try stream.next(Array(#"{"name":"Bl"#.utf8))
     let name = stream.withView { $0.name }
-    #expect(name == "Bl")
+    expectNoDifference(name, "Bl")
     try stream.next(Array(#"ob"}"#.utf8))
     #expect(name == "Bl", "the value read out should not have followed the parse")
   }
@@ -143,12 +143,12 @@ struct `Stream view tests` {
     }
     let snapshot = stream.current
     stream.withView { profile in
-      #expect(profile.id == snapshot.id)
-      #expect(profile.name == snapshot.name)
-      #expect(profile.active == snapshot.active)
-      #expect(profile.scores == snapshot.scores)
+      expectNoDifference(profile.id, snapshot.id)
+      expectNoDifference(profile.name, snapshot.name)
+      expectNoDifference(profile.active, snapshot.active)
+      expectNoDifference(profile.scores, snapshot.scores)
       switch profile.address {
-      case .some(let address): #expect(address.city == snapshot.address?.city)
+      case .some(let address): expectNoDifference(address.city, snapshot.address?.city)
       case .none: #expect(snapshot.address == nil)
       }
     }

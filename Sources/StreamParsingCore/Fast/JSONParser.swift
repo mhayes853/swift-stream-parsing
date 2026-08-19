@@ -493,16 +493,7 @@ public struct JSONParser: ~Copyable {
     guard selector != .asciiLowerU else {
       return try self.fusedUnicodeEscapeEnd(base: base, from: from, to: to, into: &sink)
     }
-    let decoded: UInt8
-    switch selector {
-    case .asciiQuote, .asciiBackslash, .asciiSlash: decoded = selector
-    case .asciiLowerN: decoded = .asciiLineFeed
-    case .asciiLowerR: decoded = .asciiCarriageReturn
-    case .asciiLowerT: decoded = .asciiTab
-    case .asciiLowerB: decoded = .asciiBackspace
-    case .asciiLowerF: decoded = .asciiFormFeed
-    default: return nil
-    }
+    guard let decoded = streamDecodeSimpleEscape(selector) else { return nil }
     try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
     return from &+ 1
   }
@@ -569,14 +560,9 @@ public struct JSONParser: ~Copyable {
       try self.severHighSurrogate(into: &sink, reportAt: offset &- 1)
     }
     let decoded: UInt8
-    switch byte {
-    case .asciiQuote, .asciiBackslash, .asciiSlash: decoded = byte
-    case .asciiLowerN: decoded = .asciiLineFeed
-    case .asciiLowerR: decoded = .asciiCarriageReturn
-    case .asciiLowerT: decoded = .asciiTab
-    case .asciiLowerB: decoded = .asciiBackspace
-    case .asciiLowerF: decoded = .asciiFormFeed
-    default:
+    if let escaped = streamDecodeSimpleEscape(byte) {
+      decoded = escaped
+    } else {
       guard !self.configuration.validatesLiterals else { throw self.error(.invalidEscape, at: offset &- 1) }
       decoded = byte
     }

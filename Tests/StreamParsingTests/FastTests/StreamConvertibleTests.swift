@@ -21,8 +21,8 @@ struct `Stream convertible tests` {
   @Test
   func `Exact magnitudes convert without re-scanning`() {
     Self.span("4217") { bytes in
-      #expect(Int(streamParsing: bytes, info: Self.info(4217, digits: 4)) == 4217)
-      #expect(UInt8(streamParsing: bytes, info: Self.info(217, digits: 3)) == 217)
+      expectNoDifference(Int(streamParsing: bytes, info: Self.info(4217, digits: 4)), 4217)
+      expectNoDifference(UInt8(streamParsing: bytes, info: Self.info(217, digits: 3)), 217)
     }
   }
 
@@ -30,7 +30,7 @@ struct `Stream convertible tests` {
   func `Negative magnitudes convert`() {
     Self.span("-4217") { bytes in
       let info = Self.info(4217, digits: 4, flags: .negative)
-      #expect(Int(streamParsing: bytes, info: info) == -4217)
+      expectNoDifference(Int(streamParsing: bytes, info: info), -4217)
     }
   }
 
@@ -40,11 +40,11 @@ struct `Stream convertible tests` {
   func `Signed minimums convert`() {
     Self.span("-128") { bytes in
       let info = Self.info(128, digits: 3, flags: .negative)
-      #expect(Int8(streamParsing: bytes, info: info) == Int8.min)
+      expectNoDifference(Int8(streamParsing: bytes, info: info), Int8.min)
     }
     Self.span("-9223372036854775808") { bytes in
       let info = Self.info(9_223_372_036_854_775_808, digits: 19, flags: .negative)
-      #expect(Int64(streamParsing: bytes, info: info) == Int64.min)
+      expectNoDifference(Int64(streamParsing: bytes, info: info), Int64.min)
     }
   }
 
@@ -93,12 +93,12 @@ struct `Stream convertible tests` {
   @available(StreamParsing128BitIntegers, *)
   func `128 bit integers take the accumulated magnitude when it fits`() {
     Self.span("4217") { bytes in
-      #expect(Int128(streamParsing: bytes, info: Self.info(4217, digits: 4)) == 4217)
-      #expect(UInt128(streamParsing: bytes, info: Self.info(4217, digits: 4)) == 4217)
+      expectNoDifference(Int128(streamParsing: bytes, info: Self.info(4217, digits: 4)), 4217)
+      expectNoDifference(UInt128(streamParsing: bytes, info: Self.info(4217, digits: 4)), 4217)
     }
     Self.span("-4217") { bytes in
       let info = Self.info(4217, digits: 4, flags: .negative)
-      #expect(Int128(streamParsing: bytes, info: info) == -4217)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), -4217)
       #expect(UInt128(streamParsing: bytes, info: info) == nil)
     }
   }
@@ -108,17 +108,17 @@ struct `Stream convertible tests` {
   func `128 bit integers re-scan a magnitude too wide for the accumulator`() {
     Self.span("170141183460469231731687303715884105727") { bytes in
       let info = Self.info(0, digits: 39, flags: .overflowed)
-      #expect(Int128(streamParsing: bytes, info: info) == Int128.max)
-      #expect(UInt128(streamParsing: bytes, info: info) == 170_141_183_460_469_231_731_687_303_715_884_105_727)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), Int128.max)
+      expectNoDifference(UInt128(streamParsing: bytes, info: info), 170_141_183_460_469_231_731_687_303_715_884_105_727)
     }
     Self.span("-170141183460469231731687303715884105728") { bytes in
       let info = Self.info(0, digits: 39, flags: [.overflowed, .negative])
-      #expect(Int128(streamParsing: bytes, info: info) == Int128.min)
+      expectNoDifference(Int128(streamParsing: bytes, info: info), Int128.min)
       #expect(UInt128(streamParsing: bytes, info: info) == nil)
     }
     Self.span("340282366920938463463374607431768211455") { bytes in
       let info = Self.info(0, digits: 39, flags: .overflowed)
-      #expect(UInt128(streamParsing: bytes, info: info) == UInt128.max)
+      expectNoDifference(UInt128(streamParsing: bytes, info: info), UInt128.max)
       #expect(Int128(streamParsing: bytes, info: info) == nil)
     }
   }
@@ -146,11 +146,11 @@ struct `Stream convertible tests` {
   @Test
   func `Whole doubles use the accumulated magnitude`() {
     Self.span("42") { bytes in
-      #expect(Double(streamParsing: bytes, info: Self.info(42, digits: 2)) == 42)
+      expectNoDifference(Double(streamParsing: bytes, info: Self.info(42, digits: 2)), 42)
     }
     Self.span("-42") { bytes in
       let info = Self.info(42, digits: 2, flags: .negative)
-      #expect(Double(streamParsing: bytes, info: info) == -42)
+      expectNoDifference(Double(streamParsing: bytes, info: info), -42)
     }
   }
 
@@ -158,15 +158,15 @@ struct `Stream convertible tests` {
   func `Fractional and exponential doubles re-scan the span`() {
     Self.span("98.25") { bytes in
       let info = Self.info(9825, digits: 4, exponent: -2, flags: .fraction)
-      #expect(Double(streamParsing: bytes, info: info) == 98.25)
+      expectNoDifference(Double(streamParsing: bytes, info: info), 98.25)
     }
     Self.span("1.5e-8") { bytes in
       let info = Self.info(15, digits: 2, exponent: -9, flags: [.fraction, .exponent])
-      #expect(Double(streamParsing: bytes, info: info) == 1.5e-8)
+      expectNoDifference(Double(streamParsing: bytes, info: info), 1.5e-8)
     }
     Self.span("-98.25") { bytes in
       let info = Self.info(9825, digits: 4, exponent: -2, flags: [.fraction, .negative])
-      #expect(Double(streamParsing: bytes, info: info) == -98.25)
+      expectNoDifference(Double(streamParsing: bytes, info: info), -98.25)
     }
   }
 
@@ -177,14 +177,14 @@ struct `Stream convertible tests` {
     var value = String.streamInitialValue()
     Self.span("Blob") { value.streamAppend(utf8: $0) }
     Self.span(" Jr") { value.streamAppend(utf8: $0) }
-    #expect(value == "Blob Jr")
+    expectNoDifference(value, "Blob Jr")
   }
 
   @Test
   func `String appends preserve multi byte UTF-8`() {
     var value = String.streamInitialValue()
     Self.span("Aé€😀") { value.streamAppend(utf8: $0) }
-    #expect(value == "Aé€😀")
+    expectNoDifference(value, "Aé€😀")
   }
 
   // MARK: - Bridging
@@ -218,10 +218,10 @@ struct `Stream convertible tests` {
     #expect(streamApply(&flag, boolean: true))
     #expect(!streamApply(&count, boolean: true))
 
-    #expect(name == "Blob")
-    #expect(count == 42)
+    expectNoDifference(name, "Blob")
+    expectNoDifference(count, 42)
     #expect(flag)
-    #expect(opaque == Opaque())
+    expectNoDifference(opaque, Opaque())
   }
 
   @Test
@@ -231,6 +231,6 @@ struct `Stream convertible tests` {
     #expect(streamApplyNull(&optional))
     #expect(!streamApplyNull(&plain))
     #expect(optional == nil)
-    #expect(plain == 5)
+    expectNoDifference(plain, 5)
   }
 }

@@ -251,6 +251,25 @@ package func streamHexQuad(base: UnsafeRawPointer, from: Int) -> UInt32? {
   return UInt32(weighted.wrappedSum())
 }
 
+// A direct byte-to-byte map for JSON's eight simple escapes. Zero means "not a simple escape";
+// no valid simple escape decodes to NUL, so the sentinel costs no separate validity table. A
+// `StaticString` keeps the 128 bytes in read-only storage rather than constructing an `Array` at
+// startup, which matters to the parser's one-allocation fast path and to Embedded Swift.
+//
+// The parser handles `u` before asking this table: Unicode escapes carry four more bytes and
+// cannot be represented by a one-byte result.
+// swift-format-ignore
+@usableFromInline
+let streamSimpleEscapeTable: StaticString = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\"\0\0\0\0\0\0\0\0\0\0\0\0/\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\\\0\0\0\0\0\u{8}\0\0\0\u{c}\0\0\0\0\0\0\0\u{a}\0\0\0\u{d}\0\u{9}\0\0\0\0\0\0\0\0\0\0\0"
+
+@inlinable
+@inline(__always)
+package func streamDecodeSimpleEscape(_ byte: UInt8) -> UInt8? {
+  guard byte < 128 else { return nil }
+  let decoded = streamSimpleEscapeTable.utf8Start[Int(byte)]
+  return decoded == 0 ? nil : decoded
+}
+
 // Lets the full UTF-8 validator run only on the rare non-ASCII run.
 @inlinable
 @inline(__always)
