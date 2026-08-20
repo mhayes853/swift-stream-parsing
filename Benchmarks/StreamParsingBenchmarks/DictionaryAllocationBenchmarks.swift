@@ -15,9 +15,6 @@ private struct SpanDictionaryAllocationSink: StreamParseSink {
     self.pendingValue = self.dictionary._openValue(forKey: bytes, initial: 0)
   }
 
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) {}
-  mutating func keyEnd() {}
 
   mutating func string(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() {}

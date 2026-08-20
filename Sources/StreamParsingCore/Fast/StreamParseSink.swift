@@ -63,12 +63,16 @@ public protocol StreamParseSink: ~Copyable {
   mutating func beginArray()
   mutating func endArray()
 
-  // At least `StreamParsingLayout.keyPaddingByteCount` readable bytes follow a key span, so a
-  // generated matcher can load a whole vector without a bounds check.
+  // Whole, always, and unlike a string value there is no chunked form to fall back to.
+  //
+  // A key is the one token the parser buffers rather than passing through: `consumeStringRun`
+  // copies it so it is contiguous across chunks, and `emitBufferedKey` zeroes
+  // `StreamParsingLayout.keyPaddingByteCount` bytes past its end so a generated matcher can load
+  // a whole vector without a bounds check. A key delivered in pieces can offer neither, so the
+  // chunked trio this used to declare alongside `key(_:)` was a promise no parser could keep and
+  // no sink could honour: `PartialSink` answered it by routing each fragment separately, which
+  // matched on the last fragment alone and, for a dictionary, made one entry per piece.
   mutating func key(_ bytes: Span<UInt8>)
-  mutating func keyBegin()
-  mutating func keyChunk(_ bytes: Span<UInt8>)
-  mutating func keyEnd()
 
   // Every string and key span ends on a UTF-8 sequence boundary.
   mutating func string(_ bytes: Span<UInt8>)
@@ -87,14 +91,7 @@ public protocol StreamParseSink: ~Copyable {
 }
 
 extension StreamParseSink where Self: ~Copyable {
-  // Overriding the collapsed forms avoids two of every three sink calls.
-  @inlinable
-  public mutating func key(_ bytes: Span<UInt8>) {
-    self.keyBegin()
-    self.keyChunk(bytes)
-    self.keyEnd()
-  }
-
+  // Overriding the collapsed form avoids two of every three sink calls.
   @inlinable
   public mutating func string(_ bytes: Span<UInt8>) {
     self.stringBegin()

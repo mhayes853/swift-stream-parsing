@@ -297,9 +297,17 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyBoolean(storage, field, value)
       },
-      applyNull: { storage, _ in
-        storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
-        return true
+      // A null clears the optional when it *is* the destination, and is a field's null when the
+      // wrapped schema stands over an object. Clearing unconditionally lost the difference: this
+      // schema is the element schema for a `StreamArray<Person.Partial?>`, so
+      // `[{"name":"a","count":null}]` wiped the whole element and took `name` with it.
+      applyNull: { storage, field in
+        guard field != StreamSchema.wholeValueField else {
+          storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
+          return true
+        }
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.applyNull(storage, field)
       },
       enterField: { storage, field in
         _streamMaterializeOptional(storage, as: Wrapped.self)

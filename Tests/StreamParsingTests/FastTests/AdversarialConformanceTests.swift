@@ -228,9 +228,6 @@ private struct StringCollectingSink: StreamParseSink {
   mutating func beginArray() {}
   mutating func endArray() {}
   mutating func key(_ bytes: Span<UInt8>) {}
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) {}
-  mutating func keyEnd() {}
   mutating func stringBegin() { self.strings.append([]) }
   mutating func stringChunk(_ bytes: Span<UInt8>) {
     for i in 0..<bytes.count { self.strings[self.strings.count - 1].append(bytes[i]) }

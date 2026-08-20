@@ -2204,8 +2204,7 @@ one from a batch containing it.
   only the last fragment's match and, for a dictionary, create an entry per fragment. Unreachable:
   `emitBufferedKey` always emits a key whole. But `keyBegin`/`keyChunk`/`keyEnd` are protocol
   requirements the parser advertises and `PartialSink` cannot honour, so one of the two should go.
-  `PartialSink.string(_:)` is the same shape — it resolves a fresh target, which on an array
-  destination is a second `appendElement`.
+  **Resolved** — see "A key has no chunked form" below; the trio went.
 - `JSONParser.init(buffer:)` has no minimum size check. The allocating initializer floors capacity
   at 64 and `BufferCapacityTests` pins that; the caller supplied one takes anything, and
   `escapeScratchOffset` at `count - 4` and the pending UTF-8 hold at `count - 8` are outside a
@@ -2532,3 +2531,153 @@ entry, not the schema call. The byte-fed floor is untouched — every byte-fed r
 regardless of payload, including `Long string`, which is 8 KB of two tokens, because
 `consumeStringRun` buffers keys but emits string values straight from the input span and so fires
 `stringChunk` once per byte.
+
+---
+
+## The optional seam: one level of optionality, a field that is not zero, and a key that is whole
+
+An audit pass over the sink and the conversion machinery found three defects that share a shape:
+an optional in a type position is stripped where the *schema* is built and kept where the
+*storage* is declared, so the schema and the memory it writes through describe different types.
+None of them had coverage — the suite was 420 green before the pass and stayed green after the
+fixes.
+
+### A scalar arriving at an object was absorbed by its first field
+
+`resolveScalarTarget` named the destination with a field identifier, and used `0` for both "field
+zero of this object" and "this value itself" — an array element, a dictionary value, a bare scalar
+root. A generated object schema switches on that identifier, so the two collided:
+
+```
+["abc"]      into StreamArray<Person.Partial>       →  [Partial(name: "abc", count: nil)]
+{"k":"abc"}  into StreamDictionary<Person.Partial>  →  [k: Partial(name: "abc", count: nil)]
+[null]       into StreamArray<Person.Partial>       →  [Partial(name: nil, count: nil)]
+```
+
+A string arriving where an object belongs was written into whichever member the type declared
+first, silently. `[5]` was a type mismatch only because `name` could not hold a number: reorder
+the declaration so `count` comes first and the number lands in it just as quietly.
+
+The fix is a sentinel. `StreamSchema.wholeValueField` is `-1`, and the array, dictionary and
+scalar-root branches of `resolveScalarTarget` pass it. A negative field cannot collide with a
+declared one, so an object schema's `default: return false` — which every generated schema already
+has, along with `PersonNameComponents` — turns those back into the mismatches they are. Scalar
+schemas ignore the field and are untouched, which is why an element that really is a scalar still
+costs nothing.
+
+It lives on `StreamSchema` rather than on `PartialSink`, which is where it is produced, because it
+is part of the contract of the closures that *read* it and `PartialSink` is generic over its root:
+`PartialSink.wholeValueField` does not compile, and a hand-written schema reaching for
+`PartialSink<Something>.wholeValueField` would have to name a root it knows nothing about.
+
+The same collision made `Optional`'s `applyNull` clear the whole optional whatever field the null
+named. That schema is the element schema for a `StreamArray<Person.Partial?>`, so
+`[{"name":"a","count":null}]` produced `[nil]` — the null on one member wiped the element and took
+the member already parsed into it. It now clears only on a negative field and delegates otherwise.
+
+Free, and measured rather than assumed. Same-session control against the same filter, p50
+`Payload MB/s`:
+
+| Row (`Layer … bulk - partial sink`) | before | after |
+| --- | ---: | ---: |
+| Array of structs | 111 | 112 |
+| Dictionary | 129 | 128 |
+| Flat struct | 79 | 79 |
+| Twitter | 553 | 556 |
+| CITM catalog | 425 | 426 |
+
+Every row is inside the ±5% noise floor, and `Malloc (total)` and `Retains` are identical to the
+byte on all five — 1811, 308, 23, 114, 2280 — which is the counter to trust here. The sentinel is
+an immediate constant where a zero used to be; there was never anything for it to cost.
+
+### A `Partial` stored two levels of optionality and understood one
+
+`partialTypeName` kept the property's own `?` — `Int?.Partial` *is* `Int?` — and the members mode
+appended another, so `var maybe: Int?` became a member of type `Int??` while every schema emitted
+for it described `Int`. Nothing bridged that gap:
+
+- **Scalars were rejected outright.** `streamApply` has `inout T` and `inout T?` overloads and no
+  `inout T??`, so a value fell through to the `@_disfavoredOverload` no-op, which reports `false`,
+  which the sink reports as `.typeMismatch`. `{"maybe":5}` did not parse.
+- **Containers dropped their contents in silence.** `_streamEnterContainerField` materialised the
+  outer optional with `Optional.streamInitialValue()` — `nil` — and handed the array schema a
+  frame over the `nil` inner. `{"scores":[1,2]}` finished clean with `Optional(nil)` in it.
+- **Only `null` worked**, because `Int??` is still `StreamNullable`. The two tests that covered
+  optional members both fed `null`, which is why the suite was green over this.
+
+`partialTypeName` now describes the *wrapped* type, which is the same type every schema is built
+from, and `memberTypeName` adds one `?` when the mode calls for it **or** the source property was
+optional. An optional property is already optional; the mode only decides what happens to the ones
+that are not. `Optional<Int>` written in generic form is unwrapped too, through a shared
+`unwrappedType` that `fieldShape` and `schemaExpression` now also use — the sugar-only test left
+that spelling on the old path, which is a worse place to be than uniformly wrong.
+
+Macro codegen only, so there is nothing to measure: the emitted member is one optional narrower
+and the emitted schema is unchanged.
+
+### An optional dictionary member did not compile
+
+`streamPartialValue` emitted `self.counts.mapValues(\.streamPartialValue)` for a
+`[String: Int]?`, reaching for `mapValues` on the optional. It maps through it now.
+
+
+### A key has no chunked form
+
+`StreamParseSink` declared `key(_:)` *and* `keyBegin`/`keyChunk`/`keyEnd`, with `key(_:)` defaulted
+to fan out to the trio. `PartialSink` answered `keyChunk` by routing each fragment through
+`key(_:)`, which for a `.match` schema keeps only the last fragment's answer and for a
+`.dictionary` calls `_openValue` once per fragment — one entry per piece of the key.
+
+Unreachable through `JSONParser`, which is what kept it from being a bug: `consumeStringRun`
+copies every key into the parser's buffer so it is contiguous across chunks, and `emitBufferedKey`
+emits it whole. But that is not an accident of the current parser, it is the only way a key can be
+delivered. `emitBufferedKey` also zeroes `StreamParsingLayout.keyPaddingByteCount` bytes past the
+key so a generated matcher can load a whole vector without a bounds check, and a key arriving in
+pieces can offer neither contiguity nor padding. So the trio was not an unimplemented capability,
+it was a shape the matcher path cannot consume even in principle.
+
+The three requirements are gone and `key(_:)` is a plain one. A sink implements one method where
+it used to implement four to get the same event. String values keep their chunked form, because a
+string genuinely streams: `consumeStringRun` emits it straight from the input span and never
+buffers it, which is exactly the property a key does not have.
+
+Semantically nothing changed — the parser has always called the collapsed form, and every sink in
+the tree already overrode `key(_:)` rather than inheriting the fan-out. But one row moved anyway,
+and it is worth writing down because the shape of it is instructive. `Layer LLM message bulk -
+counting sink` lost ~5-6% at p50, reproduced across six interleaved runs (1689/1718/1710 against
+1821/1803/1809) and then isolated: applying *only* this change to an otherwise pristine tree
+reproduces it exactly (1703/1684/1697), so it is this and not the sentinel or the macro.
+
+It is code layout, not cost. The same document through the *partial* sink went the other way, and
+just as consistently — 579 against 559, ~+3.6% — while `Layer Long string bulk - counting sink`
+got faster, `Fast Long string - bulk` and `Fast Non-ASCII string - bulk` were identical to the
+digit, and every allocation and ARC counter in the suite was unchanged. A protocol that is three
+witnesses smaller specializes into a slightly smaller parse loop, and this parser is already
+documented as sitting on inlining cliffs — `parse` at 1284 bytes against 1424, with
+`@inline(never)` and `@inline(__always)` applied by force to hold it there. Two rows over the same
+payload moving in opposite directions is what that looks like from the outside, and it is not
+something to chase by reinstating dead protocol requirements.
+
+The `Flat struct` rows cannot speak to any of this. On the smallest payload in the suite, ~1.2 µs
+against a ~42 ns timer grid, the *counting* sink — untouched by every change here — swung -14.3%
+at p0 while sitting at 0.0% at p50 between two runs, and the partial sink row read -14.6% in one
+batch and +11% in an interleaved one, for the same pair of builds. Neither number means anything.
+
+### Still open after this pass
+
+- The macro strips the optional from an element or value type when it builds the element schema
+  and keeps it in the storage type, so `[String?]`, `[String: String?]` and `[Person?]` open the
+  slot with `Optional.streamInitialValue()` — `nil` — and then apply the *wrapped* type's schema
+  to the `.none` representation. This segfaults. The root path gets it right, because
+  `StreamArray<Element>.streamSchema` passes `Element.streamSchema` and picks up `Optional`'s
+  materialising wrapper; the macro just does not emit what the root path emits. Making it do so
+  costs what that wrapper already costs — measured on a 20,000-element array, release, best of 7:
+  `[Int]` 29.5 ns/element, `[Int?]` through the wrapper 70.8, and `[Int?]` opened already
+  materialised with the wrapped schema applied directly 29.9. So the correct-looking fix is 2.4x
+  on optional-element containers and the free variant cannot express a null element without a
+  per-wrapped-type `applyNull`, i.e. a parallel builder family rather than a reuse of
+  `Wrapped.streamSchema`. Worth noting the 2.4x is a cost the root path pays *today*.
+- The macro emits no `applyNull` case for an array or dictionary field at all — `schemaCases`
+  fills `applyNull` only in the `.scalarOrObject` branch — so `{"scores":null}` is a type mismatch
+  whether or not the member is optional. `PartialSinkTests` says so where it stops short of
+  covering it.

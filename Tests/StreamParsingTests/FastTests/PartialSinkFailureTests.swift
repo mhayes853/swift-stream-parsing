@@ -19,6 +19,8 @@ struct StrictNested: Equatable {
   var id: Int = 0
 }
 
+extension StrictNested.Partial: Equatable {}
+
 // A key the destination does not have has always been ignored, but a key that matches a field
 // which cannot hold the token is a different thing, and the registration based parser threw for
 // it. The apply closures report whether they applied the token so the sink can tell those two
@@ -210,6 +212,58 @@ struct `Partial sink failure tests` {
     var elements = StreamArray<Int?>()
     try parsePartial("[null]", into: &elements, chunk: chunk)
     expectNoDifference(elements, [nil])
+  }
+
+  // MARK: - The value itself versus its first field
+
+  // An element's destination is the element, not its first member. Both reach a schema through
+  // `applyString(storage, field, bytes)`, so while the sink named the element field 0 an object
+  // arriving as an element absorbed the scalar into whichever member the type declared first:
+  // this wrote "abc" into `StrictNested.id`'s neighbour and reported nothing. `[5]` was a mismatch
+  // only because that member could not hold a number, which is a property of the declaration
+  // order rather than of the document.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A scalar arriving where an object is expected is rejected`(chunk: Int) {
+    func elementFailure(_ json: String) -> StreamSinkFailure.Reason? {
+      var elements = StreamArray<StrictNested.Partial>()
+      do {
+        try parsePartial(json, into: &elements, chunk: chunk)
+        return nil
+      } catch let error as JSONParsingError {
+        guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
+        return failure.reason
+      } catch {
+        return nil
+      }
+    }
+
+    for json in [#"["abc"]"#, "[5]", "[true]", "[null]"] {
+      expectNoDifference(elementFailure(json), .typeMismatch, "\(json)")
+    }
+
+    var values = StreamDictionary<StrictNested.Partial>()
+    #expect(throws: JSONParsingError.self) {
+      try parsePartial(#"{"k":"abc"}"#, into: &values, chunk: chunk)
+    }
+  }
+
+  // The same distinction on the null path, where getting it wrong lost data rather than accepting
+  // it: `Optional`'s schema cleared the whole optional whatever field the null named, so a null on
+  // one member of an optional element wiped the members already parsed into it.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A null names the field it arrived under, not the whole element`(chunk: Int) throws {
+    var elements = StreamArray<StrictNested.Partial?>()
+    try parsePartial(#"[{"id":null}]"#, into: &elements, chunk: chunk)
+    expectNoDifference(elements, [StrictNested.Partial(id: nil)])
+
+    var values = StreamDictionary<StrictNested.Partial?>()
+    try parsePartial(#"{"k":{"id":null}}"#, into: &values, chunk: chunk)
+    expectNoDifference(values, ["k": StrictNested.Partial(id: nil)])
+
+    // A null that *is* the element still clears it.
+    var cleared = StreamArray<StrictNested.Partial?>()
+    try parsePartial("[null]", into: &cleared, chunk: chunk)
+    expectNoDifference(cleared, [nil])
   }
 
   // MARK: - What the partial holds when it stops

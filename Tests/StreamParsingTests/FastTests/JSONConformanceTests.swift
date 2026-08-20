@@ -213,9 +213,7 @@ struct CountingConformanceSink: StreamParseSink {
   mutating func endObject() {}
   mutating func beginArray() {}
   mutating func endArray() {}
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) {}
-  mutating func keyEnd() {}
+  mutating func key(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() {}
   mutating func stringChunk(_ bytes: Span<UInt8>) {}
   mutating func stringEnd() {}

@@ -231,9 +231,6 @@ private struct RejectingSink: StreamParseSink {
   mutating func beginArray() {}
   mutating func endArray() {}
   mutating func key(_ bytes: Span<UInt8>) {}
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) {}
-  mutating func keyEnd() {}
   mutating func stringBegin() { self.startedStrings &+= 1 }
   mutating func stringChunk(_ bytes: Span<UInt8>) {}
   mutating func stringEnd() { if self.rejecting == .string { self.fail() } }

@@ -36,8 +36,6 @@ struct TreeSink: StreamParseSink {
   private var frames = [Frame]()
   private var root: Node?
   private var currentString = ""
-  private var currentKey = ""
-  private var buildingKey = false
 
   var streamFailure: StreamSinkFailure?
 
@@ -57,19 +55,11 @@ struct TreeSink: StreamParseSink {
     self.deliver(.array(elements))
   }
 
-  mutating func keyBegin() {
-    self.buildingKey = true
-    self.currentKey = ""
-  }
-
-  mutating func keyChunk(_ bytes: Span<UInt8>) {
-    bytes.withUnsafeBufferPointer { self.currentKey += String(decoding: $0, as: UTF8.self) }
-  }
-
-  mutating func keyEnd() {
-    self.buildingKey = false
+  mutating func key(_ bytes: Span<UInt8>) {
     guard case .object(let members, _)? = self.frames.last else { return }
-    self.frames[self.frames.count - 1] = .object(members, pendingKey: self.currentKey)
+    var text = ""
+    bytes.withUnsafeBufferPointer { text = String(decoding: $0, as: UTF8.self) }
+    self.frames[self.frames.count - 1] = .object(members, pendingKey: text)
   }
 
   mutating func stringBegin() { self.currentString = "" }

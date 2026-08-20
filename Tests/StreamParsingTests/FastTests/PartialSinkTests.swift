@@ -21,6 +21,25 @@ struct SinkUser: Equatable {
   var counts: [String: Int] = [:]
 }
 
+// Optional in the source declaration, which is a different axis from the partial members mode:
+// the mode decides whether a *non*-optional property becomes optional in the `Partial`, and a
+// property that is already optional is already there. Storing both — the member as `Int??` while
+// every schema emitted for it described `Int` — meant no `streamApply` overload matched, so a
+// scalar was rejected as a type mismatch and a container silently dropped its contents. Only
+// `null` worked, because a double optional is still `StreamNullable`.
+@StreamParseable
+struct SinkOptionalMembers: Equatable {
+  var count: Int?
+  var name: String?
+  var flag: Optional<Bool>
+  var address: SinkAddress?
+  var scores: [Int]?
+  var counts: [String: Int]?
+}
+
+extension SinkAddress.Partial: Equatable {}
+extension SinkOptionalMembers.Partial: Equatable {}
+
 @Suite
 struct `Partial sink tests` {
   @Test
@@ -70,6 +89,67 @@ struct `Partial sink tests` {
     user.id = 7
     try parsePartial(#"{"id":null}"#, into: &user)
     expectNoDifference(user.id, nil)
+  }
+
+  // MARK: - Optional source declarations
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Routes into members the source declared optional`(chunk: Int) throws {
+    var value = SinkOptionalMembers.Partial()
+    try parsePartial(
+      #"""
+      {"count":42,"name":"Blob","flag":true,"address":{"city":"NYC"},"scores":[1,2],"counts":{"a":1}}
+      """#,
+      into: &value,
+      chunk: chunk
+    )
+    expectNoDifference(value.count, 42)
+    expectNoDifference(value.name, "Blob")
+    expectNoDifference(value.flag, true)
+    expectNoDifference(value.address?.city, "NYC")
+    expectNoDifference(value.scores, [1, 2])
+    expectNoDifference(value.counts?["a"], 1)
+  }
+
+  // Null still clears them, which is the one shape that worked before and has to keep working.
+  // Container members are left out because a null has never reached one: the macro emits no
+  // `applyNull` case for an array or dictionary field, so `{"scores":null}` is a type mismatch
+  // whether or not the source declared it optional.
+  @Test(arguments: [Int.max, 7, 1])
+  func `Nulls clear members the source declared optional`(chunk: Int) throws {
+    var value = SinkOptionalMembers.Partial(
+      count: 1, name: "Blob", flag: true, address: SinkAddress.Partial(city: "NYC")
+    )
+    try parsePartial(
+      #"{"count":null,"name":null,"flag":null,"address":null}"#,
+      into: &value,
+      chunk: chunk
+    )
+    expectNoDifference(value, SinkOptionalMembers.Partial())
+  }
+
+  // The bridge back, which did not compile for an optional dictionary member: the generated
+  // `streamPartialValue` reached for `mapValues` on the optional itself.
+  @Test
+  func `A value round trips through its partial`() {
+    let value = SinkOptionalMembers(
+      count: 1,
+      name: "Blob",
+      flag: false,
+      address: SinkAddress(city: "NYC", postalCode: "11201"),
+      scores: [3],
+      counts: ["a": 4]
+    )
+    let partial = value.streamPartialValue
+    expectNoDifference(partial.count, 1)
+    expectNoDifference(partial.name, "Blob")
+    expectNoDifference(partial.address?.city, "NYC")
+    expectNoDifference(partial.scores, [3])
+    expectNoDifference(partial.counts?["a"], 4)
+
+    let empty = SinkOptionalMembers(flag: nil).streamPartialValue
+    expectNoDifference(empty.counts, nil)
+    expectNoDifference(empty.scores, nil)
   }
 
   @Test

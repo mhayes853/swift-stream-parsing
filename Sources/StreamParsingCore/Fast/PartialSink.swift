@@ -296,10 +296,6 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
-  public mutating func keyBegin() {}
-  public mutating func keyChunk(_ bytes: Span<UInt8>) { self.key(bytes) }
-  public mutating func keyEnd() {}
-
   // MARK: Scalars
 
   public mutating func string(_ bytes: Span<UInt8>) {
@@ -381,13 +377,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         self.recordFailure(.typeMismatch)
         return nil
       }
-      return ScalarTarget(storage: self.root, schema: self.rootSchema, field: 0)
+      return ScalarTarget(
+        storage: self.root, schema: self.rootSchema, field: StreamSchema.wholeValueField
+      )
     }
     switch top.pointee.schema.shape {
     case .array:
       guard let element = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
       let borrowed = self.borrow(element)
-      return ScalarTarget(storage: borrowed.storage, schema: borrowed.schema, field: 0)
+      return ScalarTarget(
+        storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField
+      )
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
       return ScalarTarget(
@@ -395,9 +395,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       )
     case .dictionary:
       guard let frame = self.pendingDictionaryFrame else { return nil }
-      return ScalarTarget(storage: frame.storage, schema: frame.schema, field: 0)
+      return ScalarTarget(
+        storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField
+      )
     case .scalar:
-      return ScalarTarget(storage: top.pointee.storage, schema: top.pointee.schema, field: 0)
+      return ScalarTarget(
+        storage: top.pointee.storage, schema: top.pointee.schema, field: StreamSchema.wholeValueField
+      )
     }
   }
 

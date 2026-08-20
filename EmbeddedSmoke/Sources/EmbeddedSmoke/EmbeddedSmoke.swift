@@ -41,9 +41,6 @@ struct SmokeSink: StreamParseSink {
     self.keyWordChecksum = self.keyWordChecksum &+ bytes.paddedLeadingWord()
   }
 
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) { self.key(bytes) }
-  mutating func keyEnd() {}
 
   // Keys arrive through the collapsed form because the parser always buffers them, but strings
   // arrive as runs, so they come through begin, chunk and end. Counting in both is what makes

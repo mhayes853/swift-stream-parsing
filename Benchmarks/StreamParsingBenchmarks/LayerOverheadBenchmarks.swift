@@ -33,9 +33,6 @@ struct NullSink: StreamParseSink {
   mutating func endArray() {}
 
   mutating func key(_ bytes: Span<UInt8>) {}
-  mutating func keyBegin() {}
-  mutating func keyChunk(_ bytes: Span<UInt8>) {}
-  mutating func keyEnd() {}
 
   mutating func string(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() {}

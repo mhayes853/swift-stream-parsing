@@ -33,6 +33,20 @@ public final class StreamSchema: Sendable {
 
   public let shape: Shape
 
+  /// The field an apply closure receives when the destination *is* the value rather than a field
+  /// of one — an array element, a dictionary value, a bare scalar root.
+  ///
+  /// Zero cannot say that, because zero is also the first field a generated object schema
+  /// declares, and the two reached the same `applyString(storage, 0, bytes)`. An object arriving
+  /// as an array element therefore absorbed a scalar into whichever member happened to be
+  /// declared first: `["abc"]` into a `StreamArray<Person.Partial>` set `name` to "abc", and `[5]`
+  /// was a type mismatch only because `name` could not hold a number.
+  ///
+  /// A negative field cannot collide with a declared one, so an object schema's
+  /// `default: return false` turns those back into the mismatches they are. A scalar schema
+  /// ignores the field either way and is unaffected.
+  public static let wholeValueField = Int32(-1)
+
   // Where a key arriving at this schema has to go, precomputed into one byte.
   //
   // A schema call costs a closure load, a retain, an indirect call and a release — 17 ns against
@@ -66,6 +80,9 @@ public final class StreamSchema: Sendable {
   // mismatch from a key the destination simply does not have. A bool return rather than a throw,
   // for the same reason the sink methods do not throw: a check after every call sits on the
   // hottest path.
+  //
+  // The field is a declared field's identifier when the schema stands over an object, and
+  // ``wholeValueField`` when the destination *is* the value.
   public let applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool
   public let applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Bool
   public let applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool

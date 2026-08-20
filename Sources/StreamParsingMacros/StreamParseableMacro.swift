@@ -250,8 +250,7 @@ extension StreamParseableMacro {
   }
 
   private static func fieldShape(for type: TypeSyntax) -> FieldShape {
-    var unwrapped = type
-    if let optional = type.as(OptionalTypeSyntax.self) { unwrapped = optional.wrappedType }
+    let unwrapped = Self.unwrappedType(type)
     if let array = unwrapped.as(ArrayTypeSyntax.self) {
       return .array(array.element.trimmedDescription)
     }
@@ -262,8 +261,7 @@ extension StreamParseableMacro {
   }
 
   private static func schemaExpression(for type: TypeSyntax) -> String {
-    var unwrapped = type
-    if let optional = type.as(OptionalTypeSyntax.self) { unwrapped = optional.wrappedType }
+    let unwrapped = Self.unwrappedType(type)
     if let array = unwrapped.as(ArrayTypeSyntax.self) {
       let element = array.element.trimmedDescription
       return
@@ -429,18 +427,65 @@ extension StreamParseableMacro {
   ) -> String {
     let lines = properties.filter { !$0.isIgnored }
       .map { property in
-        let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
-        return
-          "  \(modifierPrefix)var \(property.name): \(Self.partialTypeName(for: property))\(optionalSuffix)"
+        let type = Self.memberTypeName(for: property, membersMode: membersMode)
+        return "  \(modifierPrefix)var \(property.name): \(type)"
       }
     return lines.joined(separator: "\n")
   }
 
+  // The partial storage a property's *wrapped* type describes, with no optionality of its own.
+  // Every schema the macro emits is built from the same unwrapped type, so keeping the two in step
+  // is what makes the member the schema writes through and the member the type declares the same
+  // member.
   private static func partialTypeName(for property: StoredProperty) -> String {
     if case .dictionary(let value) = Self.fieldShape(for: property.type) {
       return "StreamParsingCore.StreamDictionary<\(value).Partial>"
     }
-    return "\(property.typeName).Partial"
+    return "\(Self.unwrappedType(property.type).trimmedDescription).Partial"
+  }
+
+  // Both spellings of an optional, because a member written `Optional<Int>` reached none of the
+  // sugar-only tests: it kept the double optional after the sugared form stopped emitting one,
+  // which is a worse place to be than uniformly wrong. `fieldShape` and `schemaExpression` unwrap
+  // through here too, so a generically spelled optional array or dictionary routes as the
+  // container it is.
+  private static func unwrappedType(_ type: TypeSyntax) -> TypeSyntax {
+    if let optional = type.as(OptionalTypeSyntax.self) { return optional.wrappedType }
+    guard let identifier = type.as(IdentifierTypeSyntax.self),
+      identifier.name.text == "Optional",
+      let arguments = identifier.genericArgumentClause?.arguments,
+      arguments.count == 1,
+      case .type(let wrapped) = arguments.first?.argument
+    else {
+      return type
+    }
+    return wrapped
+  }
+
+  private static func isOptional(_ type: TypeSyntax) -> Bool {
+    Self.unwrappedType(type) != type
+  }
+
+  // The type a `Partial` stores for a property: one level of optionality, never two.
+  //
+  // It used to be two whenever the source property was itself optional. `partialTypeName` kept the
+  // `?` — `Int?.Partial` is `Int?` — and the mode appended another, so the member was `Int??`
+  // while every schema emitted for it described `Int`. Nothing bridged that gap: `streamApply` has
+  // `inout T` and `inout T?` overloads and no `inout T??`, so a scalar written to such a member
+  // fell through to the no-op overload and was reported as a type mismatch, and a container member
+  // had its outer optional materialised around a `nil` inner and dropped its elements in silence.
+  // Only `null` worked, because `Int??` is `StreamNullable`, and only `null` was tested.
+  //
+  // The mode still decides whether a *non*-optional property becomes optional here. An optional
+  // one already is, in both modes: `.streamInitialValue` gives a member that starts nil rather
+  // than one that cannot be null.
+  private static func memberTypeName(
+    for property: StoredProperty,
+    membersMode: PartialMembersMode
+  ) -> String {
+    let base = Self.partialTypeName(for: property)
+    let isOptional = membersMode.shouldEmitOptionalMembers || Self.isOptional(property.type)
+    return isOptional ? "\(base)?" : base
   }
 
   private static func partialStructInitializer(
@@ -452,9 +497,8 @@ extension StreamParseableMacro {
     let parameters =
       activeProperties
       .map { property in
-        let optionalSuffix = membersMode.shouldEmitOptionalMembers ? "?" : ""
-        return
-          "\(property.name): \(Self.partialTypeName(for: property))\(optionalSuffix) = \(membersMode.defaultValueSyntax)"
+        let type = Self.memberTypeName(for: property, membersMode: membersMode)
+        return "\(property.name): \(type) = \(membersMode.defaultValueSyntax)"
       }
       .joined(separator: ",\n    ")
     let assignments =
@@ -489,9 +533,16 @@ extension StreamParseableMacro {
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
         if case .dictionary = Self.fieldShape(for: property.type) {
-          let mapped = "self.\(property.name).mapValues(\\.streamPartialValue)"
-          return
-            "    \(property.name): StreamParsingCore.StreamDictionary(\(mapped))\(suffix)"
+          // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
+          // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
+          // through the optional rather than reaching for `mapValues` on it, which did not
+          // compile at all.
+          let converted = "StreamParsingCore.StreamDictionary($0.mapValues(\\.streamPartialValue))"
+          let value =
+            Self.isOptional(property.type)
+            ? "self.\(property.name).map { \(converted) }"
+            : "StreamParsingCore.StreamDictionary(self.\(property.name).mapValues(\\.streamPartialValue))"
+          return "    \(property.name): \(value)\(suffix)"
         }
         return "    \(property.name): self.\(property.name).streamPartialValue\(suffix)"
       }
@@ -540,7 +591,6 @@ extension StreamParseableMacro {
   private struct StoredProperty {
     let name: String
     let type: TypeSyntax
-    let typeName: String
     let keyNames: [String]
     let isIgnored: Bool
   }
@@ -620,14 +670,12 @@ extension StreamParseableMacro {
       isIgnored
       ? KeyNamesResult(names: [propertyName], diagnostics: [])
       : Self.keyNames(for: variableDecl, defaultName: propertyName)
-    let typeName = type.trimmedDescription
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
     }
     return StoredProperty(
       name: propertyName,
       type: type,
-      typeName: typeName,
       keyNames: keyInfo.names,
       isIgnored: isIgnored
     )

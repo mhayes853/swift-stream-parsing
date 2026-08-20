@@ -905,12 +905,12 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseableObject {
             typealias Partial = Self
 
-            var name: String?.Partial
-            var age: Int?.Partial
+            var name: String.Partial?
+            var age: Int.Partial?
 
             init(
-              name: String?.Partial = .streamInitialValue(),
-              age: Int?.Partial = .streamInitialValue()
+              name: String.Partial? = .streamInitialValue(),
+              age: Int.Partial? = .streamInitialValue()
             ) {
               self.name = name
               self.age = age
@@ -927,11 +927,11 @@ extension BaseTestSuite {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String?.Partial.View? {
+            var name: String.Partial.View? {
                 StreamParsingCore._streamMemberView(&self.storage.pointee.name)
               }
 
-            var age: Int?.Partial.View? {
+            var age: Int.Partial.View? {
                 StreamParsingCore._streamMemberView(&self.storage.pointee.age)
               }
             }
@@ -945,8 +945,8 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
-            private static let streamContainerSchema_name = _streamContainerSchema(for: (String?.Partial).self)
-            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int?.Partial).self)
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
@@ -2815,7 +2815,7 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Handles Optional Members As Double Optionals In Partial`() async throws {
+    func `Handles Optional Members As Single Optionals In Partial`() async throws {
       assertMacro {
         """
         @StreamParseable
@@ -2843,12 +2843,12 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseableObject {
             public typealias Partial = Self
 
-            public var name: String?.Partial?
-            public var age: Optional<Int>.Partial?
+            public var name: String.Partial?
+            public var age: Int.Partial?
 
             public init(
-              name: String?.Partial? = nil,
-              age: Optional<Int>.Partial? = nil
+              name: String.Partial? = nil,
+              age: Int.Partial? = nil
             ) {
               self.name = name
               self.age = age
@@ -2865,11 +2865,11 @@ extension BaseTestSuite {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            public var name: String?.Partial.View? {
+            public var name: String.Partial.View? {
                 StreamParsingCore._streamMemberView(&self.storage.pointee.name)
               }
 
-            public var age: Optional<Int>.Partial.View? {
+            public var age: Int.Partial.View? {
                 StreamParsingCore._streamMemberView(&self.storage.pointee.age)
               }
             }
@@ -2883,8 +2883,8 @@ extension BaseTestSuite {
               static let age: Int32 = 1
             }
 
-            private static let streamContainerSchema_name = _streamContainerSchema(for: (String?.Partial).self)
-            private static let streamContainerSchema_age = _streamContainerSchema(for: (Optional<Int>.Partial).self)
+            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+            private static let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
 
             public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
