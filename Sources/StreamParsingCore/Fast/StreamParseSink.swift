@@ -65,13 +65,14 @@ public protocol StreamParseSink: ~Copyable {
 
   // Whole, always, and unlike a string value there is no chunked form to fall back to.
   //
-  // A key is the one token the parser buffers rather than passing through: `consumeStringRun`
-  // copies it so it is contiguous across chunks, and `emitBufferedKey` zeroes
-  // `StreamParsingLayout.keyPaddingByteCount` bytes past its end so a generated matcher can load
-  // a whole vector without a bounds check. A key delivered in pieces can offer neither, so the
-  // chunked trio this used to declare alongside `key(_:)` was a promise no parser could keep and
-  // no sink could honour: `PartialSink` answered it by routing each fragment separately, which
-  // matched on the last fragment alone and, for a dictionary, made one entry per piece.
+  // A key that arrives inside one chunk is a span into the parser's input; one the chunk cuts
+  // is reassembled in the parser's buffer first. Either way the span is borrowed, valid only
+  // for the call, and readable only within its count — there is no padding behind it. A matcher
+  // that wants whole words reads them through `paddedWord`, which is bounded. A key delivered
+  // in pieces could offer none of this, so the chunked trio this used to declare alongside
+  // `key(_:)` was a promise no parser could keep and no sink could honour: `PartialSink`
+  // answered it by routing each fragment separately, which matched on the last fragment alone
+  // and, for a dictionary, made one entry per piece.
   mutating func key(_ bytes: Span<UInt8>)
 
   // Every string and key span ends on a UTF-8 sequence boundary.
@@ -98,10 +99,4 @@ extension StreamParseSink where Self: ~Copyable {
     self.stringChunk(bytes)
     self.stringEnd()
   }
-}
-
-// MARK: - Layout guarantees
-
-public enum StreamParsingLayout {
-  public static let keyPaddingByteCount = 16
 }

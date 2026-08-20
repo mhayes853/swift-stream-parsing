@@ -396,15 +396,10 @@ package func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> I
 // Eight key bytes as one little-endian word. This is the first thing a generated matcher does to
 // every object key in a document, so it is on the hot path of every object heavy parse.
 //
-// It used to be a byte at a time loop, which is what the sixteen bytes of zero padding behind a
-// key span were introduced to make unnecessary: `StreamParsingLayout.keyPaddingByteCount` exists
-// so a matcher can load a whole word without a bounds check, and the one function that had the
-// guarantee did not take it.
-//
-// The wide load is bounded by the span rather than by the padding, deliberately. `paddedWord` is
-// public on `Span<UInt8>`, so it has to be correct on a span that carries no padding at all;
-// reading into the padding would make every caller outside the parser a potential overread for a
-// gain the ladder below already collects.
+// It used to be a byte at a time loop. The wide load is bounded by the span, and has to be:
+// a key span is a borrow into the parser's input, with the document's own bytes behind it, and
+// `paddedWord` is public on `Span<UInt8>` besides. (Sixteen zeroed bytes used to follow every key
+// so a matcher could overread; nothing ever read them, and the copy that produced them is gone.)
 //
 // Under eight bytes it is a halving ladder rather than a vector. NEON has no masked load, so a
 // partial vector cannot be read without either overreading or a per lane loop, and the ladder

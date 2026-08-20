@@ -159,8 +159,11 @@ public struct JSONParser: ~Copyable {
       case .value, .firstValue, .afterValue, .key, .firstKey, .afterKey, .done:
         i = try self.consumeStructuralRun(base: base, from: i, to: n, into: &sink)
 
-      case .inString, .inKey:
+      case .inString:
         i = try self.consumeStringRun(base: base, from: i, to: n, into: &sink)
+
+      case .inKey:
+        i = try self.consumeKeyRun(base: base, from: i, to: n, into: &sink)
 
       case .escape:
         let byte = base.load(fromByteOffset: i, as: UInt8.self)
@@ -256,7 +259,8 @@ public struct JSONParser: ~Copyable {
       // A number is the one token whose first byte belongs to the token itself, so the run ends
       // and the byte is handed back for `.number` to re-read.
       if try self.consumeStructural(
-        byte, at: i, state: &state, depth: &depth, containers: &containers, into: &sink
+        byte, base: base, cursor: &i, to: to, state: &state, depth: &depth,
+        containers: &containers, into: &sink
       ) {
         i &-= 1
         break
@@ -271,13 +275,15 @@ public struct JSONParser: ~Copyable {
   @inline(__always)
   mutating func consumeStructural<Sink: StreamParseSink & ~Copyable>(
     _ byte: UInt8,
-    at offset: Int,
+    base: UnsafeRawPointer,
+    cursor: inout Int,
+    to: Int,
     state: inout State,
     depth: inout Int,
     containers: inout UInt64,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Bool {
-    let at = offset &- 1
+    let at = cursor &- 1
     switch state {
     case .value, .firstValue:
       switch byte {
@@ -347,6 +353,26 @@ public struct JSONParser: ~Copyable {
     case .key, .firstKey:
       switch byte {
       case .asciiQuote:
+        // A key is read here, in place, whenever its closing quote is in this chunk — the
+        // scan is the string scanner's, and the emission is a borrow into the input. Only a key
+        // the chunk cuts goes to `consumeKeyRun` to be buffered. Reading it here rather than
+        // there is what keeps the string loop's registers for string content, and it also
+        // means the run carries straight on through the colon into the value's first byte, so
+        // `"key": value` costs this call and no other.
+        let run = self.configuration.validatesUTF8
+          ? streamStringRun(base: base, from: cursor, to: to)
+          : StreamStringRun(
+              end: streamStringRunEnd(base: base, from: cursor, to: to), containsNonASCII: false
+            )
+        if run.end < to, base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote {
+          try self.emitKeyInPlace(
+            base: base, from: cursor, to: run.end, containsNonASCII: run.containsNonASCII,
+            into: &sink
+          )
+          cursor = run.end &+ 1
+          state = .afterKey
+          return false
+        }
         self.isKeyToken = true
         self.bufferCount = 0
         self.keyContainsNonASCII = false
@@ -421,12 +447,11 @@ public struct JSONParser: ~Copyable {
     let byte = base.load(fromByteOffset: next, as: UInt8.self)
 
     if self.topIsObject {
+      // The quote is left for the structural run, which reads the key in place and carries on
+      // through the colon; entering `.inKey` here would send the key through the buffered path.
       guard byte == .asciiQuote else { return from }
-      self.isKeyToken = true
-      self.bufferCount = 0
-      self.keyContainsNonASCII = false
-      self.state = .inKey
-      return next &+ 1
+      self.state = .key
+      return next
     }
 
     switch byte {
@@ -462,9 +487,11 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Strings
 
-  // Keys are always copied into the buffer, which gives contiguity across chunks and the
-  // padding a generated matcher relies on in one step. They are short enough that the copy
-  // costs less than the branch needed to sometimes avoid it.
+  // String values only. A key comes through here never: one read whole goes through the
+  // structural run in place, and one the chunk cut goes through `consumeKeyRun` below. Keeping
+  // the key's buffer bookkeeping out of this loop is deliberate — this is the byte fed path's
+  // per-byte call, and its register allocation sits on an edge where a live value more is a
+  // spill on every call.
   @inlinable
   mutating func consumeStringRun<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
@@ -472,7 +499,6 @@ public struct JSONParser: ~Copyable {
     to: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
-    let isKey = self.state == .inKey
     let tracksNonASCII = self.configuration.validatesUTF8
     var i = from
     while true {
@@ -488,28 +514,23 @@ public struct JSONParser: ~Copyable {
 
       if end > i {
         if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: i) }
-        if isKey {
-          self.keyContainsNonASCII = self.keyContainsNonASCII || run.containsNonASCII
-          try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
-        } else {
-          let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
-          if emitEnd > i {
-            try self.validateUTF8IfNeeded(
-              base: base,
-              from: i,
-              to: emitEnd,
-              containsNonASCII: run.containsNonASCII,
-              reportAt: nil
-            )
-            let slice = UnsafeBufferPointer(
-              start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
-              count: emitEnd &- i
-            )
-            sink.stringChunk(Span(_unsafeElements: slice))
-          }
-          if emitEnd < end {
-            try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
-          }
+        let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
+        if emitEnd > i {
+          try self.validateUTF8IfNeeded(
+            base: base,
+            from: i,
+            to: emitEnd,
+            containsNonASCII: run.containsNonASCII,
+            reportAt: nil
+          )
+          let slice = UnsafeBufferPointer(
+            start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
+            count: emitEnd &- i
+          )
+          sink.stringChunk(Span(_unsafeElements: slice))
+        }
+        if emitEnd < end {
+          try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
         }
         i = end
       }
@@ -521,15 +542,9 @@ public struct JSONParser: ~Copyable {
       i &+= 1
       if byte == .asciiQuote {
         if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: byteAt) }
-        if isKey {
-          try self.emitBufferedKey(into: &sink, reportAt: byteAt)
-          self.state = .afterKey
-        } else {
-          sink.stringEnd()
-          self.state = .afterValue
-          i = self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
-        }
-        return i
+        sink.stringEnd()
+        self.state = .afterValue
+        return self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
       } else if byte == .asciiBackslash {
         // Decoding the escape here keeps the scan going; the states exist for the escape that
         // straddles a chunk boundary and for the ones carrying diagnostics.
@@ -545,6 +560,59 @@ public struct JSONParser: ~Copyable {
     }
   }
 
+  // A key the structural run could not read in place — its closing quote was past the chunk,
+  // or an escape has to decode into it — buffered for contiguity and emitted whole at its
+  // closing quote. Byte fed input sends every key here; bulk input sends almost none.
+  @inlinable
+  @inline(never)
+  mutating func consumeKeyRun<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) -> Int {
+    let tracksNonASCII = self.configuration.validatesUTF8
+    var i = from
+    while true {
+      let run = if tracksNonASCII {
+        streamStringRun(base: base, from: i, to: to)
+      } else {
+        StreamStringRun(
+          end: streamStringRunEnd(base: base, from: i, to: to),
+          containsNonASCII: false
+        )
+      }
+      let end = run.end
+
+      if end > i {
+        if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: i) }
+        self.keyContainsNonASCII = self.keyContainsNonASCII || run.containsNonASCII
+        try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
+        i = end
+      }
+
+      guard i < to else { return i }
+
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      let byteAt = i
+      i &+= 1
+      if byte == .asciiQuote {
+        if self.highSurrogate != 0 { try self.severHighSurrogate(into: &sink, reportAt: byteAt) }
+        try self.emitBufferedKey(into: &sink, reportAt: byteAt)
+        self.state = .afterKey
+        return i
+      } else if byte == .asciiBackslash {
+        if let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
+          i = fused
+          continue
+        }
+        self.state = .escape
+        return i
+      } else {
+        throw self.error(.unterminatedString, at: byteAt)
+      }
+    }
+  }
 
   // The escape states are per byte: `\n` costs the dispatcher two iterations, `\uXXXX` five and a
   // surrogate pair eleven, all to produce at most four bytes of content. When the whole escape is
@@ -905,14 +973,30 @@ public struct JSONParser: ~Copyable {
     base: UnsafeRawPointer, from: Int, count: Int, reportAt: Int
   ) throws(JSONParsingError) {
     guard count > 0 else { return }
-    guard self.bufferCount &+ count &+ StreamParsingLayout.keyPaddingByteCount
-      <= self.buffer.count
-    else {
+    guard self.bufferCount &+ count &+ Self.reservedTailByteCount <= self.buffer.count else {
       throw self.error(.bufferExhausted, at: reportAt)
     }
     UnsafeMutableRawPointer(self.buffer.baseAddress! + self.bufferCount)
       .copyMemory(from: base.advanced(by: from), byteCount: count)
     self.bufferCount &+= count
+  }
+
+  // A key read whole out of the input: validated in place and handed to the sink as a borrow,
+  // with the document's own bytes behind it. No copy, no capacity check, no padding — every
+  // reader in the tree (`paddedWord`, the dictionary's hash and equality) reads within the span's
+  // count, which is the only contract a borrowed span can offer. The caller owns the state.
+  @inlinable
+  @inline(__always)
+  mutating func emitKeyInPlace<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, containsNonASCII: Bool, into sink: inout Sink
+  ) throws(JSONParsingError) {
+    try self.validateUTF8IfNeeded(
+      base: base, from: from, to: to, containsNonASCII: containsNonASCII, reportAt: to
+    )
+    let slice = UnsafeBufferPointer(
+      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self), count: to &- from
+    )
+    sink.key(Span(_unsafeElements: slice))
   }
 
   @inlinable
@@ -928,10 +1012,6 @@ public struct JSONParser: ~Copyable {
       containsNonASCII: self.keyContainsNonASCII,
       reportAt: reportAt
     )
-    // Zero the padding so a matcher loading a whole vector sees defined bytes.
-    for offset in count..<(count &+ StreamParsingLayout.keyPaddingByteCount) {
-      self.buffer[offset] = 0
-    }
     let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
     sink.key(Span(_unsafeElements: slice))
     self.bufferCount = 0
@@ -1096,7 +1176,10 @@ public struct JSONParser: ~Copyable {
   // MARK: Emission helpers
 
   // The last sixteen bytes of the buffer are reserved: eight for a UTF-8 sequence straddling a
-  // chunk boundary and four for an escape being decoded. Neither can be live at once.
+  // chunk boundary and four for an escape being decoded. Neither can be live at once, and
+  // `appendToBuffer` keeps a buffered key or number below them.
+  @usableFromInline static let reservedTailByteCount = 16
+
   @inlinable
   var escapeScratchOffset: Int { self.buffer.count &- 4 }
 

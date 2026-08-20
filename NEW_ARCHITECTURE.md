@@ -2902,3 +2902,79 @@ So the structural-run cost this was meant to remove stays. Removing it needs the
 cost less code, not more — the direction the open items point (zero-copy keys that do not buffer,
 whole-string emission that collapses the three string calls), not another inlined scan in the one
 function that cannot afford it.
+
+---
+
+## Keys in place: the padding nobody read, and the function that could not hold the branch
+
+A key cost three things the string value next to it did not: a `copyMemory` into the parser's
+buffer (a `memmove` libcall for eight bytes — 6% of `citm_catalog` on its own), a validate call
+and a sixteen byte zero store in `emitBufferedKey`, and the bookkeeping around them. All of it
+existed for two reasons: contiguity when a chunk cuts a key, and the `StreamParsingLayout.
+keyPaddingByteCount` guarantee — sixteen zeroed bytes behind every key span so "a generated
+matcher can load a whole vector without a bounds check."
+
+Audited, no reader ever took the guarantee. The macro's matcher reads `paddedLeadingWord()` and
+`paddedWord(at:)`, both bounded by the span's count (and documented as having to be, because
+`paddedWord` is public on any `Span<UInt8>`); the dictionary's `streamHashBytes` and
+`streamBytesEqual` are bounded the same way. So the padding was paid on every key for a reader
+that did not exist, and the copy it justified was paid on every key for the one-in-thousands that
+a chunk actually cuts. **The guarantee is retired**: a key span is a borrow, valid for the call,
+readable within its count, with the document's own bytes behind it — which is what a `Span` is
+for; a span you have to copy to use may as well be an array. Most consumers reach keys through
+the convenience layer anyway.
+
+### Where the in-place read lives is the whole result
+
+The obvious change — in `consumeStringRun`'s key branch, "if the run ends at a quote in this chunk
+and nothing is buffered, emit a span into the input" — measured −9 to −12% on the object heavy
+corpus and was not acceptable. The three-compare branch and its emission kept enough extra values
+live that the function's stack traffic went from 29 accesses to 37, and every byte fed row paid
+3-7% for a path it never takes; moving the emission body out of line got it to 33, not 29, and
+the tax to 3-4%. This is the same function whose register ceiling the colon fusion hit, and the
+lesson is the same: **nothing may be added to `consumeStringRun`**, not even code that only runs
+on keys.
+
+So the key moved out of it. A key whose closing quote is in the chunk is read by the *structural
+run*: at the opening quote in the `.key` arm, `consumeStructuralRun` runs the string scanner,
+emits the span in place, and carries straight on through the colon into the value's first byte —
+which is the colon fusion the previous section could not afford inside the string loop, obtained
+for free in a function that owns its registers. `fuseAfterValue`'s object arm now stops *at* the
+quote with state `.key` rather than entering `.inKey`. Only a key the chunk cuts, or one an
+escape has to decode into, still goes through the buffer — and that path is now its own
+`consumeKeyRun`, so `consumeStringRun` is values only: no `isKey`, no buffer bookkeeping, no
+key emission. Its stack traffic went from 29 to **22**, lower than before the change.
+
+Measured with two binaries built in the same session and run interleaved, three rounds, p50
+(byte fed rows at p0, where the session's noise was; the p50s there swung ±5% on unchanged code):
+
+| benchmark | before | keys in place | |
+| --- | ---: | ---: | ---: |
+| Real Twitter escaped, bulk | 683 µs | 539 µs | **−21.1%** |
+| Real CITM catalog, bulk | 1053 µs | 902 µs | **−14.3%** |
+| Real GitHub events, bulk | 48.0 µs | 42.0 µs | **−12.5%** |
+| Real Twitter, bulk | 603 µs | 530 µs | **−12.1%** |
+| Real GSoC 2018, bulk | 1027 µs | 933 µs | **−9.1%** |
+| Fast Dictionary, bulk | 3.1 µs | 2.4 µs | −24.0% |
+| Real Canada / Fast Nested arrays / Escaped / Unicode escaped / Non-ASCII, bulk | — | — | 0 to +0.2% at p0 |
+| Fast Long string, byte by byte | 45.9 µs | 46.0 µs | +0.1% |
+| Real LLM message, byte by byte | 6238 µs | 6394 µs | +2.5% |
+| Real Twitter escaped, byte by byte | 3269 µs | 3365 µs | +2.9% |
+| Fast Pretty printed users, byte by byte | 59.1 µs | 60.7 µs | +2.8% |
+| Fast Escaped string, byte by byte | 35.7 µs | 37.3 µs | +4.7% |
+
+Throughput on the bulk rows, from the same p50s: Twitter escaped 823 → 1044 MB/s, CITM 1640 →
+1915, GitHub 1357 → 1551, Twitter 1047 → 1191, GSoC 3240 → 3566.
+
+The byte fed cost lands where every fusion's has: a one byte chunk never contains a whole key, so
+the scan at the opening quote returns at once and the key takes the buffered path it always
+took, and the escape-bearing rows pay 2-5% for the layout around it. Pure string content pays
+nothing, which is what splitting `consumeKeyRun` out was for.
+
+Semantics that moved, both deliberate and pinned in `JSONParserBufferTests`: a key contained in
+one chunk is handed over in place, like a number, so the buffer capacity no longer limits it (a
+200 byte key parses against a 64 byte buffer when it arrives whole, and still throws
+`bufferExhausted` when split across chunks); and a key's span aliases the input in bulk and the
+parser's buffer byte fed — the tests check the address, not just the bytes. `StreamParsingLayout`
+is gone; the only layout fact left in the parser is its own sixteen byte reserved tail, which is
+now named for what it is.

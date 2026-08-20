@@ -3,22 +3,18 @@ import Testing
 
 import StreamParsingCore
 
-// Reads the sixteen bytes past the end of every key span, which is what a generated matcher
-// does when it loads a whole vector regardless of the key's length. If the parser ever hands
-// out a span pointing into the input near a chunk boundary, this reads past the buffer and the
-// invariant is broken rather than merely untested.
-struct KeyPaddingSink: StreamParseSink {
+// Records every key and where its span pointed. A key that arrives whole inside a chunk is a
+// borrow into the parser's input; one the chunk cuts is reassembled in the parser's buffer. Both
+// deliver the same bytes, and the test below pins which is which.
+struct KeyRecordingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   private(set) var keys = [String]()
-  private(set) var paddingWasZeroed = true
+  private(set) var keyAddresses = [UnsafeRawPointer?]()
 
   mutating func key(_ bytes: Span<UInt8>) {
     bytes.withUnsafeBufferPointer { buffer in
-      guard let base = buffer.baseAddress else { return }
       self.keys.append(String(decoding: buffer, as: UTF8.self))
-      for offset in 0..<StreamParsingLayout.keyPaddingByteCount {
-        if base[buffer.count + offset] != 0 { self.paddingWasZeroed = false }
-      }
+      self.keyAddresses.append(buffer.baseAddress.map(UnsafeRawPointer.init))
     }
   }
 
@@ -56,50 +52,86 @@ private func parse<Sink: StreamParseSink>(
 
 @Suite
 struct `JSON parser buffer tests` {
-  // MARK: - Key padding
+  // MARK: - Key delivery
 
   @Test
-  func `Key spans carry readable zeroed padding`() throws {
-    var sink = KeyPaddingSink()
-    try parse(#"{"id":1,"name":"a","aLongerKeyName":2}"#, into: &sink)
-    expectNoDifference(sink.keys, ["id", "name", "aLongerKeyName"])
-    expectNoDifference(sink.paddingWasZeroed, true)
+  func `Keys arriving whole in one chunk are spans into the input`() throws {
+    let json = #"{"id":1,"name":"a","aLongerKeyName":2}"#
+    let bytes = Array(json.utf8)
+    var sink = KeyRecordingSink()
+    var parser = JSONParser()
+    try bytes.withUnsafeBufferPointer { input in
+      try parser.parse(input, into: &sink)
+      try parser.finish(into: &sink)
+      let start = UnsafeRawPointer(input.baseAddress!)
+      let end = start + input.count
+      expectNoDifference(sink.keys, ["id", "name", "aLongerKeyName"])
+      for address in sink.keyAddresses {
+        #expect(address.map { $0 >= start && $0 < end } == true)
+      }
+    }
   }
 
-  // A key whose closing quote is the final byte of a chunk is the case where handing out a
-  // span into the input would read past the caller's buffer.
+  // A key the chunk cuts is reassembled in the parser's buffer, and a key whose closing quote is
+  // the final byte of a chunk is the case where a span into the input would have been wrong — the
+  // parser cannot tell the quote from more key until the next chunk arrives.
   @Test
-  func `Key padding holds when a key ends at a chunk boundary`() throws {
+  func `Keys split across chunks are delivered whole at every split`() throws {
     let json = #"{"name":1}"#
     let bytes = Array(json.utf8)
     for split in 1..<bytes.count {
-      var sink = KeyPaddingSink()
+      var sink = KeyRecordingSink()
       try parse(json, into: &sink, chunk: split)
       expectNoDifference(sink.keys, ["name"], "split \(split)")
-      expectNoDifference(sink.paddingWasZeroed, true, "split \(split)")
     }
   }
 
   @Test
-  func `Key padding holds byte by byte`() throws {
-    var sink = KeyPaddingSink()
-    try parse(#"{"alpha":1,"beta":2}"#, into: &sink, chunk: 1)
-    expectNoDifference(sink.keys, ["alpha", "beta"])
-    expectNoDifference(sink.paddingWasZeroed, true)
+  func `Keys fed byte by byte come from the buffer, whole`() throws {
+    let json = #"{"alpha":1,"beta":2}"#
+    let bytes = Array(json.utf8)
+    var sink = KeyRecordingSink()
+    try bytes.withUnsafeBufferPointer { input in
+      var parser = JSONParser()
+      for byte in input {
+        try parser.parse(byte: byte, into: &sink)
+      }
+      try parser.finish(into: &sink)
+      let start = UnsafeRawPointer(input.baseAddress!)
+      let end = start + input.count
+      expectNoDifference(sink.keys, ["alpha", "beta"])
+      for address in sink.keyAddresses {
+        #expect(address.map { $0 >= start && $0 < end } == false)
+      }
+    }
   }
 
   // MARK: - Buffer exhaustion
 
+  // A key contained in one chunk is handed over in place, like a number, so the buffer size does
+  // not limit it. Spanning a chunk boundary is what forces the copy, and there the size applies.
   @Test
-  func `A caller supplied buffer that is too small fails cleanly`() throws {
+  func `A key longer than the buffer parses when it arrives whole`() throws {
     let storage = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 64)
     defer { storage.deallocate() }
     storage.initialize(repeating: 0)
 
     let key = String(repeating: "k", count: 200)
-    var sink = KeyPaddingSink()
+    var sink = KeyRecordingSink()
+    try parse("{\"\(key)\":1}", into: &sink, buffer: storage)
+    expectNoDifference(sink.keys, [key])
+  }
+
+  @Test
+  func `A key spanning chunks beyond the buffer fails cleanly`() throws {
+    let storage = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 64)
+    defer { storage.deallocate() }
+    storage.initialize(repeating: 0)
+
+    let key = String(repeating: "k", count: 200)
+    var sink = KeyRecordingSink()
     let error = #expect(throws: JSONParsingError.self) {
-      try parse("{\"\(key)\":1}", into: &sink, buffer: storage)
+      try parse("{\"\(key)\":1}", into: &sink, chunk: 50, buffer: storage)
     }
     expectNoDifference(error?.reason, .bufferExhausted)
   }
@@ -110,10 +142,9 @@ struct `JSON parser buffer tests` {
     defer { storage.deallocate() }
     storage.initialize(repeating: 0)
 
-    var sink = KeyPaddingSink()
+    var sink = KeyRecordingSink()
     try parse(#"{"reasonablyLongKeyName":1}"#, into: &sink, buffer: storage)
     expectNoDifference(sink.keys, ["reasonablyLongKeyName"])
-    expectNoDifference(sink.paddingWasZeroed, true)
   }
 
   // A number contained in one chunk is already contiguous and is handed over in place, so the
@@ -124,7 +155,7 @@ struct `JSON parser buffer tests` {
     defer { storage.deallocate() }
     storage.initialize(repeating: 0)
 
-    var sink = KeyPaddingSink()
+    var sink = KeyRecordingSink()
     let digits = String(repeating: "1", count: 200)
     try parse("[\(digits)]", into: &sink, buffer: storage)
   }
@@ -136,7 +167,7 @@ struct `JSON parser buffer tests` {
     defer { storage.deallocate() }
     storage.initialize(repeating: 0)
 
-    var sink = KeyPaddingSink()
+    var sink = KeyRecordingSink()
     let digits = String(repeating: "1", count: 200)
     let error = #expect(throws: JSONParsingError.self) {
       try parse("[\(digits)]", into: &sink, chunk: 1, buffer: storage)
