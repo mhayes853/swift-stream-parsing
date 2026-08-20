@@ -2978,3 +2978,33 @@ one chunk is handed over in place, like a number, so the buffer capacity no long
 parser's buffer byte fed — the tests check the address, not just the bytes. `StreamParsingLayout`
 is gone; the only layout fact left in the parser is its own sixteen byte reserved tail, which is
 now named for what it is.
+
+### Three cheap fixes from the disassembly, one kept
+
+The profile pass that opened this round flagged three things the release binary was doing that
+the source did not intend. Each was built alone and measured interleaved against the tree before
+it, three rounds, p50.
+
+**`NumberInfo.Flags` statics were addressor calls — kept.** `public static let negative =
+Flags(rawValue: 1 << 0)` in `StreamParsingCore` is reached from a client module through
+`unsafeMutableAddressor`, so `emitNumber` made up to four calls per number to fetch four
+constants (visible in the `canada` profile as their own symbols). As `@inlinable public static
+var` they are immediates. `canada` **−8.1%**, `Fast Nested arrays` −7.6%, `Fast Dictionary`
+−3.7%, `citm_catalog` −2.2%, string rows flat.
+
+**The number scanner's first-miss ladder — rejected.** `streamNumberRunEnd` finds the first lane
+outside the number class with a per lane loop that the compiler unrolls into sixteen `umov` +
+`tbz` pairs, where the string and whitespace scanners use `replacing(with: lanes)` + `uminv`. The
+reduction was measured in its place and lost: `citm_catalog` **+10.5%**, `Fast Nested arrays`
++11%, `canada` −2%. The ladder's moves are independent and all issue together, so a miss in lane
+one to six — every number under sixteen digits, which is every number in `citm_catalog` —
+resolves in one move plus predicted branches; the reduction's `bsl` → `uminv` → `fmov` chain is
+dependent latency that a short number pays in full. Only `canada`'s 16+ digit coordinates reach
+the second vector, where the reduction is ahead. The ladder stays, and the comment on it now
+says why.
+
+**`validateUTF8IfNeeded` as an inline guard over an out of line walk — rejected.** It is an out
+of line call at eleven sites, including once per key, and its first two guards return
+immediately on any ASCII document. Splitting it measured ±1-2% on every row, inside the noise,
+and raised `consumeStringRun`'s stack traffic from 22 to 32 accesses. Nothing goes into that
+function without a measured reason, and this had none.

@@ -13,10 +13,13 @@ public struct NumberInfo: Hashable, Sendable {
       self.rawValue = rawValue
     }
 
-    public static let negative = Flags(rawValue: 1 << 0)
-    public static let fraction = Flags(rawValue: 1 << 1)
-    public static let exponent = Flags(rawValue: 1 << 2)
-    public static let overflowed = Flags(rawValue: 1 << 3)
+    // Computed rather than stored, so a client module's `flags.insert(.negative)` is an
+    // immediate and not a call: a `public static let` in another module is reached through an
+    // addressor, and `emitNumber` was making up to four of those calls per number.
+    @inlinable public static var negative: Flags { Flags(rawValue: 1 << 0) }
+    @inlinable public static var fraction: Flags { Flags(rawValue: 1 << 1) }
+    @inlinable public static var exponent: Flags { Flags(rawValue: 1 << 2) }
+    @inlinable public static var overflowed: Flags { Flags(rawValue: 1 << 3) }
   }
 
   public init(

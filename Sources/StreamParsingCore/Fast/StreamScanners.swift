@@ -238,6 +238,12 @@ package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
     hit .|= chunk .== plus
     hit .|= chunk .== dash
     if !all(hit) {
+      // The per lane loop, deliberately: it unrolls into sixteen independent `umov` + branch
+      // pairs, and for a miss in the first few lanes — every number under sixteen digits — that
+      // resolves in one move plus predicted branches. The `uminv` reduction the other scanners
+      // use was measured here and lost: `citm_catalog` +10.5%, nested arrays +11%, against
+      // -2% on `canada`, because its `bsl` → `uminv` → `fmov` chain is dependent latency that a
+      // short number pays in full while the ladder exits early.
       for lane in 0..<streamScannerVectorWidth where !hit[lane] { return i &+ lane }
     }
     i &+= streamScannerVectorWidth
