@@ -2663,21 +2663,129 @@ against a ~42 ns timer grid, the *counting* sink — untouched by every change h
 at p0 while sitting at 0.0% at p50 between two runs, and the partial sink row read -14.6% in one
 batch and +11% in an interleaved one, for the same pair of builds. Neither number means anything.
 
-### Still open after this pass
+### Optional elements: open the slot, copy the closures
 
-- The macro strips the optional from an element or value type when it builds the element schema
-  and keeps it in the storage type, so `[String?]`, `[String: String?]` and `[Person?]` open the
-  slot with `Optional.streamInitialValue()` — `nil` — and then apply the *wrapped* type's schema
-  to the `.none` representation. This segfaults. The root path gets it right, because
-  `StreamArray<Element>.streamSchema` passes `Element.streamSchema` and picks up `Optional`'s
-  materialising wrapper; the macro just does not emit what the root path emits. Making it do so
-  costs what that wrapper already costs — measured on a 20,000-element array, release, best of 7:
-  `[Int]` 29.5 ns/element, `[Int?]` through the wrapper 70.8, and `[Int?]` opened already
-  materialised with the wrapped schema applied directly 29.9. So the correct-looking fix is 2.4x
-  on optional-element containers and the free variant cannot express a null element without a
-  per-wrapped-type `applyNull`, i.e. a parallel builder family rather than a reuse of
-  `Wrapped.streamSchema`. Worth noting the 2.4x is a cost the root path pays *today*.
-- The macro emits no `applyNull` case for an array or dictionary field at all — `schemaCases`
-  fills `applyNull` only in the `.scalarOrObject` branch — so `{"scores":null}` is a type mismatch
-  whether or not the member is optional. `PartialSinkTests` says so where it stops short of
-  covering it.
+`[String?]`, `[String: String?]` and `[Person?]` segfaulted. The macro named the storage from the
+element type and the schema from the *unwrapped* element type, so the storage was
+`StreamArray<StreamString?>` — whose `streamInitialValue()` is `nil` — while the element schema
+was `StreamString`'s and wrote straight through the `.none` representation.
+
+The root path never had the bug, because `StreamArray<Element>.streamSchema` passes
+`Element.streamSchema` and for an optional element that is `Optional`'s materialising wrapper. So
+the obvious fix was to emit what the root path emits. Measured, that costs 2.4x: on a 20,000
+element array, release, best of 7, `[Int]` runs at 32.1 ns/element and `[Int?]` through the wrapper
+at 73.5. The wrapper has to materialise per token, and having materialised it has to load and call
+*another* schema's closure to do the actual write.
+
+What landed instead costs nothing: **32.9 ns/element**, inside the noise of the non-optional path.
+Two pieces:
+
+- `_streamOptionalArraySchema` / `_streamOptionalDictionarySchema` open the slot as
+  `.some(Wrapped.streamInitialValue())` rather than `nil`. Nothing downstream has to check.
+- `_streamOptionalElementSchema` derives the element schema from the wrapped type's by copying
+  its closures across **verbatim**. `applyString`, `applyNumber`, `applyBoolean`, `enterField`,
+  `appendElement` and `enterKey` are not equivalent closures, they are the *same closure values*
+  the non-optional path stores, so a token costs one schema call rather than two. Only `applyNull`
+  is new, and only its `wholeValueField` branch.
+
+That last part is only expressible because of the sentinel above. Before it, a null arriving at an
+element and a null arriving at the element's first field were the same call with the same
+arguments, so there was no way to write an `applyNull` that clears the optional without also
+breaking `[{"city":"NYC","postalCode":null}]`. The sentinel is what turned the 2.4x fix into a
+free one.
+
+Two consequences worth naming rather than discovering later. An element opened materialised is
+visible as `.some` from the opening brace, so `[{}]` into a `[Person?]` reads as one empty
+`Person` where the wrapper would have read `nil` until the first matching key — the more
+defensible answer, since `{}` is an object, but a different one. And a rejected element holds its
+initial value rather than `nil`, which is the behaviour `PartialSinkFailureTests` already pins for
+non-optional elements.
+
+Same session, same filter, control against the commit without it, p50 `Payload MB/s`: Array of
+structs 111 → 111, Dictionary 127 → 128, Twitter 534 → 543, CITM 400 → 403, LLM message 589 → 589,
+`Fast` rows flat to the digit. `Malloc (total)`, `Retains` and `Releases` identical on every row.
+The `Flat struct` row read +11.4%, which is that row being unreadable rather than a gain.
+
+Folded in with it: `schemaCases` filled `applyNull` only in its `.scalarOrObject` branch, so a
+container field reached no case at all and `{"scores":null}` was a type mismatch however the member
+was declared. It emits the same `streamApplyNull(&target)` line now, which clears an optional
+member and still refuses a non-optional one through the disfavoured overload.
+
+### `streamElementSchema`: the type answers, not the spelling
+
+Option C fixed the crash and left a cliff. `fieldShape` reads syntax, so only the sugared
+spellings reached the new builders:
+
+```
+var sugared: [Int?]           → _streamOptionalArraySchema(…)                         32 ns/element
+var generic: Array<Int?>      → _streamContainerSchema(for: (Array<Int?>.Partial).self) 77
+var aliased: Scores           → _streamContainerSchema(for: (Scores.Partial).self)      77
+```
+
+All three are correct; two are 2.4x slower than the other. Worse, the second and third are
+unfixable in the macro: recognising `Array<X>` is a race against every way a type can be spelled,
+and a `typealias` cannot be resolved by a macro at all, because a macro has no type information.
+The same gap covers every root — `partials(of: [Int?].self)`, a bare `StreamArray<Int?>` — and
+every container the library composes rather than the macro.
+
+So the answer has to come from the type. Two requirements on `StreamParseableRoot`, both
+defaulted to the root forms, and `Optional` the only type that overrides them:
+
+```swift
+static var streamElementSchema: StreamSchema { get }      // default: streamSchema
+static func streamElementInitialValue() -> Self           // default: streamInitialValue()
+```
+
+They sit on `StreamParseableRoot` rather than `StreamInitializable`, which is where
+`streamElementInitialValue` would otherwise belong, because `Optional: StreamInitializable` is
+declared *unconditionally* — a `where Wrapped: …` extension member can never be its witness, so
+the override would silently resolve to the default and the slot would open `nil` again. On
+`StreamParseableRoot` the conformance is already conditional and the override lands. The cost is
+tightening `_streamArraySchema` and `_streamDictionarySchema` from `StreamInitializable` to
+`StreamParseableRoot`, which every caller already satisfied.
+
+`Optional.streamSchema` stays. It is still right for the one position a container does not own:
+a bare optional as the parse root, where nothing else can materialise the storage first.
+
+Every spelling now agrees, measured on the same 20,000 element array:
+
+| | before | after |
+| --- | ---: | ---: |
+| `var xs: [Int]` | 31.9 | 32.4 |
+| `var xs: [Int?]` | 32.4 | 31.9 |
+| `var xs: Array<Int?>` | **77.0** | **32.6** |
+| root `StreamArray<Int>` | 31.6 | 31.5 |
+| root `StreamArray<Int?>` | **73.5** | **32.8** |
+
+And it cost nothing elsewhere. Control against the same tree with only these requirements removed,
+same session, same filter, p50 `Payload MB/s`: Array of structs 112 → 110, Dictionary 128 → 129,
+Twitter 528 → 530, CITM 399 → 395, LLM message 570 → 572, the `Fast` rows +0.0% to +1.2%. Every
+allocation and ARC counter identical. `Flat struct` read -6.8% at p50 with p0 unchanged, which is
+that row being unreadable — it has swung ±14% between builds of identical code in this same
+session.
+
+### An entry exists from the moment its key does
+
+One test changed, and it is a semantic worth stating rather than re-recording. A dictionary is the
+only container with a window between opening a slot and filling it: `enterKey` runs at the key,
+and the value arrives afterwards. An array has no such window, since `appendElement` and the write
+happen in the same call.
+
+Opening the slot materialised makes that window visible for optionals:
+
+```
+StreamDictionary<Int>    {"maybe":7}       byte 7 → [maybe: 0]            byte 10 → [maybe: 7]
+StreamDictionary<Int?>   {"maybe":null}    byte 7 → [maybe: Optional(0)]  byte 12 → [maybe: nil]
+```
+
+The first line is unchanged and always has been: a non-optional value has shown its initial value
+in that window since the pending slot became visible. The second used to show `nil`, not because
+that was designed but because `Optional.streamInitialValue()` happens to be `nil`.
+
+The rule is that **an entry exists from the moment its key does**, holding the value type's initial
+value until the document supplies one — the key having arrived is itself the evidence that a value
+is coming. That is what the non-optional path already said, and optionals now say it too.
+
+The alternative, not taken: publish the entry only once its value arrives, so the window reads
+`[:]` for every value type. That is more honest for non-optional values as well, but it changes
+`StreamDictionary`'s streaming contract across the board and belongs in its own change.

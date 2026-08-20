@@ -260,19 +260,40 @@ extension StreamParseableMacro {
     return .scalarOrObject(unwrapped.trimmedDescription)
   }
 
+  // Both the storage type and the schema are named from the *unwrapped* element or value type,
+  // and an optional one picks the builder that opens its slot materialised.
+  //
+  // Naming them from different types is what made `[String?]` crash: the storage was
+  // `StreamArray<StreamString?>`, whose `streamInitialValue()` is `nil`, while the element schema
+  // was `StreamString`'s and wrote straight through the `.none` representation. The wrapped type
+  // is the one both sides agree on, and `_streamOptionalArraySchema` carries the optionality by
+  // opening the slot as `.some` and deriving an element schema that can null it.
   private static func schemaExpression(for type: TypeSyntax) -> String {
     let unwrapped = Self.unwrappedType(type)
     if let array = unwrapped.as(ArrayTypeSyntax.self) {
-      let element = array.element.trimmedDescription
-      return
-        "_streamArraySchema(\(element).Partial.self, element: \(Self.schemaExpression(for: array.element)))"
+      return Self.containerSchemaExpression(
+        "Array", element: array.element, builder: "_streamOptionalArraySchema", label: "element"
+      )
     }
     if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
-      let value = dictionary.value.trimmedDescription
-      return
-        "_streamDictionarySchema(\(value).Partial.self, value: \(Self.schemaExpression(for: dictionary.value)))"
+      return Self.containerSchemaExpression(
+        "Dictionary", element: dictionary.value, builder: "_streamOptionalDictionarySchema",
+        label: "value"
+      )
     }
     return "_streamSchema(for: \(unwrapped.trimmedDescription).Partial.self)"
+  }
+
+  private static func containerSchemaExpression(
+    _ kind: String,
+    element: TypeSyntax,
+    builder optionalBuilder: String,
+    label: String
+  ) -> String {
+    let storage = Self.unwrappedType(element).trimmedDescription
+    let base = Self.schemaExpression(for: element)
+    let builder = Self.isOptional(element) ? optionalBuilder : "_stream\(kind)Schema"
+    return "\(builder)(\(storage).Partial.self, \(label): \(base))"
   }
 
   // A container field's schema, stored once per type rather than built once per container. These
@@ -328,6 +349,13 @@ extension StreamParseableMacro {
           "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
         )
       case .array, .dictionary:
+        // A container field can be nulled like any other. Emitted through the same helper as a
+        // scalar's, so an optional member clears and a non-optional one falls to the disfavoured
+        // overload and stays the mismatch it was — where before neither reached a case at all and
+        // `{"scores":null}` was a type mismatch however the member was declared.
+        cases.applyNull.append(
+          "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
+        )
         let constant = "streamContainerSchema_\(property.name)"
         cases.containerSchemas.append(
           "private static let \(constant) = \(Self.schemaExpression(for: property.type))"

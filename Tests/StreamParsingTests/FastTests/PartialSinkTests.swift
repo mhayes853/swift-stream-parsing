@@ -40,6 +40,43 @@ struct SinkOptionalMembers: Equatable {
 extension SinkAddress.Partial: Equatable {}
 extension SinkOptionalMembers.Partial: Equatable {}
 
+// Optional in the *element* or *value* position, which is a different axis again from an optional
+// member. The storage is `StreamArray<StreamString?>`, whose `streamInitialValue()` is `nil`, and
+// the element schema used to be built from the wrapped type — so the first token written to an
+// element wrote through the `.none` representation and took the process with it. All three of
+// these segfaulted.
+@StreamParseable(partialMembers: .streamInitialValue)
+struct SinkInitializedContainers: Equatable {
+  var scores: [Int] = []
+}
+
+@StreamParseable
+struct SinkOptionalElements: Equatable {
+  var tags: [String?]
+  var counts: [Int?]
+  var rows: [SinkAddress?]
+  var meta: [String: String?]
+  var lookup: [String: SinkAddress?]
+}
+
+extension SinkOptionalElements.Partial: Equatable {}
+
+typealias SinkAliasedOptionals = [String?]
+
+// The same type, spelled four ways. `fieldShape` reads syntax, so only the sugared forms reach the
+// macro's optional builders; the rest resolve through `_streamContainerSchema` and the type. They
+// have to agree, and before `streamElementSchema` they did not: the sugared ones ran at
+// 32 ns/element and the others at 77, through `Optional`'s materialising wrapper. A typealias
+// cannot be fixed in the macro at all — it has no type information to resolve one with.
+@StreamParseable
+struct SinkOptionalSpellings: Equatable {
+  var sugared: [Int?]
+  var generic: Array<Int?>
+  var aliased: SinkAliasedOptionals
+  var nested: [[Int?]]
+  var genericDictionary: Dictionary<String, Int?>
+}
+
 @Suite
 struct `Partial sink tests` {
   @Test
@@ -91,6 +128,100 @@ struct `Partial sink tests` {
     expectNoDifference(user.id, nil)
   }
 
+  // MARK: - Optional element and value types
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Every spelling of an optional container agrees`(chunk: Int) throws {
+    var value = SinkOptionalSpellings.Partial()
+    try parsePartial(
+      #"""
+      {"sugared":[1,null],"generic":[1,null],"aliased":["a",null],
+       "nested":[[1,null]],"genericDictionary":{"j":1,"k":null}}
+      """#,
+      into: &value,
+      chunk: chunk
+    )
+    expectNoDifference(value.sugared, [1, nil])
+    expectNoDifference(value.generic, [1, nil])
+    expectNoDifference(value.aliased, ["a", nil])
+    expectNoDifference(value.nested, [[1, nil]])
+    expectNoDifference(value.genericDictionary?["j"], 1)
+    expectNoDifference(value.genericDictionary?["k"] ?? nil, nil)
+  }
+
+  // The root position resolves through the same requirement, which the macro never sees at all.
+  @Test(arguments: [Int.max, 7, 1])
+  func `Optional elements parse as a root`(chunk: Int) throws {
+    var array = StreamArray<Int?>()
+    try parsePartial("[1,null,3]", into: &array, chunk: chunk)
+    expectNoDifference(array, [1, nil, 3])
+
+    var dictionary = StreamDictionary<StreamString?>()
+    try parsePartial(#"{"a":"x","b":null}"#, into: &dictionary, chunk: chunk)
+    expectNoDifference(dictionary["a"] ?? nil, "x")
+    expectNoDifference(dictionary["b"] ?? nil, nil)
+
+    // Composed by the library rather than by the macro, so the inner element schema is resolved
+    // through `Element.streamElementSchema` twice over.
+    var nested = StreamArray<StreamArray<Int?>>()
+    try parsePartial("[[1,null]]", into: &nested, chunk: chunk)
+    expectNoDifference(nested, [[1, nil]])
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Routes into containers of optionals`(chunk: Int) throws {
+    var value = SinkOptionalElements.Partial()
+    try parsePartial(
+      #"""
+      {"tags":["a","b"],"counts":[1,2],"rows":[{"city":"NYC"}],
+       "meta":{"k":"v"},"lookup":{"home":{"city":"Brooklyn"}}}
+      """#,
+      into: &value,
+      chunk: chunk
+    )
+    expectNoDifference(value.tags, ["a", "b"])
+    expectNoDifference(value.counts, [1, 2])
+    expectNoDifference(value.rows?.first??.city, "NYC")
+    expectNoDifference(value.meta?["k"], "v")
+    expectNoDifference(value.lookup?["home"]??.city, "Brooklyn")
+  }
+
+  // A null naming the element clears it, which is the whole point of an optional element and the
+  // one thing opening the slot materialised could have cost. It does not, because the element
+  // schema keeps an `applyNull` that answers `StreamSchema.wholeValueField`.
+  @Test(arguments: [Int.max, 7, 1])
+  func `Nulls clear individual elements and values`(chunk: Int) throws {
+    var value = SinkOptionalElements.Partial()
+    try parsePartial(
+      #"""
+      {"tags":["a",null,"c"],"counts":[null,2],"rows":[null,{"city":"NYC"}],
+       "meta":{"j":null,"k":"v"},"lookup":{"home":null}}
+      """#,
+      into: &value,
+      chunk: chunk
+    )
+    expectNoDifference(value.tags, ["a", nil, "c"])
+    expectNoDifference(value.counts, [nil, 2])
+    expectNoDifference(value.rows?.count, 2)
+    expectNoDifference(value.rows?.first ?? nil, nil)
+    expectNoDifference(value.meta?["j"] ?? nil, nil)
+    expectNoDifference(value.meta?["k"], "v")
+    expectNoDifference(value.lookup?["home"] ?? nil, nil)
+  }
+
+  // A null inside an optional object element names that field, not the element — the distinction
+  // `StreamSchema.wholeValueField` exists for, exercised here through the macro's own emission
+  // rather than through a hand built schema.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A null inside an optional element names its field`(chunk: Int) throws {
+    var value = SinkOptionalElements.Partial()
+    try parsePartial(
+      #"{"rows":[{"city":"NYC","postalCode":null}]}"#, into: &value, chunk: chunk
+    )
+    expectNoDifference(value.rows?.first??.city, "NYC")
+    expectNoDifference(value.rows?.first??.postalCode, nil)
+  }
+
   // MARK: - Optional source declarations
 
   @Test(arguments: [Int.max, 7, 1])
@@ -111,21 +242,43 @@ struct `Partial sink tests` {
     expectNoDifference(value.counts?["a"], 1)
   }
 
-  // Null still clears them, which is the one shape that worked before and has to keep working.
-  // Container members are left out because a null has never reached one: the macro emits no
-  // `applyNull` case for an array or dictionary field, so `{"scores":null}` is a type mismatch
-  // whether or not the source declared it optional.
+  // Null still clears them, containers included. A container field used to reach no `applyNull`
+  // case at all — the macro emitted one only for scalars and nested objects — so `{"scores":null}`
+  // was a type mismatch however the member was declared.
   @Test(arguments: [Int.max, 7, 1])
   func `Nulls clear members the source declared optional`(chunk: Int) throws {
     var value = SinkOptionalMembers.Partial(
-      count: 1, name: "Blob", flag: true, address: SinkAddress.Partial(city: "NYC")
+      count: 1,
+      name: "Blob",
+      flag: true,
+      address: SinkAddress.Partial(city: "NYC"),
+      scores: [1],
+      counts: ["a": 1]
     )
     try parsePartial(
-      #"{"count":null,"name":null,"flag":null,"address":null}"#,
+      #"{"count":null,"name":null,"flag":null,"address":null,"scores":null,"counts":null}"#,
       into: &value,
       chunk: chunk
     )
     expectNoDifference(value, SinkOptionalMembers.Partial())
+  }
+
+  // In the default mode every member is optional, so a null clears a container declared
+  // non-optional in the source too. Under `.streamInitialValue` the member really is
+  // non-optional, and there the same helper resolves to the disfavoured overload and the null is
+  // the mismatch it should be.
+  @Test(arguments: [Int.max, 7, 1])
+  func `A null into a non-nullable container is rejected`(chunk: Int) {
+    var optionalMembers = SinkUser.Partial()
+    #expect(throws: Never.self) {
+      try parsePartial(#"{"scores":null}"#, into: &optionalMembers, chunk: chunk)
+    }
+    expectNoDifference(optionalMembers.scores, nil)
+
+    var initializedMembers = SinkInitializedContainers.Partial()
+    #expect(throws: JSONParsingError.self) {
+      try parsePartial(#"{"scores":null}"#, into: &initializedMembers, chunk: chunk)
+    }
   }
 
   // The bridge back, which did not compile for an optional dictionary member: the generated

@@ -781,12 +781,19 @@ struct `JSONStreamParser tests` {
       )
     }
 
+    // Three runs, not two, and the middle one is the point: an entry exists from the moment its
+    // key does, holding the value type's initial value until the document supplies one. A
+    // dictionary is the only container with a window there — a key arrives, and the value follows
+    // — and this is what a non-optional value has always shown in it. An optional shows the same
+    // thing now that its slot is opened materialised, where it used to show `nil` because
+    // `Optional.streamInitialValue()` happens to be `nil`.
     @Test
     func `Streams JSON Object With Nullable Value Into Dictionary`() throws {
       let json = "{\"maybe\":null}"
       let states: [StreamedRun<StreamParsingCore.StreamDictionary<Swift.Optional<Swift.Int>>>] = [
         .run([:], 7),
-        .run(["maybe": nil], 8)
+        .run(["maybe": 0], 5),
+        .run(["maybe": nil], 3)
       ]
       try expectJSONStreamedValues(
         json, initialValue: StreamDictionary<Int?>(), states: states

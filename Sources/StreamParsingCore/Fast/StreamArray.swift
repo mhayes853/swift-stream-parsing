@@ -254,7 +254,7 @@ extension StreamArray: StreamInitializable {
 extension StreamArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
-    _streamArraySchema(Element.self, element: Element.streamSchema)
+    _streamArraySchema(Element.self, element: Element.streamElementSchema)
   }
 }
 

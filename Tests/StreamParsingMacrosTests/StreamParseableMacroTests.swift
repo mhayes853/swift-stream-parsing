@@ -3612,7 +3612,12 @@ extension BaseTestSuite {
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
             ) -> Bool {
+              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
+              case Self.StreamField.items:
+                return StreamParsing.streamApplyNull(&p.pointee.items)
+              case Self.StreamField.index:
+                return StreamParsing.streamApplyNull(&p.pointee.index)
               default:
                 return false
               }

@@ -104,7 +104,7 @@ extension Float: StreamParseableRoot {}
 extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
 where Value: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
-    _streamDictionarySchema(Value.self, value: Value.streamSchema)
+    _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
   }
 }
 
@@ -323,6 +323,25 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       }
     )
   }
+}
+
+// The two positions an optional can occupy, and the only type for which they differ.
+//
+// `streamSchema` above materialises per token because a bare optional root has no owner to do it
+// first. An optional *element* does: the container opened the slot, and
+// `_streamOptionalElementSchema` is the wrapped type's own closures with only `applyNull` replaced,
+// so a token costs one schema call rather than a materialise and a second one. That is the whole
+// 2.4x, and routing it through a requirement rather than the macro is what makes `Array<Int?>`,
+// `typealias Xs = [Int?]` and a bare `StreamArray<Int?>` root as fast as the sugared spelling —
+// none of which the macro can see.
+extension Optional where Wrapped: StreamParseableRoot {
+  @inlinable
+  public static var streamElementSchema: StreamSchema {
+    _streamOptionalElementSchema(Wrapped.self, base: Wrapped.streamSchema)
+  }
+
+  @inlinable
+  public static func streamElementInitialValue() -> Self { .some(Wrapped.streamInitialValue()) }
 }
 
 extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {

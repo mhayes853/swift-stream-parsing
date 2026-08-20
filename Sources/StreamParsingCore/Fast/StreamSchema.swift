@@ -150,6 +150,27 @@ public final class StreamSchema: Sendable {
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
 
+  /// The schema this type is written through when a container holds it, and the value that
+  /// container opens its slot with.
+  ///
+  /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only
+  /// where the two positions differ, which today means only for `Optional`. A container owns the
+  /// slot it hands out and can therefore open it already materialised, so an optional element does
+  /// not have to check for `nil` before every write — where a bare optional *root* has no such
+  /// owner and must. That is worth two requirements because the difference is 2.4x: measured on a
+  /// 20,000 element array, `[Int?]` costs 73.5 ns/element written through ``streamSchema`` and
+  /// 32.9 through these, against 32.1 for the non-optional path.
+  ///
+  /// The defaults are the root forms, so a type for which the two positions are the same — every
+  /// type but `Optional` — conforms without saying anything.
+  ///
+  /// "Element" covers a dictionary's values too, matching `_streamOptionalElementSchema`, which
+  /// both container builders call.
+  static var streamElementSchema: StreamSchema { get }
+
+  /// - SeeAlso: ``streamElementSchema``
+  static func streamElementInitialValue() -> Self
+
   /// A borrowed window onto the value, for reading part of it without copying the whole.
   ///
   /// Defaults to the value itself, which is what a scalar wants: there is nothing to defer. A
@@ -162,6 +183,12 @@ public protocol StreamParseableRoot: StreamInitializable {
 }
 
 extension StreamParseableRoot {
+  @inlinable
+  public static var streamElementSchema: StreamSchema { Self.streamSchema }
+
+  @inlinable
+  public static func streamElementInitialValue() -> Self { Self.streamInitialValue() }
+
   // A view of a value with nothing to project is the value, so reading it copies it. That copy is
   // a correct snapshot on its own: every container the parser writes into holds its open element
   // in an inline slot, so a copy shares only storage that is sealed and never written again, and
@@ -261,7 +288,7 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
 // MARK: - Container schemas
 
 @inlinable
-public func _streamArraySchema<Element: StreamInitializable>(
+public func _streamArraySchema<Element: StreamParseableRoot>(
   _ type: Element.Type,
   element: StreamSchema
 ) -> StreamSchema {
@@ -270,7 +297,71 @@ public func _streamArraySchema<Element: StreamInitializable>(
     appendElement: { storage in
       _streamOpenElement(
         in: &storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee,
-        initial: Element.streamInitialValue(),
+        initial: Element.streamElementInitialValue(),
+        schema: element
+      )
+    }
+  )
+}
+
+// The schema an optional element or dictionary value is written through.
+//
+// Exactly two things differ from the wrapped type's own schema, and the point is that everything
+// else is not merely equivalent but *identical*: `applyString`, `applyNumber`, `applyBoolean`,
+// `enterField`, `appendElement` and `enterKey` are the same closure values the non-optional path
+// stores, so a token routed through an optional element costs one schema call, not two.
+//
+// The first difference is that nothing here checks for `nil` before it writes, because the
+// container that produced this opened the slot already materialised. That is what the wrapper
+// below could not do: `Optional.streamSchema` has to materialise per token, and to materialise it
+// must load and call another schema's closure afterwards. Measured on a 20,000 element array, the
+// wrapper costs 73.5 ns/element against 32.1 for the non-optional path; this costs 32.9.
+//
+// The second is that a null naming the value itself clears the optional, where the wrapped type
+// only knows how to null one of its fields. `StreamSchema.wholeValueField` is what makes that
+// expressible at all — before it, a null arriving at an element and a null arriving at the
+// element's first field were the same call with the same arguments.
+@inlinable
+public func _streamOptionalElementSchema<Wrapped>(
+  _ type: Wrapped.Type,
+  base: StreamSchema
+) -> StreamSchema {
+  StreamSchema(
+    shape: base.shape,
+    // Propagated rather than passed straight through, so a base that matches no keys stays one:
+    // handing `base.matchField` over unconditionally would make `matchField != nil` true and route
+    // every key through the closure that the `ignore` case exists to skip.
+    matchField: base.ignoresKeys ? nil : base.matchField,
+    applyString: base.applyString,
+    applyNumber: base.applyNumber,
+    applyBoolean: base.applyBoolean,
+    applyNull: { storage, field in
+      guard field == StreamSchema.wholeValueField else { return base.applyNull(storage, field) }
+      storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
+      return true
+    },
+    enterField: base.enterField,
+    appendElement: base.appendElement,
+    enterKey: base.enterKey
+  )
+}
+
+// An array whose elements are optional. The element is opened as `.some` rather than `nil`, which
+// is the whole reason the element schema above can write straight through: `Optional`'s own
+// `streamInitialValue()` is `nil`, and applying the wrapped type's schema to the `.none`
+// representation is a write through a pointer to a value that is not there.
+@inlinable
+public func _streamOptionalArraySchema<Wrapped: StreamInitializable>(
+  _ type: Wrapped.Type,
+  element base: StreamSchema
+) -> StreamSchema {
+  let element = _streamOptionalElementSchema(Wrapped.self, base: base)
+  return StreamSchema(
+    shape: .array,
+    appendElement: { storage in
+      _streamOpenElement(
+        in: &storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee,
+        initial: Wrapped?.some(Wrapped.streamInitialValue()),
         schema: element
       )
     }
@@ -278,7 +369,26 @@ public func _streamArraySchema<Element: StreamInitializable>(
 }
 
 @inlinable
-public func _streamDictionarySchema<Value: StreamInitializable>(
+public func _streamOptionalDictionarySchema<Wrapped: StreamInitializable>(
+  _ type: Wrapped.Type,
+  value base: StreamSchema
+) -> StreamSchema {
+  let value = _streamOptionalElementSchema(Wrapped.self, base: base)
+  return StreamSchema(
+    shape: .dictionary,
+    enterKey: { storage, key in
+      _streamEnterDictionaryValue(
+        &storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee,
+        key: key,
+        initial: Wrapped?.some(Wrapped.streamInitialValue()),
+        schema: value
+      )
+    }
+  )
+}
+
+@inlinable
+public func _streamDictionarySchema<Value: StreamParseableRoot>(
   _ type: Value.Type,
   value valueSchema: StreamSchema
 ) -> StreamSchema {
@@ -288,7 +398,7 @@ public func _streamDictionarySchema<Value: StreamInitializable>(
       _streamEnterDictionaryValue(
         &storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee,
         key: key,
-        initial: Value.streamInitialValue(),
+        initial: Value.streamElementInitialValue(),
         schema: valueSchema
       )
     }
