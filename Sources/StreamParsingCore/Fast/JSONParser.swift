@@ -223,6 +223,14 @@ public struct JSONParser: ~Copyable {
   // optimizer did exactly the inverse — it inlined this loop into `parse`, growing the dispatcher
   // from 1284 to 1424 bytes, and still called `consumeStructural` once per byte, which is the call
   // this exists to delete. `parse` stays a thin dispatcher and the run owns its own registers.
+  //
+  // The three fields the step reads and writes on every byte — `state`, `depth`, `containers` —
+  // are copied into locals for the run and written back on every exit, the throwing ones
+  // included. Left as fields they lived in memory: the release build stored `state` at the end
+  // of one byte and loaded it back at the start of the next, and that store-to-load round trip,
+  // not the switch, was the loop-carried dependency. A structural byte's work is a handful of
+  // compares on a register; it should not wait on a store buffer to deliver the previous byte's
+  // result.
   @inlinable
   @inline(never)
   mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
@@ -232,6 +240,14 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var i = from
+    var state = self.state
+    var depth = self.depth
+    var containers = self.containers
+    defer {
+      self.state = state
+      self.depth = depth
+      self.containers = containers
+    }
     while i < to {
       i = streamWhitespaceEnd(base: base, from: i, to: to)
       if i == to { break }
@@ -239,12 +255,14 @@ public struct JSONParser: ~Copyable {
       i &+= 1
       // A number is the one token whose first byte belongs to the token itself, so the run ends
       // and the byte is handed back for `.number` to re-read.
-      if try self.consumeStructural(byte, at: i, into: &sink) {
+      if try self.consumeStructural(
+        byte, at: i, state: &state, depth: &depth, containers: &containers, into: &sink
+      ) {
         i &-= 1
         break
       }
       try self.checkSink(&sink, at: i)
-      if !self.state.isStructural { break }
+      if !state.isStructural { break }
     }
     return i
   }
@@ -254,36 +272,50 @@ public struct JSONParser: ~Copyable {
   mutating func consumeStructural<Sink: StreamParseSink & ~Copyable>(
     _ byte: UInt8,
     at offset: Int,
+    state: inout State,
+    depth: inout Int,
+    containers: inout UInt64,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Bool {
     let at = offset &- 1
-    switch self.state {
+    switch state {
     case .value, .firstValue:
       switch byte {
       case .asciiObjectStart:
         sink.beginObject()
-        try self.push(isObject: true, at: at)
-        self.state = .firstKey
+        guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
+        containers |= 1 &<< UInt64(depth)
+        depth &+= 1
+        state = .firstKey
       case .asciiArrayStart:
         sink.beginArray()
-        try self.push(isObject: false, at: at)
-        self.state = .firstValue
+        guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
+        containers &= ~(1 &<< UInt64(depth))
+        depth &+= 1
+        state = .firstValue
       case .asciiArrayEnd:
-        guard self.state == .firstValue, self.depth > 0, !self.topIsObject else {
+        guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
         sink.endArray()
-        self.pop()
+        depth &-= 1
+        state = depth == 0 ? .done : .afterValue
       case .asciiQuote:
         self.isKeyToken = false
         sink.stringBegin()
-        self.state = .inString
-      case .asciiLowerT: self.startLiteral(kind: 0)
-      case .asciiLowerF: self.startLiteral(kind: 1)
-      case .asciiLowerN: self.startLiteral(kind: 2)
+        state = .inString
+      case .asciiLowerT:
+        self.startLiteral(kind: 0)
+        state = .literal
+      case .asciiLowerF:
+        self.startLiteral(kind: 1)
+        state = .literal
+      case .asciiLowerN:
+        self.startLiteral(kind: 2)
+        state = .literal
       case .asciiDash, .asciiZero ... .asciiNine:
         self.resetNumber()
-        self.state = .number
+        state = .number
         return true
       default:
         throw self.error(.unexpectedToken, at: at)
@@ -292,16 +324,22 @@ public struct JSONParser: ~Copyable {
     case .afterValue:
       switch byte {
       case .asciiComma:
-        guard self.depth > 0 else { throw self.error(.unexpectedToken, at: at) }
-        self.state = self.topIsObject ? .key : .value
+        guard depth > 0 else { throw self.error(.unexpectedToken, at: at) }
+        state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
       case .asciiArrayEnd:
-        guard self.depth > 0, !self.topIsObject else { throw self.error(.unexpectedToken, at: at) }
+        guard !Self.topIsObject(depth: depth, containers: containers) else {
+          throw self.error(.unexpectedToken, at: at)
+        }
         sink.endArray()
-        self.pop()
+        depth &-= 1
+        state = depth == 0 ? .done : .afterValue
       case .asciiObjectEnd:
-        guard self.depth > 0, self.topIsObject else { throw self.error(.unexpectedToken, at: at) }
+        guard Self.topIsObject(depth: depth, containers: containers) else {
+          throw self.error(.unexpectedToken, at: at)
+        }
         sink.endObject()
-        self.pop()
+        depth &-= 1
+        state = depth == 0 ? .done : .afterValue
       default:
         throw self.error(.unexpectedToken, at: at)
       }
@@ -312,20 +350,21 @@ public struct JSONParser: ~Copyable {
         self.isKeyToken = true
         self.bufferCount = 0
         self.keyContainsNonASCII = false
-        self.state = .inKey
+        state = .inKey
       case .asciiObjectEnd:
-        guard self.state == .firstKey, self.depth > 0, self.topIsObject else {
+        guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
         sink.endObject()
-        self.pop()
+        depth &-= 1
+        state = depth == 0 ? .done : .afterValue
       default:
         throw self.error(.unexpectedToken, at: at)
       }
 
     case .afterKey:
       guard byte == .asciiColon else { throw self.error(.unexpectedToken, at: at) }
-      self.state = .value
+      state = .value
 
     case .done:
       throw self.error(.trailingContent, at: at)
@@ -405,6 +444,21 @@ public struct JSONParser: ~Copyable {
       return from
     }
   }
+
+  // The colon after a key, fused together with the value's first byte. The colon alone was
+  // measured and rejected earlier in this file's history: it moved one byte into the key's call
+  // and the structural run still had to happen for the quote that always follows it. Consuming
+  // the value's opening byte as well is what passes the test that fusion set — nothing
+  // structural is left before the next token — so for `"key": "value"` and `"key": 42`, which
+  // is most of every object in the corpus, the structural run does not run at all. Whitespace
+  // between them is the one space every pretty printer emits, scanned the same way
+  // `fuseAfterValue` scans its run.
+  //
+  // Containers and literals after the colon are left to the structural run: `{` and `[` push a
+  // frame and `t`/`f`/`n` start a literal, and spelling those here would grow `consumeStringRun`
+  // for arms the profile says are a small share of keys. Same guard order as `fuseAfterValue`,
+  // and for the same reason: a sink that rejected the key must stop the fusion so the rejection
+  // surfaces where the unfused path reports it.
 
   // MARK: Strings
 
@@ -814,7 +868,6 @@ public struct JSONParser: ~Copyable {
   mutating func startLiteral(kind: UInt8) {
     self.literalKind = kind
     self.literalIndex = 1
-    self.state = .literal
   }
 
   @inlinable
@@ -1102,25 +1155,17 @@ public struct JSONParser: ~Copyable {
   // MARK: Container stack
 
   @inlinable
+  @inline(__always)
   var topIsObject: Bool {
-    self.depth > 0 && (self.containers >> UInt64(self.depth &- 1)) & 1 == 1
+    Self.topIsObject(depth: self.depth, containers: self.containers)
   }
 
+  // `depth` never exceeds `maximumDepth`, so the masking shift is exact and skips the overshift
+  // guard a smart shift carries. False at depth zero, which is what every caller wants there.
   @inlinable
-  mutating func push(isObject: Bool, at offset: Int) throws(JSONParsingError) {
-    guard self.depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: offset) }
-    if isObject {
-      self.containers |= 1 << UInt64(self.depth)
-    } else {
-      self.containers &= ~(1 << UInt64(self.depth))
-    }
-    self.depth &+= 1
-  }
-
-  @inlinable
-  mutating func pop() {
-    if self.depth > 0 { self.depth &-= 1 }
-    self.state = self.depth == 0 ? .done : .afterValue
+  @inline(__always)
+  static func topIsObject(depth: Int, containers: UInt64) -> Bool {
+    depth > 0 && (containers &>> UInt64(depth &- 1)) & 1 == 1
   }
 
   // MARK: Diagnostics

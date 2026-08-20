@@ -2789,3 +2789,116 @@ is coming. That is what the non-optional path already said, and optionals now sa
 The alternative, not taken: publish the entry only once its value arrives, so the window reads
 `[:]` for every value type. That is more honest for non-optional values as well, but it changes
 `StreamDictionary`'s streaming contract across the board and belongs in its own change.
+
+---
+
+## Structural dispatch: the state machine was living in memory
+
+A profile of the release build on the real corpus (`sample`, counting sink, bulk) put
+`consumeStructuralRun` at 28% of `canada` and 32% of `citm_catalog` — for runs of two to four
+bytes, `],[-` between coordinate pairs and `": "` after every key. The disassembly said why: the
+run loop ended every byte with `strb state → [self]` and began the next with `ldrb state ←
+[self]`, and `depth` and `containers` were loaded from `self` per byte and stored back on every
+push and pop. The optimizer had not promoted them: `self` is inout, the step has seven throw
+sites, and the whitespace call sits in the loop. So the loop-carried dependency of a structural
+byte was a store-to-load round trip on `state`, not the compares on it.
+
+### Register-resident state
+
+`consumeStructuralRun` now copies `state`, `depth` and `containers` into locals, the step
+operates on those, and a `defer` writes them back on every exit including the throwing ones.
+`push`/`pop` are gone — the step does the arithmetic on its locals — and `topIsObject` became a
+static over `(depth, containers)` with a masking shift, since `depth` is bounded by
+`maximumDepth` and the smart shift's overshift guard was two more instructions per use.
+
+The first cut of this measured **slower everywhere**, 2-9%, and it was not drift: the step
+computed `topIsObject` once at its top, before the switch, to share it between arms, which put
+eight instructions and two branches in front of every byte where the old code paid them only in
+the arms that asked. Computed lazily in the arms it is what the promotion promised. Measured with
+two binaries built in the same session and run interleaved, A B A B, p50 wall clock:
+
+| benchmark | control | register state | |
+| --- | ---: | ---: | ---: |
+| Fast Nested arrays, bulk | 11.7 µs | 10.2 µs | **-13.3%** |
+| Real Canada, bulk | 2701 µs | 2576 µs | **-4.6%** |
+| Real GSoC 2018, bulk | 1061 µs | 1028 µs | -3.1% |
+| Real LLM message, bulk | 563 µs | 549 µs | -2.5% |
+| Real CITM catalog, bulk | 1067 µs | 1042 µs | -2.3% |
+| Real GitHub events, bulk | 48.7 µs | 47.7 µs | -2.0% |
+| Fast Pretty printed users, byte by byte | 61.1 µs | 59.8 µs | -2.1% |
+| Real Twitter, bulk | 596 µs | 590 µs | -0.9% |
+
+Every row moves the right way, the byte fed canary included — the loop got cheaper without
+getting bigger, which is the only kind of change this loop has ever accepted.
+
+### Classifying the window ahead of time, measured and rejected
+
+The natural next step was to stop peeking one byte ahead for whitespace and classify the whole
+sixteen byte window once: four compares, a `shrn`-narrowed lane mask (the idiom lowers to one
+`shrn` and one `fmov`; a weighted lane sum was tried first and lowered to a lane extraction per
+byte), then visit only the content bytes by `trailingZeroBitCount`, with whitespace-only windows
+skipped in one step and the byte path kept for the sub-sixteen-byte tail so byte fed input never
+saw the vector. Against the register-state build, interleaved, p50:
+
+| benchmark | register state | window classified | peel 2 bytes scalar |
+| --- | ---: | ---: | ---: |
+| Real CITM catalog, bulk | 1061 µs | 1138 µs (+7.3%) | 1083 µs (-0.0%) |
+| Real Canada, bulk | 2628 µs | 2795 µs (+6.4%) | 2672 µs (-0.4%) |
+| Real Twitter, bulk | 602 µs | 619 µs (+2.9%) | 598 µs (-1.0%) |
+| Real GitHub events, bulk | 49.1 µs | 48.6 µs (-0.9%) | 47.7 µs (-1.3%) |
+| Real GSoC 2018 / LLM message, bulk | — | ±0.5% | ±1.5% |
+| Fast Pretty printed users, byte by byte | 60.4 µs | 63.8 µs (+5.6%) | 58.8 µs (-3.7%) |
+
+**The window loses because the runs are short.** A structural run is two to four bytes, so the
+load, classify, narrow and count chain — a dozen cycles — sits on the critical path at every
+entry, and what it buys per byte is the three instructions of a whitespace peek. The other half
+of the expected gain was not there to collect: `citm_catalog`'s long indentation runs follow
+commas, which `fuseAfterValue` scans, not the structural run. The single space after a colon is
+the whitespace this run actually sees, and peeling it scalar (second column) is noise, which is
+the same answer the one byte peel gave in the whitespace section — the out of line vector scanner
+is a leaf with no dependent latency, and the core hides it. Neither variant is in the tree.
+
+What remains of the structural cost after this is per run, not per byte: `consumeStructuralRun`
+is still ~22% of `canada` and ~33% of `citm_catalog`, and a run there is a dispatcher round trip
+plus a ten register prologue and epilogue for two to four bytes of work. A table driven step —
+byte class then `(state, class)` transition — would trade the predicted compare tree for a
+dependent load per byte and does nothing about the entries, so it was not built. The lever on
+the entries is fusing `":` + value start into the key's closing quote in `consumeStringRun`,
+which is the colon fusion the doc rejected earlier but consuming the value's first byte as
+well, so that for `"key": value` the structural run does not happen at all.
+
+### Fusing the colon after a key: measured across seven variants, and rejected
+
+The lever the section above pointed at was fusing `":` and the value's first byte into the key's
+closing quote, the way `fuseAfterValue` already fuses the comma. For `"key": "value"` and
+`"key": 42` — most of every object in the corpus — that leaves nothing structural before the
+value, so the `consumeStructuralRun` call for the member disappears. It was built seven ways and
+none of them is a clean win; the whole space is recorded here so it is not rebuilt.
+
+The bulk gains are real and consistent: `Fast Dictionary` -16 to -20%, `GitHub events` -7 to -12%,
+`Twitter escaped` -4 to -10%, `CITM` -2 to -4%, `GSoC` -1.5 to -3.6%. What varies between the
+variants is what they cost, and every variant costs something:
+
+| variant | shape | disqualifying cost |
+| --- | --- | --- |
+| recurse | run tail-calls itself for the fused token | the self-call is a real `bl`, not TCO'd — unbounded stack, one frame per token in a chunk; ~34K frames / 5 MB on a single-chunk GSoC, survives the 8 MB main thread and overflows a worker |
+| loop, `let isKey` local | switch on the fusion, flip a local, `continue` | local spilled into the content loop; byte fed `Long string` +32%, `LLM message` +31% |
+| loop, `isKeyToken` field | as above, flag read from the field | no escaped-string cliff, but the loop back-edge keeps the content loop's live ranges up: byte fed `Long string` +15%, `LLM message` +15%, `Pretty printed` +8% |
+| return to dispatcher (three forms: enum, `let isKey`, field flag) | fuse, return the cursor, let `parse` re-enter — the exact shape of the accepted comma fusion | `Fast Escaped string` bulk **+62%**, in every form |
+| out of line fusion helpers | the two fusions `@inline(never)` | escaped cliff gone, but the per-boundary call outweighs the structural-run it skips: `Twitter` +6%, `CITM`/`Canada`/`GSoC`/`GitHub` +3-4% |
+
+**The escaped-string cliff is the finding.** `Fast Escaped string` is `a\nb\t` repeated — a bare
+string value with no keys, so the fused `fuseAfterKey` never executes on it. It still costs 62% in
+every return-to-dispatcher form, purely as inlined code the escape-decode loop has to share
+registers with. That is the exact constraint the "escapes decoded in the string run" section
+already drew: `consumeStringRun` "holds only the escapes cheap enough to belong there," and its
+escape path is at the register ceiling. A second inlined fusion, with its own whitespace scan and
+switch, pushes it over. The one variant without the cliff — the field-flag loop — avoids it only
+because the loop makes the optimizer treat the fusion as cold, and pays for it on the byte fed
+content path instead. The comma fusion fits because it is the *only* fusion in the function; the
+colon fusion is the second, and there is no room for it.
+
+So the structural-run cost this was meant to remove stays. Removing it needs the key path to
+cost less code, not more — the direction the open items point (zero-copy keys that do not buffer,
+whole-string emission that collapses the three string calls), not another inlined scan in the one
+function that cannot afford it.
