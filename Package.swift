@@ -56,9 +56,14 @@ let package = Package(
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
       swiftSettings: suppressedAssociatedTypes
     ),
+    // Header-only C target carrying the NEON intrinsics Swift's SIMD API has no spelling for
+    // (`tbl`, for the UTF-8 validator). Empty on other architectures, where the Swift side
+    // takes its portable path.
+    .target(name: "StreamParsingShims"),
     .target(
       name: "StreamParsingCore",
       dependencies: [
+        "StreamParsingShims",
         .product(
           name: "Collections",
           package: "swift-collections",

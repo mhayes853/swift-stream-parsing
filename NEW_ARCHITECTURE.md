@@ -3008,3 +3008,92 @@ of line call at eleven sites, including once per key, and its first two guards r
 immediately on any ASCII document. Splitting it measured ±1-2% on every row, inside the noise,
 and raised `consumeStringRun`'s stack traffic from 22 to 32 accesses. Nothing goes into that
 function without a measured reason, and this had none.
+
+---
+
+## UTF-8 validation in vectors: the three table lookups, and the one instruction Swift cannot say
+
+The scalar validator walked a run sequence by sequence — read the lead, derive the length, check
+each continuation, check the second byte against the lead — at ~1.35 GB/s, with four or five
+branches per sequence. That was tolerable on `twitter` (15% non-ASCII, ~12% of its strict parse)
+and invisible on the ASCII documents. What it did to `llm_message` was not visible until this
+landed: its long string values carry a few non-ASCII bytes each, and a run is validated whole, so
+a hundred kilobyte run with one `é` in it went through the scalar walk end to end. That, not the
+escapes, was most of the 2.3x between its strict and unchecked rows.
+
+### The algorithm
+
+Keiser and Lemire's lookup validator: every UTF-8 error is visible in a window of two adjacent
+bytes plus one structural fact. For each lane take the high nibble of the previous byte, its low
+nibble, and the high nibble of the current byte; each indexes a sixteen entry table of error
+classes (too short, too long, overlong 2/3/4, surrogate, too large); AND the three results, and a
+nonzero lane is a pair that all three tables agree is wrong. The structural fact — a continuation
+is *required* two bytes after a three byte lead and three after a four byte lead — is a mask XORed
+in against the "continuation after continuation" class. A final check that the run does not end
+inside a sequence completes it. Sixteen bytes a block, no per-sequence control flow, one
+reduction at the end to ask whether anything fired.
+
+Two things the paper takes for granted are not in Swift's SIMD API, and both are reachable:
+
+- **Table lookup.** There is no `tbl` and no shuffle of any kind. A header-only C target,
+  `StreamParsingShims`, wraps `vqtbl1q_u8` behind an `ext_vector_type(16)` signature, which Swift
+  imports as `SIMD16<UInt8>` and inlines to a single `tbl.16b` (`@_silgen_name` and `@_extern(c)`
+  on the LLVM intrinsic were tried first; the former fails instruction selection, the latter
+  cannot represent the type). Selected by `#if arch(arm64)`.
+- **Lane shifts.** The paper's "previous byte" views come from `ext` on a carried block; the
+  shim has `vextq_u8` wrappers too (`stream_parsing_shift_in_1/2/3`, with a portable 64-bit
+  arithmetic form behind `streamBytesShiftedIn`, both pinned against the byte definition in
+  `Lane shift tests`). The validator does not use them, for a measured reason below: the views
+  are overlapping unaligned loads at `i-1`, `i-2`, `i-3` — the bytes are in memory — and the
+  first block of a run, a run shorter than a block, and a tail shorter than a block go through a
+  32 byte zero-padded scratch instead, zero reading as ASCII, which is what lies outside a run.
+
+### Where the kernel lives, and the two shapes that lost
+
+The first build kept the algorithm in Swift and used the shim only for the three lookups. It
+worked and was fast. The attempt to *also* shift the views in from a carried block through the
+`ext` shim — the paper's shape — ran **2.6x slower**, and the disassembly was the explanation:
+Swift's SIMD operators are per-lane loops that LLVM's SLP vectorizer has to re-vectorize, and a
+shift or compare whose result feeds a fifteen lane shuffle came out half vectorized, with lanes
+14 and 15 extracted, shifted and reinserted one at a time (`umov`/`ubfx`/`mov.b`, sixteen
+triples). Reordering so the shifts ran on loaded data and only flag vectors were `ext`ed moved
+the damage rather than removing it. Bitwise AND/OR/XOR on shim outputs re-vectorize reliably;
+shifts and compares adjacent to a partial shuffle do not. **So the arm64 block kernel is one C
+function** — `stream_parsing_utf8_block_errors`, every step an intrinsic clang lowers directly;
+the release function has six `tbl`, no `ext`, and not one lane extraction. The portable path in
+Swift is the algorithmic reference, compare-based, with its compares on loaded views.
+
+With the kernel in C, carried block + `ext` versus overlapping loads was measured once more, and
+the loads won: **−10.5% on `Fast Non-ASCII string` bulk, −2.4% on `llm_message`**, equal
+elsewhere. Three loads issue on the load ports; three `ext` compete with the kernel's own
+twenty-odd vector ALU operations. The `ext` wrappers stay in the shim as tested primitives.
+
+Both paths are `package` functions, and `UTF8ValidationTests` holds both to the standard
+library's decoder as oracle: every two byte sequence, every three and four byte lead against
+every second byte, truncations at every block edge, real text with one byte corrupted at every
+position, thirty thousand random strings, at several offsets into a buffer so the first block,
+the overlapping middle and the scratch tail each run. Every form above passed it on its first
+run; the differential suite is what made the codegen experiments cheap.
+
+The validator answers only valid or not. An invalid run is rare, so the parser's scalar walk
+runs behind it to find the byte, and every error offset stays exactly where `ErrorOffsetTests`
+pins it. `validateUTF8IfNeeded` keeps its two guards inline — they settle every ASCII run — and
+the vector call and the walk behind it are out of line together.
+
+### Measured
+
+Interleaved, three rounds, p50:
+
+| benchmark | before | vector validator | |
+| --- | ---: | ---: | ---: |
+| Real LLM message, bulk | 569 µs (1880 MB/s) | 308 µs (3480 MB/s) | **−46.0%** |
+| Real Twitter, bulk | 518 µs (1219 MB/s) | 454 µs (1390 MB/s) | **−12.3%** |
+| Real Twitter, 16 KB chunks | 518 µs | 460 µs | −11.3% |
+| Fast Non-ASCII string, bulk | 6.3 µs (1.3 GB/s) | 1.4 µs (5.8 GB/s) | **−77.6%** |
+| Fast Non-ASCII string, 64 B chunks | 8.3 µs | 4.0 µs | −51.5% |
+| Fast Non-ASCII string, byte by byte | 45.9 µs | 43.3 µs | −5.6% |
+| CITM / GSoC / Twitter escaped / Escaped / Unicode escaped, bulk | — | — | −1 to +0.3% |
+| Real LLM message, byte by byte | 6525 µs | 6619 µs | +1.4% |
+
+The ASCII documents do not execute it and do not move. `llm_message` strict is now within ~10%
+of its unchecked row, which is what validation should cost on a document that is mostly ASCII.

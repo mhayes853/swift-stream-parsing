@@ -1130,7 +1130,12 @@ public struct JSONParser: ~Copyable {
     return 1
   }
 
+  // The two guards inline at every call site and settle every ASCII run; a run with a high bit
+  // goes out of line to the vector validator, and only an invalid one reaches the scalar walk
+  // behind it, which exists now to name the byte. The split is what keeps the string loop's
+  // code where it was: with the validator call inlined there too, the byte fed rows paid 2-5%.
   @inlinable
+  @inline(__always)
   mutating func validateUTF8IfNeeded(
     base: UnsafeRawPointer,
     from: Int,
@@ -1138,8 +1143,19 @@ public struct JSONParser: ~Copyable {
     containsNonASCII: Bool,
     reportAt: Int?
   ) throws(JSONParsingError) {
-    guard self.configuration.validatesUTF8 else { return }
-    guard containsNonASCII else { return }
+    guard self.configuration.validatesUTF8, containsNonASCII else { return }
+    try self.validateNonASCIIRun(base: base, from: from, to: to, reportAt: reportAt)
+  }
+
+  @inlinable
+  @inline(never)
+  mutating func validateNonASCIIRun(
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    reportAt: Int?
+  ) throws(JSONParsingError) {
+    if streamValidateUTF8(base: base, from: from, to: to) { return }
     var i = from
     while i < to {
       let lead = base.load(fromByteOffset: i, as: UInt8.self)
