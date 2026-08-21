@@ -242,9 +242,9 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
 @inline(__always)
 package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   #if arch(arm64)
-    return streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: true)
+    return streamNumberRunEndShimmed(base: base, from: from, to: to)
   #else
-    return streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: false)
+    return streamNumberRunEndScalar(base: base, from: from, to: to)
   #endif
 }
 
@@ -253,7 +253,7 @@ package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
 @inlinable
 @inline(never)
 package func streamNumberRunEndPortable(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
-  streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: false)
+  streamNumberRunEndScalar(base: base, from: from, to: to)
 }
 
 // bit0 digit-possible, bit1 dot-possible, bit2 plus-possible, bit3 dash-possible, bit4
@@ -274,30 +274,32 @@ package var streamNumberClassLowTable: SIMD16<UInt8> {
   )
 }
 
+#if arch(arm64)
+  @inlinable
+  @inline(__always)
+  package func streamNumberRunEndShimmed(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+    var i = from
+    let highTable = streamNumberClassHighTable
+    let lowTable = streamNumberClassLowTable
+    let nibbleMask = SIMD16<UInt8>(repeating: 0x0F)
+    while i &+ streamScannerVectorWidth <= to {
+      let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+      let high = stream_parsing_table_lookup(highTable, chunk &>> 4)
+      let low = stream_parsing_table_lookup(lowTable, chunk & nibbleMask)
+      let hitBytes = vtstq_u8(high, low)
+      if streamVectorIsNonZero(~hitBytes) {
+        for lane in 0..<streamScannerVectorWidth where hitBytes[lane] == 0 { return i &+ lane }
+      }
+      i &+= streamScannerVectorWidth
+    }
+    return streamNumberRunEndTail(base: base, from: i, to: to)
+  }
+#endif
+
 @inlinable
 @inline(__always)
-package func streamNumberRunEndBlocks(
-  base: UnsafeRawPointer, from: Int, to: Int, usingShims: Bool
-) -> Int {
+package func streamNumberRunEndScalar(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var i = from
-  #if arch(arm64)
-    if usingShims {
-      let highTable = streamNumberClassHighTable
-      let lowTable = streamNumberClassLowTable
-      let nibbleMask = SIMD16<UInt8>(repeating: 0x0F)
-      while i &+ streamScannerVectorWidth <= to {
-        let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
-        let high = stream_parsing_table_lookup(highTable, chunk &>> 4)
-        let low = stream_parsing_table_lookup(lowTable, chunk & nibbleMask)
-        let hitBytes = vtstq_u8(high, low)
-        if streamVectorIsNonZero(~hitBytes) {
-          for lane in 0..<streamScannerVectorWidth where hitBytes[lane] == 0 { return i &+ lane }
-        }
-        i &+= streamScannerVectorWidth
-      }
-      return streamNumberRunEndTail(base: base, from: i, to: to)
-    }
-  #endif
   let zero = SIMD16<UInt8>(repeating: .asciiZero)
   let ten = SIMD16<UInt8>(repeating: 10)
   let dot = SIMD16<UInt8>(repeating: .asciiDot)
@@ -675,19 +677,28 @@ package func streamCompareBytes(
 @inlinable
 @inline(__always)
 package func streamBytesShiftedIn(
-  from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int, usingShims: Bool
+  from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int
 ) -> SIMD16<UInt8> {
   #if arch(arm64)
-    if usingShims {
-      switch count {
-      case 1: return stream_parsing_shift_in_1(previous, current)
-      case 2: return stream_parsing_shift_in_2(previous, current)
-      default: return stream_parsing_shift_in_3(previous, current)
-      }
-    }
+    return streamBytesShiftedInShimmed(from: previous, into: current, count: count)
+  #else
+    return streamBytesShiftedInPortable(from: previous, into: current, count: count)
   #endif
-  return streamBytesShiftedInPortable(from: previous, into: current, count: count)
 }
+
+#if arch(arm64)
+  @inlinable
+  @inline(__always)
+  package func streamBytesShiftedInShimmed(
+    from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int
+  ) -> SIMD16<UInt8> {
+    switch count {
+    case 1: return stream_parsing_shift_in_1(previous, current)
+    case 2: return stream_parsing_shift_in_2(previous, current)
+    default: return stream_parsing_shift_in_3(previous, current)
+    }
+  }
+#endif
 
 @inlinable
 @inline(__always)
@@ -802,25 +813,32 @@ package func streamMaskBytes(_ mask: SIMDMask<SIMD16<Int8>>) -> SIMD16<UInt8> {
 // Whether a block holds an error, given the three views of the bytes before each lane. On arm64
 // the kernel is one shim call; the portable form recomputes the same classes with range
 // compares on the views, which are loaded vectors, so the lane-loop operators vectorize.
+#if arch(arm64)
+  @inlinable
+  @inline(__always)
+  package func streamUTF8BlockIsInvalidShimmed(
+    current: SIMD16<UInt8>,
+    previous1: SIMD16<UInt8>,
+    previous2: SIMD16<UInt8>,
+    previous3: SIMD16<UInt8>
+  ) -> Bool {
+    streamVectorIsNonZero(
+      stream_parsing_utf8_block_errors(
+        current, previous1, previous2, previous3,
+        streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
+      )
+    )
+  }
+#endif
+
 @inlinable
 @inline(__always)
-package func streamUTF8BlockIsInvalid(
+package func streamUTF8BlockIsInvalidPortable(
   current: SIMD16<UInt8>,
   previous1: SIMD16<UInt8>,
   previous2: SIMD16<UInt8>,
-  previous3: SIMD16<UInt8>,
-  usingShims: Bool
+  previous3: SIMD16<UInt8>
 ) -> Bool {
-  #if arch(arm64)
-    if usingShims {
-      return streamVectorIsNonZero(
-        stream_parsing_utf8_block_errors(
-          current, previous1, previous2, previous3,
-          streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
-        )
-      )
-    }
-  #endif
   let mustContinue =
     previous2 .>= SIMD16<UInt8>(repeating: .utf8ThreeByteFloor)
     .| previous3 .>= SIMD16<UInt8>(repeating: .utf8FourByteFloor)
@@ -854,11 +872,100 @@ package func streamUTF8BlockIsInvalid(
 // ASCII, which is what lies before a run (a quote, an escape, a chunk boundary that
 // `completePendingUTF8` already settled at a sequence boundary) and what padding after it must
 // read as; a tail copies its three real preceding bytes in.
+//
+// Shimmed and scalar variants are two copies of the same shape rather than one body sharing a
+// block-check parameter: the block check is itself `@inline(__always)`, and only a literal
+// `Bool` — not a passed-in function value — is guaranteed to fold away entirely at -O, per the
+// witness-closure rewrite this codebase already measured and rejected elsewhere.
+#if arch(arm64)
+  @inlinable
+  @inline(__always)
+  package func streamValidateUTF8Shimmed(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
+    let count = to &- from
+    guard count > 0 else { return true }
+    // A sequence cut by the end of the run. The block test sees the lead and never the missing
+    // continuation, so the last three bytes are checked against what may legally sit there.
+    if base.load(fromByteOffset: to &- 1, as: UInt8.self) >= .utf8TwoByteFloor { return false }
+    if count >= 2, base.load(fromByteOffset: to &- 2, as: UInt8.self) >= .utf8ThreeByteFloor {
+      return false
+    }
+    if count >= 3, base.load(fromByteOffset: to &- 3, as: UInt8.self) >= .utf8FourByteFloor {
+      return false
+    }
+
+    var scratch = SIMD32<UInt8>.zero
+    return withUnsafeMutableBytes(of: &scratch) { raw -> Bool in
+      let s = raw.baseAddress!
+      // Layout: [0, 3) the three bytes before the block, [3, 19) the block, [19, 32) zero.
+      let first = Swift.min(count, 16)
+      if first == 16 {
+        s.storeBytes(
+          of: base.loadUnaligned(fromByteOffset: from, as: SIMD16<UInt8>.self),
+          toByteOffset: 3, as: SIMD16<UInt8>.self
+        )
+      } else {
+        for j in 0..<first {
+          s.storeBytes(
+            of: base.load(fromByteOffset: from &+ j, as: UInt8.self),
+            toByteOffset: 3 &+ j, as: UInt8.self
+          )
+        }
+      }
+      if streamUTF8BlockIsInvalidShimmed(
+        current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
+        previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
+        previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
+        previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
+      ) {
+        return false
+      }
+
+      var i = from &+ 16
+      while i &+ 16 <= to {
+        if streamUTF8BlockIsInvalidShimmed(
+          current: base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self),
+          previous1: base.loadUnaligned(fromByteOffset: i &- 1, as: SIMD16<UInt8>.self),
+          previous2: base.loadUnaligned(fromByteOffset: i &- 2, as: SIMD16<UInt8>.self),
+          previous3: base.loadUnaligned(fromByteOffset: i &- 3, as: SIMD16<UInt8>.self)
+        ) {
+          return false
+        }
+        i &+= 16
+      }
+
+      if i < to {
+        // `i >= from + 16` here, so the three bytes before the tail are the run's own.
+        s.storeBytes(of: SIMD16<UInt8>.zero, toByteOffset: 0, as: SIMD16<UInt8>.self)
+        s.storeBytes(of: SIMD16<UInt8>.zero, toByteOffset: 16, as: SIMD16<UInt8>.self)
+        for j in 0..<3 {
+          s.storeBytes(
+            of: base.load(fromByteOffset: i &- 3 &+ j, as: UInt8.self),
+            toByteOffset: j, as: UInt8.self
+          )
+        }
+        for j in 0..<(to &- i) {
+          s.storeBytes(
+            of: base.load(fromByteOffset: i &+ j, as: UInt8.self),
+            toByteOffset: 3 &+ j, as: UInt8.self
+          )
+        }
+        if streamUTF8BlockIsInvalidShimmed(
+          current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
+          previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
+          previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
+          previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
+        ) {
+          return false
+        }
+      }
+      return true
+    }
+  }
+#endif
+
 @inlinable
 @inline(__always)
-package func streamValidateUTF8Blocks(
-  base: UnsafeRawPointer, from: Int, to: Int, usingShims: Bool
-) -> Bool {
+package func streamValidateUTF8Scalar(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
   let count = to &- from
   guard count > 0 else { return true }
   // A sequence cut by the end of the run. The block test sees the lead and never the missing
@@ -889,24 +996,22 @@ package func streamValidateUTF8Blocks(
         )
       }
     }
-    if streamUTF8BlockIsInvalid(
+    if streamUTF8BlockIsInvalidPortable(
       current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
       previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
       previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
-      previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self),
-      usingShims: usingShims
+      previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
     ) {
       return false
     }
 
     var i = from &+ 16
     while i &+ 16 <= to {
-      if streamUTF8BlockIsInvalid(
+      if streamUTF8BlockIsInvalidPortable(
         current: base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self),
         previous1: base.loadUnaligned(fromByteOffset: i &- 1, as: SIMD16<UInt8>.self),
         previous2: base.loadUnaligned(fromByteOffset: i &- 2, as: SIMD16<UInt8>.self),
-        previous3: base.loadUnaligned(fromByteOffset: i &- 3, as: SIMD16<UInt8>.self),
-        usingShims: usingShims
+        previous3: base.loadUnaligned(fromByteOffset: i &- 3, as: SIMD16<UInt8>.self)
       ) {
         return false
       }
@@ -929,12 +1034,11 @@ package func streamValidateUTF8Blocks(
           toByteOffset: 3 &+ j, as: UInt8.self
         )
       }
-      if streamUTF8BlockIsInvalid(
+      if streamUTF8BlockIsInvalidPortable(
         current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
         previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
         previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
-        previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self),
-        usingShims: usingShims
+        previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
       ) {
         return false
       }
@@ -948,9 +1052,9 @@ package func streamValidateUTF8Blocks(
 @inline(never)
 package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
   #if arch(arm64)
-    return streamValidateUTF8Blocks(base: base, from: from, to: to, usingShims: true)
+    return streamValidateUTF8Shimmed(base: base, from: from, to: to)
   #else
-    return streamValidateUTF8Blocks(base: base, from: from, to: to, usingShims: false)
+    return streamValidateUTF8Scalar(base: base, from: from, to: to)
   #endif
 }
 
@@ -959,5 +1063,5 @@ package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> B
 @inlinable
 @inline(never)
 package func streamValidateUTF8Portable(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
-  streamValidateUTF8Blocks(base: base, from: from, to: to, usingShims: false)
+  streamValidateUTF8Scalar(base: base, from: from, to: to)
 }

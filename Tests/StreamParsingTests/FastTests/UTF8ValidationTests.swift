@@ -166,10 +166,12 @@ struct `Lane shift tests` {
         for lane in 0..<16 {
           expected[lane] = lane < count ? previous[16 - count + lane] : current[lane - count]
         }
-        expectNoDifference(
-          streamBytesShiftedIn(from: previous, into: current, count: count, usingShims: true),
-          expected
-        )
+        #if arch(arm64)
+          expectNoDifference(
+            streamBytesShiftedInShimmed(from: previous, into: current, count: count),
+            expected
+          )
+        #endif
         expectNoDifference(
           streamBytesShiftedInPortable(from: previous, into: current, count: count),
           expected
