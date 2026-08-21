@@ -220,9 +220,84 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
 // scan is greedy — placement is the whole-token parse's business — which is what makes it
 // stateless and lets SIMD16 test all six membership conditions per lane. Strategy table in
 // NEW_ARCHITECTURE.md: 12.6–23.4 ns/number against 19.5–91.8 for the fused per-byte scan.
+//
+// On arm64 the membership test is two table lookups instead of six compares: `tbl` only indexes
+// sixteen entries directly, so a byte is split into its high and low nibbles, each nibble looks
+// up a bitmask of which number classes are possible for it (`streamNumberClassHighTable`,
+// `streamNumberClassLowTable`), and `vtstq_u8` tests whether the two bitmasks share a set bit.
+// Disassembly confirms `ldr, ushr, tbl, and, tbl, cmtst` — six instructions classifying the whole
+// block, against the portable path's `ldr` plus eleven (six compares and their `orr`s).
+//
+// The "did every lane match" check is `streamVectorIsNonZero` on the bitwise complement of the
+// hit bytes, not `all(hit)`: bitcasting the `vtstq_u8` result to a `SIMDMask` and calling `all()`
+// on that compiled to an actual `bl` — a real out-of-line call, not the `uminv` reduction `all()`
+// gives for a mask built directly from a compare (confirmed by disassembling the portable path's
+// own `all(hit)` below, which does lower to `uminv` cleanly). `all()`'s fast path apparently only
+// recognizes a mask it can see was built from a compare; a mask that arrives by `unsafeBitCast`
+// loses that, silently, with no diagnostic. `tbl`, `cmtst` and the compare-then-`all()` shape all
+// have no portable spelling, so the six-compare chain stays as the fallback, untouched: its
+// `all(hit)` and unrolled-tail shape were already measured against a `uminv` reduction and tuned,
+// per the comment below, and that tuning is independent of the arm64 path's own kernel.
 @inlinable
 @inline(__always)
 package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  #if arch(arm64)
+    return streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: true)
+  #else
+    return streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: false)
+  #endif
+}
+
+// Reachable with the arm64 fast path forced off, so tests can hold it to the same oracle as the
+// vector path on a machine that has both.
+@inlinable
+@inline(never)
+package func streamNumberRunEndPortable(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  streamNumberRunEndBlocks(base: base, from: from, to: to, usingShims: false)
+}
+
+// bit0 digit-possible, bit1 dot-possible, bit2 plus-possible, bit3 dash-possible, bit4
+// E/e-possible. Indexed by a byte's high nibble.
+@inlinable
+package var streamNumberClassHighTable: SIMD16<UInt8> {
+  SIMD16<UInt8>(0, 0, 0b0_1110, 0b0_0001, 0b1_0000, 0, 0b1_0000, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+
+// Indexed by a byte's low nibble. Low nibble 5 carries both digit ('5' is 0x35) and E/e ('E' is
+// 0x45, 'e' is 0x65) bits; the high nibble table resolves which one applies, or neither — '%' is
+// 0x25, whose high nibble carries none of the bits low nibble 5 offers.
+@inlinable
+package var streamNumberClassLowTable: SIMD16<UInt8> {
+  SIMD16<UInt8>(
+    0b0_0001, 0b0_0001, 0b0_0001, 0b0_0001, 0b0_0001, 0b1_0001, 0b0_0001, 0b0_0001,
+    0b0_0001, 0b0_0001, 0, 0b0_0100, 0, 0b0_1000, 0b0_0010, 0
+  )
+}
+
+@inlinable
+@inline(__always)
+package func streamNumberRunEndBlocks(
+  base: UnsafeRawPointer, from: Int, to: Int, usingShims: Bool
+) -> Int {
+  var i = from
+  #if arch(arm64)
+    if usingShims {
+      let highTable = streamNumberClassHighTable
+      let lowTable = streamNumberClassLowTable
+      let nibbleMask = SIMD16<UInt8>(repeating: 0x0F)
+      while i &+ streamScannerVectorWidth <= to {
+        let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+        let high = stream_parsing_table_lookup(highTable, chunk &>> 4)
+        let low = stream_parsing_table_lookup(lowTable, chunk & nibbleMask)
+        let hitBytes = vtstq_u8(high, low)
+        if streamVectorIsNonZero(~hitBytes) {
+          for lane in 0..<streamScannerVectorWidth where hitBytes[lane] == 0 { return i &+ lane }
+        }
+        i &+= streamScannerVectorWidth
+      }
+      return streamNumberRunEndTail(base: base, from: i, to: to)
+    }
+  #endif
   let zero = SIMD16<UInt8>(repeating: .asciiZero)
   let ten = SIMD16<UInt8>(repeating: 10)
   let dot = SIMD16<UInt8>(repeating: .asciiDot)
@@ -230,8 +305,6 @@ package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
   let caseBit = SIMD16<UInt8>(repeating: 0x20)
   let plus = SIMD16<UInt8>(repeating: .asciiPlus)
   let dash = SIMD16<UInt8>(repeating: .asciiDash)
-
-  var i = from
   while i &+ streamScannerVectorWidth <= to {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     var hit = (chunk &- zero) .< ten .| chunk .== dot
@@ -249,6 +322,13 @@ package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> I
     }
     i &+= streamScannerVectorWidth
   }
+  return streamNumberRunEndTail(base: base, from: i, to: to)
+}
+
+@inlinable
+@inline(__always)
+package func streamNumberRunEndTail(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  var i = from
   while i < to {
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
     let isNumber =
@@ -382,20 +462,6 @@ package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) 
     i &+= 1
   }
   return false
-}
-
-// Tracking line and column per byte measured at roughly half the per-byte budget, so they are
-// reconstructed on demand instead.
-@inlinable
-@inline(__always)
-package func streamNewlineCount(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
-  var count = 0
-  var i = from
-  while i < to {
-    if base.load(fromByteOffset: i, as: UInt8.self) == .asciiLineFeed { count &+= 1 }
-    i &+= 1
-  }
-  return count
 }
 
 // MARK: - Key words

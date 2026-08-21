@@ -192,15 +192,61 @@ struct `Stream scanner tests` {
     expectNoDifference(magnitude, 12_345_678_901_234)
   }
 
-  // MARK: - Newlines
+  // MARK: - Number runs
 
+  private static func isNumberClassByte(_ byte: UInt8) -> Bool {
+    byte &- 0x30 < 10 || byte == 0x2E || byte == 0x2B || byte == 0x2D || (byte | 0x20) == 0x65
+  }
+
+  // The arm64 path replaces six compares with a two-table nibble lookup, which is table data
+  // rather than a direct compare, so every one of the 256 byte values is checked against the
+  // compare-chain definition — not just JSON's actual number alphabet — with the byte under
+  // test at every lane of a full block, so a table bit that only breaks the vector's edge lanes
+  // would still show up. Both `streamNumberRunEnd` and the portable path are checked, so this
+  // holds on a machine that only ever runs one of them by dispatch.
   @Test
-  func `Newline counting matches a naive count`() {
-    let bytes = Array("a\nbb\n\nccc\n".utf8)
-    let actual = Self.withBase(bytes) {
-      streamNewlineCount(base: $0, from: 0, to: bytes.count)
+  func `Number run scanning classifies every byte value correctly at every lane`() {
+    for testByte: UInt8 in 0...255 {
+      let expected = Self.isNumberClassByte(testByte)
+      for position in 0..<16 {
+        var bytes = [UInt8](repeating: 0x30, count: 16)
+        bytes[position] = testByte
+        let expectedEnd = expected ? 16 : position
+        let (vector, portable) = Self.withBase(bytes) {
+          (
+            streamNumberRunEnd(base: $0, from: 0, to: bytes.count),
+            streamNumberRunEndPortable(base: $0, from: 0, to: bytes.count)
+          )
+        }
+        expectNoDifference(vector, expectedEnd, "byte 0x\(String(testByte, radix: 16)) at \(position)")
+        expectNoDifference(portable, expectedEnd, "byte 0x\(String(testByte, radix: 16)) at \(position)")
+      }
     }
-    expectNoDifference(actual, 4)
+  }
+
+  // The vectorized path only engages past sixteen bytes and hands the remainder to a scalar
+  // tail, so the interesting cases are every length and every start offset around that boundary.
+  @Test
+  func `Number run scanning matches a naive scan at every length and offset`() {
+    var generator = SystemRandomNumberGenerator()
+    for length in 0...40 {
+      for _ in 0..<20 {
+        var bytes = (0..<length).map { _ in UInt8.random(in: 0x30...0x39, using: &generator) }
+        for index in bytes.indices where Int.random(in: 0..<6, using: &generator) == 0 {
+          bytes[index] = [0x2E, 0x2B, 0x2D, 0x45, 0x65, 0x20].randomElement(using: &generator)!
+        }
+        var expected = 0
+        while expected < length, Self.isNumberClassByte(bytes[expected]) { expected += 1 }
+        let (vector, portable) = Self.withBase(bytes) {
+          (
+            streamNumberRunEnd(base: $0, from: 0, to: length),
+            streamNumberRunEndPortable(base: $0, from: 0, to: length)
+          )
+        }
+        expectNoDifference(vector, expected, "length \(length)")
+        expectNoDifference(portable, expected, "length \(length)")
+      }
+    }
   }
 }
 
