@@ -106,6 +106,10 @@ public struct JSONParser: ~Copyable {
     buffer: UnsafeMutableBufferPointer<UInt8>,
     configuration: JSONParserConfiguration = .strict
   ) {
+    precondition(
+      buffer.count >= Self.reservedTailByteCount,
+      "JSONParser requires a caller-supplied buffer of at least \(Self.reservedTailByteCount) bytes."
+    )
     self.configuration = configuration
     self.buffer = buffer
     self.ownsBuffer = false
@@ -333,7 +337,7 @@ public struct JSONParser: ~Copyable {
         guard depth > 0 else { throw self.error(.unexpectedToken, at: at) }
         state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
       case .asciiArrayEnd:
-        guard !Self.topIsObject(depth: depth, containers: containers) else {
+        guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
         sink.endArray()
