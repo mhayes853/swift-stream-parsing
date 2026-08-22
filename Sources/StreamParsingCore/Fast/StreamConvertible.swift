@@ -81,26 +81,41 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
       return
     }
 
-    guard let significand = Self(exactly: info.magnitude) else {
-      guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
-        return nil
+    if let significand = Self(exactly: info.magnitude) {
+      if info.exponent == 0 {
+        self = info.flags.contains(.negative) ? -significand : significand
+        return
       }
-      self = fallback
-      return
+
+      let exponent = Int(info.exponent)
+      if info.magnitude <= (1 << 53),
+        let scale = digitPow10Value(abs(exponent)),
+        let typedScale = Self(exactly: scale)
+      {
+        let scaled = exponent >= 0 ? significand * typedScale : significand / typedScale
+        self = info.flags.contains(.negative) ? -scaled : scaled
+        return
+      }
     }
 
-    if info.exponent == 0 {
-      self = info.flags.contains(.negative) ? -significand : significand
-      return
-    }
-
-    let exponent = Int(info.exponent)
-    if info.magnitude <= (1 << 53),
-      let scale = digitPow10Value(abs(exponent)),
-      let typedScale = Self(exactly: scale)
+    // Everything the two exact paths above could not reach, which is where `canada.json` sent
+    // 91.2% of its tokens: a significand past the mantissa, or a power of ten that is not itself
+    // representable. Eisel-Lemire answers those bit-exactly, and declines rather than guessing.
+    //
+    // `Double`'s alone, deliberately. The kernel computes in `Double`, so a narrower `Self` would
+    // round twice -- once into `Double`, once into `Self` -- which is *worse* than the fallback
+    // those cases take today, and a wider one would lose bits outright. The metatype comparison
+    // folds away when the generic specialises, so `Double` pays nothing for the check and the
+    // other types keep exactly the behaviour they had.
+    if Self.self == Double.self,
+      let value = streamEiselLemire(
+        magnitude: info.magnitude,
+        exponent: Int(info.exponent),
+        negative: info.flags.contains(.negative)
+      ),
+      let typed = Self(exactly: value)
     {
-      let scaled = exponent >= 0 ? significand * typedScale : significand / typedScale
-      self = info.flags.contains(.negative) ? -scaled : scaled
+      self = typed
       return
     }
 

@@ -190,6 +190,39 @@ struct BenchmarkCanadaGeometry: Hashable, Sendable {
   var coordinates: [[[Double]]] = []
 }
 
+// MARK: - Mesh
+
+// A three.js mesh export: one object of long flat numeric arrays. The model keeps every one of
+// them, because the point of the payload is its number mix -- `positions` and `normals` are
+// decimals, `indices` and `colors` are integers, and they interleave down the document rather
+// than sitting in separate regions. `colors` holds packed ARGB words above `Int32.max`, so it is
+// `Int` rather than the narrower type the values look like they want.
+//
+// `influences` is `[[Double]]`, not `[[Int]]`: its pairs are written `[1.0,0]`, mixing a decimal
+// and an integer inside one array, and an `Int` member rejects the decimal on its `.fraction`
+// flag. That is the payload's point -- shapes vary within a single array, not just between
+// fields -- and it is what the `positions?.count` preconditions below exist to catch.
+//
+// `morphTargets` is an empty object in the document and is deliberately not modelled; the parser
+// skips unmatched keys, which is also what keeps this model honest about the skip path.
+@StreamParseable
+struct BenchmarkMesh: Hashable, Sendable {
+  var batches: [BenchmarkMeshBatch] = []
+  var positions: [Double] = []
+  var tex0: [Double] = []
+  var colors: [Int] = []
+  var influences: [[Double]] = []
+  var normals: [Double] = []
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkMeshBatch: Hashable, Sendable {
+  var indexRange: [Int] = []
+  var vertexRange: [Int] = []
+  var usedBones: [Int] = []
+}
+
 // MARK: - GSoC 2018
 
 // The document is a dictionary keyed by numeric project identifiers. Keys beginning with `@`

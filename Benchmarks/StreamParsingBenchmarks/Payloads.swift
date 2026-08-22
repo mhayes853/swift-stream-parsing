@@ -138,6 +138,20 @@ enum Payloads {
   static let githubEvents = Self.resource("github_events")
   static let twitterEscaped = Self.resource("twitterescaped")
 
+  // A three.js mesh export, and the number payload the others are not. `canada` is denser in
+  // numbers (90.1% of bytes against 78.8%) but almost perfectly uniform -- 97.7% of its tokens
+  // are one shape -- and `citm_catalog` is 92% a single nine digit integer. `mesh` is the only
+  // real payload whose numbers are *mixed*: 33% four digit integers, 13% `1d.12d` decimals, 11%
+  // three digit integers, 7% negative decimals, over 73,013 tokens in 723 KB. Anything that
+  // dispatches on a number's shape is predicted perfectly by every other payload here and has to
+  // earn its keep on this one.
+  //
+  // It is not an exponent payload, which is what it was fetched to be: only 5 of its tokens carry
+  // an `e` at all, and its effective exponent range is -17...0, inside the +-22 the truncated
+  // power of ten table covers. No document in the simdjson corpus reaches past that -- 468,000
+  // real world numbers, none of them outside it -- which is what settled the table extent.
+  static let mesh = Self.resource("mesh")
+
   // An assistant message response: many content blocks of markdown prose and fenced code, so the
   // payload is dominated by long strings carrying `\n` and `\"` escapes, with tool-use objects
   // and small integers between them. This is the shape the convenience layer exists for, and the
@@ -154,7 +168,7 @@ enum Payloads {
       Self.nonASCIIString, Self.prettyUserList, Self.deepObjects63, Self.deepObjects16,
       Self.deepArrays63, Self.wideFirst, Self.wideLast, Self.wideMiss, Self.largeIntegers,
       Self.floats, Self.twitter, Self.canada, Self.citmCatalog, Self.gsoc2018, Self.githubEvents,
-      Self.twitterEscaped, Self.llmMessage
+      Self.twitterEscaped, Self.llmMessage, Self.mesh
     ]
     var total = 0
     for payload in all { total &+= payload.count }

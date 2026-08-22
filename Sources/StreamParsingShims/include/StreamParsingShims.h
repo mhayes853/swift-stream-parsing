@@ -54,4 +54,11 @@ stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
 }
 #endif
 
+// The Eisel-Lemire power-of-ten table, defined in `Pow10_128.c` and generated -- see the header
+// comment there. Exposed as a pointer rather than a sized array because Swift imports a
+// fixed-size C array as a tuple of that many elements, which is unusable at this size.
+extern const uint64_t *const stream_parsing_pow10_128;
+extern const int32_t stream_parsing_pow10_128_min_exponent;
+extern const int32_t stream_parsing_pow10_128_max_exponent;
+
 #endif

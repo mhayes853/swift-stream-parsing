@@ -28,6 +28,7 @@ private let realWorldPayloads: [(String, [UInt8])] = [
   ("GSoC 2018", Payloads.gsoc2018),
   ("GitHub events", Payloads.githubEvents),
   ("LLM message", Payloads.llmMessage),
+  ("Mesh", Payloads.mesh),
 ]
 
 // Mirrors each fast-layer real-world row through the convenience layer. The models deliberately
@@ -84,6 +85,14 @@ func realWorldBenchmarks() {
     ($0.value.description?.utf8Count ?? 0) > 64
   }
   precondition(longDescriptions.count == 1_236)
+  let mesh = expectParses {
+    try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMesh.Partial.self)
+  }
+  precondition(mesh.positions?.count == 10_800)
+  precondition(mesh.normals?.count == 10_800)
+  precondition(mesh.indices?.count == 33_408)
+  precondition(mesh.colors?.count == 3_600)
+  precondition(mesh.batches?.count == 1)
   let github = expectParses {
     try streamBulkDiscarding(
       Payloads.githubEvents, as: StreamArray<BenchmarkGitHubEvent.Partial>.self
@@ -145,6 +154,9 @@ func realWorldBenchmarks() {
   addRealWorldConvenienceRows(
     "LLM message", payload: Payloads.llmMessage,
     as: BenchmarkLLMMessage.Partial.self, includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Mesh", payload: Payloads.mesh, as: BenchmarkMesh.Partial.self
   )
 
   for chunk in [1_400, 16_384, 65_536] {
