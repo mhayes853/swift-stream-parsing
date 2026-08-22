@@ -3337,3 +3337,128 @@ Every token in the real corpus falls into one of four shapes. The kernel takes t
 D is half the corpus by token count only because canada is 55% of every number in it; by payload,
 B and C reach further.
 
+### B, the nine to sixteen digit integer: built, measured, REJECTED
+
+The obvious next kernel by coverage, and it lost. `streamMediumInteger` read a second word at
+`end - 16`, masked only the high one (the low word is entirely inside a token of nine or more
+digits), and combined with `high * 100_000_000 + low`. Sixteen digits is 9,999,999,999,999,999, so
+the combine is exact inside `UInt64` and needs no overflow check. Correct, tested, and not worth
+keeping.
+
+Three interleaved rounds against an A-only control, `Payload MB/s` p0:
+
+| row | B eligible | A only | A+B | |
+| --- | --- | --- | --- | --- |
+| `Real CITM catalog - bulk` | **93.7%** | 1970 | 1997 | **+1.4%** |
+| `Real Twitter escaped - bulk discarding` | -- | 452 | 459 | +1.5% |
+| `Real Twitter - bulk discarding` | -- | 635 | 642 | +1.1% |
+| `Real Mesh - bulk` | 4.9% | 700 | 700 | 0.0% |
+| `Real LLM message - bulk discarding` | -- | 721 | 712 | -1.2% |
+| `Real GSoC 2018 - bulk discarding` | -- | 611 | 601 | -1.6% |
+| `Real Mesh - bulk discarding` | -- | 145 | 141 | **-2.8%** |
+| `Numbers floats - bulk` | 0% | 688 | 661 | **-3.9%** |
+
+**The selection metric was wrong, and that is the finding.** B was chosen because citm is 93.7%
+eligible. But a kernel's benefit scales with tokens *per byte*, while its cost falls on every token
+that probes it and declines -- so the metric is eligibility x number density, not eligibility:
+
+| | numbers/KB | B eligible | B eligible per KB |
+| --- | --- | --- | --- |
+| citm | 8.3 | 93.7% | **7.8** |
+| mesh | 100.9 | 4.9% | 4.9 |
+| twitter | 3.3 | 12.6% | 0.4 |
+
+citm has the corpus's highest eligibility and its *lowest* number density -- numbers are 7.3% of its
+bytes -- so 93.7% coverage bought 1.4%. Meanwhile B declines more expensively than A does: mesh's
+long tokens are decimals (42.3% of its tokens, nine to seventeen bytes) and 81% of `Numbers floats`
+is nine to eleven bytes, and all of them now paid two loads, two masks, two biases and a digit test
+*before* falling through, where A-only rejected them on one compare. **B taxed every payload whose
+long tokens are decimals in order to help the one payload whose long tokens are integers and where
+numbers barely matter.**
+
+Kept from the work: `streamEightDigitWord` and `streamWordHasNonDigit`, extracted so the forms
+cannot drift apart. Also found by the decline test and worth repeating as a rule -- **a `package`
+kernel must enforce its own range**: the sixteen digit ceiling was originally tested only in
+`emitNumber`, so the function silently wrapped on seventeen digit input rather than declining.
+
+**A methodological failure, recorded because it nearly published a wrong result.** The first A/B
+built its A-only control by replacing `if end &- from <= 8 {` with `if true {`, expecting the short
+form to decline long tokens. It did not: `shift = 8 * (8 - count)` goes negative, Swift's `<<` is a
+smart shift that yields 0 rather than trapping, so `keep` became 0, the digit test passed on a zero
+word, and **every number over eight digits parsed as 0 while skipping the walk entirely**. The
+control read `Numbers floats` at 952 MB/s -- higher than the 721 measured before any kernel
+existed, which should have been the tell. The candidate had a full test suite behind it; the control
+had none. **Run the test suite against the control, not just the candidate.**
+
+### C, the decimal kernel: built, measured, REJECTED -- and the size ceiling this exposes
+
+An integer is a decimal whose fraction is empty, so C was meant to subsume both A and B. It does,
+exactly: prototyped against the corpus it covered 100% of `mesh`, `citm_catalog`, `github_events`
+and `llm_message`, 90.7% of `twitter`, with zero disagreements against the structured walk over
+900,000 randomised cases. It was still a large loss.
+
+The design avoided the obvious trap. Rather than removing the dot with a `tbl` shuffle -- whose
+index would depend on the dot position and token length, both general purpose register values, and
+so would need the `dup` that broke the short integer kernel's SIMD form -- it **splits at the dot**:
+`magnitude = integer * 10^fractionDigits + fraction`, so both halves are pure digit runs and reuse
+one right aligned parser. No shuffle, no vector domain, no crossings.
+
+One round, `Payload MB/s` p0, against an A-only control:
+
+| row | shape | A | A+C | C only |
+| --- | --- | --- | --- | --- |
+| **`Real Mesh - bulk`** | 51% A / 44% C | 725 | **622 (-14.2%)** | **570 (-21.4%)** |
+| `Numbers floats` | **0% eligible** | 714 | 488 (-31.7%) | 497 (-30.4%) |
+| `Numbers small integers` | 100% A | 487 | 468 (-3.9%) | 348 (-28.5%) |
+| `Real CITM catalog - bulk` | **94% C** | 2014 | 1966 (-2.4%) | 1983 (-1.5%) |
+| `Numbers large integers` | 0% eligible | 1736 | 1647 (-5.1%) | 1647 (-5.1%) |
+| `Real GSoC 2018 - bulk` | 0, control | 3867 | 3859 (-0.2%) | 3853 (-0.4%) |
+
+**It loses on the two payloads it exists for.** `mesh` at 44% eligibility loses 14%, `citm` at 94%
+loses 2.4%. No mechanism can rescue that, so the SWAR against SIMD comparison for C was never run.
+
+`Numbers large integers` is the row that identifies the cause: it declines at the call site guard in
+about five instructions and still loses 5.1%. Nothing but code size explains a payload losing five
+percent to a kernel it never enters. **`emitNumber` goes from 255 to 570 instructions**, and that
+body is inlined into the path every number in every document walks. C saves roughly sixty
+instructions on an eligible token and charges three hundred instructions of instruction cache
+footprint to every token everywhere.
+
+### The variable that predicted all three kernels
+
+| kernel | size added to `emitNumber` | eligible/KB on its best payload | outcome |
+| --- | --- | --- | --- |
+| **A**, unsigned integer <= 8 digits | +40 | 51 (mesh) | **+7.4%, +4.4%, landed** |
+| B, unsigned integer 9-16 digits | +65 | 7.8 (citm) | -3.9% worst, rejected |
+| C, decimal <= 16 digits | +315 | 42.6 (mesh) | **-14.2%, rejected** |
+
+B was chosen by coverage and lost; C was chosen by coverage times density and lost by more. Neither
+metric predicted anything. **Size added to `emitNumber` did.** A wins because it is a small body
+that *replaces* the grammar walk for its shape rather than sitting in front of it; every larger
+kernel spreads its cost across all tokens and concentrates its benefit in few.
+
+The practical ceiling this sets: **roughly one kernel, and A is it.** Further number work has to
+come out of the existing path rather than beside it -- out of lining the `.invalidNumber` error
+construction, which still forces a stack frame on every number; deleting `NumberInfo.digitCount`,
+written per number and read by nothing; and demoting the exponent walk, twenty instructions on the
+hot path for a branch that 0 of 468,000 real corpus numbers take.
+
+### A backward read is invisible to assertions about values
+
+C shipped an out of bounds read past the entire test suite. `streamDigitRun` read sixteen bytes
+back from its `end`, and the decimal kernel called it for the integer part with `end` at the dot --
+which in `{"a":1.5}` is offset six. It read ten bytes before the buffer.
+
+Two independent reasons nothing caught it. Every kernel unit test padded its token with a prefix
+long enough to make the backward read legal, which is the one construction that cannot produce the
+failing case. And the parser level tests, which do place numbers at the start of a document, read
+out of bounds into memory that happened to be mapped: no fault, no wrong answer, no signal. Only a
+release build with a different allocation layout segfaulted.
+
+`NumberBufferBoundsTests` is the answer and is kept regardless of C: a number at every offset from
+0 to 24, bare number documents, and byte fed against bulk so the parser's own reassembly buffer is
+a third origin for the read. **It only fails under `swift test --sanitize=address`**, and that is
+mutation verified -- deleting the `to >= 8` bound from the short integer kernel leaves all 453
+tests green, because the out of bounds bytes are masked away before they reach the result, and
+reports `heap-buffer-overflow` under ASan. A backward read that lands in mapped memory cannot be
+seen by any assertion about values. CI does not currently run a sanitizer pass.
