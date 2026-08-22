@@ -1864,8 +1864,6 @@ Semantics that moved, all deliberate:
   token ends, where it used to read `[1, 2]` with 2 still growing. The 82 recorded per byte
   sequences were regenerated through the existing `STREAM_PARSING_RECORD` harness and re-audited:
   every array is still bytes + 1 long, and values land at their delimiters.
-- Unchecked parsing (`validatesNumberGrammar: false`) takes the same walk without the guards and
-  ignores trailing class bytes, degrading harmlessly as before.
 
 ### Error offsets: absolute, and independent of chunking
 
@@ -1949,32 +1947,10 @@ Five axes, all of them shipped surface:
 
 | axis | why it was a hole |
 | --- | --- |
-| `JSONParserConfiguration.unchecked` | shipped, three separate checks, **zero** benchmarks — all 308 ran `.strict` |
 | `bufferCapacity` | defaults to 4096, never swept; the supplied-buffer initializer appeared once, hardcoded |
 | depth | capped at 64 by the container bitmask; nothing else in the suite nested past three |
 | chunk boundaries | every chunked row fed powers of two, which land inside a token only by accident |
 | schema width | key matching scans member words; no model declared more than six members |
-
-### What validation costs
-
-`bulk` against `bulk unchecked`, MB/s p50, same session:
-
-| payload | strict | unchecked | |
-| --- | --- | --- | --- |
-| LLM message | 1370 | **3213** | 2.3x |
-| Twitter | 705 | 873 | +24% |
-| GSoC 2018 | 1888 | 2165 | +15% |
-| GitHub events | 889 | 988 | +11% |
-| Twitter escaped | 438 | 471 | +8% |
-| CITM catalog | 964 | 1024 | +6% |
-| Canada | 671 | 674 | — |
-
-**Validation's share is set by how much of the payload is string content, not by size.** Canada
-is coordinate pairs and pays nothing for checks it never runs; the LLM message is long ASCII
-prose with escapes and more than doubles. Twitter escaped moving less than Twitter is the same
-fact from the other side: its non-ASCII arrives as `\u` escapes, which the escape path handles
-rather than the UTF-8 validator. The convenience layer dilutes all of it — LLM message bulk
-discarding goes 300 to 349 MB/s, +16%, because the parse is the smaller half of that number.
 
 ### Buffer capacity, depth, schema width
 
@@ -2042,35 +2018,6 @@ measured rather than argued. Four findings, all confirmed against the built libr
 anything was changed, and all four fixed here. The measurements below are one session's; a
 pristine control was run in the same session wherever a number was close, since the machine drifts
 about 25% between sessions.
-
-### A lone high surrogate outlived its own string
-
-Every check on the pending high surrogate read `highSurrogate != 0, validatesUTF8`. With
-validation off the second condition was false, so *nothing cleared the field* — the throw was the
-only thing that had ever reset it. The half pair survived `stringEnd` and paired with a low
-surrogate in a later token:
-
-```
-["\uD83D","\uDE00"]  unchecked
-  →  stringBegin, stringEnd,               // first string: empty
-     stringBegin, chunk F0 9F 98 80, stringEnd   // U+1F600, in the *second* string
-```
-
-Two separate string tokens, and the emoji belongs to neither. It also pinned the fused escape path
-off for the rest of the document, since `fusedEscapeEnd` opens with `highSurrogate == 0`, so every
-later escape fell back to the per byte states.
-
-`severHighSurrogate` now settles it at all four sites that can follow a high surrogate, and clears
-the field on both paths rather than only on the throwing one. Unchecked emits the lone surrogate
-as WTF-8, which is not a new decision: the lone *low* surrogate path already did exactly that, and
-the two halves of one broken pair should not disagree about whether they survive.
-
-Out of line, with the `!= 0` test left at the call sites, because two of the four are in
-`consumeStringRun` — once per literal run and once per closing quote — and the common path has to
-stay one compare against zero. Measured no regression anywhere and a little better on the
-documents that carry escapes at all: unicode escapes -2.0%, LLM message -3.7%, twitterescaped and
-`Fast Escaped string` flat. The old condition loaded `validatesUTF8` on that path and the new one
-does not, which is the likeliest source of the difference.
 
 ### A sink rejection reported the wrong byte, and got one more token after it
 
