@@ -96,6 +96,58 @@ struct `AsyncPartialsSequence Tests` {
       for try await _ in byteStream.partials(initialValue: 0, from: .json()) {}
     }
   }
+
+  @Test
+  func `Rejects A Second Subscriber`() async throws {
+    let partials = AsyncBytes(bytes: Array("1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var first = partials.makeAsyncIterator()
+    var second = partials.makeAsyncIterator()
+
+    let firstPartial = try await first.next()
+    expectNoDifference(firstPartial, 0)
+    await #expect(throws: StreamParsingError.multipleSubscribers) {
+      _ = try await second.next()
+    }
+    let final = try await first.next()
+    expectNoDifference(final, 1)
+    let end = try await first.next()
+    expectNoDifference(end, nil)
+  }
+
+  @Test
+  func `Iterator Copies Share One Subscription`() async throws {
+    let partials = AsyncBytes(bytes: Array("1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var first = partials.makeAsyncIterator()
+    var copy = first
+
+    let firstPartial = try await first.next()
+    expectNoDifference(firstPartial, 0)
+    let final = try await copy.next()
+    expectNoDifference(final, 1)
+    let end = try await first.next()
+    expectNoDifference(end, nil)
+  }
+}
+
+private struct AsyncBytes: AsyncSequence, Hashable, Sendable {
+  let bytes: [UInt8]
+
+  struct AsyncIterator: AsyncIteratorProtocol, Hashable, Sendable {
+    let bytes: [UInt8]
+    var index = 0
+
+    mutating func next() async -> UInt8? {
+      guard self.index < self.bytes.count else { return nil }
+      defer { self.index += 1 }
+      return self.bytes[self.index]
+    }
+  }
+
+  func makeAsyncIterator() -> AsyncIterator {
+    AsyncIterator(bytes: self.bytes)
+  }
 }
 
 @StreamParseable
