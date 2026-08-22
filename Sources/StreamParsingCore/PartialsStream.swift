@@ -119,6 +119,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parser.parse(byte: byte, into: &self.sink)
     } catch {
@@ -133,6 +134,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   public mutating func next(_ bytes: some Sequence<UInt8>) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parse(bytes)
     } catch {
