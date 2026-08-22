@@ -33,10 +33,6 @@ public struct NumberInfo: Hashable, Sendable {
     self.digitCount = digitCount
     self.flags = flags
   }
-
-  public var isExactInteger: Bool {
-    !self.flags.contains(.overflowed) && self.exponent == 0
-  }
 }
 
 // MARK: - StreamSinkFailure
@@ -44,7 +40,6 @@ public struct NumberInfo: Hashable, Sendable {
 public struct StreamSinkFailure: Error, Hashable, Sendable {
   public enum Reason: Hashable, Sendable {
     case typeMismatch
-    case capacityExceeded
     case depthExceeded
   }
 
@@ -79,7 +74,6 @@ public protocol StreamParseSink: ~Copyable {
   mutating func key(_ bytes: Span<UInt8>)
 
   // Every string and key span ends on a UTF-8 sequence boundary.
-  mutating func string(_ bytes: Span<UInt8>)
   mutating func stringBegin()
   mutating func stringChunk(_ bytes: Span<UInt8>)
   mutating func stringEnd()
@@ -92,14 +86,4 @@ public protocol StreamParseSink: ~Copyable {
   mutating func null()
 
   var streamFailure: StreamSinkFailure? { get }
-}
-
-extension StreamParseSink where Self: ~Copyable {
-  // Overriding the collapsed form avoids two of every three sink calls.
-  @inlinable
-  public mutating func string(_ bytes: Span<UInt8>) {
-    self.stringBegin()
-    self.stringChunk(bytes)
-    self.stringEnd()
-  }
 }

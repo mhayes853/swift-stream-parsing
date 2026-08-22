@@ -298,12 +298,6 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Scalars
 
-  public mutating func string(_ bytes: Span<UInt8>) {
-    self.withScalarTarget { storage, field, schema in
-      schema.applyString(storage, field, bytes)
-    }
-  }
-
   public mutating func stringBegin() {
     let target = self.resolveScalarTarget()
     self.scalarTarget = target

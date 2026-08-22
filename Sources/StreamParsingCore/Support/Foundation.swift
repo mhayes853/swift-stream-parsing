@@ -12,10 +12,6 @@
     public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
       bytes.withUnsafeBufferPointer { self.append($0) }
     }
-
-    public mutating func streamReserve(utf8ByteCount: Int) {
-      self.reserveCapacity(utf8ByteCount)
-    }
   }
 
   // MARK: - Decimal

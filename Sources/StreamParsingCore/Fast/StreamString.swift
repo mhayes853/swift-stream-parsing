@@ -737,6 +737,19 @@ extension StreamString {
 // MARK: - Appending
 
 extension StreamString {
+  /// Reserves room for `utf8ByteCount` UTF-8 bytes, promoting out of the inline representation
+  /// when the request cannot fit there.
+  @inlinable
+  public mutating func streamReserve(utf8ByteCount: Int) {
+    guard utf8ByteCount > self.utf8Count else { return }
+    if self.usesInlineStorage {
+      guard utf8ByteCount > Self.inlineCapacity else { return }
+      self.promoteInlineStorage(reserving: utf8ByteCount)
+    }
+    self.tail.reserveCapacity(min(utf8ByteCount, Self.blockCapacity))
+    self.blocks.reserveCapacity(utf8ByteCount &>> Self.blockShift)
+  }
+
   /// Appends the UTF-8 bytes of `text`.
   public mutating func append(_ text: some StringProtocol) {
     var copy = String(text)
@@ -906,17 +919,6 @@ extension StreamString: StreamStringConvertible {
     bytes.withUnsafeBufferPointer { buffer in
       self.append(utf8: buffer)
     }
-  }
-
-  @inlinable
-  public mutating func streamReserve(utf8ByteCount: Int) {
-    guard utf8ByteCount > self.utf8Count else { return }
-    if self.usesInlineStorage {
-      guard utf8ByteCount > Self.inlineCapacity else { return }
-      self.promoteInlineStorage(reserving: utf8ByteCount)
-    }
-    self.tail.reserveCapacity(min(utf8ByteCount, Self.blockCapacity))
-    self.blocks.reserveCapacity(utf8ByteCount &>> Self.blockShift)
   }
 }
 

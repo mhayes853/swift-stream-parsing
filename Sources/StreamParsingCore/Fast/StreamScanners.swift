@@ -642,54 +642,6 @@ package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) 
   return false
 }
 
-// MARK: - Lane shifts
-
-// `previous`'s last `count` lanes followed by `current`'s first `16 - count`: the view of "the
-// byte `count` back" for every lane of `current`, given the block before it. On arm64 this is
-// one `ext` through the shim; the portable form does the same thing on the two 64-bit halves —
-// shift each half up by `8 * count` bits and OR in the bits that crossed from the half below,
-// which for the low half is the top of `previous` — so it never leaves vector registers and
-// never touches memory. Little-endian lane order, which every supported target has. `count` is
-// a literal at every call site, so the switch folds.
-@inlinable
-@inline(__always)
-package func streamBytesShiftedIn(
-  from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int
-) -> SIMD16<UInt8> {
-  #if arch(arm64)
-    return streamBytesShiftedInShimmed(from: previous, into: current, count: count)
-  #else
-    return streamBytesShiftedInPortable(from: previous, into: current, count: count)
-  #endif
-}
-
-#if arch(arm64)
-  @inlinable
-  @inline(__always)
-  package func streamBytesShiftedInShimmed(
-    from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int
-  ) -> SIMD16<UInt8> {
-    switch count {
-    case 1: return stream_parsing_extq_u8_1(previous, current)
-    case 2: return stream_parsing_extq_u8_2(previous, current)
-    default: return stream_parsing_extq_u8_3(previous, current)
-    }
-  }
-#endif
-
-@inlinable
-@inline(__always)
-package func streamBytesShiftedInPortable(
-  from previous: SIMD16<UInt8>, into current: SIMD16<UInt8>, count: Int
-) -> SIMD16<UInt8> {
-  let bits = UInt64(truncatingIfNeeded: count &* 8)
-  let currentWords = unsafeBitCast(current, to: SIMD2<UInt64>.self)
-  let previousWords = unsafeBitCast(previous, to: SIMD2<UInt64>.self)
-  let shifted = currentWords &<< bits
-  let carried = SIMD2<UInt64>(previousWords[1], currentWords[0]) &>> (64 &- bits)
-  return unsafeBitCast(shifted | carried, to: SIMD16<UInt8>.self)
-}
-
 // MARK: - UTF-8 validation
 
 // Keiser and Lemire's lookup validator ("Validating UTF-8 In Less Than One Instruction Per

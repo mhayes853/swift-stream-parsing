@@ -7,11 +7,6 @@ public protocol StreamInitializable: SendableMetatype {
 
 public protocol StreamStringConvertible: StreamInitializable {
   mutating func streamAppend(utf8 bytes: Span<UInt8>)
-  mutating func streamReserve(utf8ByteCount: Int)
-}
-
-extension StreamStringConvertible {
-  public mutating func streamReserve(utf8ByteCount: Int) {}
 }
 
 public protocol StreamNumberConvertible: SendableMetatype {

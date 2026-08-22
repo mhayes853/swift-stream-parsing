@@ -16,11 +16,6 @@ struct FastCountingSink: StreamParseSink {
     self.checksum &+= bytes.paddedLeadingWord()
   }
 
-  mutating func string(_ bytes: Span<UInt8>) {
-    self.tokens &+= 1
-    self.checksum &+= UInt64(bytes.count)
-  }
-
   mutating func stringBegin() { self.tokens &+= 1 }
   mutating func stringChunk(_ bytes: Span<UInt8>) { self.checksum &+= UInt64(bytes.count) }
   mutating func stringEnd() {}

@@ -8,10 +8,6 @@ extension String: StreamStringConvertible {
       self += String(decoding: buffer, as: UTF8.self)
     }
   }
-
-  public mutating func streamReserve(utf8ByteCount: Int) {
-    self.reserveCapacity(utf8ByteCount)
-  }
 }
 
 extension Bool: StreamBooleanConvertible, StreamInitializable {

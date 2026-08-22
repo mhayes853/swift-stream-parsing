@@ -16,7 +16,6 @@ private struct SpanDictionaryAllocationSink: StreamParseSink {
   }
 
 
-  mutating func string(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() {}
   mutating func stringChunk(_ bytes: Span<UInt8>) {}
   mutating func stringEnd() {}

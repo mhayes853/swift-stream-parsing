@@ -144,39 +144,3 @@ struct `UTF-8 validation tests` {
     }
   }
 }
-
-@Suite
-struct `Lane shift tests` {
-  @Test
-  func `Both shift paths match the byte definition`() {
-    var state: UInt64 = 0x2545_F491_4F6C_DD1D
-    func next() -> UInt8 {
-      state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-      return UInt8(truncatingIfNeeded: state >> 40)
-    }
-    for _ in 0..<2_000 {
-      var previous = SIMD16<UInt8>.zero
-      var current = SIMD16<UInt8>.zero
-      for lane in 0..<16 {
-        previous[lane] = next()
-        current[lane] = next()
-      }
-      for count in 1...3 {
-        var expected = SIMD16<UInt8>.zero
-        for lane in 0..<16 {
-          expected[lane] = lane < count ? previous[16 - count + lane] : current[lane - count]
-        }
-        #if arch(arm64)
-          expectNoDifference(
-            streamBytesShiftedInShimmed(from: previous, into: current, count: count),
-            expected
-          )
-        #endif
-        expectNoDifference(
-          streamBytesShiftedInPortable(from: previous, into: current, count: count),
-          expected
-        )
-      }
-    }
-  }
-}

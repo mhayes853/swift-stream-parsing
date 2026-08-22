@@ -23,10 +23,6 @@
     public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
       self.rawValue.streamAppend(utf8: bytes)
     }
-
-    public mutating func streamReserve(utf8ByteCount: Int) {
-      self.rawValue.streamReserve(utf8ByteCount: utf8ByteCount)
-    }
   }
 
   extension Tagged: StreamNumberConvertible where RawValue: StreamNumberConvertible {

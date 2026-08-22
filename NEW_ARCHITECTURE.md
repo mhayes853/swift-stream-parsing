@@ -48,9 +48,10 @@ JSON specific, so other parsers can drive the same sinks.
   registration based parser threw for). A return value is not a throw check: across the six bulk
   benchmarks it measured within run to run noise, 14 µs/5503/458/792/18 µs/541 ns before against
   14 µs/5335/417/750/17 µs/500 after.
-- **Collapsed and incremental forms.** `key(_:)` and `string(_:)` default to the incremental
-  methods. Overriding them avoids two of every three sink calls, which dominates token dense
-  payloads.
+- **One form per token.** A key is always whole; a string always arrives as
+  `stringBegin`/`stringChunk`/`stringEnd`. The collapsed forms both protocols once declared are
+  gone — `key(_:)`'s chunked trio because no parser could keep the promise, and `string(_:)`
+  because in two rounds of parser work nothing ever called it (see the dead-code pass at the end).
 - **No `Unicode.Scalar`, no `String`.** Escapes are decoded to UTF-8 inside the parser and
   delivered as byte spans, keeping the Unicode data tables out of an embedded binary.
 
@@ -3166,3 +3167,59 @@ grew from 291 to 625 instructions and gained calls — so it was reverted.
 
 `Fast Unicode escaped string` is the one payload negative at every granularity (−2.2% bulk, −3.5%
 at 64 B), and that is unexplained.
+
+---
+
+## The dead-code pass: what nothing was calling
+
+An audit over every declaration in `Sources`, cross-referenced against the library, the tests, the
+benchmarks and `EmbeddedSmoke`. Nothing here was a judgement about whether the code was good; the
+question asked of each declaration was only whether anything reached it. 309 lines deleted,
+13 added.
+
+Two whole files. `Internal/UTF8State.swift` was Bjoern Hoehrmann's DFA decoder plus its two 128
+byte tables, left over from the registration-based parser — the new parser validates in vectors
+(`streamValidateUTF8`) and walks scalars only to report an error offset. `Internal/String+Capitalized.swift`
+was a `StringProtocol` helper for a macro that lives in a different target and could never have
+imported it.
+
+The lane-shift shims. `streamBytesShiftedIn`, its arm64 and portable halves, and the three
+`stream_parsing_extq_u8_*` wrappers in the C header were the *rejected* half of the UTF-8
+validator: the section on it records that carrying a block forward with `ext` measured 10% slower
+than overlapping loads, and the shipped kernel takes the loads. What remained was a `package` API
+with no caller and a `Lane shift tests` suite whose only subject was itself — a differential test
+between two implementations of an operation the library does not perform. The measurement that
+settled it stays in the C header's comment, which is the part worth keeping.
+
+Twenty-one ASCII constants (`asciiPipe`, `asciiTrueStart`, `asciiUpperX`, …) and the five `UInt8`
+predicates that were their last readers: `hexValue` (the parser has its own static one),
+`digitValue`, `isLetter`, `isAlphaNumeric` and `isWhitespace`. The predicates were the interesting
+part — `isWhitespace` is a four-way switch, and the structural run classifies whitespace in
+vectors precisely so it never asks a question like that per byte.
+
+Four pieces of public surface with no caller anywhere, including the docs: `NumberInfo.isExactInteger`,
+`StreamSinkFailure.Reason.capacityExceeded` (no sink ever reports it; the parser's depth cap is a
+`JSONParsingError`, not a sink failure), and `PartialsStream.nextSnapshot(_:)`'s two overloads,
+which contradict the reason `next(_:)` returns nothing — "returning a value is the same thing as
+asking to keep one, and that costs a snapshot."
+
+### Two protocol requirements
+
+`StreamStringConvertible.streamReserve(utf8ByteCount:)` was never invoked through the protocol, and
+could not be: the parser learns a string's length by reaching its closing quote. The requirement,
+its empty default, and the `String`/`Data`/`Tagged` implementations are gone. `StreamString`'s own
+`streamReserve` stays as a plain method — its interpolation initialiser calls it with
+`literalCapacity`, which is a length known in advance, from a caller that is not the parser.
+
+`StreamParseSink.string(_:)` was the harder call, because it was not left over — it was ahead.
+The collapsed form and its fan-out default were built for a parser that would emit a whole string
+in one call, `PartialSink` overrode it, three benchmark sinks implemented it, and "whole-string
+emission" sat on the open-candidate list through the keys-in-place and colon-fusion rounds without
+ever being taken. `EmbeddedSmoke` had already caught the gap the other way round, from a sink that
+counted strings only in the collapsed form and counted zero. Kept, it is a requirement every
+conformer must consider for a call that has never happened; the sink protocol's own measurement —
+`Layer LLM message bulk - counting sink` p50 −5.8% from dropping the key trio, on code layout
+alone — is a reason to prefer the smaller protocol. So it is removed, and the direction is
+recorded here instead: if whole-string emission is built, the requirement comes back with it,
+and the reason to add it will be a benchmark rather than a shape.
+

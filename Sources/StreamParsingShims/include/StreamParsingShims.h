@@ -20,25 +20,6 @@ stream_parsing_tbl1q_u8(stream_parsing_u8x16 table, stream_parsing_u8x16 indices
   return (stream_parsing_u8x16)vqtbl1q_u8((uint8x16_t)table, (uint8x16_t)indices);
 }
 
-// The other operation with no Swift spelling: a lane shift across two vectors. Each result is
-// the last `n` lanes of `previous` followed by the first `16 - n` of `current` — the "previous
-// byte" views the UTF-8 validator builds from a carried block. `ext` takes its lane count as an
-// immediate, so there is one wrapper per count.
-STREAM_PARSING_SIMD_SHIM stream_parsing_u8x16
-stream_parsing_extq_u8_1(stream_parsing_u8x16 previous, stream_parsing_u8x16 current) {
-  return (stream_parsing_u8x16)vextq_u8((uint8x16_t)previous, (uint8x16_t)current, 15);
-}
-
-STREAM_PARSING_SIMD_SHIM stream_parsing_u8x16
-stream_parsing_extq_u8_2(stream_parsing_u8x16 previous, stream_parsing_u8x16 current) {
-  return (stream_parsing_u8x16)vextq_u8((uint8x16_t)previous, (uint8x16_t)current, 14);
-}
-
-STREAM_PARSING_SIMD_SHIM stream_parsing_u8x16
-stream_parsing_extq_u8_3(stream_parsing_u8x16 previous, stream_parsing_u8x16 current) {
-  return (stream_parsing_u8x16)vextq_u8((uint8x16_t)previous, (uint8x16_t)current, 13);
-}
-
 // The UTF-8 validator's block kernel, whole: the three nibble table lookups ANDed (Keiser and
 // Lemire's special cases), XORed with 0x80 where a continuation is required by a three byte lead
 // two back or a four byte lead three back. Nonzero lanes are errors. The three "previous byte"
