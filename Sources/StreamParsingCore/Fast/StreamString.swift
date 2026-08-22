@@ -190,8 +190,8 @@ public struct StreamString {
     }
   }
 
-  // Decodes `range`, repairing: in unchecked mode the accumulated bytes can be invalid UTF-8,
-  // so an unvalidated construction is not an option on any path.
+  // Decodes `range`, repairing rather than validating: a repairing decode cannot fail, which is
+  // what lets this be a plain `String` read rather than a throwing one.
   @usableFromInline
   func decode(in range: Range<Int>) -> String {
     guard !range.isEmpty else { return "" }

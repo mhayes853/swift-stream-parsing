@@ -178,14 +178,6 @@ private func numberBenchmarks() {
         blackHole(expectParses { try runFastParserByteAtATime(payload) })
       }
     }
-
-    // Number grammar validation is one of the three checks `.unchecked` turns off, and this is
-    // the payload shape where it has the most to do.
-    Benchmark("Numbers \(name) - bulk unchecked", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: .max, configuration: .unchecked) })
-      }
-    }
   }
 
   // Through the convenience layer, where each token is also converted into a member.

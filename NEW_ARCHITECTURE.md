@@ -3097,3 +3097,72 @@ Interleaved, three rounds, p50:
 
 The ASCII documents do not execute it and do not move. `llm_message` strict is now within ~10%
 of its unchecked row, which is what validation should cost on a document that is mostly ASCII.
+
+## Unchecked mode: three flags, and only one of them was ever paying
+
+`JSONParserConfiguration` shipped with three switches — `validatesUTF8`, `validatesNumberGrammar`,
+`validatesLiterals` — and one preset, `.unchecked`, that turned all three off at once. Because it
+turned them off together, nothing in the suite could say which of them was buying anything. The
+answer, measured one flag at a time against strict, best of two rounds, `Payload MB/s`:
+
+| payload | strict | noUTF8 | noNumbers | noLiterals | unchecked |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| LLM message | 3520 | **+44.0%** | +0.2% | +0.0% | **+44.1%** |
+| Twitter | 1433 | +3.5% | +0.6% | +0.6% | +4.4% |
+| CITM catalog | 1971 | +1.0% | +0.7% | +0.3% | +1.2% |
+| GSoC 2018 | 3681 | +0.0% | +0.1% | +0.2% | −0.2% |
+| GitHub events | 1608 | −0.9% | −0.2% | −0.3% | +0.0% |
+| Canada | 962 | −1.4% | −1.4% | −1.5% | +0.3% |
+| Twitter escaped | 1086 | **−7.3%** | −0.1% | +0.0% | **−5.6%** |
+
+`validatesNumberGrammar` and `validatesLiterals` are worth nothing on any payload, including
+`canada`, which is the most number-dense document in the corpus. `validatesUTF8` is the whole of
+`unchecked` — noUTF8 and unchecked are within 0.1% of each other on `llm_message` — and it is only
+large on the one document that is 64% non-ASCII bytes.
+
+The last row is the one that settled it: **turning validation off makes `twitterescaped` slower.**
+`streamStringRunEnd`, the unchecked string scanner, was `@inline(never)` while the validating
+`streamStringRun` was inlined, so the unchecked path paid a call per string run and `twitterescaped`
+has 51,145 of them. A mode that exists to be faster was 7% slower on an escape-dense document.
+
+So all three went, along with `JSONParserConfiguration`, `JSONStreamFormat.configuration`,
+`streamStringRunEnd`, the `tracksNonASCII` branches in `consumeStringRun` and `consumeKeyRun`, and
+`severHighSurrogate`'s unchecked half — a lone high surrogate is now unconditionally an error, so
+what remains is `loneHighSurrogateError`, which returns the error and stays out of line to keep the
+common path at each of its four call sites a compare against zero. 281 lines deleted, 111 added.
+
+Two adversarial tests went with it, both pinning unchecked-only behaviour: the WTF-8 a severed
+surrogate used to emit, and the guarantee that severing cleared `highSurrogate` rather than leaving
+it to disable `fusedEscapeEnd` for the rest of the document. With validation unconditional the field
+is either completed into a pair or thrown on, so it cannot go stale. The validating counterpart
+stays. The two `streamStringRunEnd` scanner tests were retargeted at `streamStringRun` rather than
+deleted.
+
+### Measured
+
+| granularity | representative rows | delta |
+| --- | --- | --- |
+| bulk | LLM 3570→3750, GSoC 3756→3844, Non-ASCII 6885→7711 | −2.2% … **+12.0%** |
+| 16 KB | LLM 3552→3744, GSoC 3718→3806, Twitter 1433→1452 | **+1.3% … +5.4%** |
+| 64 B | Long string 6433→6657, Non-ASCII 2117→2140 | −3.5% … +3.5% |
+| 13 B | Escaped 526→567, non-ASCII 453→466 | −1.9% … **+7.8%** |
+| 7 B | Escaped 421→447, structs 375→388 | −0.7% … **+6.2%** |
+| 3 B | Unicode escaped 312→330, structs 259→267 | **−6.1%** … +5.8% |
+| 1 B | Escaped 209→166, Unicode escaped 282→175, LLM 165→140 | **−13% … −38%** |
+
+`llm_message` gains 6% from deleting the option that used to make it 44% faster: the branches cost
+more than the branch was worth.
+
+**The regression is at N=1 only, and it is the `parse` inlining cliff, not the validation.**
+Removing the `configuration` field flipped an optimiser decision: HEAD emits four `parse` bodies
+totalling 441 instructions with the token consumers inlined, and this emits sixteen totalling 1192,
+each smaller because `parse` now calls out to `consumeStringRun`, `consumeNumber`,
+`consumeUnicodeDigit` and `consumeKeyRun` — twenty `bl` in the body. Byte fed runs `parse` once per
+byte, so it pays one call per byte; `Fast Unicode escaped string - byte by byte` is the worst row at
+−37.9% and is exactly the one that now calls `consumeUnicodeDigit` per hex digit. By three bytes per
+chunk the effect is gone, and byte fed was already 27x off bulk on the same document before this
+change. Forcing the consumers back with `@inline(__always)` was tried and made it worse — `parse`
+grew from 291 to 625 instructions and gained calls — so it was reverted.
+
+`Fast Unicode escaped string` is the one payload negative at every granularity (−2.2% bulk, −3.5%
+at 64 B), and that is unexplained.

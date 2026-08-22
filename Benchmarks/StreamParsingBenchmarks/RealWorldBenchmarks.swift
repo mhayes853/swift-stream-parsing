@@ -17,8 +17,8 @@ import StreamParsingCore
 //   llm_message      an assistant message: long escaped markdown, tool-use objects, small ints
 //
 // Three of these are larger than any cache level the parse runs in, which nothing else in the
-// suite was. Each carries an `unchecked` row, because validation's share is the whole reason the
-// configuration exists and a real document is where that share is worth knowing.
+// suite was. Validation is unconditional now, so there is no configuration axis here any more —
+// these rows measure the parser as it ships.
 
 private let realWorldPayloads: [(String, [UInt8])] = [
   ("Twitter", Payloads.twitter),
@@ -41,21 +41,6 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
   Benchmark("Real \(name) - bulk discarding", configuration: payloadConfiguration) { benchmark in
     measurePayloadThroughput(benchmark, payload: payload) {
       blackHole(expectParses { try streamBulkDiscarding(payload, as: Value.self) })
-    }
-  }
-
-  Benchmark(
-    "Real \(name) - bulk discarding unchecked",
-    configuration: payloadConfiguration
-  ) { benchmark in
-    measurePayloadThroughput(benchmark, payload: payload) {
-      blackHole(
-        expectParses {
-          try streamBulkDiscarding(
-            payload, as: Value.self, format: .json(configuration: .unchecked)
-          )
-        }
-      )
     }
   }
 
@@ -111,12 +96,6 @@ func realWorldBenchmarks() {
     Benchmark("Real \(name) - bulk", configuration: payloadConfiguration) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         blackHole(expectParses { try runFastParser(payload, chunk: .max) })
-      }
-    }
-
-    Benchmark("Real \(name) - bulk unchecked", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: .max, configuration: .unchecked) })
       }
     }
 

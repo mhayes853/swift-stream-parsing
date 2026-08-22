@@ -168,26 +168,11 @@ struct `Adversarial conformance tests` {
 
   // MARK: - A lone high surrogate must not survive its own token
 
-  // Unchecked parsing does not reject a lone surrogate, so it has to settle it some other way,
-  // and the way it used to settle it was to leave it pending forever. Every check read
-  // `highSurrogate != 0, validatesUTF8`, so with validation off nothing cleared the field: the
-  // half pair outlived `stringEnd` and paired with a low surrogate in a *later* string.
-  //
-  // Two separate strings, each holding one half. A correct parser cannot combine them: they are
-  // different tokens, and the scalar they would form belongs to neither.
-  @Test
-  func `A lone high surrogate does not pair across tokens when unchecked`() throws {
-    let json = Array("[\"\(esc)uD83D\",\"\(esc)uDE00\"]".utf8)
-    var parser = JSONParser(configuration: .unchecked)
-    var sink = StringCollectingSink()
-    try json.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-    try parser.finish(into: &sink)
-
-    // WTF-8, which is what the lone *low* surrogate path already emits, so both halves of a
-    // broken pair survive the same way rather than one vanishing into the next token.
-    expectNoDifference(sink.strings, [[0xED, 0xA0, 0xBD], [0xED, 0xB8, 0x80]])
-  }
-
+  // A lone high surrogate is an error, full stop. This used to have two unchecked siblings —
+  // one pinning the WTF-8 the unchecked path emitted, one pinning that a severed surrogate did
+  // not leave `highSurrogate` set and thereby disable `fusedEscapeEnd` for the rest of the
+  // document. Both went with `JSONParserConfiguration`: with validation unconditional the field
+  // is either completed into a pair or thrown on, so it cannot go stale.
   @Test
   func `A lone high surrogate is rejected in its own token when validating`() {
     let json = Array("[\"\(esc)uD83D\",\"\(esc)uDE00\"]".utf8)
@@ -202,19 +187,6 @@ struct `Adversarial conformance tests` {
     expectNoDifference(error?.byteOffset, 8)
   }
 
-  // The severed surrogate must also stop pinning the fused escape path off. `fusedEscapeEnd`
-  // opens with `highSurrogate == 0`, so a field that never cleared sent every later escape in the
-  // document down the per byte states.
-  @Test
-  func `Escapes after a severed surrogate still decode`() throws {
-    let json = Array("[\"\(esc)uD83D\",\"a\(esc)nb\(esc)tc\"]".utf8)
-    var parser = JSONParser(configuration: .unchecked)
-    var sink = StringCollectingSink()
-    try json.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-    try parser.finish(into: &sink)
-    expectNoDifference(sink.strings.count, 2)
-    expectNoDifference(sink.strings[1], Array("a\nb\tc".utf8))
-  }
 }
 
 // Concatenates each string token's chunks, so a token's whole decoded content can be compared

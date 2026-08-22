@@ -36,15 +36,14 @@ struct FastCountingSink: StreamParseSink {
 
 // MARK: - Runners
 
-// Shared by every payload-shaped benchmark in the suite, so a chunk size, a validation setting
-// and a buffer capacity are all one call away from any of them.
+// Shared by every payload-shaped benchmark in the suite, so a chunk size and a buffer capacity
+// are both one call away from any of them.
 func runFastParser(
   _ payload: [UInt8],
   chunk: Int,
-  configuration: JSONParserConfiguration = .strict,
   bufferCapacity: Int = 4_096
 ) throws -> UInt64 {
-  var parser = JSONParser(configuration: configuration, bufferCapacity: bufferCapacity)
+  var parser = JSONParser(bufferCapacity: bufferCapacity)
   var sink = FastCountingSink()
   try payload.withUnsafeBufferPointer { buffer in
     var offset = 0
@@ -59,11 +58,8 @@ func runFastParser(
   return sink.checksum
 }
 
-func runFastParserByteAtATime(
-  _ payload: [UInt8],
-  configuration: JSONParserConfiguration = .strict
-) throws -> UInt64 {
-  var parser = JSONParser(configuration: configuration)
+func runFastParserByteAtATime(_ payload: [UInt8]) throws -> UInt64 {
+  var parser = JSONParser()
   var sink = FastCountingSink()
   for byte in payload {
     try parser.parse(byte: byte, into: &sink)
@@ -116,23 +112,4 @@ func addFastParserBenchmarks() {
     }
   }
 
-  // What validation costs. `JSONParserConfiguration.unchecked` is shipped and, until now, had no
-  // number attached to it: every benchmark in the suite ran `.strict`. Paired against the `bulk`
-  // rows above on the payloads where each of the three checks is actually exercised — literals
-  // and number grammar everywhere, UTF-8 validation only where the bytes are not ASCII.
-  let uncheckedPayloads: [(String, [UInt8])] = [
-    ("Array of structs", Payloads.userList),
-    ("Nested arrays", Payloads.matrix),
-    ("Long string", Payloads.document),
-    ("Non-ASCII string", Payloads.nonASCIIString),
-    ("Twitter", Payloads.twitter),
-  ]
-
-  for (name, payload) in uncheckedPayloads {
-    Benchmark("Fast \(name) - bulk unchecked", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: .max, configuration: .unchecked) })
-      }
-    }
-  }
 }

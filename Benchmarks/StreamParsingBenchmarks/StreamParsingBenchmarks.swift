@@ -59,20 +59,6 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  // What validation costs through the convenience layer, where the parse is a smaller share of
-  // the total than it is at the sink.
-  Benchmark("Stream Array of structs - bulk discarding unchecked") { benchmark in
-    for _ in benchmark.scaledIterations {
-      blackHole(
-        try streamBulkDiscarding(
-          Payloads.userList,
-          as: BenchmarkUserList.Partial.self,
-          format: .json(configuration: .unchecked)
-        )
-      )
-    }
-  }
-
   for chunk in [16, 64, 256, 1024, 4096] {
     Benchmark("Stream Array of structs - snapshot per \(chunk)B chunk") { benchmark in
       for _ in benchmark.scaledIterations {

@@ -101,38 +101,6 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
   return StreamStringRun(end: to, containsNonASCII: containsNonASCII)
 }
 
-// Unchecked parsing does not consume the UTF-8 observation. Keeping its original end-only kernel
-// out of line prevents both SIMD bodies from inflating the validated parser's string loop.
-@inlinable
-@inline(never)
-package func streamStringRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
-  let quote = SIMD16<UInt8>(repeating: .asciiQuote)
-  let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)
-  let space = SIMD16<UInt8>(repeating: .asciiSpace)
-
-  var i = from
-  while i &+ streamScannerVectorWidth <= to {
-    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
-    let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
-    if any(hit) {
-#if canImport(simd)
-      let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
-      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: hit)
-      return i &+ Int(simd_reduce_min(candidates))
-#else
-      for lane in 0..<streamScannerVectorWidth where hit[lane] { return i &+ lane }
-#endif
-    }
-    i &+= streamScannerVectorWidth
-  }
-  while i < to {
-    let byte = base.load(fromByteOffset: i, as: UInt8.self)
-    if byte == .asciiQuote || byte == .asciiBackslash || byte < .asciiSpace { return i }
-    i &+= 1
-  }
-  return to
-}
-
 // This runs before every structural byte, and how much whitespace it finds is a property of the
 // document, not of JSON. Measured over the corpus, as runs *outside* strings:
 //

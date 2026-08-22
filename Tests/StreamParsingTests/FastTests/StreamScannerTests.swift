@@ -17,6 +17,22 @@ struct `Stream scanner tests` {
     return bytes.count
   }
 
+  // The validated variant carries a UTF-8 observation alongside the end, and it is specified as
+  // exact: only bytes strictly before the terminator may set it. A byte with the high bit set
+  // sitting *after* the closing quote must not reach the caller as `containsNonASCII`, because
+  // the parser skips validation on a run whose flag is false.
+  private static func naiveStringRun(_ bytes: [UInt8], from: Int, to: Int) -> (Int, Bool) {
+    var i = from
+    var containsNonASCII = false
+    while i < to {
+      let byte = bytes[i]
+      if byte == 0x22 || byte == 0x5C || byte < 0x20 { return (i, containsNonASCII) }
+      containsNonASCII = containsNonASCII || byte >= 0x80
+      i += 1
+    }
+    return (to, containsNonASCII)
+  }
+
   private static func withBase<R>(_ bytes: [UInt8], _ body: (UnsafeRawPointer) -> R) -> R {
     bytes.withUnsafeBytes { body($0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)!) }
   }
@@ -52,11 +68,52 @@ struct `Stream scanner tests` {
         for from in 0...length {
           let expected = Self.naiveStringRunEnd(bytes, from: from)
           let actual = Self.withBase(bytes) {
-            streamStringRunEnd(base: $0, from: from, to: length)
+            streamStringRun(base: $0, from: from, to: length).end
           }
           expectNoDifference(actual, expected, "length \(length) from \(from)")
         }
       }
+    }
+  }
+
+  // `streamStringRun` had no direct coverage — only the end-only variant did — which left the
+  // UTF-8 observation untested. Non-ASCII is placed both before and after terminators here, so a
+  // flag that leaks a byte from past the run fails rather than silently skipping validation.
+  @Test
+  func `String run scanning reports end and UTF-8 observation at every length and offset`() {
+    var generator = SystemRandomNumberGenerator()
+    for length in 0...80 {
+      for _ in 0..<20 {
+        var bytes = (0..<length).map { _ in UInt8.random(in: 0x20...0x7E, using: &generator) }
+        for index in bytes.indices where Int.random(in: 0..<8, using: &generator) == 0 {
+          bytes[index] = [0x22, 0x5C, 0x00, 0x1F].randomElement(using: &generator)!
+        }
+        for index in bytes.indices where Int.random(in: 0..<6, using: &generator) == 0 {
+          bytes[index] = UInt8.random(in: 0x80...0xFF, using: &generator)
+        }
+        for from in 0...length {
+          let expected = Self.naiveStringRun(bytes, from: from, to: length)
+          let actual = Self.withBase(bytes) { streamStringRun(base: $0, from: from, to: length) }
+          expectNoDifference(actual.end, expected.0, "end, length \(length) from \(from)")
+          expectNoDifference(
+            actual.containsNonASCII, expected.1, "flag, length \(length) from \(from)"
+          )
+        }
+      }
+    }
+  }
+
+  // The exactness case on its own, pinned rather than left to the random sprinkle: ASCII run,
+  // terminator, then a high byte. The flag must be false.
+  @Test
+  func `String run UTF-8 observation ignores bytes past the terminator`() {
+    for runLength in [0, 1, 15, 16, 17, 31, 32, 33] {
+      var bytes = [UInt8](repeating: 0x61, count: runLength)
+      bytes.append(0x22)
+      bytes.append(contentsOf: [UInt8](repeating: 0xC3, count: 40))
+      let actual = Self.withBase(bytes) { streamStringRun(base: $0, from: 0, to: bytes.count) }
+      expectNoDifference(actual.end, runLength, "run length \(runLength)")
+      expectNoDifference(actual.containsNonASCII, false, "run length \(runLength)")
     }
   }
 
@@ -66,7 +123,7 @@ struct `Stream scanner tests` {
       var bytes = [UInt8](repeating: 0x61, count: 40)
       bytes[33] = terminator
       let actual = Self.withBase(bytes) {
-        streamStringRunEnd(base: $0, from: 0, to: bytes.count)
+        streamStringRun(base: $0, from: 0, to: bytes.count).end
       }
       expectNoDifference(actual, 33)
     }

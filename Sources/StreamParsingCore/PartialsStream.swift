@@ -6,28 +6,19 @@
 /// the registration based parsers were. This carries the settings instead, and each stream makes
 /// its own parser from them.
 public struct JSONStreamFormat: Hashable, Sendable {
-  /// The validation the parser performs.
-  public var configuration: JSONParserConfiguration
-
   /// The capacity of the buffer the parser allocates for keys, numbers and escapes.
   public var bufferCapacity: Int
 
-  public init(configuration: JSONParserConfiguration = .strict, bufferCapacity: Int = 4096) {
-    self.configuration = configuration
+  public init(bufferCapacity: Int = 4096) {
     self.bufferCapacity = bufferCapacity
   }
 
   /// Parses JSON.
   ///
-  /// - Parameters:
-  ///   - configuration: The validation the parser performs.
-  ///   - bufferCapacity: The capacity of the parser's buffer.
+  /// - Parameter bufferCapacity: The capacity of the parser's buffer.
   /// - Returns: A format describing a JSON parser.
-  public static func json(
-    configuration: JSONParserConfiguration = .strict,
-    bufferCapacity: Int = 4096
-  ) -> Self {
-    Self(configuration: configuration, bufferCapacity: bufferCapacity)
+  public static func json(bufferCapacity: Int = 4096) -> Self {
+    Self(bufferCapacity: bufferCapacity)
   }
 }
 
@@ -101,9 +92,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     let storage = UnsafeMutablePointer<Value>.allocate(capacity: 1)
     storage.initialize(to: initialValue)
     self.storage = storage
-    self.parser = JSONParser(
-      configuration: format.configuration, bufferCapacity: format.bufferCapacity
-    )
+    self.parser = JSONParser(bufferCapacity: format.bufferCapacity)
     self.sink = PartialSink(root: storage, schema: Value.streamSchema)
   }
 
