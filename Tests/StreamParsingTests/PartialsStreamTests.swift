@@ -15,6 +15,28 @@ struct `PartialsStream Tests` {
     }
   }
 
+  @Test(arguments: [UInt8(ascii: " "), UInt8(ascii: "2")])
+  func `Rejects A Byte After Finish`(byte: UInt8) throws {
+    var stream = PartialsStream(initialValue: 0, from: .json())
+    try stream.next(UInt8(ascii: "1"))
+    _ = try stream.finish()
+
+    #expect(throws: StreamParsingError.parserFinished) {
+      try stream.next(byte)
+    }
+  }
+
+  @Test(arguments: [[UInt8](), [UInt8(ascii: " ")], [UInt8(ascii: "2")]])
+  func `Rejects A Sequence After Finish`(bytes: [UInt8]) throws {
+    var stream = PartialsStream(initialValue: 0, from: .json())
+    try stream.next(UInt8(ascii: "1"))
+    _ = try stream.finish()
+
+    #expect(throws: StreamParsingError.parserFinished) {
+      try stream.next(bytes)
+    }
+  }
+
   @Test
   func `Rejects Next After Parser Throws`() throws {
     var stream = PartialsStream(initialValue: 0, from: .json())

@@ -10,6 +10,8 @@ struct RootUser: Equatable {
   var name: String = ""
 }
 
+extension RootUser.Partial: Equatable {}
+
 // A JSON document is not required to be an object, and the public parsing entry points have
 // always accepted a scalar, an array or a dictionary as the destination. The root's shape comes
 // from its schema, which a generic caller reaches through StreamParseableRoot rather than
@@ -77,6 +79,52 @@ struct `Partial sink root tests` {
     expectNoDifference(rows, [[1, 2], [], [3]])
   }
 
+  // MARK: - Optional container roots
+
+  @Test(arguments: [Int.max, 2, 1])
+  func `Empty optional container roots materialize`(chunk: Int) throws {
+    expectNoDifference(
+      try self.parse("[]", as: StreamArray<Int>?.self, chunk: chunk),
+      StreamArray<Int>()
+    )
+    expectNoDifference(
+      try self.parse("{}", as: StreamDictionary<Int>?.self, chunk: chunk),
+      StreamDictionary<Int>()
+    )
+    expectNoDifference(
+      try self.parse("{}", as: RootUser.Partial?.self, chunk: chunk),
+      RootUser.Partial()
+    )
+    expectNoDifference(
+      try self.parse(#"{"unknown":1}"#, as: RootUser.Partial?.self, chunk: chunk),
+      RootUser.Partial()
+    )
+  }
+
+  @Test(arguments: [Int.max, 1])
+  func `Nested optional roots materialize every layer`(chunk: Int) throws {
+    let expected: StreamArray<Int>?? = StreamArray<Int>()
+    expectNoDifference(
+      try self.parse("[]", as: StreamArray<Int>??.self, chunk: chunk),
+      expected
+    )
+  }
+
+  @Test(arguments: [Int.max, 2, 1])
+  func `Null clears optional container roots`(chunk: Int) throws {
+    var array: StreamArray<Int>? = StreamArray([1])
+    try parsePartial("null", into: &array, chunk: chunk)
+    expectNoDifference(array, nil)
+
+    var dictionary: StreamDictionary<Int>? = StreamDictionary(["a": 1])
+    try parsePartial("null", into: &dictionary, chunk: chunk)
+    expectNoDifference(dictionary, nil)
+
+    var object: RootUser.Partial? = RootUser.Partial(id: 1, name: "Blob")
+    try parsePartial("null", into: &object, chunk: chunk)
+    expectNoDifference(object, nil)
+  }
+
   // MARK: - Dictionary roots
 
   @Test(arguments: [Int.max, 7, 1])
@@ -130,5 +178,6 @@ struct `Partial sink root tests` {
       .typeMismatch
     )
     expectNoDifference(self.failure("1", as: StreamArray<Int>.self), .typeMismatch)
+    expectNoDifference(self.failure("null", as: StreamArray<Int>.self), .typeMismatch)
   }
 }

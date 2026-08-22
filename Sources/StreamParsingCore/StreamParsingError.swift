@@ -1,11 +1,16 @@
-/// Signals terminal stream parsing errors such as calling `finish()` twice.
+/// Signals errors raised by stream parsing operations.
 public struct StreamParsingError: Error, Hashable {
   private enum Kind: Hashable {
+    case multipleSubscribers
     case parserFinished
     case parserThrows
   }
 
-  /// Thrown when ``PartialsStream/finish()`` is invoked more than once on a stream.
+  /// Thrown when more than one iterator attempts to consume an async partials sequence.
+  public static let multipleSubscribers = StreamParsingError(.multipleSubscribers)
+
+  /// Thrown when a finished stream receives more bytes or another call to
+  /// ``PartialsStream/finish()``.
   public static let parserFinished = StreamParsingError(.parserFinished)
 
   /// Thrown when the parser has previously failed and the stream still receives bytes.

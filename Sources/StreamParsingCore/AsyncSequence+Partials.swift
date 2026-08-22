@@ -96,8 +96,27 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   }
 }
 
-/// An `AsyncSequence` that emits a partial after each input element and one finalized value when
-/// the input ends.
+final class AsyncPartialsSubscriber: Sendable {}
+
+actor AsyncPartialsSubscription {
+  private var subscriber: AsyncPartialsSubscriber?
+
+  func claim(_ subscriber: AsyncPartialsSubscriber) -> Bool {
+    if let currentSubscriber = self.subscriber {
+      return currentSubscriber === subscriber
+    } else {
+      self.subscriber = subscriber
+      return true
+    }
+  }
+}
+
+/// A single-subscriber `AsyncSequence` that emits a partial after each input element and one
+/// finalized value when the input ends.
+///
+/// The first iterator to request an element owns the sequence. A different iterator throws
+/// ``StreamParsingError/multipleSubscribers`` when it requests an element. Copies of the owning
+/// iterator share its position and remain part of the same subscription.
 public struct AsyncPartialsSequence<
   Element: StreamParseableRoot,
   Base: AsyncSequence,
@@ -107,28 +126,46 @@ public struct AsyncPartialsSequence<
   let format: JSONStreamFormat
   let initialValue: Element
   let bytes: @Sendable (Base.Element) -> Seq
+  private let subscription = AsyncPartialsSubscription()
 
-  // AsyncIteratorProtocol requires a copyable conforming type, and PartialsStream is not one:
-  // it owns a parser buffer and an allocation the sink points into. The box gives the iterator
-  // something copyable to hold while the stream itself stays uniquely owned.
-  public final class Box {
+  // AsyncIteratorProtocol requires a copyable conforming type. The box ensures iterator copies
+  // share both the underlying iterator position and the uniquely owned parser stream.
+  final class Box {
+    let base: Base
+    let subscriber = AsyncPartialsSubscriber()
+    var baseIterator: Base.AsyncIterator?
     var stream: PartialsStream<Element>
+    var hasClaimedSubscription: Bool?
+    var hasEmittedFinal = false
 
-    init(stream: consuming PartialsStream<Element>) {
+    init(base: Base, stream: consuming PartialsStream<Element>) {
+      self.base = base
       self.stream = stream
+    }
+
+    func nextBaseElement() async throws -> Base.Element? {
+      if self.baseIterator == nil {
+        self.baseIterator = self.base.makeAsyncIterator()
+      }
+      return try await self.baseIterator?.next()
     }
   }
 
   public struct AsyncIterator: AsyncIteratorProtocol {
-    var baseIterator: Base.AsyncIterator
     let box: Box
+    let subscription: AsyncPartialsSubscription
     let bytes: @Sendable (Base.Element) -> Seq
-    var hasEmittedFinal = false
 
     public mutating func next() async throws -> Element? {
-      guard !self.hasEmittedFinal else { return nil }
-      guard let nextValue = try await self.baseIterator.next() else {
-        self.hasEmittedFinal = true
+      if self.box.hasClaimedSubscription == nil {
+        self.box.hasClaimedSubscription = await self.subscription.claim(self.box.subscriber)
+      }
+      guard self.box.hasClaimedSubscription == true else {
+        throw StreamParsingError.multipleSubscribers
+      }
+      guard !self.box.hasEmittedFinal else { return nil }
+      guard let nextValue = try await self.box.nextBaseElement() else {
+        self.box.hasEmittedFinal = true
         return try self.box.stream.finish()
       }
       try self.box.stream.next(self.bytes(nextValue))
@@ -138,8 +175,11 @@ public struct AsyncPartialsSequence<
 
   public func makeAsyncIterator() -> AsyncIterator {
     AsyncIterator(
-      baseIterator: self.base.makeAsyncIterator(),
-      box: Box(stream: PartialsStream(initialValue: self.initialValue, from: self.format)),
+      box: Box(
+        base: self.base,
+        stream: PartialsStream(initialValue: self.initialValue, from: self.format)
+      ),
+      subscription: self.subscription,
       bytes: self.bytes
     )
   }

@@ -57,13 +57,6 @@ Handler registration is measured on its own because every parse benchmark pays f
 which otherwise dominates the smaller payloads. Payload benchmarks report both iterations per
 second and payload MB/s.
 
-## Validation
-
-`JSONParserConfiguration.unchecked` turns off UTF-8 validation, number grammar checking and
-literal checking. Rows suffixed `unchecked` are paired with a `bulk` row on the same payload, so
-the difference is what validation costs on that shape. Every real-world payload carries the pair;
-the synthetic ones carry it where one of the three checks has something to do.
-
 ## Payloads
 
 Synthetic payloads are generated in `Payloads.swift`. `Resources/` holds the real ones:

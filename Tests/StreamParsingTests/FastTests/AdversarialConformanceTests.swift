@@ -174,7 +174,7 @@ struct `Adversarial conformance tests` {
   // document. Both went with `JSONParserConfiguration`: with validation unconditional the field
   // is either completed into a pair or thrown on, so it cannot go stale.
   @Test
-  func `A lone high surrogate is rejected in its own token when validating`() {
+  func `A lone high surrogate is rejected in its own token`() {
     let json = Array("[\"\(esc)uD83D\",\"\(esc)uDE00\"]".utf8)
     let error = #expect(throws: JSONParsingError.self) {
       var parser = JSONParser()

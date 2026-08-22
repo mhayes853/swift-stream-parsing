@@ -70,6 +70,11 @@ struct `JSON conformance tests` {
     Self.expectRejected(json)
   }
 
+  @Test(arguments: ["0]", "true]", "null]]", #""value"]"#])
+  func `Rejects an array close after a root scalar`(json: String) {
+    Self.expectRejected(json)
+  }
+
   @Test(arguments: ["{}", "[]", "[[]]", "{\"a\":{}}", "[{},{}]", " [ ] ", "\n\t[]\r\n"])
   func `Accepts well formed structure`(json: String) {
     Self.expectAccepted(json)

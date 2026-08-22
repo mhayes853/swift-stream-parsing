@@ -280,6 +280,10 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
     let matchField: (@Sendable (Span<UInt8>) -> Int32)? = wrapped.ignoresKeys ? nil : delegated
     return StreamSchema(
       shape: wrapped.shape,
+      prepareRoot: { storage in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        wrapped.prepareRoot(storage)
+      },
       matchField: matchField,
       applyString: { storage, field, bytes in
         _streamMaterializeOptional(storage, as: Wrapped.self)

@@ -113,18 +113,13 @@ for try await profilePartial in partials {
 
 ## Parsers
 
-The library comes with built-in JSON and YAML parsers. You can pass a custom configuration to either parser to customize key decoding behavior.
+The JSON parser accepts only strict JSON.
 
 ### JSON
 
 ```swift
-let configuration = JSONStreamParserConfiguration(
-  syntaxOptions: [.comments, .trailingCommas],
-  keyDecodingStrategy: .convertFromSnakeCase
-)
-
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json(configuration: configuration))
+  .partials(of: Profile.Partial.self, from: .json())
 ```
 
 ### YAML

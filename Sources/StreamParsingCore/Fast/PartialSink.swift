@@ -214,6 +214,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.started = true
       let canHoldContainer = self.rootSchema.shape.canHold(container: shape)
       if !canHoldContainer { self.recordFailure(.typeMismatch) }
+      if canHoldContainer { self.rootSchema.prepareRoot(self.root) }
       let schema = canHoldContainer ? self.rootSchema : Self.ignoredSchema
       self.pushFrame(BorrowedFrame(storage: self.root, schema: schema))
       return
@@ -336,6 +337,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   public mutating func null() {
+    if self.topFrame == nil, !self.started {
+      if !self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField) {
+        self.recordFailure(.typeMismatch)
+      }
+      return
+    }
     self.withScalarTarget { storage, field, schema in
       schema.applyNull(storage, field)
     }

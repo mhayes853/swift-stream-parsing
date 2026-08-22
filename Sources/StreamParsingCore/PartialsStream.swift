@@ -3,8 +3,8 @@
 /// Describes the parser a stream should drive.
 ///
 /// A parser owns a buffer and is `~Copyable`, so it cannot be handed around as a value the way
-/// the registration based parsers were. This carries the settings instead, and each stream makes
-/// its own parser from them.
+/// the registration based parsers were. This carries the buffer capacity instead, and each stream
+/// makes its own parser from it.
 public struct JSONStreamFormat: Hashable, Sendable {
   /// The capacity of the buffer the parser allocates for keys, numbers and escapes.
   public var bufferCapacity: Int
@@ -119,6 +119,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parser.parse(byte: byte, into: &self.sink)
     } catch {
@@ -133,6 +134,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   public mutating func next(_ bytes: some Sequence<UInt8>) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parse(bytes)
     } catch {

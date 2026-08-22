@@ -75,6 +75,10 @@ public struct JSONParser: ~Copyable {
   }
 
   public init(buffer: UnsafeMutableBufferPointer<UInt8>) {
+    precondition(
+      buffer.count >= Self.reservedTailByteCount,
+      "JSONParser requires a caller-supplied buffer of at least \(Self.reservedTailByteCount) bytes."
+    )
     self.buffer = buffer
     self.ownsBuffer = false
   }
@@ -301,7 +305,7 @@ public struct JSONParser: ~Copyable {
         guard depth > 0 else { throw self.error(.unexpectedToken, at: at) }
         state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
       case .asciiArrayEnd:
-        guard !Self.topIsObject(depth: depth, containers: containers) else {
+        guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
         sink.endArray()
@@ -622,8 +626,7 @@ public struct JSONParser: ~Copyable {
         &+ (low &- .lowSurrogateFloor)
       end &+= 6
     } else if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling {
-      // Lone low surrogate: rejected when validating, passed through when not. Both are the per
-      // byte path's business.
+      // A lone low surrogate is a diagnostic, so it goes to the per-byte path.
       return nil
     }
 

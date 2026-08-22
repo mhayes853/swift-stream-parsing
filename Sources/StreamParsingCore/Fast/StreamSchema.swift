@@ -33,6 +33,13 @@ public final class StreamSchema: Sendable {
 
   public let shape: Shape
 
+  /// Prepares root storage before a container frame begins writing through this schema.
+  ///
+  /// Most roots already hold their initialized value and need no work. Wrappers such as
+  /// `Optional` use this hook to materialize storage even when an empty container produces no
+  /// field or element events that would otherwise do so.
+  public let prepareRoot: @Sendable (UnsafeMutableRawPointer) -> Void
+
   /// The field an apply closure receives when the destination *is* the value rather than a field
   /// of one — an array element, a dictionary value, a bare scalar root.
   ///
@@ -105,6 +112,7 @@ public final class StreamSchema: Sendable {
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
   public init(
     shape: Shape,
+    prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
     applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
       _, _, _ in false
@@ -123,6 +131,7 @@ public final class StreamSchema: Sendable {
     }
   ) {
     self.shape = shape
+    self.prepareRoot = prepareRoot
     self.ignoresKeys = matchField == nil
     // A dictionary routes keys through `enterKey` whether or not it also carries a matcher, which
     // is the order the sink already applied.
