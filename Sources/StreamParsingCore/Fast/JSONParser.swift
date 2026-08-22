@@ -769,6 +769,30 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink,
     reportAt: Int
   ) throws(JSONParsingError) {
+    // The shape four of the seven corpus payloads are mostly made of: an unsigned integer of one
+    // to eight digits, no sign, no dot, no exponent. The kernel's digit test doubles as the shape
+    // test, so this replaces the sign, leading zero, dot, exponent and final position checks
+    // below rather than adding to them. Anything it declines falls through unchanged.
+    if to &- from <= 8, to >= 8,
+      base.load(fromByteOffset: from, as: UInt8.self) != .asciiZero || to &- from == 1,
+      let magnitude = streamShortInteger(base: base, from: from, end: to)
+    {
+      let slice = UnsafeBufferPointer(
+        start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self),
+        count: to &- from
+      )
+      sink.number(
+        Span(_unsafeElements: slice),
+        info: NumberInfo(
+          magnitude: magnitude,
+          exponent: 0,
+          digitCount: UInt16(truncatingIfNeeded: to &- from),
+          flags: []
+        )
+      )
+      return
+    }
+
     var flags = NumberInfo.Flags()
     var i = from
     if i < to, base.load(fromByteOffset: i, as: UInt8.self) == .asciiDash {

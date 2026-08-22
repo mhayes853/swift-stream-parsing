@@ -524,7 +524,15 @@ package func streamNumberRunEndTail(base: UnsafeRawPointer, from: Int, to: Int) 
 @inlinable
 @inline(__always)
 package func streamParseEightDigits(_ chunk: SIMD8<UInt8>) -> UInt64 {
-  let digits = chunk &- SIMD8<UInt8>(repeating: .asciiZero)
+  streamParseEightDigitValues(chunk &- SIMD8<UInt8>(repeating: .asciiZero))
+}
+
+// The same tree over digits that are already biased. The short integer kernel below masks its
+// junk lanes to zero before converting, and zero is the digit it wants them to be, so it cannot
+// hand this function ASCII.
+@inlinable
+@inline(__always)
+package func streamParseEightDigitValues(_ digits: SIMD8<UInt8>) -> UInt64 {
   let pairs = SIMD4<UInt16>(truncatingIfNeeded: digits.evenHalf &* 10 &+ digits.oddHalf)
   let quads = pairs.evenHalf &* 100 &+ pairs.oddHalf
   return UInt64(quads[0]) &* 10_000 &+ UInt64(quads[1])
@@ -891,3 +899,45 @@ package func streamUTF8BlockIsInvalidPortable(
     }
   }
 #endif
+
+
+// MARK: - Short integer kernel
+
+// An unsigned integer of one to eight digits, parsed whole with no loop and no data dependent
+// branch, or `nil` if the token is not that shape. The digit test doubles as the shape test, so
+// this replaces the structured walk's sign, dot, exponent and final position checks for the
+// tokens it accepts rather than adding to them.
+//
+// **The load is the eight bytes ending at the token, not starting at it.** Those bytes are behind
+// the cursor -- already consumed input in the same buffer -- so a single `end >= 8` test makes the
+// read safe, where reading forward past the token would need a bound the parser does not carry.
+// Right alignment is also what removes the scaling step: the masked off bytes below the token
+// become leading zeros, so the eight digit tree's answer is already the token's value and no power
+// of ten correction is needed. The rejected branchless tail (NEW_ARCHITECTURE.md, "Numbers,
+// whole") read forward and paid for both a padded word ladder and a `pow10` switch because of it;
+// that version measured -12% on `Numbers small integers`, where this one measures +7.4%.
+//
+// **The mask must come before the bias.** Subtracting `0x30` from the whole word borrows out of
+// any byte below `'0'` and into the token's leading digit -- `\n`, `,` and `"` are all below it, so
+// `582` preceded by a newline reads as `482`. Masking first makes those bytes zero, and zero minus
+// zero does not borrow. A differential test over random junk prefixes found this; reasoning about
+// the kernel did not, which is why `ShortIntegerKernelTests` pads with hostile bytes rather than
+// spaces.
+//
+// A SIMD form and a GPR-mask/NEON-convert hybrid were built and measured against this one and
+// both lost; the numbers are in NEW_ARCHITECTURE.md rather than in the tree, because a prototype
+// kept beside production is a prototype that drifts from it.
+@inlinable
+@inline(__always)
+package func streamShortInteger(base: UnsafeRawPointer, from: Int, end: Int) -> UInt64? {
+  let word = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: end &- 8, as: UInt64.self))
+  let shift = UInt64(truncatingIfNeeded: 8 &* (8 &- (end &- from)))
+  let keep = UInt64.max << shift
+  let biased = (word & keep) &- (0x3030_3030_3030_3030 & keep)
+  let bad = ((biased &+ 0x7676_7676_7676_7676) | biased) & 0x8080_8080_8080_8080
+  guard bad == 0 else { return nil }
+  var value = (biased &* 2561) >> 8
+  value = ((value & 0x00FF_00FF_00FF_00FF) &* 6_553_601) >> 16
+  value = ((value & 0x0000_FFFF_0000_FFFF) &* 42_949_672_960_001) >> 32
+  return value & 0xFFFF_FFFF
+}

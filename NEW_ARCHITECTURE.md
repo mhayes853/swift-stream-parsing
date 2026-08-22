@@ -3223,3 +3223,117 @@ alone — is a reason to prefer the smaller protocol. So it is removed, and the 
 recorded here instead: if whole-string emission is built, the requirement comes back with it,
 and the reason to add it will be a benchmark rather than a shape.
 
+---
+
+## The short integer kernel: eight bytes, backwards
+
+`emitNumber`'s digit loop is **eleven instructions per digit** in the shipped assembly -- `ldrb`,
+`sub`, `and`, `cmp`, `cset`, `b.hi`, `mul`, `add`, `add`, `cmp`, `b.ne` -- not the seven the source
+reads like. That is what decides where a fixed width kernel can win, and it is lower than the
+earlier estimate: the crossover against a flat cost kernel is **two digits**, not five.
+
+Digits are also the wrong axis. Measured on the synthetic rows:
+
+| row | shape | ns/number |
+| --- | --- | --- |
+| `Numbers small integers` | 2.9 digits, no dot, no exponent | 9.0 |
+| `Numbers large integers` | 19 digits, no dot, no exponent | 11.5 |
+| `Numbers floats` | 3-6 digits, **dot + exponent** | 14.5 |
+
+Sixteen extra digits cost 2.5 ns. A dot and an exponent cost 5.5 ns. **Segments dominate digits
+roughly three to one**, because each segment is its own loop setup, and the eight digit block
+carries a thirteen instruction constant preheader that is emitted once per segment.
+
+### The kernel
+
+`streamShortInteger` takes an unsigned integer of one to eight digits -- 0 to 99,999,999 -- with no
+sign, no dot and no exponent, and returns its value with no loop and no data dependent branch. Two
+choices make it work, and both are the opposite of the rejected branchless tail above:
+
+- **It reads the eight bytes *ending* at the token, not starting at it.** Those bytes are behind the
+  cursor, already consumed, in the same buffer, so a single `end >= 8` test makes the read safe. The
+  rejected version read forward past the token and needed `streamPaddedWord`'s 4/2/1 ladder to bound
+  it.
+- **Right alignment removes the scaling step.** The masked off bytes below the token become leading
+  zeros, so the eight digit tree's answer is already the token's value. The rejected version left
+  aligned and needed a `pow10` switch to divide back down -- a data dependent branch, which is the
+  thing that exercise set out to delete.
+
+Eighteen hot path instructions against the rejected version's thirty five. `Numbers small integers`
+is `makeMatrix(40,25)`, values 0-999, and is exactly the row the rejected version lost 12% on; this
+one gains 7.4%.
+
+**The mask must precede the bias.** Subtracting `0x30` from the whole word borrows out of any byte
+below `'0'` and into the token's leading digit. `\n`, `,` and `"` are all below it, so `582`
+preceded by a newline read as `482`. The differential test found this because it randomises the
+prefix over hostile bytes; a suite padding with spaces or digits would not have. `ShortIntegerKernelTests`
+pins it directly.
+
+### SWAR against SIMD, and where each one belongs
+
+Three forms were built and measured, three interleaved rounds, `Payload MB/s` p0 (the wall clock
+column changes units per row and cannot be compared raw):
+
+| row | eligible | control | **SWAR** | hybrid | pure SIMD |
+| --- | --- | --- | --- | --- | --- |
+| `Numbers small integers - bulk` | 100% | 444 | **477 (+7.4%)** | 461 (+3.8%) | 359 (-19.1%) |
+| `Real Mesh - bulk` | 57.7% | 682 | **712 (+4.4%)** | 699 (+2.5%) | 644 (-5.4%) |
+| `Real Twitter - bulk discarding` | -- | 631 | **647 (+2.5%)** | 636 (+0.8%) | 645 (+2.1%) |
+| `Real Canada - bulk` (control) | 0.1% | 951 | 950 | 950 | 950 |
+| `Numbers floats - bulk` | 0% | 721 | 699 (-3.1%) | 696 (-3.5%) | 681 (-5.5%) |
+
+The pure SIMD form was not a fair test and its number should not be read as one: `SIMD8<UInt8>`'s
+`replacing(with:where:)` with a **runtime** mask half scalarised into an eight lane
+`smov`/`umov`/`csel` ladder, and the iota vector spilled to a constant pool. That is the trap the
+UTF-8 section already records, in a new place. The hybrid -- mask in the integer domain, convert in
+the vector domain -- was clean, verified free of per lane scalarisation in the disassembly, and
+**still lost**:
+
+| form | GPR/NEON crossings in `emitNumber` | crossings in the kernel | instructions |
+| --- | --- | --- | --- |
+| **SWAR** | 5 | **0** | **255** |
+| hybrid | 9 | 4 | 269 |
+| pure SIMD | 23 | 14 | 306 |
+
+This does not contradict "SIMD8 is 7-13% better than SWAR8" from the digit block table above; it
+locates it. **That comparison was the block *inside* `streamAccumulateDigits`, where the loop keeps
+data in the vector domain and the crossing amortises over many blocks.** A one shot kernel on a
+short token crosses in once and out twice -- the word in, the validity test and the result out --
+and the token's length starts life in a GPR, which is what forced the `dup` that broke the pure
+form. The rule the two results give together: **SIMD wins where the data is already in vectors and
+stays there; SWAR wins where the answer is needed in a GPR and the token is short.**
+
+### What it costs where it does not apply
+
+`Numbers floats` loses 3.1%: 19% of its tokens are six to eight bytes, so they enter the kernel,
+fail the digit test on the `.`, and take the walk anyway -- about 380 tokens at ~17 wasted
+instructions, which is 3.7% of that parse and matches. `Numbers large integers` loses 2.9%
+identically for every variant, which is the code layout signature, not the kernel; its tokens are
+nineteen bytes and fail the length check in five instructions.
+
+**No real payload regresses.** Both losses are synthetic rows, and `Numbers floats` is 100%
+exponent bearing -- a shape that appears in **0 of 468,000** real corpus numbers.
+
+Hoisting the shape test into `streamNumberRunEndShimmed` was considered and rejected on cost before
+being built. The class bits are there for one `and` (`vtstq_u8` discards the `high & low` it
+computes), but lanes past the terminator hold the *next* token's bytes -- in `[1,2.5]` the following
+number's `.` is in the same block -- so the reduction must be masked to lanes below the terminator,
+and that mask plus a horizontal OR (NEON has no `orv`) is ~12 instructions on the scanner's critical
+path. It saves ~4 on a token that hits and ~12 on one that misses: worse in the common case. The
+`uminv` idiom was already rejected in this same function for the same reason, at citm +10.5%.
+
+### Coverage, and what is left
+
+Every token in the real corpus falls into one of four shapes. The kernel takes the first:
+
+| shape | corpus | who it serves | status |
+| --- | --- | --- | --- |
+| A, unsigned integer <= 8 digits | 20.4% | llm 100%, github 91%, twitter 78%, mesh 51% | **built** |
+| B, unsigned integer 9-16 digits | 8.7% | **citm 93.7%**, twitter 12.6% | open, cheap (one more `ldr`) |
+| C, signed or decimal <= 16 digits | 21.1% | **mesh 44.4%**, canada 9.4% | open, needs `tbl` |
+| D, decimal 17-19 digits | 49.8% | **canada 90.6%** | open, needs `tbl2` |
+| exponent, or > 19 digits | **0.0%** | nothing real | general walk |
+
+D is half the corpus by token count only because canada is 55% of every number in it; by payload,
+B and C reach further.
+
