@@ -122,7 +122,9 @@ private func describe(_ any: Any) -> String {
     return "[" + array.map(describe).joined(separator: ",") + "]"
   }
   if let number = any as? NSNumber {
-    if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
+    if String(cString: number.objCType) == "c" {
+      return number.boolValue ? "true" : "false"
+    }
     return number.stringValue
   }
   if let string = any as? String { return "\"\(string)\"" }

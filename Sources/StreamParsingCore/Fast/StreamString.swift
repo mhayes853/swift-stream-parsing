@@ -228,10 +228,10 @@ public struct StreamString {
         String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
       }
     }
-    return String(unsafeUninitializedCapacity: range.count) { destination in
-      self.copyBytes(in: range, to: destination)
-      return range.count
-    }
+    let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: range.count)
+    defer { buffer.deallocate() }
+    self.copyBytes(in: range, to: buffer)
+    return String(decoding: buffer, as: UTF8.self)
   }
 }
 

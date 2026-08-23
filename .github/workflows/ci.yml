@@ -99,7 +99,7 @@ jobs:
       - name: Install wasmtime
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends xz-utils
+          apt-get install -y --no-install-recommends curl xz-utils
           release="https://github.com/bytecodealliance/wasmtime/releases"
           name="wasmtime-${WASMTIME_VERSION}-x86_64-linux"
           curl -sSfL "${release}/download/${WASMTIME_VERSION}/${name}.tar.xz" \
