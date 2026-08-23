@@ -35,6 +35,20 @@ package struct StreamStringRun: Hashable, Sendable {
   }
 }
 
+// JSON whitespace as a 64-bit set indexed by the byte itself: tab, line feed, carriage return
+// and space. This is the form the optimiser already picks for `streamWhitespaceScalarEnd`'s loop,
+// written out so the run scanner can use it too. Swift's shift is a smart shift -- an over-shift
+// yields zero rather than trapping -- which costs one `cmp`/`ccmp` pair against 63, because
+// arm64's own shift masks the amount to six bits and would alias byte 64 onto byte 0.
+@inlinable
+package var streamWhitespaceBitmap: UInt64 { 0x0000_0001_0000_2600 }
+
+@inlinable
+@inline(__always)
+package func streamIsWhitespace(_ byte: UInt8) -> Bool {
+  (streamWhitespaceBitmap >> UInt64(byte)) & 1 != 0
+}
+
 @inlinable
 @inline(__always)
 package func streamVectorContainsNonASCII(_ bytes: SIMD16<UInt8>) -> Bool {
@@ -163,6 +177,38 @@ package func streamWhitespaceScalarEnd(base: UnsafeRawPointer, from: Int, to: In
 @inline(never)
 package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var i = from
+  // Two bytes of bitmap test before the four constant splats below, because most runs that get
+  // here are one byte long and none of the vector body's setup is worth paying for them. It is
+  // exactly two tests and so it is written as two, not as a bounded loop: what this resolves is
+  // the one-byte run, and nothing else. A run of two whitespace bytes consumes both peeled bytes
+  // without meeting a terminator and reaches the vector body anyway -- which costs nothing, since
+  // runs of exactly two do not occur (a separator is one byte, and an indent is a newline plus
+  // its depth), so widening the peel buys no new population until four, where `citm_catalog`'s
+  // long runs already turn it negative. Spelled as a loop it did not unroll: eight instructions
+  // an iteration plus the bound and the constant, against twelve straight-line for both bytes.
+  //
+  // The width test in `streamWhitespaceEnd` cannot filter these: the bound it reads is the chunk
+  // end, not the run end -- a scanner cannot know the run end without scanning -- so under bulk
+  // input it never fires and every run arrives here. Census over the corpus: the median run is
+  // one byte in `mesh` and `canada`, five in `github_events` and `gsoc`, seven in `twitter`, and
+  // twenty-one in `citm_catalog`.
+  //
+  // It goes here, out of line, and not in that inlined guard: peeling a one byte run there was
+  // already measured at -18% on `twitterescaped` and -34% on unicode escapes, documents with no
+  // whitespace for it to scan at all. The bound is two rather than four or eight because
+  // `citm_catalog`'s runs are long enough that every peeled byte is tax -- at four it paid -3.3%
+  // and at eight -10.0%, while two costs it nothing and keeps most of the gain elsewhere.
+  // Measured, three interleaved rounds, p50 `Payload MB/s`: `gsoc` +10.9%, `Pretty printed users`
+  // +9.7%, `github_events` +8.2%, `mesh` +7.9%, `twitter` +6.3%, `twitterescaped` +3.8%,
+  // `citm_catalog` +1.1%, `canada` +1.3%, with no row regressing.
+  if i < to {
+    guard streamIsWhitespace(base.load(fromByteOffset: i, as: UInt8.self)) else { return i }
+    i &+= 1
+    if i < to {
+      guard streamIsWhitespace(base.load(fromByteOffset: i, as: UInt8.self)) else { return i }
+      i &+= 1
+    }
+  }
   let space = SIMD16<UInt8>(repeating: .asciiSpace)
   let tab = SIMD16<UInt8>(repeating: .asciiTab)
   let lineFeed = SIMD16<UInt8>(repeating: .asciiLineFeed)
