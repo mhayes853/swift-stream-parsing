@@ -320,7 +320,11 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       enterKey: { storage, key in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterKey(storage, key)
-      }
+      },
+      // Fixed SIMD arrays keep their cursor in the sink frame and write through the optional's
+      // offset-zero payload after `prepareRoot` materializes it. Other container routes continue
+      // to use their ordinary frame operations.
+      leafRoute: wrapped.leafRoute.fixedSIMDLaneCount == 0 ? .generic : wrapped.leafRoute
     )
   }
 }

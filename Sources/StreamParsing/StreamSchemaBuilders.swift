@@ -23,6 +23,15 @@ public func _streamSchema<T: StreamParseableObject>(for type: T.Type) -> StreamS
   T.streamSchema
 }
 
+// A fixed-width SIMD value is syntactically a plain generic type to the macro but semantically an
+// array-shaped container. Keep this below the object overload so an object, which refines
+// `StreamContainerPartial`, continues to use its more specific route.
+@_disfavoredOverload
+@inlinable
+public func _streamSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema {
+  T.streamContainerSchema
+}
+
 // These delegate to the core's scalar schema constructors, which the root conformances also use,
 // so a type cannot be described one way as a field and another way as a root.
 
@@ -85,6 +94,19 @@ public func _streamEnterField<T: StreamParseableObject>(
   // Non-nil by construction: `_streamContainerSchema(for:)` resolves through
   // `StreamContainerPartial`, which `StreamParseableObject` refines.
   _streamEnterOptionalObject(&value, schema: containerSchema.unsafelyUnwrapped)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamEnterField<T: StreamContainerPartial>(
+  _ value: inout T?,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
+  _streamEnterOptionalContainer(
+    &value,
+    initial: T.streamInitialValue(),
+    schema: containerSchema.unsafelyUnwrapped
+  )
 }
 
 @_disfavoredOverload

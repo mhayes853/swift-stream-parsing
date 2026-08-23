@@ -18,6 +18,10 @@ private enum HomogeneousLeafPayloads {
     index.isMultiple(of: 2) ? "\(index)" : "-\(index)"
   }
 
+  static let nestedDoublePairs = array { index in
+    "[\(index).125,-\(index).875]"
+  }
+
   static let booleansArray = array { $0.isMultiple(of: 3) ? "true" : "false" }
   static let booleansDictionary = dictionary { $0.isMultiple(of: 3) ? "true" : "false" }
 
@@ -88,6 +92,23 @@ func homogeneousLeafBenchmarks() {
   }
   precondition(stringsArray.count == HomogeneousLeafPayloads.count)
 
+  let dynamicPairs = expectParses {
+    try streamBulkDiscarding(
+      HomogeneousLeafPayloads.nestedDoublePairs,
+      as: StreamArray<StreamArray<Double>>.self
+    )
+  }
+  precondition(dynamicPairs.count == HomogeneousLeafPayloads.count)
+
+  let simdPairs = expectParses {
+    try streamBulkDiscarding(
+      HomogeneousLeafPayloads.nestedDoublePairs,
+      as: StreamArray<SIMD2<Double>>.self
+    )
+  }
+  precondition(simdPairs.count == HomogeneousLeafPayloads.count)
+  precondition(simdPairs[1] == SIMD2(1.125, -1.875))
+
   let optionalDictionary = expectParses {
     try streamBulkDiscarding(
       HomogeneousLeafPayloads.optionalNumbersDictionary,
@@ -133,5 +154,13 @@ func homogeneousLeafBenchmarks() {
   addHomogeneousLeafRow(
     "Dictionary Optional Int", payload: HomogeneousLeafPayloads.optionalNumbersDictionary,
     as: StreamDictionary<Int?>.self
+  )
+  addHomogeneousLeafRow(
+    "Nested Dynamic Double Pair", payload: HomogeneousLeafPayloads.nestedDoublePairs,
+    as: StreamArray<StreamArray<Double>>.self
+  )
+  addHomogeneousLeafRow(
+    "Nested SIMD2 Double", payload: HomogeneousLeafPayloads.nestedDoublePairs,
+    as: StreamArray<SIMD2<Double>>.self
   )
 }

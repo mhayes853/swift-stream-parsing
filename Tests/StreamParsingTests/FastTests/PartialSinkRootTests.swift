@@ -12,6 +12,12 @@ struct RootUser: Equatable {
 
 extension RootUser.Partial: Equatable {}
 
+@StreamParseable
+struct RootSIMDValues {
+  var point: SIMD2<Double> = .zero
+  var points: [SIMD2<Double>] = []
+}
+
 // A JSON document is not required to be an object, and the public parsing entry points have
 // always accepted a scalar, an array or a dictionary as the destination. The root's shape comes
 // from its schema, which a generic caller reaches through StreamParseableRoot rather than
@@ -77,6 +83,73 @@ struct `Partial sink root tests` {
   func `Nested arrays parse at the root`(chunk: Int) throws {
     let rows = try self.parse("[[1,2],[],[3]]", as: StreamArray<StreamArray<Int>>.self, chunk: chunk)
     expectNoDifference(rows, [[1, 2], [], [3]])
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Fixed SIMD arrays parse at the root`(chunk: Int) throws {
+    expectNoDifference(
+      try self.parse("[1.25,-2.5]", as: SIMD2<Double>.self, chunk: chunk),
+      SIMD2(1.25, -2.5)
+    )
+    expectNoDifference(
+      try self.parse("[1,2,3]", as: SIMD3<Int>.self, chunk: chunk),
+      SIMD3(1, 2, 3)
+    )
+    expectNoDifference(
+      try self.parse("[1.25,2.5,3.75,4]", as: SIMD4<Float>.self, chunk: chunk),
+      SIMD4(1.25, 2.5, 3.75, 4)
+    )
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Fixed SIMD arrays parse as nested elements and fields`(chunk: Int) throws {
+    let points = try self.parse(
+      "[[1,2],[3.5,4.5]]", as: StreamArray<SIMD2<Double>>.self, chunk: chunk
+    )
+    expectNoDifference(points, [SIMD2(1, 2), SIMD2(3.5, 4.5)])
+    expectNoDifference(
+      try self.parse("[[1,2,3]]", as: StreamArray<SIMD3<Double>>.self, chunk: chunk),
+      [SIMD3(1, 2, 3)]
+    )
+    expectNoDifference(
+      try self.parse("[[1,2,3,4]]", as: StreamArray<SIMD4<Double>>.self, chunk: chunk),
+      [SIMD4(1, 2, 3, 4)]
+    )
+
+    let object = try self.parse(
+      #"{"point":[5,6],"points":[[7,8],[9,10]]}"#,
+      as: RootSIMDValues.Partial.self,
+      chunk: chunk
+    )
+    expectNoDifference(object.point, SIMD2(5, 6))
+    expectNoDifference(object.points, [SIMD2(7, 8), SIMD2(9, 10)])
+
+    let optionalPoints = try self.parse(
+      "[[1,2],null,[3,4]]", as: StreamArray<SIMD2<Double>?>.self, chunk: chunk
+    )
+    expectNoDifference(optionalPoints, [SIMD2(1, 2), nil, SIMD2(3, 4)])
+    expectNoDifference(
+      try self.parse("[[1,2,3],null]", as: StreamArray<SIMD3<Double>?>.self, chunk: chunk),
+      [SIMD3(1, 2, 3), nil]
+    )
+    expectNoDifference(
+      try self.parse("[null,[1,2,3,4]]", as: StreamArray<SIMD4<Double>?>.self, chunk: chunk),
+      [nil, SIMD4(1, 2, 3, 4)]
+    )
+
+    let dictionary = try self.parse(
+      #"{"a":[1,2],"b":[3,4]}"#,
+      as: StreamDictionary<SIMD2<Double>>.self,
+      chunk: chunk
+    )
+    expectNoDifference(dictionary["a"], SIMD2(1, 2))
+    expectNoDifference(dictionary["b"], SIMD2(3, 4))
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Optional fixed SIMD roots materialize`(chunk: Int) throws {
+    let value = try self.parse("[1,2]", as: SIMD2<Double>?.self, chunk: chunk)
+    expectNoDifference(value, SIMD2(1, 2))
   }
 
   // MARK: - Optional container roots
@@ -179,5 +252,20 @@ struct `Partial sink root tests` {
     )
     expectNoDifference(self.failure("1", as: StreamArray<Int>.self), .typeMismatch)
     expectNoDifference(self.failure("null", as: StreamArray<Int>.self), .typeMismatch)
+  }
+
+  @Test(arguments: [
+    "[]", "[1]", "[1,2,3]", "[1,true]", "[1,null]", #"[1,"two"]"#, "[1,[]]"
+  ])
+  func `Fixed SIMD arrays reject wrong widths and element shapes`(json: String) {
+    expectNoDifference(self.failure(json, as: SIMD2<Double>.self), .typeMismatch)
+  }
+
+  @Test
+  func `Nested fixed SIMD arrays reject a malformed element`() {
+    expectNoDifference(
+      self.failure("[[1,2],[3]]", as: StreamArray<SIMD2<Double>>.self),
+      .typeMismatch
+    )
   }
 }

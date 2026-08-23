@@ -42,6 +42,34 @@ enum _StreamLeafRoute: UInt8, Sendable {
   case dictionaryOptionalStreamString
   case dictionaryBool
   case dictionaryOptionalBool
+  // Kept contiguous and ordered by width. The sink uses the route both to distinguish a fixed
+  // array from an ordinary one and to recover the exact arity without storing another field in
+  // every schema. The generic cases still call `applyNumber`; the Double cases bypass it.
+  case simd2Number
+  case simd3Number
+  case simd4Number
+  case simd2Double
+  case simd3Double
+  case simd4Double
+  case optionalSIMD2Double
+  case optionalSIMD3Double
+  case optionalSIMD4Double
+  case arraySIMD2Double
+  case arraySIMD3Double
+  case arraySIMD4Double
+  case arrayOptionalSIMD2Double
+  case arrayOptionalSIMD3Double
+  case arrayOptionalSIMD4Double
+
+  @usableFromInline
+  var fixedSIMDLaneCount: Int32 {
+    switch self {
+    case .simd2Number, .simd2Double, .optionalSIMD2Double: 2
+    case .simd3Number, .simd3Double, .optionalSIMD3Double: 3
+    case .simd4Number, .simd4Double, .optionalSIMD4Double: 4
+    default: 0
+    }
+  }
 
   @usableFromInline
   static func optionalValue(_ base: Self) -> Self {
@@ -50,6 +78,9 @@ enum _StreamLeafRoute: UInt8, Sendable {
     case .valueBool: .valueOptionalBool
     case .valueDouble: .valueOptionalDouble
     case .valueInt: .valueOptionalInt
+    case .simd2Double: .optionalSIMD2Double
+    case .simd3Double: .optionalSIMD3Double
+    case .simd4Double: .optionalSIMD4Double
     default: .generic
     }
   }
@@ -65,6 +96,12 @@ enum _StreamLeafRoute: UInt8, Sendable {
     case .valueInt: .arrayInt
     case .valueOptionalDouble: .arrayOptionalDouble
     case .valueOptionalInt: .arrayOptionalInt
+    case .simd2Double: .arraySIMD2Double
+    case .simd3Double: .arraySIMD3Double
+    case .simd4Double: .arraySIMD4Double
+    case .optionalSIMD2Double: .arrayOptionalSIMD2Double
+    case .optionalSIMD3Double: .arrayOptionalSIMD3Double
+    case .optionalSIMD4Double: .arrayOptionalSIMD4Double
     default: .generic
     }
   }
@@ -431,6 +468,107 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
   )
 }
 
+// MARK: - Fixed-width SIMD schemas
+
+// A SIMD value is a JSON array, but unlike `StreamArray` its element count and storage are known
+// before parsing begins. `PartialSink` keeps the next lane in the frame's existing `pendingField`
+// and passes it here as `field` for scalar types without a closed direct route. There is therefore
+// no cursor, optional pending element or allocation in the value itself.
+@inlinable
+public func _streamSIMD2Schema<Scalar>(
+  _ type: SIMD2<Scalar>.Type
+) -> StreamSchema where Scalar: StreamNumberConvertible & StreamInitializable {
+  if Scalar.self == Double.self { return _streamSIMD2DoubleSchema }
+  return StreamSchema(
+    shape: .array,
+    applyNumber: { storage, field, bytes, info in
+      guard field >= 0, field < 2, let value = Scalar(streamParsing: bytes, info: info) else {
+        return false
+      }
+      storage.assumingMemoryBound(to: SIMD2<Scalar>.self).pointee[Int(field)] = value
+      return true
+    },
+    leafRoute: .simd2Number
+  )
+}
+
+@inlinable
+public func _streamSIMD3Schema<Scalar>(
+  _ type: SIMD3<Scalar>.Type
+) -> StreamSchema where Scalar: StreamNumberConvertible & StreamInitializable {
+  if Scalar.self == Double.self { return _streamSIMD3DoubleSchema }
+  return StreamSchema(
+    shape: .array,
+    applyNumber: { storage, field, bytes, info in
+      guard field >= 0, field < 3, let value = Scalar(streamParsing: bytes, info: info) else {
+        return false
+      }
+      storage.assumingMemoryBound(to: SIMD3<Scalar>.self).pointee[Int(field)] = value
+      return true
+    },
+    leafRoute: .simd3Number
+  )
+}
+
+@inlinable
+public func _streamSIMD4Schema<Scalar>(
+  _ type: SIMD4<Scalar>.Type
+) -> StreamSchema where Scalar: StreamNumberConvertible & StreamInitializable {
+  if Scalar.self == Double.self { return _streamSIMD4DoubleSchema }
+  return StreamSchema(
+    shape: .array,
+    applyNumber: { storage, field, bytes, info in
+      guard field >= 0, field < 4, let value = Scalar(streamParsing: bytes, info: info) else {
+        return false
+      }
+      storage.assumingMemoryBound(to: SIMD4<Scalar>.self).pointee[Int(field)] = value
+      return true
+    },
+    leafRoute: .simd4Number
+  )
+}
+
+// Durable exact schemas let the sink open a SIMD element directly from a known parent array
+// without constructing a frame whose schema is its only owner.
+@usableFromInline
+let _streamSIMD2DoubleSchema = StreamSchema(
+  shape: .array,
+  applyNumber: { storage, field, bytes, info in
+    guard field >= 0, field < 2, let value = Double(streamParsing: bytes, info: info) else {
+      return false
+    }
+    storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(field)] = value
+    return true
+  },
+  leafRoute: .simd2Double
+)
+
+@usableFromInline
+let _streamSIMD3DoubleSchema = StreamSchema(
+  shape: .array,
+  applyNumber: { storage, field, bytes, info in
+    guard field >= 0, field < 3, let value = Double(streamParsing: bytes, info: info) else {
+      return false
+    }
+    storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(field)] = value
+    return true
+  },
+  leafRoute: .simd3Double
+)
+
+@usableFromInline
+let _streamSIMD4DoubleSchema = StreamSchema(
+  shape: .array,
+  applyNumber: { storage, field, bytes, info in
+    guard field >= 0, field < 4, let value = Double(streamParsing: bytes, info: info) else {
+      return false
+    }
+    storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(field)] = value
+    return true
+  },
+  leafRoute: .simd4Double
+)
+
 // MARK: - Container schemas
 
 @inlinable
@@ -447,7 +585,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
         schema: element
       )
     },
-    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic
+    leafRoute: .array(element.leafRoute)
   )
 }
 
@@ -490,7 +628,9 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     enterField: base.enterField,
     appendElement: base.appendElement,
     enterKey: base.enterKey,
-    leafRoute: base.shape == .scalar ? .optionalValue(base.leafRoute) : .generic
+    leafRoute: base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
+      ? .optionalValue(base.leafRoute)
+      : .generic
   )
 }
 

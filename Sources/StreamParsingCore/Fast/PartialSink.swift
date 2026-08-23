@@ -188,6 +188,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
     var frame = initialFrame
     frame.leafRoute = frame.schema.leafRoute
+    if frame.leafRoute.fixedSIMDLaneCount != 0 {
+      // Objects use this field for a matched member. A fixed-width array has no keys, so the same
+      // four bytes are its lane cursor without increasing the 24-byte frame.
+      frame.pendingField = 0
+    }
     (self.frames + self.frameCount).initialize(to: frame)
     self.frameCount &+= 1
     self.activeLeafRoute = frame.leafRoute
@@ -214,6 +219,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   public mutating func beginArray() {
+    switch self.activeLeafRoute {
+    case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
+      .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
+      self.openKnownSIMDDoubleElement(self.activeLeafRoute)
+      return
+    default:
+      break
+    }
     self.enterContainer(shape: .array)
   }
 
@@ -222,6 +235,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   public mutating func endArray() {
+    if self.droppedFrameCount == 0 {
+      let expected = self.activeLeafRoute.fixedSIMDLaneCount
+      if expected != 0, self.topFrame?.pointee.pendingField != expected {
+        self.recordFailure(.typeMismatch)
+      }
+    }
     self.popFrame()
   }
 
@@ -334,6 +353,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.homogeneousStringStorage = self.openKnownStreamStringTarget(self.activeLeafRoute)
       self.scalarTarget = nil
       return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.scalarTarget = nil
+      self.recordFailure(.typeMismatch)
+      return
     default:
       break
     }
@@ -374,6 +399,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     case .arrayInt:
       self.appendHomogeneousInt(bytes, info: info)
       return
+    case .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.applyKnownSIMDDouble(bytes, info: info, route: self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number:
+      self.applySIMDNumberNormally(bytes, info: info, route: self.activeLeafRoute)
+      return
     default:
       self.applyNumberNormally(bytes, info: info)
       return
@@ -384,6 +416,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     switch self.activeLeafRoute {
     case .arrayBool, .arrayOptionalBool, .dictionaryBool, .dictionaryOptionalBool:
       self.applyKnownBoolean(value, route: self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.recordFailure(.typeMismatch)
       return
     default:
       self.applyBooleanNormally(value)
@@ -403,6 +440,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       .arrayOptionalDouble, .arrayOptionalInt,
       .dictionaryOptionalStreamString, .dictionaryOptionalBool:
       self.applyKnownNull(self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.recordFailure(.typeMismatch)
       return
     default:
       self.applyNullNormally()
@@ -537,6 +579,45 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   @inline(never)
+  private mutating func openKnownSIMDDoubleElement(_ route: _StreamLeafRoute) {
+    guard let top = self.topFrame else { return }
+    switch route {
+    case .arraySIMD2Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD2<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+    case .arraySIMD3Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD3<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+    case .arraySIMD4Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD4<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+    case .arrayOptionalSIMD2Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD2<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+    case .arrayOptionalSIMD3Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD3<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+    case .arrayOptionalSIMD4Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD4<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+    default:
+      preconditionFailure("A non-SIMD-array route reached the closed SIMD element opener")
+    }
+  }
+
+  @inline(never)
   private mutating func appendHomogeneousDouble(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let value = Double(streamParsing: bytes, info: info) else {
       self.recordFailure(.typeMismatch)
@@ -556,6 +637,54 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard let top = self.topFrame else { return }
     _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
       ._openElement(value)
+  }
+
+  @inline(never)
+  private mutating func applyKnownSIMDDouble(
+    _ bytes: Span<UInt8>,
+    info: NumberInfo,
+    route: _StreamLeafRoute
+  ) {
+    guard let top = self.topFrame else { return }
+    let lane = top.pointee.pendingField
+    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let value = Double(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    switch route {
+    case .simd2Double, .optionalSIMD2Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(lane)] = value
+    case .simd3Double, .optionalSIMD3Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(lane)] = value
+    case .simd4Double, .optionalSIMD4Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(lane)] = value
+    default:
+      preconditionFailure("A non-Double SIMD route reached the closed Double writer")
+    }
+    top.pointee.pendingField = lane &+ 1
+  }
+
+  @inline(never)
+  private mutating func applySIMDNumberNormally(
+    _ bytes: Span<UInt8>,
+    info: NumberInfo,
+    route: _StreamLeafRoute
+  ) {
+    guard let top = self.topFrame else { return }
+    let lane = top.pointee.pendingField
+    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard top.pointee.schema.applyNumber(top.pointee.storage, lane, bytes, info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    top.pointee.pendingField = lane &+ 1
   }
 
   // Outlining the closure route keeps its register pressure out of `number`. The public entry

@@ -187,7 +187,7 @@ struct BenchmarkCanadaProperties: Hashable, Sendable {
 @StreamParseable
 struct BenchmarkCanadaGeometry: Hashable, Sendable {
   var type: String = ""
-  var coordinates: [[[Double]]] = []
+  var coordinates: [[SIMD2<Double>]] = []
 }
 
 // MARK: - Mesh
@@ -198,10 +198,10 @@ struct BenchmarkCanadaGeometry: Hashable, Sendable {
 // than sitting in separate regions. `colors` holds packed ARGB words above `Int32.max`, so it is
 // `Int` rather than the narrower type the values look like they want.
 //
-// `influences` is `[[Double]]`, not `[[Int]]`: its pairs are written `[1.0,0]`, mixing a decimal
-// and an integer inside one array, and an `Int` member rejects the decimal on its `.fraction`
-// flag. That is the payload's point -- shapes vary within a single array, not just between
-// fields -- and it is what the `positions?.count` preconditions below exist to catch.
+// `influences` is `[SIMD2<Double>]`, not an integer vector: its pairs are written `[1.0,0]`,
+// mixing a decimal and an integer inside one array, and an `Int` lane rejects the decimal on its
+// `.fraction` flag. That is the payload's point -- shapes vary within a single array, not just
+// between fields -- and it is what the `positions?.count` preconditions below exist to catch.
 //
 // `morphTargets` is an empty object in the document and is deliberately not modelled; the parser
 // skips unmatched keys, which is also what keeps this model honest about the skip path.
@@ -211,7 +211,7 @@ struct BenchmarkMesh: Hashable, Sendable {
   var positions: [Double] = []
   var tex0: [Double] = []
   var colors: [Int] = []
-  var influences: [[Double]] = []
+  var influences: [SIMD2<Double>] = []
   var normals: [Double] = []
   var indices: [Int] = []
 }
