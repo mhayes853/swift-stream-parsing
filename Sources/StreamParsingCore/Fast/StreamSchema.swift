@@ -10,6 +10,77 @@ public struct StreamFrame {
   }
 }
 
+// MARK: - Closed homogeneous leaf routes
+
+// The public conversion protocols remain open-ended. This byte is deliberately not: it names the
+// few exact standard-library/storage pairings whose implementation PartialSink can see through
+// completely. Everything else stays `.generic` and uses the schema closures, so adding a custom
+// conformer never changes correctness and adding a fast route is an explicit benchmarked choice.
+//
+// A scalar schema carries a `value...` case only so an array/dictionary builder can map it to the
+// exact container operation. Only container cases are ever cached on an active frame.
+@usableFromInline
+enum _StreamLeafRoute: UInt8, Sendable {
+  case generic
+  case valueStreamString
+  case valueBool
+  case valueDouble
+  case valueInt
+  case valueOptionalStreamString
+  case valueOptionalBool
+  case valueOptionalDouble
+  case valueOptionalInt
+  case arrayStreamString
+  case arrayOptionalStreamString
+  case arrayBool
+  case arrayOptionalBool
+  case arrayDouble
+  case arrayInt
+  case arrayOptionalDouble
+  case arrayOptionalInt
+  case dictionaryStreamString
+  case dictionaryOptionalStreamString
+  case dictionaryBool
+  case dictionaryOptionalBool
+
+  @usableFromInline
+  static func optionalValue(_ base: Self) -> Self {
+    switch base {
+    case .valueStreamString: .valueOptionalStreamString
+    case .valueBool: .valueOptionalBool
+    case .valueDouble: .valueOptionalDouble
+    case .valueInt: .valueOptionalInt
+    default: .generic
+    }
+  }
+
+  @usableFromInline
+  static func array(_ element: Self) -> Self {
+    switch element {
+    case .valueStreamString: .arrayStreamString
+    case .valueOptionalStreamString: .arrayOptionalStreamString
+    case .valueBool: .arrayBool
+    case .valueOptionalBool: .arrayOptionalBool
+    case .valueDouble: .arrayDouble
+    case .valueInt: .arrayInt
+    case .valueOptionalDouble: .arrayOptionalDouble
+    case .valueOptionalInt: .arrayOptionalInt
+    default: .generic
+    }
+  }
+
+  @usableFromInline
+  static func dictionary(_ value: Self) -> Self {
+    switch value {
+    case .valueStreamString: .dictionaryStreamString
+    case .valueOptionalStreamString: .dictionaryOptionalStreamString
+    case .valueBool: .dictionaryBool
+    case .valueOptionalBool: .dictionaryOptionalBool
+    default: .generic
+    }
+  }
+}
+
 public final class StreamSchema: Sendable {
   public enum Shape: UInt8, Sendable {
     case object
@@ -108,9 +179,14 @@ public final class StreamSchema: Sendable {
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
+  // Exact homogeneous operations the sink may perform without constructing a StreamFrame or
+  // calling a stored closure. Hand-written schemas and unrecognized protocol conformers remain
+  // `.generic`, preserving the public API's open-ended behavior.
+  @usableFromInline let leafRoute: _StreamLeafRoute
+
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
-  public init(
+  public convenience init(
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
@@ -130,6 +206,43 @@ public final class StreamSchema: Sendable {
       _, _ in nil
     }
   ) {
+    self.init(
+      shape: shape,
+      prepareRoot: prepareRoot,
+      matchField: matchField,
+      applyString: applyString,
+      applyNumber: applyNumber,
+      applyBoolean: applyBoolean,
+      applyNull: applyNull,
+      enterField: enterField,
+      appendElement: appendElement,
+      enterKey: enterKey,
+      leafRoute: .generic
+    )
+  }
+
+  @usableFromInline
+  init(
+    shape: Shape,
+    prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
+    matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
+    applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
+      _, _, _ in false
+    },
+    applyNumber: @escaping @Sendable (
+      UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
+    ) -> Bool = { _, _, _, _ in false },
+    applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool = {
+      _, _, _ in false
+    },
+    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
+    enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
+    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
+      _, _ in nil
+    },
+    leafRoute: _StreamLeafRoute = .generic
+  ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
     self.ignoresKeys = matchField == nil
@@ -144,6 +257,7 @@ public final class StreamSchema: Sendable {
     self.enterField = enterField
     self.appendElement = appendElement
     self.enterKey = enterKey
+    self.leafRoute = leafRoute
   }
 }
 
@@ -278,12 +392,13 @@ public protocol StreamParseableObject: StreamContainerPartial {}
 
 @inlinable
 public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> StreamSchema {
-  StreamSchema(
+  return StreamSchema(
     shape: .scalar,
     applyString: { storage, _, bytes in
       storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
       return true
-    }
+    },
+    leafRoute: T.self == StreamString.self ? .valueStreamString : .generic
   )
 }
 
@@ -297,7 +412,10 @@ public func _streamNumberSchema<T: StreamNumberConvertible>(_ type: T.Type) -> S
       guard let parsed = T(streamParsing: bytes, info: info) else { return false }
       storage.assumingMemoryBound(to: T.self).pointee = parsed
       return true
-    }
+    },
+    leafRoute: T.self == Double.self
+      ? .valueDouble
+      : (T.self == Int.self ? .valueInt : .generic)
   )
 }
 
@@ -308,7 +426,8 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
     applyBoolean: { storage, _, value in
       storage.assumingMemoryBound(to: T.self).pointee = T(streamParsingBoolean: value)
       return true
-    }
+    },
+    leafRoute: T.self == Bool.self ? .valueBool : .generic
   )
 }
 
@@ -327,7 +446,8 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
         initial: Element.streamElementInitialValue(),
         schema: element
       )
-    }
+    },
+    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic
   )
 }
 
@@ -349,7 +469,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
 // expressible at all — before it, a null arriving at an element and a null arriving at the
 // element's first field were the same call with the same arguments.
 @inlinable
-public func _streamOptionalElementSchema<Wrapped>(
+public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
   _ type: Wrapped.Type,
   base: StreamSchema
 ) -> StreamSchema {
@@ -369,7 +489,8 @@ public func _streamOptionalElementSchema<Wrapped>(
     },
     enterField: base.enterField,
     appendElement: base.appendElement,
-    enterKey: base.enterKey
+    enterKey: base.enterKey,
+    leafRoute: base.shape == .scalar ? .optionalValue(base.leafRoute) : .generic
   )
 }
 
@@ -378,7 +499,7 @@ public func _streamOptionalElementSchema<Wrapped>(
 // `streamInitialValue()` is `nil`, and applying the wrapped type's schema to the `.none`
 // representation is a write through a pointer to a value that is not there.
 @inlinable
-public func _streamOptionalArraySchema<Wrapped: StreamInitializable>(
+public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   _ type: Wrapped.Type,
   element base: StreamSchema
 ) -> StreamSchema {
@@ -391,12 +512,13 @@ public func _streamOptionalArraySchema<Wrapped: StreamInitializable>(
         initial: Wrapped?.some(Wrapped.streamInitialValue()),
         schema: element
       )
-    }
+    },
+    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic
   )
 }
 
 @inlinable
-public func _streamOptionalDictionarySchema<Wrapped: StreamInitializable>(
+public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   _ type: Wrapped.Type,
   value base: StreamSchema
 ) -> StreamSchema {
@@ -410,7 +532,8 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamInitializable>(
         initial: Wrapped?.some(Wrapped.streamInitialValue()),
         schema: value
       )
-    }
+    },
+    leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic
   )
 }
 
@@ -428,7 +551,8 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
         initial: Value.streamElementInitialValue(),
         schema: valueSchema
       )
-    }
+    },
+    leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic
   )
 }
 

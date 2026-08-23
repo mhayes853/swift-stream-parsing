@@ -169,6 +169,51 @@ struct `Partial sink tests` {
   }
 
   @Test(arguments: [Int.max, 7, 1])
+  func `Homogeneous leaf roots preserve repeated and optional values`(chunk: Int) throws {
+    var doubles = StreamArray<Double>()
+    try parsePartial("[1.25,0,-2.5]", into: &doubles, chunk: chunk)
+    expectNoDifference(doubles, [1.25, 0, -2.5])
+
+    var integers = StreamArray<Int>()
+    try parsePartial("[1,0,-2]", into: &integers, chunk: chunk)
+    expectNoDifference(integers, [1, 0, -2])
+
+    var booleans = StreamArray<Bool>()
+    try parsePartial("[true,false,true]", into: &booleans, chunk: chunk)
+    expectNoDifference(booleans, [true, false, true])
+
+    var optionalBooleans = StreamArray<Bool?>()
+    try parsePartial("[true,null,false]", into: &optionalBooleans, chunk: chunk)
+    expectNoDifference(optionalBooleans, [true, nil, false])
+
+    var booleanDictionary = StreamDictionary<Bool>()
+    try parsePartial(#"{"a":false,"a":true,"b":false}"#, into: &booleanDictionary, chunk: chunk)
+    expectNoDifference(booleanDictionary["a"], true)
+    expectNoDifference(booleanDictionary["b"], false)
+
+    var optionalBooleanDictionary = StreamDictionary<Bool?>()
+    try parsePartial(
+      #"{"a":null,"a":true,"b":false,"b":null}"#,
+      into: &optionalBooleanDictionary,
+      chunk: chunk
+    )
+    expectNoDifference(optionalBooleanDictionary["a"] ?? nil, true)
+    expectNoDifference(optionalBooleanDictionary["b"] ?? nil, nil)
+
+    var strings = StreamDictionary<StreamString>()
+    try parsePartial(#"{"s":"a","s":"b"}"#, into: &strings, chunk: chunk)
+    expectNoDifference(strings["s"], StreamString("ab"))
+
+    var optionalStrings = StreamDictionary<StreamString?>()
+    try parsePartial(
+      #"{"s":null,"s":"a","s":"b"}"#,
+      into: &optionalStrings,
+      chunk: chunk
+    )
+    expectNoDifference(optionalStrings["s"] ?? nil, StreamString("ab"))
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
   func `Routes into containers of optionals`(chunk: Int) throws {
     var value = SinkOptionalElements.Partial()
     try parsePartial(

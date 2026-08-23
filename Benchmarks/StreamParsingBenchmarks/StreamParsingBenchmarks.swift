@@ -131,6 +131,7 @@ let benchmarks: @Sendable () -> Void = {
   realWorldBenchmarks()
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()
+  homogeneousLeafBenchmarks()
   keyLookupBenchmarks()
 }
 

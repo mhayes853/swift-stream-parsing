@@ -18,12 +18,17 @@ struct BorrowedFrame {
   @usableFromInline var storage: UnsafeMutableRawPointer
   @usableFromInline unowned(unsafe) var schema: StreamSchema
   @usableFromInline var pendingField: Int32
+  // Occupies padding the 24-byte frame already had. Copying the schema's precomputed byte when a
+  // container opens keeps ordinary object scalars from chasing cold leaf metadata merely to
+  // reject a fast route.
+  @usableFromInline var leafRoute: _StreamLeafRoute
 
   @usableFromInline
   init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
     self.storage = storage
     self.schema = schema
     self.pendingField = pendingField
+    self.leafRoute = .generic
   }
 
   @usableFromInline
@@ -31,6 +36,7 @@ struct BorrowedFrame {
     self.storage = frame.storage
     self.schema = frame.schema
     self.pendingField = frame.pendingField
+    self.leafRoute = .generic
   }
 }
 
@@ -107,7 +113,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var rootSchema: StreamSchema
   @usableFromInline var started = false
+  // Cached from the top frame in padding next to `started`, so the common scalar route tests a
+  // fixed byte rather than calling out to rediscover the top frame and its schema.
+  @usableFromInline var activeLeafRoute: _StreamLeafRoute = .generic
   @usableFromInline var pendingDictionaryFrame: BorrowedFrame?
+  @usableFromInline var pendingDictionaryStorage: UnsafeMutableRawPointer?
 
   // The frame stack, one fixed allocation rather than an `Array`.
   //
@@ -167,7 +177,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   @usableFromInline
-  mutating func pushFrame(_ frame: BorrowedFrame) {
+  mutating func pushFrame(_ initialFrame: BorrowedFrame) {
     #if DEBUG && !hasFeature(Embedded)
       self.audit.verify()
     #endif
@@ -176,8 +186,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.recordFailure(.depthExceeded)
       return
     }
+    var frame = initialFrame
+    frame.leafRoute = frame.schema.leafRoute
     (self.frames + self.frameCount).initialize(to: frame)
     self.frameCount &+= 1
+    self.activeLeafRoute = frame.leafRoute
   }
 
   @usableFromInline
@@ -189,6 +202,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard self.frameCount > 0 else { return }
     self.frameCount &-= 1
     (self.frames + self.frameCount).deinitialize(count: 1)
+    self.activeLeafRoute = self.frameCount == 0
+      ? .generic
+      : (self.frames + (self.frameCount &- 1)).pointee.leafRoute
   }
 
   // MARK: Containers
@@ -241,7 +257,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     switch top.pointee.schema.shape {
     case .array: return true
     case .object: return top.pointee.pendingField >= 0
-    case .dictionary: return self.pendingDictionaryFrame != nil
+    case .dictionary:
+      return self.pendingDictionaryStorage != nil || self.pendingDictionaryFrame != nil
     case .scalar: return true
     }
   }
@@ -288,6 +305,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     case .match:
       top.pointee.pendingField = top.pointee.schema.matchField(bytes)
     case .dictionary:
+      switch self.activeLeafRoute {
+      case .dictionaryStreamString, .dictionaryOptionalStreamString,
+        .dictionaryBool, .dictionaryOptionalBool:
+        self.pendingDictionaryStorage = self.openKnownDictionaryValue(
+          top.pointee.storage, route: self.activeLeafRoute, forKey: bytes
+        )
+        self.pendingDictionaryFrame = nil
+        return
+      default:
+        break
+      }
       // The key span does not outlive this call, so the value's frame is resolved now rather
       // than remembered and resolved when the value arrives.
       self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
@@ -300,6 +328,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // MARK: Scalars
 
   public mutating func stringBegin() {
+    switch self.activeLeafRoute {
+    case .arrayStreamString, .arrayOptionalStreamString,
+      .dictionaryStreamString, .dictionaryOptionalStreamString:
+      self.homogeneousStringStorage = self.openKnownStreamStringTarget(self.activeLeafRoute)
+      self.scalarTarget = nil
+      return
+    default:
+      break
+    }
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
@@ -316,23 +353,41 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   public mutating func stringChunk(_ bytes: Span<UInt8>) {
+    if let storage = self.homogeneousStringStorage {
+      storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
+      return
+    }
     guard let target = self.scalarTarget else { return }
     _ = target.schema.applyString(target.storage, target.field, bytes)
   }
 
   public mutating func stringEnd() {
+    self.homogeneousStringStorage = nil
     self.scalarTarget = nil
   }
 
   public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    self.withScalarTarget { storage, field, schema in
-      schema.applyNumber(storage, field, bytes, info)
+    switch self.activeLeafRoute {
+    case .arrayDouble:
+      self.appendHomogeneousDouble(bytes, info: info)
+      return
+    case .arrayInt:
+      self.appendHomogeneousInt(bytes, info: info)
+      return
+    default:
+      self.applyNumberNormally(bytes, info: info)
+      return
     }
   }
 
   public mutating func boolean(_ value: Bool) {
-    self.withScalarTarget { storage, field, schema in
-      schema.applyBoolean(storage, field, value)
+    switch self.activeLeafRoute {
+    case .arrayBool, .arrayOptionalBool, .dictionaryBool, .dictionaryOptionalBool:
+      self.applyKnownBoolean(value, route: self.activeLeafRoute)
+      return
+    default:
+      self.applyBooleanNormally(value)
+      return
     }
   }
 
@@ -343,8 +398,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       }
       return
     }
-    self.withScalarTarget { storage, field, schema in
-      schema.applyNull(storage, field)
+    switch self.activeLeafRoute {
+    case .arrayOptionalStreamString, .arrayOptionalBool,
+      .arrayOptionalDouble, .arrayOptionalInt,
+      .dictionaryOptionalStreamString, .dictionaryOptionalBool:
+      self.applyKnownNull(self.activeLeafRoute)
+      return
+    default:
+      self.applyNullNormally()
+      return
     }
   }
 
@@ -365,6 +427,160 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   @usableFromInline var scalarTarget: ScalarTarget?
+
+  @usableFromInline var homogeneousStringStorage: UnsafeMutableRawPointer?
+
+  @inline(never)
+  private mutating func openKnownStreamStringTarget(
+    _ route: _StreamLeafRoute
+  ) -> UnsafeMutableRawPointer? {
+    guard let top = self.topFrame else { return nil }
+    switch route {
+    case .arrayStreamString:
+      return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString>.self)
+        .pointee._openElement(StreamString())
+    case .arrayOptionalStreamString:
+      return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString?>.self)
+        .pointee._openElement(.some(StreamString()))
+    case .dictionaryStreamString:
+      guard let pending = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      return pending
+    case .dictionaryOptionalStreamString:
+      guard let pending = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      _streamMaterializeOptional(pending, as: StreamString.self)
+      return pending
+    default:
+      return nil
+    }
+  }
+
+  @inline(never)
+  private mutating func applyKnownBoolean(_ value: Bool, route: _StreamLeafRoute) {
+    switch route {
+    case .arrayBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool>.self).pointee
+        ._openElement(value)
+    case .arrayOptionalBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool?>.self).pointee
+        ._openElement(.some(value))
+    case .dictionaryBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool.self).pointee = value
+    case .dictionaryOptionalBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool?.self).pointee = .some(value)
+    default:
+      return
+    }
+  }
+
+  @inline(never)
+  private mutating func applyKnownNull(_ route: _StreamLeafRoute) {
+    switch route {
+    case .arrayOptionalStreamString:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalDouble:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Double?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalInt:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int?>.self)
+        .pointee._openElement(nil)
+    case .dictionaryOptionalStreamString:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: StreamString?.self).pointee = nil
+    case .dictionaryOptionalBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool?.self).pointee = nil
+    default:
+      return
+    }
+  }
+
+  @inline(never)
+  private mutating func openKnownDictionaryValue(
+    _ storage: UnsafeMutableRawPointer,
+    route: _StreamLeafRoute,
+    forKey key: Span<UInt8>
+  ) -> UnsafeMutableRawPointer {
+    switch route {
+    case .dictionaryStreamString:
+      return storage.assumingMemoryBound(to: StreamDictionary<StreamString>.self).pointee
+        ._openValue(forKey: key, initial: StreamString())
+    case .dictionaryOptionalStreamString:
+      return storage.assumingMemoryBound(to: StreamDictionary<StreamString?>.self).pointee
+        ._openValue(forKey: key, initial: .some(StreamString()))
+    case .dictionaryBool:
+      return storage.assumingMemoryBound(to: StreamDictionary<Bool>.self).pointee
+        ._openValue(forKey: key, initial: false)
+    case .dictionaryOptionalBool:
+      return storage.assumingMemoryBound(to: StreamDictionary<Bool?>.self).pointee
+        ._openValue(forKey: key, initial: .some(false))
+    default:
+      preconditionFailure("A generic dictionary route reached the closed leaf opener")
+    }
+  }
+
+  @inline(never)
+  private mutating func appendHomogeneousDouble(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let value = Double(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let top = self.topFrame else { return }
+    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
+      ._openElement(value)
+  }
+
+  @inline(never)
+  private mutating func appendHomogeneousInt(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let value = Int(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let top = self.topFrame else { return }
+    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
+      ._openElement(value)
+  }
+
+  // Outlining the closure route keeps its register pressure out of `number`. The public entry
+  // point can then tail-call one of three routes after testing the cached byte instead of saving
+  // every register needed only by the generic schema branch before it knows which route applies.
+  @inline(never)
+  private mutating func applyNumberNormally(_ bytes: Span<UInt8>, info: NumberInfo) {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyNumber(storage, field, bytes, info)
+    }
+  }
+
+  @inline(never)
+  private mutating func applyBooleanNormally(_ value: Bool) {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyBoolean(storage, field, value)
+    }
+  }
+
+  @inline(never)
+  private mutating func applyNullNormally() {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyNull(storage, field)
+    }
+  }
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
     #if DEBUG && !hasFeature(Embedded)
@@ -395,6 +611,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField
       )
     case .dictionary:
+      if let storage = self.pendingDictionaryStorage {
+        self.pendingDictionaryStorage = nil
+        return ScalarTarget(
+          storage: storage,
+          schema: top.pointee.schema,
+          field: StreamSchema.wholeValueField
+        )
+      }
       guard let frame = self.pendingDictionaryFrame else { return nil }
       return ScalarTarget(
         storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField

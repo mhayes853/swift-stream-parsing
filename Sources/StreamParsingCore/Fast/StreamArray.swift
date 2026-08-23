@@ -355,7 +355,6 @@ extension StreamArray {
   /// pointer stays valid until the next call, which is what the sink guarantees by resolving an
   /// element's destination once per element rather than once per token.
   @inlinable
-  // swiftlint:disable:next identifier_name
   public mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
     self.drainPending()
     self.pending = initial
