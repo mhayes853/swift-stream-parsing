@@ -132,6 +132,9 @@ let benchmarks: @Sendable () -> Void = {
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()
   homogeneousLeafBenchmarks()
+  if #available(macOS 26.0, *) {
+    inlineArrayBenchmarks()
+  }
   keyLookupBenchmarks()
 }
 

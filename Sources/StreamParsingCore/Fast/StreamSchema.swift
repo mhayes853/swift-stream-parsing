@@ -60,6 +60,7 @@ enum _StreamLeafRoute: UInt8, Sendable {
   case arrayOptionalSIMD2Double
   case arrayOptionalSIMD3Double
   case arrayOptionalSIMD4Double
+  case inlineArray
 
   @usableFromInline
   var fixedSIMDLaneCount: Int32 {
@@ -69,6 +70,11 @@ enum _StreamLeafRoute: UInt8, Sendable {
     case .simd4Number, .simd4Double, .optionalSIMD4Double: 4
     default: 0
     }
+  }
+
+  @usableFromInline
+  var usesFrameElementIndex: Bool {
+    self == .inlineArray || self.fixedSIMDLaneCount != 0
   }
 
   @usableFromInline
@@ -211,7 +217,11 @@ public final class StreamSchema: Sendable {
   public let enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
 
   // Appends an element and returns a frame for it. Arrays only.
-  public let appendElement: @Sendable (UnsafeMutableRawPointer) -> StreamFrame?
+  //
+  // Dynamic arrays ignore `index`; fixed arrays use it to address their inline storage. Carrying
+  // the cursor through the existing operation avoids adding a second element-opening witness to
+  // every schema merely for the fixed case.
+  public let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
 
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
@@ -220,6 +230,10 @@ public final class StreamSchema: Sendable {
   // calling a stored closure. Hand-written schemas and unrecognized protocol conformers remain
   // `.generic`, preserving the public API's open-ended behavior.
   @usableFromInline let leafRoute: _StreamLeafRoute
+
+  // Negative for a dynamic array. Kept off the frame: only an InlineArray's open and close need
+  // it, while adding it to BorrowedFrame would grow every frame from 24 to 32 bytes.
+  @usableFromInline let fixedElementCount: Int32
 
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
@@ -238,7 +252,9 @@ public final class StreamSchema: Sendable {
     },
     applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
-    appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
+      _, _ in nil
+    },
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
     }
@@ -254,7 +270,8 @@ public final class StreamSchema: Sendable {
       enterField: enterField,
       appendElement: appendElement,
       enterKey: enterKey,
-      leafRoute: .generic
+      leafRoute: .generic,
+      fixedElementCount: -1
     )
   }
 
@@ -274,11 +291,14 @@ public final class StreamSchema: Sendable {
     },
     applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
-    appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
+      _, _ in nil
+    },
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
     },
-    leafRoute: _StreamLeafRoute = .generic
+    leafRoute: _StreamLeafRoute = .generic,
+    fixedElementCount: Int32 = -1
   ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
@@ -295,6 +315,7 @@ public final class StreamSchema: Sendable {
     self.appendElement = appendElement
     self.enterKey = enterKey
     self.leafRoute = leafRoute
+    self.fixedElementCount = fixedElementCount
   }
 }
 
@@ -578,7 +599,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
 ) -> StreamSchema {
   StreamSchema(
     shape: .array,
-    appendElement: { storage in
+    appendElement: { storage, _ in
       _streamOpenElement(
         in: &storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee,
         initial: Element.streamElementInitialValue(),
@@ -628,9 +649,12 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     enterField: base.enterField,
     appendElement: base.appendElement,
     enterKey: base.enterKey,
-    leafRoute: base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
-      ? .optionalValue(base.leafRoute)
-      : .generic
+    leafRoute: base.leafRoute == .inlineArray
+      ? .inlineArray
+      : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
+        ? .optionalValue(base.leafRoute)
+        : .generic),
+    fixedElementCount: base.fixedElementCount
   )
 }
 
@@ -646,7 +670,7 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
   return StreamSchema(
     shape: .array,
-    appendElement: { storage in
+    appendElement: { storage, _ in
       _streamOpenElement(
         in: &storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee,
         initial: Wrapped?.some(Wrapped.streamInitialValue()),

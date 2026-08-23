@@ -188,9 +188,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
     var frame = initialFrame
     frame.leafRoute = frame.schema.leafRoute
-    if frame.leafRoute.fixedSIMDLaneCount != 0 {
+    if frame.leafRoute.usesFrameElementIndex {
       // Objects use this field for a matched member. A fixed-width array has no keys, so the same
-      // four bytes are its lane cursor without increasing the 24-byte frame.
+      // four bytes are its element cursor without increasing the 24-byte frame.
       frame.pendingField = 0
     }
     (self.frames + self.frameCount).initialize(to: frame)
@@ -236,8 +236,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   public mutating func endArray() {
     if self.droppedFrameCount == 0 {
-      let expected = self.activeLeafRoute.fixedSIMDLaneCount
-      if expected != 0, self.topFrame?.pointee.pendingField != expected {
+      let expected: Int32
+      if self.activeLeafRoute == .inlineArray {
+        expected = self.topFrame?.pointee.schema.fixedElementCount ?? -1
+      } else {
+        let lanes = self.activeLeafRoute.fixedSIMDLaneCount
+        expected = lanes == 0 ? -1 : lanes
+      }
+      if expected >= 0, self.topFrame?.pointee.pendingField != expected {
         self.recordFailure(.typeMismatch)
       }
     }
@@ -290,7 +296,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard let top = self.topFrame else { return nil }
     switch top.pointee.schema.shape {
     case .array:
-      guard let frame = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
+      let indexed = top.pointee.leafRoute == .inlineArray
+      let index = indexed ? top.pointee.pendingField : -1
+      if indexed, index >= top.pointee.schema.fixedElementCount {
+        self.recordFailure(.typeMismatch)
+        return nil
+      }
+      guard let frame = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+        if indexed { self.recordFailure(.typeMismatch) }
+        return nil
+      }
+      if indexed { top.pointee.pendingField = index &+ 1 }
       return self.borrow(frame)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
@@ -729,7 +745,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
     switch top.pointee.schema.shape {
     case .array:
-      guard let element = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
+      let indexed = top.pointee.leafRoute == .inlineArray
+      let index = indexed ? top.pointee.pendingField : -1
+      if indexed, index >= top.pointee.schema.fixedElementCount {
+        self.recordFailure(.typeMismatch)
+        return nil
+      }
+      guard let element = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+        if indexed { self.recordFailure(.typeMismatch) }
+        return nil
+      }
+      if indexed { top.pointee.pendingField = index &+ 1 }
       let borrowed = self.borrow(element)
       return ScalarTarget(
         storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField

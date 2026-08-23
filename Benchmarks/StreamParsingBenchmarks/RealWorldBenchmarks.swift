@@ -74,6 +74,11 @@ func realWorldBenchmarks() {
   }
   precondition(canada.features?.count == 1)
   precondition(canada.features?[0].geometry?.coordinates?.count == 480)
+  let canadaDynamic = expectParses {
+    try streamBulkDiscarding(Payloads.canada, as: BenchmarkCanadaDynamic.Partial.self)
+  }
+  precondition(canadaDynamic.features?.count == 1)
+  precondition(canadaDynamic.features?[0].geometry?.coordinates?.count == 480)
   let gsoc = expectParses {
     try streamBulkDiscarding(
       Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
@@ -93,6 +98,10 @@ func realWorldBenchmarks() {
   precondition(mesh.indices?.count == 33_408)
   precondition(mesh.colors?.count == 3_600)
   precondition(mesh.batches?.count == 1)
+  let meshDynamic = expectParses {
+    try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMeshDynamic.Partial.self)
+  }
+  precondition(meshDynamic.influences?.count == 3_600)
   let github = expectParses {
     try streamBulkDiscarding(
       Payloads.githubEvents, as: StreamArray<BenchmarkGitHubEvent.Partial>.self
@@ -141,6 +150,10 @@ func realWorldBenchmarks() {
     "Canada", payload: Payloads.canada, as: BenchmarkCanada.Partial.self
   )
   addRealWorldConvenienceRows(
+    "Canada dynamic coordinates", payload: Payloads.canada,
+    as: BenchmarkCanadaDynamic.Partial.self
+  )
+  addRealWorldConvenienceRows(
     "CITM catalog", payload: Payloads.citmCatalog, as: BenchmarkCITM.Partial.self
   )
   addRealWorldConvenienceRows(
@@ -157,6 +170,9 @@ func realWorldBenchmarks() {
   )
   addRealWorldConvenienceRows(
     "Mesh", payload: Payloads.mesh, as: BenchmarkMesh.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "Mesh dynamic influences", payload: Payloads.mesh, as: BenchmarkMeshDynamic.Partial.self
   )
 
   for chunk in [1_400, 16_384, 65_536] {

@@ -133,6 +133,20 @@ public func _streamOpenElement<Element>(
   return _streamOpenElement(in: &array!, initial: initial(), schema: schema)
 }
 
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+@inlinable
+public func _streamOpenInlineElement<let count: Int, Element>(
+  in array: inout InlineArray<count, Element>,
+  at index: Int,
+  schema: StreamSchema
+) -> StreamFrame {
+  // The sink checks against the schema's fixed count first. `unchecked` prevents a second bounds
+  // branch while still using InlineArray's addressable subscript to obtain the actual inline slot.
+  withUnsafeMutablePointer(to: &array[unchecked: index]) {
+    StreamFrame(storage: UnsafeMutableRawPointer($0), schema: schema)
+  }
+}
+
 @inlinable
 public func _streamEnterDictionaryValue<Value>(
   _ dictionary: inout StreamDictionary<Value>,

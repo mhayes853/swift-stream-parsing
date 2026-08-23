@@ -76,6 +76,17 @@ struct `Snapshot stability tests` {
     )
   }
 
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test
+  func `InlineArray states stay stable while elements are written`() throws {
+    try self.expectStable(
+      #"["ab","cd"]"#, as: InlineArray<2, String>.self
+    )
+    try self.expectStable(
+      "[[1,2],[3,4]]", as: InlineArray<2, InlineArray<2, Int>>.self
+    )
+  }
+
   // Enough elements to cross a block boundary, so the states span a seal.
   @Test
   func `Array states stay stable across a block boundary`() throws {

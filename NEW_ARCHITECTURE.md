@@ -3670,3 +3670,60 @@ mutation verified -- deleting the `to >= 8` bound from the short integer kernel 
 tests green, because the out of bounds bytes are masked away before they reach the result, and
 reports `heap-buffer-overflow` under ASan. A backward read that lands in mapped memory cannot be
 seen by any assertion about values. CI does not currently run a sanitizer pass.
+
+
+## Native fixed-width arrays: `InlineArray`
+
+Swift's `InlineArray<count, Element>` now participates directly in streaming when `Element` does.
+The representation is generic: strings, booleans, numbers, objects, optionals, nested fixed arrays
+and fixed arrays below dictionaries all use the same schema. The standard library API is gated to
+Apple OS 26 while the package retains its older deployment targets.
+
+An InlineArray cannot represent a logical count below its static capacity, so every slot starts at
+`Element.streamInitialValue()`. The sink uses the array frame's existing four-byte `pendingField`
+as its cursor, just as the fixed SIMD route does, and rejects both underflow at `]` and overflow
+before opening a slot. Snapshots taken before completion consequently contain initial values in
+slots the document has not supplied yet; exact arity is a parser invariant rather than container
+state.
+
+No second element-opening witness was added. The existing `appendElement` operation gained an
+`Int32` index; dynamic arrays ignore `-1`, while InlineArray uses the cursor. The fixed count lives
+on the schema rather than the frame, preserving the frame's 24-byte stride. A single closed route
+case selects indexed behavior, so the open-ended type space does not create existential dispatch.
+
+The synthetic payload contains 512 arrays of width four. `Payload MB/s` p0 and allocations per
+complete parse:
+
+| element shape | dynamic | inline | change | malloc dynamic -> inline |
+| --- | ---: | ---: | ---: | ---: |
+| strings | 35 | 40 | +14% | 544 -> 32 |
+| booleans | 36 | 52 | +44% | 544 -> 32 |
+| numbers | 48 | 69 | +44% | 544 -> 32 |
+| objects | 61 | 95 | +56% | 542 -> 30 |
+| mixed object, bulk | 83 | 95 | +14% | 2,075 -> 27 |
+| mixed object, 64-byte chunks | 74 | 83 | +12% | 2,075 -> 27 |
+
+The ARM64 release assembly specializes the indexed address calculation. `InlineArray<4, Bool>` is
+one indexed `add`; `Double` is one scaled `add` with shift three; the benchmark object is one
+`smaddl` by its stride. There is no allocation and no bounds branch in those openers. The sink has
+already checked the cursor once; retaining a second guard in the witness initially emitted a
+duplicate `cmp`/branch and was removed. The remaining retain/release is the same schema ownership
+carried by every returned `StreamFrame`.
+
+The final real-world sweep shows no directional regression from the ordinary-array route check:
+
+| structured bulk row | before | after |
+| --- | ---: | ---: |
+| Canada, SIMD coordinates | 434 | 437 |
+| Mesh, SIMD influences | 364 | 361 |
+| Canada, nested dynamic control | 134 | 137 |
+| Mesh, nested dynamic control | 257 | 263 |
+| CITM catalog | 448 | 444 |
+| GSoC 2018 | 603 | 602 |
+| GitHub events | 415 | 412 |
+| LLM message | 709 | 715 |
+| Twitter | 637 | 640 |
+| Twitter escaped | 447 | 454 |
+
+The spread is consistent with run noise. Canada and Mesh keep their old nested-array models as
+permanent benchmark controls so later generic collection work can still be measured directly.

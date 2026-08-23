@@ -190,6 +190,28 @@ struct BenchmarkCanadaGeometry: Hashable, Sendable {
   var coordinates: [[SIMD2<Double>]] = []
 }
 
+// The representation Canada used before fixed-width coordinate pairs were available. Keep it as
+// a permanent control: unlike the SIMD model, every pair is another independently allocated
+// `StreamArray`, so future improvements to the generic nested-array path remain measurable.
+@StreamParseable
+struct BenchmarkCanadaDynamic: Hashable, Sendable {
+  var type: String = ""
+  var features: [BenchmarkCanadaDynamicFeature] = []
+}
+
+@StreamParseable
+struct BenchmarkCanadaDynamicFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
+  var geometry: BenchmarkCanadaDynamicGeometry = BenchmarkCanadaDynamicGeometry()
+}
+
+@StreamParseable
+struct BenchmarkCanadaDynamicGeometry: Hashable, Sendable {
+  var type: String = ""
+  var coordinates: [[[Double]]] = []
+}
+
 // MARK: - Mesh
 
 // A three.js mesh export: one object of long flat numeric arrays. The model keeps every one of
@@ -212,6 +234,19 @@ struct BenchmarkMesh: Hashable, Sendable {
   var tex0: [Double] = []
   var colors: [Int] = []
   var influences: [SIMD2<Double>] = []
+  var normals: [Double] = []
+  var indices: [Int] = []
+}
+
+// The old nested representation of `influences`, retained beside the optimized model for the
+// same reason as Canada's dynamic coordinates. The other fields deliberately remain identical.
+@StreamParseable
+struct BenchmarkMeshDynamic: Hashable, Sendable {
+  var batches: [BenchmarkMeshBatch] = []
+  var positions: [Double] = []
+  var tex0: [Double] = []
+  var colors: [Int] = []
+  var influences: [[Double]] = []
   var normals: [Double] = []
   var indices: [Int] = []
 }
