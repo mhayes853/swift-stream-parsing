@@ -44,6 +44,11 @@
     }
   }
 
+  // Needed explicitly: `StreamParseableObject` refines this, but a conditional conformance to a
+  // refined protocol does not imply one to what it refines, even though `RawValue:
+  // StreamParseableObject` below entails `RawValue: StreamContainerPartial`.
+  extension Tagged: StreamContainerPartial where RawValue: StreamContainerPartial {}
+
   // The schema comes from the root conformance above; this is what makes a tagged object
   // enterable as a nested field.
   extension Tagged: StreamParseableObject where RawValue: StreamParseableObject {}

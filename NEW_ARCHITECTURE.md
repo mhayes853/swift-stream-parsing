@@ -3172,6 +3172,267 @@ and the reason to add it will be a benchmark rather than a shape.
 
 ---
 
+## Cheap first tiers: one of three landed, and the census said which
+
+Three scanners are handed the *chunk* end rather than the run end -- `streamStringRun`,
+`streamNumberRunEnd`, `streamWhitespaceEnd` -- because finding the run end is what they are for.
+None of them can dispatch on length, so the only hybrid shape available is "try cheap, continue
+wide": one general-register pass that resolves the common short run and falls into the existing
+vector body when it does not. The scanners that take a real extent (`streamHashBytes`,
+`streamBytesEqual`, `streamCompareBytes`, `streamAccumulateDigits`) already do this and were left
+alone -- a six byte key skips `streamHashBytes`'s block loop today.
+
+A census over the eight corpus documents sized each tier. Spans as the scanner receives them,
+excluding those the existing one-byte peel already resolves:
+
+| document | kind | spans | <8 | <40 | >=40 |
+|---|---|---:|---:|---:|---:|
+| twitter | string | 19,327 | 28% | 92% | 8% |
+| twitterescaped | string | 51,145 | 74% | 98% | 2% |
+| citm | string | 26,606 | 47% | 100% | 0% |
+| gsoc | string | 49,141 | 37% | 71% | 29% |
+| llm_message | string | 17,503 | 29% | 68% | 32% |
+| canada | number | 111,126 | **0%** | 100% | 0% |
+| mesh | number | 73,013 | 58% | 100% | 0% |
+| citm | number | 14,392 | 6% | 100% | 0% |
+| twitter | number | 4,900 | 90% | 100% | 0% |
+| citm | ws | 76,337 | 34% | 100% | 0% |
+| twitter | ws | 28,826 | 57% | 100% | 0% |
+| gsoc | ws | 41,713 | 52% | 100% | 0% |
+| mesh / canada | ws | 73,042 | 100% | 100% | 0% |
+
+All three were built behind a harness that patches a pristine copy of this file, so the control is
+byte-identical to HEAD rather than merely equivalent. That mattered: a first attempt that toggled
+the tiers by commenting them out left two dead locals behind, which was enough to flip an inlining
+decision and grow `consumeStructuralRun` 481 -> 567 in the *control*.
+
+### Landed: two bytes of bitmap test in front of the whitespace vector body
+
+Absolute `Payload MB/s`, p50, three interleaved rounds against a byte-identical HEAD control:
+
+| document | payload | HEAD | now | |
+|---|---:|---:|---:|---:|
+| gsoc-2018 bulk | 3250K | 3,711 | **4,207** | +13.4% |
+| github_events bulk | 64K | 1,609 | **1,790** | +11.2% |
+| twitter bulk | 617K | 1,396 | **1,497** | +7.2% |
+| twitter 16KB chunks | 617K | 1,393 | **1,497** | +7.5% |
+| citm_catalog bulk | 1687K | 1,952 | **2,087** | +6.9% |
+| citm_catalog 16KB chunks | 1687K | 1,945 | **2,077** | +6.8% |
+| mesh bulk | 707K | 700 | **742** | +6.0% |
+| mesh 16KB chunks | 707K | 700 | **737** | +5.3% |
+| twitterescaped bulk | 549K | 1,090 | 1,086 | -0.4% |
+| llm_message bulk | 1045K | 3,615 | 3,617 | +0.1% |
+| canada bulk | 2198K | 946 | 945 | -0.1% |
+
+`Fast Pretty printed users` +13.7%. No row regresses by more than 1%. The three flat documents are
+the three with almost no whitespace outside strings: `canada` has **eighteen** whitespace runs in
+2.2 MB, and `llm_message`'s whitespace is all inside string values where this never runs.
+
+The win is there because the width test in `streamWhitespaceEnd` never fires under bulk input --
+the bound it reads is the chunk end, not the run end -- so every whitespace run reaches the vector
+body, and pays four constant splats, a 16 byte load, six vector operations and a `uminv` cross-lane
+reduction plus its transfer to a general register, in order to find a terminator at lane 1.
+
+**What the peel resolves is the one-byte run, and only that.** With a bound of two, a one-byte run
+tests byte 0 (whitespace, advance) and byte 1 (not whitespace, return); a two-byte run consumes
+both peeled bytes without meeting a terminator and reaches the vector body anyway. So the gain is
+proportional to the share of length-one runs, which is what the census measures:
+
+| document | ws runs | len 1 | len 2 | >= 3 | median | gain |
+|---|---:|---:|---:|---:|---:|---:|
+| mesh | 73,024 | 100% | 0% | 0% | 1 | +6.0% |
+| twitter | 28,826 | 46% | 0% | 54% | 7 | +7.2% |
+| github_events | 2,526 | 45% | 0% | 55% | 5 | +11.2% |
+| gsoc-2018 | 41,713 | 45% | 0% | 55% | 5 | +13.4% |
+| citm_catalog | 76,337 | 34% | 0% | 66% | 21 | +6.9% |
+
+**Runs of exactly two do not occur** -- a separator is one byte and an indent is a newline plus its
+depth -- so widening the peel buys no new population until four, by which point `citm_catalog`'s
+long runs make it negative. That is why the bound is two and not a compromise: at four
+`citm_catalog` paid -3.3% and at eight -10.0%.
+
+**It is two tests, so it is written as two tests.** Spelled as a bounded loop it did not unroll:
+eight instructions an iteration plus the `min` for the bound and the materialisation of the
+bitmap constant, so a one-byte run paid about twenty-three instructions and two loop-latch
+branches. Straight-line it is about fourteen ending in a direct `ret`. The whole function is
+larger (73 instructions against 69) and every affected document is faster for it -- most sharply
+`citm_catalog`, which calls this 76,337 times and went from +0.5% to +6.9%, and `gsoc` from
++10.3% to +13.4%. Two rows regressed under the loop form; none do under this one.
+
+It sits in the out-of-line `streamWhitespaceRunEnd`, not in the inlined `streamWhitespaceEnd`
+guard, for the reason that section already documents: peeling a one byte run inline was measured
+at -18% on `twitterescaped` and -34% on unicode escapes, documents with no whitespace at all.
+
+`streamWhitespaceRunEnd` also had **no direct test coverage** -- both existing whitespace tests use
+buffers under sixteen bytes, so both take the scalar path and neither ever reached the vector body.
+A bitmap mutation that dropped tab passed the whole suite. Two tests were added (every byte value
+at every position of a 32 byte run, and a naive-oracle sweep over lengths and offsets, both
+checking the guarded and vector entry points) and the mutation now fails with 31,734 issues.
+
+### Rejected: a SWAR first word in front of the string scanner
+
+Median -0.4%. It does what it was meant to on short runs -- `Fast Escaped string` **+38.5%** bulk
+and +23.5% at 64B chunks -- but `Fast Long string - 64B chunks` measured **-35.5%** and
+`Fast Dictionary` -9.7%/-10.5%, and the real-world documents were flat to slightly negative
+(`gsoc` +1.0%, `github` +1.6%, `twitter` +0.4%, `citm` -0.4%, `llm_message` -1.4%).
+
+The reason is a gap the census does not show directly: **the tier helps runs of eight bytes or
+fewer and actively hurts runs of nine to sixteen**, which previously cost exactly one vector block
+and now cost a word *and* a block. A thirteen byte key -- which is what `Payloads.counts` is made
+of -- is the worst case, and a 64 byte chunk of one long string is the same story, because
+consuming eight bytes leaves 56 that no longer divide into whole blocks. The corpus has plenty of
+both sizes, so the two halves cancel.
+
+### Rejected: a bitmap peel in front of the number scanner
+
+Median -1.0%, mean -2.5%: `canada` **-11.7%**, `mesh` -10.3%, `Nested arrays` -7.3%,
+`citm_catalog` -4.9%.
+
+`canada` was the predicted counter-case -- none of its 111k numbers are under eight bytes, so
+every peeled byte is tax. `mesh` was not predicted, and it is the more useful failure: 58% of its
+numbers are under eight bytes, but its *median is four*, and a peel bounded at four never sees the
+terminator of a four byte token -- it sits one past the end. The tier only pays on tokens of three
+bytes or fewer, and the documents that have those (`twitter`, `github_events`, `llm_message`) are
+exactly the ones where numbers are a negligible share of the parse.
+
+If the number scanner is revisited, the better lever is the one the C experiment measured and did
+not land: the `umov` ladder that finds the first non-class lane runs up to sixteen `umov`/`cbz`
+pairs, and `citm_catalog`'s nine byte numbers and `mesh`'s four byte numbers pay ten and five of
+them respectively. A `vshrn_n_u16` movemask reduces that to `rbit`/`clz`/`lsr` and would be a
+*small* leaf shim returning a scalar, not a whole kernel returning a struct -- which is the shape
+that survived in `stream_parsing_utf8_block_errors` and the shape that did not in the
+`streamStringRun` port.
+
+
+## Porting `streamStringRun` to C: the kernel got better and the parse got slower
+
+The string scanner was rewritten as a C kernel in `StreamParsingShims` and **measured, rejected,
+and reverted** (2026-08-22). Nothing from it is in the tree. The reasoning that motivated it was
+sound and two of its findings are worth keeping, so both are here with their numbers.
+
+### Why it looked promising
+
+Two properties of C that Swift does not offer, both confirmed before any benchmark ran:
+
+- **A `static inline` C function is bodiless in SIL.** `swiftc -O -emit-sil` on a call to
+  `stream_parsing_utf8_block_errors` shows `sil shared [clang ...]` with no body and one `apply`
+  at the call site. The whole NEON kernel costs the SIL performance inliner one `apply` of budget
+  and is expanded later by LLVM's AlwaysInliner. That is exactly the lever the `@_transparent`
+  finding in the number-tail work and the `parse` inlining cliff were both missing.
+- **Immediate-taking NEON intrinsics are unreachable from Swift.** `vshrn_n_u16` does not import
+  at all (`cannot find 'vshrn_n_u16' in scope`); through a C wrapper it compiles to exactly
+  `shrn.8b` + `fmov`. This is the arm64 movemask, and it is the idiom every first-hit-lane problem
+  in this file has been working around: `uminv` reductions and per lane `umov` ladders were the
+  only two options Swift had.
+
+The port used it. One `shrn` per block answers both "does this block end the run" and "where", so
+the loop test costs what `umaxv` + `fmov` cost before and the hit path gets the lane in a general
+register for free. Disassembly confirmed the intent: the hit path's serial
+`bsl` -> `uminv` -> `dup` -> `cmhi` -> `and` -> `orr` -> `umaxv` -> `smov` chain became two short
+independent chains, and the lane-index constant vector that the register allocator had been
+spilling to the stack and reloading on every hit disappeared, shrinking `consumeStringRun`'s
+frame from 0xb0 to 0x90.
+
+**The kernel really is better, in isolation.** Standalone C harness, 8 KB of ASCII runs of a fixed
+length, best of 180 passes, MB/s:
+
+| run length | SIMD16 movemask | SIMD16 `uminv` | SIMD16 2x | SWAR |
+|-----------:|----------------:|---------------:|----------:|-----:|
+| 1          | 272             | 273            | 251       | 366  |
+| 2          | 408             | 409            | 376       | 548  |
+| 4          | 663             | 682            | 623       | 904  |
+| 8          | 1192            | 1203           | 1128      | 1431 |
+| 16         | 2120            | 1954           | 1993      | 2454 |
+| 24         | 3178            | 2886           | 2855      | 3230 |
+| 32         | 3799            | 3903           | 3519      | 4064 |
+| 64         | 6368            | 6291           | 5847      | 5387 |
+| 256        | 14701           | 14300          | 14841     | 8066 |
+| 4096       | 23133           | 23133          | 23481     | 9198 |
+
+Movemask beats the `uminv` shape it replaced by 8-10% at the 16-32 byte lengths that matter most.
+
+### What it cost, and the experiment that found out why
+
+Four interleaved rounds, 34 rows, p50 `Payload MB/s` against a Swift control built from the same
+working tree (the control's `consumeStringRun` disassembles mnemonic-for-mnemonic identical to
+HEAD except one redundant `mov`, so the harness is sound):
+
+Real-world documents were **flat** -- GSoC bulk +1.7%, LLM message bulk +1.3%, Twitter +0.1%,
+CITM 0.0%, Canada +0.5%, GitHub bulk -3.0%. The synthetic string rows were not:
+`Fast Non-ASCII string - 64B chunks` **-37.8%**, `Fast Dictionary - 64B chunks` **-15.2%**,
+`Fast Long string - byte by byte` **-21.8%**, `Fast Escaped string - 64B chunks` -8.5%. Median
+across all rows -0.5%. Bulk rows flat, chunked and byte-fed rows uniformly worse across payloads
+that share nothing -- which is the signature the inlining-cliff notes describe, except that
+`JSONParser.parse`'s specialisations were byte-identical to the control's, so it was not that.
+
+Two wrong attributions, both disproved by measurement rather than argument, and the second is the
+finding worth keeping:
+
+1. **`consumeStructuralRun` grew 481 -> 581 instructions**, and the obvious story was that
+   `always_inline` had forced the vector body into the structural dispatcher. It had: the control
+   calls `streamStringRun` **out of line** from `consumeStructuralRun` while inlining it into
+   `consumeStringRun` and `consumeKeyRun` -- Swift's `@inline(__always)` is a hint the SIL inliner
+   weighed and *declined* at exactly the site where declining was right, and C's `always_inline`
+   is a directive that cannot decline. Spelling the refusal out by hand (an `@inline(never)`
+   wrapper at that call site, the same arrangement `streamWhitespaceRunEnd` already uses) restored
+   `consumeStructuralRun` to exactly 481 instructions. **The regressions did not move.** Real, but
+   not the cause.
+2. **The cost is the Swift/C boundary itself, not the kernel.** A variant transliterating the
+   control's *exact* algorithm into C -- `vmaxvq_u8` for `any`, `bsl` + `vminvq_u8` for the lane,
+   a lane select for the non-ASCII prefix, no movemask anywhere -- regressed essentially
+   identically: `Fast Non-ASCII string - 64B chunks` -39.3% against the movemask kernel's -39.3%,
+   `Fast Dictionary - 64B chunks` -12.1% against -14.0%. Whatever is being paid is paid for
+   crossing into C, and no choice of kernel avoids it.
+
+The 16-byte struct return (`{intptr_t end; _Bool contains_non_ascii;}`) is a large part of it, but
+replacing it does not help on balance: packing the two fields into one word moved
+`Fast Non-ASCII string - 64B chunks` from -38.7% to -8.1% and `Fast Dictionary - 64B chunks` from
+-15.5% to -4.1%, while costing the rows dominated by call frequency instead -- `Real Twitter -
+bulk` -0.3% -> -6.4%, `Real LLM message - bulk` +1.9% -> -5.0%, `Fast Escaped string - 64B chunks`
+-9.3% -> -17.9%. No return representation was free.
+
+### What this says about porting kernels to C generally
+
+- **A C kernel cannot participate in Swift's per-call-site inlining decisions.** The SIL inliner
+  was making a *correct* refusal in `consumeStructuralRun` that `always_inline` overrides.
+  Dropping `always_inline` does not restore the choice either -- LLVM inlines a small leaf
+  function anyway (579 instructions against 581). Every site where Swift was declining on purpose
+  has to be re-declined by hand.
+- **Reach for C for capability, not for speed.** The one unambiguous win is expressing something
+  Swift cannot say at all -- `vqtbl1q_u8` and `stream_parsing_utf8_block_errors` earned their
+  place that way, and `vshrn_n_u16` would. Moving a kernel Swift *can* already express, to get
+  better codegen for it, pays a boundary cost that swamped a kernel measured 8-10% faster in
+  isolation.
+
+### The two questions this was built to answer
+
+**Do approaches that failed on Swift codegen succeed in C?** The codegen failures vanish; the
+approaches still fail. The 2x unroll of the string scanner was rejected in Swift against three
+traps -- `any()` on a composed mask lowering to a real `bl`, a de-inlined `simd_reduce_min`, and
+`vector[runtimeIndex]` becoming `str q` plus a reload. In C none of them exist: it compiles to
+`ldp q5, q1` for both loads, ten vector ops, one composed `orr`, and a **single** `shrn`/`fmov`
+reduction per 32 bytes -- 19 instructions per 32B against 15 per 16B, with zero `bl` and zero
+vector spills in the whole function. It still loses: median -1.5% in the parser, and the table
+above shows it slower than plain SIMD16 at *every* run length below 256. The Swift-era conclusion
+that "the unroll itself is worth only ~+2-3.5%, which does not cover it" was if anything generous.
+**The traps were a red herring; the approach was always the problem.**
+
+**Does SIMD always beat SWAR in C?** No -- the crossover is around 40 bytes of run length, and it
+is entry cost rather than throughput. SIMD16's fixed per-call cost, a cross-lane reduction plus
+two NEON-to-GPR transfers on the hit path, is paid in full by a two-byte run, while SWAR's hit
+path stays in general registers (`ctz`, shift, and, test). The parser rows track the table
+exactly: SWAR measured **+39.3%** on `Fast Escaped string - bulk` (runs of two bytes or less),
++19.6% on its 64B-chunk row, and +2.3 to +4.7% on Twitter, CITM and GitHub, whose string values
+are short -- against **-51.8%** on `Fast Long string - bulk` (one 8 KB run), -31.7% on
+`Fast Non-ASCII string - bulk`, -11.9% on LLM message and -9.5% on GSoC. Median -2.3%, so it is
+not a candidate as a *replacement*, but the short-run half of that split is the largest single
+effect measured in this whole exercise and nothing in the tree exploits it.
+
+Note this does not contradict the run-length table at the top of `StreamScanners.swift`, which
+shows SIMD16 ahead of SWAR at every length: that one measured a *Swift* SWAR over whitespace runs,
+which is a different kernel in a different language, and the two are not comparable.
+
+
 ## The short integer kernel: eight bytes, backwards
 
 `emitNumber`'s digit loop is **eleven instructions per digit** in the shipped assembly -- `ldrb`,

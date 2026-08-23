@@ -149,6 +149,57 @@ struct `Stream scanner tests` {
     expectNoDifference(actual, 3)
   }
 
+  // The two cases above are both under sixteen bytes, so both take the scalar path and neither
+  // ever reaches `streamWhitespaceRunEnd` -- the vector body had no direct coverage at all. These
+  // two close that: every byte value is checked at every position of a run long enough to engage
+  // the vector path, and lengths and offsets are swept around the block boundary.
+  @Test
+  func `Whitespace run scanning classifies every byte value correctly at every position`() {
+    for testByte in UInt8.min...UInt8.max {
+      let isWhitespace = testByte == 0x20 || testByte == 0x09 || testByte == 0x0A || testByte == 0x0D
+      for position in 0..<32 {
+        var bytes = [UInt8](repeating: 0x20, count: 32)
+        bytes[position] = testByte
+        let expected = isWhitespace ? 32 : position
+        let (guarded, vector) = Self.withBase(bytes) {
+          (
+            streamWhitespaceEnd(base: $0, from: 0, to: bytes.count),
+            streamWhitespaceRunEnd(base: $0, from: 0, to: bytes.count)
+          )
+        }
+        let label = "byte 0x\(String(testByte, radix: 16)) at \(position)"
+        expectNoDifference(guarded, expected, label)
+        expectNoDifference(vector, expected, label)
+      }
+    }
+  }
+
+  @Test
+  func `Whitespace run scanning matches a naive scan at every length and offset`() {
+    var generator = SystemRandomNumberGenerator()
+    let whitespace: [UInt8] = [0x20, 0x09, 0x0A, 0x0D]
+    for length in 0...40 {
+      for _ in 0..<20 {
+        var bytes = (0..<length).map { _ in whitespace.randomElement(using: &generator)! }
+        for index in bytes.indices where Int.random(in: 0..<6, using: &generator) == 0 {
+          bytes[index] = UInt8.random(in: 0x21...0xFF, using: &generator)
+        }
+        for from in 0...length {
+          var expected = from
+          while expected < length, whitespace.contains(bytes[expected]) { expected += 1 }
+          let (guarded, vector) = Self.withBase(bytes) {
+            (
+              streamWhitespaceEnd(base: $0, from: from, to: length),
+              streamWhitespaceRunEnd(base: $0, from: from, to: length)
+            )
+          }
+          expectNoDifference(guarded, expected, "length \(length) from \(from)")
+          expectNoDifference(vector, expected, "vector, length \(length) from \(from)")
+        }
+      }
+    }
+  }
+
   // MARK: - ASCII detection
 
   @Test
