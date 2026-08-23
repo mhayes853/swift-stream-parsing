@@ -182,12 +182,26 @@ public protocol StreamParseableRoot: StreamInitializable {
 
   /// A borrowed window onto the value, for reading part of it without copying the whole.
   ///
-  /// Defaults to the value itself, which is what a scalar wants: there is nothing to defer. A
-  /// type with members worth reading one at a time overrides it with a projection whose accessors
-  /// copy only what they return.
-  associatedtype View: ~Copyable = Self
+  /// Defaults to ``StreamPointerView``, which is what a scalar wants: there is nothing to defer,
+  /// so the view is just a dereference away from the whole value. A type with members worth
+  /// reading one at a time overrides it with a projection whose accessors copy only what they
+  /// return.
+  ///
+  /// `~Escapable`, so "must outlive the view" on ``streamView(_:)`` is checked rather than merely
+  /// documented — every conformer's `View`, defaulted or overridden, ties the view's borrow-
+  /// checked scope to the call that produced it, and a caller cannot move one out to somewhere
+  /// longer-lived. There is deliberately no `= Self` fallback: letting some conformers' `View` be
+  /// plain `Self` (Escapable) and others be a genuine projection (`~Escapable`) is exactly what
+  /// makes per-field code generation ambiguous — see the macro's `partialStructView`.
+  associatedtype View: ~Copyable, ~Escapable
 
-  /// Builds a view over a value at `storage`, which must outlive the view.
+  /// Builds a view over a value at `storage`.
+  ///
+  /// The lifetime dependency on `storage` ties the returned view's borrow-checked scope to the
+  /// call site: the pointer itself carries no lifetime of its own, but the dependency still
+  /// forces callers through an API shape (like a `withView`-style closure) that cannot let the
+  /// view outlive the call that produced it.
+  @_lifetime(borrow storage)
   static func streamView(_ storage: UnsafeMutableRawPointer) -> View
 }
 
@@ -197,14 +211,18 @@ extension StreamParseableRoot {
 
   @inlinable
   public static func streamElementInitialValue() -> Self { Self.streamInitialValue() }
+}
 
-  // A view of a value with nothing to project is the value, so reading it copies it. That copy is
-  // a correct snapshot on its own: every container the parser writes into holds its open element
-  // in an inline slot, so a copy shares only storage that is sealed and never written again, and
-  // the open element's own buffers copy on write at the parser's next append. This is what
-  // replaced a recursive `streamSnapshot()` rebuild.
-  public static func streamView(_ storage: UnsafeMutableRawPointer) -> Self {
-    storage.assumingMemoryBound(to: Self.self).pointee
+extension StreamParseableRoot where View == StreamPointerView<Self> {
+  // A view of a value with nothing to project defers its one dereference to the read, rather
+  // than copying immediately the way the old `View == Self` default did. Either way, this is a
+  // correct snapshot: every container the parser writes into holds its open element in an inline
+  // slot, so a copy shares only storage that is sealed and never written again, and the open
+  // element's own buffers copy on write at the parser's next append. This is what replaced a
+  // recursive `streamSnapshot()` rebuild.
+  @_lifetime(borrow storage)
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> StreamPointerView<Self> {
+    StreamPointerView(storage)
   }
 }
 

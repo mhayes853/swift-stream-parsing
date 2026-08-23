@@ -79,7 +79,7 @@ let benchmarks: @Sendable () -> Void = {
             Payloads.userList,
             chunk: chunk,
             as: BenchmarkUserList.Partial.self
-          ) { blackHole($0.total) }
+          ) { blackHole($0.total?.value) }
         )
       }
     }
@@ -92,7 +92,7 @@ let benchmarks: @Sendable () -> Void = {
       )
       for byte in Payloads.userList {
         try stream.next(byte)
-        stream.withView { blackHole($0.total) }
+        stream.withView { blackHole($0.total?.value) }
       }
       blackHole(try stream.finish())
     }

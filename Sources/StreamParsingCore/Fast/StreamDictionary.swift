@@ -272,6 +272,59 @@ extension StreamDictionary {
   }
 }
 
+// MARK: - View
+
+extension StreamDictionary where Value: StreamParseableRoot {
+  /// A borrowed window onto the dictionary, for reading a value by key without copying the
+  /// dictionary or the value.
+  ///
+  /// Unlike ``StreamArray``, `storedValues` is not exposed as a bulk `Span`: a repeated key
+  /// reuses its existing slot (see `pendingSlot`), so the position that slot occupies in
+  /// `storedValues` can briefly hold a stale value while the live one sits in `pendingValue`,
+  /// until the next `drainPending()`. A single `subscript(key:)` lookup routes around that by
+  /// checking the pending entry first, the same way the non-view `subscript(key:)` does — a raw
+  /// span over `storedValues` would not.
+  public struct View: ~Copyable, ~Escapable {
+    @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
+
+    @_lifetime(borrow storage)
+    @usableFromInline
+    init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: StreamDictionary<Value>.self)
+    }
+
+    /// The number of entries.
+    @inlinable
+    public var count: Int { self.storage.pointee.count }
+
+    /// A copy of the whole dictionary, for callers that want an escaping snapshot rather than a
+    /// single value read by key.
+    @inlinable
+    public var value: StreamDictionary<Value> { self.storage.pointee }
+
+    /// A view onto the value stored under `key`, or `nil` when there is no such entry.
+    public subscript(key: String) -> Value.View? {
+      @_lifetime(borrow self)
+      get {
+        if self.storage.pointee.pendingEntryKey == key {
+          let view = _streamMemberView(&self.storage.pointee.pendingValue)
+          return _overrideLifetime(view, borrowing: self)
+        }
+        guard let slot = self.storage.pointee.slot(forKey: key) else { return nil }
+        let base = self.storage.pointee.storedValues
+          .withUnsafeBufferPointer { $0.baseAddress! }
+        let view = Value.streamView(UnsafeMutableRawPointer(mutating: base + Int(slot)))
+        return _overrideLifetime(view, borrowing: self)
+      }
+    }
+  }
+
+  @_lifetime(borrow storage)
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+    View(storage)
+  }
+}
+
 // MARK: - Parsing support
 
 extension StreamDictionary {

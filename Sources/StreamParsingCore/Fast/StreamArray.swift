@@ -256,6 +256,88 @@ where Element: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
     _streamArraySchema(Element.self, element: Element.streamElementSchema)
   }
+
+  /// A borrowed window onto the array, for reading elements or spans of sealed elements without
+  /// copying the whole array or any element in it.
+  ///
+  /// Only the parser's own open ``StreamArray/pending`` element needs the same raw-pointer
+  /// lifetime bridging every macro-generated field accessor needs (see `_streamMemberView`) —
+  /// everything to its left is committed and immutable, so `sealedBlock(_:)`/`tail` read it
+  /// through a `Span` built the same way `Array.span` builds its own.
+  public struct View: ~Copyable, ~Escapable {
+    @usableFromInline let storage: UnsafeMutablePointer<StreamArray<Element>>
+
+    @_lifetime(borrow storage)
+    @usableFromInline
+    init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: StreamArray<Element>.self)
+    }
+
+    /// The number of elements, including the open one if there is one.
+    @inlinable
+    public var count: Int { self.storage.pointee.count }
+
+    /// A copy of the whole array, for callers that want an escaping snapshot rather than
+    /// zero-copy access. Costs what reading a ``StreamPointerView`` would have: the block spine
+    /// is a retain, so this only truly copies the open element (if there is one).
+    @inlinable
+    public var value: StreamArray<Element> { self.storage.pointee }
+
+    /// The number of full, sealed blocks. Each holds exactly `StreamArray.blockCapacity`
+    /// elements — see ``sealedBlock(_:)``.
+    @inlinable
+    public var sealedBlockCount: Int { self.storage.pointee.blocks.count }
+
+    /// A zero-copy window onto one full, sealed block of elements.
+    @_lifetime(borrow self)
+    public func sealedBlock(_ blockIndex: Int) -> Span<Element> {
+      let buffer = self.storage.pointee.blocks[blockIndex].withUnsafeBufferPointer { $0 }
+      return _overrideLifetime(Span(_unsafeElements: buffer), borrowing: self)
+    }
+
+    /// A zero-copy window onto the committed elements past the last sealed block, not including
+    /// the open element, if there is one.
+    public var tail: Span<Element> {
+      @_lifetime(borrow self)
+      get {
+        let buffer = self.storage.pointee.tail.withUnsafeBufferPointer { $0 }
+        return _overrideLifetime(Span(_unsafeElements: buffer), borrowing: self)
+      }
+    }
+
+    /// A view onto the element at `index`, or `nil` when `index` is out of bounds.
+    ///
+    /// Dispatches into a sealed block, the tail, or the open element — whichever holds `index` —
+    /// without copying it, the same way a macro-generated field accessor does.
+    public subscript(index: Int) -> Element.View? {
+      @_lifetime(borrow self)
+      get {
+        guard index >= 0, index < self.count else { return nil }
+        let sealed = self.storage.pointee.sealedCount
+        if index < sealed {
+          let blockIndex = index &>> StreamArray<Element>.blockShift
+          let offset = index & StreamArray<Element>.blockMask
+          let base = self.storage.pointee.blocks[blockIndex]
+            .withUnsafeBufferPointer { $0.baseAddress! }
+          let view = Element.streamView(UnsafeMutableRawPointer(mutating: base + offset))
+          return _overrideLifetime(view, borrowing: self)
+        }
+        let offset = index &- sealed
+        if offset < self.storage.pointee.tail.count {
+          let base = self.storage.pointee.tail.withUnsafeBufferPointer { $0.baseAddress! }
+          let view = Element.streamView(UnsafeMutableRawPointer(mutating: base + offset))
+          return _overrideLifetime(view, borrowing: self)
+        }
+        let view = _streamMemberView(&self.storage.pointee.pending)
+        return _overrideLifetime(view, borrowing: self)
+      }
+    }
+  }
+
+  @_lifetime(borrow storage)
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+    View(storage)
+  }
 }
 
 extension StreamArray: StreamParseable where Element: StreamParseableRoot {

@@ -173,21 +173,27 @@ extension StreamParseableMacro {
         let type = Self.partialTypeName(for: property)
         return """
             \(modifierPrefix)var \(property.name): \(type).View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.\(property.name))
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.\(property.name))
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
           """
       }
       .joined(separator: "\n\n")
     let body = active.isEmpty ? "" : "\n\(accessors)\n"
     return """
-      \(modifierPrefix)struct View: ~Copyable {
+      \(modifierPrefix)struct View: ~Copyable, ~Escapable {
           \(modifierPrefix)let storage: UnsafeMutablePointer<Partial>
 
+          @_lifetime(borrow storage)
           \(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
             self.storage = storage.assumingMemoryBound(to: Partial.self)
           }
       \(body)  }
 
+        @_lifetime(borrow storage)
         \(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
           View(storage)
         }

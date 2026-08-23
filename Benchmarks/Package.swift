@@ -22,7 +22,10 @@ let package = Package(
       ],
       path: "StreamParsingBenchmarks",
       resources: [.copy("Resources")],
-      swiftSettings: [.define("STREAM_PARSING_BENCHMARKS")],
+      swiftSettings: [
+        .define("STREAM_PARSING_BENCHMARKS"),
+        .enableExperimentalFeature("Lifetimes")
+      ],
       plugins: [.plugin(name: "BenchmarkPlugin", package: "benchmark")]
     )
   ],

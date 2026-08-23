@@ -15,6 +15,10 @@ let streamParsing128BitIntegers =
   ]
 #endif
 
+// Lets `View` associated types be `~Escapable`, so a view borrowed from a stream cannot be
+// stored past the call that lent it.
+let lifetimes = [SwiftSetting.enableExperimentalFeature("Lifetimes")]
+
 let package = Package(
   name: "swift-stream-parsing",
   platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
@@ -54,7 +58,7 @@ let package = Package(
     .target(
       name: "StreamParsing",
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
-      swiftSettings: suppressedAssociatedTypes
+      swiftSettings: suppressedAssociatedTypes + lifetimes
     ),
     // Header-only C target carrying the NEON intrinsics Swift's SIMD API has no spelling for
     // (`tbl`, for the UTF-8 validator). Empty on other architectures, where the Swift side
@@ -76,7 +80,7 @@ let package = Package(
         )
       ],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
-        + suppressedAssociatedTypes
+        + suppressedAssociatedTypes + lifetimes
     ),
     .macro(
       name: "StreamParsingMacros",
@@ -95,7 +99,7 @@ let package = Package(
       ],
       exclude: ["ParserTests/__Snapshots__"],
       resources: [.process("Resources")],
-      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)] + lifetimes
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

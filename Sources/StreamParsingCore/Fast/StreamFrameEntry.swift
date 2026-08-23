@@ -36,23 +36,35 @@ public func _streamEnterObject<T: StreamParseableObject>(
 // A view over an optional member, or nil when the member has not been written yet.
 //
 // The same shape works for every member the macro emits, which is what lets it stay ignorant of
-// which ones are objects: a scalar's view is the scalar, so this reads it, while a nested object's
-// view is a projection, so this defers. Relies on the offset zero payload layout, like the entry
-// helpers above.
+// which ones are objects: a scalar's view defers one dereference (`StreamPointerView`), while a
+// nested object's view is a projection with several. Relies on the offset zero payload layout,
+// like the entry helpers above.
+//
+// `T.streamView`'s own `@_lifetime(borrow storage)` ties its result to the raw pointer built
+// from `value` right here, not to `value` itself, so the dependency this function declares on
+// its own `value` parameter does not compose with it automatically — raw pointers carry no
+// provenance for the borrow checker to chain through two hops. `_overrideLifetime` (also used
+// internally by `Span`'s own pointer-based initializers for the same reason) asserts the fact by
+// hand: the view is only ever read while `value` stays valid, which callers already guarantee
+// through `withView`-shaped APIs.
 @inlinable
+@_lifetime(borrow value)
 public func _streamMemberView<T: StreamParseableRoot>(
   _ value: UnsafeMutablePointer<T?>
 ) -> T.View? {
   guard value.pointee != nil else { return nil }
-  return T.streamView(UnsafeMutableRawPointer(value))
+  let view = T.streamView(UnsafeMutableRawPointer(value))
+  return _overrideLifetime(view, borrowing: value)
 }
 
 // The initialized members mode gives non-optional members, which are always present.
 @inlinable
+@_lifetime(borrow value)
 public func _streamMemberView<T: StreamParseableRoot>(
   _ value: UnsafeMutablePointer<T>
 ) -> T.View? {
-  T.streamView(UnsafeMutableRawPointer(value))
+  let view = T.streamView(UnsafeMutableRawPointer(value))
+  return _overrideLifetime(view, borrowing: value)
 }
 
 // Materializes an optional in place so the wrapped type's schema can be applied to the same

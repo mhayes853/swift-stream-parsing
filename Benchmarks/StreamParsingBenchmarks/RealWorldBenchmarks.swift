@@ -171,7 +171,7 @@ func realWorldBenchmarks() {
               Payloads.llmMessage,
               chunk: chunk,
               as: BenchmarkLLMMessage.Partial.self
-            ) { blackHole($0.stop_reason) }
+            ) { blackHole($0.stop_reason?.value) }
           }
         )
       }

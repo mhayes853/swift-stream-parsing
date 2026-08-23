@@ -48,22 +48,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -219,22 +229,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -496,22 +516,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -750,22 +780,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -920,22 +960,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -1086,18 +1136,24 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -1238,18 +1294,24 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var stored: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -1387,18 +1449,24 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -1561,18 +1629,24 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var stored: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -1713,22 +1787,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2016,22 +2100,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2186,22 +2280,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            public struct View: ~Copyable {
+            public struct View: ~Copyable, ~Escapable {
               public let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               public init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             public var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             public var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2352,22 +2456,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2518,22 +2632,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            fileprivate struct View: ~Copyable {
+            fileprivate struct View: ~Copyable, ~Escapable {
               fileprivate let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               fileprivate init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             fileprivate var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             fileprivate var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             fileprivate static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2688,22 +2812,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            public struct View: ~Copyable {
+            public struct View: ~Copyable, ~Escapable {
               public let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               public init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             public var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             public var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -2858,22 +2992,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            public struct View: ~Copyable {
+            public struct View: ~Copyable, ~Escapable {
               public let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               public init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             public var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             public var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -3030,22 +3174,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -3200,22 +3354,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -3370,22 +3534,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var name: String.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var age: Int.Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }
@@ -3541,22 +3715,32 @@ extension BaseTestSuite {
               Self()
             }
 
-            struct View: ~Copyable {
+            struct View: ~Copyable, ~Escapable {
               let storage: UnsafeMutablePointer<Partial>
 
+              @_lifetime(borrow storage)
               init(_ storage: UnsafeMutableRawPointer) {
                 self.storage = storage.assumingMemoryBound(to: Partial.self)
               }
 
             var items: [Item].Partial.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.items)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.items)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
 
             var index: StreamParsingCore.StreamDictionary<Item.Partial>.View? {
-                StreamParsingCore._streamMemberView(&self.storage.pointee.index)
+                @_lifetime(borrow self)
+                get {
+                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.index)
+                  return _overrideLifetime(view, borrowing: self)
+                }
               }
             }
 
+            @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
               View(storage)
             }

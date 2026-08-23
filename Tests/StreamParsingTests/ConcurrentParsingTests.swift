@@ -95,7 +95,7 @@ struct `Concurrent parsing tests` {
           var stream = PartialsStream(initialValue: ConcurrentUserList.Partial(), from: .json())
           for byte in bytes {
             guard (try? stream.next(byte)) != nil else { return false }
-            stream.withView { blackHoleTotal($0.total) }
+            stream.withView { blackHoleTotal($0.total?.value) }
           }
           return (try? stream.finish()).map { $0.total == index } ?? false
         }
