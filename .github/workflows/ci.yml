@@ -43,7 +43,7 @@ jobs:
         run: swift --version
       - name: "Test Swift Package on Linux"
         run: >-
-          swift build --build-tests
+          swift test
           --enable-all-traits --disable-experimental-prebuilts
 
   android:
@@ -73,7 +73,7 @@ jobs:
           tag: 6.3.2-RELEASE
       - name: "Test Swift Package on Windows"
         run: >-
-          swift build --build-tests
+          swift test
           --disable-experimental-prebuilts --enable-all-traits
 
   embedded:

@@ -62,8 +62,8 @@
     func `Bridged collections start empty`() {
       expectNoDifference(Deque<Int>.streamInitialValue().isEmpty, true)
       expectNoDifference(BitArray.streamInitialValue().isEmpty, true)
-      expectNoDifference(OrderedDictionary<String, true, Int>.streamInitialValue().isEmpty)
-      expectNoDifference(TreeDictionary<String, true, Int>.streamInitialValue().isEmpty)
+      expectNoDifference(OrderedDictionary<String, Int>.streamInitialValue().isEmpty, true)
+      expectNoDifference(TreeDictionary<String, Int>.streamInitialValue().isEmpty, true)
     }
   }
 #endif
