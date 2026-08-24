@@ -309,7 +309,7 @@ extension JSONParser {
           try self.checkSink(&sink, at: cursor)
           if k < count {
             _ = try self.consumeNumericArray(
-              base: base, count: count, indices: indices, cursor: &cursor, k: &k,
+              base: base, to: n, count: count, indices: indices, cursor: &cursor, k: &k,
               state: &state, depth: &depth, containers: &containers, into: &sink
             )
           }
@@ -385,7 +385,7 @@ extension JSONParser {
             // Mid-array — after a non-numeric element, or in a new window inside an array that
             // ran on from the last one: the numeric loop resumes if the next element is a number.
             _ = try self.consumeNumericArray(
-              base: base, count: count, indices: indices, cursor: &cursor, k: &k,
+              base: base, to: n, count: count, indices: indices, cursor: &cursor, k: &k,
               state: &state, depth: &depth, containers: &containers, into: &sink
             )
           }

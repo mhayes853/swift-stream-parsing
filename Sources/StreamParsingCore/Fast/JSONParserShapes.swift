@@ -1,3 +1,5 @@
+import StreamParsingShims
+
 // Shape loops for the windowed walk. A shape loop commits to a pattern the index makes visible
 // ahead of time — a run of entries whose kinds are known before they are consumed — and
 // processes it without the state machine: no state variable, no per-token switch, extents read
@@ -31,6 +33,7 @@ extension JSONParser {
   @inline(never)
   mutating func consumeNumericArray<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
+    to n: Int,
     count: Int,
     indices: UnsafeMutablePointer<UInt32>,
     cursor: inout Int,
@@ -61,10 +64,12 @@ extension JSONParser {
           let separator = Int(indices[separatorEntry])
           let separatorByte = base.load(fromByteOffset: separator, as: UInt8.self)
           guard separatorByte == .asciiComma || separatorByte == .asciiArrayEnd else { break }
-          do {
-            try self.emitNumber(base: base, from: start, to: separator, into: &sink, reportAt: separator)
-          } catch {
-            break
+          if !self.emitLongDecimal(base: base, from: start, to: separator, chunkEnd: n, into: &sink) {
+            do {
+              try self.emitNumber(base: base, from: start, to: separator, into: &sink, reportAt: separator)
+            } catch {
+              break
+            }
           }
           try self.checkSink(&sink, at: separator)
           cursor = separator
@@ -132,6 +137,40 @@ extension JSONParser {
     // Out of entries: the window ends inside the subtree. Hand back at the current phase.
     state = expectingValue ? (first ? .firstValue : .value) : .afterValue
     return .fellBack
+  }
+
+  // The third number path: a simple decimal longer than sixteen bytes, classified and
+  // accumulated in one pass by the shim. Gated on length because the classification's latency
+  // is only amortized by long tokens (the lab measured -27% on nine-digit integers), and on
+  // the extent lying at least 32 bytes inside the chunk, which is what the shim reads. Emits
+  // exactly what `emitNumber` would — the lab verified the two agree on every extent the shim
+  // accepts — and returns false for anything it declines, which then takes `emitNumber`.
+  @inlinable
+  @inline(__always)
+  mutating func emitLongDecimal<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, chunkEnd: Int, into sink: inout Sink
+  ) -> Bool {
+    guard to &- from > 16, from &+ 32 <= chunkEnd else { return false }
+    var magnitude: UInt64 = 0
+    var exponent: Int32 = 0
+    var digitCount: UInt32 = 0
+    var flags: UInt32 = 0
+    guard stream_parsing_decimal32(
+      base.advanced(by: from).assumingMemoryBound(to: UInt8.self), to &- from,
+      &magnitude, &exponent, &digitCount, &flags
+    ) != 0 else { return false }
+    let slice = UnsafeBufferPointer(
+      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self), count: to &- from
+    )
+    sink.number(
+      Span(_unsafeElements: slice),
+      info: NumberInfo(
+        magnitude: magnitude, exponent: Int16(clamping: Int(exponent)),
+        digitCount: UInt16(truncatingIfNeeded: Int(digitCount)),
+        flags: NumberInfo.Flags(rawValue: UInt16(truncatingIfNeeded: flags))
+      )
+    )
+    return true
   }
 
   // Object members with scalar values: `"key": value,` repeated, which is most of every object

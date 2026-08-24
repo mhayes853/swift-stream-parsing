@@ -4045,3 +4045,77 @@ Open, in order: interleaved digit accumulation for consecutive numbers (Canada's
 `emitNumber` 45%, the indexer 22%, the loop 14%); the Mesh-through-chunks seam; and CITM's
 line, which a cheaper pattern test or a member loop that also takes container values would
 settle.
+
+## The number kernel lab: interleaving, single-pass validation, and where the cycles are
+
+Two questions from the shape-loop round, answered in `NumberKernelBenchmarks.swift` over the
+real number extents of four corpora (extents found by a scan at registration; every kernel is
+verified against a port of the shipping number path on every extent it accepts):
+
+1. Is Canada's ~24 cycles per 18-digit number in `emitNumber` a latency chain that explicit
+   interleaving could overlap, or instruction count?
+2. Does a single vector classification that merges validation with parsing beat the shipping
+   path's per-block validation plus grammar walk — and on what shapes?
+
+The uniformity question came first, from the census the verification pass produces: the
+"simple decimal" shape (optional `-`, digits, at most one interior `.`, no exponent, at most 19
+digits) covers **every** number in Canada, CITM and Twitter and all but 5 of Mesh's 73,013. The
+shape is uniform. The *length* is not — Canada p50 18, CITM 9, Mesh 4 with 13-15 byte floats,
+Twitter 3 — and length is what decides the kernel.
+
+MB/s of number bytes, p50, kernels inlined into the Swift loop (the first run had them out of
+line and read 4-7% worse on the short corpora; the boundary was a confound, not the cause):
+
+| corpus | current port | single pass (32 B classify) | paired | hybrid (≤8 port, ≤16 one vector, else 32 B) |
+| --- | ---: | ---: | ---: | ---: |
+| Canada (p50 18) | 1,559 | **1,887 (+21%)** | 1,962 (+26%) | **1,927 (+24%)** |
+| Mesh (p50 4) | 1,226 | 1,109 (−9%) | 1,090 | 1,236 (+1%) |
+| CITM (p50 9) | 1,855 | 1,290 (−30%) | 1,263 | 1,349 (−27%) |
+| Twitter (p50 3) | 957 | 651 (−32%) | 707 | 853 (−11%) |
+
+**Interleaving: the headroom is +4%.** Pairing two extents so both are classified before either
+is parsed gains 4% over the single kernel on Canada and nothing elsewhere. The out-of-order core
+was already overlapping consecutive numbers — the shape loop gives it nothing to stall on — so
+the raw parser's number cost is instructions, not latency. Software pipelining stays where the
+chain actually is: Eisel–Lemire in the layer, once numbers arrive batched.
+
+**Single-pass classification: a long-number kernel, not a number kernel.** It wins 21-24% on
+Canada's 17-digit floats and loses 27-32% on 9-digit integers, and the reason is the shape of
+the cost, not its size: the classification is two vector compares, three pairwise adds and a
+lane move *in series*, ~10 cycles of latency that must complete before the first digit can be
+accumulated. Eighteen digits amortize that; nine do not, because the shipping path for nine
+digits is one validated block and a tail, already close to the floor. The one-vector variant
+halves the work and not the latency, which is why it did not rescue CITM.
+
+So the kernel earns its place under one condition: extent length above 16, chosen by one
+compare on the length the index already knows. Below that, the shipping path — the backward
+short-integer read up to eight bytes, the validated blocks above — stays. On this corpus that
+means Canada alone (+24% on its `emitNumber`, ~+10% on the row), Mesh's floats being 13-15
+bytes. It is a bounded, contained gain inside the numeric shape loop, and it needs one guard
+the lab did not: the classify reads 32 bytes from the extent's start, so an extent within 32
+bytes of the chunk's end takes the shipping path.
+
+Not built yet; the decision is whether +10% on one corpus is worth a third number path.
+
+### The third number path, landed
+
+`stream_parsing_decimal32` in StreamParsingShims.h (static inline, so the Swift caller pays no
+call), taken by the numeric shape loop for an extent longer than sixteen bytes that lies at
+least 32 bytes inside the chunk; everything it declines takes `emitNumber` unchanged, and the
+short and mid-length paths are untouched. The differential suite gained the long-decimal
+documents: every accepted shape, every declined one (20 digits, leading zeros, trailing dot,
+exponent, leading dot, 21 digits), a long number at a chunk end, and long numbers after
+whitespace. Two rounds against the shape-loop build:
+
+| corpus | windowed before | after | delta |
+| --- | ---: | ---: | ---: |
+| Canada | 1,198 | **1,362** | **+13.7%** |
+| Mesh | 954 | 927 | −2.8% |
+| Twitter | 1,826 | 1,847 | +1.2% |
+| CITM | 2,003 | 2,000 | −0.1% |
+
+Canada windowed now stands at **+45% over the dispatcher** (1,362 against 942). Mesh gives back
+2.8%: its floats are 13–16 bytes, so almost all of them fail the length gate and pay only the
+compare, and the few 17-byte ones pay a classification that barely amortizes. That is the lab's
+own table at the boundary, and it is the price of the gate being one compare rather than a
+histogram; a threshold of 17 would trade Mesh's 2.8% against a sliver of Canada's numbers.

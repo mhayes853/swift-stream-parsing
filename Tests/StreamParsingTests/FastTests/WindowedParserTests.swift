@@ -153,6 +153,11 @@ struct `Windowed parser tests` {
     ("numeric depth 64", String(repeating: "[", count: 64) + "1" + String(repeating: "]", count: 64)),
     ("numeric across window", "[" + (0..<9000).map { "[\($0),\($0)]" }.joined(separator: ",") + "]"),
     ("numeric across window with spaces", "[" + (0..<7000).map { "[\($0), \($0)]" }.joined(separator: ", ") + "]"),
+    // The long-decimal path: every shape it accepts and every one it must decline.
+    ("long decimals", "[" + (0..<400).map { "[-\($0).\(String(repeating: "7", count: 14)),\(String(repeating: "9", count: 17)),1234567890123456789,-0.00000000000000001,12345678901234567.5]" }.joined(separator: ",") + "]"),
+    ("long decimals declined", "[12345678901234567890,-00000000000000000001,1234567890123456.,1234567890123456e5,0.0000000000000000000,-.1234567890123456789,123456789012345678901]"),
+    ("long decimal at chunk end", "[" + String(repeating: "1", count: 60) + ",12345678901234567.5]"),
+    ("long decimals with spaces", "[ 12345678901234567.5 , -1234567890123456.75 ]"),
     // Shape loops: object members, and every way a member can leave the pattern.
     ("members scalar", #"{"a":1,"b":"x","c":true,"d":null,"e":-2.5e3,"f":""}"#),
     ("members spaced", "{ \"a\" : 1 , \"b\" :\"x\",\"c\": false }"),
