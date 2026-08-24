@@ -11,9 +11,9 @@
 //   frame points at a slot no other value can see, and its address survives every append. A write
 //   through it is an ordinary mutation that respects the slot contents' own copy on write, rather
 //   than the raw pointer bypass into a shared buffer that made kept values change after the fact.
-// - **Sealed elements live in fixed size blocks.** Committing an element touches only the filling
-//   block, so the first commit after a snapshot copies at most `blockCapacity` elements instead of
-//   all of them. Copying the value itself retains one buffer object per field, not one per block.
+// - **Sealed elements live in uniform power-of-two blocks.** Committing an element touches only
+//   the filling block, so the first commit after a snapshot copies at most one block instead of all
+//   the elements. Copying the value itself retains one buffer object per field, not one per block.
 //
 // A plain value copy is therefore already a correct snapshot, which is why nothing here has a
 // `streamSnapshot()`.
@@ -23,19 +23,29 @@
 // block comes for free instead of being written by hand, and every stored property stays a value
 // type, which is what lets `Sendable` be checked rather than asserted.
 public struct StreamArray<Element> {
-  // Sealed and never written again except through the checked subscript. Every block here holds
-  // exactly `blockCapacity` elements, which keeps indexing a shift and a mask rather than a search
-  // over prefix sums.
+  // Sealed and never written again except through the checked subscript. Every block in an
+  // instance holds its chosen capacity, which keeps indexing a shift and a mask rather than a
+  // search over prefix sums.
   @usableFromInline var blocks: [ContiguousArray<Element>]
 
-  // The filling block. Its first allocation is deliberately smaller than `blockCapacity`; it
-  // promotes once if needed, while every tail after the first sealed block starts at full size.
-  // This is what a commit copies when a snapshot shares it.
+  // The filling block. Its first allocation is deliberately smaller than the chosen block
+  // capacity; it promotes once if needed, while every tail after the first sealed block starts at
+  // full size. This is what a commit copies when a snapshot shares it.
   @usableFromInline var tail: ContiguousArray<Element>
 
   // The element being parsed, or nil when none is open. Reads see it as the last element, which is
   // what keeps an incomplete element visible while it streams.
   @usableFromInline var pending: Element?
+
+  // Capacity hints choose this while the array is empty. Keeping it as a shift makes the count and
+  // index arithmetic independent of division, while the default path remains the same immediate
+  // shift and mask used before adaptive blocks were introduced.
+  @usableFromInline var blockShiftBits: UInt8
+
+  // Cached separately because `commit` needs the capacity for every element, whereas the shift is
+  // only needed when a block seals or an element is indexed. This avoids reconstructing the value
+  // with a variable shift in the append hot path. The maximum adaptive capacity fits in UInt16.
+  @usableFromInline var blockCapacityBits: UInt16
 
   // A power of two, so the sealed count is `blocks.count << blockShift` and needs no stored field.
   @usableFromInline static var initialTailCapacity: Int { 8 }
@@ -47,6 +57,16 @@ public struct StreamArray<Element> {
     self.blocks = []
     self.tail = ContiguousArray<Element>()
     self.pending = nil
+    self.blockShiftBits = UInt8(Self.blockShift)
+    self.blockCapacityBits = UInt16(Self.blockCapacity)
+  }
+
+  /// Creates an empty streaming array with storage reserved for at least the expected number of
+  /// elements. The blocked representation remains an implementation detail: this is a hint that
+  /// avoids growth of the block spine and lets large arrays use fewer internal allocations.
+  public init(initialCapacity: Int) {
+    self.init()
+    self.reserveCapacity(initialCapacity)
   }
 
   public init(_ elements: some Sequence<Element>) {
@@ -54,7 +74,26 @@ public struct StreamArray<Element> {
     for element in elements { self.appendSealed(element) }
   }
 
-  @usableFromInline var sealedCount: Int { self.blocks.count &<< Self.blockShift }
+  @usableFromInline var currentBlockCapacity: Int { Int(self.blockCapacityBits) }
+
+  @usableFromInline
+  var sealedCount: Int {
+    if _fastPath(self.blockShiftBits == UInt8(Self.blockShift)) {
+      return self.blocks.count &<< Self.blockShift
+    }
+    return self.blocks.count &<< Int(self.blockShiftBits)
+  }
+
+  @usableFromInline
+  static func adaptiveBlockShift(for minimumCapacity: Int) -> UInt8 {
+    // Aim for roughly 64 sealed allocations. The clamps retain the established snapshot
+    // granularity for ordinary arrays and bound the amount copied by the first write after a
+    // retained snapshot. `minimumCapacity / 64` avoids overflowing for capacities near Int.max.
+    let desired = minimumCapacity / 64 + (minimumCapacity % 64 == 0 ? 0 : 1)
+    guard desired > Self.blockCapacity else { return UInt8(Self.blockShift) }
+    let roundedShift = Int.bitWidth &- (desired &- 1).leadingZeroBitCount
+    return UInt8(Swift.min(9, roundedShift))
+  }
 
   // Appends past the pending slot, which is what every path other than the parser wants: a user
   // appending to a parsed array adds after the open element rather than replacing it.
@@ -78,15 +117,16 @@ public struct StreamArray<Element> {
 
   @inlinable
   mutating func commit(_ element: Element) {
+    let blockCapacity = Int(self.blockCapacityBits)
     let neededCapacity = self.tail.count &+ 1
     if self.tail.capacity < neededCapacity {
       let reservation = self.blocks.isEmpty && self.tail.isEmpty
         ? Self.initialTailCapacity
-        : Self.blockCapacity
+        : blockCapacity
       self.tail.reserveCapacity(reservation)
     }
     self.tail.append(element)
-    guard self.tail.count == Self.blockCapacity else { return }
+    guard self.tail.count == blockCapacity else { return }
     self.blocks.append(self.tail)
     self.tail = ContiguousArray<Element>()
   }
@@ -107,7 +147,11 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
     get {
       let sealed = self.sealedCount
       if position < sealed {
-        return self.blocks[position &>> Self.blockShift][position & Self.blockMask]
+        if _fastPath(self.blockShiftBits == UInt8(Self.blockShift)) {
+          return self.blocks[position &>> Self.blockShift][position & Self.blockMask]
+        }
+        let shift = Int(self.blockShiftBits)
+        return self.blocks[position &>> shift][position & ((1 &<< shift) &- 1)]
       }
       let offset = position &- sealed
       if offset < self.tail.count { return self.tail[offset] }
@@ -121,7 +165,12 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
       if position < sealed {
         // Writes through the block, which copies that one block when a snapshot shares it and
         // leaves every other block alone. This is the only door into sealed storage.
-        self.blocks[position &>> Self.blockShift][position & Self.blockMask] = newValue
+        if _fastPath(self.blockShiftBits == UInt8(Self.blockShift)) {
+          self.blocks[position &>> Self.blockShift][position & Self.blockMask] = newValue
+        } else {
+          let shift = Int(self.blockShiftBits)
+          self.blocks[position &>> shift][position & ((1 &<< shift) &- 1)] = newValue
+        }
         return
       }
       let offset = position &- sealed
@@ -154,13 +203,14 @@ extension StreamArray: RangeReplaceableCollection {
     self.blocks.removeAll()
     self.tail = ContiguousArray<Element>()
     self.pending = nil
+    let blockCapacity = self.currentBlockCapacity
     var start = 0
-    while start &+ Self.blockCapacity <= flat.count {
-      self.blocks.append(ContiguousArray(flat[start..<(start &+ Self.blockCapacity)]))
-      start &+= Self.blockCapacity
+    while start &+ blockCapacity <= flat.count {
+      self.blocks.append(ContiguousArray(flat[start..<(start &+ blockCapacity)]))
+      start &+= blockCapacity
     }
     if start < flat.count {
-      self.tail.reserveCapacity(Self.blockCapacity)
+      self.tail.reserveCapacity(blockCapacity)
       self.tail.append(contentsOf: flat[start...])
     }
   }
@@ -170,7 +220,19 @@ extension StreamArray: RangeReplaceableCollection {
   }
 
   public mutating func reserveCapacity(_ minimumCapacity: Int) {
-    self.blocks.reserveCapacity((minimumCapacity &+ Self.blockMask) &>> Self.blockShift)
+    precondition(minimumCapacity >= 0, "StreamArray capacity must not be negative")
+    if self.isEmpty {
+      self.blockShiftBits = Self.adaptiveBlockShift(for: minimumCapacity)
+      self.blockCapacityBits = UInt16(1 &<< Int(self.blockShiftBits))
+    }
+    let shift = Int(self.blockShiftBits)
+    let blockCapacity = Int(self.blockCapacityBits)
+    // Only complete blocks enter the spine; the remainder belongs to `tail`. Rounding up would
+    // make a small exact hint allocate a spine buffer that can never be used.
+    self.blocks.reserveCapacity(minimumCapacity &>> shift)
+    if self.blocks.isEmpty && self.tail.isEmpty && minimumCapacity > 0 {
+      self.tail.reserveCapacity(Swift.min(minimumCapacity, blockCapacity))
+    }
   }
 }
 
@@ -283,8 +345,8 @@ where Element: StreamParseableRoot {
     @inlinable
     public var value: StreamArray<Element> { self.storage.pointee }
 
-    /// The number of full, sealed blocks. Each holds exactly `StreamArray.blockCapacity`
-    /// elements — see ``sealedBlock(_:)``.
+    /// The number of full, sealed blocks. Blocks within one array have a uniform size — see
+    /// ``sealedBlock(_:)``.
     @inlinable
     public var sealedBlockCount: Int { self.storage.pointee.blocks.count }
 
@@ -315,8 +377,9 @@ where Element: StreamParseableRoot {
         guard index >= 0, index < self.count else { return nil }
         let sealed = self.storage.pointee.sealedCount
         if index < sealed {
-          let blockIndex = index &>> StreamArray<Element>.blockShift
-          let offset = index & StreamArray<Element>.blockMask
+          let shift = Int(self.storage.pointee.blockShiftBits)
+          let blockIndex = index &>> shift
+          let offset = index & ((1 &<< shift) &- 1)
           let base = self.storage.pointee.blocks[blockIndex]
             .withUnsafeBufferPointer { $0.baseAddress! }
           let view = Element.streamView(UnsafeMutableRawPointer(mutating: base + offset))

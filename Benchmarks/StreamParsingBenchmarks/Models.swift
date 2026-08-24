@@ -190,6 +190,31 @@ struct BenchmarkCanadaGeometry: Hashable, Sendable {
   var coordinates: [[[Double]]] = []
 }
 
+// The same retained shape with cardinality hints taken from canada.json. Kept as a separate model
+// so the real-world rows continue to provide a direct hinted/unhinted comparison.
+@StreamParseable
+struct BenchmarkCanadaCapacityHint: Hashable, Sendable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 1)
+  var features: [BenchmarkCanadaCapacityHintFeature] = []
+}
+
+@StreamParseable
+struct BenchmarkCanadaCapacityHintFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
+  var geometry: BenchmarkCanadaCapacityHintGeometry = BenchmarkCanadaCapacityHintGeometry()
+}
+
+@StreamParseable
+struct BenchmarkCanadaCapacityHintGeometry: Hashable, Sendable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 480)
+  var coordinates: [[[Double]]] = []
+}
+
 // MARK: - Mesh
 
 // A three.js mesh export: one object of long flat numeric arrays. The model keeps every one of
@@ -220,6 +245,44 @@ struct BenchmarkMesh: Hashable, Sendable {
 struct BenchmarkMeshBatch: Hashable, Sendable {
   var indexRange: [Int] = []
   var vertexRange: [Int] = []
+  var usedBones: [Int] = []
+}
+
+// Exact cardinalities from mesh.json. These long flat arrays are the corpus's clearest case for a
+// member-level capacity hint; the unhinted BenchmarkMesh remains alongside it as the control.
+@StreamParseable
+struct BenchmarkMeshCapacityHint: Hashable, Sendable {
+  @StreamParseableMember(initialCapacity: 1)
+  var batches: [BenchmarkMeshCapacityHintBatch] = []
+
+  @StreamParseableMember(initialCapacity: 10_800)
+  var positions: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 7_200)
+  var tex0: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var colors: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var influences: [[Double]] = []
+
+  @StreamParseableMember(initialCapacity: 10_800)
+  var normals: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 33_408)
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkMeshCapacityHintBatch: Hashable, Sendable {
+  @StreamParseableMember(initialCapacity: 2)
+  var indexRange: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 2)
+  var vertexRange: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 1)
   var usedBones: [Int] = []
 }
 

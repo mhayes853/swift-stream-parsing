@@ -152,6 +152,56 @@ public func _streamEnterContainerField<T>(
   _streamEnterContainer(&value, schema: schema)
 }
 
+// Capacity-aware forms are deliberately container-specific. `initialCapacity` is macro-facing
+// vocabulary; how each container maps the hint onto its storage remains private to that type.
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamArray(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamDictionary(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
 // MARK: - Optional aware scalar application
 
 // Partial members are optional, so a value has to exist before it can be appended to.

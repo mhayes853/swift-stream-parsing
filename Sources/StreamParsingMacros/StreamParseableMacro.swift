@@ -266,6 +266,24 @@ extension StreamParseableMacro {
     return .scalarOrObject(unwrapped.trimmedDescription)
   }
 
+  // Capacity-aware entry ultimately overloads on the generated partial storage type, so generic
+  // standard-library spellings and direct streaming-container spellings are supported even though
+  // their schemas continue to resolve through the type-based fallback above. Type aliases cannot
+  // be recognized by a syntax-only macro and remain a compile-time diagnostic.
+  private static func supportsInitialCapacity(_ type: TypeSyntax) -> Bool {
+    switch Self.fieldShape(for: type) {
+    case .array, .dictionary:
+      return true
+    case .scalarOrObject:
+      guard let identifier = Self.unwrappedType(type).as(IdentifierTypeSyntax.self),
+        identifier.genericArgumentClause != nil
+      else { return false }
+      return ["Array", "Dictionary", "StreamArray", "StreamDictionary"].contains(
+        identifier.name.text
+      )
+    }
+  }
+
   // Both the storage type and the schema are named from the *unwrapped* element or value type,
   // and an optional one picks the builder that opens its slot materialised.
   //
@@ -351,9 +369,15 @@ extension StreamParseableMacro {
         cases.containerSchemas.append(
           "private static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
         )
-        cases.enter.append(
-          "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
-        )
+        if let initialCapacity = property.initialCapacity {
+          cases.enter.append(
+            "    case \(field): return _streamEnterContainerField(&\(target), schema: Self.\(constant).unsafelyUnwrapped, initialCapacity: \(initialCapacity))"
+          )
+        } else {
+          cases.enter.append(
+            "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
+          )
+        }
       case .array, .dictionary:
         // A container field can be nulled like any other. Emitted through the same helper as a
         // scalar's, so an optional member clears and a non-optional one falls to the disfavoured
@@ -366,10 +390,11 @@ extension StreamParseableMacro {
         cases.containerSchemas.append(
           "private static let \(constant) = \(Self.schemaExpression(for: property.type))"
         )
+        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
         cases.enter.append(
           """
               case \(field):
-                return _streamEnterContainerField(&\(target), schema: Self.\(constant))
+                return _streamEnterContainerField(&\(target), schema: Self.\(constant)\(capacityArgument))
           """
         )
       }
@@ -626,11 +651,17 @@ extension StreamParseableMacro {
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
+    let initialCapacity: Int?
     let isIgnored: Bool
   }
 
   private struct KeyNamesResult {
     let names: [String]
+    let diagnostics: [Diagnostic]
+  }
+
+  private struct InitialCapacityResult {
+    let value: Int?
     let diagnostics: [Diagnostic]
   }
 
@@ -707,10 +738,18 @@ extension StreamParseableMacro {
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
     }
+    let capacityInfo =
+      isIgnored
+      ? InitialCapacityResult(value: nil, diagnostics: [])
+      : Self.initialCapacity(for: variableDecl, type: type)
+    for diagnostic in capacityInfo.diagnostics {
+      context.diagnose(diagnostic)
+    }
     return StoredProperty(
       name: propertyName,
       type: type,
       keyNames: keyInfo.names,
+      initialCapacity: capacityInfo.value,
       isIgnored: isIgnored
     )
   }
@@ -832,6 +871,64 @@ extension StreamParseableMacro {
       names: names.isEmpty ? [defaultName] : names,
       diagnostics: diagnostics
     )
+  }
+
+  private static func initialCapacity(
+    for variableDecl: VariableDeclSyntax,
+    type: TypeSyntax
+  ) -> InitialCapacityResult {
+    var value: Int?
+    var sawCapacity = false
+    var diagnostics = [Diagnostic]()
+
+    for attribute in self.streamParseableMemberAttributes(in: variableDecl) {
+      guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self),
+        let expression = self.argumentExpression(in: arguments, named: "initialCapacity")
+      else { continue }
+
+      guard !sawCapacity else {
+        diagnostics.append(
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(initialCapacity:) can only be specified once per property."
+            )
+          )
+        )
+        continue
+      }
+      sawCapacity = true
+
+      guard let literal = expression.as(IntegerLiteralExprSyntax.self),
+        let parsed = Int(String(literal.literal.text.filter { $0 != "_" }))
+      else {
+        diagnostics.append(
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(initialCapacity:) requires a nonnegative integer literal."
+            )
+          )
+        )
+        continue
+      }
+
+      value = parsed
+    }
+
+    if value != nil, !Self.supportsInitialCapacity(type) {
+      diagnostics.append(
+        Diagnostic(
+          node: variableDecl,
+          message: MacroExpansionErrorMessage(
+            "@StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties."
+          )
+        )
+      )
+      value = nil
+    }
+
+    return InitialCapacityResult(value: value, diagnostics: diagnostics)
   }
 
   private static func streamParseableMemberAttribute(

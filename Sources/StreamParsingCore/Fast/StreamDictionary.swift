@@ -59,6 +59,13 @@ public struct StreamDictionary<Value> {
     self.pendingSlot = -1
   }
 
+  /// Creates an empty streaming dictionary with storage reserved for at least the expected number
+  /// of unique keys. Small dictionaries retain the table-free linear scan representation.
+  public init(initialCapacity: Int) {
+    self.init()
+    self.reserveCapacity(initialCapacity)
+  }
+
   public init(_ elements: some Sequence<(key: String, value: Value)>) {
     self.init()
     for element in elements { self.updateValue(element.value, forKey: element.key) }
@@ -80,6 +87,16 @@ public struct StreamDictionary<Value> {
 
   public var keys: [String] { self.map(\.key) }
   public var values: [Value] { self.map(\.value) }
+
+  /// Reserves storage for at least the expected total number of unique keys.
+  public mutating func reserveCapacity(_ minimumCapacity: Int) {
+    precondition(minimumCapacity >= 0, "StreamDictionary capacity must not be negative")
+    self.entries.reserveCapacity(minimumCapacity)
+    self.storedValues.reserveCapacity(minimumCapacity)
+    if minimumCapacity > Self.indexThreshold {
+      self.rebuildTable(minimumEntryCapacity: minimumCapacity)
+    }
+  }
 
   public subscript(key: String) -> Value? {
     get {
@@ -165,9 +182,11 @@ public struct StreamDictionary<Value> {
 
   // Rebuilt from the entries' stored hashes, so growth hashes nothing and never looks at a key.
   @inlinable
-  mutating func rebuildTable() {
+  mutating func rebuildTable(minimumEntryCapacity: Int = 0) {
     var capacity = 16
-    while capacity < self.entries.count * 2 { capacity &*= 2 }
+    let entryCapacity = Swift.max(self.entries.count, minimumEntryCapacity)
+    while capacity < entryCapacity * 2 { capacity &*= 2 }
+    if let table = self.table, table.count >= capacity { return }
     var built = ContiguousArray<Int32>(repeating: -1, count: capacity)
     let mask = capacity - 1
     var slot = 0

@@ -74,6 +74,11 @@ func realWorldBenchmarks() {
   }
   precondition(canada.features?.count == 1)
   precondition(canada.features?[0].geometry?.coordinates?.count == 480)
+  let hintedCanada = expectParses {
+    try streamBulkDiscarding(Payloads.canada, as: BenchmarkCanadaCapacityHint.Partial.self)
+  }
+  precondition(hintedCanada.features?.count == 1)
+  precondition(hintedCanada.features?[0].geometry?.coordinates?.count == 480)
   let gsoc = expectParses {
     try streamBulkDiscarding(
       Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
@@ -93,6 +98,14 @@ func realWorldBenchmarks() {
   precondition(mesh.indices?.count == 33_408)
   precondition(mesh.colors?.count == 3_600)
   precondition(mesh.batches?.count == 1)
+  let hintedMesh = expectParses {
+    try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMeshCapacityHint.Partial.self)
+  }
+  precondition(hintedMesh.positions?.count == 10_800)
+  precondition(hintedMesh.normals?.count == 10_800)
+  precondition(hintedMesh.indices?.count == 33_408)
+  precondition(hintedMesh.colors?.count == 3_600)
+  precondition(hintedMesh.batches?.count == 1)
   let github = expectParses {
     try streamBulkDiscarding(
       Payloads.githubEvents, as: StreamArray<BenchmarkGitHubEvent.Partial>.self
@@ -141,6 +154,11 @@ func realWorldBenchmarks() {
     "Canada", payload: Payloads.canada, as: BenchmarkCanada.Partial.self
   )
   addRealWorldConvenienceRows(
+    "Canada capacity hint",
+    payload: Payloads.canada,
+    as: BenchmarkCanadaCapacityHint.Partial.self
+  )
+  addRealWorldConvenienceRows(
     "CITM catalog", payload: Payloads.citmCatalog, as: BenchmarkCITM.Partial.self
   )
   addRealWorldConvenienceRows(
@@ -157,6 +175,11 @@ func realWorldBenchmarks() {
   )
   addRealWorldConvenienceRows(
     "Mesh", payload: Payloads.mesh, as: BenchmarkMesh.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "Mesh capacity hint",
+    payload: Payloads.mesh,
+    as: BenchmarkMeshCapacityHint.Partial.self
   )
 
   for chunk in [1_400, 16_384, 65_536] {
