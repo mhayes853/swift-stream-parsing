@@ -3670,3 +3670,295 @@ mutation verified -- deleting the `to >= 8` bound from the short integer kernel 
 tests green, because the out of bounds bytes are masked away before they reach the result, and
 reports `heap-buffer-overflow` under ASan. A backward read that lands in mapped memory cannot be
 seen by any assertion about values. CI does not currently run a sanitizer pass.
+
+---
+
+## Stage-1 extraction: the census and the budget
+
+The dispatch loop's optimization horizon is one token: scan to the next byte that needs
+attention, dispatch on it, repeat. The question on the table is whether shifting that horizon
+to a whole chunk — one classification pass extracting quote/whitespace/structural information,
+then a consuming pass that walks positions instead of scanning bytes — can beat it, and at what
+window size. This section is the pre-work: what the corpora look like through that lens, and
+what the extraction pass alone costs, measured before any stage 2 exists. Everything below ran
+on 2026-08-23; the kernels live in `Benchmarks/StageOneLab` (a benchmark-only C target — nothing
+ships from it) with rows `Stage1 *` in the suite.
+
+The one directly relevant prior measurement — the "simdjson style structural bitmaps are
+counterproductive here" microbench early in this document — tested *iterating a dense bitmap*
+against testing bytes. It did not test the bits-to-indices decompression simdjson actually
+ships, and it predates the parser being fast enough for scan cost to be a large share. It rules
+out neither direction measured here.
+
+### The census
+
+One index entry per thing a consuming pass would visit: every structural char outside a string,
+every unescaped quote, and the first byte of every number/literal. Per 64-byte block, over each
+corpus (`Benchmarks/StageOneLab/stage1_census.py`, single-pass grammar walk):
+
+| corpus | str% | ws% | num% | entries | idx as %doc (u32) | entries/block p50 | blocks with 0 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| canada | 0 | 0 | 90 | 334,385 | 59% | 10 | 0% |
+| mesh | 0 | 10 | 79 | 153,285 | 85% | 8 | 0% |
+| citm_catalog | 13 | 71 | 7 | 162,594 | 38% | 6 | 0% |
+| twitter | 59 | 26 | 2 | 73,362 | 47% | 8 | 13% |
+| twitterescaped | 83 | 0 | 2 | 73,362 | 52% | 8 | 31% |
+| github_events | 71 | 18 | 1 | 6,547 | 40% | 6 | 16% |
+| gsoc-2018 | 89 | 8 | 0 | 109,969 | 13% | 0 | 70% |
+| llm_message | 99 | 0 | 0 | 11,850 | 4% | 0 | 94% |
+
+Two populations. The number-dense pair would carry an index more than half the document's own
+size — the old density objection, quantified. The string-heavy pair inverts it: 70–94% of their
+blocks contain nothing a consuming pass would stop at, so for them the *string mask alone* is
+most of the information. A sub-chunk of 64 KB or less also makes every index entry a `u16`,
+halving that traffic; nothing below measures that variant yet.
+
+### The kernel and its verification
+
+`StageOneLab.c` is simdjson's stage 1 restated for streaming: the paper's odd-backslash-run
+escape finder with a one-bit carry, quote parity via PMULL prefix-XOR, the nibble-table
+classifier (`tbl`), the NEON movemask, and 8-at-a-time bits-to-indices — plus what simdjson
+never carries: in-string/escape/scalar state flowing across window boundaries, and no padding
+(a short tail block is memcpy'd into a whitespace-padded scratch, bits past the end masked).
+A Swift scalar reference with identical semantics checks the kernel at registration over all
+eight corpora, 130 backslash runs of every parity crossing the 64/128-byte boundaries, and 500
+seeded byte-soup buffers, each at whole-buffer and 64/128-byte windows; a mismatch traps before
+any row runs. One shared quirk is pinned there: the nibble tables classify NUL as whitespace,
+which a real stage 2 must reject itself.
+
+### The budget: what stage 1 costs against the parser it would tax
+
+p50 Payload MB/s, same session; "tax" is the share of the current parser's whole time budget
+the pass would consume (`Real <name> - bulk` is the comparator).
+
+| corpus | parser | string mask | full masks | index | tax: mask | full | index |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| canada | 869 | ~23,000 | 8,567 | 4,021 | 3.8% | 10.1% | 21.6% |
+| mesh | 709 | ~23,000 | 8,559 | 4,009 | 3.1% | 8.3% | 17.7% |
+| citm_catalog | 1,988 | ~23,000 | 8,735 | 5,643 | 8.6% | 22.8% | 35.2% |
+| twitter | 1,451 | ~23,000 | 8,567 | 5,031 | 6.3% | 16.9% | 28.8% |
+| twitterescaped | 1,055 | ~23,000 | 8,783 | 4,819 | 4.6% | 12.0% | 21.9% |
+| github_events | 1,725 | ~23,000 | 8,783 | 5,503 | 7.5% | 19.6% | 31.3% |
+| gsoc-2018 | 3,863 | ~23,000 | 8,743 | 6,071 | 16.8% | 44.2% | 63.6% |
+| llm_message | 3,453 | ~23,000 | 8,567 | 7,399 | 15.0% | 40.3% | 46.7% |
+
+The string mask runs at effective memory bandwidth and is corpus-independent. Full masks are
+flat at ~8.6 GB/s — the classify work is per block, not per token. Extraction is what varies:
+it tracks entry density, from 7.4 GB/s on llm_message down to 4.0 on canada/mesh.
+
+What the arithmetic rules out immediately: a full structural index on the string-heavy corpora.
+On gsoc-2018 the index pass alone consumes 64% of the parser's entire current budget — a stage 2
+would have to walk 110 K positions in a third of the time the current parser takes to do
+everything. The full simdjson shape is dead on that population, and not marginally.
+
+What it leaves alive, sharply: the number-dense pair. On canada and mesh the index costs 18–22%,
+which leaves stage 2 ~80% of the current budget — and those are exactly the corpora where known
+token extents unlock work the dispatch loop structurally cannot do (batching Eisel–Lemire
+multiply chains across numbers for ILP). The bar is "beat the current number path by ~27%", and
+2.2× kernels have come out of that path before. The string mask as a *substrate* (tier 1, 3–9%
+tax on the slow corpora) stays alive too, but on notice: whatever it simplifies in the
+structural walk has to buy back its tax first.
+
+### The window sweep, and what the L1 hypothesis actually earned
+
+The prediction was that a second pass over a whole-document chunk re-reads from L2/L3 while a
+sub-chunk-sized window keeps it in L1, so extraction should interleave with consumption per
+sub-chunk. Measured with a synthetic stage 2 (load one byte per index entry, interleaved per
+window — a *lower bound* on real consumption traffic), p50 MB/s:
+
+| corpus | 512B | 4KB | 32KB | 256KB | whole |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| canada | 3,379 | 3,549 | **3,637** | 3,499 | 3,441 |
+| citm_catalog | 4,599 | 4,883 | **5,115** | 4,971 | 4,911 |
+| gsoc-2018 | 5,391 | 5,751 | **5,855** | 5,691 | 5,603 |
+| twitter | 3,557 | 4,395 | **4,651** | 4,471 | 4,431 |
+
+The shape is the same on all four: 32 KB wins everywhere, whole-document costs 4–6% against it,
+and 512B costs 5–24% — per-window overhead (the carry round-trip and the call) eats the
+locality gain long before L1 pressure matters. So the hypothesis was directionally right and
+quantitatively modest: these corpora top out at 3.2 MB, which sits entirely inside this
+machine's 12 MB L2, so "whole chunk" never actually reaches memory — the sweep measured
+L1-vs-L2, not L1-vs-DRAM. Two consequences: sub-chunking at tens-of-KB is free structure (it
+also buys the u16 index and a fixed scratch), and the penalty for full-document extraction
+would grow, not shrink, on documents larger than L2 — but nothing measured here shows the
+cliff, and claiming one without a >12 MB payload would repeat the exact mistake the whitespace
+discovery section documents.
+
+### What this stage of the experiment decides
+
+Ruled out: full-index two-pass as the *general* architecture (gsoc/llm taxes are unpayable),
+and 512B windows. Ruled in for a vertical slice: tier 2 + batched number parsing on the
+number-dense corpora, at a 32 KB window, where the budget leaves stage 2 ~80% of current time.
+Undecided, needs the slice: whether tier 1's string mask pays for itself as a substrate under
+the existing structural walk, and how a real consuming pass (which reads token bytes, not one
+byte per token) moves the sweep. The byte-fed path is untouched by construction — any of this
+would sit behind a chunk-size gate at `parse`, and the gate lives out of line of both loops.
+
+## The windowed walk: first pass
+
+Built as planned after the section above: stage 1 graduated into `StreamParsingShims`
+(`stream_parsing_index_window`: u32 chunk-relative positions plus two per-block bitmaps,
+`needs_scan` for a backslash or a control byte inside a string and `non_ascii`), and a
+consuming walk in `Fast/JSONParserWindow.swift` behind a chunk-size gate in `parse`. The gate
+defaults to off (`windowThreshold: .max`). The dispatcher is untouched: `consumeStructuralRun`
+and `consumeNumber` are byte-identical in size against HEAD, `consumeStringRun` and
+`consumeKeyRun` moved by one 16-byte alignment slot. Getting the gate to cost nothing took two
+tries. The compare in front of every byte measured -3 to -6% on the byte fed rows. Moving the
+bulk loop out of `parse` into a shared `parseIncremental` so `parse(byte:)` could skip the
+gate fixed those and cost canada bulk -4% over four interleaved rounds, with the loop body
+1160 bytes against 1168 — nothing in the code, everything in where it landed. The shape that
+measured clean everywhere (canada +0.1%, mesh +0.3%, byte fed 0 to +3.6%) keeps the loop in
+`parse` behind the gate and has `parse(byte:)` drive `dispatchOnce`, the loop's body, itself.
+
+### The seam, and the bug it had first
+
+A window starts only in a structural state with nothing buffered, so the indexer needs no
+carried state. The walk hands a token back to the dispatcher in three cases — a string whose
+closing quote is past the window, a number or literal that reaches the chunk's end, and a key
+with an escape — and the dispatcher takes exactly one step. The first version re-indexed a new
+window from the handed-back position and hung: a cut string at the chunk's end is handed back
+in a structural state, so it was indexed and handed back again forever. The fix is the shape
+that should have been obvious: a hand-back forces one `dispatchOnce`, and the walk then
+*resumes in the existing index* at the first entry past the dispatcher's cursor. The index is
+the truth about positions regardless of who consumed the bytes.
+
+### Correctness
+
+`WindowedParserTests` records every sink event (spans copied, number info, the error if any)
+and compares the dispatcher against the windowed path at the *same* chunking — bulk, 64, 100,
+1000, 32 KB and 40 KB chunks — across 58 documents covering every error reason, strings longer
+than a window, numbers on the window boundary, invalid UTF-8 at several depths, and a rejecting
+sink for every event kind. The oracle had to be the same chunking: a byte fed run emits one
+string chunk per byte, so it is not a reference for a bulk run. `StageOneIndexTests` pins the
+kernel against a scalar reference, including NUL (now a scalar, rejected by the walk, instead
+of whitespace as simdjson's table has it). Full suite green, 475 + 28 tests.
+
+### The measurement
+
+Interleaved against a HEAD worktree, three rounds, best p50 MB/s:
+
+| corpus | dispatcher | windowed | delta | index share of dispatcher time | walk alone / dispatcher |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GitHub events | 1,784 | 1,869 | **+4.8%** | 32% | 0.63 |
+| CITM catalog | 2,063 | 1,915 | -7.2% | 37% | 0.71 |
+| Twitter | 1,485 | 1,422 | -4.2% | 30% | 0.75 |
+| Mesh | 743 | 662 | -10.9% | 19% | 0.94 |
+| Canada | 949 | 794 | -16.3% | 24% | 0.96 |
+| Twitter escaped | 1,078 | 876 | -18.7% | 22% | 1.01 |
+| GSoC 2018 | 4,227 | 2,801 | -33.7% | 70% | 0.81 |
+| LLM message | 3,631 | 2,209 | -39.2% | 42% | 1.22 |
+
+The last two columns are the decomposition (windowed time = index time + walk time, with the
+index time taken from the `Stage1 Index` rows), and they invert the hypothesis this experiment
+was built on. The walk consumes the structure-heavy corpora 25-37% faster than the dispatcher
+— the positions walk really is cheaper than the scan-and-dispatch loop where there is structure
+to dispatch on — and loses every bit of it to the index tax. On the number-dense corpora the
+walk is *not* faster at all: canada's profile is walk self time 38%, `emitNumber` 37%, indexer
+25%, against the dispatcher's `emitNumber` 42%, `consumeStructuralRun` 26%, `consumeNumber`
+25%. The dispatcher's fused comma path is already a tight number loop with no structural
+dispatch in it, so known extents buy nothing there, and the index is pure cost. The budget
+section above picked canada and mesh as the promising pair because it assumed a stage 2
+uniformly faster than the dispatcher; the corpora where that is true are the ones whose
+index is most expensive.
+
+### What this decides, and what it leaves open
+
+The plain walk fails the floor the plan set (parity on canada/mesh) and lands on the branch
+gated off, where it costs nothing. What it establishes is that the lever is the index, not the
+walk: full masks run at 8.6 GB/s and the index at 4.0-5.6, so extraction is roughly half of
+stage 1, and the block kernel spends six movemasks per block where the two flag bits could be
+an OR-reduce. CITM needs the index under ~29% of dispatcher time to break even, i.e. about
+7 GB/s from today's 5.6. Batched Eisel-Lemire remains the only lever on canada and would have
+to recover the whole 16%, which its 37% `emitNumber` share makes unlikely on its own. The
+windowed rows stay in the suite so the next round measures against these.
+
+## Index cost: three moves, and what each one bought
+
+The first-pass table above said the lever was the index, not the walk, and named three moves.
+All three were built in sequence, each measured before the next, with the differential suite
+as the gate. Numbers are p50 MB/s from two-round runs against the previous build (drift
+reference: the dispatcher rows in the same runs, all within ±1.5%); the final table is a
+fresh three-round interleaved A/B against HEAD.
+
+### The extraction loop was not unrolled
+
+The review asked whether the bits-to-indices loop could be unrolled. The assembly said it
+never had been: the counted `for (i < 8)` compiled to a twelve-instruction loop with a taken
+branch per index — two `rbit`s in the whole 464-instruction kernel. Spelled out as eight slots
+it is six instructions per index and no branch; sixteen `rbit`s now. Alongside it the
+non-ASCII flag became a `vmaxvq` reduce on the raw vectors (no compare, no movemask), since
+the walk only ever asks whether, never where.
+
+### Move 2, first form: the gap check — REJECTED as built
+
+Numbers and literals stopped being indexed; the walk skipped whitespace from its cursor before
+every entry and treated a byte short of the entry as a scalar (value state) or an error.
+Correct, and canada gained +10% from a third fewer entries. But CITM lost 13% and mesh 8%:
+the skip is `streamWhitespaceEnd`, and on pretty-printed input nearly every entry has
+whitespace after it, so the walk ran a vector scan per entry over whitespace that the index
+used to absorb for free. The census had said this: citm is 71% whitespace, mesh has a space
+after every one of 73 K commas.
+
+### Move 2, second form: index a scalar only when whitespace precedes it
+
+`scalar & (whitespace << 1)`, with a one-bit carry. Then any gap that *begins* with a
+whitespace byte is pure whitespace — a non-whitespace byte after whitespace would be an entry
+— so the walk's gap check is one load and one compare, never a scan; a scalar directly after
+a structural byte sits at the cursor and is found there. Minified numbers cost no entry,
+pretty-printed ones cost what they always did.
+
+| corpus | windowed before | after | delta |
+| --- | ---: | ---: | ---: |
+| canada | 794 | 905 | **+14.0%** |
+| github_events | 1,869 | 2,079 | **+11.2%** |
+| twitterescaped | 876 | 967 | +10.4% |
+| twitter | 1,422 | 1,491 | +4.9% |
+| gsoc-2018 | 2,801 | 2,925 | +4.4% |
+| llm_message | 2,209 | 2,277 | +3.1% |
+| citm_catalog | 1,915 | 1,962 | +2.5% |
+| mesh | 662 | 616 | −6.9% |
+
+Mesh is the one loss and it is not yet explained: its numbers all follow a space so they are
+entries as before, and inlining the scalar path (the first suspect) measured exactly 0.0%.
+Open. The bug found on the way is worth its line: a block whose only quote is at bit 0 has a
+prefix-XOR of all ones, so "all inside a string" must test `quote == 0` too, or the opening
+quote is dropped. The byte-soup reference caught it on the first run.
+
+### Move 1: the two-speed block
+
+Quote and backslash masks first; if the block is string interior edge to edge, its two flags
+come from `vminvq`/`vmaxvq` reduces and it skips the table lookups, the structural and
+whitespace movemasks, and extraction. gsoc-2018 windowed +14.3%, llm_message +18.9%, every
+other corpus within ±1.4%. The kernel is now 4 movemasks per full block (was 6) and 2 per
+interior block.
+
+### Move 3: routing sparse windows to the dispatcher
+
+Entries per block of the last indexed window below 3 sends the next window through
+`dispatchOnce` steps, bounded by where they stop rather than what they scan (so a string
+crossing the span still arrives as one chunk); every eighth window is indexed regardless.
+gsoc-2018 and llm_message land at −5% against the dispatcher, from −34/−39% at the first pass.
+
+### Where it stands, against HEAD (three rounds, interleaved)
+
+| corpus | dispatcher bulk | windowed bulk | delta | 16 KB chunks windowed vs dispatcher |
+| --- | ---: | ---: | ---: | ---: |
+| github_events | 1,780 | 2,151 | **+20.8%** | +19.7% |
+| twitter | 1,504 | 1,514 | +0.7% | +1.6% |
+| canada | 934 | 893 | −4.4% | −4.5% |
+| gsoc-2018 | 4,219 | 3,973 | −5.8% | −4.2% |
+| llm_message | 3,613 | 3,431 | −5.0% | −5.0% |
+| citm_catalog | 2,081 | 1,965 | −5.6% | −6.4% |
+| twitterescaped | 1,086 | 989 | −8.9% | −9.4% |
+| mesh | 738 | 619 | −16.1% | **−3.0%** |
+
+Gate off, every dispatcher row is within ±1% of HEAD and the byte fed rows are +1.5%; the
+dispatcher's functions are byte-identical in size. Window size is not a variable any more: a
+16 KB window measured within ±1% of 32 KB on every corpus with the real walk. Which makes the
+mesh row the open question: the same document windowed through 16 KB *chunks* runs at 712
+against 619 in bulk, and it is not the window length. Unexplained, and next.
+
+The shape of the table is now the census's shape exactly: the walk wins where structure is
+dense and strings are short (github: 6.4 entries/block, 10-byte strings), breaks even on
+twitter, and loses a bounded 4–6% everywhere else, where that bound is the routing's probe
+cost plus the index tax on windows the walk consumes no faster than the dispatcher.

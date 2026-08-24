@@ -69,22 +69,36 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var pendingUTF8Count = 0
   @usableFromInline var consumedByteCount = 0
 
-  public init(bufferCapacity: Int = 4096) {
+  // A chunk at least this long is parsed by the windowed path (JSONParserWindow.swift); shorter
+  // ones, and every byte fed one, go through the dispatcher below. The window scratch is
+  // allocated the first time the windowed path runs, so a parser that never sees a large
+  // chunk never pays for it.
+  @usableFromInline var windowThreshold: Int
+  @usableFromInline var windowScratch: UnsafeMutableRawPointer? = nil
+  // Entries per 64-byte block in the last indexed window, and how many windows since. Sparse
+  // windows are routed to the dispatcher; see `parseWindowed`.
+  @usableFromInline var windowDensity: Int = .max
+  @usableFromInline var windowsSinceProbe = 0
+
+  public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
     self.buffer = .allocate(capacity: Swift.max(bufferCapacity, 64))
     self.ownsBuffer = true
+    self.windowThreshold = windowThreshold
   }
 
-  public init(buffer: UnsafeMutableBufferPointer<UInt8>) {
+  public init(buffer: UnsafeMutableBufferPointer<UInt8>, windowThreshold: Int = .max) {
     precondition(
       buffer.count >= Self.reservedTailByteCount,
       "JSONParser requires a caller-supplied buffer of at least \(Self.reservedTailByteCount) bytes."
     )
     self.buffer = buffer
     self.ownsBuffer = false
+    self.windowThreshold = windowThreshold
   }
 
   deinit {
     if self.ownsBuffer { self.buffer.deallocate() }
+    self.windowScratch?.deallocate()
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -106,9 +120,22 @@ public struct JSONParser: ~Copyable {
     byte: UInt8,
     into sink: inout Sink
   ) throws(JSONParsingError) {
+    // One byte can never take the windowed path, so this drives the dispatcher's step directly
+    // rather than going through the bulk entry point: the gate's compare in front of every byte
+    // measured -3 to -6% on the byte fed rows, and moving the bulk loop out of `parse` into a
+    // shared function to dodge it measured -4% on canada bulk. `dispatchOnce` is the bulk
+    // loop's body, so the byte fed path runs the same handlers as before.
     var scalar = byte
     try withUnsafePointer(to: &scalar) { pointer throws(JSONParsingError) in
-      try self.parse(UnsafeBufferPointer(start: pointer, count: 1), into: &sink)
+      let base = UnsafeRawPointer(pointer)
+      var i = 0
+      if self.pendingUTF8Count > 0 {
+        i = try self.completePendingUTF8(base: base, count: 1, into: &sink)
+      }
+      while i < 1 {
+        i = try self.dispatchOnce(base: base, from: i, to: 1, into: &sink)
+      }
+      self.consumedByteCount &+= 1
     }
   }
 
@@ -120,6 +147,10 @@ public struct JSONParser: ~Copyable {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
     let n = input.count
+    if n >= self.windowThreshold {
+      try self.parseWindowed(base: base, count: n, into: &sink)
+      return
+    }
     var i = 0
 
     if self.pendingUTF8Count > 0 {

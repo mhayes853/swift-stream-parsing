@@ -114,6 +114,22 @@ func realWorldBenchmarks() {
         blackHole(expectParses { try runFastParser(payload, chunk: 16_384) })
       }
     }
+
+    // The same two feeds through the windowed path (JSONParserWindow.swift), which the gate
+    // takes for any chunk at or above the threshold. Both variants live in one binary so they
+    // can be interleaved in one run.
+    Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
+      }
+    }
+
+    Benchmark("Real \(name) - 16KB chunks windowed", configuration: payloadConfiguration) {
+      benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(expectParses { try runFastParser(payload, chunk: 16_384, windowThreshold: 1) })
+      }
+    }
   }
 
   // Byte by byte on the two documents whose content is hardest for the resume path — every

@@ -54,6 +54,25 @@ stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
 }
 #endif
 
+#include <stddef.h>
+
+// Stage-1 window indexer for the windowed parse path (NEW_ARCHITECTURE.md, "Stage-1
+// extraction"). One pass over `len` bytes (at most 32 KB) in 64-byte blocks, writing to
+// `indices` the chunk-relative position (`base` + offset) of every byte a consuming walk must
+// visit: each structural character outside a string, each unescaped quote, and the first byte
+// of each number or literal. Returns how many were written. Two per-block bitmaps, one bit per
+// block, are written alongside: `needs_scan` marks blocks holding a backslash or a control byte
+// inside a string, so a string whose blocks are clear can be emitted whole without a scan;
+// `non_ascii` marks blocks holding a byte >= 0x80, so validation runs only where it can fail.
+//
+// Windows start at a token boundary outside any string, so there is no carried state in; a
+// short final block is copied into a whitespace-padded scratch and its bits past `len` masked.
+// `indices` needs `len + 8` slots: extraction writes in unconditional groups of eight. The
+// bitmaps need `(len + 4095) / 4096` words each and are cleared here.
+size_t stream_parsing_index_window(const uint8_t *p, size_t len, uint32_t base,
+                                   uint32_t *indices, uint64_t *needs_scan,
+                                   uint64_t *non_ascii);
+
 // The Eisel-Lemire power-of-ten table, defined in `Pow10_128.c` and generated -- see the header
 // comment there. Exposed as a pointer rather than a sized array because Swift imports a
 // fixed-size C array as a tuple of that many elements, which is unusable at this size.

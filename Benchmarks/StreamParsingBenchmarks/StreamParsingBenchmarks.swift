@@ -129,6 +129,7 @@ let benchmarks: @Sendable () -> Void = {
   openValueBreakdownBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
+  stageOneBenchmarks()
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()
   keyLookupBenchmarks()

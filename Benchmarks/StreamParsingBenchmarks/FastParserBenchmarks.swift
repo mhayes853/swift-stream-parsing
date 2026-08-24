@@ -36,9 +36,10 @@ struct FastCountingSink: StreamParseSink {
 func runFastParser(
   _ payload: [UInt8],
   chunk: Int,
-  bufferCapacity: Int = 4_096
+  bufferCapacity: Int = 4_096,
+  windowThreshold: Int = .max
 ) throws -> UInt64 {
-  var parser = JSONParser(bufferCapacity: bufferCapacity)
+  var parser = JSONParser(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
   var sink = FastCountingSink()
   try payload.withUnsafeBufferPointer { buffer in
     var offset = 0
