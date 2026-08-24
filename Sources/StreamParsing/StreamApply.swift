@@ -25,6 +25,23 @@ public func streamApply<T: StreamStringConvertible>(
   return true
 }
 
+@inlinable
+@inline(__always)
+public func streamApply(
+  _ value: inout StreamString, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> Bool {
+  if bytes.isEmpty { value.streamReserve(utf8ByteCount: initialCapacity) }
+  value.streamAppend(utf8: bytes)
+  return true
+}
+
+@_disfavoredOverload
+@inlinable
+@inline(__always)
+public func streamApply<T>(
+  _ value: inout T, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> Bool { false }
+
 @_disfavoredOverload
 @inlinable
 @inline(__always)

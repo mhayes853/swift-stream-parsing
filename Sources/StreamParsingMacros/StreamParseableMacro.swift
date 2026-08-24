@@ -335,8 +335,9 @@ extension StreamParseableMacro {
       let target = "p.pointee.\(property.name)"
       switch Self.fieldShape(for: property.type) {
       case .scalarOrObject:
+        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
         cases.applyString.append(
-          "    case \(field): return streamApply(&\(target), utf8: bytes)"
+          "    case \(field): return streamApply(&\(target), utf8: bytes\(capacityArgument))"
         )
         cases.applyNumber.append(
           "    case \(field): return streamApply(&\(target), bytes: bytes, info: info)"

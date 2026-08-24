@@ -90,6 +90,13 @@ func realWorldBenchmarks() {
     ($0.value.description?.utf8Count ?? 0) > 64
   }
   precondition(longDescriptions.count == 1_236)
+  let hintedGSoC = expectParses {
+    try streamBulkDiscarding(
+      Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
+    )
+  }
+  precondition(hintedGSoC.count == 1_264)
+  precondition(hintedGSoC["0"]?.description?.isEmpty == false)
   let mesh = expectParses {
     try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMesh.Partial.self)
   }
@@ -166,12 +173,20 @@ func realWorldBenchmarks() {
     as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
   )
   addRealWorldConvenienceRows(
+    "GSoC 2018 string capacity hint", payload: Payloads.gsoc2018,
+    as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
+  )
+  addRealWorldConvenienceRows(
     "GitHub events", payload: Payloads.githubEvents,
     as: StreamArray<BenchmarkGitHubEvent.Partial>.self
   )
   addRealWorldConvenienceRows(
     "LLM message", payload: Payloads.llmMessage,
     as: BenchmarkLLMMessage.Partial.self, includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "LLM message string capacity hint", payload: Payloads.llmMessage,
+    as: BenchmarkLLMMessageStringCapacity.Partial.self, includeByteByByte: true
   )
   addRealWorldConvenienceRows(
     "Mesh", payload: Payloads.mesh, as: BenchmarkMesh.Partial.self
@@ -211,6 +226,40 @@ func realWorldBenchmarks() {
               Payloads.llmMessage,
               chunk: chunk,
               as: BenchmarkLLMMessage.Partial.self
+            )
+          }
+        )
+      }
+    }
+
+    Benchmark(
+      "Real LLM message string capacity hint - view read per \(chunk)B chunk",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+        blackHole(
+          expectParses {
+            try streamViewingChunks(
+              Payloads.llmMessage,
+              chunk: chunk,
+              as: BenchmarkLLMMessageStringCapacity.Partial.self
+            ) { blackHole($0.stop_reason?.value) }
+          }
+        )
+      }
+    }
+
+    Benchmark(
+      "Real LLM message string capacity hint - snapshot per \(chunk)B chunk",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+        blackHole(
+          expectParses {
+            try streamSnapshottingChunks(
+              Payloads.llmMessage,
+              chunk: chunk,
+              as: BenchmarkLLMMessageStringCapacity.Partial.self
             )
           }
         )

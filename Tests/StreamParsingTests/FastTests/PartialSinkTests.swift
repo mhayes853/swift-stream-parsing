@@ -38,6 +38,7 @@ struct SinkCapacityMembers: Equatable {
 
 typealias SinkCapacityArrayAlias = [Int]
 typealias SinkCapacityDictionaryAlias = [String: Int]
+typealias SinkCapacityStringAlias = String
 
 @StreamParseable
 struct SinkCapacityLiteralAndQualificationMembers: Equatable {
@@ -58,6 +59,24 @@ struct SinkCapacityLiteralAndQualificationMembers: Equatable {
 
   @StreamParseableMember(initialCapacity: 32)
   var aliasedDictionary: SinkCapacityDictionaryAlias = [:]
+}
+
+@StreamParseable
+struct SinkCapacityStringMembers: Equatable {
+  @StreamParseableMember(initialCapacity: 1_024)
+  var text: String = ""
+
+  @StreamParseableMember(key: "aliased_text", initialCapacity: 0x400)
+  var aliasedText: SinkCapacityStringAlias = ""
+
+  @StreamParseableMember(initialCapacity: 128)
+  var optionalText: String?
+}
+
+@StreamParseable(partialMembers: .streamInitialValue)
+struct SinkInitializedCapacityString: Equatable {
+  @StreamParseableMember(initialCapacity: 1_024)
+  var text: String = ""
 }
 
 // Optional in the source declaration, which is a different axis from the partial members mode:
@@ -166,6 +185,23 @@ struct `Partial sink tests` {
     expectNoDifference(value.noHint, [4])
     expectNoDifference(value.aliasedArray, [5, 6])
     expectNoDifference(value.aliasedDictionary?["seven"], 7)
+  }
+
+  @Test
+  func `Capacity Hints Apply To String Storage And Aliases`() throws {
+    var value = SinkCapacityStringMembers.Partial()
+    try parsePartial(
+      #"{"text":"first","text":" second","aliased_text":"alias","optionalText":"optional"}"#,
+      into: &value
+    )
+
+    expectNoDifference(value.text, "first second")
+    expectNoDifference(value.aliasedText, "alias")
+    expectNoDifference(value.optionalText, "optional")
+
+    var initialized = SinkInitializedCapacityString.Partial()
+    try parsePartial(#"{"text":"initialized"}"#, into: &initialized)
+    expectNoDifference(initialized.text, "initialized")
   }
 
   @Test

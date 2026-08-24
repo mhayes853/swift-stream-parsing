@@ -38,10 +38,11 @@ public macro StreamParseableMember(key: String, initialCapacity: Int? = nil) =
 public macro StreamParseableMember(keyNames: [String], initialCapacity: Int? = nil) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
-/// Reserves storage when the parser first enters an array or dictionary member.
+/// Reserves storage when the parser first enters an array, dictionary, or string member.
 ///
 /// The value is an expected element count for arrays and expected unique-key count for
-/// dictionaries. It is a performance hint, not a limit.
+/// dictionaries. For strings it is the expected decoded UTF-8 byte count, not the JSON wire byte
+/// count. It is a performance hint, not a limit.
 @attached(peer)
 public macro StreamParseableMember(initialCapacity: Int) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")

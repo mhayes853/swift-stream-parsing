@@ -342,6 +342,34 @@ func `Reserved And Incrementally Accumulated Values Compare And Hash Equally`() 
   expectNoDifference(reserved.hashValue, incremental.hashValue)
 }
 
+@Test(arguments: [1_200, 2_750, 3_500, 1_000_000])
+func `Adaptive Reservations Preserve Canonical Value Behavior`(hint: Int) {
+  let content = String(repeating: "adaptive 🦎 block content | ", count: 400)
+  let canonical = StreamString(content)
+
+  var shortReserved = StreamString()
+  shortReserved.streamReserve(utf8ByteCount: hint)
+  shortReserved.append("short")
+  expectNoDifference(shortReserved, StreamString("short"))
+  expectNoDifference(shortReserved.hashValue, StreamString("short").hashValue)
+
+  var reserved = StreamString()
+  reserved.streamReserve(utf8ByteCount: hint)
+  reserved.append(content)
+
+  expectNoDifference(reserved, canonical)
+  expectNoDifference(reserved.hashValue, canonical.hashValue)
+  expectNoDifference(String(reserved), content)
+  expectNoDifference(reserved.hasPrefix("adaptive 🦎"), true)
+  expectNoDifference(reserved.hasSuffix("content | "), true)
+  expectNoDifference(reserved.range(of: "🦎 block"), canonical.range(of: "🦎 block"))
+
+  let snapshot = reserved
+  reserved.append("after snapshot")
+  expectNoDifference(snapshot, canonical)
+  expectNoDifference(reserved > snapshot, true)
+}
+
 @Test(arguments: [0, 7, 8, 15, 16, 17, 511, 512, 513, 8_191])
 func `Ordering Uses The First Difference Across SIMD And Block Boundaries`(offset: Int) {
   var lowBytes = Array(repeating: UInt8(ascii: "m"), count: offset &+ 2)

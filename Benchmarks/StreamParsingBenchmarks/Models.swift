@@ -308,6 +308,29 @@ struct BenchmarkGSoCOrganization: Hashable, Sendable {
   var logo: String = ""
 }
 
+@StreamParseable
+struct BenchmarkGSoCProjectStringCapacity: Hashable, Sendable {
+  var name: String = ""
+
+  @StreamParseableMember(initialCapacity: 1_200)
+  var description: String = ""
+
+  var sponsor: BenchmarkGSoCOrganizationStringCapacity = BenchmarkGSoCOrganizationStringCapacity()
+  var author: BenchmarkGSoCOrganizationStringCapacity = BenchmarkGSoCOrganizationStringCapacity()
+}
+
+@StreamParseable
+struct BenchmarkGSoCOrganizationStringCapacity: Hashable, Sendable {
+  var name: String = ""
+  var disambiguatingDescription: String = ""
+
+  @StreamParseableMember(initialCapacity: 2_750)
+  var description: String = ""
+
+  var url: String = ""
+  var logo: String = ""
+}
+
 // MARK: - GitHub events
 
 // swiftlint:disable identifier_name
@@ -494,6 +517,26 @@ struct BenchmarkLLMMessage: Equatable {
 struct BenchmarkContentBlock: Equatable {
   var type: String = ""
   var text: String = ""
+  var name: String = ""
+}
+
+@StreamParseable
+struct BenchmarkLLMMessageStringCapacity: Equatable {
+  var id: String = ""
+  var role: String = ""
+  var model: String = ""
+  var content: [BenchmarkContentBlockStringCapacity] = []
+  var stop_reason: String = ""
+  var usage: BenchmarkUsage = BenchmarkUsage()
+}
+
+@StreamParseable
+struct BenchmarkContentBlockStringCapacity: Equatable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 3_500)
+  var text: String = ""
+
   var name: String = ""
 }
 
