@@ -325,15 +325,28 @@ extension StreamDictionary where Value: StreamParseableRoot {
     public subscript(key: String) -> Value.View? {
       @_lifetime(borrow self)
       get {
+        // Resolve the address of the live slot in fully escapable terms first, then form the
+        // one `~Escapable` view at a single exit. Building a view per branch and returning it
+        // from there is equivalent, but it leaves several `Optional<Value.View>` stack slots
+        // for the optimizer to merge, which crashes PredictableDeadAllocationElimination on
+        // Swift 6.3 (fixed in 6.4). Single-address, single-view keeps that shape from arising.
+        let address: UnsafeMutableRawPointer?
         if self.storage.pointee.pendingEntryKey == key {
-          let view = _streamMemberView(&self.storage.pointee.pendingValue)
-          return _overrideLifetime(view, borrowing: self)
+          address =
+            self.storage.pointee.pendingValue == nil
+            ? nil
+            : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+              UnsafeMutableRawPointer($0)
+            }
+        } else if let slot = self.storage.pointee.slot(forKey: key) {
+          let base = self.storage.pointee.storedValues
+            .withUnsafeBufferPointer { $0.baseAddress! }
+          address = UnsafeMutableRawPointer(mutating: base + Int(slot))
+        } else {
+          address = nil
         }
-        guard let slot = self.storage.pointee.slot(forKey: key) else { return nil }
-        let base = self.storage.pointee.storedValues
-          .withUnsafeBufferPointer { $0.baseAddress! }
-        let view = Value.streamView(UnsafeMutableRawPointer(mutating: base + Int(slot)))
-        return _overrideLifetime(view, borrowing: self)
+        guard let address else { return nil }
+        return _overrideLifetime(Value.streamView(address), borrowing: self)
       }
     }
   }

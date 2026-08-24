@@ -175,8 +175,10 @@ extension StreamParseableMacro {
             \(modifierPrefix)var \(property.name): \(type).View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.\(property.name))
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.\(property.name)) else {
+                    return nil
+                  }
+                  return _overrideLifetime(\(type).streamView(address), borrowing: self)
                 }
               }
           """

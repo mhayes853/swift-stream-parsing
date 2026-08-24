@@ -374,25 +374,39 @@ where Element: StreamParseableRoot {
     public subscript(index: Int) -> Element.View? {
       @_lifetime(borrow self)
       get {
-        guard index >= 0, index < self.count else { return nil }
-        let sealed = self.storage.pointee.sealedCount
-        if index < sealed {
-          let shift = Int(self.storage.pointee.blockShiftBits)
-          let blockIndex = index &>> shift
-          let offset = index & ((1 &<< shift) &- 1)
-          let base = self.storage.pointee.blocks[blockIndex]
-            .withUnsafeBufferPointer { $0.baseAddress! }
-          let view = Element.streamView(UnsafeMutableRawPointer(mutating: base + offset))
-          return _overrideLifetime(view, borrowing: self)
+        // Address first, view once. See the note on `StreamDictionary.View.subscript(_:)`:
+        // forming an `Element.View` per dispatch branch crashes
+        // PredictableDeadAllocationElimination on Swift 6.3 (fixed in 6.4), so every branch
+        // yields a plain escapable address and the single exit turns it into a view.
+        let address: UnsafeMutableRawPointer?
+        if index < 0 || index >= self.count {
+          address = nil
+        } else {
+          let sealed = self.storage.pointee.sealedCount
+          if index < sealed {
+            let shift = Int(self.storage.pointee.blockShiftBits)
+            let blockIndex = index &>> shift
+            let offset = index & ((1 &<< shift) &- 1)
+            let base = self.storage.pointee.blocks[blockIndex]
+              .withUnsafeBufferPointer { $0.baseAddress! }
+            address = UnsafeMutableRawPointer(mutating: base + offset)
+          } else {
+            let offset = index &- sealed
+            if offset < self.storage.pointee.tail.count {
+              let base = self.storage.pointee.tail.withUnsafeBufferPointer { $0.baseAddress! }
+              address = UnsafeMutableRawPointer(mutating: base + offset)
+            } else {
+              address =
+                self.storage.pointee.pending == nil
+                ? nil
+                : withUnsafeMutablePointer(to: &self.storage.pointee.pending) {
+                  UnsafeMutableRawPointer($0)
+                }
+            }
+          }
         }
-        let offset = index &- sealed
-        if offset < self.storage.pointee.tail.count {
-          let base = self.storage.pointee.tail.withUnsafeBufferPointer { $0.baseAddress! }
-          let view = Element.streamView(UnsafeMutableRawPointer(mutating: base + offset))
-          return _overrideLifetime(view, borrowing: self)
-        }
-        let view = _streamMemberView(&self.storage.pointee.pending)
-        return _overrideLifetime(view, borrowing: self)
+        guard let address else { return nil }
+        return _overrideLifetime(Element.streamView(address), borrowing: self)
       }
     }
   }

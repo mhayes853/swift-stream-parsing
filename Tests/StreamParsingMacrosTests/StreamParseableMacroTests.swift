@@ -59,16 +59,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -240,16 +244,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -527,16 +535,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -791,16 +803,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -971,16 +987,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -1147,8 +1167,10 @@ extension BaseTestSuite {
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -1305,8 +1327,10 @@ extension BaseTestSuite {
             var stored: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.stored) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -1460,8 +1484,10 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -1640,8 +1666,10 @@ extension BaseTestSuite {
             var stored: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.stored)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.stored) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -1798,16 +1826,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -2111,16 +2143,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -2291,16 +2327,20 @@ extension BaseTestSuite {
             public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             public var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -2467,16 +2507,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -2643,16 +2687,20 @@ extension BaseTestSuite {
             fileprivate var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             fileprivate var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -2823,16 +2871,20 @@ extension BaseTestSuite {
             public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             public var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -3003,16 +3055,20 @@ extension BaseTestSuite {
             public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             public var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -3185,16 +3241,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -3365,16 +3425,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -3545,16 +3609,20 @@ extension BaseTestSuite {
             var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.name)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
+                    return nil
+                  }
+                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
                 }
               }
 
             var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.age)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.age) else {
+                    return nil
+                  }
+                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -3726,16 +3794,20 @@ extension BaseTestSuite {
             var items: [Item].Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.items)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.items) else {
+                    return nil
+                  }
+                  return _overrideLifetime([Item].Partial.streamView(address), borrowing: self)
                 }
               }
 
             var index: StreamParsingCore.StreamDictionary<Item.Partial>.View? {
                 @_lifetime(borrow self)
                 get {
-                  let view = StreamParsingCore._streamMemberView(&self.storage.pointee.index)
-                  return _overrideLifetime(view, borrowing: self)
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.index) else {
+                    return nil
+                  }
+                  return _overrideLifetime(StreamParsingCore.StreamDictionary<Item.Partial>.streamView(address), borrowing: self)
                 }
               }
             }
