@@ -266,24 +266,6 @@ extension StreamParseableMacro {
     return .scalarOrObject(unwrapped.trimmedDescription)
   }
 
-  // Capacity-aware entry ultimately overloads on the generated partial storage type, so generic
-  // standard-library spellings and direct streaming-container spellings are supported even though
-  // their schemas continue to resolve through the type-based fallback above. Type aliases cannot
-  // be recognized by a syntax-only macro and remain a compile-time diagnostic.
-  private static func supportsInitialCapacity(_ type: TypeSyntax) -> Bool {
-    switch Self.fieldShape(for: type) {
-    case .array, .dictionary:
-      return true
-    case .scalarOrObject:
-      guard let identifier = Self.unwrappedType(type).as(IdentifierTypeSyntax.self),
-        identifier.genericArgumentClause != nil
-      else { return false }
-      return ["Array", "Dictionary", "StreamArray", "StreamDictionary"].contains(
-        identifier.name.text
-      )
-    }
-  }
-
   // Both the storage type and the schema are named from the *unwrapped* element or value type,
   // and an optional one picks the builder that opens its slot materialised.
   //
@@ -510,9 +492,19 @@ extension StreamParseableMacro {
   // container it is.
   private static func unwrappedType(_ type: TypeSyntax) -> TypeSyntax {
     if let optional = type.as(OptionalTypeSyntax.self) { return optional.wrappedType }
-    guard let identifier = type.as(IdentifierTypeSyntax.self),
-      identifier.name.text == "Optional",
-      let arguments = identifier.genericArgumentClause?.arguments,
+    let name: String
+    let arguments: GenericArgumentListSyntax?
+    if let identifier = type.as(IdentifierTypeSyntax.self) {
+      name = identifier.name.text
+      arguments = identifier.genericArgumentClause?.arguments
+    } else if let member = type.as(MemberTypeSyntax.self) {
+      name = member.name.text
+      arguments = member.genericArgumentClause?.arguments
+    } else {
+      return type
+    }
+    guard name == "Optional",
+      let arguments,
       arguments.count == 1,
       case .type(let wrapped) = arguments.first?.argument
     else {
@@ -741,7 +733,7 @@ extension StreamParseableMacro {
     let capacityInfo =
       isIgnored
       ? InitialCapacityResult(value: nil, diagnostics: [])
-      : Self.initialCapacity(for: variableDecl, type: type)
+      : Self.initialCapacity(for: variableDecl)
     for diagnostic in capacityInfo.diagnostics {
       context.diagnose(diagnostic)
     }
@@ -874,8 +866,7 @@ extension StreamParseableMacro {
   }
 
   private static func initialCapacity(
-    for variableDecl: VariableDeclSyntax,
-    type: TypeSyntax
+    for variableDecl: VariableDeclSyntax
   ) -> InitialCapacityResult {
     var value: Int?
     var sawCapacity = false
@@ -885,6 +876,10 @@ extension StreamParseableMacro {
       guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self),
         let expression = self.argumentExpression(in: arguments, named: "initialCapacity")
       else { continue }
+
+      // The key/keyNames overloads use an optional argument so they can default the hint away.
+      // Treat an explicitly written `nil` the same as the omitted default.
+      if expression.is(NilLiteralExprSyntax.self) { continue }
 
       guard !sawCapacity else {
         diagnostics.append(
@@ -899,9 +894,7 @@ extension StreamParseableMacro {
       }
       sawCapacity = true
 
-      guard let literal = expression.as(IntegerLiteralExprSyntax.self),
-        let parsed = Int(String(literal.literal.text.filter { $0 != "_" }))
-      else {
+      guard let parsed = Self.integerLiteralValue(expression) else {
         diagnostics.append(
           Diagnostic(
             node: attribute,
@@ -916,19 +909,22 @@ extension StreamParseableMacro {
       value = parsed
     }
 
-    if value != nil, !Self.supportsInitialCapacity(type) {
-      diagnostics.append(
-        Diagnostic(
-          node: variableDecl,
-          message: MacroExpansionErrorMessage(
-            "@StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties."
-          )
-        )
-      )
-      value = nil
-    }
-
     return InitialCapacityResult(value: value, diagnostics: diagnostics)
+  }
+
+  private static func integerLiteralValue(_ expression: ExprSyntax) -> Int? {
+    guard let literal = expression.as(IntegerLiteralExprSyntax.self) else { return nil }
+    let text = String(literal.literal.text.filter { $0 != "_" })
+    if text.hasPrefix("0x") || text.hasPrefix("0X") {
+      return Int(text.dropFirst(2), radix: 16)
+    }
+    if text.hasPrefix("0o") || text.hasPrefix("0O") {
+      return Int(text.dropFirst(2), radix: 8)
+    }
+    if text.hasPrefix("0b") || text.hasPrefix("0B") {
+      return Int(text.dropFirst(2), radix: 2)
+    }
+    return Int(text, radix: 10)
   }
 
   private static func streamParseableMemberAttribute(

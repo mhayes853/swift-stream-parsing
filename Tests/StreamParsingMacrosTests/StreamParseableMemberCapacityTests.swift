@@ -33,29 +33,6 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Capacity Rejects Scalar Members`() {
-      assertMacro {
-        """
-        @StreamParseable
-        struct Payload {
-          @StreamParseableMember(initialCapacity: 32)
-          var value: Int
-        }
-        """
-      } diagnostics: {
-        """
-        @StreamParseable
-        struct Payload {
-          @StreamParseableMember(initialCapacity: 32)
-          ├─ 🛑 @StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties.
-          ╰─ 🛑 @StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties.
-          var value: Int
-        }
-        """
-      }
-    }
-
-    @Test
     func `Capacity Can Only Be Specified Once`() {
       assertMacro {
         """

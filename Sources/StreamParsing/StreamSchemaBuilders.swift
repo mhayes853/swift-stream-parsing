@@ -202,6 +202,35 @@ public func _streamEnterContainerField<Value>(
   return _streamEnterContainer(&value, schema: schema)
 }
 
+// The macro cannot resolve aliases, but overload resolution can: an alias whose partial storage
+// is a StreamArray or StreamDictionary selects one of the concrete overloads above. These
+// fallbacks keep an annotation on a scalar or object from silently becoming a no-op.
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array and dictionary properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
 // MARK: - Optional aware scalar application
 
 // Partial members are optional, so a value has to exist before it can be appended to.

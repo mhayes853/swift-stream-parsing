@@ -36,6 +36,30 @@ struct SinkCapacityMembers: Equatable {
   var directCounts: StreamDictionary<Int> = [:]
 }
 
+typealias SinkCapacityArrayAlias = [Int]
+typealias SinkCapacityDictionaryAlias = [String: Int]
+
+@StreamParseable
+struct SinkCapacityLiteralAndQualificationMembers: Equatable {
+  @StreamParseableMember(initialCapacity: 0x40)
+  var hexadecimal: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 0o100)
+  var octal: Swift.Optional<Swift.Array<Int>> = []
+
+  @StreamParseableMember(initialCapacity: 0b100_0000)
+  var binary: StreamParsingCore.StreamArray<Int> = []
+
+  @StreamParseableMember(key: "no_hint", initialCapacity: nil)
+  var noHint: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var aliasedArray: SinkCapacityArrayAlias = []
+
+  @StreamParseableMember(initialCapacity: 32)
+  var aliasedDictionary: SinkCapacityDictionaryAlias = [:]
+}
+
 // Optional in the source declaration, which is a different axis from the partial members mode:
 // the mode decides whether a *non*-optional property becomes optional in the `Partial`, and a
 // property that is already optional is already there. Storing both — the member as `Int??` while
@@ -126,6 +150,22 @@ struct `Partial sink tests` {
     expectNoDifference(value.counts?["two"], 2)
     expectNoDifference(value.genericScores, [4, 5])
     expectNoDifference(value.directCounts?["three"], 3)
+  }
+
+  @Test
+  func `Capacity Hints Accept Swift Integer Literals And Qualified Containers`() throws {
+    var value = SinkCapacityLiteralAndQualificationMembers.Partial()
+    try parsePartial(
+      #"{"hexadecimal":[1],"octal":[2],"binary":[3],"no_hint":[4],"aliasedArray":[5,6],"aliasedDictionary":{"seven":7}}"#,
+      into: &value
+    )
+
+    expectNoDifference(value.hexadecimal, [1])
+    expectNoDifference(value.octal, [2])
+    expectNoDifference(value.binary, [3])
+    expectNoDifference(value.noHint, [4])
+    expectNoDifference(value.aliasedArray, [5, 6])
+    expectNoDifference(value.aliasedDictionary?["seven"], 7)
   }
 
   @Test

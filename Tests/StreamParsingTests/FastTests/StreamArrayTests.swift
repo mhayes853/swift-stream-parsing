@@ -56,6 +56,23 @@ struct `Stream array tests` {
     expectNoDifference(Array(array), [1])
   }
 
+  @Test(arguments: [2_049, 4_097, 8_193, 32_769])
+  func `Every Adaptive Block Size Survives Boundary Mutations`(hint: Int) {
+    var array = StreamArray<Int>(initialCapacity: hint)
+    var expected = Array(0..<(array.currentBlockCapacity * 2 + 17))
+    for value in expected { array.append(value) }
+
+    let boundary = array.currentBlockCapacity
+    array[boundary - 1] = -1
+    expected[boundary - 1] = -1
+    array[boundary] = -2
+    expected[boundary] = -2
+    array.replaceSubrange((boundary - 2)..<(boundary + 3), with: [90, 91])
+    expected.replaceSubrange((boundary - 2)..<(boundary + 3), with: [90, 91])
+
+    expectNoDifference(Array(array), expected, "hint \(hint)")
+  }
+
   @Test
   func `Reserved Array Grows Past An Underestimate`() {
     var array = StreamArray<Int>(initialCapacity: 3)
