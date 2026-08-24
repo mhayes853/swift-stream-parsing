@@ -18,6 +18,7 @@ public struct StreamPointerView<Value>: ~Copyable, ~Escapable {
   public var value: Value { self.storage.pointee }
 }
 
+#if compiler(>=6.4)
 extension StreamPointerView: Equatable where Value: Equatable {
   @inlinable
   public static func == (lhs: borrowing Self, rhs: borrowing Self) -> Bool {
@@ -35,3 +36,4 @@ extension StreamPointerView: Comparable where Value: Comparable {
     lhs.value < rhs.value
   }
 }
+#endif

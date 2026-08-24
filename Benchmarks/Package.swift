@@ -24,7 +24,8 @@ let package = Package(
       resources: [.copy("Resources")],
       swiftSettings: [
         .define("STREAM_PARSING_BENCHMARKS"),
-        .enableExperimentalFeature("Lifetimes")
+        .enableExperimentalFeature("Lifetimes"),
+        .enableExperimentalFeature("AddressableTypes")
       ],
       plugins: [.plugin(name: "BenchmarkPlugin", package: "benchmark")]
     )
