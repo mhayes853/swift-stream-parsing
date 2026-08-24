@@ -3962,3 +3962,86 @@ The shape of the table is now the census's shape exactly: the walk wins where st
 dense and strings are short (github: 6.4 entries/block, 10-byte strings), breaks even on
 twitter, and loses a bounded 4–6% everywhere else, where that bound is the routing's probe
 cost plus the index tax on windows the walk consumes no faster than the dispatcher.
+
+## Shape loops: the walk stops being a state machine
+
+The index-cost round ended with the walk consuming structure-dense corpora faster than the
+dispatcher but replaying its state machine token by token everywhere else: one entry, one
+`(state, byte)` switch, one state write, one `checkSink`, and on numbers a `streamNumberRunEnd`
+scan for an end the index already held one slot over. Known extents were being used to find
+the next byte faster, not to do less. Shape loops are the version where the machine goes away
+for the length of a run whose shape the index makes visible in advance.
+
+Both loops live in `Fast/JSONParserShapes.swift`, out of line, entered from one arm of the walk
+each, and both are speculative: an element is pattern-checked from the index before any sink
+call or state change for it, and the first off-pattern element returns to the walk at a
+position the walk understands (just after a `[`/`,`/`{` in the matching state, or at a
+separator in `.afterValue`). The loops never throw a grammar error themselves — every
+malformed byte is the walk's, whose errors are the dispatcher's — and they emit only through
+the walk's own emitters. That is what let the differential suite stay the oracle: 35 new
+documents (nested numeric pairs, arrays that stop being numeric mid-way, members with container
+values and escaped keys mid-object, every malformed variant, and both shapes straddling a
+32 KB window), zero changes to the reference.
+
+### Numeric array subtrees
+
+Per element: one byte test on the element's first byte, one on its separator, `emitNumber` on
+the extent `start..<separator` with no scan. `emitNumber` validates on both its paths before it
+calls the sink, so an extent it rejects — `2x,` or `1 ,` — falls back with nothing emitted, and
+the walk's scanning path re-parses it and reports the dispatcher's reason at the dispatcher's
+offset. Nested arrays stay in the loop (Canada's `[x,y]` pairs). Measured against the committed
+baseline, two rounds: Canada windowed 893 → 1,118 (+25%); Mesh 619 → 643 (+4%).
+
+Mesh's small gain was a seam bug the profile named: `consumeGapScalar` 175 samples against the
+loop's 33. The loop was entered only at `[`, and Mesh's arrays are thousands of elements long,
+so after the first window boundary the walk resumed mid-array with no `[` to re-enter on.
+Canada's two-element arrays re-enter constantly, which is why it never showed. Entering from
+the walk's comma arm inside an array too — `first` derived from the state, since `[1,]` must
+still fail — took Mesh to 949 (+50% on the step, +29% over the dispatcher) and Canada to 1,180.
+
+### Object members with scalar values
+
+Per member: three loads at known offsets (quote, quote, colon), the key emitted in place, then
+the value by its first byte — clean string, number, literal — and the separator. Four state
+transitions become straight-line loads. A container value, an escaped key or string, or
+anything malformed falls back at the key or the separator; the walk handles it and re-enters
+the loop at the next comma. Two rounds against step 1: GitHub 2,073 → 2,513 (+21%), Twitter
+1,464 → 1,832 (+25%), CITM 1,888 → 2,131 (+13%), Twitter escaped 952 → 1,055 (+11%).
+
+Step 1 had cost the object corpora ~3.5% — a call and two loads at every `[` — which step 2
+buried; it is noted because the pattern test's cost on non-matching structure is real and
+would show again on a corpus of small non-numeric arrays.
+
+### Where it stands, against HEAD (three rounds, interleaved)
+
+| corpus | dispatcher bulk | windowed bulk | delta | 16 KB chunks windowed vs dispatcher |
+| --- | ---: | ---: | ---: | ---: |
+| github_events | 1,800 | 2,493 | **+38.5%** | +38.3% |
+| mesh | 739 | 954 | **+29.1%** | +4.1% |
+| canada | 942 | 1,198 | **+27.2%** | +26.8% |
+| twitter | 1,504 | 1,826 | **+21.4%** | +20.7% |
+| twitterescaped | 1,092 | 1,055 | −3.4% | −3.7% |
+| citm_catalog | 2,093 | 2,003 | −4.3% | −3.4% |
+| gsoc-2018 | 4,231 | 4,013 | −5.2% | −4.3% |
+| llm_message | 3,643 | 3,435 | −5.7% | −5.1% |
+
+Gate off, every dispatcher row is within ±0.6% of HEAD and the byte fed rows are +2.2% / 0%;
+`consumeStructuralRun`, `consumeNumber`, `consumeStringRun`, `consumeKeyRun` and `parse` are
+byte-identical in size to the previous round, and `consumeWindow` shrank by 12 bytes.
+
+The table is now the hypothesis this experiment opened with, confirmed on the corpora it was
+made for: the number-dense pair that the first pass measured at "no gain" is +27–29%, because
+the walk finally uses extents to do less rather than to scan faster. The four losses are the
+string-heavy population, at the bounded 3–6% the routing round left them, and CITM, which
+sits on the line (it measured +4% in the two-round step comparison and −4% here; it is 71%
+whitespace and its members are short, so the pattern test's cost and the member loop's saving
+are the same size). Mesh through 16 KB chunks is the one row that moved the wrong way against
+its bulk form (+4% against +29%): every chunk cuts an element, and the seam hands the cut
+number to the dispatcher, whose `fuseAfterValue` then carries on through the following
+elements before the walk gets the array back. Cheap to fix — the walk can take a `.value`
+state back at the next comma — and next.
+
+Open, in order: interleaved digit accumulation for consecutive numbers (Canada's profile is
+`emitNumber` 45%, the indexer 22%, the loop 14%); the Mesh-through-chunks seam; and CITM's
+line, which a cheaper pattern test or a member loop that also takes container values would
+settle.

@@ -289,6 +289,12 @@ extension JSONParser {
           state = .firstKey
           cursor = pos &+ 1
           k &+= 1
+          try self.checkSink(&sink, at: cursor)
+          _ = try self.consumeObjectMembers(
+            base: base, windowStart: windowStart, to: n, count: count, indices: indices,
+            needsScan: needsScan, nonASCII: nonASCII, cursor: &cursor, k: &k,
+            state: &state, depth: &depth, containers: &containers, into: &sink
+          )
         case .asciiArrayStart:
           sink.beginArray()
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
@@ -297,6 +303,16 @@ extension JSONParser {
           state = .firstValue
           cursor = pos &+ 1
           k &+= 1
+          // A numeric array subtree is a shape loop's; it decides in two loads whether this is one.
+          // The sink is read first, as the walk reads it after every entry: a rejection of the
+          // `[` must surface here and not after the loop's first element.
+          try self.checkSink(&sink, at: cursor)
+          if k < count {
+            _ = try self.consumeNumericArray(
+              base: base, count: count, indices: indices, cursor: &cursor, k: &k,
+              state: &state, depth: &depth, containers: &containers, into: &sink
+            )
+          }
         case .asciiArrayEnd:
           guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers)
           else { throw self.error(.unexpectedToken, at: pos) }
@@ -355,6 +371,24 @@ extension JSONParser {
         case .asciiComma:
           guard depth > 0 else { throw self.error(.unexpectedToken, at: pos) }
           state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
+          cursor = pos &+ 1
+          k &+= 1
+          try self.checkSink(&sink, at: cursor)
+          if state == .key {
+            // Back in an object after a container value: the member loop takes over again.
+            _ = try self.consumeObjectMembers(
+              base: base, windowStart: windowStart, to: n, count: count, indices: indices,
+              needsScan: needsScan, nonASCII: nonASCII, cursor: &cursor, k: &k,
+              state: &state, depth: &depth, containers: &containers, into: &sink
+            )
+          } else if k < count {
+            // Mid-array — after a non-numeric element, or in a new window inside an array that
+            // ran on from the last one: the numeric loop resumes if the next element is a number.
+            _ = try self.consumeNumericArray(
+              base: base, count: count, indices: indices, cursor: &cursor, k: &k,
+              state: &state, depth: &depth, containers: &containers, into: &sink
+            )
+          }
         case .asciiArrayEnd:
           guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
@@ -362,6 +396,8 @@ extension JSONParser {
           sink.endArray()
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
+          cursor = pos &+ 1
+          k &+= 1
         case .asciiObjectEnd:
           guard Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
@@ -369,11 +405,11 @@ extension JSONParser {
           sink.endObject()
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
+          cursor = pos &+ 1
+          k &+= 1
         default:
           throw self.error(.unexpectedToken, at: pos)
         }
-        cursor = pos &+ 1
-        k &+= 1
 
       case .key, .firstKey:
         switch byte {
