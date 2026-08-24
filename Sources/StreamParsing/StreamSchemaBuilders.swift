@@ -174,6 +174,106 @@ public func _streamEnterContainerField<T>(
   _streamEnterContainer(&value, schema: schema)
 }
 
+// Capacity-aware forms are deliberately container-specific. `initialCapacity` is macro-facing
+// vocabulary; how each container maps the hint onto its storage remains private to that type.
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamArray(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamDictionary(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
+// A string is a scalar, so this entry point is never reached for a matching JSON value. The
+// macro still emits one because aliases are indistinguishable from objects in syntax; accepting
+// the call lets the capacity-aware `streamApply` overload reserve at the opening quote.
+@inlinable
+public func _streamEnterContainerField(
+  _ value: inout StreamString?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+@inlinable
+public func _streamEnterContainerField(
+  _ value: inout StreamString,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+// The macro cannot resolve aliases, but overload resolution can: an alias whose partial storage
+// is a StreamArray or StreamDictionary selects one of the concrete overloads above. These
+// fallbacks keep an annotation on a scalar or object from silently becoming a no-op.
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
 // MARK: - Optional aware scalar application
 
 // Partial members are optional, so a value has to exist before it can be appended to.
@@ -182,6 +282,16 @@ public func streamApply<T: StreamStringConvertible>(
   _ value: inout T?, utf8 bytes: Span<UInt8>
 ) -> Bool {
   if value == nil { value = T.streamInitialValue() }
+  value!.streamAppend(utf8: bytes)
+  return true
+}
+
+@inlinable
+public func streamApply(
+  _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> Bool {
+  if value == nil { value = StreamString() }
+  if bytes.isEmpty { value!.streamReserve(utf8ByteCount: initialCapacity) }
   value!.streamAppend(utf8: bytes)
   return true
 }

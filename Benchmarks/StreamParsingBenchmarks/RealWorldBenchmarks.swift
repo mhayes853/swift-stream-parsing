@@ -66,7 +66,7 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
   }
 }
 
-func realWorldBenchmarks() {
+private func validateRealWorldModels() {
   // A model that silently stops matching turns a convenience benchmark into a discard benchmark.
   // Validate the new roots once during registration, outside every measured region.
   let canada = expectParses {
@@ -79,6 +79,11 @@ func realWorldBenchmarks() {
   }
   precondition(canadaDynamic.features?.count == 1)
   precondition(canadaDynamic.features?[0].geometry?.coordinates?.count == 480)
+  let hintedCanada = expectParses {
+    try streamBulkDiscarding(Payloads.canada, as: BenchmarkCanadaCapacityHint.Partial.self)
+  }
+  precondition(hintedCanada.features?.count == 1)
+  precondition(hintedCanada.features?[0].geometry?.coordinates?.count == 480)
   let gsoc = expectParses {
     try streamBulkDiscarding(
       Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
@@ -90,6 +95,13 @@ func realWorldBenchmarks() {
     ($0.value.description?.utf8Count ?? 0) > 64
   }
   precondition(longDescriptions.count == 1_236)
+  let hintedGSoC = expectParses {
+    try streamBulkDiscarding(
+      Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
+    )
+  }
+  precondition(hintedGSoC.count == 1_264)
+  precondition(hintedGSoC["0"]?.description?.isEmpty == false)
   let mesh = expectParses {
     try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMesh.Partial.self)
   }
@@ -102,6 +114,14 @@ func realWorldBenchmarks() {
     try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMeshDynamic.Partial.self)
   }
   precondition(meshDynamic.influences?.count == 3_600)
+  let hintedMesh = expectParses {
+    try streamBulkDiscarding(Payloads.mesh, as: BenchmarkMeshCapacityHint.Partial.self)
+  }
+  precondition(hintedMesh.positions?.count == 10_800)
+  precondition(hintedMesh.normals?.count == 10_800)
+  precondition(hintedMesh.indices?.count == 33_408)
+  precondition(hintedMesh.colors?.count == 3_600)
+  precondition(hintedMesh.batches?.count == 1)
   let github = expectParses {
     try streamBulkDiscarding(
       Payloads.githubEvents, as: StreamArray<BenchmarkGitHubEvent.Partial>.self
@@ -109,7 +129,9 @@ func realWorldBenchmarks() {
   }
   precondition(github.count == 30)
   precondition(github[0].actor?.login?.isEmpty == false)
+}
 
+private func addRealWorldFastRows() {
   for (name, payload) in realWorldPayloads {
     Benchmark("Real \(name) - bulk", configuration: payloadConfiguration) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
@@ -138,7 +160,14 @@ func realWorldBenchmarks() {
       }
     }
   }
+}
 
+private func addAllRealWorldConvenienceRows() {
+  addRealWorldBaselineConvenienceRows()
+  addRealWorldCapacityConvenienceRows()
+}
+
+private func addRealWorldBaselineConvenienceRows() {
   addRealWorldConvenienceRows(
     "Twitter", payload: Payloads.twitter, as: BenchmarkTwitterMatched.Partial.self
   )
@@ -174,43 +203,109 @@ func realWorldBenchmarks() {
   addRealWorldConvenienceRows(
     "Mesh dynamic influences", payload: Payloads.mesh, as: BenchmarkMeshDynamic.Partial.self
   )
+}
 
+private func addRealWorldCapacityConvenienceRows() {
+  addRealWorldConvenienceRows(
+    "Canada capacity hint",
+    payload: Payloads.canada,
+    as: BenchmarkCanadaCapacityHint.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "GSoC 2018 string capacity hint", payload: Payloads.gsoc2018,
+    as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
+  )
+  addRealWorldConvenienceRows(
+    "LLM message string capacity hint", payload: Payloads.llmMessage,
+    as: BenchmarkLLMMessageStringCapacity.Partial.self, includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Mesh capacity hint",
+    payload: Payloads.mesh,
+    as: BenchmarkMeshCapacityHint.Partial.self
+  )
+}
+
+private func addRealWorldViewRows() {
   for chunk in [1_400, 16_384, 65_536] {
-    Benchmark(
-      "Real LLM message - view read per \(chunk)B chunk",
-      configuration: payloadConfiguration
-    ) { benchmark in
-      measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
-        blackHole(
-          expectParses {
-            try streamViewingChunks(
-              Payloads.llmMessage,
-              chunk: chunk,
-              as: BenchmarkLLMMessage.Partial.self
-            ) { blackHole($0.stop_reason?.value) }
-          }
-        )
-      }
-    }
+    addRealWorldViewRows(for: chunk)
+    addRealWorldStringCapacityViewRows(for: chunk)
+  }
+}
 
-    Benchmark(
-      "Real LLM message - snapshot per \(chunk)B chunk",
-      configuration: payloadConfiguration
-    ) { benchmark in
-      measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
-        blackHole(
-          expectParses {
-            try streamSnapshottingChunks(
-              Payloads.llmMessage,
-              chunk: chunk,
-              as: BenchmarkLLMMessage.Partial.self
-            )
-          }
-        )
-      }
+private func addRealWorldViewRows(for chunk: Int) {
+  Benchmark(
+    "Real LLM message - view read per \(chunk)B chunk",
+    configuration: payloadConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+      blackHole(
+        expectParses {
+          try streamViewingChunks(
+            Payloads.llmMessage,
+            chunk: chunk,
+            as: BenchmarkLLMMessage.Partial.self
+          ) { blackHole($0.stop_reason?.value) }
+        }
+      )
     }
   }
 
+  Benchmark(
+    "Real LLM message - snapshot per \(chunk)B chunk",
+    configuration: payloadConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+      blackHole(
+        expectParses {
+          try streamSnapshottingChunks(
+            Payloads.llmMessage,
+            chunk: chunk,
+            as: BenchmarkLLMMessage.Partial.self
+          )
+        }
+      )
+    }
+  }
+}
+
+private func addRealWorldStringCapacityViewRows(for chunk: Int) {
+  Benchmark(
+    "Real LLM message string capacity hint - view read per \(chunk)B chunk",
+    configuration: payloadConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+      blackHole(
+        expectParses {
+          try streamViewingChunks(
+            Payloads.llmMessage,
+            chunk: chunk,
+            as: BenchmarkLLMMessageStringCapacity.Partial.self
+          ) { blackHole($0.stop_reason?.value) }
+        }
+      )
+    }
+  }
+
+  Benchmark(
+    "Real LLM message string capacity hint - snapshot per \(chunk)B chunk",
+    configuration: payloadConfiguration
+  ) { benchmark in
+    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+      blackHole(
+        expectParses {
+          try streamSnapshottingChunks(
+            Payloads.llmMessage,
+            chunk: chunk,
+            as: BenchmarkLLMMessageStringCapacity.Partial.self
+          )
+        }
+      )
+    }
+  }
+}
+
+private func addUnmatchedTwitterRow() {
   // Keep the old mismatched model as an explicit diagnostic. The parity row above uses the model
   // whose snake_case fields actually match the payload.
   Benchmark(
@@ -225,4 +320,12 @@ func realWorldBenchmarks() {
       )
     }
   }
+}
+
+func realWorldBenchmarks() {
+  validateRealWorldModels()
+  addRealWorldFastRows()
+  addAllRealWorldConvenienceRows()
+  addRealWorldViewRows()
+  addUnmatchedTwitterRow()
 }

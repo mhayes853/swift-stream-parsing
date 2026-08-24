@@ -335,8 +335,9 @@ extension StreamParseableMacro {
       let target = "p.pointee.\(property.name)"
       switch Self.fieldShape(for: property.type) {
       case .scalarOrObject:
+        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
         cases.applyString.append(
-          "    case \(field): return streamApply(&\(target), utf8: bytes)"
+          "    case \(field): return streamApply(&\(target), utf8: bytes\(capacityArgument))"
         )
         cases.applyNumber.append(
           "    case \(field): return streamApply(&\(target), bytes: bytes, info: info)"
@@ -351,9 +352,15 @@ extension StreamParseableMacro {
         cases.containerSchemas.append(
           "private static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
         )
-        cases.enter.append(
-          "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
-        )
+        if let initialCapacity = property.initialCapacity {
+          cases.enter.append(
+            "    case \(field): return _streamEnterContainerField(&\(target), schema: Self.\(constant).unsafelyUnwrapped, initialCapacity: \(initialCapacity))"
+          )
+        } else {
+          cases.enter.append(
+            "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
+          )
+        }
       case .array, .dictionary:
         // A container field can be nulled like any other. Emitted through the same helper as a
         // scalar's, so an optional member clears and a non-optional one falls to the disfavoured
@@ -366,10 +373,11 @@ extension StreamParseableMacro {
         cases.containerSchemas.append(
           "private static let \(constant) = \(Self.schemaExpression(for: property.type))"
         )
+        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
         cases.enter.append(
           """
               case \(field):
-                return _streamEnterContainerField(&\(target), schema: Self.\(constant))
+                return _streamEnterContainerField(&\(target), schema: Self.\(constant)\(capacityArgument))
           """
         )
       }
@@ -485,9 +493,19 @@ extension StreamParseableMacro {
   // container it is.
   private static func unwrappedType(_ type: TypeSyntax) -> TypeSyntax {
     if let optional = type.as(OptionalTypeSyntax.self) { return optional.wrappedType }
-    guard let identifier = type.as(IdentifierTypeSyntax.self),
-      identifier.name.text == "Optional",
-      let arguments = identifier.genericArgumentClause?.arguments,
+    let name: String
+    let arguments: GenericArgumentListSyntax?
+    if let identifier = type.as(IdentifierTypeSyntax.self) {
+      name = identifier.name.text
+      arguments = identifier.genericArgumentClause?.arguments
+    } else if let member = type.as(MemberTypeSyntax.self) {
+      name = member.name.text
+      arguments = member.genericArgumentClause?.arguments
+    } else {
+      return type
+    }
+    guard name == "Optional",
+      let arguments,
       arguments.count == 1,
       case .type(let wrapped) = arguments.first?.argument
     else {
@@ -626,11 +644,17 @@ extension StreamParseableMacro {
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
+    let initialCapacity: Int?
     let isIgnored: Bool
   }
 
   private struct KeyNamesResult {
     let names: [String]
+    let diagnostics: [Diagnostic]
+  }
+
+  private struct InitialCapacityResult {
+    let value: Int?
     let diagnostics: [Diagnostic]
   }
 
@@ -707,10 +731,18 @@ extension StreamParseableMacro {
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
     }
+    let capacityInfo =
+      isIgnored
+      ? InitialCapacityResult(value: nil, diagnostics: [])
+      : Self.initialCapacity(for: variableDecl)
+    for diagnostic in capacityInfo.diagnostics {
+      context.diagnose(diagnostic)
+    }
     return StoredProperty(
       name: propertyName,
       type: type,
       keyNames: keyInfo.names,
+      initialCapacity: capacityInfo.value,
       isIgnored: isIgnored
     )
   }
@@ -832,6 +864,68 @@ extension StreamParseableMacro {
       names: names.isEmpty ? [defaultName] : names,
       diagnostics: diagnostics
     )
+  }
+
+  private static func initialCapacity(
+    for variableDecl: VariableDeclSyntax
+  ) -> InitialCapacityResult {
+    var value: Int?
+    var sawCapacity = false
+    var diagnostics = [Diagnostic]()
+
+    for attribute in self.streamParseableMemberAttributes(in: variableDecl) {
+      guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self),
+        let expression = self.argumentExpression(in: arguments, named: "initialCapacity")
+      else { continue }
+
+      // The key/keyNames overloads use an optional argument so they can default the hint away.
+      // Treat an explicitly written `nil` the same as the omitted default.
+      if expression.is(NilLiteralExprSyntax.self) { continue }
+
+      guard !sawCapacity else {
+        diagnostics.append(
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(initialCapacity:) can only be specified once per property."
+            )
+          )
+        )
+        continue
+      }
+      sawCapacity = true
+
+      guard let parsed = Self.integerLiteralValue(expression) else {
+        diagnostics.append(
+          Diagnostic(
+            node: attribute,
+            message: MacroExpansionErrorMessage(
+              "@StreamParseableMember(initialCapacity:) requires a nonnegative integer literal."
+            )
+          )
+        )
+        continue
+      }
+
+      value = parsed
+    }
+
+    return InitialCapacityResult(value: value, diagnostics: diagnostics)
+  }
+
+  private static func integerLiteralValue(_ expression: ExprSyntax) -> Int? {
+    guard let literal = expression.as(IntegerLiteralExprSyntax.self) else { return nil }
+    let text = String(literal.literal.text.filter { $0 != "_" })
+    if text.hasPrefix("0x") || text.hasPrefix("0X") {
+      return Int(text.dropFirst(2), radix: 16)
+    }
+    if text.hasPrefix("0o") || text.hasPrefix("0O") {
+      return Int(text.dropFirst(2), radix: 8)
+    }
+    if text.hasPrefix("0b") || text.hasPrefix("0B") {
+      return Int(text.dropFirst(2), radix: 2)
+    }
+    return Int(text, radix: 10)
   }
 
   private static func streamParseableMemberAttribute(

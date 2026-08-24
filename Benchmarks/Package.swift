@@ -9,7 +9,7 @@ let package = Package(
   name: "swift-stream-parsing-benchmarks",
   platforms: [.macOS(.v14)],
   dependencies: [
-    .package(path: ".."),
+    .package(name: "swift-stream-parsing", path: ".."),
     .package(url: "https://github.com/ordo-one/benchmark", from: "1.36.0")
   ],
   targets: [

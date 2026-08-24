@@ -3647,9 +3647,32 @@ kernel spreads its cost across all tokens and concentrates its benefit in few.
 
 The practical ceiling this sets: **roughly one kernel, and A is it.** Further number work has to
 come out of the existing path rather than beside it -- out of lining the `.invalidNumber` error
-construction, which still forces a stack frame on every number; deleting `NumberInfo.digitCount`,
-written per number and read by nothing; and demoting the exponent walk, twenty instructions on the
-hot path for a branch that 0 of 468,000 real corpus numbers take.
+construction, which still forces a stack frame on every number, and demoting the exponent walk,
+twenty instructions on the hot path for a branch that 0 of 468,000 real corpus numbers take.
+
+### `NumberInfo.digitCount`: measured and retained
+
+`digitCount` had no in-package reader, so deleting it looked like free work removed from every
+number. It was not. The parser computes `totalDigits` anyway to set `.overflowed`; the field is
+written once at emission, not once per digit; and removing its two bytes does not change
+`NumberInfo`'s 16-byte stride because `magnitude` still gives the struct eight-byte alignment.
+
+More importantly, every benchmark sink is specialized with `emitNumber`, so the optimizer had
+already deleted construction of fields that sink does not read. The `FastCountingSink`
+specialization remained exactly 1,024 bytes with and without the field. `Payload MB/s` p0:
+
+| row | with `digitCount` | without | change |
+| --- | ---: | ---: | ---: |
+| `Numbers floats - bulk` | 698 | 699 | +0.1% |
+| `Numbers large integers - bulk` | 1702 | 1699 | -0.2% |
+| `Numbers small integers - bulk` | 477 | 479, then 477 | 0 to +0.4% |
+| `Real Canada - bulk discarding` | 437 | 429, then 432 | -1.1 to -1.8% |
+| `Real Mesh - bulk discarding` | 361 | 364, then 363 | +0.6 to +0.8% |
+
+The real-world suite moved in both directions by ordinary run variance, with no allocation change.
+Since `NumberInfo` is public and an external SAX-style sink may legitimately inspect the digit
+count, deleting it would trade information and source compatibility for no measured throughput or
+code-size benefit. The field stays.
 
 ### A backward read is invisible to assertions about values
 

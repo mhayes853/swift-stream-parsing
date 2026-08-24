@@ -46,6 +46,29 @@ private func streamSnapshottingAll<Value: StreamParseableRoot>(
 }
 
 func retentionBenchmarks() {
+  // The capacity-hinted mesh uses larger adaptive blocks. These paired rows make the tradeoff
+  // visible: fewer allocations while parsing versus more elements copied when the retained
+  // window shares the active tail at a commit boundary.
+  Benchmark("Retention Mesh - window 16") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(
+        try streamSnapshottingRetained(
+          Payloads.mesh, window: 16, as: BenchmarkMesh.Partial.self
+        )
+      )
+    }
+  }
+
+  Benchmark("Retention Mesh capacity hint - window 16") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(
+        try streamSnapshottingRetained(
+          Payloads.mesh, window: 16, as: BenchmarkMeshCapacityHint.Partial.self
+        )
+      )
+    }
+  }
+
   for window in [4, 16, 64] {
     Benchmark("Retention 100 users - window \(window)") { benchmark in
       for _ in benchmark.scaledIterations {
