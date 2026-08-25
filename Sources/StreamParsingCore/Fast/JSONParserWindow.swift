@@ -33,8 +33,13 @@ extension JSONParser {
   // Extraction writes eight slots at a time; the last group can run seven past the true count.
   @usableFromInline static var windowIndexCapacity: Int { Self.windowByteCount &+ 8 }
   @usableFromInline static var windowBitmapWordCount: Int { Self.windowByteCount / 4096 }
+  // The numeric shape loop delivers numbers in batches of up to this many; see
+  // `StreamNumberBatch`. Its scratch sits after the bitmaps.
+  @usableFromInline static var numberBatchCapacity: Int { 64 }
+  @usableFromInline static var windowBitmapByteCount: Int { Self.windowBitmapWordCount &* 16 }
   @usableFromInline static var windowScratchByteCount: Int {
-    Self.windowIndexCapacity &* 4 &+ Self.windowBitmapWordCount &* 16
+    Self.windowIndexCapacity &* 4 &+ Self.windowBitmapByteCount
+      &+ Self.numberBatchCapacity &* (MemoryLayout<NumberInfo>.stride &+ 8)
   }
   // Below this many entries per block a window is string interior with little structure, and
   // the walk has nothing to do that the dispatcher's string scan does not do faster. Census:
@@ -60,6 +65,11 @@ extension JSONParser {
     let indices = scratch.assumingMemoryBound(to: UInt32.self)
     let needsScan = (scratch + Self.windowIndexCapacity &* 4).assumingMemoryBound(to: UInt64.self)
     let nonASCII = needsScan + Self.windowBitmapWordCount
+    let batchInfos = scratch
+      .advanced(by: Self.windowIndexCapacity &* 4 &+ Self.windowBitmapByteCount)
+      .assumingMemoryBound(to: NumberInfo.self)
+    let batchTokens = UnsafeMutableRawPointer(batchInfos + Self.numberBatchCapacity)
+      .assumingMemoryBound(to: UInt32.self)
 
     var i = 0
     if self.pendingUTF8Count > 0 {
@@ -111,7 +121,8 @@ extension JSONParser {
       i = try self.consumeWindow(
         base: base, windowStart: windowStart, windowEnd: windowEnd, to: n, from: i,
         count: count, entry: &entry,
-        indices: indices, needsScan: needsScan, nonASCII: nonASCII, into: &sink
+        indices: indices, needsScan: needsScan, nonASCII: nonASCII,
+        batchInfos: batchInfos, batchTokens: batchTokens, into: &sink
       )
       // A cursor short of the window's end is a token the walk handed back — cut by the
       // chunk, or a key with an escape — and it is the dispatcher's, for exactly one step.
@@ -241,6 +252,8 @@ extension JSONParser {
     indices: UnsafeMutablePointer<UInt32>,
     needsScan: UnsafeMutablePointer<UInt64>,
     nonASCII: UnsafeMutablePointer<UInt64>,
+    batchInfos: UnsafeMutablePointer<NumberInfo>,
+    batchTokens: UnsafeMutablePointer<UInt32>,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var state = self.state
@@ -309,7 +322,8 @@ extension JSONParser {
           try self.checkSink(&sink, at: cursor)
           if k < count {
             _ = try self.consumeNumericArray(
-              base: base, to: n, count: count, indices: indices, cursor: &cursor, k: &k,
+              base: base, to: n, count: count, indices: indices,
+              batchInfos: batchInfos, batchTokens: batchTokens, cursor: &cursor, k: &k,
               state: &state, depth: &depth, containers: &containers, into: &sink
             )
           }
@@ -385,7 +399,8 @@ extension JSONParser {
             // Mid-array — after a non-numeric element, or in a new window inside an array that
             // ran on from the last one: the numeric loop resumes if the next element is a number.
             _ = try self.consumeNumericArray(
-              base: base, to: n, count: count, indices: indices, cursor: &cursor, k: &k,
+              base: base, to: n, count: count, indices: indices,
+              batchInfos: batchInfos, batchTokens: batchTokens, cursor: &cursor, k: &k,
               state: &state, depth: &depth, containers: &containers, into: &sink
             )
           }

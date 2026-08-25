@@ -108,6 +108,11 @@ public final class StreamSchema: Sendable {
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
+  // Appends a run of numbers to an array whose elements are numbers, returning how many were
+  // taken (see `StreamNumberBatch`). Arrays of number-convertible elements only; nil means the
+  // batch is unrolled through `appendElement` and `applyNumber` one number at a time.
+  public let appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
   public init(
@@ -128,7 +133,8 @@ public final class StreamSchema: Sendable {
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer) -> StreamFrame? = { _ in nil },
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
-    }
+    },
+    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)? = nil
   ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
@@ -143,6 +149,7 @@ public final class StreamSchema: Sendable {
     self.applyNull = applyNull
     self.enterField = enterField
     self.appendElement = appendElement
+    self.appendNumbers = appendNumbers
     self.enterKey = enterKey
   }
 }
@@ -158,6 +165,13 @@ public final class StreamSchema: Sendable {
 // that one, and it must not match a `String` field and hand it a frame instead of a scalar write.
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
+
+  /// Appends a run of numbers to a `StreamArray<Self>` in one call, or `nil` when `Self` is not
+  /// a number. Supplied for every ``StreamNumberConvertible`` type; the array schema carries it
+  /// as ``StreamSchema/appendNumbers`` so `PartialSink` can take a batch without routing each
+  /// number through a frame.
+  static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)? { get }
 
   /// The schema this type is written through when a container holds it, and the value that
   /// container opens its slot with.
@@ -327,8 +341,49 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
         initial: Element.streamElementInitialValue(),
         schema: element
       )
-    }
+    },
+    appendNumbers: Element._streamArrayNumberAppender
   )
+}
+
+extension StreamParseableRoot {
+  @inlinable
+  public static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+  { nil }
+}
+
+// The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending
+// swap — convert and commit in a loop. The last number is left as the array's open element,
+// which is where the one-at-a-time path leaves it, so a snapshot taken between a batch and the
+// array's close sees the same array either way.
+extension StreamParseableRoot where Self: StreamNumberConvertible {
+  @inlinable
+  public static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+  {
+    { storage, batch in
+      let array = storage.assumingMemoryBound(to: StreamArray<Self>.self)
+      let count = batch.count
+      guard count > 0 else { return 0 }
+      array.pointee.drainPending()
+      let infos = batch.infos
+      var index = 0
+      let last = count &- 1
+      while index < last {
+        guard let value = Self(streamParsing: batch.token(at: index), info: infos[index]) else {
+          return index
+        }
+        array.pointee.commit(value)
+        index &+= 1
+      }
+      guard let value = Self(streamParsing: batch.token(at: last), info: infos[last]) else {
+        return last
+      }
+      array.pointee.pending = value
+      return count
+    }
+  }
 }
 
 // The schema an optional element or dictionary value is written through.

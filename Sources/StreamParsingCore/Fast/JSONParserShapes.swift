@@ -22,13 +22,16 @@ extension JSONParser {
   // Numeric array subtree: entered after the walk has processed a `[` (pushed, `beginArray`
   // sent) or a `,` inside an array — the second entry is what keeps an array thousands of
   // elements long in the loop across window boundaries. It runs while elements are numbers or
-  // nested arrays of the same shape — Canada's
-  // `[[x,y],[x,y],...]` rings and Mesh's flat vertex arrays never leave it. Per element the work
-  // is one byte test on the element's first byte, one on its separator, and `emitNumber` on an
-  // extent read from the index: `streamNumberRunEnd` is gone, because the separator entry *is*
-  // the end. An extent `emitNumber` rejects — garbage, or whitespace before the comma — falls
-  // back before anything is emitted, and the walk's scanning path re-parses it and reports
-  // exactly what the dispatcher reports.
+  // nested arrays of the same shape — Canada's `[[x,y],[x,y],...]` rings and Mesh's flat vertex
+  // arrays never leave it. Per element the work is one byte test on the element's first byte,
+  // one on its separator, and a parse on an extent read from the index: `streamNumberRunEnd`
+  // is gone, because the separator entry *is* the end. An extent the parse rejects — garbage,
+  // or whitespace before the comma — falls back before anything is emitted, and the walk's
+  // scanning path re-parses it and reports exactly what the dispatcher reports.
+  //
+  // Numbers are not emitted one at a time: they accumulate in the batch scratch and go to the
+  // sink as one `numbers` call per 64, or at the run's end — before any other event, so the
+  // sink's order is the document's. Where a rejection surfaces is the same offset either way.
   @inlinable
   @inline(never)
   mutating func consumeNumericArray<Sink: StreamParseSink & ~Copyable>(
@@ -36,6 +39,8 @@ extension JSONParser {
     to n: Int,
     count: Int,
     indices: UnsafeMutablePointer<UInt32>,
+    batchInfos: UnsafeMutablePointer<NumberInfo>,
+    batchTokens: UnsafeMutablePointer<UInt32>,
     cursor: inout Int,
     k: inout Int,
     state: inout State,
@@ -48,10 +53,9 @@ extension JSONParser {
     // Entered after `[` (`.firstValue`) or, mid-array, after a `,` (`.value`): the state says
     // whether a `]` may come next.
     var first = state == .firstValue
+    var batched = 0
     while k < count {
       if expectingValue {
-        // The element starts at the cursor, or — if the cursor is on whitespace — at the next
-        // entry, which the index guarantees is the first non-whitespace byte.
         var start = cursor
         var separatorEntry = k
         if streamIsWhitespace(base.load(fromByteOffset: start, as: UInt8.self)) {
@@ -64,21 +68,32 @@ extension JSONParser {
           let separator = Int(indices[separatorEntry])
           let separatorByte = base.load(fromByteOffset: separator, as: UInt8.self)
           guard separatorByte == .asciiComma || separatorByte == .asciiArrayEnd else { break }
-          if !self.emitLongDecimal(base: base, from: start, to: separator, chunkEnd: n, into: &sink) {
+          let info: NumberInfo
+          if let long = self.parseLongDecimal(base: base, from: start, to: separator, chunkEnd: n) {
+            info = long
+          } else {
             do {
-              try self.emitNumber(base: base, from: start, to: separator, into: &sink, reportAt: separator)
+              info = try self.parseNumber(base: base, from: start, to: separator, reportAt: separator)
             } catch {
               break
             }
           }
-          try self.checkSink(&sink, at: separator)
+          batchInfos[batched] = info
+          batchTokens[2 &* batched] = UInt32(truncatingIfNeeded: start)
+          batchTokens[2 &* batched &+ 1] = UInt32(truncatingIfNeeded: separator &- start)
+          batched &+= 1
+          if batched == Self.numberBatchCapacity {
+            try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
+            batched = 0
+          }
           cursor = separator
           k = separatorEntry
           expectingValue = false
           continue
         case .asciiArrayStart:
           guard depth < Self.maximumDepth else { break }
-          // A `[` is always an entry, so it is `indices[k]` whether or not whitespace preceded it.
+          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
+          batched = 0
           sink.beginArray()
           containers &= ~(1 &<< UInt64(depth))
           depth &+= 1
@@ -89,6 +104,8 @@ extension JSONParser {
           continue
         case .asciiArrayEnd:
           guard first else { break }
+          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
+          batched = 0
           sink.endArray()
           depth &-= 1
           cursor = start &+ 1
@@ -103,21 +120,21 @@ extension JSONParser {
         default:
           break
         }
+        try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
         state = first ? .firstValue : .value
         return .fellBack
       } else {
-        // After a value the next entry is the separator; whitespace before it is skipped by the
-        // index's guarantee that a gap beginning with whitespace holds nothing else.
         let position = Int(indices[k])
         switch base.load(fromByteOffset: position, as: UInt8.self) {
         case .asciiComma:
           cursor = position &+ 1
           k &+= 1
-          try self.checkSink(&sink, at: cursor)
           expectingValue = true
           first = false
           continue
         case .asciiArrayEnd:
+          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
+          batched = 0
           sink.endArray()
           depth &-= 1
           cursor = position &+ 1
@@ -129,28 +146,136 @@ extension JSONParser {
           try self.checkSink(&sink, at: cursor)
           continue
         default:
+          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
           state = .afterValue
           return .fellBack
         }
       }
     }
-    // Out of entries: the window ends inside the subtree. Hand back at the current phase.
+    try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
     state = expectingValue ? (first ? .firstValue : .value) : .afterValue
     return .fellBack
+  }
+
+  // Hands the batch to the sink and reads its failure once, at the offset the dispatcher would
+  // have read it: the byte after the number the sink stopped at.
+  @inlinable
+  @inline(__always)
+  mutating func flushNumberBatch<Sink: StreamParseSink & ~Copyable>(
+    _ count: Int,
+    infos: UnsafeMutablePointer<NumberInfo>,
+    tokens: UnsafeMutablePointer<UInt32>,
+    base: UnsafeRawPointer,
+    chunkEnd n: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    guard count > 0 else { return }
+    let batch = StreamNumberBatch(
+      infoBase: UnsafePointer(infos), tokenBase: UnsafePointer(tokens), count: count,
+      bytesBase: base.assumingMemoryBound(to: UInt8.self), byteCount: n
+    )
+    let taken = sink.numbers(batch)
+    if taken < count {
+      precondition(
+        sink.streamFailure != nil,
+        "StreamParseSink.numbers returned \(taken) of \(count) without recording a failure."
+      )
+      try self.checkSink(&sink, at: batch.end(of: taken))
+    }
+    try self.checkSink(&sink, at: batch.end(of: count &- 1))
+  }
+
+  // `emitNumber` without the emission: the same walk, the same errors at the same offsets,
+  // returning the info for the batch. Kept as its own copy rather than a refactor of
+  // `emitNumber`, which is inlined into the dispatcher's `consumeNumber` and has cost 4% from
+  // layout alone when its shape moved.
+  // `@_transparent` rather than `@inline(__always)`: the performance inliner left this as a
+  // cross-module call under the latter, generic or not, and mandatory inlining is what the
+  // branchless number tail needed before it for the same reason.
+  @usableFromInline
+  @_transparent
+  func parseNumber(
+    base: UnsafeRawPointer, from: Int, to: Int, reportAt: Int
+  ) throws(JSONParsingError) -> NumberInfo {
+    if to &- from <= 8, to >= 8,
+      base.load(fromByteOffset: from, as: UInt8.self) != .asciiZero || to &- from == 1,
+      let magnitude = streamShortInteger(base: base, from: from, end: to)
+    {
+      return NumberInfo(
+        magnitude: magnitude, exponent: 0,
+        digitCount: UInt16(truncatingIfNeeded: to &- from), flags: []
+      )
+    }
+    var flags = NumberInfo.Flags()
+    var i = from
+    if i < to, base.load(fromByteOffset: i, as: UInt8.self) == .asciiDash {
+      flags.insert(.negative)
+      i &+= 1
+    }
+    var magnitude: UInt64 = 0
+    let integerStart = i
+    i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude)
+    let integerDigits = i &- integerStart
+    guard integerDigits > 0 else { throw self.error(.invalidNumber, at: reportAt) }
+    if integerDigits > 1, base.load(fromByteOffset: integerStart, as: UInt8.self) == .asciiZero {
+      throw self.error(.invalidNumber, at: reportAt)
+    }
+    var fractionDigits = 0
+    if i < to, base.load(fromByteOffset: i, as: UInt8.self) == .asciiDot {
+      flags.insert(.fraction)
+      i &+= 1
+      let fractionStart = i
+      i = streamAccumulateDigits(base: base, from: i, to: to, into: &magnitude)
+      fractionDigits = i &- fractionStart
+      if fractionDigits == 0 { throw self.error(.invalidNumber, at: reportAt) }
+    }
+    var explicitExponent: Int32 = 0
+    var exponentNegative = false
+    if i < to, (base.load(fromByteOffset: i, as: UInt8.self) | 0x20) == .asciiLowerE {
+      flags.insert(.exponent)
+      i &+= 1
+      if i < to {
+        let sign = base.load(fromByteOffset: i, as: UInt8.self)
+        if sign == .asciiDash {
+          exponentNegative = true
+          i &+= 1
+        } else if sign == .asciiPlus {
+          i &+= 1
+        }
+      }
+      let exponentStart = i
+      while i < to {
+        let digit = base.load(fromByteOffset: i, as: UInt8.self) &- .asciiZero
+        guard digit < 10 else { break }
+        if explicitExponent < 10_000 {
+          explicitExponent = explicitExponent &* 10 &+ Int32(digit)
+        }
+        i &+= 1
+      }
+      if i == exponentStart { throw self.error(.invalidNumber, at: reportAt) }
+    }
+    if i != to { throw self.error(.invalidNumber, at: reportAt) }
+    let totalDigits = integerDigits &+ fractionDigits
+    if totalDigits > 19 { flags.insert(.overflowed) }
+    let signedExponent = exponentNegative ? -explicitExponent : explicitExponent
+    return NumberInfo(
+      magnitude: magnitude,
+      exponent: Int16(clamping: Int(signedExponent) &- fractionDigits),
+      digitCount: UInt16(truncatingIfNeeded: totalDigits),
+      flags: flags
+    )
   }
 
   // The third number path: a simple decimal longer than sixteen bytes, classified and
   // accumulated in one pass by the shim. Gated on length because the classification's latency
   // is only amortized by long tokens (the lab measured -27% on nine-digit integers), and on
-  // the extent lying at least 32 bytes inside the chunk, which is what the shim reads. Emits
-  // exactly what `emitNumber` would — the lab verified the two agree on every extent the shim
-  // accepts — and returns false for anything it declines, which then takes `emitNumber`.
+  // the extent lying at least 32 bytes inside the chunk, which is what the shim reads. Returns
+  // exactly what `parseNumber` would — the lab verified the two agree on every extent the shim
+  // accepts — and nil for anything it declines.
   @inlinable
   @inline(__always)
-  mutating func emitLongDecimal<Sink: StreamParseSink & ~Copyable>(
-    base: UnsafeRawPointer, from: Int, to: Int, chunkEnd: Int, into sink: inout Sink
-  ) -> Bool {
-    guard to &- from > 16, from &+ 32 <= chunkEnd else { return false }
+  func parseLongDecimal(base: UnsafeRawPointer, from: Int, to: Int, chunkEnd: Int) -> NumberInfo? {
+    guard to &- from > 16, from &+ 32 <= chunkEnd else { return nil }
     var magnitude: UInt64 = 0
     var exponent: Int32 = 0
     var digitCount: UInt32 = 0
@@ -158,19 +283,12 @@ extension JSONParser {
     guard stream_parsing_decimal32(
       base.advanced(by: from).assumingMemoryBound(to: UInt8.self), to &- from,
       &magnitude, &exponent, &digitCount, &flags
-    ) != 0 else { return false }
-    let slice = UnsafeBufferPointer(
-      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self), count: to &- from
+    ) != 0 else { return nil }
+    return NumberInfo(
+      magnitude: magnitude, exponent: Int16(clamping: Int(exponent)),
+      digitCount: UInt16(truncatingIfNeeded: Int(digitCount)),
+      flags: NumberInfo.Flags(rawValue: UInt16(truncatingIfNeeded: flags))
     )
-    sink.number(
-      Span(_unsafeElements: slice),
-      info: NumberInfo(
-        magnitude: magnitude, exponent: Int16(clamping: Int(exponent)),
-        digitCount: UInt16(truncatingIfNeeded: Int(digitCount)),
-        flags: NumberInfo.Flags(rawValue: UInt16(truncatingIfNeeded: flags))
-      )
-    )
-    return true
   }
 
   // Object members with scalar values: `"key": value,` repeated, which is most of every object

@@ -20,9 +20,28 @@ struct FastCountingSink: StreamParseSink {
   mutating func stringChunk(_ bytes: Span<UInt8>) { self.checksum &+= UInt64(bytes.count) }
   mutating func stringEnd() {}
 
+  // Every field of the info is folded in, deliberately: a sink that reads only the magnitude
+  // lets the compiler drop the exponent, digit count and flag work on a directly emitted
+  // number, which made the unbatched rows look cheaper than any real sink's path is.
+  @inline(__always)
+  static func fold(_ info: NumberInfo) -> UInt64 {
+    info.magnitude &+ UInt64(bitPattern: Int64(info.exponent))
+      &+ UInt64(info.digitCount) &+ UInt64(info.flags.rawValue)
+  }
+
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     self.tokens &+= 1
-    self.checksum &+= info.magnitude
+    self.checksum &+= Self.fold(info)
+  }
+
+  // A run of numbers from the windowed path: the same checksum, without a call per number.
+  mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
+    let infos = batch.infos
+    var sum: UInt64 = 0
+    for i in 0..<batch.count { sum &+= Self.fold(infos[i]) }
+    self.tokens &+= batch.count
+    self.checksum &+= sum
+    return batch.count
   }
 
   mutating func boolean(_ value: Bool) { self.tokens &+= 1 }

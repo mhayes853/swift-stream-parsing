@@ -55,6 +55,43 @@ struct `Windowed parser tests` {
     mutating func null() { self.record(.null, kind: "null") }
   }
 
+  // Overrides `numbers`, records each batch's size, and flattens it into the same events the
+  // default would produce — so the flattened stream must match the dispatcher exactly.
+  struct BatchRecordingSink: StreamParseSink {
+    var inner = RecordingSink()
+    var batchSizes: [Int] = []
+    var rejectAtNumber: Int? = nil
+    var numbersSeen = 0
+    var streamFailure: StreamSinkFailure? { self.inner.streamFailure }
+
+    mutating func beginObject() { self.inner.beginObject() }
+    mutating func endObject() { self.inner.endObject() }
+    mutating func beginArray() { self.inner.beginArray() }
+    mutating func endArray() { self.inner.endArray() }
+    mutating func key(_ bytes: Span<UInt8>) { self.inner.key(bytes) }
+    mutating func stringBegin() { self.inner.stringBegin() }
+    mutating func stringChunk(_ bytes: Span<UInt8>) { self.inner.stringChunk(bytes) }
+    mutating func stringEnd() { self.inner.stringEnd() }
+    mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+      self.inner.number(bytes, info: info)
+      self.numbersSeen += 1
+      if self.numbersSeen == self.rejectAtNumber {
+        self.inner.streamFailure = StreamSinkFailure(reason: .typeMismatch)
+      }
+    }
+    mutating func boolean(_ value: Bool) { self.inner.boolean(value) }
+    mutating func null() { self.inner.null() }
+    mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
+      self.batchSizes.append(batch.count)
+      let infos = batch.infos
+      for index in 0..<batch.count {
+        self.number(batch.token(at: index), info: infos[index])
+        if self.streamFailure != nil { return index }
+      }
+      return batch.count
+    }
+  }
+
   struct Outcome: Equatable {
     var events: [Event]
     var error: JSONParsingError?
@@ -109,6 +146,33 @@ struct `Windowed parser tests` {
         """
       )
     }
+  }
+
+  static func runBatched(
+    _ bytes: [UInt8], chunk: Int, rejectAtNumber: Int? = nil
+  ) -> (Outcome, [Int]) {
+    var parser = JSONParser(windowThreshold: 1)
+    var sink = BatchRecordingSink()
+    sink.rejectAtNumber = rejectAtNumber
+    var error: JSONParsingError?
+    do {
+      try bytes.withUnsafeBufferPointer { buffer throws(JSONParsingError) in
+        var offset = 0
+        while offset < buffer.count {
+          let count = min(chunk, buffer.count - offset)
+          try parser.parse(
+            UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count), into: &sink
+          )
+          offset += count
+        }
+      }
+      try parser.finish(into: &sink)
+    } catch let caught as JSONParsingError {
+      error = caught
+    } catch let caught {
+      Issue.record("Unexpected error type: \(caught)")
+    }
+    return (Outcome(events: sink.inner.events, error: error), sink.batchSizes)
   }
 
   // MARK: - Documents
@@ -261,5 +325,46 @@ struct `Windowed parser tests` {
     for document in documents {
       Self.expectEquivalent(Array(document.utf8), "\(kind) in \(document)", rejecting: [kind])
     }
+  }
+
+  // MARK: - Number batches
+
+  @Test(arguments: ["numeric pairs", "numeric across window", "numeric across window with spaces", "long decimals", "numbers", "numeric then string", "numeric with spaces", "array of objects"])
+  func `Batched numbers flatten to the dispatcher's events`(name: String) {
+    let bytes = Array(Self.documents.first { $0.0 == name }!.1.utf8)
+    for chunk in [Int.max, 1000, 32_768] {
+      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max)
+      let (batched, sizes) = Self.runBatched(bytes, chunk: chunk)
+      #expect(batched == dispatcher, "\(name): chunk \(chunk)")
+      #expect(sizes.allSatisfy { $0 >= 1 && $0 <= 64 }, "\(name): batch sizes \(sizes.prefix(8))")
+    }
+  }
+
+  @Test
+  func `Long numeric runs arrive in batches of 64`() {
+    let bytes = Array(("[" + (0..<1000).map { "\($0)" }.joined(separator: ",") + "]").utf8)
+    let (outcome, sizes) = Self.runBatched(bytes, chunk: .max)
+    #expect(outcome.error == nil)
+    #expect(sizes.count == 16 && sizes.prefix(15).allSatisfy { $0 == 64 } && sizes.last == 40, "\(sizes)")
+  }
+
+  // A rejection in the middle of a batch must surface at that number's end, exactly where the
+  // dispatcher, which checks after every number, reports it.
+  @Test(arguments: [1, 2, 63, 64, 65, 130, 1000])
+  func `Rejection inside a batch reports the dispatcher's offset`(at: Int) {
+    let bytes = Array(("[" + (0..<1000).map { "\($0 * 7).5" }.joined(separator: ",") + "]").utf8)
+    let dispatcher: Outcome = {
+      var parser = JSONParser(windowThreshold: .max)
+      var sink = BatchRecordingSink()
+      sink.rejectAtNumber = at
+      var error: JSONParsingError?
+      do {
+        try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+        try parser.finish(into: &sink)
+      } catch let caught as JSONParsingError { error = caught } catch {}
+      return Outcome(events: sink.inner.events, error: error)
+    }()
+    let (batched, _) = Self.runBatched(bytes, chunk: .max, rejectAtNumber: at)
+    #expect(batched == dispatcher, "rejecting number \(at)")
   }
 }

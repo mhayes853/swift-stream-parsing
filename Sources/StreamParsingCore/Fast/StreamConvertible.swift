@@ -25,6 +25,10 @@ public protocol StreamNullable: SendableMetatype {
 
 extension FixedWidthInteger {
   // A token carrying an exponent is rejected rather than scaled, matching prior behaviour.
+  // Inlinable so a generic caller specialised for a concrete integer gets a specialised
+  // conversion: reached through the protocol witness alone this ran unspecialised, with a
+  // metadata lookup per number, and the batch appender measured Mesh at half speed.
+  @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard !info.flags.contains(.fraction), info.exponent == 0 else { return nil }
 
@@ -72,6 +76,7 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
   // Known gap: for types narrower than Double the scaled path rounds twice, once into Double
   // and once into Self, which can differ from the correctly rounded result in rare cases. Float
   // needs its own bound before this is relied on for exactness.
+  @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard !info.flags.contains(.overflowed) else {
       guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {

@@ -330,6 +330,28 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
+  // A run of numbers into an array of numbers takes the schema's bulk appender: one frame
+  // resolution per batch instead of one per number, and none of the per-element routing that
+  // the profile counted as five retains and six releases per number. Any other destination
+  // unrolls the batch through `number`, exactly as the protocol's default would.
+  public mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
+    if let top = self.topFrame, top.pointee.schema.shape == .array,
+      let append = top.pointee.schema.appendNumbers
+    {
+      let taken = append(top.pointee.storage, batch)
+      if taken < batch.count { self.recordFailure(.typeMismatch) }
+      return taken
+    }
+    let infos = batch.infos
+    var index = 0
+    while index < batch.count {
+      self.number(batch.token(at: index), info: infos[index])
+      if self.streamFailure != nil { return index }
+      index &+= 1
+    }
+    return index
+  }
+
   public mutating func boolean(_ value: Bool) {
     self.withScalarTarget { storage, field, schema in
       schema.applyBoolean(storage, field, value)

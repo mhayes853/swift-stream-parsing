@@ -4119,3 +4119,148 @@ Canada windowed now stands at **+45% over the dispatcher** (1,362 against 942). 
 compare, and the few 17-byte ones pay a classification that barely amortizes. That is the lab's
 own table at the boundary, and it is the price of the gate being one compare rather than a
 histogram; a threshold of 17 would trade Mesh's 2.8% against a sliver of Canada's numbers.
+
+## Number batching in the sink protocol: step 1
+
+The Canada convenience-layer row parses at 117 MB/s against 942 raw, and the profile says why:
+560 K retains and 732 K releases per parse — five retains and six-and-a-half releases per
+number — with the top of the stack in ARC and malloc and `streamEiselLemire` well down it. The
+layer's cost is per *event*: frame walk, schema references, closure dispatch, per number. So a
+batch event is worth what it amortizes, 64×, and the multiply-chain interleaving it also
+enables is the smaller part.
+
+### The shape
+
+`StreamNumberBatch` (`~Escapable`, borrowed for the call: `infos: Span<NumberInfo>`,
+`token(at:)`, `end(of:)`, `count`) and one requirement with a default:
+
+    mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int
+    static var streamAcceptsNumberBatches: Bool { get }   // default false
+
+The return value is how many were taken; a sink that rejects records its failure and returns
+that number's index, and the parser reports the rejection at the byte after that token — the
+offset the dispatcher reports for a single `number` event. The default `numbers` unrolls into
+`number(_:info:)` calls and stops at the first failure, so every existing sink compiles and
+behaves as before.
+
+The static gate was not in the first design and is the measurement's contribution. Delivering
+through the default alone — accumulate, flush, unroll — cost the raw rows 7% on Canada and 18%
+on Mesh: a deferred round trip that a sink which only re-delivers one at a time gets nothing
+for. With `streamAcceptsNumberBatches` a constant `false`, the batching code folds away in the
+parser's specialization for that sink and the unbatched path is the shipping one, `emitNumber`
+included. Two rounds against the pre-batching build: Canada windowed +0.4%, Mesh +2.6%, CITM
+−0.2%, Twitter +1.0%, every dispatcher row within ±1.2%.
+
+Two dead ends on the way, recorded because they will look tempting again. A non-generic
+`parseNumber` (the `emitNumber` walk returning `NumberInfo` instead of emitting) was left as a
+cross-module call by the inliner even under `@inline(__always)`, and a phantom sink generic
+parameter did not change that; `emitNumber` inlines because its callers' specializations clone
+it. The opted-in path still uses `parseNumber`, and its per-number cost there sits under the
+layer's, which is the row that will decide step 2.
+
+### Where batches come from
+
+The numeric shape loop, and nowhere else: it is already a contiguous homogeneous run, so it
+accumulates into a 64-slot scratch (after the window bitmaps) and flushes on 64, before a
+nested `[`, before `]`, and before every fallback return — before any other event, so the
+sink's order stays the document's. `WindowedParserTests` gained a sink that opts in and records
+batch sizes: the flattened stream equals the dispatcher's on eight documents at three
+chunkings, a 1,000-element run arrives as 15 batches of 64 and one of 40, and a rejection at
+number 1, 2, 63, 64, 65, 130 and 1,000 of a batched run reports the dispatcher's offset.
+
+Step 2 is the `StreamArray<Double>` / `PartialSink` override, measured on `Real Canada - bulk
+discarding` and `Real Mesh - bulk discarding`.
+
+### The gate, removed
+
+`streamAcceptsNumberBatches` lasted one round. Every production sink should take batches, so
+the requirement is gone, every sink gets `numbers` (default: unroll), and the numeric loop
+always batches. The raw benchmark sink now consumes batches natively — and folds every field
+of `NumberInfo` into its checksum, deliberately: a sink reading only the magnitude let the
+compiler drop the exponent, digit count and flag work on a directly emitted number, which had
+been flattering the unbatched rows by ~3% on Canada (the dispatcher rows dropped by that much
+when the sink was made honest). Measured against the pre-batching build, with that sink, ratio
+of windowed to dispatcher:
+
+| corpus | before | after |
+| --- | ---: | ---: |
+| Canada | 1.446 | 1.339 |
+| Mesh | 1.244 | 1.390 |
+| Twitter | 1.225 | 1.225 |
+| CITM | 0.956 | 0.933 |
+
+Mesh gains ~12% net — 64 short numbers per sink call instead of one, and `parseNumber`
+inlined at last via `@_transparent`, the same attribute the branchless number tail needed,
+after `@inline(__always)` had been declined with and without a phantom generic parameter
+(Mesh −15% as a call). Canada gives back ~5% net on the raw row: not the store traffic (packing
+tokens to `(UInt32, UInt32)` pairs measured ±0.6%), not the inlining (the same −8% with
+`parseNumber` out of line); the fixed cost of a deferred round trip against a sink whose
+per-number work is an add. That is the row batching was never for — the layer row it was for
+is step 2 — and it is left as the price, with the attribution recorded so it is not re-chased.
+CITM's −2.3% on the ratio is unattributed; its numbers are members, not arrays, so the suspect
+is the pattern test at every `[` inside a now-larger loop.
+
+## Real-world throughput: the arc so far
+
+Three rounds interleaved against HEAD (the dispatcher as shipped), p50 MB/s, raw sink. The
+"first pass" column is the same delta from the first windowed walk, before the index-cost
+round, the shape loops, the long-decimal path and batching.
+
+| corpus | KB | HEAD bulk | windowed bulk | delta | first pass | 16 KB chunks windowed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| github_events | 64 | 1,836 | 2,489 | **+35.6%** | +4.8% | +37.0% |
+| mesh | 707 | 747 | 1,015 | **+35.9%** | −10.9% | +1.6% |
+| canada | 2,198 | 954 | 1,243 | **+30.3%** | −16.3% | +30.7% |
+| twitter | 617 | 1,514 | 1,859 | **+22.8%** | −4.2% | +21.9% |
+| twitterescaped | 549 | 1,095 | 1,047 | −4.4% | −18.7% | −4.8% |
+| gsoc-2018 | 3,250 | 4,259 | 4,039 | −5.2% | −33.7% | −4.9% |
+| llm_message | 1,045 | 3,647 | 3,403 | −6.7% | −39.2% | −6.8% |
+| citm_catalog | 1,687 | 2,101 | 1,940 | −7.7% | −7.2% | −7.2% |
+
+Gate off, every dispatcher row reads −0.3 to −2.7% against HEAD in this run, with the
+number-heavy corpora at the bottom of that band: the benchmark sink now folds every
+`NumberInfo` field where HEAD's folds only the magnitude, so those rows carry that work and
+the windowed deltas above are understated by the same ~2–3% on canada and mesh. The layer rows
+(`- bulk discarding`) are unchanged to within ±2%, as they must be: the gate defaults to off and
+`PartialSink` has not opted into batches yet, so nothing above reaches the convenience layer
+until step 2.
+
+The one row that moved the wrong way against its own bulk form is mesh through 16 KB chunks
+(+1.6% against +35.9%), the seam already noted: a chunk cuts an element, the dispatcher takes
+it, and its fused comma path keeps the array until the next window boundary.
+
+## Number batching, step 2: the layer takes the batch
+
+`StreamSchema.appendNumbers`, filled by `_streamArraySchema` from a new `StreamParseableRoot`
+static (`_streamArrayNumberAppender`, `nil` by default and supplied for every
+`StreamNumberConvertible` element), and `PartialSink.numbers`: an array frame with an appender
+takes the batch in one call — no frame per element, no schema borrow, no pending swap — and
+leaves the last number as the array's open element, which is where the one-at-a-time path
+leaves it, so a snapshot between a batch and the array's close is the same array either way
+(`NumberBatchLayerTests` pins the values, the mid-array snapshot and the rejection errors
+against the unbatched path). `JSONStreamFormat` gained `windowThreshold` so the layer rows can
+reach the windowed path; the `- bulk discarding windowed` rows are new and the existing ones
+are their gate-off control.
+
+The first measurement was Mesh at *half* speed with the retains down five-fold, and the profile
+named it: `_swift_getGenericMetadata`, `ConcurrentReadableHashMap::find`, `protocol witness for
+Numeric.init` — the appender's `Self(streamParsing:)` reached the conversion through the
+protocol witness into the *unspecialised* generic `BinaryFloatingPoint` / `FixedWidthInteger`
+implementation, with a metadata lookup per number, where the old per-element closure had a
+specialised copy. Making the two initialisers `@inlinable` gives the specialised appender a
+specialised conversion. Two rounds, convenience layer, bulk:
+
+| corpus | gate off | windowed | delta | retains per parse |
+| --- | ---: | ---: | ---: | ---: |
+| Mesh | 144 | **322** | **+124%** | 170 K → 33 K |
+| Canada | 112 | 132 | +18% | 560 K → 449 K |
+| Twitter | 636 | 750 | +18% | 13 K |
+| GitHub events | 409 | 441 | +8% | 3.9 M |
+| CITM catalog | 437 | 427 | −2% | 127 K |
+
+Mesh is the flat-array case the batch was designed for, and it more than doubles. Canada is
+the arity case the design section predicted: 55 K inner arrays of two, so every batch is two
+numbers and the retain count falls only 20% — the per-array frame push and pop is now the
+majority, and only a fixed-arity row event would reach it. Twitter and GitHub gain from the
+windowed walk itself (no batches there); CITM stays on its line. GitHub's 3.9 M retains per
+parse of a 64 KB document, untouched by any of this, is the layer's next number to look at.

@@ -56,6 +56,19 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
     }
   }
 
+  // The same convenience-layer parse through the windowed path, which is where number batches
+  // reach `PartialSink`. The row above is its gate-off control.
+  Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
+    benchmark in
+    measurePayloadThroughput(benchmark, payload: payload) {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
+        }
+      )
+    }
+  }
+
   if includeByteByByte {
     Benchmark("Real \(name) - byte by byte discarding", configuration: payloadConfiguration) {
       benchmark in
