@@ -115,6 +115,104 @@ public struct StreamNumberBatch: ~Escapable {
   }
 }
 
+// MARK: - StreamEventBatch
+
+/// One sink event, recorded: what a single ``StreamParseSink`` call would have carried, with
+/// its bytes as offsets into the batch's chunk rather than a span. Sixteen bytes: a number's
+/// ``NumberInfo`` lives in the batch's side array, reached through ``StreamEventBatch/info(of:)``.
+public struct StreamEventRecord: Hashable, Sendable {
+  public enum Kind: UInt8, Sendable {
+    case beginObject, endObject, beginArray, endArray
+    case key, stringBegin, stringChunk, stringEnd
+    case number, boolean, null
+    /// A whole string value, complete in the window and free of escapes: what the single path
+    /// delivers as `stringBegin`, one `stringChunk` (omitted when empty) and `stringEnd`. One
+    /// record where those are three; the default ``StreamParseSink/events(_:)`` unrolls it. A
+    /// sink that rejects it is taken to have rejected it at `stringBegin`, and the parser
+    /// reports the rejection at the byte after the opening quote.
+    case string
+  }
+
+  public var kind: Kind
+  public var start: UInt32
+  public var length: UInt32
+  /// For a `boolean` record, the value; otherwise zero.
+  public var extra: UInt32
+
+  @inlinable
+  public init(kind: Kind, start: Int, length: Int, extra: UInt32 = 0) {
+    self.kind = kind
+    self.start = UInt32(truncatingIfNeeded: start)
+    self.length = UInt32(truncatingIfNeeded: length)
+    self.extra = extra
+  }
+
+  @inlinable public var booleanValue: Bool { self.extra != 0 }
+
+  /// The byte after the event, where the parser reads the sink's failure: past the closing
+  /// quote for a key or a whole string, past the token for everything else.
+  @inlinable
+  public var end: Int {
+    let end = Int(self.start) &+ Int(self.length)
+    return self.kind == .key || self.kind == .string ? end &+ 1 : end
+  }
+}
+
+/// A run of events from one window of the input, in document order, delivered together. A sink
+/// that does not override ``StreamParseSink/events(_:)`` sees the single events it always has;
+/// one that does sees a window's worth at a time, with lookahead, and can take a run — numbers
+/// into an array, members into an object — in one pass.
+public struct StreamEventBatch: ~Escapable {
+  @usableFromInline let recordBase: UnsafePointer<StreamEventRecord>
+  @usableFromInline let infoBase: UnsafePointer<NumberInfo>
+  @usableFromInline let bytesBase: UnsafePointer<UInt8>
+  @usableFromInline let byteCount: Int
+  public let count: Int
+
+  @_lifetime(borrow recordBase)
+  @usableFromInline
+  init(
+    recordBase: UnsafePointer<StreamEventRecord>, infoBase: UnsafePointer<NumberInfo>,
+    count: Int, bytesBase: UnsafePointer<UInt8>, byteCount: Int
+  ) {
+    self.recordBase = recordBase
+    self.infoBase = infoBase
+    self.count = count
+    self.bytesBase = bytesBase
+    self.byteCount = byteCount
+  }
+
+  public var records: Span<StreamEventRecord> {
+    @_lifetime(borrow self)
+    get {
+      _overrideLifetime(
+        Span(_unsafeElements: UnsafeBufferPointer(start: self.recordBase, count: self.count)),
+        borrowing: self
+      )
+    }
+  }
+
+  /// The bytes the event at `index` would have carried: a key, a string, a chunk, a number.
+  @_lifetime(borrow self)
+  public func bytes(of index: Int) -> Span<UInt8> {
+    let record = self.recordBase[index]
+    return _overrideLifetime(
+      Span(_unsafeElements: UnsafeBufferPointer(
+        start: self.bytesBase + Int(record.start), count: Int(record.length)
+      )),
+      borrowing: self
+    )
+  }
+
+  /// The parsed form of the number at `index`. Meaningful for `number` records only.
+  @inlinable
+  public func info(of index: Int) -> NumberInfo { self.infoBase[index] }
+
+  /// The byte offset, within the chunk being parsed, just past the event at `index`.
+  @inlinable
+  public func end(of index: Int) -> Int { self.recordBase[index].end }
+}
+
 // MARK: - StreamParseSink
 
 // Spans borrow the parser's input and are invalid once the call returns. Methods do not throw:
@@ -161,10 +259,46 @@ public protocol StreamParseSink: ~Copyable {
   /// path walks arrives this way and nowhere else.
   mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int
 
+  /// A run of events, delivered together; see ``StreamEventBatch``. Returns how many were
+  /// taken, with the same contract as ``numbers(_:)``: a sink that rejects records its failure
+  /// and returns the index of the event it rejected. The default delivers each event through
+  /// its single method and stops at the first failure.
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int
+
   var streamFailure: StreamSinkFailure? { get }
 }
 
 extension StreamParseSink where Self: ~Copyable {
+  @inlinable
+  public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    var index = 0
+    while index < batch.count {
+      let record = records[index]
+      switch record.kind {
+      case .beginObject: self.beginObject()
+      case .endObject: self.endObject()
+      case .beginArray: self.beginArray()
+      case .endArray: self.endArray()
+      case .key: self.key(batch.bytes(of: index))
+      case .stringBegin: self.stringBegin()
+      case .stringChunk: self.stringChunk(batch.bytes(of: index))
+      case .stringEnd: self.stringEnd()
+      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
+      case .boolean: self.boolean(record.booleanValue)
+      case .null: self.null()
+      case .string:
+        self.stringBegin()
+        if self.streamFailure != nil { return index }
+        if record.length > 0 { self.stringChunk(batch.bytes(of: index)) }
+        self.stringEnd()
+      }
+      if self.streamFailure != nil { return index }
+      index &+= 1
+    }
+    return index
+  }
+
   @inlinable
   public mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
     let infos = batch.infos

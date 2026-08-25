@@ -46,6 +46,41 @@ struct FastCountingSink: StreamParseSink {
 
   mutating func boolean(_ value: Bool) { self.tokens &+= 1 }
   mutating func null() { self.tokens &+= 1 }
+
+  // A window's events from the windowed path: the same counts and checksum, in one loop. The
+  // common kinds are tested first as compares rather than through the switch's jump table,
+  // and the subscripts are unchecked: the loop is the whole per-event cost of this sink.
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    var tokens = 0
+    var checksum: UInt64 = 0
+    var i = 0
+    let count = batch.count
+    while i < count {
+      let record = records[unchecked: i]
+      let kind = record.kind
+      if kind == .key {
+        tokens &+= 1
+        checksum &+= batch.bytes(of: i).paddedLeadingWord()
+      } else if kind == .string {
+        tokens &+= 1
+        checksum &+= UInt64(record.length)
+      } else if kind == .number {
+        tokens &+= 1
+        checksum &+= Self.fold(batch.info(of: i))
+      } else if kind == .stringChunk {
+        checksum &+= UInt64(record.length)
+      } else if kind == .endObject || kind == .endArray || kind == .stringEnd {
+        // nothing
+      } else {
+        tokens &+= 1
+      }
+      i &+= 1
+    }
+    self.tokens &+= tokens
+    self.checksum &+= checksum
+    return count
+  }
 }
 
 // MARK: - Runners

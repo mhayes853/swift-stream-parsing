@@ -313,6 +313,9 @@ extension JSONParser {
     state: inout State,
     depth: inout Int,
     containers: inout UInt64,
+    events: UnsafeMutablePointer<StreamEventRecord>,
+    eventInfos: UnsafeMutablePointer<NumberInfo>,
+    eventCount: inout Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> ShapeOutcome {
     var first = state == .firstKey
@@ -338,10 +341,13 @@ extension JSONParser {
         }
         keyNonASCII = Self.windowFlag(nonASCII, firstBlock: firstBlock, lastBlock: lastBlock)
       }
-      try self.emitKeyInPlace(
-        base: base, from: open &+ 1, to: close, containsNonASCII: keyNonASCII, into: &sink
+      try self.validateUTF8IfNeeded(
+        base: base, from: open &+ 1, to: close, containsNonASCII: keyNonASCII, reportAt: close
       )
-      try self.checkSink(&sink, at: close &+ 1)
+      try self.recordEvent(
+        StreamEventRecord(kind: .key, start: open &+ 1, length: close &- open &- 1),
+        events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+      )
       cursor = colon &+ 1
       k &+= 3
       first = false
@@ -370,23 +376,26 @@ extension JSONParser {
           valueNonASCII = Self.windowFlag(nonASCII, firstBlock: firstBlock, lastBlock: lastBlock)
         }
         self.isKeyToken = false
-        sink.stringBegin()
-        try self.checkSink(&sink, at: start &+ 1)
         if closeQuote > start &+ 1 {
-          try self.validateUTF8IfNeeded(
-            base: base, from: start &+ 1, to: closeQuote, containsNonASCII: valueNonASCII,
-            reportAt: nil
-          )
-          let slice = UnsafeBufferPointer(
-            start: base.advanced(by: start &+ 1).assumingMemoryBound(to: UInt8.self),
-            count: closeQuote &- start &- 1
-          )
-          sink.stringChunk(Span(_unsafeElements: slice))
+          do {
+            try self.validateUTF8IfNeeded(
+              base: base, from: start &+ 1, to: closeQuote, containsNonASCII: valueNonASCII,
+              reportAt: nil
+            )
+          } catch {
+            try self.recordEvent(
+              StreamEventRecord(kind: .stringBegin, start: start, length: 1),
+              events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+            )
+            throw error
+          }
         }
-        sink.stringEnd()
+        try self.recordEvent(
+          StreamEventRecord(kind: .string, start: start &+ 1, length: closeQuote &- start &- 1),
+          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+        )
         cursor = closeQuote &+ 1
         k &+= 2
-        try self.checkSink(&sink, at: cursor)
       case .asciiDash, .asciiZero ... .asciiNine:
         guard afterValueEntry < count else { state = .value; return .fellBack }
         let separator = Int(indices[afterValueEntry])
@@ -395,13 +404,17 @@ extension JSONParser {
           state = .value
           return .fellBack
         }
+        let info: NumberInfo
         do {
-          try self.emitNumber(base: base, from: start, to: separator, into: &sink, reportAt: separator)
+          info = try self.parseNumber(base: base, from: start, to: separator, reportAt: separator)
         } catch {
           state = .value
           return .fellBack
         }
-        try self.checkSink(&sink, at: separator)
+        try self.recordNumber(
+          start: start, end: separator, info: info, events, eventInfos, count: &eventCount,
+          base: base, chunkEnd: n, into: &sink
+        )
         cursor = separator
         k = afterValueEntry
       case .asciiLowerT, .asciiLowerF, .asciiLowerN:
@@ -417,14 +430,15 @@ extension JSONParser {
           j &+= 1
         }
         guard index == expected.count else { state = .value; return .fellBack }
-        switch kind {
-        case 0: sink.boolean(true)
-        case 1: sink.boolean(false)
-        default: sink.null()
-        }
+        try self.recordEvent(
+          StreamEventRecord(
+            kind: kind == 2 ? .null : .boolean, start: start, length: j &- start,
+            extra: kind == 0 ? 1 : 0
+          ),
+          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+        )
         cursor = j
         k = afterValueEntry
-        try self.checkSink(&sink, at: cursor)
       default:
         state = .value
         return .fellBack
@@ -439,9 +453,11 @@ extension JSONParser {
       case .asciiComma:
         cursor = position &+ 1
         k &+= 1
-        try self.checkSink(&sink, at: cursor)
       case .asciiObjectEnd:
-        sink.endObject()
+        try self.recordEvent(
+          StreamEventRecord(kind: .endObject, start: position, length: 1),
+          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+        )
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
         cursor = position &+ 1

@@ -330,6 +330,94 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
+  // A window of events. Under an object frame that matches keys, each `key` followed by a
+  // scalar is routed in place: one `matchField`, one apply, nothing else — no frame
+  // resolution, no `ScalarTarget` copy of the schema (a retain and a release per value), no
+  // closure per string piece. The failure points are the single path's: a string is accepted
+  // at its `stringBegin` (the empty span materialises the destination), a number or literal at
+  // itself. Everything else — a container after a key, a dictionary frame, an array frame, a
+  // frame that ignores keys — unrolls into the single events exactly as the default does.
+  public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    let count = batch.count
+    var index = 0
+    while index < count {
+      let record = records[index]
+      if record.kind == .key, index &+ 1 < count, let top = self.topFrame,
+        top.pointee.schema.shape == .object, top.pointee.schema.keyRouting == .match
+      {
+        let next = records[index &+ 1]
+        let field = top.pointee.schema.matchField(batch.bytes(of: index))
+        top.pointee.pendingField = field
+        switch next.kind {
+        case .string:
+          if field >= 0 {
+            let accepted = top.pointee.schema.applyString(top.pointee.storage, field, Span())
+            if !accepted {
+              self.recordFailure(.typeMismatch)
+              return index &+ 1
+            }
+            if next.length > 0 {
+              _ = top.pointee.schema.applyString(top.pointee.storage, field, batch.bytes(of: index &+ 1))
+            }
+          }
+          index &+= 2
+          continue
+        case .number:
+          if field >= 0,
+            !top.pointee.schema.applyNumber(
+              top.pointee.storage, field, batch.bytes(of: index &+ 1), batch.info(of: index &+ 1)
+            )
+          {
+            self.recordFailure(.typeMismatch)
+            return index &+ 1
+          }
+          index &+= 2
+          continue
+        case .boolean:
+          if field >= 0, !top.pointee.schema.applyBoolean(top.pointee.storage, field, next.booleanValue) {
+            self.recordFailure(.typeMismatch)
+            return index &+ 1
+          }
+          index &+= 2
+          continue
+        case .null:
+          if field >= 0, !top.pointee.schema.applyNull(top.pointee.storage, field) {
+            self.recordFailure(.typeMismatch)
+            return index &+ 1
+          }
+          index &+= 2
+          continue
+        default:
+          // A container follows: the key is already routed; the container takes the single path.
+          index &+= 1
+          continue
+        }
+      }
+      switch record.kind {
+      case .beginObject: self.beginObject()
+      case .endObject: self.endObject()
+      case .beginArray: self.beginArray()
+      case .endArray: self.endArray()
+      case .key: self.key(batch.bytes(of: index))
+      case .stringBegin: self.stringBegin()
+      case .stringChunk: self.stringChunk(batch.bytes(of: index))
+      case .stringEnd: self.stringEnd()
+      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
+      case .boolean: self.boolean(record.booleanValue)
+      case .null: self.null()
+      case .string:
+        self.stringBegin()
+        if self.streamFailure != nil { return index }
+        if record.length > 0 { self.stringChunk(batch.bytes(of: index)) }
+        self.stringEnd()
+      }
+      if self.streamFailure != nil { return index }
+      index &+= 1
+    }
+    return index
+  }
+
   // A run of numbers into an array of numbers takes the schema's bulk appender: one frame
   // resolution per batch instead of one per number, and none of the per-element routing that
   // the profile counted as five retains and six releases per number. Any other destination

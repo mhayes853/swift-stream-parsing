@@ -37,9 +37,13 @@ extension JSONParser {
   // `StreamNumberBatch`. Its scratch sits after the bitmaps.
   @usableFromInline static var numberBatchCapacity: Int { 64 }
   @usableFromInline static var windowBitmapByteCount: Int { Self.windowBitmapWordCount &* 16 }
+  // The walk records its events here and hands them to the sink this many at a time; a
+  // number's info goes to a parallel side array, written only for number records.
+  @usableFromInline static var eventBatchCapacity: Int { 256 }
   @usableFromInline static var windowScratchByteCount: Int {
     Self.windowIndexCapacity &* 4 &+ Self.windowBitmapByteCount
       &+ Self.numberBatchCapacity &* (MemoryLayout<NumberInfo>.stride &+ 8)
+      &+ Self.eventBatchCapacity &* (MemoryLayout<StreamEventRecord>.stride &+ MemoryLayout<NumberInfo>.stride)
   }
   // Below this many entries per block a window is string interior with little structure, and
   // the walk has nothing to do that the dispatcher's string scan does not do faster. Census:
@@ -70,6 +74,11 @@ extension JSONParser {
       .assumingMemoryBound(to: NumberInfo.self)
     let batchTokens = UnsafeMutableRawPointer(batchInfos + Self.numberBatchCapacity)
       .assumingMemoryBound(to: UInt32.self)
+    let events = UnsafeMutableRawPointer(batchTokens + Self.numberBatchCapacity &* 2)
+      .assumingMemoryBound(to: StreamEventRecord.self)
+    let eventInfos = UnsafeMutableRawPointer(events + Self.eventBatchCapacity)
+      .assumingMemoryBound(to: NumberInfo.self)
+    var eventCount = 0
 
     var i = 0
     if self.pendingUTF8Count > 0 {
@@ -118,12 +127,22 @@ extension JSONParser {
         // truth about every position, so the walk resumes at the first entry not yet consumed.
         while entry < count && Int(indices[entry]) < i { entry &+= 1 }
       }
-      i = try self.consumeWindow(
-        base: base, windowStart: windowStart, windowEnd: windowEnd, to: n, from: i,
-        count: count, entry: &entry,
-        indices: indices, needsScan: needsScan, nonASCII: nonASCII,
-        batchInfos: batchInfos, batchTokens: batchTokens, into: &sink
-      )
+      do {
+        i = try self.consumeWindow(
+          base: base, windowStart: windowStart, windowEnd: windowEnd, to: n, from: i,
+          count: count, entry: &entry,
+          indices: indices, needsScan: needsScan, nonASCII: nonASCII,
+          batchInfos: batchInfos, batchTokens: batchTokens,
+          events: events, eventInfos: eventInfos, eventCount: &eventCount, into: &sink
+        )
+      } catch {
+        // Events recorded before the error are delivered first: a sink rejection among them
+        // is earlier in the document than the grammar error, and is what the dispatcher —
+        // which reads the sink after every token — would have reported.
+        try self.flushEvents(events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink)
+        throw error
+      }
+      try self.flushEvents(events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink)
       // A cursor short of the window's end is a token the walk handed back — cut by the
       // chunk, or a key with an escape — and it is the dispatcher's, for exactly one step.
       if i < windowEnd {
@@ -167,6 +186,74 @@ extension JSONParser {
     return i
   }
 
+  // Hands the recorded events to the sink and reads its failure once, at the offset the
+  // dispatcher would have read it: the byte after the event the sink stopped at, or, for a
+  // whole string, the byte after its opening quote.
+  @inlinable
+  mutating func flushEvents<Sink: StreamParseSink & ~Copyable>(
+    _ events: UnsafeMutablePointer<StreamEventRecord>,
+    _ infos: UnsafeMutablePointer<NumberInfo>,
+    count: inout Int,
+    base: UnsafeRawPointer,
+    chunkEnd n: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    let recorded = count
+    guard recorded > 0 else { return }
+    count = 0
+    let batch = StreamEventBatch(
+      recordBase: UnsafePointer(events), infoBase: UnsafePointer(infos), count: recorded,
+      bytesBase: base.assumingMemoryBound(to: UInt8.self), byteCount: n
+    )
+    let taken = sink.events(batch)
+    if taken < recorded {
+      precondition(
+        sink.streamFailure != nil,
+        "StreamParseSink.events returned \(taken) of \(recorded) without recording a failure."
+      )
+      let record = events[taken]
+      try self.checkSink(&sink, at: record.kind == .string ? Int(record.start) : record.end)
+    }
+    try self.checkSink(&sink, at: events[recorded &- 1].end)
+  }
+
+  @inlinable
+  @inline(__always)
+  mutating func recordEvent<Sink: StreamParseSink & ~Copyable>(
+    _ record: StreamEventRecord,
+    _ events: UnsafeMutablePointer<StreamEventRecord>,
+    _ infos: UnsafeMutablePointer<NumberInfo>,
+    count: inout Int,
+    base: UnsafeRawPointer,
+    chunkEnd n: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    if count == Self.eventBatchCapacity {
+      try self.flushEvents(events, infos, count: &count, base: base, chunkEnd: n, into: &sink)
+    }
+    events[count] = record
+    count &+= 1
+  }
+
+  @inlinable
+  @inline(__always)
+  mutating func recordNumber<Sink: StreamParseSink & ~Copyable>(
+    start: Int, end: Int, info: NumberInfo,
+    _ events: UnsafeMutablePointer<StreamEventRecord>,
+    _ infos: UnsafeMutablePointer<NumberInfo>,
+    count: inout Int,
+    base: UnsafeRawPointer,
+    chunkEnd n: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) {
+    if count == Self.eventBatchCapacity {
+      try self.flushEvents(events, infos, count: &count, base: base, chunkEnd: n, into: &sink)
+    }
+    events[count] = StreamEventRecord(kind: .number, start: start, length: end &- start)
+    infos[count] = info
+    count &+= 1
+  }
+
   // Whether any block in `first...last` has its flag set. A string rarely spans more than a
   // few blocks, so this is one or two word loads.
   @inlinable
@@ -190,13 +277,15 @@ extension JSONParser {
 
   // A number or literal found in the gap after an entry, in a value state. Returns the byte
   // after the token, or nil when the token reaches the chunk's end and is the dispatcher's.
-  // Inlined into both call sites: as a call it cost mesh (73 K four-byte numbers) 7%.
   @inlinable
   @inline(__always)
   mutating func consumeGapScalar<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
     at pos: Int,
     to n: Int,
+    events: UnsafeMutablePointer<StreamEventRecord>,
+    eventInfos: UnsafeMutablePointer<NumberInfo>,
+    eventCount: inout Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
     let byte = base.load(fromByteOffset: pos, as: UInt8.self)
@@ -204,7 +293,11 @@ extension JSONParser {
     case .asciiDash, .asciiZero ... .asciiNine:
       let end = streamNumberRunEnd(base: base, from: pos, to: n)
       guard end < n else { return nil }
-      try self.emitNumber(base: base, from: pos, to: end, into: &sink, reportAt: end)
+      let info = try self.parseNumber(base: base, from: pos, to: end, reportAt: end)
+      try self.recordNumber(
+        start: pos, end: end, info: info, events, eventInfos, count: &eventCount,
+        base: base, chunkEnd: n, into: &sink
+      )
       return end
     case .asciiLowerT, .asciiLowerF, .asciiLowerN:
       let kind: UInt8 = byte == .asciiLowerT ? 0 : byte == .asciiLowerF ? 1 : 2
@@ -219,11 +312,12 @@ extension JSONParser {
         j &+= 1
       }
       guard index == expected.count else { return nil }
-      switch kind {
-      case 0: sink.boolean(true)
-      case 1: sink.boolean(false)
-      default: sink.null()
-      }
+      try self.recordEvent(
+        StreamEventRecord(
+          kind: kind == 2 ? .null : .boolean, start: pos, length: j &- pos, extra: kind == 0 ? 1 : 0
+        ),
+        events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+      )
       return j
     default:
       throw self.error(.unexpectedToken, at: pos)
@@ -254,6 +348,9 @@ extension JSONParser {
     nonASCII: UnsafeMutablePointer<UInt64>,
     batchInfos: UnsafeMutablePointer<NumberInfo>,
     batchTokens: UnsafeMutablePointer<UInt32>,
+    events: UnsafeMutablePointer<StreamEventRecord>,
+    eventInfos: UnsafeMutablePointer<NumberInfo>,
+    eventCount: inout Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var state = self.state
@@ -274,11 +371,12 @@ extension JSONParser {
         if !streamIsWhitespace(gapByte) {
           switch state {
           case .value, .firstValue:
-            guard let end = try self.consumeGapScalar(base: base, at: cursor, to: n, into: &sink)
-            else { return cursor }
+            guard let end = try self.consumeGapScalar(
+              base: base, at: cursor, to: n, events: events, eventInfos: eventInfos,
+              eventCount: &eventCount, into: &sink
+            ) else { return cursor }
             state = .afterValue
             cursor = end
-            try self.checkSink(&sink, at: cursor)
             continue
           case .done:
             throw self.error(.trailingContent, at: cursor)
@@ -295,32 +393,39 @@ extension JSONParser {
       case .value, .firstValue:
         switch byte {
         case .asciiObjectStart:
-          sink.beginObject()
+          // The dispatcher sends `beginObject` and then rejects the depth; recorded, the event
+          // precedes the error in the same order.
+          try self.recordEvent(
+            StreamEventRecord(kind: .beginObject, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
           containers |= 1 &<< UInt64(depth)
           depth &+= 1
           state = .firstKey
           cursor = pos &+ 1
           k &+= 1
-          try self.checkSink(&sink, at: cursor)
           _ = try self.consumeObjectMembers(
             base: base, windowStart: windowStart, to: n, count: count, indices: indices,
             needsScan: needsScan, nonASCII: nonASCII, cursor: &cursor, k: &k,
-            state: &state, depth: &depth, containers: &containers, into: &sink
+            state: &state, depth: &depth, containers: &containers,
+            events: events, eventInfos: eventInfos, eventCount: &eventCount, into: &sink
           )
         case .asciiArrayStart:
-          sink.beginArray()
+          try self.recordEvent(
+            StreamEventRecord(kind: .beginArray, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
           containers &= ~(1 &<< UInt64(depth))
           depth &+= 1
           state = .firstValue
           cursor = pos &+ 1
           k &+= 1
-          // A numeric array subtree is a shape loop's; it decides in two loads whether this is one.
-          // The sink is read first, as the walk reads it after every entry: a rejection of the
-          // `[` must surface here and not after the loop's first element.
-          try self.checkSink(&sink, at: cursor)
+          // A numeric array subtree is a shape loop's; it decides in two loads whether this is
+          // one. It emits to the sink directly, so everything recorded so far goes first.
           if k < count {
+            try self.flushEvents(events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink)
             _ = try self.consumeNumericArray(
               base: base, to: n, count: count, indices: indices,
               batchInfos: batchInfos, batchTokens: batchTokens, cursor: &cursor, k: &k,
@@ -330,7 +435,10 @@ extension JSONParser {
         case .asciiArrayEnd:
           guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers)
           else { throw self.error(.unexpectedToken, at: pos) }
-          sink.endArray()
+          try self.recordEvent(
+            StreamEventRecord(kind: .endArray, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -339,19 +447,30 @@ extension JSONParser {
           guard k &+ 1 < count else { return pos }
           let close = Int(indices[k &+ 1])
           self.isKeyToken = false
-          sink.stringBegin()
-          try self.checkSink(&sink, at: pos &+ 1)
           if close > pos &+ 1 {
             let firstBlock = (pos &+ 1 &- windowStart) &>> 6
             let lastBlock = (close &- 1 &- windowStart) &>> 6
             if Self.windowFlag(needsScan, firstBlock: firstBlock, lastBlock: lastBlock) {
+              // The escape path emits directly, so it runs after everything recorded so far.
+              try self.flushEvents(events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink)
+              sink.stringBegin()
+              try self.checkSink(&sink, at: pos &+ 1)
               if let handedBack = try self.scanStringValue(
                 base: base, from: pos &+ 1, to: close, into: &sink
               ) {
                 state = .escape
                 return handedBack
               }
-            } else {
+              sink.stringEnd()
+              try self.checkSink(&sink, at: close &+ 1)
+              state = .afterValue
+              cursor = close &+ 1
+              k &+= 2
+              continue
+            }
+            // One record for the whole string. The dispatcher sends `stringBegin` before it
+            // scans, so a bad byte must still leave that event delivered before the error.
+            do {
               try self.validateUTF8IfNeeded(
                 base: base, from: pos &+ 1, to: close,
                 containsNonASCII: Self.windowFlag(
@@ -359,22 +478,28 @@ extension JSONParser {
                 ),
                 reportAt: nil
               )
-              let slice = UnsafeBufferPointer(
-                start: base.advanced(by: pos &+ 1).assumingMemoryBound(to: UInt8.self),
-                count: close &- pos &- 1
+            } catch {
+              try self.recordEvent(
+                StreamEventRecord(kind: .stringBegin, start: pos, length: 1),
+                events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
               )
-              sink.stringChunk(Span(_unsafeElements: slice))
+              throw error
             }
           }
-          sink.stringEnd()
+          try self.recordEvent(
+            StreamEventRecord(kind: .string, start: pos &+ 1, length: close &- pos &- 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           state = .afterValue
           cursor = close &+ 1
           k &+= 2
         default:
           // A number or literal that followed whitespace, indexed so the gap before it could
           // be skipped without a scan. Anything else is the error the dispatcher reports.
-          guard let end = try self.consumeGapScalar(base: base, at: pos, to: n, into: &sink)
-          else { return pos }
+          guard let end = try self.consumeGapScalar(
+            base: base, at: pos, to: n, events: events, eventInfos: eventInfos,
+            eventCount: &eventCount, into: &sink
+          ) else { return pos }
           state = .afterValue
           cursor = end
           k &+= 1
@@ -387,17 +512,18 @@ extension JSONParser {
           state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
           cursor = pos &+ 1
           k &+= 1
-          try self.checkSink(&sink, at: cursor)
           if state == .key {
             // Back in an object after a container value: the member loop takes over again.
             _ = try self.consumeObjectMembers(
               base: base, windowStart: windowStart, to: n, count: count, indices: indices,
               needsScan: needsScan, nonASCII: nonASCII, cursor: &cursor, k: &k,
-              state: &state, depth: &depth, containers: &containers, into: &sink
+              state: &state, depth: &depth, containers: &containers,
+              events: events, eventInfos: eventInfos, eventCount: &eventCount, into: &sink
             )
           } else if k < count {
             // Mid-array — after a non-numeric element, or in a new window inside an array that
             // ran on from the last one: the numeric loop resumes if the next element is a number.
+            try self.flushEvents(events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink)
             _ = try self.consumeNumericArray(
               base: base, to: n, count: count, indices: indices,
               batchInfos: batchInfos, batchTokens: batchTokens, cursor: &cursor, k: &k,
@@ -408,7 +534,10 @@ extension JSONParser {
           guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
           }
-          sink.endArray()
+          try self.recordEvent(
+            StreamEventRecord(kind: .endArray, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -417,7 +546,10 @@ extension JSONParser {
           guard Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
           }
-          sink.endObject()
+          try self.recordEvent(
+            StreamEventRecord(kind: .endObject, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -443,9 +575,13 @@ extension JSONParser {
               nonASCII, firstBlock: firstBlock, lastBlock: lastBlock
             )
           }
-          try self.emitKeyInPlace(
+          try self.validateUTF8IfNeeded(
             base: base, from: pos &+ 1, to: close, containsNonASCII: containsNonASCII,
-            into: &sink
+            reportAt: close
+          )
+          try self.recordEvent(
+            StreamEventRecord(kind: .key, start: pos &+ 1, length: close &- pos &- 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
           )
           state = .afterKey
           cursor = close &+ 1
@@ -453,7 +589,10 @@ extension JSONParser {
         case .asciiObjectEnd:
           guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers)
           else { throw self.error(.unexpectedToken, at: pos) }
-          sink.endObject()
+          try self.recordEvent(
+            StreamEventRecord(kind: .endObject, start: pos, length: 1),
+            events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
+          )
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -474,7 +613,6 @@ extension JSONParser {
       default:
         throw self.error(.unexpectedToken, at: pos)
       }
-      try self.checkSink(&sink, at: cursor)
     }
   }
 

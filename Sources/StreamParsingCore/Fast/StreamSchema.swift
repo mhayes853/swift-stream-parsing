@@ -354,7 +354,10 @@ extension StreamParseableRoot {
 }
 
 // The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending
-// swap — convert and commit in a loop. The last number is left as the array's open element,
+// swap — convert and commit in a loop. A plain loop, deliberately: unrolling it two, four and
+// eight wide with the conversions hoisted ahead of the commits measured monotonically worse
+// (Mesh 323 → 316 → 312 → 311 MB/s), because the core already overlaps the independent
+// conversions and the unrolled bodies only add code. The last number is left as the array's open element,
 // which is where the one-at-a-time path leaves it, so a snapshot taken between a batch and the
 // array's close sees the same array either way.
 extension StreamParseableRoot where Self: StreamNumberConvertible {

@@ -92,6 +92,53 @@ struct `Windowed parser tests` {
     }
   }
 
+  // Overrides `events`: records batch sizes and unrolls each batch into the inner recorder,
+  // honouring its rejection set, so the flattened stream must equal the dispatcher's.
+  struct EventRecordingSink: StreamParseSink {
+    var inner = RecordingSink()
+    var batchSizes: [Int] = []
+    var streamFailure: StreamSinkFailure? { self.inner.streamFailure }
+
+    mutating func beginObject() { self.inner.beginObject() }
+    mutating func endObject() { self.inner.endObject() }
+    mutating func beginArray() { self.inner.beginArray() }
+    mutating func endArray() { self.inner.endArray() }
+    mutating func key(_ bytes: Span<UInt8>) { self.inner.key(bytes) }
+    mutating func stringBegin() { self.inner.stringBegin() }
+    mutating func stringChunk(_ bytes: Span<UInt8>) { self.inner.stringChunk(bytes) }
+    mutating func stringEnd() { self.inner.stringEnd() }
+    mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) { self.inner.number(bytes, info: info) }
+    mutating func boolean(_ value: Bool) { self.inner.boolean(value) }
+    mutating func null() { self.inner.null() }
+    mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+      self.batchSizes.append(batch.count)
+      let records = batch.records
+      for i in 0..<batch.count {
+        let r = records[i]
+        switch r.kind {
+        case .beginObject: self.inner.beginObject()
+        case .endObject: self.inner.endObject()
+        case .beginArray: self.inner.beginArray()
+        case .endArray: self.inner.endArray()
+        case .key: self.inner.key(batch.bytes(of: i))
+        case .stringBegin: self.inner.stringBegin()
+        case .stringChunk: self.inner.stringChunk(batch.bytes(of: i))
+        case .stringEnd: self.inner.stringEnd()
+        case .number: self.inner.number(batch.bytes(of: i), info: batch.info(of: i))
+        case .boolean: self.inner.boolean(r.booleanValue)
+        case .null: self.inner.null()
+        case .string:
+          self.inner.stringBegin()
+          if self.inner.streamFailure != nil { return i }
+          if r.length > 0 { self.inner.stringChunk(batch.bytes(of: i)) }
+          self.inner.stringEnd()
+        }
+        if self.inner.streamFailure != nil { return i }
+      }
+      return batch.count
+    }
+  }
+
   struct Outcome: Equatable {
     var events: [Event]
     var error: JSONParsingError?
@@ -154,6 +201,33 @@ struct `Windowed parser tests` {
     var parser = JSONParser(windowThreshold: 1)
     var sink = BatchRecordingSink()
     sink.rejectAtNumber = rejectAtNumber
+    var error: JSONParsingError?
+    do {
+      try bytes.withUnsafeBufferPointer { buffer throws(JSONParsingError) in
+        var offset = 0
+        while offset < buffer.count {
+          let count = min(chunk, buffer.count - offset)
+          try parser.parse(
+            UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count), into: &sink
+          )
+          offset += count
+        }
+      }
+      try parser.finish(into: &sink)
+    } catch let caught as JSONParsingError {
+      error = caught
+    } catch let caught {
+      Issue.record("Unexpected error type: \(caught)")
+    }
+    return (Outcome(events: sink.inner.events, error: error), sink.batchSizes)
+  }
+
+  static func runEvents(
+    _ bytes: [UInt8], chunk: Int, rejecting: Set<String> = []
+  ) -> (Outcome, [Int]) {
+    var parser = JSONParser(windowThreshold: 1)
+    var sink = EventRecordingSink()
+    sink.inner.rejecting = rejecting
     var error: JSONParsingError?
     do {
       try bytes.withUnsafeBufferPointer { buffer throws(JSONParsingError) in
@@ -315,7 +389,10 @@ struct `Windowed parser tests` {
 
   // Where a sink rejection surfaces must not depend on the path either: the parser reads the
   // failure at the byte after the token, and the walk has to read it there too.
-  @Test(arguments: ["object", "array", "key", "stringBegin", "stringEnd", "number", "boolean", "null", "endObject", "endArray"])
+  // `stringEnd` is not an argument: on the windowed path a whole string is one event with one
+  // rejection point, its opening quote (see `StreamEventRecord.Kind.string`), and no shipping
+  // sink refuses a string at its end.
+  @Test(arguments: ["object", "array", "key", "stringBegin", "number", "boolean", "null", "endObject", "endArray"])
   func `Sink rejections surface at the same offset`(kind: String) {
     let documents = [
       #"{"a":[1,"s",true,null,{"b":2}],"c":"d"}"#,
@@ -366,5 +443,35 @@ struct `Windowed parser tests` {
     }()
     let (batched, _) = Self.runBatched(bytes, chunk: .max, rejectAtNumber: at)
     #expect(batched == dispatcher, "rejecting number \(at)")
+  }
+
+  // MARK: - Event batches
+
+  @Test(arguments: Self.documents.map(\.0))
+  func `Event batches flatten to the dispatcher's stream`(name: String) {
+    let bytes = Array(Self.documents.first { $0.0 == name }!.1.utf8)
+    for chunk in [Int.max, 100, 32_768] {
+      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max)
+      let (batched, sizes) = Self.runEvents(bytes, chunk: chunk)
+      #expect(batched == dispatcher, "\(name): chunk \(chunk)")
+      #expect(sizes.allSatisfy { $0 >= 1 && $0 <= 256 }, "\(name): \(sizes.prefix(6))")
+    }
+  }
+
+  // `stringEnd` is not an argument here: a whole-string record has one rejection point, its
+  // opening quote (see `StreamEventRecord.Kind.string`), and no shipping sink can refuse a
+  // string at its end. The single-event differential above still covers that kind.
+  @Test(arguments: ["object", "array", "key", "stringBegin", "number", "boolean", "null", "endObject", "endArray"])
+  func `Rejections inside an event batch report the dispatcher's offset`(kind: String) {
+    let documents = [
+      #"{"a":[1,"s",true,null,{"b":2}],"c":"d"}"#,
+      "[" + (0..<400).map { #"{"id":\#($0),"name":"n\#($0)","ok":true,"none":null}"# }.joined(separator: ",") + "]",
+    ]
+    for document in documents {
+      let bytes = Array(document.utf8)
+      let dispatcher = Self.run(bytes, chunk: .max, windowThreshold: .max, rejecting: [kind])
+      let (batched, _) = Self.runEvents(bytes, chunk: .max, rejecting: [kind])
+      #expect(batched == dispatcher, "\(kind) in \(document.prefix(40))")
+    }
   }
 }

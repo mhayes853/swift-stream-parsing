@@ -4264,3 +4264,168 @@ numbers and the retain count falls only 20% — the per-array frame push and pop
 majority, and only a fixed-arity row event would reach it. Twitter and GitHub gain from the
 windowed walk itself (no batches there); CITM stays on its line. GitHub's 3.9 M retains per
 parse of a 64 KB document, untouched by any of this, is the layer's next number to look at.
+
+### Unrolling the appender: measured, and left alone
+
+The review asked whether the appender's commit loop would benefit from unrolling. Built with
+the conversions computed ahead of the commits so their chains sit together, factor swept on
+the two rows that take the path (two rounds each, convenience layer, windowed):
+
+| unroll | Mesh | Canada |
+| --- | ---: | ---: |
+| 1 | **323** | **133** |
+| 2 | 316 | 132 |
+| 4 | 312 | 131 |
+| 8 | 311 | 131 |
+
+Monotonically worse, by a little. The same finding as the number kernel lab's pairing
+experiment one level down: consecutive conversions have no dependency between them and the
+out-of-order core overlaps them unaided, so hoisting buys nothing and the unrolled bodies cost
+their size. The plain loop stays, with the table beside it so it is not rebuilt.
+
+## Event batching, step 1: the tax, measured
+
+`StreamEventRecord` (32 bytes: kind, start, length, end, `NumberInfo`), `StreamEventBatch`
+(records plus one borrowed span into the chunk), and `events(_:)` with a default that unrolls
+into the single events. The walk records instead of emitting — structurals, keys, clean
+strings, literals, gap numbers, the member loop's members — and flushes at 256 records, at the
+window's end, and before anything that emits directly (a hand-back, an escaped string, the
+numeric loop, whose number batches stay as they are). A grammar error thrown mid-window flushes
+first, so a sink rejection earlier in the document wins, as it does for the dispatcher. The
+differential suite gained an `events`-overriding sink: every document at three chunkings
+flattens to the dispatcher's stream, and a rejection of every event kind reports its offset.
+
+Two rounds, against the build before it:
+
+| row | before | after | delta |
+| --- | ---: | ---: | ---: |
+| GitHub events, raw windowed | 2,489 | 1,966 | **−21.0%** |
+| Twitter, raw windowed | 1,859 | 1,547 | −16.8% |
+| CITM, raw windowed | 1,940 | 1,626 | −16.2% |
+| Twitter escaped, raw windowed | 1,047 | 968 | −7.5% |
+| Canada / Mesh / GSoC / LLM, raw windowed | | | −0.6 / −1.4 / −3.5 / +0.9% |
+| Twitter, layer windowed (default unroll) | 750 | 703 | −6.3% |
+| GitHub, layer windowed (default unroll) | 441 | 419 | −5.0% |
+| CITM, layer windowed (default unroll) | 427 | 400 | −6.3% |
+| Canada / Mesh, layer windowed | 132 / 322 | 132 / 324 | 0 / +0.6% |
+
+Read in absolute terms the tax is small and uniform: GitHub's 64 KB is ~15 K events, and the
+7 µs it lost is ~0.5 ns — about two cycles — per event, the record's store and reload. What
+makes it 21% on that row is the consumer: the counting sink's per-event work is an add, so the
+direct call was ~1.7 ns per event and two cycles is a fifth of it. On the layer, where an event
+costs tens of nanoseconds, the same two cycles read as the 5–6% the default unroll shows — the
+unroll adds a switch and a span per event to a path that was already a direct call.
+
+So step 1 says what it was built to say, and it is not the verdict either way. The raw rows
+with the counting sink are the wrong instrument for a deferral tax, and the number-dense rows,
+whose events were already batched, are unmoved. The question the event batch exists to answer
+— whether sink-side lookahead over a window of events buys more than two cycles per event —
+is step 2's, on the layer rows, where GitHub's 3.9 M retains per parse say the headroom is.
+Pending that, the raw table's object-corpus rows carry this tax.
+
+## Event batching, step 2: the sink takes the run
+
+`PartialSink.events`: under an object frame that matches keys, each `key` record followed by a
+scalar — `stringBegin`/`stringChunk`/`stringEnd`, `number`, `boolean`, `null` — is routed in
+place with one `matchField` and one apply. Gone per member: the frame resolution, the strong
+`ScalarTarget` copy of the schema (a retain and a release), the three closure calls a string
+made. The failure points are the single path's — a string is accepted at its `stringBegin`
+through the empty span, a number or literal at itself — and a container after a key, a
+dictionary or array frame, or a frame that ignores keys unroll into the single events exactly
+as the default does. The differential suite's rejection cases cover every kind.
+
+Two rounds, convenience layer, bulk:
+
+| corpus | gate off | events, default unroll | events, runs | vs gate off |
+| --- | ---: | ---: | ---: | ---: |
+| Twitter | 624 | 703 | **828** | **+32.7%** |
+| GitHub events | 408 | 419 | **465** | **+14.0%** |
+| CITM catalog | 436 | 400 | 433 | −0.7% |
+| GSoC 2018 | 572 | 557 | 562 | −1.7% |
+| Canada | 112 | 132 | 132 | +17.9% |
+| Mesh | 142 | 324 | 323 | +127.5% |
+
+The run routing is worth 11–18% over the unrolled events on the object corpora, and it puts
+every layer row at or above the gate-off control. GitHub's retain count did not move
+(3.88 M → 3.87 M per parse), so those retains are not the member routing — the next profile's
+question, and a large one. The raw counting-sink rows keep the two-cycle-per-event deferral tax
+recorded in step 1; that is the price of one batch requirement instead of three, and it is a
+price paid by a sink whose per-event work is an add.
+
+### Recovering the raw rows: what came back and what is inherent
+
+Two moves against the counting-sink tax. A whole-`string` record kind (one record where the
+trio was three; the default `events` unrolls it, and a rejected one is reported at the byte
+after its opening quote — the `stringBegin` point, the only one a shipping sink refuses a
+string at) took the object corpora's record traffic down ~40%: GitHub raw windowed 1,966 →
+2,193 (+11.5%), Twitter 1,547 → 1,621 (+4.8%), CITM unmoved. Then the consumer loop rewritten
+with the common kinds as direct compares and unchecked subscripts: +0.6% on CITM, 0 elsewhere.
+
+Against the pre-events build the raw windowed rows now stand at GitHub −11.9%, Twitter −12.7%,
+CITM −15.5%, Twitter escaped −7.1%, the number-dense and string-heavy rows within ±1.7%. The
+CITM profile puts the residual where it is inherent: the record's store on the walk's side and
+its load and dispatch on the sink's, ~2 cycles per event, against a direct path whose whole
+sink-side cost was an add folded into the walk's own arm. No consumer-loop shape removes that;
+only not making the round trip does. The two ways to have both numbers are a sink-declared
+opt-out (a static the counting sink sets, folded away per specialization, so the raw rows
+measure the walk emitting directly and the layer rows the batched path every production sink
+takes) or a leaner record (16 bytes, numbers' info out of line), which attacks the load and
+store but not the dispatch and is worth a few percent at most.
+
+### Separate methods instead of one event stream: measured
+
+To test whether the tax is the event stream's shape or the round trip itself, the walk was
+rebuilt with per-kind batches: `numbers` as before, a new `members(_:)` carrying **one 32-byte
+record per member** (key range, value kind, value range, info) produced by the member loop and
+flushed at every exit, and everything else — structurals, array strings, gap scalars —
+emitted directly again with the dispatcher's per-token `checkSink`. `PartialSink.members`
+routes a run in place as `events` did.
+
+| raw windowed | pre-events | events (`.string` record) | member batches |
+| --- | ---: | ---: | ---: |
+| GitHub events | 2,489 | 2,193 (−12%) | 2,229 (−10%) |
+| Twitter | 1,859 | 1,623 (−13%) | 1,617 (−13%) |
+| CITM catalog | 1,940 | 1,639 (−16%) | 1,705 (−12%) |
+| Twitter escaped | 1,047 | 973 (−7%) | 919 (−12%) |
+
+Layer rows: Twitter 850 against 860, GitHub 472 against 472, CITM 419 against 430 — the same.
+
+So the shape of the API is not the cost. A member record is one store and one load where two
+event records were two, and the raw rows moved by the difference between them and no more;
+Twitter escaped lost ground because every escaped value exits the member loop and flushes a
+batch of a few members. What the two builds share is the round trip, and the round trip is
+the tax. The general event stream keeps one requirement and the sink-side lookahead for the
+same numbers; the per-kind form buys nothing it does not already have.
+
+### The leaner record: measured, and kept
+
+With the per-kind form ruled out, the single `events(_:)` requirement came back and the record
+shrank from 32 bytes to 16: `kind` (UInt8), `start`, `length`, `extra` (a boolean's value).
+`end` is derived — `start + length`, plus one past the closing quote for a `key` or a whole
+`.string` — and a number's `NumberInfo` lives in a parallel side array in the scratch, written
+only for number records and read through `StreamEventBatch.info(of:)`. The member loop and
+the walk record as they did in step 2; the flush reads the sink's failure at the same offsets.
+
+| raw windowed | pre-events | 32-byte record | 16-byte record |
+| --- | ---: | ---: | ---: |
+| GitHub events | 2,489 | 2,193 | 2,177 (−0.7% / −12.5%) |
+| Twitter | 1,859 | 1,623 | 1,636 (+0.8% / −12.0%) |
+| CITM catalog | 1,940 | 1,639 | 1,655 (+1.0% / −14.7%) |
+| Twitter escaped | 1,047 | 973 | 986 (+1.3% / −5.8%) |
+| Canada | 1,243 | 1,227 | 1,239 (+1.0% / −0.3%) |
+
+Layer rows (bulk discarding, windowed): Twitter 860 → 883 (+2.7%), GitHub 472 → 479 (+1.5%),
+CITM 430 → 440 (+2.3%). Mesh 1,009, GSoC 3,955, LLM 3,449 — unchanged from pre-events.
+
+Half the bytes per record bought about one percent on the raw rows — inside the run-to-run
+noise — and a couple of percent for the layer, whose `events` consumer touches each record
+twice (the run check and the apply). The estimate of a quarter to a third of the tax was
+wrong for a reason the member-batch build already showed: the store and the reload are not
+where the cycles go. A 32-byte record is two stores the OoO core retires in the shadow of
+the parse; the cost is the flush's call, the consumer's per-event branch on `kind`, and the
+loss of the direct call's specialisation, none of which shrink with the record. The 16-byte
+layout stays because it is smaller for nothing, keeps the info write off the non-number
+path, and leaves the record `Hashable` and trivially copyable. The remaining raw-row tax —
+12–15% on the string-heavy corpora against a walk that emitted directly — is the price of the
+one requirement every production sink takes, and the layer rows it pays for: Twitter 624 →
+883, Mesh 144 → 322, GitHub 408 → 479 against the gate-off path.
