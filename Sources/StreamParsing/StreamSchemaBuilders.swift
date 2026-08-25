@@ -280,33 +280,33 @@ public func _streamEnterContainerField<T>(
 @inlinable
 public func streamApply<T: StreamStringConvertible>(
   _ value: inout T?, utf8 bytes: Span<UInt8>
-) -> Bool {
+) -> StreamApplyResult {
   if value == nil { value = T.streamInitialValue() }
-  value!.streamAppend(utf8: bytes)
-  return true
+  return value!.streamAppend(utf8: bytes)
 }
 
 @inlinable
 public func streamApply(
   _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
-) -> Bool {
+) -> StreamApplyResult {
   if value == nil { value = StreamString() }
   if bytes.isEmpty { value!.streamReserve(utf8ByteCount: initialCapacity) }
-  value!.streamAppend(utf8: bytes)
-  return true
+  return value!.streamAppend(utf8: bytes)
 }
 
 @inlinable
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
-) -> Bool {
-  guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+) -> StreamApplyResult {
+  guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
   value = parsed
-  return true
+  return .applied
 }
 
 @inlinable
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T?, boolean: Bool) -> Bool {
+public func streamApply<T: StreamBooleanConvertible>(
+  _ value: inout T?, boolean: Bool
+) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
-  return true
+  return .applied
 }

@@ -413,34 +413,34 @@ extension StreamParseableMacro {
         \(modifierPrefix)static func streamApplyString(
           _ storage: UnsafeMutableRawPointer, _ field: Int32,
           _ bytes: Span<UInt8>
-        ) -> Bool {
+        ) -> StreamParsingCore.StreamApplyResult {
       \(storageBinding(cases.applyString))    switch field {
-      \(switchBody(cases.applyString))    default: return false
+      \(switchBody(cases.applyString))    default: return .unsupported
           }
         }
 
         \(modifierPrefix)static func streamApplyNumber(
           _ storage: UnsafeMutableRawPointer, _ field: Int32,
           _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-        ) -> Bool {
+        ) -> StreamParsingCore.StreamApplyResult {
       \(storageBinding(cases.applyNumber))    switch field {
-      \(switchBody(cases.applyNumber))    default: return false
+      \(switchBody(cases.applyNumber))    default: return .unsupported
           }
         }
 
         \(modifierPrefix)static func streamApplyBoolean(
           _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-        ) -> Bool {
+        ) -> StreamParsingCore.StreamApplyResult {
       \(storageBinding(cases.applyBoolean))    switch field {
-      \(switchBody(cases.applyBoolean))    default: return false
+      \(switchBody(cases.applyBoolean))    default: return .unsupported
           }
         }
 
         \(modifierPrefix)static func streamApplyNull(
           _ storage: UnsafeMutableRawPointer, _ field: Int32
-        ) -> Bool {
+        ) -> StreamParsingCore.StreamApplyResult {
       \(storageBinding(cases.applyNull))    switch field {
-      \(switchBody(cases.applyNull))    default: return false
+      \(switchBody(cases.applyNull))    default: return .unsupported
           }
         }
 

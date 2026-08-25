@@ -299,11 +299,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       let indexed = top.pointee.leafRoute == .inlineArray
       let index = indexed ? top.pointee.pendingField : -1
       if indexed, index >= top.pointee.schema.fixedElementCount {
-        self.recordFailure(.typeMismatch)
+        // More elements than the fixed array declares: bounded storage overflowing, the same
+        // failure an inline string reports when a value outruns its capacity. An array that
+        // closes *short* of its arity is still a mismatch, checked in `endArray`.
+        self.recordFailure(.capacityExceeded)
         return nil
       }
       guard let frame = top.pointee.schema.appendElement(top.pointee.storage, index) else {
-        if indexed { self.recordFailure(.typeMismatch) }
+        if indexed { self.recordFailure(.capacityExceeded) }
         return nil
       }
       if indexed { top.pointee.pendingField = index &+ 1 }
@@ -383,14 +386,22 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard let target else { return }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
-    let applied = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+    let result = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
       let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
       return target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
     }
-    if !applied {
+    if result != .applied {
       self.scalarTarget = nil
-      self.recordFailure(.typeMismatch)
+      self.recordFailure(Self.failureReason(for: result))
+      return
     }
+    // Bounded inline storage is recognized here rather than through a container route, because
+    // the resolved target is the same shape whether the destination is a scalar field, an array
+    // element or a dictionary value -- one route covers all three, and none of them requires the
+    // sink to know which `StreamInlineString` capacity it is writing into.
+    self.inlineStringCapacity = target.schema.leafRoute == .valueInlineString
+      ? target.schema.inlineCapacity
+      : 0
   }
 
   public mutating func stringChunk(_ bytes: Span<UInt8>) {
@@ -399,12 +410,50 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       return
     }
     guard let target = self.scalarTarget else { return }
-    _ = target.schema.applyString(target.storage, target.field, bytes)
+    if self.inlineStringCapacity != 0 {
+      let result = _streamInlineStringAppend(
+        target.storage, capacity: self.inlineStringCapacity, bytes
+      )
+      self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
+      return
+    }
+    // The one added check on the string hot path. A destination that reached `stringBegin` has
+    // already proved it accepts strings, so this branch is never taken except by bounded storage
+    // that has filled up -- predicted not-taken, and it is what turns an overflow into a reported
+    // failure rather than silently dropped bytes.
+    // The one addition to the string hot path, and deliberately not a branch.
+    //
+    // Checking the result here and reporting immediately cost 8.7% of `Real Twitter - bulk
+    // discarding` (2268 -> 2465 us): the compare after the call keeps the target's schema
+    // reference live across it and breaks the tail call the discarded-result version got. Folding
+    // with `max` instead is a load, a compare-and-select and a store, and measured back at parity
+    // (2255-2269 us). `applied` is zero and the failures are greater, so the fold is sticky: a
+    // later chunk that happens to fit cannot erase an earlier chunk's refusal. Folding with `|=`
+    // over disjoint bits was measured too and is the same speed, so `max` is kept: it leaves the
+    // raw values free to be ordinary integers.
+    //
+    // The cost is where the failure surfaces: at the closing quote rather than at the chunk that
+    // overflowed. Same token, so the reported offset is the end of the string value instead of
+    // its middle -- which is what `stringEnd` reads it for.
+    let result = target.schema.applyString(target.storage, target.field, bytes)
+    self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
   public mutating func stringEnd() {
     self.homogeneousStringStorage = nil
     self.scalarTarget = nil
+    self.inlineStringCapacity = 0
+    // Once per string value rather than once per chunk, which is what makes the fold above worth
+    // it: a document of short strings pays this at every closing quote, and a document of long
+    // ones pays it far less often than it feeds chunks.
+    if self.stringResultRaw != 0 {
+      self.recordFailure(
+        self.stringResultRaw == StreamApplyResult.capacityExceeded.rawValue
+          ? .capacityExceeded
+          : .typeMismatch
+      )
+      self.stringResultRaw = 0
+    }
   }
 
   public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
@@ -446,8 +495,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   public mutating func null() {
     if self.topFrame == nil, !self.started {
-      if !self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField) {
-        self.recordFailure(.typeMismatch)
+      let result = self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField)
+      if result != .applied {
+        self.recordFailure(Self.failureReason(for: result))
       }
       return
     }
@@ -487,6 +537,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var scalarTarget: ScalarTarget?
 
   @usableFromInline var homogeneousStringStorage: UnsafeMutableRawPointer?
+
+  // Non-zero while the open string value writes into bounded inline storage, in which case it is
+  // that storage's capacity. One store per string value at `stringBegin`, which is what buys the
+  // chunk path a capacity in a register instead of a load off the schema.
+  @usableFromInline var inlineStringCapacity: Int32 = 0
+
+  // The open string value's worst result so far, as a raw value so chunks can fold into it
+  // without branching. Read and reset once per value in `stringEnd`.
+  @usableFromInline var stringResultRaw: UInt8 = 0
 
   @inline(never)
   private mutating func openKnownStreamStringTarget(
@@ -696,8 +755,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.recordFailure(.typeMismatch)
       return
     }
-    guard top.pointee.schema.applyNumber(top.pointee.storage, lane, bytes, info) else {
-      self.recordFailure(.typeMismatch)
+    let result = top.pointee.schema.applyNumber(top.pointee.storage, lane, bytes, info)
+    guard result == .applied else {
+      self.recordFailure(Self.failureReason(for: result))
       return
     }
     top.pointee.pendingField = lane &+ 1
@@ -748,11 +808,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       let indexed = top.pointee.leafRoute == .inlineArray
       let index = indexed ? top.pointee.pendingField : -1
       if indexed, index >= top.pointee.schema.fixedElementCount {
-        self.recordFailure(.typeMismatch)
+        // The scalar-element twin of the same check in `valueTarget`, and the same failure: a
+        // fixed array handed more elements than it declares is bounded storage overflowing.
+        self.recordFailure(.capacityExceeded)
         return nil
       }
       guard let element = top.pointee.schema.appendElement(top.pointee.storage, index) else {
-        if indexed { self.recordFailure(.typeMismatch) }
+        if indexed { self.recordFailure(.capacityExceeded) }
         return nil
       }
       if indexed { top.pointee.pendingField = index &+ 1 }
@@ -789,11 +851,23 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // have always been ignored. A target that refuses the token is a type mismatch, because the
   // key matched something that cannot hold this kind of value.
   private mutating func withScalarTarget(
-    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> Bool
+    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
   ) {
     guard let target = self.resolveScalarTarget() else { return }
-    if !body(target.storage, target.field, target.schema) {
-      self.recordFailure(.typeMismatch)
+    let result = body(target.storage, target.field, target.schema)
+    if result != .applied {
+      self.recordFailure(Self.failureReason(for: result))
+    }
+  }
+
+  // The sink reports one reason per failed apply. `unsupported` and anything a later version of
+  // the enum adds read as a mismatch, which is what this sink could always say about a token a
+  // destination refused; only capacity has a distinct answer.
+  @usableFromInline
+  static func failureReason(for result: StreamApplyResult) -> StreamSinkFailure.Reason {
+    switch result {
+    case .capacityExceeded: .capacityExceeded
+    default: .typeMismatch
     }
   }
 

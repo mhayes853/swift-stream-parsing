@@ -116,7 +116,7 @@ struct `InlineArray parsing tests` {
   @Test
   func `A zero length InlineArray accepts only an empty array`() throws {
     _ = try self.parse("[]", as: InlineArray<0, Int>.self)
-    expectNoDifference(self.failure("[1]", as: InlineArray<0, Int>.self), .typeMismatch)
+    expectNoDifference(self.failure("[1]", as: InlineArray<0, Int>.self), .capacityExceeded)
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -136,10 +136,16 @@ struct `InlineArray parsing tests` {
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test(arguments: [
-    "[]", "[1]", "[1,2,3]", "[1,true]", #"[1,"two"]"#, "[1,[]]"
-  ])
-  func `Wrong arity and element shapes are rejected`(json: String) {
+  @Test(arguments: ["[]", "[1]", "[1,true]", #"[1,"two"]"#, "[1,[]]"])
+  func `Short arity and wrong element shapes are rejected`(json: String) {
     expectNoDifference(self.failure(json, as: InlineArray<2, Int>.self), .typeMismatch)
+  }
+
+  // More elements than the arity is bounded storage overflowing, the same failure an inline
+  // string reports, and distinct from an array that simply closes short.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: ["[1,2,3]", "[1,2,3,4]"])
+  func `More elements than the arity is a capacity failure`(json: String) {
+    expectNoDifference(self.failure(json, as: InlineArray<2, Int>.self), .capacityExceeded)
   }
 }

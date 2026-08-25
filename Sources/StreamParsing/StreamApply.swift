@@ -13,26 +13,26 @@ import StreamParsingCore
 // These live here rather than in the core because nothing in the core needs them. The parser
 // only speaks to sinks.
 
-// Each returns whether it applied the token. The unconstrained overload returning false is what
-// turns "this field cannot hold a string" into a reportable type mismatch instead of silence.
+// Each reports what it did with the token. The unconstrained overload returning `.unsupported` is
+// what turns "this field cannot hold a string" into a reportable type mismatch instead of silence.
+// A constrained overload forwards its destination's own answer, which is how an inline string's
+// capacity failure reaches the sink as a capacity failure rather than a mismatch.
 
 @inlinable
 @inline(__always)
 public func streamApply<T: StreamStringConvertible>(
   _ value: inout T, utf8 bytes: Span<UInt8>
-) -> Bool {
+) -> StreamApplyResult {
   value.streamAppend(utf8: bytes)
-  return true
 }
 
 @inlinable
 @inline(__always)
 public func streamApply(
   _ value: inout StreamString, utf8 bytes: Span<UInt8>, initialCapacity: Int
-) -> Bool {
+) -> StreamApplyResult {
   if bytes.isEmpty { value.streamReserve(utf8ByteCount: initialCapacity) }
-  value.streamAppend(utf8: bytes)
-  return true
+  return value.streamAppend(utf8: bytes)
 }
 
 @_disfavoredOverload
@@ -40,50 +40,56 @@ public func streamApply(
 @inline(__always)
 public func streamApply<T>(
   _ value: inout T, utf8 bytes: Span<UInt8>, initialCapacity: Int
-) -> Bool { false }
+) -> StreamApplyResult { .unsupported }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> Bool { false }
+public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+  .unsupported
+}
 
 @inlinable
 @inline(__always)
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
-) -> Bool {
-  guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+) -> StreamApplyResult {
+  guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
   value = parsed
-  return true
+  return .applied
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, bytes: Span<UInt8>, info: NumberInfo) -> Bool {
-  false
+public func streamApply<T>(
+  _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
+) -> StreamApplyResult {
+  .unsupported
 }
 
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T, boolean: Bool) -> Bool {
+public func streamApply<T: StreamBooleanConvertible>(
+  _ value: inout T, boolean: Bool
+) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
-  return true
+  return .applied
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, boolean: Bool) -> Bool { false }
+public func streamApply<T>(_ value: inout T, boolean: Bool) -> StreamApplyResult { .unsupported }
 
 @inlinable
 @inline(__always)
-public func streamApplyNull<T: StreamNullable>(_ value: inout T) -> Bool {
+public func streamApplyNull<T: StreamNullable>(_ value: inout T) -> StreamApplyResult {
   value = T.streamNullValue()
-  return true
+  return .applied
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApplyNull<T>(_ value: inout T) -> Bool { false }
+public func streamApplyNull<T>(_ value: inout T) -> StreamApplyResult { .unsupported }

@@ -640,10 +640,10 @@ struct BenchmarkDiscardedScalar: Equatable, StreamInitializable, StreamParseable
   static var streamSchema: StreamSchema {
     StreamSchema(
       shape: .scalar,
-      applyString: { _, _, _ in true },
-      applyNumber: { _, _, _, _ in true },
-      applyBoolean: { _, _, _ in true },
-      applyNull: { _, _ in true }
+      applyString: { _, _, _ in .applied },
+      applyNumber: { _, _, _, _ in .applied },
+      applyBoolean: { _, _, _ in .applied },
+      applyNull: { _, _ in .applied }
     )
   }
 }

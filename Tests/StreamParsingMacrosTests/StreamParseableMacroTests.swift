@@ -104,7 +104,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -112,14 +112,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -127,13 +127,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -141,13 +141,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -155,7 +155,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -289,7 +289,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -297,14 +297,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -312,13 +312,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -326,13 +326,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -340,7 +340,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -582,7 +582,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -590,14 +590,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -605,13 +605,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -619,13 +619,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -633,7 +633,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -848,7 +848,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -856,14 +856,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -871,13 +871,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -885,13 +885,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -899,7 +899,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1032,7 +1032,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1040,14 +1040,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1055,13 +1055,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1069,13 +1069,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1083,7 +1083,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1198,50 +1198,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1358,50 +1358,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1515,50 +1515,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
                 return streamApply(&p.pointee.name, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
                 return streamApply(&p.pointee.name, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
                 return streamApply(&p.pointee.name, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
                 return StreamParsing.streamApplyNull(&p.pointee.name)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1697,50 +1697,50 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return streamApply(&p.pointee.stored, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.stored:
                 return StreamParsing.streamApplyNull(&p.pointee.stored)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -1871,7 +1871,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1879,14 +1879,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1894,13 +1894,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1908,13 +1908,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -1922,7 +1922,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -2188,7 +2188,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2196,14 +2196,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2211,13 +2211,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2225,13 +2225,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2239,7 +2239,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -2372,7 +2372,7 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2380,14 +2380,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2395,13 +2395,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2409,13 +2409,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2423,7 +2423,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -2552,7 +2552,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2560,14 +2560,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2575,13 +2575,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2589,13 +2589,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2603,7 +2603,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -2732,7 +2732,7 @@ extension BaseTestSuite {
             fileprivate static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2740,14 +2740,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             fileprivate static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2755,13 +2755,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             fileprivate static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2769,13 +2769,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             fileprivate static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2783,7 +2783,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -2916,7 +2916,7 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2924,14 +2924,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2939,13 +2939,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2953,13 +2953,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -2967,7 +2967,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -3100,7 +3100,7 @@ extension BaseTestSuite {
             public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3108,14 +3108,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3123,13 +3123,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3137,13 +3137,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             public static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3151,7 +3151,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -3288,7 +3288,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3296,14 +3296,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3311,13 +3311,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3325,13 +3325,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3339,7 +3339,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -3472,7 +3472,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3480,14 +3480,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3495,13 +3495,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3509,13 +3509,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3523,7 +3523,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -3656,7 +3656,7 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3664,14 +3664,14 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, utf8: bytes)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3679,13 +3679,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, bytes: bytes, info: info)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3693,13 +3693,13 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return streamApply(&p.pointee.age, boolean: value)
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.name:
@@ -3707,7 +3707,7 @@ extension BaseTestSuite {
               case Self.StreamField.age:
                 return StreamParsing.streamApplyNull(&p.pointee.age)
               default:
-                return false
+                return .unsupported
               }
             }
 
@@ -3839,35 +3839,35 @@ extension BaseTestSuite {
             static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               switch field {
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNumber(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               switch field {
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               switch field {
               default:
-                return false
+                return .unsupported
               }
             }
 
             static func streamApplyNull(
               _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> Bool {
+            ) -> StreamParsingCore.StreamApplyResult {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.items:
@@ -3875,7 +3875,7 @@ extension BaseTestSuite {
               case Self.StreamField.index:
                 return StreamParsing.streamApplyNull(&p.pointee.index)
               default:
-                return false
+                return .unsupported
               }
             }
 

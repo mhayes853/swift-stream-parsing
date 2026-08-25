@@ -23,6 +23,10 @@ public struct StreamFrame {
 enum _StreamLeafRoute: UInt8, Sendable {
   case generic
   case valueStreamString
+  // Bounded inline storage of *any* capacity: the one route that is not tied to a single
+  // destination type. The capacity travels in the schema's `fixedElementCount`, so one case
+  // serves every `StreamInlineString<N>` and the sink never has to name one.
+  case valueInlineString
   case valueBool
   case valueDouble
   case valueInt
@@ -164,7 +168,7 @@ public final class StreamSchema: Sendable {
   /// was a type mismatch only because `name` could not hold a number.
   ///
   /// A negative field cannot collide with a declared one, so an object schema's
-  /// `default: return false` turns those back into the mismatches they are. A scalar schema
+  /// `default: return .unsupported` turns those back into the mismatches they are. A scalar schema
   /// ignores the field either way and is unaffected.
   public static let wholeValueField = Int32(-1)
 
@@ -196,18 +200,21 @@ public final class StreamSchema: Sendable {
   // Returns the field identifier for a key, or -1 when the destination has no such field.
   public let matchField: @Sendable (Span<UInt8>) -> Int32
 
-  // Each returns whether the token was actually applied. A field that matched a key but has no
-  // destination for this kind of token returns false, which is what lets the sink tell a type
-  // mismatch from a key the destination simply does not have. A bool return rather than a throw,
-  // for the same reason the sink methods do not throw: a check after every call sits on the
-  // hottest path.
+  // Each reports what the destination did with the token. A field that matched a key but has no
+  // destination for this kind of token returns `.unsupported`, which is what lets the sink tell a
+  // type mismatch from a key the destination simply does not have; bounded storage that is full
+  // returns `.capacityExceeded`, which is a different failure and reported as one. A returned
+  // result rather than a throw, for the same reason the sink methods do not throw: a check after
+  // every call sits on the hottest path.
   //
   // The field is a declared field's identifier when the schema stands over an object, and
   // ``wholeValueField`` when the destination *is* the value.
-  public let applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool
-  public let applyNumber: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo) -> Bool
-  public let applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool
-  public let applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> Bool
+  public let applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> StreamApplyResult
+  public let applyNumber: @Sendable (
+    UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
+  ) -> StreamApplyResult
+  public let applyBoolean: @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> StreamApplyResult
+  public let applyNull: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult
 
   // Returns a frame for the container stored at `field`, materializing it when absent. It is not
   // reset when present, so a key that repeats resumes the container the first occurrence built
@@ -231,6 +238,12 @@ public final class StreamSchema: Sendable {
   // `.generic`, preserving the public API's open-ended behavior.
   @usableFromInline let leafRoute: _StreamLeafRoute
 
+  // The capacity of the bounded inline storage this schema writes into, or zero when the
+  // destination is not bounded. Carried separately from `fixedElementCount` so that field keeps
+  // meaning exactly one thing -- a fixed array's arity -- and a container schema can propagate its
+  // element's capacity without the two colliding.
+  @usableFromInline let inlineCapacity: Int32
+
   // Negative for a dynamic array. Kept off the frame: only an InlineArray's open and close need
   // it, while adding it to BorrowedFrame would grow every frame from 24 to 32 bytes.
   @usableFromInline let fixedElementCount: Int32
@@ -241,16 +254,18 @@ public final class StreamSchema: Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
-    applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
-      _, _, _ in false
-    },
+    applyString: @escaping @Sendable (
+      UnsafeMutableRawPointer, Int32, Span<UInt8>
+    ) -> StreamApplyResult = { _, _, _ in .unsupported },
     applyNumber: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
-    ) -> Bool = { _, _, _, _ in false },
-    applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool = {
-      _, _, _ in false
+    ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
+    applyBoolean: @escaping @Sendable (
+      UnsafeMutableRawPointer, Int32, Bool
+    ) -> StreamApplyResult = { _, _, _ in .unsupported },
+    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult = {
+      _, _ in .unsupported
     },
-    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
       _, _ in nil
@@ -271,7 +286,8 @@ public final class StreamSchema: Sendable {
       appendElement: appendElement,
       enterKey: enterKey,
       leafRoute: .generic,
-      fixedElementCount: -1
+      fixedElementCount: -1,
+      inlineCapacity: 0
     )
   }
 
@@ -280,16 +296,18 @@ public final class StreamSchema: Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
-    applyString: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> Bool = {
-      _, _, _ in false
-    },
+    applyString: @escaping @Sendable (
+      UnsafeMutableRawPointer, Int32, Span<UInt8>
+    ) -> StreamApplyResult = { _, _, _ in .unsupported },
     applyNumber: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
-    ) -> Bool = { _, _, _, _ in false },
-    applyBoolean: @escaping @Sendable (UnsafeMutableRawPointer, Int32, Bool) -> Bool = {
-      _, _, _ in false
+    ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
+    applyBoolean: @escaping @Sendable (
+      UnsafeMutableRawPointer, Int32, Bool
+    ) -> StreamApplyResult = { _, _, _ in .unsupported },
+    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult = {
+      _, _ in .unsupported
     },
-    applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> Bool = { _, _ in false },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
       _, _ in nil
@@ -298,7 +316,8 @@ public final class StreamSchema: Sendable {
       _, _ in nil
     },
     leafRoute: _StreamLeafRoute = .generic,
-    fixedElementCount: Int32 = -1
+    fixedElementCount: Int32 = -1,
+    inlineCapacity: Int32 = 0
   ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
@@ -316,6 +335,7 @@ public final class StreamSchema: Sendable {
     self.enterKey = enterKey
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
+    self.inlineCapacity = inlineCapacity
   }
 }
 
@@ -450,11 +470,34 @@ public protocol StreamParseableObject: StreamContainerPartial {}
 
 @inlinable
 public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> StreamSchema {
+  // Read once here, never per token, and a constant after specialization -- so every destination
+  // that is not inline storage folds this away entirely.
+  let inlineCapacity = T._streamInlineCapacity
+  if inlineCapacity > 0 {
+    // The layout the erased route is about to rely on, checked where a violation is a build-time
+    // sized failure rather than a memory-safety one: header, then exactly `capacity` bytes.
+    precondition(
+      T._streamInlineByteOffset == _streamInlineStringByteOffset
+        && MemoryLayout<T>.size == T._streamInlineByteOffset + inlineCapacity,
+      "inline string storage does not match the layout the parser appends through"
+    )
+    precondition(
+      inlineCapacity <= Int(Int32.max),
+      "inline string capacity exceeds the stream schema's capacity field"
+    )
+    return StreamSchema(
+      shape: .scalar,
+      applyString: { storage, _, bytes in
+        storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
+      },
+      leafRoute: .valueInlineString,
+      inlineCapacity: Int32(inlineCapacity)
+    )
+  }
   return StreamSchema(
     shape: .scalar,
     applyString: { storage, _, bytes in
       storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
-      return true
     },
     leafRoute: T.self == StreamString.self ? .valueStreamString : .generic
   )
@@ -467,9 +510,9 @@ public func _streamNumberSchema<T: StreamNumberConvertible>(_ type: T.Type) -> S
     applyNumber: { storage, _, bytes, info in
       // A token that does not fit the destination is a rejection, not a silent no-op, which is
       // what reports an overflow.
-      guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+      guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
       storage.assumingMemoryBound(to: T.self).pointee = parsed
-      return true
+      return .applied
     },
     leafRoute: T.self == Double.self
       ? .valueDouble
@@ -483,7 +526,7 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
     shape: .scalar,
     applyBoolean: { storage, _, value in
       storage.assumingMemoryBound(to: T.self).pointee = T(streamParsingBoolean: value)
-      return true
+      return .applied
     },
     leafRoute: T.self == Bool.self ? .valueBool : .generic
   )
@@ -504,10 +547,10 @@ public func _streamSIMD2Schema<Scalar>(
     shape: .array,
     applyNumber: { storage, field, bytes, info in
       guard field >= 0, field < 2, let value = Scalar(streamParsing: bytes, info: info) else {
-        return false
+        return .unsupported
       }
       storage.assumingMemoryBound(to: SIMD2<Scalar>.self).pointee[Int(field)] = value
-      return true
+      return .applied
     },
     leafRoute: .simd2Number
   )
@@ -522,10 +565,10 @@ public func _streamSIMD3Schema<Scalar>(
     shape: .array,
     applyNumber: { storage, field, bytes, info in
       guard field >= 0, field < 3, let value = Scalar(streamParsing: bytes, info: info) else {
-        return false
+        return .unsupported
       }
       storage.assumingMemoryBound(to: SIMD3<Scalar>.self).pointee[Int(field)] = value
-      return true
+      return .applied
     },
     leafRoute: .simd3Number
   )
@@ -540,10 +583,10 @@ public func _streamSIMD4Schema<Scalar>(
     shape: .array,
     applyNumber: { storage, field, bytes, info in
       guard field >= 0, field < 4, let value = Scalar(streamParsing: bytes, info: info) else {
-        return false
+        return .unsupported
       }
       storage.assumingMemoryBound(to: SIMD4<Scalar>.self).pointee[Int(field)] = value
-      return true
+      return .applied
     },
     leafRoute: .simd4Number
   )
@@ -556,10 +599,10 @@ let _streamSIMD2DoubleSchema = StreamSchema(
   shape: .array,
   applyNumber: { storage, field, bytes, info in
     guard field >= 0, field < 2, let value = Double(streamParsing: bytes, info: info) else {
-      return false
+      return .unsupported
     }
     storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(field)] = value
-    return true
+    return .applied
   },
   leafRoute: .simd2Double
 )
@@ -569,10 +612,10 @@ let _streamSIMD3DoubleSchema = StreamSchema(
   shape: .array,
   applyNumber: { storage, field, bytes, info in
     guard field >= 0, field < 3, let value = Double(streamParsing: bytes, info: info) else {
-      return false
+      return .unsupported
     }
     storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(field)] = value
-    return true
+    return .applied
   },
   leafRoute: .simd3Double
 )
@@ -582,10 +625,10 @@ let _streamSIMD4DoubleSchema = StreamSchema(
   shape: .array,
   applyNumber: { storage, field, bytes, info in
     guard field >= 0, field < 4, let value = Double(streamParsing: bytes, info: info) else {
-      return false
+      return .unsupported
     }
     storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(field)] = value
-    return true
+    return .applied
   },
   leafRoute: .simd4Double
 )
@@ -644,7 +687,7 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     applyNull: { storage, field in
       guard field == StreamSchema.wholeValueField else { return base.applyNull(storage, field) }
       storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
-      return true
+      return .applied
     },
     enterField: base.enterField,
     appendElement: base.appendElement,
@@ -716,7 +759,8 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
         schema: valueSchema
       )
     },
-    leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic
+    leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
+    inlineCapacity: valueSchema.inlineCapacity
   )
 }
 

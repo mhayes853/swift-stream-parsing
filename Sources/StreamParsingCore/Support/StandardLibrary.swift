@@ -3,10 +3,12 @@
 extension String: StreamStringConvertible {
   public static func streamInitialValue() -> Self { "" }
 
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
+  @discardableResult
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
     bytes.withUnsafeBufferPointer { buffer in
       self += String(decoding: buffer, as: UTF8.self)
     }
+    return .applied
   }
 }
 
@@ -304,7 +306,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       applyNull: { storage, field in
         guard field != StreamSchema.wholeValueField else {
           storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
-          return true
+          return .applied
         }
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyNull(storage, field)

@@ -947,11 +947,15 @@ extension StreamString: StreamInitializable {
 }
 
 extension StreamString: StreamStringConvertible {
+  @discardableResult
   @inlinable
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
     bytes.withUnsafeBufferPointer { buffer in
       self.append(utf8: buffer)
     }
+    // Storage grows to fit, so there is no capacity to exceed. The constant result folds away
+    // once the schema closure specializes on `StreamString`.
+    return .applied
   }
 }
 
