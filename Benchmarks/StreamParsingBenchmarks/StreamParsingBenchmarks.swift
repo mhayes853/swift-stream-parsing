@@ -88,7 +88,8 @@ let benchmarks: @Sendable () -> Void = {
   Benchmark("Stream Array of structs - view read per byte") { benchmark in
     for _ in benchmark.scaledIterations {
       var stream = PartialsStream(
-        initialValue: BenchmarkUserList.Partial(), from: .json()
+        initialValue: BenchmarkUserList.Partial(),
+        from: .json()
       )
       for byte in Payloads.userList {
         try stream.next(byte)
@@ -125,10 +126,9 @@ let benchmarks: @Sendable () -> Void = {
 
   addFastParserBenchmarks()
   layerOverheadBenchmarks()
-  schemaDispatchBenchmarks()
-  openValueBreakdownBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
+  streamingAPIBenchmarks()
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()
   homogeneousLeafBenchmarks()

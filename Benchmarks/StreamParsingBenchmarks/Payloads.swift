@@ -7,14 +7,16 @@ enum Payloads {
     """
     {"id":4,"name":"Blob Johnson","email":"blob@example.com","age":42,\
     "score":98.25,"isActive":true}
-    """.utf8
+    """
+    .utf8
   )
 
   static let nested = Array(
     """
     {"id":7,"name":"Blob Jr","company":{"name":"Point-Free",\
     "address":{"street":"123 Functional Way","city":"Brooklyn","postalCode":"11201"}}}
-    """.utf8
+    """
+    .utf8
   )
 
   static let userList = Array(Self.makeUserList(count: 100).utf8)
@@ -60,10 +62,11 @@ enum Payloads {
   // Field names that differ from the first byte, which is what an object's keys look like and
   // what a leading word prefilter is actually good at.
   static func diverseKeys(_ count: Int, from start: Int) -> [[UInt8]] {
-    (start..<(start + count)).map { index in
-      let stem = Self.keyStems[index % Self.keyStems.count]
-      return Array("\(stem)_\(index)".utf8)
-    }
+    (start..<(start + count))
+      .map { index in
+        let stem = Self.keyStems[index % Self.keyStems.count]
+        return Array("\(stem)_\(index)".utf8)
+      }
   }
 
   private static let keyStems = [
@@ -115,13 +118,19 @@ enum Payloads {
   // The number strategy benchmarks are micro-benchmarks over bare corpora. These are the same
   // token shapes inside a document, through the real parser: 17-19 digit ids are what the
   // eight-digit block was chosen for, and floats with exponents are what `canada.json` is.
-  static let largeIntegers = Array(Self.makeNumberArray(count: 2_000) { index in
-    "\(1_000_000_000_000_000_000 &+ UInt64(index) &* 7_919)"
-  }.utf8)
+  static let largeIntegers = Array(
+    Self.makeNumberArray(count: 2_000) { index in
+      "\(1_000_000_000_000_000_000 &+ UInt64(index) &* 7_919)"
+    }
+    .utf8
+  )
 
-  static let floats = Array(Self.makeNumberArray(count: 2_000) { index in
-    "\(index % 180 - 90).\(index % 1_000_000)e\(index % 17 - 8)"
-  }.utf8)
+  static let floats = Array(
+    Self.makeNumberArray(count: 2_000) { index in
+      "\(index % 180 - 90).\(index % 1_000_000)e\(index % 17 - 8)"
+    }
+    .utf8
+  )
 
   // MARK: - Real world
 
@@ -158,6 +167,16 @@ enum Payloads {
   // only benchmark payload that is both large and escape-heavy.
   static let llmMessage = Self.resource("llm_message")
 
+  // Qwen 3's native tool template places one JSON object with `name` and `arguments` inside each
+  // `<tool_call>` element. The control tokens are transport framing rather than JSON, so these
+  // payloads are the exact inner document a structured-output consumer incrementally parses.
+  // The search call is a small, common request; the workspace edit is a medium response with
+  // escaped source text and repeated nested objects. The third payload is direct structured JSON
+  // output rather than a tool call, covering the other common constrained-generation shape.
+  static let qwen3SearchToolCall = Array(Self.makeQwen3SearchToolCall().utf8)
+  static let qwen3WorkspaceEditToolCall = Array(Self.makeQwen3WorkspaceEditToolCall().utf8)
+  static let qwen3StructuredResponse = Array(Self.makeQwen3StructuredResponse().utf8)
+
   // Forces every payload to initialize before any benchmark runs. Called once from the
   // registration closure; see the note there for why this is not optional.
   static func warmUp() {
@@ -168,7 +187,8 @@ enum Payloads {
       Self.nonASCIIString, Self.prettyUserList, Self.deepObjects63, Self.deepObjects16,
       Self.deepArrays63, Self.wideFirst, Self.wideLast, Self.wideMiss, Self.largeIntegers,
       Self.floats, Self.twitter, Self.canada, Self.citmCatalog, Self.gsoc2018, Self.githubEvents,
-      Self.twitterEscaped, Self.llmMessage, Self.mesh
+      Self.twitterEscaped, Self.llmMessage, Self.qwen3SearchToolCall,
+      Self.qwen3WorkspaceEditToolCall, Self.qwen3StructuredResponse, Self.mesh
     ]
     var total = 0
     for payload in all { total &+= payload.count }
@@ -177,11 +197,13 @@ enum Payloads {
   }
 
   private static func resource(_ name: String) -> [UInt8] {
-    guard let url = Bundle.module.url(
-      forResource: name,
-      withExtension: "json",
-      subdirectory: "Resources"
-    ) else {
+    guard
+      let url = Bundle.module.url(
+        forResource: name,
+        withExtension: "json",
+        subdirectory: "Resources"
+      )
+    else {
       preconditionFailure("\(name).json benchmark payload is missing")
     }
     guard let data = try? Data(contentsOf: url) else {
@@ -223,7 +245,8 @@ enum Payloads {
     return "{\"entries\":[\(entries)]}"
   }
 
-  private static func makeCounts(count: Int, keyPrefix: String = Payloads.shortKeyPrefix) -> String {
+  private static func makeCounts(count: Int, keyPrefix: String = Payloads.shortKeyPrefix) -> String
+  {
     let entries = (0..<count)
       .map { "\"\(keyPrefix)\($0)\":\($0)" }
       .joined(separator: ",")
@@ -327,5 +350,62 @@ enum Payloads {
       body += word
     }
     return "{\"title\":\"A Benchmark Document\",\"body\":\"\(body)\"}"
+  }
+
+  private static func makeQwen3SearchToolCall() -> String {
+    let includes = [
+      "Sources/**/*.swift", "Tests/**/*.swift", "Benchmarks/**/*.swift", "Package.swift",
+      "*.md", "Sources/**/*.c", "Sources/**/*.h", "Plugins/**/*.swift", "Examples/**/*.swift",
+      "Documentation/**/*.md", "Scripts/**/*.sh", ".github/**/*.yml"
+    ]
+    .map { "\"\($0)\"" }.joined(separator: ",")
+    let excludes = [".build/**", ".git/**", "DerivedData/**", "*.generated.swift"]
+      .map { "\"\($0)\"" }.joined(separator: ",")
+    return """
+      {"name":"search_code","arguments":{"query":"StreamParseableMember OR initialCapacity",\
+      "path":"/workspace/swift-stream-parsing","include":[\(includes)],"exclude":[\(excludes)],\
+      "case_sensitive":true,"max_results":200,"context":{"before":4,"after":8,\
+      "languages":["swift","c","json","markdown"]},"edits":[]}}
+      """
+  }
+
+  private static func makeQwen3WorkspaceEditToolCall() -> String {
+    let edits = (0..<96)
+      .map { index in
+        let line = 18 + index * 7
+        return """
+          {"path":"Sources/Generated/Feature\(index).swift","line":\(line),"delete_count":2,\
+          "replacement":"guard let value_\(index) else { return }\\nprocess(value_\(index), mode: \\\"streaming\\\")",\
+          "reason":"Preserve incremental state while updating generated feature \(index)."}
+          """
+      }
+      .joined(separator: ",")
+    return """
+      {"name":"apply_workspace_edits","arguments":{"query":"apply validated parser changes",\
+      "path":"/workspace/swift-stream-parsing","include":["Sources/**/*.swift","Tests/**/*.swift"],\
+      "exclude":[".build/**"],"case_sensitive":true,"max_results":96,"context":{"before":3,\
+      "after":5,"languages":["swift"]},"edits":[\(edits)]}}
+      """
+  }
+
+  private static func makeQwen3StructuredResponse() -> String {
+    let findings = (0..<36)
+      .map { index in
+        let severity = ["info", "warning", "error"][index % 3]
+        return """
+          {"id":"finding-\(index)","severity":"\(severity)",\
+          "path":"Sources/StreamParsingCore/Fast/Component\(index % 9).swift","line":\(31 + index * 11),\
+          "title":"Incremental parser observation \(index)",\
+          "detail":"Chunk boundary \(index) crosses a token; retain the pending bytes and resume without copying sealed storage.",\
+          "tags":["streaming","performance","swift"]}
+          """
+      }
+      .joined(separator: ",")
+    return """
+      {"summary":"The parser remains correct across the sampled chunk boundaries; the findings below identify optimization opportunities without changing observable values.",\
+      "findings":[\(findings)],"recommendation":{"decision":"measure_before_merging",\
+      "confidence":0.92,"steps":["run correctness tests","build release benchmarks",\
+      "measure real payloads","inspect ARM assembly","compare retained snapshots"]}}
+      """
   }
 }

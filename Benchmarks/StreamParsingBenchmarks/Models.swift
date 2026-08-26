@@ -581,6 +581,70 @@ struct BenchmarkUsage: Equatable {
   var output_tokens: Int = 0
 }
 
+// MARK: - Qwen 3 structured output
+
+// Qwen 3's Hermes-style template emits this object inside `<tool_call>` tags. One shared argument
+// model accepts both fixtures: fields unused by a particular tool remain at their initial values,
+// just as they do in generated partials while a real model is still producing the call.
+@StreamParseable
+struct BenchmarkQwen3ToolCall: Equatable {
+  var name: String = ""
+  var arguments: BenchmarkQwen3ToolArguments = BenchmarkQwen3ToolArguments()
+}
+
+@StreamParseable
+struct BenchmarkQwen3ToolArguments: Equatable {
+  var query: String = ""
+  var path: String = ""
+  var include: [String] = []
+  var exclude: [String] = []
+  var case_sensitive: Bool = false
+  var max_results: Int = 0
+  var context: BenchmarkQwen3SearchContext = BenchmarkQwen3SearchContext()
+  var edits: [BenchmarkQwen3WorkspaceEdit] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3SearchContext: Equatable {
+  var before: Int = 0
+  var after: Int = 0
+  var languages: [String] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3WorkspaceEdit: Equatable {
+  var path: String = ""
+  var line: Int = 0
+  var delete_count: Int = 0
+  var replacement: String = ""
+  var reason: String = ""
+}
+
+@StreamParseable
+struct BenchmarkQwen3StructuredResponse: Equatable {
+  var summary: String = ""
+  var findings: [BenchmarkQwen3Finding] = []
+  var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
+}
+
+@StreamParseable
+struct BenchmarkQwen3Finding: Equatable {
+  var id: String = ""
+  var severity: String = ""
+  var path: String = ""
+  var line: Int = 0
+  var title: String = ""
+  var detail: String = ""
+  var tags: [String] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3Recommendation: Equatable {
+  var decision: String = ""
+  var confidence: Double = 0
+  var steps: [String] = []
+}
+
 // `BenchmarkLLMMessage`'s spine with the scalars renamed, for the same split as
 // `BenchmarkTwitterStructure`. This is the payload where the answer matters most: it is the one
 // dominated by long escaped strings, so it is where `String` materialization should show up.

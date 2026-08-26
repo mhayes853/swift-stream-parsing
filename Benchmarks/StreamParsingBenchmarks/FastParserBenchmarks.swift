@@ -84,13 +84,17 @@ func addFastParserBenchmarks() {
     ("Unicode escaped string", Payloads.unicodeEscapedString),
     ("Non-ASCII string", Payloads.nonASCIIString),
     ("Pretty printed users", Payloads.prettyUserList),
-    ("Twitter", Payloads.twitter),
+    ("Twitter", Payloads.twitter)
   ]
 
   for (name, payload) in payloads {
-    Benchmark("Fast \(name) - bulk", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: .max) })
+    // The identical Twitter bulk row is registered by `RealWorldBenchmarks`; its 64-byte and
+    // byte-fed rows remain here because the real-world sweep uses 16 KB chunks instead.
+    if name != "Twitter" {
+      Benchmark("Fast \(name) - bulk", configuration: payloadConfiguration) { benchmark in
+        measurePayloadThroughput(benchmark, payload: payload) {
+          blackHole(expectParses { try runFastParser(payload, chunk: .max) })
+        }
       }
     }
 

@@ -15,6 +15,7 @@ import StreamParsingCore
 //   twitterescaped   the same document as twitter with every non-ASCII byte as a \u escape
 //   github_events    a small API response, ~64 KB
 //   llm_message      an assistant message: long escaped markdown, tool-use objects, small ints
+//   qwen3 calls      small and medium Hermes-style tool arguments, including nested source edits
 //
 // Three of these are larger than any cache level the parse runs in, which nothing else in the
 // suite was. Validation is unconditional now, so there is no configuration axis here any more —
@@ -28,7 +29,10 @@ private let realWorldPayloads: [(String, [UInt8])] = [
   ("GSoC 2018", Payloads.gsoc2018),
   ("GitHub events", Payloads.githubEvents),
   ("LLM message", Payloads.llmMessage),
-  ("Mesh", Payloads.mesh),
+  ("Qwen 3 search tool call", Payloads.qwen3SearchToolCall),
+  ("Qwen 3 workspace edit tool call", Payloads.qwen3WorkspaceEditToolCall),
+  ("Qwen 3 structured response", Payloads.qwen3StructuredResponse),
+  ("Mesh", Payloads.mesh)
 ]
 
 // Mirrors each fast-layer real-world row through the convenience layer. The models deliberately
@@ -68,7 +72,25 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
 
 private func validateRealWorldModels() {
   // A model that silently stops matching turns a convenience benchmark into a discard benchmark.
-  // Validate the new roots once during registration, outside every measured region.
+  // Validate every root once during registration, outside every measured region.
+  let twitter = expectParses {
+    try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitterMatched.Partial.self)
+  }
+  precondition(twitter.statuses?.count == 100)
+  precondition(twitter.statuses?[0].user?.screen_name == "ayuu0123")
+  let citm = expectParses {
+    try streamBulkDiscarding(Payloads.citmCatalog, as: BenchmarkCITM.Partial.self)
+  }
+  precondition(citm.areaNames?.count == 17)
+  precondition(citm.seatCategoryNames?.count == 64)
+  precondition(citm.events?.count == 184)
+  precondition(citm.performances?.count == 243)
+  let llm = expectParses {
+    try streamBulkDiscarding(Payloads.llmMessage, as: BenchmarkLLMMessage.Partial.self)
+  }
+  precondition(llm.content?.count == 636)
+  precondition(llm.content?.lazy.filter { $0.type == "tool_use" }.count == 90)
+  precondition(llm.stop_reason == "end_turn")
   let canada = expectParses {
     try streamBulkDiscarding(Payloads.canada, as: BenchmarkCanada.Partial.self)
   }
@@ -86,7 +108,8 @@ private func validateRealWorldModels() {
   precondition(hintedCanada.features?[0].geometry?.coordinates?.count == 480)
   let gsoc = expectParses {
     try streamBulkDiscarding(
-      Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
+      Payloads.gsoc2018,
+      as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
     )
   }
   precondition(gsoc.count == 1_264)
@@ -97,7 +120,8 @@ private func validateRealWorldModels() {
   precondition(longDescriptions.count == 1_236)
   let hintedGSoC = expectParses {
     try streamBulkDiscarding(
-      Payloads.gsoc2018, as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
+      Payloads.gsoc2018,
+      as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
     )
   }
   precondition(hintedGSoC.count == 1_264)
@@ -124,11 +148,38 @@ private func validateRealWorldModels() {
   precondition(hintedMesh.batches?.count == 1)
   let github = expectParses {
     try streamBulkDiscarding(
-      Payloads.githubEvents, as: StreamArray<BenchmarkGitHubEvent.Partial>.self
+      Payloads.githubEvents,
+      as: StreamArray<BenchmarkGitHubEvent.Partial>.self
     )
   }
   precondition(github.count == 30)
   precondition(github[0].actor?.login?.isEmpty == false)
+  let qwenSearch = expectParses {
+    try streamBulkDiscarding(
+      Payloads.qwen3SearchToolCall,
+      as: BenchmarkQwen3ToolCall.Partial.self
+    )
+  }
+  precondition(qwenSearch.name == "search_code")
+  precondition(qwenSearch.arguments?.include?.count == 12)
+  precondition(qwenSearch.arguments?.context?.languages?.count == 4)
+  let qwenEdit = expectParses {
+    try streamBulkDiscarding(
+      Payloads.qwen3WorkspaceEditToolCall,
+      as: BenchmarkQwen3ToolCall.Partial.self
+    )
+  }
+  precondition(qwenEdit.name == "apply_workspace_edits")
+  precondition(qwenEdit.arguments?.edits?.count == 96)
+  precondition(qwenEdit.arguments?.edits?[0].replacement?.isEmpty == false)
+  let qwenStructured = expectParses {
+    try streamBulkDiscarding(
+      Payloads.qwen3StructuredResponse,
+      as: BenchmarkQwen3StructuredResponse.Partial.self
+    )
+  }
+  precondition(qwenStructured.findings?.count == 36)
+  precondition(qwenStructured.recommendation?.steps?.count == 5)
 }
 
 private func addRealWorldFastRows() {
@@ -149,7 +200,7 @@ private func addRealWorldFastRows() {
 
   // Byte by byte on the two documents whose content is hardest for the resume path — every
   // non-ASCII byte in `twitterescaped` arrives as a six byte `\u` escape — rather than on all
-  // seven, where it would measure the same per-byte state machine seven times.
+  // payload, where it would measure the same per-byte state machine repeatedly.
   for (name, payload) in [
     ("Twitter escaped", Payloads.twitterEscaped),
     ("LLM message", Payloads.llmMessage)
@@ -169,39 +220,74 @@ private func addAllRealWorldConvenienceRows() {
 
 private func addRealWorldBaselineConvenienceRows() {
   addRealWorldConvenienceRows(
-    "Twitter", payload: Payloads.twitter, as: BenchmarkTwitterMatched.Partial.self
+    "Twitter",
+    payload: Payloads.twitter,
+    as: BenchmarkTwitterMatched.Partial.self
   )
   addRealWorldConvenienceRows(
-    "Twitter escaped", payload: Payloads.twitterEscaped,
-    as: BenchmarkTwitterMatched.Partial.self, includeByteByByte: true
+    "Twitter escaped",
+    payload: Payloads.twitterEscaped,
+    as: BenchmarkTwitterMatched.Partial.self,
+    includeByteByByte: true
   )
   addRealWorldConvenienceRows(
-    "Canada", payload: Payloads.canada, as: BenchmarkCanada.Partial.self
+    "Canada",
+    payload: Payloads.canada,
+    as: BenchmarkCanada.Partial.self
   )
   addRealWorldConvenienceRows(
-    "Canada dynamic coordinates", payload: Payloads.canada,
+    "Canada dynamic coordinates",
+    payload: Payloads.canada,
     as: BenchmarkCanadaDynamic.Partial.self
   )
   addRealWorldConvenienceRows(
-    "CITM catalog", payload: Payloads.citmCatalog, as: BenchmarkCITM.Partial.self
+    "CITM catalog",
+    payload: Payloads.citmCatalog,
+    as: BenchmarkCITM.Partial.self
   )
   addRealWorldConvenienceRows(
-    "GSoC 2018", payload: Payloads.gsoc2018,
+    "GSoC 2018",
+    payload: Payloads.gsoc2018,
     as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
   )
   addRealWorldConvenienceRows(
-    "GitHub events", payload: Payloads.githubEvents,
+    "GitHub events",
+    payload: Payloads.githubEvents,
     as: StreamArray<BenchmarkGitHubEvent.Partial>.self
   )
   addRealWorldConvenienceRows(
-    "LLM message", payload: Payloads.llmMessage,
-    as: BenchmarkLLMMessage.Partial.self, includeByteByByte: true
+    "LLM message",
+    payload: Payloads.llmMessage,
+    as: BenchmarkLLMMessage.Partial.self,
+    includeByteByByte: true
   )
   addRealWorldConvenienceRows(
-    "Mesh", payload: Payloads.mesh, as: BenchmarkMesh.Partial.self
+    "Qwen 3 search tool call",
+    payload: Payloads.qwen3SearchToolCall,
+    as: BenchmarkQwen3ToolCall.Partial.self,
+    includeByteByByte: true
   )
   addRealWorldConvenienceRows(
-    "Mesh dynamic influences", payload: Payloads.mesh, as: BenchmarkMeshDynamic.Partial.self
+    "Qwen 3 workspace edit tool call",
+    payload: Payloads.qwen3WorkspaceEditToolCall,
+    as: BenchmarkQwen3ToolCall.Partial.self,
+    includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Qwen 3 structured response",
+    payload: Payloads.qwen3StructuredResponse,
+    as: BenchmarkQwen3StructuredResponse.Partial.self,
+    includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Mesh",
+    payload: Payloads.mesh,
+    as: BenchmarkMesh.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "Mesh dynamic influences",
+    payload: Payloads.mesh,
+    as: BenchmarkMeshDynamic.Partial.self
   )
 }
 
@@ -212,12 +298,15 @@ private func addRealWorldCapacityConvenienceRows() {
     as: BenchmarkCanadaCapacityHint.Partial.self
   )
   addRealWorldConvenienceRows(
-    "GSoC 2018 string capacity hint", payload: Payloads.gsoc2018,
+    "GSoC 2018 string capacity hint",
+    payload: Payloads.gsoc2018,
     as: StreamDictionary<BenchmarkGSoCProjectStringCapacity.Partial>.self
   )
   addRealWorldConvenienceRows(
-    "LLM message string capacity hint", payload: Payloads.llmMessage,
-    as: BenchmarkLLMMessageStringCapacity.Partial.self, includeByteByByte: true
+    "LLM message string capacity hint",
+    payload: Payloads.llmMessage,
+    as: BenchmarkLLMMessageStringCapacity.Partial.self,
+    includeByteByByte: true
   )
   addRealWorldConvenienceRows(
     "Mesh capacity hint",
@@ -305,27 +394,9 @@ private func addRealWorldStringCapacityViewRows(for chunk: Int) {
   }
 }
 
-private func addUnmatchedTwitterRow() {
-  // Keep the old mismatched model as an explicit diagnostic. The parity row above uses the model
-  // whose snake_case fields actually match the payload.
-  Benchmark(
-    "Real Twitter - bulk discarding, unmatched keys",
-    configuration: payloadConfiguration
-  ) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.twitter) {
-      blackHole(
-        expectParses {
-          try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitter.Partial.self)
-        }
-      )
-    }
-  }
-}
-
 func realWorldBenchmarks() {
   validateRealWorldModels()
   addRealWorldFastRows()
   addAllRealWorldConvenienceRows()
   addRealWorldViewRows()
-  addUnmatchedTwitterRow()
 }
