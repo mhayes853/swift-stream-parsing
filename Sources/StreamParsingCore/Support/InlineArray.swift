@@ -33,6 +33,24 @@ extension InlineArray: StreamParseable where Element: StreamParseable {
       self[index].streamPartialValue
     }
   }
+
+  // The element initializer cannot decline, so the strict conversion is checked first and built
+  // second. Two passes over a fixed, usually small arity, on a path that runs once per finished
+  // value rather than per byte.
+  public init?(streamPartial: Partial) {
+    for index in 0..<count where Element(streamPartial: streamPartial[index]) == nil {
+      return nil
+    }
+    self.init { index in
+      Element(streamPartial: streamPartial[index]).unsafelyUnwrapped
+    }
+  }
+
+  public static func streamValueOrInitial(from partial: Partial) -> Self {
+    Self { index in
+      Element.streamValueOrInitial(from: partial[index])
+    }
+  }
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)

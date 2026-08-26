@@ -62,6 +62,16 @@
     public var streamPartialValue: Tagged<Tag, RawValue.Partial> {
       Tagged<Tag, RawValue.Partial>(rawValue: self.rawValue.streamPartialValue)
     }
+
+    // Structure preserving in both directions, so both conversions are the raw value's, rewrapped.
+    public init?(streamPartial: Tagged<Tag, RawValue.Partial>) {
+      guard let rawValue = RawValue(streamPartial: streamPartial.rawValue) else { return nil }
+      self.init(rawValue: rawValue)
+    }
+
+    public static func streamValueOrInitial(from partial: Tagged<Tag, RawValue.Partial>) -> Self {
+      Tagged(rawValue: RawValue.streamValueOrInitial(from: partial.rawValue))
+    }
   }
 
 #endif

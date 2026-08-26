@@ -98,6 +98,64 @@ func parse(
   return sink
 }
 
+// MARK: - Partial to whole
+
+// `_streamValue` and `_streamValueOrInitial` take a closure whose only job is to bind the
+// destination type from the property being filled. A `KeyPath` would have done the same and would
+// have compiled fine on Darwin, then failed to lower here — which is the entire reason this target
+// exists. These two types are written the way the macro writes them, minus the schema boilerplate:
+// `Optional` is already a `StreamParseableRoot`, so a partial can be one without a hand written
+// schema, and the conversion code under test is identical either way.
+
+struct Reading {
+  var meters: Int
+}
+
+extension Reading: StreamParseable {
+  typealias Partial = Int?
+
+  var streamPartialValue: Partial { self.meters }
+
+  init?(streamPartial partial: Partial) {
+    guard let meters = Self._streamValue({ $0.meters }, partial) else { return nil }
+    self.meters = meters
+  }
+
+  init(orInitial partial: Partial) {
+    self.meters = Self._streamValueOrInitial({ $0.meters }, partial)
+  }
+
+  static func streamValueOrInitial(from partial: Partial) -> Reading {
+    Reading(orInitial: partial)
+  }
+}
+
+// One level of nesting, so the recursion through `Optional`'s conformance and the promotion that
+// lets one signature serve a member the mode wrapped and one the user declared optional are both
+// lowered rather than only reasoned about.
+struct Nested {
+  var inner: Reading?
+}
+
+extension Nested: StreamParseable {
+  typealias Partial = Reading.Partial?
+
+  var streamPartialValue: Partial { self.inner.streamPartialValue }
+
+  init?(streamPartial partial: Partial) {
+    guard let inner = Self._streamValue({ $0.inner }, partial) else { return nil }
+    self.inner = inner
+  }
+
+  init(orInitial partial: Partial) {
+    self.inner = Self._streamValueOrInitial({ $0.inner }, partial)
+  }
+
+  static func streamValueOrInitial(from partial: Partial) -> Nested {
+    Nested(orInitial: partial)
+  }
+}
+
 @main
 struct EmbeddedSmoke {
   static func main() {
@@ -142,6 +200,18 @@ struct EmbeddedSmoke {
       // String from an arbitrary key span.
       let dictionary = StreamDictionary<Int>()
       precondition(dictionary.isEmpty)
+
+      // The partial to whole conversions, both directions of strictness.
+      precondition(Reading(streamPartial: 12)?.meters == 12)
+      precondition(Reading(streamPartial: nil)?.meters == nil)
+      precondition(Reading(orInitial: nil).meters == 0)
+      precondition(Reading(orInitial: 12).meters == 12)
+
+      // Absent nests to nil and converts; present but undescribable declines; or-initial fills.
+      precondition(Nested(streamPartial: .some(nil))?.inner?.meters == nil)
+      precondition(Nested(streamPartial: .some(.some(3)))?.inner?.meters == 3)
+      precondition(Nested(streamPartial: .some(.none))?.inner?.meters == nil)
+      precondition(Nested(orInitial: nil).inner?.meters == nil)
 
       // A malformed document has to be rejected here too, not just on Darwin.
       var rejected = false

@@ -37,12 +37,22 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl)
     let accessModifier = Self.accessModifier(for: structDecl)
     let membersMode = Self.partialMembersMode(from: node)
+    let conversionMembers = Self.conversionMembers(
+      from: properties,
+      modifierPrefix: Self.modifierPrefix(for: accessModifier),
+      membersMode: membersMode
+    )
 
+    // A hand written `Partial` still gets the conversions, on the same terms as
+    // `streamPartialValue`: they are written from the stored properties, so a `Partial` that
+    // mirrors them works and one that does not says so where it differs.
     if hasExistingPartial {
       return [
         try ExtensionDeclSyntax(
           """
-          extension \(raw: typeName): StreamParsingCore.StreamParseable {}
+          extension \(raw: typeName): StreamParsingCore.StreamParseable {
+            \(raw: conversionMembers)
+          }
           """
         )
       ]
@@ -59,6 +69,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         """
         extension \(raw: typeName): StreamParsingCore.StreamParseable {
           \(partialStruct)
+
+          \(raw: conversionMembers)
         }
         """
       )
@@ -611,6 +623,92 @@ extension StreamParseableMacro {
       """
   }
 
+  // MARK: - Partial to whole
+
+  // The inverse direction, emitted into the extension rather than the member block. An
+  // initializer declared in the type body suppresses the compiler's memberwise initializer; one
+  // declared in an extension does not, and can still assign stored properties directly.
+  //
+  // Nothing here spells a member's type. Each conversion goes through `_streamValue` /
+  // `_streamValueOrInitial`, whose first argument binds the destination type from the property
+  // itself — so the type the macro derived for `Partial` is checked against the one the compiler
+  // derives, instead of being derived a second time and trusted.
+  private static func conversionMembers(
+    from properties: [StoredProperty],
+    modifierPrefix: String,
+    membersMode: PartialMembersMode
+  ) -> String {
+    let active = properties.filter { !$0.isIgnored }
+    // An ignored property is absent from `Partial`, so a generated initializer has nothing to
+    // fill it from. One that initializes itself is already set; the rest are optional, because
+    // `storedProperty(from:...)` refuses to accept any other kind.
+    let ignoredLines =
+      properties
+      .filter { $0.isIgnored && !$0.hasDefaultValue }
+      .map { "    self.\($0.name) = nil" }
+
+    func assignments(_ helper: String) -> String {
+      let lines =
+        active.map { "    self.\($0.name) = Self.\(helper)({ $0.\($0.name) }, partial.\($0.name))" }
+        + ignoredLines
+      return lines.joined(separator: "\n")
+    }
+
+    let strictBody: String
+    if active.isEmpty {
+      strictBody = ignoredLines.joined(separator: "\n")
+    } else {
+      let bindings =
+        active
+        .map { "      let \($0.name) = Self._streamValue({ $0.\($0.name) }, partial.\($0.name))" }
+        .joined(separator: ",\n")
+      let stores = (active.map { "    self.\($0.name) = \($0.name)" } + ignoredLines)
+        .joined(separator: "\n")
+      strictBody = """
+            guard
+        \(bindings)
+            else {
+              return nil
+            }
+        \(stores)
+        """
+    }
+
+    // The unlabelled initializer is the one the mode names. With optional members absence is
+    // visible, so it is the strict conversion and it can decline; with members that start at
+    // their initial values absence is not expressible, so it is the total one and cannot.
+    let decliningInit = """
+      \(modifierPrefix)init?(_ partial: Partial) {
+          self.init(streamPartial: partial)
+        }
+      """
+    let totalInit = """
+      \(modifierPrefix)init(_ partial: Partial) {
+          self.init(orInitial: partial)
+        }
+      """
+    let unlabelled = membersMode.shouldEmitOptionalMembers ? decliningInit : totalInit
+
+    return """
+      \(unlabelled)
+
+        /// Fails when the stream did not produce a member this type has no way to do without.
+        \(modifierPrefix)init?(streamPartial partial: Partial) {
+      \(strictBody)
+        }
+
+        /// Fills members the stream did not produce with their initial values, keeping the ones
+        /// it did.
+        \(modifierPrefix)init(orInitial partial: Partial) {
+      \(assignments("_streamValueOrInitial"))
+        }
+
+        \(modifierPrefix)static func streamValueOrInitial(from partial: Partial) -> Self {
+          Self(orInitial: partial)
+        }
+      """
+  }
+
   private static func accessModifier(for declaration: StructDeclSyntax) -> String? {
     for modifier in declaration.modifiers {
       switch modifier.name.tokenKind {
@@ -648,6 +746,9 @@ extension StreamParseableMacro {
     let keyNames: [String]
     let initialCapacity: Int?
     let isIgnored: Bool
+    // Whether the declaration supplies its own value. A generated initializer must leave such a
+    // property alone: it is already initialized, and if it is a `let` it cannot be assigned twice.
+    let hasDefaultValue: Bool
   }
 
   private struct KeyNamesResult {
@@ -704,6 +805,7 @@ extension StreamParseableMacro {
           from: variableDecl,
           propertyName: identifierPattern.identifier.text,
           type: type,
+          hasDefaultValue: binding.initializer != nil,
           context: context
         )
       )
@@ -715,6 +817,7 @@ extension StreamParseableMacro {
     from variableDecl: VariableDeclSyntax,
     propertyName: String,
     type: TypeSyntax,
+    hasDefaultValue: Bool,
     context: some MacroExpansionContext
   ) -> StoredProperty {
     let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
@@ -740,12 +843,38 @@ extension StreamParseableMacro {
     for diagnostic in capacityInfo.diagnostics {
       context.diagnose(diagnostic)
     }
+    if isIgnored, !hasDefaultValue, !Self.isOptional(type) {
+      Self.diagnoseUnsettableIgnoredMember(
+        in: variableDecl,
+        propertyName: propertyName,
+        context: context
+      )
+    }
     return StoredProperty(
       name: propertyName,
       type: type,
       keyNames: keyInfo.names,
       initialCapacity: capacityInfo.value,
-      isIgnored: isIgnored
+      isIgnored: isIgnored,
+      hasDefaultValue: hasDefaultValue
+    )
+  }
+
+  private static func diagnoseUnsettableIgnoredMember(
+    in variableDecl: VariableDeclSyntax,
+    propertyName: String,
+    context: some MacroExpansionContext
+  ) {
+    context.diagnose(
+      Diagnostic(
+        node: variableDecl,
+        message: MacroExpansionErrorMessage(
+          """
+          Ignored property '\(propertyName)' must be optional or have a default value. \
+          It is absent from 'Partial', so the generated initializer has nothing to set it from.
+          """
+        )
+      )
     )
   }
 

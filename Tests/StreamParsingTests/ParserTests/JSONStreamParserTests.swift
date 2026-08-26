@@ -1642,6 +1642,14 @@ struct RawNumbers: RawRepresentable, Hashable, Sendable {
   }
 }
 
+// A `RawRepresentable` whose initializer can decline has no total conversion of its own, so it
+// names the value it would rather fall back to. This is the migration for the `streamValueOrInitial`
+// requirement: `Partial == Self` and `StreamInitializable` conformers get it for free, and a
+// failable `RawRepresentable` is the case that has to say what it wants.
+extension RawNumbers: StreamInitializable {
+  static func streamInitialValue() -> RawNumbers { RawNumbers(rawValue: [])! }
+}
+
 extension RawNumbers: StreamParseable {
   typealias Partial = RawValue.Partial
 }

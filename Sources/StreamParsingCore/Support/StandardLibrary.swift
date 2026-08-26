@@ -129,6 +129,17 @@ extension String: StreamParseable {
   public var streamPartialValue: StreamString {
     StreamString(self)
   }
+
+  // A string is complete at every byte boundary, so neither direction can fail and the two
+  // conversions coincide. Both are spelled out because `String` is `StreamInitializable`, and
+  // the blanket fallback would decode the accumulated bytes twice to reach the same answer.
+  public init?(streamPartial: StreamString) {
+    self.init(streamPartial)
+  }
+
+  public static func streamValueOrInitial(from partial: StreamString) -> String {
+    String(partial)
+  }
 }
 
 // MARK: - Double
@@ -231,6 +242,28 @@ extension Array: StreamParseable where Element: StreamParseable {
   public var streamPartialValue: StreamArray<Element.Partial> {
     StreamArray(self.lazy.map(\.streamPartialValue))
   }
+
+  // An element that cannot be described fails the array, rather than being dropped from it:
+  // a shorter array is a wrong answer that reads like a right one.
+  public init?(streamPartial: StreamArray<Element.Partial>) {
+    self.init()
+    self.reserveCapacity(streamPartial.count)
+    for element in streamPartial {
+      guard let value = Element(streamPartial: element) else { return nil }
+      self.append(value)
+    }
+  }
+
+  // Member-wise, not the blanket fallback: `Array` is `StreamInitializable`, and taking that
+  // default would answer `[]` for an array whose last element alone was short.
+  public static func streamValueOrInitial(from partial: StreamArray<Element.Partial>) -> Self {
+    var result = Self()
+    result.reserveCapacity(partial.count)
+    for element in partial {
+      result.append(Element.streamValueOrInitial(from: element))
+    }
+    return result
+  }
 }
 
 // MARK: - Dictionary
@@ -248,6 +281,23 @@ extension Dictionary: StreamParseable where Key == String, Value: StreamParseabl
     }
     return partial
   }
+
+  public init?(streamPartial: StreamDictionary<Value.Partial>) {
+    self.init(minimumCapacity: streamPartial.count)
+    for (key, value) in streamPartial {
+      guard let value = Value(streamPartial: value) else { return nil }
+      self[key] = value
+    }
+  }
+
+  // Member-wise for the same reason as `Array`: the blanket fallback would answer `[:]`.
+  public static func streamValueOrInitial(from partial: StreamDictionary<Value.Partial>) -> Self {
+    var result = Self(minimumCapacity: partial.count)
+    for (key, value) in partial {
+      result[key] = Value.streamValueOrInitial(from: value)
+    }
+    return result
+  }
 }
 
 // MARK: - Optional
@@ -260,6 +310,25 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
     case .none: nil
     case .some(let wrapped): wrapped.streamPartialValue
     }
+  }
+
+  // The one place absence and incompleteness are told apart. A member the stream never produced
+  // is `nil`, which an optional destination can represent, so the conversion succeeds. A member
+  // it produced but left half formed cannot be represented as either the value or its absence,
+  // so it fails — silently nulling `user` because its `id` never arrived would report a document
+  // that omitted the user and one that truncated inside it as the same thing.
+  public init?(streamPartial: Wrapped.Partial?) {
+    switch streamPartial {
+    case .none:
+      self = .none
+    case .some(let partial):
+      guard let value = Wrapped(streamPartial: partial) else { return nil }
+      self = .some(value)
+    }
+  }
+
+  public static func streamValueOrInitial(from partial: Wrapped.Partial?) -> Self {
+    partial.map(Wrapped.streamValueOrInitial(from:))
   }
 }
 

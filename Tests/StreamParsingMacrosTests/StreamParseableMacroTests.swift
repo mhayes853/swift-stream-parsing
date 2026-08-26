@@ -183,6 +183,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -367,6 +400,39 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -661,6 +727,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -927,6 +1026,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init(_ partial: Partial) {
+            self.init(orInitial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -1111,6 +1243,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init(_ partial: Partial) {
+            self.init(orInitial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -1266,6 +1431,33 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -1427,6 +1619,33 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let stored = Self._streamValue({ $0.stored
+              }, partial.stored)
+            else {
+              return nil
+            }
+            self.stored = stored
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.stored = Self._streamValueOrInitial({
+                $0.stored
+              }, partial.stored)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -1443,150 +1662,18 @@ extension BaseTestSuite {
           var age: Int
         }
         """
-      } expansion: {
+      } diagnostics: {
         """
+        @StreamParseable
         struct Person {
           var name: String
+          @StreamParseableIgnored
+          ├─ 🛑 Ignored property 'age' must be optional or have a default value. It is absent from 'Partial', so the generated initializer has nothing to set it from.
+          ╰─ 🛑 Ignored property 'age' must be optional or have a default value. It is absent from 'Partial', so the generated initializer has nothing to set it from.
           var age: Int
-
-          var streamPartialValue: Partial {
-            Partial(
-              name: self.name.streamPartialValue
-            )
-          }
-        }
-
-        extension Person: StreamParsingCore.StreamParseable {
-          struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
-            typealias Partial = Self
-
-            var name: String.Partial?
-
-            init(
-              name: String.Partial? = nil
-            ) {
-              self.name = name
-            }
-
-            static func streamInitialValue() -> Self {
-              Self()
-            }
-
-            struct View: ~Copyable, ~Escapable {
-              let storage: UnsafeMutablePointer<Partial>
-
-              @_lifetime(borrow storage)
-              init(_ storage: UnsafeMutableRawPointer) {
-                self.storage = storage.assumingMemoryBound(to: Partial.self)
-              }
-
-            var name: String.Partial.View? {
-                @_lifetime(borrow self)
-                get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.name) else {
-                    return nil
-                  }
-                  return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
-                }
-              }
-            }
-
-            @_lifetime(borrow storage)
-            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
-              View(storage)
-            }
-
-            private enum StreamField {
-              static let name: Int32 = 0
-            }
-
-            private static let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-
-            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-              switch key.paddedLeadingWord() {
-              case 0x0000_0000_656D_616E where key.count == 4:
-                return Self.StreamField.name
-              default:
-                return -1
-              }
-            }
-
-            static func streamApplyString(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32,
-              _ bytes: Span<UInt8>
-            ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return streamApply(&p.pointee.name, utf8: bytes)
-              default:
-                return .unsupported
-              }
-            }
-
-            static func streamApplyNumber(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32,
-              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-            ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return streamApply(&p.pointee.name, bytes: bytes, info: info)
-              default:
-                return .unsupported
-              }
-            }
-
-            static func streamApplyBoolean(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
-            ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return streamApply(&p.pointee.name, boolean: value)
-              default:
-                return .unsupported
-              }
-            }
-
-            static func streamApplyNull(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return StreamParsing.streamApplyNull(&p.pointee.name)
-              default:
-                return .unsupported
-              }
-            }
-
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              default:
-                return nil
-              }
-            }
-
-            static let streamSchema = StreamParsingCore.StreamSchema(
-              shape: .object,
-              matchField: Self.streamMatchField,
-              applyString: Self.streamApplyString,
-              applyNumber: Self.streamApplyNumber,
-              applyBoolean: Self.streamApplyBoolean,
-              applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField
-            )
-          }
         }
         """
-      }
+      } 
     }
 
     @Test
@@ -1607,7 +1694,9 @@ extension BaseTestSuite {
           @StreamParseableMember(key: "name")
           ┬──────────────────────────────────
           ├─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
-          ╰─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          ├─ 🛑 Ignored property 'name' must be optional or have a default value. It is absent from 'Partial', so the generated initializer has nothing to set it from.
+          ├─ 🛑 @StreamParseableMember and @StreamParseableIgnored cannot be applied to the same property.
+          ╰─ 🛑 Ignored property 'name' must be optional or have a default value. It is absent from 'Partial', so the generated initializer has nothing to set it from.
           @StreamParseableIgnored
           var name: String
         }
@@ -1765,6 +1854,33 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let stored = Self._streamValue({ $0.stored
+              }, partial.stored)
+            else {
+              return nil
+            }
+            self.stored = stored
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.stored = Self._streamValueOrInitial({
+                $0.stored
+              }, partial.stored)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -1950,6 +2066,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -2076,6 +2225,38 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -2267,6 +2448,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -2451,6 +2665,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          public init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          public init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          public init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          public static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -2631,6 +2878,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -2810,6 +3090,39 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          fileprivate init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          fileprivate init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          fileprivate init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          fileprivate static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -2995,6 +3308,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          public init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          public init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          public init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          public static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -3178,6 +3524,39 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          public init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          public init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          public init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          public static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -3367,6 +3746,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -3550,6 +3962,39 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """
@@ -3735,6 +4180,39 @@ extension BaseTestSuite {
               enterField: Self.streamEnterField
             )
           }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let name = Self._streamValue({ $0.name
+              }, partial.name),
+              let age = Self._streamValue({ $0.age
+              }, partial.age)
+            else {
+              return nil
+            }
+            self.name = name
+            self.age = age
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.name = Self._streamValueOrInitial({
+                $0.name
+              }, partial.name)
+            self.age = Self._streamValueOrInitial({
+                $0.age
+              }, partial.age)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
         }
         """
       }
@@ -3902,6 +4380,39 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               enterField: Self.streamEnterField
             )
+          }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails when the stream did not produce a member this type has no way to do without.
+          init?(streamPartial partial: Partial) {
+            guard
+              let items = Self._streamValue({ $0.items
+              }, partial.items),
+              let index = Self._streamValue({ $0.index
+              }, partial.index)
+            else {
+              return nil
+            }
+            self.items = items
+            self.index = index
+          }
+
+          /// Fills members the stream did not produce with their initial values, keeping the ones
+          /// it did.
+          init(orInitial partial: Partial) {
+            self.items = Self._streamValueOrInitial({
+                $0.items
+              }, partial.items)
+            self.index = Self._streamValueOrInitial({
+                $0.index
+              }, partial.index)
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
           }
         }
         """#
