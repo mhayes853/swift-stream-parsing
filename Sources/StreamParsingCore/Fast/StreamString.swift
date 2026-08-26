@@ -12,16 +12,17 @@
 // allocation. Once the inline buffer overflows, storage takes `StreamArray`'s shape for the same
 // snapshot reasons:
 //
-// - **Sealed bytes live in fixed size blocks.** Once a block fills it is never written again, so
-//   a snapshot shares it forever and an append after a snapshot copies at most the tail, not the
-//   accumulated string.
+// - **Sealed bytes live in fixed size blocks.** A reservation made before promotion can privately
+//   select a larger power-of-two block, but that size is fixed for the accumulator's lifetime.
+//   Once a block fills it is never written again, so a snapshot shares it forever and an append
+//   after a snapshot copies at most the tail, not the accumulated string.
 // - **Blocks are `ContiguousArray` rather than a class wrapping one.** A single refcounted
 //   pointer each, copy on write for the shared tail comes for free, and every stored property
 //   stays a value type, which is what lets `Sendable` be checked rather than asserted.
 //
-// The blocked layout is canonical: a block seals exactly when it fills, so where the block
-// boundaries fall is a function of the byte count alone. Two equal values therefore pair up one
-// contiguous window at a time whether they are inline or blocked.
+// Physical layout can differ between hinted and unhinted values. Every physical block is a
+// power-of-two multiple of 512, so reads, equality, ordering and hashing retain canonical
+// 512-byte logical windows across layouts.
 public struct StreamString {
   @usableFromInline
   struct InlineBuffer: Hashable, Sendable {
@@ -41,10 +42,12 @@ public struct StreamString {
   // Kept directly in the value. A copied short string copies these bytes, so snapshots need no
   // reference counting and a short append needs no allocation.
   @usableFromInline var inlineBytes: InlineBuffer
-  @usableFromInline var inlineCount: Int
+  // The low byte is the inline count (0...64); the remaining bits hold the physical block shift.
+  // Packing the policy here keeps StreamString's value layout unchanged.
+  @usableFromInline var storageBits: Int
 
-  // Sealed and never written again. Every block holds exactly `blockCapacity` bytes, which keeps
-  // indexing a shift and a mask rather than a search over prefix sums.
+  // Sealed and never written again. Every block holds exactly `storageBlockCapacity` bytes, which
+  // keeps indexing a shift and a mask rather than a search over prefix sums.
   @usableFromInline var blocks: [ContiguousArray<UInt8>]
 
   // The filling block. The only allocated storage an append can touch, and so the most a
@@ -53,15 +56,28 @@ public struct StreamString {
 
   @usableFromInline static var inlineCapacity: Int { 64 }
 
-  // 512 bytes: big enough that a long string's spine stays short and its per block malloc
-  // amortizes, small enough that the copy a snapshot forces stays trivial.
+  // 512 bytes is both the unhinted physical size and the canonical logical window. A hint can
+  // raise the physical size as far as 8 KiB: large enough to collapse malloc traffic while
+  // bounding the tail a snapshot can force an append to copy.
   @usableFromInline static var blockShift: Int { 9 }
   @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
   @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
 
+  @usableFromInline static var maximumBlockShift: Int { 13 }
+
+  @usableFromInline
+  var inlineCount: Int {
+    get { self.storageBits & 0xFF }
+    set { self.storageBits = (self.storageBits & ~0xFF) | newValue }
+  }
+
+  @usableFromInline var storageBlockShift: Int { self.storageBits &>> 8 }
+  @usableFromInline var storageBlockCapacity: Int { 1 &<< self.storageBlockShift }
+  @usableFromInline var storageBlockMask: Int { self.storageBlockCapacity &- 1 }
+
   public init() {
     self.inlineBytes = InlineBuffer()
-    self.inlineCount = 0
+    self.storageBits = Self.blockShift &<< 8
     self.blocks = [ContiguousArray<UInt8>]()
     self.tail = ContiguousArray<UInt8>()
   }
@@ -73,7 +89,7 @@ public struct StreamString {
   }
 
   @usableFromInline var usesInlineStorage: Bool { self.blocks.isEmpty && self.tail.isEmpty }
-  @usableFromInline var sealedCount: Int { self.blocks.count &<< Self.blockShift }
+  @usableFromInline var sealedCount: Int { self.blocks.count &<< self.storageBlockShift }
 
   /// The number of UTF-8 bytes accumulated so far.
   @inlinable
@@ -93,8 +109,9 @@ public struct StreamString {
     if self.usesInlineStorage {
       let needed = self.inlineCount &+ buffer.count
       if needed <= Self.inlineCapacity {
+        let inlineCount = self.inlineCount
         withUnsafeMutableBytes(of: &self.inlineBytes) { destination in
-          destination.baseAddress!.advanced(by: self.inlineCount).copyMemory(
+          destination.baseAddress!.advanced(by: inlineCount).copyMemory(
             from: base, byteCount: buffer.count
           )
         }
@@ -109,9 +126,10 @@ public struct StreamString {
   @inlinable
   mutating func promoteInlineStorage(reserving capacity: Int) {
     let count = self.inlineCount
+    let blockCapacity = self.storageBlockCapacity
     let reservation = count == 0
-      ? min(capacity, Self.blockCapacity)
-      : Self.blockCapacity
+      ? min(capacity, blockCapacity)
+      : blockCapacity
     self.tail.reserveCapacity(reservation)
     if count > 0 {
       withUnsafeBytes(of: self.inlineBytes) { source in
@@ -128,16 +146,17 @@ public struct StreamString {
   @inlinable
   mutating func appendBlocked(_ buffer: UnsafeBufferPointer<UInt8>) {
     guard let base = buffer.baseAddress else { return }
+    let blockCapacity = self.storageBlockCapacity
     var offset = 0
     while offset < buffer.count {
-      let take = min(Self.blockCapacity &- self.tail.count, buffer.count &- offset)
+      let take = min(blockCapacity &- self.tail.count, buffer.count &- offset)
       let needed = self.tail.count &+ take
       if self.tail.capacity < needed {
-        self.tail.reserveCapacity(self.tail.isEmpty ? take : Self.blockCapacity)
+        self.tail.reserveCapacity(self.tail.isEmpty ? take : blockCapacity)
       }
       self.tail.append(contentsOf: UnsafeBufferPointer(start: base + offset, count: take))
       offset &+= take
-      guard self.tail.count == Self.blockCapacity else { continue }
+      guard self.tail.count == blockCapacity else { continue }
       self.blocks.append(self.tail)
       self.tail = ContiguousArray<UInt8>()
     }
@@ -169,12 +188,15 @@ public struct StreamString {
       return
     }
     let sealed = self.sealedCount
+    let blockShift = self.storageBlockShift
+    let blockCapacity = self.storageBlockCapacity
+    let blockMask = blockCapacity &- 1
     var written = 0
     var position = range.lowerBound
     while position < min(range.upperBound, sealed) {
-      let block = position &>> Self.blockShift
-      let start = position & Self.blockMask
-      let take = min(Self.blockCapacity &- start, range.upperBound &- position)
+      let block = position &>> blockShift
+      let start = position & blockMask
+      let take = min(blockCapacity &- start, range.upperBound &- position)
       self.blocks[block].withUnsafeBufferPointer { source in
         (base + written).initialize(from: source.baseAddress! + start, count: take)
       }
@@ -213,7 +235,9 @@ public struct StreamString {
         )
       }
     }
-    let firstBlock = range.lowerBound &>> Self.blockShift
+    let blockShift = self.storageBlockShift
+    let blockMask = self.storageBlockMask
+    let firstBlock = range.lowerBound &>> blockShift
     if range.lowerBound >= self.sealedCount {
       let start = range.lowerBound &- self.sealedCount
       let end = range.upperBound &- self.sealedCount
@@ -221,8 +245,8 @@ public struct StreamString {
         String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
       }
     }
-    if range.upperBound <= (firstBlock &+ 1) &<< Self.blockShift {
-      let start = range.lowerBound & Self.blockMask
+    if range.upperBound <= (firstBlock &+ 1) &<< blockShift {
+      let start = range.lowerBound & blockMask
       let end = start &+ range.count
       return self.blocks[firstBlock].withUnsafeBufferPointer { buffer in
         String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
@@ -248,7 +272,7 @@ extension StreamString {
     }
     let sealed = self.sealedCount
     if position < sealed {
-      return self.blocks[position &>> Self.blockShift][position & Self.blockMask]
+      return self.blocks[position &>> self.storageBlockShift][position & self.storageBlockMask]
     }
     let offset = position &- sealed
     precondition(offset < self.tail.count, "StreamString byte offset out of range")
@@ -269,10 +293,10 @@ extension StreamString {
     }
     let sealed = self.sealedCount
     if position < sealed {
-      return self.blocks[position &>> Self.blockShift].withUnsafeBufferPointer { buffer in
+      return self.blocks[position &>> self.storageBlockShift].withUnsafeBufferPointer { buffer in
         body(
           UnsafeBufferPointer(
-            start: buffer.baseAddress! + (position & Self.blockMask), count: count
+            start: buffer.baseAddress! + (position & self.storageBlockMask), count: count
           )
         )
       }
@@ -744,10 +768,14 @@ extension StreamString {
     guard utf8ByteCount > self.utf8Count else { return }
     if self.usesInlineStorage {
       guard utf8ByteCount > Self.inlineCapacity else { return }
+      let half = (utf8ByteCount &>> 1) &+ (utf8ByteCount & 1)
+      let desiredShift = Int.bitWidth &- (half &- 1).leadingZeroBitCount
+      let blockShift = min(max(desiredShift, Self.blockShift), Self.maximumBlockShift)
+      self.storageBits = (blockShift &<< 8) | self.inlineCount
       self.promoteInlineStorage(reserving: utf8ByteCount)
     }
-    self.tail.reserveCapacity(min(utf8ByteCount, Self.blockCapacity))
-    self.blocks.reserveCapacity(utf8ByteCount &>> Self.blockShift)
+    self.tail.reserveCapacity(min(utf8ByteCount, self.storageBlockCapacity))
+    self.blocks.reserveCapacity(utf8ByteCount &>> self.storageBlockShift)
   }
 
   /// Appends the UTF-8 bytes of `text`.
@@ -826,11 +854,16 @@ extension StreamString: Hashable {
       self.withInlineBuffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
       return
     }
-    // Deterministic across equal values because promoted storage has a canonical block layout.
-    for block in self.blocks {
-      block.withUnsafeBufferPointer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
+    // Physical blocks can adapt to a reservation hint. Hash through canonical 512-byte logical
+    // windows so equal hinted and unhinted values still make the same sequence of combines.
+    var position = 0
+    while position < self.utf8Count {
+      let take = min(Self.blockCapacity, self.utf8Count &- position)
+      self.withWindow(at: position, count: take) {
+        hasher.combine(bytes: UnsafeRawBufferPointer($0))
+      }
+      position &+= take
     }
-    self.tail.withUnsafeBufferPointer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
   }
 }
 
@@ -914,11 +947,15 @@ extension StreamString: StreamInitializable {
 }
 
 extension StreamString: StreamStringConvertible {
+  @discardableResult
   @inlinable
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
     bytes.withUnsafeBufferPointer { buffer in
       self.append(utf8: buffer)
     }
+    // Storage grows to fit, so there is no capacity to exceed. The constant result folds away
+    // once the schema closure specializes on `StreamString`.
+    return .applied
   }
 }
 

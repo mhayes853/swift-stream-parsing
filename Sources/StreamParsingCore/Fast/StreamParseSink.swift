@@ -35,12 +35,41 @@ public struct NumberInfo: Hashable, Sendable {
   }
 }
 
+// MARK: - StreamApplyResult
+
+// What a destination did with a token.
+//
+// A `Bool` carried this until bounded storage arrived: an inline string that is full has not
+// declined the *kind* of token, it has run out of room for it, and reporting the two as one
+// value made a capacity failure indistinguishable from a schema mismatch. Non-exhaustive so a
+// later kind of rejection -- a number outside a field's range is the obvious candidate -- can be
+// added without breaking clients that switch over this.
+//
+// Still one byte in a register, exactly as the `Bool` was. The raw values are load-bearing rather
+// than decorative: `applied` is zero so a check against it is a branch on zero, and the string
+// path folds a chunk's result into the value it already holds with `max` rather than a branch --
+// measured, because branching on this per chunk cost 8.7% of `Real Twitter - bulk discarding`.
+// Any ordering where `applied` is the minimum keeps that fold correct; a case added later can
+// take the next integer.
+@nonexhaustive
+public enum StreamApplyResult: UInt8, Hashable, Sendable {
+  /// The destination took the token.
+  case applied = 0
+  /// The destination cannot hold this kind of token at all.
+  case unsupported = 1
+  /// The destination holds this kind of token but has no room left for it.
+  case capacityExceeded = 2
+}
+
 // MARK: - StreamSinkFailure
 
 public struct StreamSinkFailure: Error, Hashable, Sendable {
   public enum Reason: Hashable, Sendable {
     case typeMismatch
     case depthExceeded
+    /// Bounded storage overflowed: an inline string past its capacity, or a fixed-size array
+    /// given more elements than it declares.
+    case capacityExceeded
   }
 
   public var reason: Reason
@@ -133,8 +162,15 @@ public struct StreamEventBatch: ~Escapable {
     }
   }
 
+  // `extra` is the record's last stored property and its alignment is the record's, so the last
+  // four bytes of a record are exactly `extra` and there is no trailing padding to skip.
+  // Computed this way rather than through `MemoryLayout.offset(of:)` because a key path does not
+  // compile under Embedded Swift; `StreamEventRecordLayoutTests` pins the two against each other
+  // where key paths are available.
   @usableFromInline
-  static var inlineBytesOffset: Int { MemoryLayout<StreamEventRecord>.offset(of: \.extra)! }
+  static var inlineBytesOffset: Int {
+    MemoryLayout<StreamEventRecord>.size &- MemoryLayout<UInt32>.size
+  }
 
   /// The bytes the event at `index` would have carried: a key, a string, a chunk, a number.
   @inlinable

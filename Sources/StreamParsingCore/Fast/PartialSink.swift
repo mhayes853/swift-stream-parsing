@@ -18,12 +18,17 @@ struct BorrowedFrame {
   @usableFromInline var storage: UnsafeMutableRawPointer
   @usableFromInline unowned(unsafe) var schema: StreamSchema
   @usableFromInline var pendingField: Int32
+  // Occupies padding the 24-byte frame already had. Copying the schema's precomputed byte when a
+  // container opens keeps ordinary object scalars from chasing cold leaf metadata merely to
+  // reject a fast route.
+  @usableFromInline var leafRoute: _StreamLeafRoute
 
   @usableFromInline
   init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
     self.storage = storage
     self.schema = schema
     self.pendingField = pendingField
+    self.leafRoute = .generic
   }
 
   @usableFromInline
@@ -31,6 +36,7 @@ struct BorrowedFrame {
     self.storage = frame.storage
     self.schema = frame.schema
     self.pendingField = frame.pendingField
+    self.leafRoute = .generic
   }
 }
 
@@ -107,7 +113,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var rootSchema: StreamSchema
   @usableFromInline var started = false
+  // Cached from the top frame in padding next to `started`, so the common scalar route tests a
+  // fixed byte rather than calling out to rediscover the top frame and its schema.
+  @usableFromInline var activeLeafRoute: _StreamLeafRoute = .generic
   @usableFromInline var pendingDictionaryFrame: BorrowedFrame?
+  @usableFromInline var pendingDictionaryStorage: UnsafeMutableRawPointer?
 
   // The frame stack, one fixed allocation rather than an `Array`.
   //
@@ -167,7 +177,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   @usableFromInline
-  mutating func pushFrame(_ frame: BorrowedFrame) {
+  mutating func pushFrame(_ initialFrame: BorrowedFrame) {
     #if DEBUG && !hasFeature(Embedded)
       self.audit.verify()
     #endif
@@ -176,8 +186,16 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.recordFailure(.depthExceeded)
       return
     }
+    var frame = initialFrame
+    frame.leafRoute = frame.schema.leafRoute
+    if frame.leafRoute.usesFrameElementIndex {
+      // Objects use this field for a matched member. A fixed-width array has no keys, so the same
+      // four bytes are its element cursor without increasing the 24-byte frame.
+      frame.pendingField = 0
+    }
     (self.frames + self.frameCount).initialize(to: frame)
     self.frameCount &+= 1
+    self.activeLeafRoute = frame.leafRoute
   }
 
   @usableFromInline
@@ -189,6 +207,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard self.frameCount > 0 else { return }
     self.frameCount &-= 1
     (self.frames + self.frameCount).deinitialize(count: 1)
+    self.activeLeafRoute = self.frameCount == 0
+      ? .generic
+      : (self.frames + (self.frameCount &- 1)).pointee.leafRoute
   }
 
   // MARK: Containers
@@ -198,6 +219,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   mutating func beginArray() {
+    switch self.activeLeafRoute {
+    case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
+      .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
+      self.openKnownSIMDDoubleElement(self.activeLeafRoute)
+      return
+    default:
+      break
+    }
     self.enterContainer(shape: .array)
   }
 
@@ -206,6 +235,18 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   mutating func endArray() {
+    if self.droppedFrameCount == 0 {
+      let expected: Int32
+      if self.activeLeafRoute == .inlineArray {
+        expected = self.topFrame?.pointee.schema.fixedElementCount ?? -1
+      } else {
+        let lanes = self.activeLeafRoute.fixedSIMDLaneCount
+        expected = lanes == 0 ? -1 : lanes
+      }
+      if expected >= 0, self.topFrame?.pointee.pendingField != expected {
+        self.recordFailure(.typeMismatch)
+      }
+    }
     self.popFrame()
   }
 
@@ -241,7 +282,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     switch top.pointee.schema.shape {
     case .array: return true
     case .object: return top.pointee.pendingField >= 0
-    case .dictionary: return self.pendingDictionaryFrame != nil
+    case .dictionary:
+      return self.pendingDictionaryStorage != nil || self.pendingDictionaryFrame != nil
     case .scalar: return true
     }
   }
@@ -254,7 +296,20 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard let top = self.topFrame else { return nil }
     switch top.pointee.schema.shape {
     case .array:
-      guard let frame = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
+      let indexed = top.pointee.leafRoute == .inlineArray
+      let index = indexed ? top.pointee.pendingField : -1
+      if indexed, index >= top.pointee.schema.fixedElementCount {
+        // More elements than the fixed array declares: bounded storage overflowing, the same
+        // failure an inline string reports when a value outruns its capacity. An array that
+        // closes *short* of its arity is still a mismatch, checked in `endArray`.
+        self.recordFailure(.capacityExceeded)
+        return nil
+      }
+      guard let frame = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+        if indexed { self.recordFailure(.capacityExceeded) }
+        return nil
+      }
+      if indexed { top.pointee.pendingField = index &+ 1 }
       return self.borrow(frame)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
@@ -288,6 +343,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     case .match:
       top.pointee.pendingField = top.pointee.schema.matchField(bytes)
     case .dictionary:
+      switch self.activeLeafRoute {
+      case .dictionaryStreamString, .dictionaryOptionalStreamString,
+        .dictionaryBool, .dictionaryOptionalBool:
+        self.pendingDictionaryStorage = self.openKnownDictionaryValue(
+          top.pointee.storage, route: self.activeLeafRoute, forKey: bytes
+        )
+        self.pendingDictionaryFrame = nil
+        return
+      default:
+        break
+      }
       // The key span does not outlive this call, so the value's frame is resolved now rather
       // than remembered and resolved when the value arrives.
       self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
@@ -300,51 +366,178 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // MARK: Scalars
 
   mutating func stringBegin() {
+    switch self.activeLeafRoute {
+    case .arrayStreamString, .arrayOptionalStreamString,
+      .dictionaryStreamString, .dictionaryOptionalStreamString:
+      self.homogeneousStringStorage = self.openKnownStreamStringTarget(self.activeLeafRoute)
+      self.scalarTarget = nil
+      return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.scalarTarget = nil
+      self.recordFailure(.typeMismatch)
+      return
+    default:
+      break
+    }
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
-    let applied = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+    let result = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
       let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
       return target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
     }
-    if !applied {
+    if result != .applied {
       self.scalarTarget = nil
-      self.recordFailure(.typeMismatch)
+      self.recordFailure(Self.failureReason(for: result))
+      return
     }
+    // Bounded inline storage is recognized here rather than through a container route, because
+    // the resolved target is the same shape whether the destination is a scalar field, an array
+    // element or a dictionary value -- one route covers all three, and none of them requires the
+    // sink to know which `StreamInlineString` capacity it is writing into.
+    self.inlineStringCapacity = target.schema.leafRoute == .valueInlineString
+      ? target.schema.inlineCapacity
+      : 0
   }
 
   mutating func stringChunk(_ bytes: Span<UInt8>) {
+    if let storage = self.homogeneousStringStorage {
+      storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
+      return
+    }
     guard let target = self.scalarTarget else { return }
-    _ = target.schema.applyString(target.storage, target.field, bytes)
+    if self.inlineStringCapacity != 0 {
+      let result = _streamInlineStringAppend(
+        target.storage, capacity: self.inlineStringCapacity, bytes
+      )
+      self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
+      return
+    }
+    // The one added check on the string hot path. A destination that reached `stringBegin` has
+    // already proved it accepts strings, so this branch is never taken except by bounded storage
+    // that has filled up -- predicted not-taken, and it is what turns an overflow into a reported
+    // failure rather than silently dropped bytes.
+    // The one addition to the string hot path, and deliberately not a branch.
+    //
+    // Checking the result here and reporting immediately cost 8.7% of `Real Twitter - bulk
+    // discarding` (2268 -> 2465 us): the compare after the call keeps the target's schema
+    // reference live across it and breaks the tail call the discarded-result version got. Folding
+    // with `max` instead is a load, a compare-and-select and a store, and measured back at parity
+    // (2255-2269 us). `applied` is zero and the failures are greater, so the fold is sticky: a
+    // later chunk that happens to fit cannot erase an earlier chunk's refusal. Folding with `|=`
+    // over disjoint bits was measured too and is the same speed, so `max` is kept: it leaves the
+    // raw values free to be ordinary integers.
+    //
+    // The cost is where the failure surfaces: at the closing quote rather than at the chunk that
+    // overflowed. Same token, so the reported offset is the end of the string value instead of
+    // its middle -- which is what `stringEnd` reads it for.
+    let result = target.schema.applyString(target.storage, target.field, bytes)
+    self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
   mutating func stringEnd() {
+    self.homogeneousStringStorage = nil
     self.scalarTarget = nil
-  }
-
-  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    self.withScalarTarget { storage, field, schema in
-      schema.applyNumber(storage, field, bytes, info)
+    self.inlineStringCapacity = 0
+    // Once per string value rather than once per chunk, which is what makes the fold above worth
+    // it: a document of short strings pays this at every closing quote, and a document of long
+    // ones pays it far less often than it feeds chunks.
+    if self.stringResultRaw != 0 {
+      self.recordFailure(
+        self.stringResultRaw == StreamApplyResult.capacityExceeded.rawValue
+          ? .capacityExceeded
+          : .typeMismatch
+      )
+      self.stringResultRaw = 0
     }
   }
 
-  // A window of events. Under an object frame that matches keys, each `key` followed by a
-  // scalar is routed in place: one `matchField`, one apply, nothing else — no frame
-  // resolution, no `ScalarTarget` copy of the schema (a retain and a release per value), no
-  // closure per string piece. The failure points are the single path's: a string is accepted
-  // at its `stringBegin` (the empty span materialises the destination), a number or literal at
-  // itself. Everything else — a container after a key, a dictionary frame, an array frame, a
-  // frame that ignores keys — unrolls into the single events exactly as the default does.
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+    switch self.activeLeafRoute {
+    case .arrayDouble:
+      self.appendHomogeneousDouble(bytes, info: info)
+      return
+    case .arrayInt:
+      self.appendHomogeneousInt(bytes, info: info)
+      return
+    case .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.applyKnownSIMDDouble(bytes, info: info, route: self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number:
+      self.applySIMDNumberNormally(bytes, info: info, route: self.activeLeafRoute)
+      return
+    default:
+      self.applyNumberNormally(bytes, info: info)
+      return
+    }
+  }
+
+  mutating func boolean(_ value: Bool) {
+    switch self.activeLeafRoute {
+    case .arrayBool, .arrayOptionalBool, .dictionaryBool, .dictionaryOptionalBool:
+      self.applyKnownBoolean(value, route: self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.recordFailure(.typeMismatch)
+      return
+    default:
+      self.applyBooleanNormally(value)
+      return
+    }
+  }
+
+  mutating func null() {
+    if self.topFrame == nil, !self.started {
+      let result = self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField)
+      if result != .applied {
+        self.recordFailure(Self.failureReason(for: result))
+      }
+      return
+    }
+    switch self.activeLeafRoute {
+    case .arrayOptionalStreamString, .arrayOptionalBool,
+      .arrayOptionalDouble, .arrayOptionalInt,
+      .dictionaryOptionalStreamString, .dictionaryOptionalBool:
+      self.applyKnownNull(self.activeLeafRoute)
+      return
+    case .simd2Number, .simd3Number, .simd4Number,
+      .simd2Double, .simd3Double, .simd4Double,
+      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
+      self.recordFailure(.typeMismatch)
+      return
+    default:
+      self.applyNullNormally()
+      return
+    }
+  }
+
+  // MARK: Events
+
+  // A batch of events. Under an object frame that matches keys, each `key` followed by a scalar
+  // is routed in place: one `matchField`, one apply, nothing else — no frame resolution, no
+  // `ScalarTarget` copy of the schema (a retain and a release per value), no closure per string
+  // piece. The failure points are the single path's: a string is accepted at its `stringBegin`
+  // (the empty span materialises the destination), a number or literal at itself. Everything
+  // else — a container after a key, a dictionary frame, an array frame, a frame that ignores
+  // keys — unrolls into the single events below, exactly as the one-at-a-time path did.
   public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
     let records = batch.records
     let count = batch.count
     var index = 0
     while index < count {
       let record = records[index]
-      // A run of numbers into an array of numbers takes the schema's bulk appender: no frame
-      // per element, no schema borrow per value. Its rejection is the element it refused.
+      // A run of numbers into an array of numbers takes the schema's bulk appender: no frame per
+      // element, no schema borrow per value. Its rejection is the element it refused. Only
+      // `_streamArraySchema` carries one, so a fixed array or an array of SIMD vectors — whose
+      // leaf routes need the frame's element cursor — never reaches this and falls through to
+      // `number` below.
       if record.kind == .number, let top = self.topFrame, top.pointee.schema.shape == .array,
         let append = top.pointee.schema.appendNumbers
       {
@@ -367,39 +560,58 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         switch next.kind {
         case .string:
           if field >= 0 {
-            let accepted = top.pointee.schema.applyString(top.pointee.storage, field, Span())
-            if !accepted {
-              self.recordFailure(.typeMismatch)
+            // An object field resolves to the frame's own schema and `wholeValueField` is never
+            // in play, so this is exactly what `resolveScalarTarget` would have handed back —
+            // including for bounded inline storage, whose capacity route keys off a *scalar*
+            // schema's leaf route and is therefore not reachable from an object field either way.
+            let opened = top.pointee.schema.applyString(top.pointee.storage, field, Span())
+            if opened != .applied {
+              self.recordFailure(Self.failureReason(for: opened))
               return index &+ 1
             }
             if next.length > 0 {
-              _ = top.pointee.schema.applyString(top.pointee.storage, field, batch.bytes(of: index &+ 1))
+              let result = top.pointee.schema.applyString(
+                top.pointee.storage, field, batch.bytes(of: index &+ 1)
+              )
+              if result != .applied {
+                self.recordFailure(Self.failureReason(for: result))
+                return index &+ 1
+              }
             }
           }
           index &+= 2
           continue
         case .number:
-          if field >= 0,
-            !top.pointee.schema.applyNumber(
+          if field >= 0 {
+            let result = top.pointee.schema.applyNumber(
               top.pointee.storage, field, batch.bytes(of: index &+ 1), batch.info(of: index &+ 1)
             )
-          {
-            self.recordFailure(.typeMismatch)
-            return index &+ 1
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
           }
           index &+= 2
           continue
         case .boolean:
-          if field >= 0, !top.pointee.schema.applyBoolean(top.pointee.storage, field, next.booleanValue) {
-            self.recordFailure(.typeMismatch)
-            return index &+ 1
+          if field >= 0 {
+            let result = top.pointee.schema.applyBoolean(
+              top.pointee.storage, field, next.booleanValue
+            )
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
           }
           index &+= 2
           continue
         case .null:
-          if field >= 0, !top.pointee.schema.applyNull(top.pointee.storage, field) {
-            self.recordFailure(.typeMismatch)
-            return index &+ 1
+          if field >= 0 {
+            let result = top.pointee.schema.applyNull(top.pointee.storage, field)
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
           }
           index &+= 2
           continue
@@ -433,28 +645,6 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     return index
   }
 
-  // A run of numbers into an array of numbers takes the schema's bulk appender: one frame
-  // resolution per batch instead of one per number, and none of the per-element routing that
-  // the profile counted as five retains and six releases per number. Any other destination
-  // unrolls the batch through `number`, exactly as the protocol's default would.
-  mutating func boolean(_ value: Bool) {
-    self.withScalarTarget { storage, field, schema in
-      schema.applyBoolean(storage, field, value)
-    }
-  }
-
-  mutating func null() {
-    if self.topFrame == nil, !self.started {
-      if !self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField) {
-        self.recordFailure(.typeMismatch)
-      }
-      return
-    }
-    self.withScalarTarget { storage, field, schema in
-      schema.applyNull(storage, field)
-    }
-  }
-
   // MARK: Scalar routing
 
   @usableFromInline
@@ -472,6 +662,257 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   @usableFromInline var scalarTarget: ScalarTarget?
+
+  @usableFromInline var homogeneousStringStorage: UnsafeMutableRawPointer?
+
+  // Non-zero while the open string value writes into bounded inline storage, in which case it is
+  // that storage's capacity. One store per string value at `stringBegin`, which is what buys the
+  // chunk path a capacity in a register instead of a load off the schema.
+  @usableFromInline var inlineStringCapacity: Int32 = 0
+
+  // The open string value's worst result so far, as a raw value so chunks can fold into it
+  // without branching. Read and reset once per value in `stringEnd`.
+  @usableFromInline var stringResultRaw: UInt8 = 0
+
+  @inline(never)
+  private mutating func openKnownStreamStringTarget(
+    _ route: _StreamLeafRoute
+  ) -> UnsafeMutableRawPointer? {
+    guard let top = self.topFrame else { return nil }
+    switch route {
+    case .arrayStreamString:
+      return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString>.self)
+        .pointee._openElement(StreamString())
+    case .arrayOptionalStreamString:
+      return top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString?>.self)
+        .pointee._openElement(.some(StreamString()))
+    case .dictionaryStreamString:
+      guard let pending = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      return pending
+    case .dictionaryOptionalStreamString:
+      guard let pending = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      _streamMaterializeOptional(pending, as: StreamString.self)
+      return pending
+    default:
+      return nil
+    }
+  }
+
+  @inline(never)
+  private mutating func applyKnownBoolean(_ value: Bool, route: _StreamLeafRoute) {
+    switch route {
+    case .arrayBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool>.self).pointee
+        ._openElement(value)
+    case .arrayOptionalBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool?>.self).pointee
+        ._openElement(.some(value))
+    case .dictionaryBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool.self).pointee = value
+    case .dictionaryOptionalBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool?.self).pointee = .some(value)
+    default:
+      return
+    }
+  }
+
+  @inline(never)
+  private mutating func applyKnownNull(_ route: _StreamLeafRoute) {
+    switch route {
+    case .arrayOptionalStreamString:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<StreamString?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalBool:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Bool?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalDouble:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Double?>.self)
+        .pointee._openElement(nil)
+    case .arrayOptionalInt:
+      guard let top = self.topFrame else { return }
+      _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int?>.self)
+        .pointee._openElement(nil)
+    case .dictionaryOptionalStreamString:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: StreamString?.self).pointee = nil
+    case .dictionaryOptionalBool:
+      guard let storage = self.pendingDictionaryStorage else { return }
+      self.pendingDictionaryStorage = nil
+      storage.assumingMemoryBound(to: Bool?.self).pointee = nil
+    default:
+      return
+    }
+  }
+
+  @inline(never)
+  private mutating func openKnownDictionaryValue(
+    _ storage: UnsafeMutableRawPointer,
+    route: _StreamLeafRoute,
+    forKey key: Span<UInt8>
+  ) -> UnsafeMutableRawPointer {
+    switch route {
+    case .dictionaryStreamString:
+      return storage.assumingMemoryBound(to: StreamDictionary<StreamString>.self).pointee
+        ._openValue(forKey: key, initial: StreamString())
+    case .dictionaryOptionalStreamString:
+      return storage.assumingMemoryBound(to: StreamDictionary<StreamString?>.self).pointee
+        ._openValue(forKey: key, initial: .some(StreamString()))
+    case .dictionaryBool:
+      return storage.assumingMemoryBound(to: StreamDictionary<Bool>.self).pointee
+        ._openValue(forKey: key, initial: false)
+    case .dictionaryOptionalBool:
+      return storage.assumingMemoryBound(to: StreamDictionary<Bool?>.self).pointee
+        ._openValue(forKey: key, initial: .some(false))
+    default:
+      preconditionFailure("A generic dictionary route reached the closed leaf opener")
+    }
+  }
+
+  @inline(never)
+  private mutating func openKnownSIMDDoubleElement(_ route: _StreamLeafRoute) {
+    guard let top = self.topFrame else { return }
+    switch route {
+    case .arraySIMD2Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD2<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+    case .arraySIMD3Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD3<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+    case .arraySIMD4Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD4<Double>>.self
+      ).pointee._openElement(.zero)
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+    case .arrayOptionalSIMD2Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD2<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
+    case .arrayOptionalSIMD3Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD3<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
+    case .arrayOptionalSIMD4Double:
+      let storage = top.pointee.storage.assumingMemoryBound(
+        to: StreamArray<SIMD4<Double>?>.self
+      ).pointee._openElement(.some(.zero))
+      self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
+    default:
+      preconditionFailure("A non-SIMD-array route reached the closed SIMD element opener")
+    }
+  }
+
+  @inline(never)
+  private mutating func appendHomogeneousDouble(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let value = Double(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let top = self.topFrame else { return }
+    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
+      ._openElement(value)
+  }
+
+  @inline(never)
+  private mutating func appendHomogeneousInt(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let value = Int(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let top = self.topFrame else { return }
+    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
+      ._openElement(value)
+  }
+
+  @inline(never)
+  private mutating func applyKnownSIMDDouble(
+    _ bytes: Span<UInt8>,
+    info: NumberInfo,
+    route: _StreamLeafRoute
+  ) {
+    guard let top = self.topFrame else { return }
+    let lane = top.pointee.pendingField
+    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    guard let value = Double(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    switch route {
+    case .simd2Double, .optionalSIMD2Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(lane)] = value
+    case .simd3Double, .optionalSIMD3Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(lane)] = value
+    case .simd4Double, .optionalSIMD4Double:
+      top.pointee.storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(lane)] = value
+    default:
+      preconditionFailure("A non-Double SIMD route reached the closed Double writer")
+    }
+    top.pointee.pendingField = lane &+ 1
+  }
+
+  @inline(never)
+  private mutating func applySIMDNumberNormally(
+    _ bytes: Span<UInt8>,
+    info: NumberInfo,
+    route: _StreamLeafRoute
+  ) {
+    guard let top = self.topFrame else { return }
+    let lane = top.pointee.pendingField
+    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    let result = top.pointee.schema.applyNumber(top.pointee.storage, lane, bytes, info)
+    guard result == .applied else {
+      self.recordFailure(Self.failureReason(for: result))
+      return
+    }
+    top.pointee.pendingField = lane &+ 1
+  }
+
+  // Outlining the closure route keeps its register pressure out of `number`. The public entry
+  // point can then tail-call one of three routes after testing the cached byte instead of saving
+  // every register needed only by the generic schema branch before it knows which route applies.
+  @inline(never)
+  private mutating func applyNumberNormally(_ bytes: Span<UInt8>, info: NumberInfo) {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyNumber(storage, field, bytes, info)
+    }
+  }
+
+  @inline(never)
+  private mutating func applyBooleanNormally(_ value: Bool) {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyBoolean(storage, field, value)
+    }
+  }
+
+  @inline(never)
+  private mutating func applyNullNormally() {
+    self.withScalarTarget { storage, field, schema in
+      schema.applyNull(storage, field)
+    }
+  }
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
     #if DEBUG && !hasFeature(Embedded)
@@ -491,7 +932,19 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
     switch top.pointee.schema.shape {
     case .array:
-      guard let element = top.pointee.schema.appendElement(top.pointee.storage) else { return nil }
+      let indexed = top.pointee.leafRoute == .inlineArray
+      let index = indexed ? top.pointee.pendingField : -1
+      if indexed, index >= top.pointee.schema.fixedElementCount {
+        // The scalar-element twin of the same check in `valueTarget`, and the same failure: a
+        // fixed array handed more elements than it declares is bounded storage overflowing.
+        self.recordFailure(.capacityExceeded)
+        return nil
+      }
+      guard let element = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+        if indexed { self.recordFailure(.capacityExceeded) }
+        return nil
+      }
+      if indexed { top.pointee.pendingField = index &+ 1 }
       let borrowed = self.borrow(element)
       return ScalarTarget(
         storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField
@@ -502,6 +955,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField
       )
     case .dictionary:
+      if let storage = self.pendingDictionaryStorage {
+        self.pendingDictionaryStorage = nil
+        return ScalarTarget(
+          storage: storage,
+          schema: top.pointee.schema,
+          field: StreamSchema.wholeValueField
+        )
+      }
       guard let frame = self.pendingDictionaryFrame else { return nil }
       return ScalarTarget(
         storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField
@@ -517,11 +978,23 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // have always been ignored. A target that refuses the token is a type mismatch, because the
   // key matched something that cannot hold this kind of value.
   private mutating func withScalarTarget(
-    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> Bool
+    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
   ) {
     guard let target = self.resolveScalarTarget() else { return }
-    if !body(target.storage, target.field, target.schema) {
-      self.recordFailure(.typeMismatch)
+    let result = body(target.storage, target.field, target.schema)
+    if result != .applied {
+      self.recordFailure(Self.failureReason(for: result))
+    }
+  }
+
+  // The sink reports one reason per failed apply. `unsupported` and anything a later version of
+  // the enum adds read as a mismatch, which is what this sink could always say about a token a
+  // destination refused; only capacity has a distinct answer.
+  @usableFromInline
+  static func failureReason(for result: StreamApplyResult) -> StreamSinkFailure.Reason {
+    switch result {
+    case .capacityExceeded: .capacityExceeded
+    default: .typeMismatch
     }
   }
 

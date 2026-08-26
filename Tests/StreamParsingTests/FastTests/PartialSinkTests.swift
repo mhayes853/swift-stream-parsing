@@ -21,6 +21,64 @@ struct SinkUser: Equatable {
   var counts: [String: Int] = [:]
 }
 
+@StreamParseable
+struct SinkCapacityMembers: Equatable {
+  @StreamParseableMember(initialCapacity: 64)
+  var scores: [Int] = []
+
+  @StreamParseableMember(key: "counts_by_name", initialCapacity: 32)
+  var counts: [String: Int] = [:]
+
+  @StreamParseableMember(key: "generic_scores", initialCapacity: 4)
+  var genericScores: Array<Int> = []
+
+  @StreamParseableMember(key: "direct_counts", initialCapacity: 4)
+  var directCounts: StreamDictionary<Int> = [:]
+}
+
+typealias SinkCapacityArrayAlias = [Int]
+typealias SinkCapacityDictionaryAlias = [String: Int]
+typealias SinkCapacityStringAlias = String
+
+@StreamParseable
+struct SinkCapacityLiteralAndQualificationMembers: Equatable {
+  @StreamParseableMember(initialCapacity: 0x40)
+  var hexadecimal: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 0o100)
+  var octal: Swift.Optional<Swift.Array<Int>> = []
+
+  @StreamParseableMember(initialCapacity: 0b100_0000)
+  var binary: StreamParsingCore.StreamArray<Int> = []
+
+  @StreamParseableMember(key: "no_hint", initialCapacity: nil)
+  var noHint: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var aliasedArray: SinkCapacityArrayAlias = []
+
+  @StreamParseableMember(initialCapacity: 32)
+  var aliasedDictionary: SinkCapacityDictionaryAlias = [:]
+}
+
+@StreamParseable
+struct SinkCapacityStringMembers: Equatable {
+  @StreamParseableMember(initialCapacity: 1_024)
+  var text: String = ""
+
+  @StreamParseableMember(key: "aliased_text", initialCapacity: 0x400)
+  var aliasedText: SinkCapacityStringAlias = ""
+
+  @StreamParseableMember(initialCapacity: 128)
+  var optionalText: String?
+}
+
+@StreamParseable(partialMembers: .streamInitialValue)
+struct SinkInitializedCapacityString: Equatable {
+  @StreamParseableMember(initialCapacity: 1_024)
+  var text: String = ""
+}
+
 // Optional in the source declaration, which is a different axis from the partial members mode:
 // the mode decides whether a *non*-optional property becomes optional in the `Partial`, and a
 // property that is already optional is already there. Storing both — the member as `Int??` while
@@ -79,6 +137,73 @@ struct SinkOptionalSpellings: Equatable {
 
 @Suite
 struct `Partial sink tests` {
+  @Test
+  func `Capacity Hints Materialize Containers Lazily`() throws {
+    var absent = SinkCapacityMembers.Partial()
+    try parsePartial("{}", into: &absent)
+    expectNoDifference(absent.scores, nil)
+    expectNoDifference(absent.counts, nil)
+    expectNoDifference(absent.genericScores, nil)
+    expectNoDifference(absent.directCounts, nil)
+
+    var empty = SinkCapacityMembers.Partial()
+    try parsePartial(
+      #"{"scores":[],"counts_by_name":{},"generic_scores":[],"direct_counts":{}}"#,
+      into: &empty
+    )
+    expectNoDifference(empty.scores, [])
+    expectNoDifference(empty.counts?.count, 0)
+    expectNoDifference(empty.genericScores, [])
+    expectNoDifference(empty.directCounts?.count, 0)
+  }
+
+  @Test
+  func `Capacity Hints Do Not Limit Container Growth`() throws {
+    var value = SinkCapacityMembers.Partial()
+    try parsePartial(
+      #"{"scores":[1,2,3],"counts_by_name":{"one":1,"two":2},"generic_scores":[4,5],"direct_counts":{"three":3}}"#,
+      into: &value
+    )
+    expectNoDifference(value.scores, [1, 2, 3])
+    expectNoDifference(value.counts?["one"], 1)
+    expectNoDifference(value.counts?["two"], 2)
+    expectNoDifference(value.genericScores, [4, 5])
+    expectNoDifference(value.directCounts?["three"], 3)
+  }
+
+  @Test
+  func `Capacity Hints Accept Swift Integer Literals And Qualified Containers`() throws {
+    var value = SinkCapacityLiteralAndQualificationMembers.Partial()
+    try parsePartial(
+      #"{"hexadecimal":[1],"octal":[2],"binary":[3],"no_hint":[4],"aliasedArray":[5,6],"aliasedDictionary":{"seven":7}}"#,
+      into: &value
+    )
+
+    expectNoDifference(value.hexadecimal, [1])
+    expectNoDifference(value.octal, [2])
+    expectNoDifference(value.binary, [3])
+    expectNoDifference(value.noHint, [4])
+    expectNoDifference(value.aliasedArray, [5, 6])
+    expectNoDifference(value.aliasedDictionary?["seven"], 7)
+  }
+
+  @Test
+  func `Capacity Hints Apply To String Storage And Aliases`() throws {
+    var value = SinkCapacityStringMembers.Partial()
+    try parsePartial(
+      #"{"text":"first","text":" second","aliased_text":"alias","optionalText":"optional"}"#,
+      into: &value
+    )
+
+    expectNoDifference(value.text, "first second")
+    expectNoDifference(value.aliasedText, "alias")
+    expectNoDifference(value.optionalText, "optional")
+
+    var initialized = SinkInitializedCapacityString.Partial()
+    try parsePartial(#"{"text":"initialized"}"#, into: &initialized)
+    expectNoDifference(initialized.text, "initialized")
+  }
+
   @Test
   func `Routes scalars into matching fields`() throws {
     var user = SinkUser.Partial()
@@ -166,6 +291,51 @@ struct `Partial sink tests` {
     var nested = StreamArray<StreamArray<Int?>>()
     try parsePartial("[[1,null]]", into: &nested, chunk: chunk)
     expectNoDifference(nested, [[1, nil]])
+  }
+
+  @Test(arguments: [Int.max, 7, 1])
+  func `Homogeneous leaf roots preserve repeated and optional values`(chunk: Int) throws {
+    var doubles = StreamArray<Double>()
+    try parsePartial("[1.25,0,-2.5]", into: &doubles, chunk: chunk)
+    expectNoDifference(doubles, [1.25, 0, -2.5])
+
+    var integers = StreamArray<Int>()
+    try parsePartial("[1,0,-2]", into: &integers, chunk: chunk)
+    expectNoDifference(integers, [1, 0, -2])
+
+    var booleans = StreamArray<Bool>()
+    try parsePartial("[true,false,true]", into: &booleans, chunk: chunk)
+    expectNoDifference(booleans, [true, false, true])
+
+    var optionalBooleans = StreamArray<Bool?>()
+    try parsePartial("[true,null,false]", into: &optionalBooleans, chunk: chunk)
+    expectNoDifference(optionalBooleans, [true, nil, false])
+
+    var booleanDictionary = StreamDictionary<Bool>()
+    try parsePartial(#"{"a":false,"a":true,"b":false}"#, into: &booleanDictionary, chunk: chunk)
+    expectNoDifference(booleanDictionary["a"], true)
+    expectNoDifference(booleanDictionary["b"], false)
+
+    var optionalBooleanDictionary = StreamDictionary<Bool?>()
+    try parsePartial(
+      #"{"a":null,"a":true,"b":false,"b":null}"#,
+      into: &optionalBooleanDictionary,
+      chunk: chunk
+    )
+    expectNoDifference(optionalBooleanDictionary["a"] ?? nil, true)
+    expectNoDifference(optionalBooleanDictionary["b"] ?? nil, nil)
+
+    var strings = StreamDictionary<StreamString>()
+    try parsePartial(#"{"s":"a","s":"b"}"#, into: &strings, chunk: chunk)
+    expectNoDifference(strings["s"], StreamString("ab"))
+
+    var optionalStrings = StreamDictionary<StreamString?>()
+    try parsePartial(
+      #"{"s":null,"s":"a","s":"b"}"#,
+      into: &optionalStrings,
+      chunk: chunk
+    )
+    expectNoDifference(optionalStrings["s"] ?? nil, StreamString("ab"))
   }
 
   @Test(arguments: [Int.max, 7, 1])

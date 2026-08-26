@@ -19,6 +19,10 @@ let streamParsing128BitIntegers =
 // stored past the call that lent it.
 let lifetimes = [SwiftSetting.enableExperimentalFeature("Lifetimes")]
 
+// Allows addressable types to participate in protocols whose requirements are otherwise
+// implicitly copyable, such as `Equatable` and `Comparable`.
+let addressableTypes = [SwiftSetting.enableExperimentalFeature("AddressableTypes")]
+
 let package = Package(
   name: "swift-stream-parsing",
   platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
@@ -58,7 +62,7 @@ let package = Package(
     .target(
       name: "StreamParsing",
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
-      swiftSettings: suppressedAssociatedTypes + lifetimes
+      swiftSettings: suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
     // Header-only C target carrying the NEON intrinsics Swift's SIMD API has no spelling for
     // (`tbl`, for the UTF-8 validator). Empty on other architectures, where the Swift side
@@ -80,7 +84,7 @@ let package = Package(
         )
       ],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
-        + suppressedAssociatedTypes + lifetimes
+        + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
     .macro(
       name: "StreamParsingMacros",
@@ -99,7 +103,8 @@ let package = Package(
       ],
       exclude: ["ParserTests/__Snapshots__"],
       resources: [.process("Resources")],
-      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)] + lifetimes
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+        + lifetimes + addressableTypes
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

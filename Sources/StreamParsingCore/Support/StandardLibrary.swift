@@ -3,10 +3,12 @@
 extension String: StreamStringConvertible {
   public static func streamInitialValue() -> Self { "" }
 
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
+  @discardableResult
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
     bytes.withUnsafeBufferPointer { buffer in
       self += String(decoding: buffer, as: UTF8.self)
     }
+    return .applied
   }
 }
 
@@ -304,7 +306,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       applyNull: { storage, field in
         guard field != StreamSchema.wholeValueField else {
           storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
-          return true
+          return .applied
         }
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyNull(storage, field)
@@ -313,14 +315,21 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterField(storage, field)
       },
-      appendElement: { storage in
+      appendElement: { storage, index in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return wrapped.appendElement(storage)
+        return wrapped.appendElement(storage, index)
       },
       enterKey: { storage, key in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterKey(storage, key)
-      }
+      },
+      // Fixed SIMD arrays keep their cursor in the sink frame and write through the optional's
+      // offset-zero payload after `prepareRoot` materializes it. Other container routes continue
+      // to use their ordinary frame operations.
+      leafRoute: wrapped.leafRoute.fixedSIMDLaneCount != 0 || wrapped.leafRoute == .inlineArray
+        ? wrapped.leafRoute
+        : .generic,
+      fixedElementCount: wrapped.fixedElementCount
     )
   }
 }

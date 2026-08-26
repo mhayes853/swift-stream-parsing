@@ -6,6 +6,26 @@ import Testing
 @Suite
 struct `Stream dictionary tests` {
   @Test
+  func `Initial Capacity Reserves Flat Storage And The Final Table`() {
+    var dictionary = StreamDictionary<Int>(initialCapacity: 100)
+
+    expectNoDifference(dictionary.entries.capacity >= 100, true)
+    expectNoDifference(dictionary.storedValues.capacity >= 100, true)
+    expectNoDifference(dictionary.table?.count, 256)
+    for value in 0..<100 { dictionary.updateValue(value, forKey: "key\(value)") }
+    expectNoDifference(dictionary.count, 100)
+    for value in 0..<100 { expectNoDifference(dictionary["key\(value)"], value) }
+  }
+
+  @Test
+  func `Small Initial Capacity Keeps Linear Lookup`() {
+    var dictionary = StreamDictionary<Int>(initialCapacity: 8)
+    expectNoDifference(dictionary.table, nil)
+    for value in 0..<12 { dictionary.updateValue(value, forKey: "key\(value)") }
+    expectNoDifference(dictionary.table?.count, 32)
+  }
+
+  @Test
   func `Preserves insertion order`() {
     var dictionary = StreamDictionary<Int>()
     for key in ["zebra", "apple", "mango"] { dictionary.updateValue(0, forKey: key) }

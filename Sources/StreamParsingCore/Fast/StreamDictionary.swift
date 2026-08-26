@@ -59,6 +59,13 @@ public struct StreamDictionary<Value> {
     self.pendingSlot = -1
   }
 
+  /// Creates an empty streaming dictionary with storage reserved for at least the expected number
+  /// of unique keys. Small dictionaries retain the table-free linear scan representation.
+  public init(initialCapacity: Int) {
+    self.init()
+    self.reserveCapacity(initialCapacity)
+  }
+
   public init(_ elements: some Sequence<(key: String, value: Value)>) {
     self.init()
     for element in elements { self.updateValue(element.value, forKey: element.key) }
@@ -80,6 +87,16 @@ public struct StreamDictionary<Value> {
 
   public var keys: [String] { self.map(\.key) }
   public var values: [Value] { self.map(\.value) }
+
+  /// Reserves storage for at least the expected total number of unique keys.
+  public mutating func reserveCapacity(_ minimumCapacity: Int) {
+    precondition(minimumCapacity >= 0, "StreamDictionary capacity must not be negative")
+    self.entries.reserveCapacity(minimumCapacity)
+    self.storedValues.reserveCapacity(minimumCapacity)
+    if minimumCapacity > Self.indexThreshold {
+      self.rebuildTable(minimumEntryCapacity: minimumCapacity)
+    }
+  }
 
   public subscript(key: String) -> Value? {
     get {
@@ -165,9 +182,11 @@ public struct StreamDictionary<Value> {
 
   // Rebuilt from the entries' stored hashes, so growth hashes nothing and never looks at a key.
   @inlinable
-  mutating func rebuildTable() {
+  mutating func rebuildTable(minimumEntryCapacity: Int = 0) {
     var capacity = 16
-    while capacity < self.entries.count * 2 { capacity &*= 2 }
+    let entryCapacity = Swift.max(self.entries.count, minimumEntryCapacity)
+    while capacity < entryCapacity * 2 { capacity &*= 2 }
+    if let table = self.table, table.count >= capacity { return }
     var built = ContiguousArray<Int32>(repeating: -1, count: capacity)
     let mask = capacity - 1
     var slot = 0
@@ -306,15 +325,28 @@ extension StreamDictionary where Value: StreamParseableRoot {
     public subscript(key: String) -> Value.View? {
       @_lifetime(borrow self)
       get {
+        // Resolve the address of the live slot in fully escapable terms first, then form the
+        // one `~Escapable` view at a single exit. Building a view per branch and returning it
+        // from there is equivalent, but it leaves several `Optional<Value.View>` stack slots
+        // for the optimizer to merge, which crashes PredictableDeadAllocationElimination on
+        // Swift 6.3 (fixed in 6.4). Single-address, single-view keeps that shape from arising.
+        let address: UnsafeMutableRawPointer?
         if self.storage.pointee.pendingEntryKey == key {
-          let view = _streamMemberView(&self.storage.pointee.pendingValue)
-          return _overrideLifetime(view, borrowing: self)
+          address =
+            self.storage.pointee.pendingValue == nil
+            ? nil
+            : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+              UnsafeMutableRawPointer($0)
+            }
+        } else if let slot = self.storage.pointee.slot(forKey: key) {
+          let base = self.storage.pointee.storedValues
+            .withUnsafeBufferPointer { $0.baseAddress! }
+          address = UnsafeMutableRawPointer(mutating: base + Int(slot))
+        } else {
+          address = nil
         }
-        guard let slot = self.storage.pointee.slot(forKey: key) else { return nil }
-        let base = self.storage.pointee.storedValues
-          .withUnsafeBufferPointer { $0.baseAddress! }
-        let view = Value.streamView(UnsafeMutableRawPointer(mutating: base + Int(slot)))
-        return _overrideLifetime(view, borrowing: self)
+        guard let address else { return nil }
+        return _overrideLifetime(Value.streamView(address), borrowing: self)
       }
     }
   }

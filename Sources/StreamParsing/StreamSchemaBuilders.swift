@@ -23,6 +23,15 @@ public func _streamSchema<T: StreamParseableObject>(for type: T.Type) -> StreamS
   T.streamSchema
 }
 
+// A fixed-width SIMD value is syntactically a plain generic type to the macro but semantically an
+// array-shaped container. Keep this below the object overload so an object, which refines
+// `StreamContainerPartial`, continues to use its more specific route.
+@_disfavoredOverload
+@inlinable
+public func _streamSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema {
+  T.streamContainerSchema
+}
+
 // These delegate to the core's scalar schema constructors, which the root conformances also use,
 // so a type cannot be described one way as a field and another way as a root.
 
@@ -85,6 +94,19 @@ public func _streamEnterField<T: StreamParseableObject>(
   // Non-nil by construction: `_streamContainerSchema(for:)` resolves through
   // `StreamContainerPartial`, which `StreamParseableObject` refines.
   _streamEnterOptionalObject(&value, schema: containerSchema.unsafelyUnwrapped)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamEnterField<T: StreamContainerPartial>(
+  _ value: inout T?,
+  containerSchema: StreamSchema?
+) -> StreamFrame? {
+  _streamEnterOptionalContainer(
+    &value,
+    initial: T.streamInitialValue(),
+    schema: containerSchema.unsafelyUnwrapped
+  )
 }
 
 @_disfavoredOverload
@@ -152,29 +174,139 @@ public func _streamEnterContainerField<T>(
   _streamEnterContainer(&value, schema: schema)
 }
 
+// Capacity-aware forms are deliberately container-specific. `initialCapacity` is macro-facing
+// vocabulary; how each container maps the hint onto its storage remains private to that type.
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamArray(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Element>(
+  _ value: inout StreamArray<Element>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  if value != nil { value!.reserveCapacity(initialCapacity) }
+  return _streamEnterOptionalContainer(
+    &value,
+    initial: StreamDictionary(initialCapacity: initialCapacity),
+    schema: schema
+  )
+}
+
+@inlinable
+public func _streamEnterContainerField<Value>(
+  _ value: inout StreamDictionary<Value>,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  value.reserveCapacity(initialCapacity)
+  return _streamEnterContainer(&value, schema: schema)
+}
+
+// A string is a scalar, so this entry point is never reached for a matching JSON value. The
+// macro still emits one because aliases are indistinguishable from objects in syntax; accepting
+// the call lets the capacity-aware `streamApply` overload reserve at the opening quote.
+@inlinable
+public func _streamEnterContainerField(
+  _ value: inout StreamString?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+@inlinable
+public func _streamEnterContainerField(
+  _ value: inout StreamString,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+// The macro cannot resolve aliases, but overload resolution can: an alias whose partial storage
+// is a StreamArray or StreamDictionary selects one of the concrete overloads above. These
+// fallbacks keep an annotation on a scalar or object from silently becoming a no-op.
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T?,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamEnterContainerField<T>(
+  _ value: inout T,
+  schema: StreamSchema,
+  initialCapacity: Int
+) -> StreamFrame? {
+  nil
+}
+
 // MARK: - Optional aware scalar application
 
 // Partial members are optional, so a value has to exist before it can be appended to.
 @inlinable
 public func streamApply<T: StreamStringConvertible>(
   _ value: inout T?, utf8 bytes: Span<UInt8>
-) -> Bool {
+) -> StreamApplyResult {
   if value == nil { value = T.streamInitialValue() }
-  value!.streamAppend(utf8: bytes)
-  return true
+  return value!.streamAppend(utf8: bytes)
+}
+
+@inlinable
+public func streamApply(
+  _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> StreamApplyResult {
+  if value == nil { value = StreamString() }
+  if bytes.isEmpty { value!.streamReserve(utf8ByteCount: initialCapacity) }
+  return value!.streamAppend(utf8: bytes)
 }
 
 @inlinable
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
-) -> Bool {
-  guard let parsed = T(streamParsing: bytes, info: info) else { return false }
+) -> StreamApplyResult {
+  guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
   value = parsed
-  return true
+  return .applied
 }
 
 @inlinable
-public func streamApply<T: StreamBooleanConvertible>(_ value: inout T?, boolean: Bool) -> Bool {
+public func streamApply<T: StreamBooleanConvertible>(
+  _ value: inout T?, boolean: Bool
+) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
-  return true
+  return .applied
 }

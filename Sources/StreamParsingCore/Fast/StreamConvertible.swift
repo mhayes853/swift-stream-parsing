@@ -6,7 +6,33 @@ public protocol StreamInitializable: SendableMetatype {
 }
 
 public protocol StreamStringConvertible: StreamInitializable {
-  mutating func streamAppend(utf8 bytes: Span<UInt8>)
+  // Returns whether the bytes were taken. Unbounded storage answers `.applied` unconditionally
+  // and the result folds away on specialization; bounded storage is the reason the result exists,
+  // and answers `.capacityExceeded` without taking any of the bytes, so a value holds exactly
+  // what it accumulated up to the last append that fit.
+  @discardableResult
+  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
+
+  // How a schema recognizes fixed-capacity inline storage without being able to name it.
+  //
+  // `_streamStringSchema` is generic over the destination and cannot spell
+  // `StreamInlineString<capacity>` for a capacity it does not know, and an existential metatype
+  // cast to ask the question would not survive into Embedded Swift. A static requirement with a
+  // default answers it instead: it is read once when a schema is built, never per token, and
+  // specializes to a constant that folds the branch away for every type that leaves it zero.
+  //
+  // Zero means "not inline storage". A non-zero value is a promise about layout, checked in
+  // `_streamStringSchema`: `_streamInlineByteOffset` bytes of header, then exactly that many
+  // bytes of UTF-8 storage, which is what lets `PartialSink` append to it without naming it.
+  static var _streamInlineCapacity: Int { get }
+  static var _streamInlineByteOffset: Int { get }
+}
+
+extension StreamStringConvertible {
+  @inlinable
+  public static var _streamInlineCapacity: Int { 0 }
+  @inlinable
+  public static var _streamInlineByteOffset: Int { 0 }
 }
 
 public protocol StreamNumberConvertible: SendableMetatype {

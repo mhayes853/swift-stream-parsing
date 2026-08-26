@@ -3647,9 +3647,32 @@ kernel spreads its cost across all tokens and concentrates its benefit in few.
 
 The practical ceiling this sets: **roughly one kernel, and A is it.** Further number work has to
 come out of the existing path rather than beside it -- out of lining the `.invalidNumber` error
-construction, which still forces a stack frame on every number; deleting `NumberInfo.digitCount`,
-written per number and read by nothing; and demoting the exponent walk, twenty instructions on the
-hot path for a branch that 0 of 468,000 real corpus numbers take.
+construction, which still forces a stack frame on every number, and demoting the exponent walk,
+twenty instructions on the hot path for a branch that 0 of 468,000 real corpus numbers take.
+
+### `NumberInfo.digitCount`: measured and retained
+
+`digitCount` had no in-package reader, so deleting it looked like free work removed from every
+number. It was not. The parser computes `totalDigits` anyway to set `.overflowed`; the field is
+written once at emission, not once per digit; and removing its two bytes does not change
+`NumberInfo`'s 16-byte stride because `magnitude` still gives the struct eight-byte alignment.
+
+More importantly, every benchmark sink is specialized with `emitNumber`, so the optimizer had
+already deleted construction of fields that sink does not read. The `FastCountingSink`
+specialization remained exactly 1,024 bytes with and without the field. `Payload MB/s` p0:
+
+| row | with `digitCount` | without | change |
+| --- | ---: | ---: | ---: |
+| `Numbers floats - bulk` | 698 | 699 | +0.1% |
+| `Numbers large integers - bulk` | 1702 | 1699 | -0.2% |
+| `Numbers small integers - bulk` | 477 | 479, then 477 | 0 to +0.4% |
+| `Real Canada - bulk discarding` | 437 | 429, then 432 | -1.1 to -1.8% |
+| `Real Mesh - bulk discarding` | 361 | 364, then 363 | +0.6 to +0.8% |
+
+The real-world suite moved in both directions by ordinary run variance, with no allocation change.
+Since `NumberInfo` is public and an external SAX-style sink may legitimately inspect the digit
+count, deleting it would trade information and source compatibility for no measured throughput or
+code-size benefit. The field stays.
 
 ### A backward read is invisible to assertions about values
 
@@ -3670,6 +3693,317 @@ mutation verified -- deleting the `to >= 8` bound from the short integer kernel 
 tests green, because the out of bounds bytes are masked away before they reach the result, and
 reports `heap-buffer-overflow` under ASan. A backward read that lands in mapped memory cannot be
 seen by any assertion about values. CI does not currently run a sanitizer pass.
+
+---
+
+## Native fixed-width arrays: `InlineArray`
+
+Swift's `InlineArray<count, Element>` now participates directly in streaming when `Element` does.
+The representation is generic: strings, booleans, numbers, objects, optionals, nested fixed arrays
+and fixed arrays below dictionaries all use the same schema. The standard library API is gated to
+Apple OS 26 while the package retains its older deployment targets.
+
+An InlineArray cannot represent a logical count below its static capacity, so every slot starts at
+`Element.streamInitialValue()`. The sink uses the array frame's existing four-byte `pendingField`
+as its cursor, just as the fixed SIMD route does, and rejects both underflow at `]` and overflow
+before opening a slot. Snapshots taken before completion consequently contain initial values in
+slots the document has not supplied yet; exact arity is a parser invariant rather than container
+state.
+
+No second element-opening witness was added. The existing `appendElement` operation gained an
+`Int32` index; dynamic arrays ignore `-1`, while InlineArray uses the cursor. The fixed count lives
+on the schema rather than the frame, preserving the frame's 24-byte stride. A single closed route
+case selects indexed behavior, so the open-ended type space does not create existential dispatch.
+
+The synthetic payload contains 512 arrays of width four. `Payload MB/s` p0 and allocations per
+complete parse:
+
+| element shape | dynamic | inline | change | malloc dynamic -> inline |
+| --- | ---: | ---: | ---: | ---: |
+| strings | 35 | 40 | +14% | 544 -> 32 |
+| booleans | 36 | 52 | +44% | 544 -> 32 |
+| numbers | 48 | 69 | +44% | 544 -> 32 |
+| objects | 61 | 95 | +56% | 542 -> 30 |
+| mixed object, bulk | 83 | 95 | +14% | 2,075 -> 27 |
+| mixed object, 64-byte chunks | 74 | 83 | +12% | 2,075 -> 27 |
+
+The ARM64 release assembly specializes the indexed address calculation. `InlineArray<4, Bool>` is
+one indexed `add`; `Double` is one scaled `add` with shift three; the benchmark object is one
+`smaddl` by its stride. There is no allocation and no bounds branch in those openers. The sink has
+already checked the cursor once; retaining a second guard in the witness initially emitted a
+duplicate `cmp`/branch and was removed. The remaining retain/release is the same schema ownership
+carried by every returned `StreamFrame`.
+
+The final real-world sweep shows no directional regression from the ordinary-array route check:
+
+| structured bulk row | before | after |
+| --- | ---: | ---: |
+| Canada, SIMD coordinates | 434 | 437 |
+| Mesh, SIMD influences | 364 | 361 |
+| Canada, nested dynamic control | 134 | 137 |
+| Mesh, nested dynamic control | 257 | 263 |
+| CITM catalog | 448 | 444 |
+| GSoC 2018 | 603 | 602 |
+| GitHub events | 415 | 412 |
+| LLM message | 709 | 715 |
+| Twitter | 637 | 640 |
+| Twitter escaped | 447 | 454 |
+
+The spread is consistent with run noise. Canada and Mesh keep their old nested-array models as
+permanent benchmark controls so later generic collection work can still be measured directly.
+
+## Fixed-capacity strings: `StreamInlineString`
+
+`StreamString` grows to fit anything, which costs it two refcounted stored properties and a branch
+on every read between its inline buffer and its block list. A field whose length the schema
+already bounds needs neither. `StreamInlineString<capacity>` is an `Int32` count followed by
+`InlineArray<capacity, UInt8>`: `BitwiseCopyable`, no allocator, and an append that is a compare
+and a memcpy.
+
+The trade is exact and not small: a copy is O(capacity) rather than two retains. This type is for
+bounded fields, not a replacement — a field whose length the document decides still wants
+`StreamString`.
+
+Availability matches `InlineArray`'s, because generic type metadata carrying a value argument
+needs a runtime that can instantiate it. `StreamString` therefore could not simply become
+`_StreamString<64>`: that would raise the floor for every existing user. This is an additive
+sibling.
+
+### Overflow is a parse failure, and the appliers stopped returning `Bool`
+
+Overflow rejects rather than truncates, which required a channel the apply path did not have:
+`streamAppend` returned `Void` and `applyString` returned a `Bool` that meant only "this
+destination cannot hold this kind of token". Both now return `StreamApplyResult` — `applied`,
+`unsupported`, `capacityExceeded` — one `UInt8` in a register, `@nonexhaustive` so a later
+rejection kind does not break clients. Measured free: removing `@nonexhaustive` moved nothing
+(2470 against 2465 µs on `Real Twitter - bulk discarding`).
+
+Fixed arrays share the vocabulary. More elements than the declared arity is now
+`capacityExceeded` rather than `typeMismatch`; an array that closes *short* is still a mismatch.
+
+### The chunk check that cost 8.7%, and the fold that did not
+
+Rejection needs `stringChunk` to stop discarding the applier's answer. Reporting it there, the
+obvious way, cost **8.7% of `Real Twitter - bulk discarding`**: 2268 → 2465 µs, with retain,
+release and malloc counts identical. Isolating it settled what it was — with the check removed and
+everything else intact the row was 2271 µs, back at parity, so the enum, the schema signatures and
+the erased route below were all free and the branch was the entire cost. The compare after the
+call keeps the target's schema reference live across it and breaks the tail call the discarded
+version got. Outlining the failure path into an `@inline(never)` method, which is what worked for
+the number routes, made it *worse*: 2851 µs.
+
+What worked was not branching at all. `StreamApplyResult`'s raw values are ordered with `applied`
+at zero, so a chunk folds into the value already held with `max` — a load, a compare-and-select
+and a store — and `stringEnd` reads it once per string value:
+
+| row | HEAD | branch per chunk | `max` fold |
+| --- | ---: | ---: | ---: |
+| Real Twitter - bulk discarding | 2268 µs | 2465 (+8.7%) | 2294 (+1.1%) |
+| Real LLM message - bulk discarding | 1758 µs | 1786 | 1751 |
+| Real Twitter escaped - byte by byte | 10.0 ms | 7.3 ms | 7.15 ms |
+
+The fold must be sticky rather than last-writer: an escape splits a string into runs, so a run that
+overflows can be followed by a one-byte run that fits, and a plain store would let the shorter run
+erase the refusal. `max` over an ordering with `applied` lowest is what makes it survive.
+`A later chunk that fits cannot mask an earlier refusal` pins it.
+
+The cost paid is where the failure surfaces: at the closing quote rather than at the overflowing
+chunk. Same token, so the offset moves from the middle of a string value to its end.
+
+The escaped byte-by-byte improvement is consistent across every variant measured, including the
+one with the check removed entirely, so it is not attributable to the fold; it is recorded because
+it reproduced, not because it is explained.
+
+It is real, though, and the byte-fed sweep pins it. Payload MB/s, four runs per side, every run
+identical on both sides:
+
+| row | HEAD | now |
+| --- | ---: | ---: |
+| Real Twitter escaped - byte by byte discarding | 46 | 65 (+41%) |
+| Real LLM message - byte by byte discarding | 22 | 25 (+13.6%) |
+| Real LLM message string capacity hint - byte by byte discarding | 23 | 25 (+9%) |
+| Real Twitter escaped - byte by byte | 72 | 72 |
+| Real LLM message - byte by byte | 63 | 63 |
+
+The split falls exactly on the rows that reach the changed code: the `discarding` rows parse into
+generated model partials and run through `streamApply` and the schema appliers, and the two rows
+that do not are unchanged to the digit. Two independent protocols agree on the escaped row (+41%
+here, +40% from the wall-clock runs), so the magnitude stands even though the mechanism does not.
+Whoever needs it should read the assembly for a generated `streamApplyString` before relying on
+it.
+
+### The full real-world sweep, and why most of it says nothing
+
+Running all 62 `Real .*` rows once per side produced swings from -10% to +92%, including -9.7% on
+`Real Twitter - bulk discarding`. Re-measuring four of the largest movers with three settled runs
+per side collapsed nearly all of it:
+
+| row (Payload MB/s) | HEAD | now | change |
+| --- | ---: | ---: | ---: |
+| Real Twitter - bulk discarding | 349 | 349 | none |
+| Real Mesh - bulk discarding | 185 | 184 | -0.3% |
+| Real Twitter escaped - bulk discarding | 248 | 244 | -1.4% |
+| Real LLM message string capacity hint - bulk discarding | 544 | 533 | -2.0% |
+
+A single pass over 62 rows drifts more than the effects being measured — one row's -9.7% became
+zero, and a +23% became -1.4%. Sweep to find candidates; settle them with repeated runs before
+believing a number. Every figure quoted above this section came from the repeated protocol.
+
+### The route the sink cannot name
+
+`PartialSink` cannot spell `StreamInlineString<N>` for an `N` it does not know, and one leaf-route
+case per capacity is not a thing. It does not need either. Every capacity has the same layout
+shape, so one route — `valueInlineString` — plus the capacity carried in the schema's existing
+`fixedElementCount` lets the sink append through a raw pointer: bounds check, memcpy, store. No
+closure call and no generic dispatch, which is *less* work than the `StreamString` path, since
+that one still branches between its two representations.
+
+The route is recognized at `stringBegin` from the resolved target's schema, which covers a scalar
+field, an array element and a dictionary value with one case, because all three resolve to the
+same shape. `_streamStringSchema` finds it through a static requirement on
+`StreamStringConvertible` that defaults to zero, read once when the schema is built — not an
+existential metatype cast, which would not survive into Embedded Swift.
+
+Nothing in the sink names the value-generic type, so the OS-26 gate stops at the type's own file
+rather than spreading into the parser core. The layout that makes this safe — four-byte header,
+then exactly `capacity` bytes — is checked against `MemoryLayout` when the schema is built and
+pinned by `Layout is a header followed by exactly the capacity`.
+
+Optionals stay on the generic path: `Optional<StreamInlineString<N>>`'s tag placement in trailing
+padding is not something to erase against.
+
+### Measured: it wins in a field and loses in a container, and the reason is the route
+
+The synthetic payload is 2,048 records of three short string fields, and the same values as bare
+array and dictionary elements.
+
+In the position the type is for — a bounded field of a generated partial:
+
+| row | `StreamString` | `StreamInlineString` | change |
+| --- | ---: | ---: | ---: |
+| Fields, bulk | 2322 µs | 2099 µs | **-9.6%** |
+| Fields, byte by byte | 4020 µs | 3582 µs | **-11%** |
+| Fields, snapshot per byte | 19 ms | 12 ms | **-37%** |
+| Fields, retains (snapshot per byte) | 671 K | 256 K | **-62%** |
+
+The snapshot row is the design working as intended: a partial whose string fields are
+`BitwiseCopyable` retains nothing when it is emitted.
+
+As a container element, it loses, and badly:
+
+| row | `StreamString` | inline 32 | inline 64 | inline 128 | inline 512 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Array short, bulk | 371 µs | 870 | 985 | 1201 | 2324 |
+| Array short, byte by byte | 766 µs | 1257 | | | |
+| Array short, snapshot per byte | 3381 µs | 3074 | 3228 | 3564 | 4899 |
+| Dictionary short, bulk | 416 µs | 1350 | | | |
+| Array medium, bulk mallocs | 2127 | 80 | | | |
+
+This is not the storage. `StreamArray<StreamString>` has a closed sink route —
+`arrayStreamString` caches the element's raw pointer at `stringBegin` and appends with no frame
+and no closure — and an inline string has no equivalent, so every element pays frame construction
+and a schema call that the dynamic type skips. The capacity column then adds a per-element cost on
+top of that: 32 to 512 is 2.7x, on values of about twelve bytes.
+
+Two things follow. The container routes (`openKnownStreamStringTarget` and friends) are the next
+piece of work, and they are the hard half, because opening an element genuinely needs the element
+type where appending does not. And until they exist, the honest guidance is the one the doc
+comment gives: this type is for bounded *fields*, and `StreamArray<StreamInlineString<N>>` should
+be reached for only when the allocation count matters more than the throughput — 80 against 2,127
+mallocs on the medium-string row, which for an embedded target may well be the whole point.
+
+### What the fold costs the string path, and the `|=` variant that did not help
+
+The real-world rows hide this and the synthetic string rows do not, because a whole document
+dilutes the string path with structure and keys. Payload MB/s, three settled runs per side:
+
+| row | HEAD | `max` fold |
+| --- | ---: | ---: |
+| Fast Escaped string - bulk | 286 | 255 (-10.8%) |
+| Fast Escaped string - 64B chunks | 264 | 241 (-8.7%) |
+| Fast Long string - byte by byte | 75 | 70 (-6.7%) |
+| Fast Escaped string - byte by byte | 116 | 110 (-5.2%) |
+| Fast Long string - 64B chunks | 3196 | 3039 (~-5%) |
+| Fast Long string - bulk | 8001 | 7946 | 
+| Leaf Array String, Leaf Dictionary String, Non-ASCII bulk, Layer partial sink | | flat |
+
+The cost tracks chunks per byte, which is what the fold is per: an escape splits a string into
+another run, so escape-dense payloads pay it most; a long string in one chunk pays it once and is
+flat; byte-fed pays it per byte. This is still the cheaper half of the trade — the branch it
+replaced cost 8.7% of a *whole-document* row, where this costs about zero.
+
+`|=` over disjoint bits, replacing `max`, was built and measured on the worst rows: 250/257/258
+against 255/252/255 on `Fast Escaped string - bulk`, and identical elsewhere. The `cmov` was never
+the cost; the load-store dependency on the sink's own storage once per chunk is, and both
+spellings pay it. Reverted, because bit-valued cases would have constrained every case added
+later for nothing.
+
+What is left untried is making unbounded destinations skip the fold entirely by having the schema
+carry "this destination cannot fail". It is exact for a scalar root, an array element and a
+dictionary value. It is not exact for a macro object schema, whose granularity is the object
+rather than the field — which is the shape of the rows above, so it would need macro work to help
+the case that needs helping.
+
+### The container gap is the route, not the storage
+
+Taking the closed route away from `StreamString` — mapping `valueStreamString` to `.generic` in
+the array and dictionary constructors — puts it exactly where the inline string already is. Wall
+clock, three runs, 2,048 short values:
+
+| row | `StreamString` with route | `StreamString` without route | inline 32 (never had one) |
+| --- | ---: | ---: | ---: |
+| Array short, bulk | 371 µs | 887, 886, 887 | 881, 883, 913 |
+| Dictionary short, bulk | 416 µs | 1238, 1240, 1380 | 1364, 1354, 1470 |
+
+Route for route, the storage is at parity in an array and about 10% behind in a dictionary, which
+is the per-element zero-init. The 2.3x reported above is therefore entirely the missing route, and
+the capacity sweep (881 µs at 32 against 2324 at 512) is a second, independent effect that no
+route removes.
+
+That makes the route worth building, and it needs no new indirection: `appendElement` on the
+schema is already a type-specialized function pointer, so the work is letting `stringBegin` cache
+the raw pointer it returns and skip the frame and `ScalarTarget` bookkeeping the generic path
+builds around it — the same shape as `openKnownStreamStringTarget`, reached through a witness
+instead of a concrete type. Whether that recovers all 2.4x depends on how much of it is the
+bookkeeping rather than the call, which the experiment above does not separate.
+
+### The container route cannot be reached through indirection: built, measured, REJECTED
+
+The sink cannot name `StreamInlineString<N>`, so a container route has to open the element slot
+through a witness. Two forms were built for dictionaries and both were dead on arrival:
+
+| dictionary, 2,048 short values | wall clock |
+| --- | ---: |
+| `StreamString`, concrete route (`openKnownDictionaryValue`) | 418 µs |
+| `StreamString`, through a raw-returning witness | 1100, 1099, 1248 |
+| `StreamInlineString<32>`, generic path | 1350, 1354, 1470 |
+| `StreamInlineString<32>`, through `enterKey`, frame discarded | 1398, 1507, 1614 |
+| `StreamInlineString<32>`, through a raw-returning witness | 1347, 1443, 1507 |
+
+The route was confirmed selected -- `StreamDictionary<StreamInlineString<32>>.streamSchema` really
+does carry `dictionaryInlineString` with capacity 32 -- and it still bought nothing. The ceiling
+row is what explains it: sending *`StreamString`*, a concrete type, through the same witness costs
+it 418 -> 1100. About 330 ns per value.
+
+So the concrete route's advantage was never the `StreamFrame`, the schema retain or the
+`ScalarTarget` this work set out to skip. It is that `_openValue` **inlines into the sink**,
+hashing, probing and all. A stored closure is opaque; a witness-based route loses that inlining
+and lands within noise of the generic path it was meant to replace. Trimming ownership traffic
+around an un-inlinable call cannot recover it.
+
+That leaves three honest options, none of which is "add a route":
+
+- **Erase the container, not the element.** Teach `StreamArray` and `StreamDictionary` a raw
+  stride-parameterized open, so the sink opens a slot inline without naming the element type. Only
+  sound for `BitwiseCopyable`, zero-initializable elements, and it is a rewrite of the containers'
+  hot path rather than an addition to the sink.
+- **Emit a concrete route per capacity.** Not possible: the type space is open.
+- **Use the type where it wins.** Bounded fields, where it is 9-11% faster and 62% lighter on
+  retains, and leave containers on the generic path.
+
+The dictionary route and its `openValueStorage` witness were reverted; `inlineCapacity` was kept,
+because it stops `fixedElementCount` from meaning two things. `Optional` element handling never
+entered the picture.
 
 ---
 

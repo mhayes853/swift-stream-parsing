@@ -187,6 +187,53 @@ struct BenchmarkCanadaProperties: Hashable, Sendable {
 @StreamParseable
 struct BenchmarkCanadaGeometry: Hashable, Sendable {
   var type: String = ""
+  var coordinates: [[SIMD2<Double>]] = []
+}
+
+// The representation Canada used before fixed-width coordinate pairs were available. Keep it as
+// a permanent control: unlike the SIMD model, every pair is another independently allocated
+// `StreamArray`, so future improvements to the generic nested-array path remain measurable.
+@StreamParseable
+struct BenchmarkCanadaDynamic: Hashable, Sendable {
+  var type: String = ""
+  var features: [BenchmarkCanadaDynamicFeature] = []
+}
+
+@StreamParseable
+struct BenchmarkCanadaDynamicFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
+  var geometry: BenchmarkCanadaDynamicGeometry = BenchmarkCanadaDynamicGeometry()
+}
+
+@StreamParseable
+struct BenchmarkCanadaDynamicGeometry: Hashable, Sendable {
+  var type: String = ""
+  var coordinates: [[[Double]]] = []
+}
+
+// The same retained shape with cardinality hints taken from canada.json. Kept as a separate model
+// so the real-world rows continue to provide a direct hinted/unhinted comparison.
+@StreamParseable
+struct BenchmarkCanadaCapacityHint: Hashable, Sendable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 1)
+  var features: [BenchmarkCanadaCapacityHintFeature] = []
+}
+
+@StreamParseable
+struct BenchmarkCanadaCapacityHintFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
+  var geometry: BenchmarkCanadaCapacityHintGeometry = BenchmarkCanadaCapacityHintGeometry()
+}
+
+@StreamParseable
+struct BenchmarkCanadaCapacityHintGeometry: Hashable, Sendable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 480)
   var coordinates: [[[Double]]] = []
 }
 
@@ -198,15 +245,28 @@ struct BenchmarkCanadaGeometry: Hashable, Sendable {
 // than sitting in separate regions. `colors` holds packed ARGB words above `Int32.max`, so it is
 // `Int` rather than the narrower type the values look like they want.
 //
-// `influences` is `[[Double]]`, not `[[Int]]`: its pairs are written `[1.0,0]`, mixing a decimal
-// and an integer inside one array, and an `Int` member rejects the decimal on its `.fraction`
-// flag. That is the payload's point -- shapes vary within a single array, not just between
-// fields -- and it is what the `positions?.count` preconditions below exist to catch.
+// `influences` is `[SIMD2<Double>]`, not an integer vector: its pairs are written `[1.0,0]`,
+// mixing a decimal and an integer inside one array, and an `Int` lane rejects the decimal on its
+// `.fraction` flag. That is the payload's point -- shapes vary within a single array, not just
+// between fields -- and it is what the `positions?.count` preconditions below exist to catch.
 //
 // `morphTargets` is an empty object in the document and is deliberately not modelled; the parser
 // skips unmatched keys, which is also what keeps this model honest about the skip path.
 @StreamParseable
 struct BenchmarkMesh: Hashable, Sendable {
+  var batches: [BenchmarkMeshBatch] = []
+  var positions: [Double] = []
+  var tex0: [Double] = []
+  var colors: [Int] = []
+  var influences: [SIMD2<Double>] = []
+  var normals: [Double] = []
+  var indices: [Int] = []
+}
+
+// The old nested representation of `influences`, retained beside the optimized model for the
+// same reason as Canada's dynamic coordinates. The other fields deliberately remain identical.
+@StreamParseable
+struct BenchmarkMeshDynamic: Hashable, Sendable {
   var batches: [BenchmarkMeshBatch] = []
   var positions: [Double] = []
   var tex0: [Double] = []
@@ -220,6 +280,44 @@ struct BenchmarkMesh: Hashable, Sendable {
 struct BenchmarkMeshBatch: Hashable, Sendable {
   var indexRange: [Int] = []
   var vertexRange: [Int] = []
+  var usedBones: [Int] = []
+}
+
+// Exact cardinalities from mesh.json. These long flat arrays are the corpus's clearest case for a
+// member-level capacity hint; the unhinted BenchmarkMesh remains alongside it as the control.
+@StreamParseable
+struct BenchmarkMeshCapacityHint: Hashable, Sendable {
+  @StreamParseableMember(initialCapacity: 1)
+  var batches: [BenchmarkMeshCapacityHintBatch] = []
+
+  @StreamParseableMember(initialCapacity: 10_800)
+  var positions: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 7_200)
+  var tex0: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var colors: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 3_600)
+  var influences: [[Double]] = []
+
+  @StreamParseableMember(initialCapacity: 10_800)
+  var normals: [Double] = []
+
+  @StreamParseableMember(initialCapacity: 33_408)
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkMeshCapacityHintBatch: Hashable, Sendable {
+  @StreamParseableMember(initialCapacity: 2)
+  var indexRange: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 2)
+  var vertexRange: [Int] = []
+
+  @StreamParseableMember(initialCapacity: 1)
   var usedBones: [Int] = []
 }
 
@@ -241,6 +339,29 @@ struct BenchmarkGSoCOrganization: Hashable, Sendable {
   var name: String = ""
   var disambiguatingDescription: String = ""
   var description: String = ""
+  var url: String = ""
+  var logo: String = ""
+}
+
+@StreamParseable
+struct BenchmarkGSoCProjectStringCapacity: Hashable, Sendable {
+  var name: String = ""
+
+  @StreamParseableMember(initialCapacity: 1_200)
+  var description: String = ""
+
+  var sponsor: BenchmarkGSoCOrganizationStringCapacity = BenchmarkGSoCOrganizationStringCapacity()
+  var author: BenchmarkGSoCOrganizationStringCapacity = BenchmarkGSoCOrganizationStringCapacity()
+}
+
+@StreamParseable
+struct BenchmarkGSoCOrganizationStringCapacity: Hashable, Sendable {
+  var name: String = ""
+  var disambiguatingDescription: String = ""
+
+  @StreamParseableMember(initialCapacity: 2_750)
+  var description: String = ""
+
   var url: String = ""
   var logo: String = ""
 }
@@ -435,9 +556,93 @@ struct BenchmarkContentBlock: Equatable {
 }
 
 @StreamParseable
+struct BenchmarkLLMMessageStringCapacity: Equatable {
+  var id: String = ""
+  var role: String = ""
+  var model: String = ""
+  var content: [BenchmarkContentBlockStringCapacity] = []
+  var stop_reason: String = ""
+  var usage: BenchmarkUsage = BenchmarkUsage()
+}
+
+@StreamParseable
+struct BenchmarkContentBlockStringCapacity: Equatable {
+  var type: String = ""
+
+  @StreamParseableMember(initialCapacity: 3_500)
+  var text: String = ""
+
+  var name: String = ""
+}
+
+@StreamParseable
 struct BenchmarkUsage: Equatable {
   var input_tokens: Int = 0
   var output_tokens: Int = 0
+}
+
+// MARK: - Qwen 3 structured output
+
+// Qwen 3's Hermes-style template emits this object inside `<tool_call>` tags. One shared argument
+// model accepts both fixtures: fields unused by a particular tool remain at their initial values,
+// just as they do in generated partials while a real model is still producing the call.
+@StreamParseable
+struct BenchmarkQwen3ToolCall: Equatable {
+  var name: String = ""
+  var arguments: BenchmarkQwen3ToolArguments = BenchmarkQwen3ToolArguments()
+}
+
+@StreamParseable
+struct BenchmarkQwen3ToolArguments: Equatable {
+  var query: String = ""
+  var path: String = ""
+  var include: [String] = []
+  var exclude: [String] = []
+  var case_sensitive: Bool = false
+  var max_results: Int = 0
+  var context: BenchmarkQwen3SearchContext = BenchmarkQwen3SearchContext()
+  var edits: [BenchmarkQwen3WorkspaceEdit] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3SearchContext: Equatable {
+  var before: Int = 0
+  var after: Int = 0
+  var languages: [String] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3WorkspaceEdit: Equatable {
+  var path: String = ""
+  var line: Int = 0
+  var delete_count: Int = 0
+  var replacement: String = ""
+  var reason: String = ""
+}
+
+@StreamParseable
+struct BenchmarkQwen3StructuredResponse: Equatable {
+  var summary: String = ""
+  var findings: [BenchmarkQwen3Finding] = []
+  var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
+}
+
+@StreamParseable
+struct BenchmarkQwen3Finding: Equatable {
+  var id: String = ""
+  var severity: String = ""
+  var path: String = ""
+  var line: Int = 0
+  var title: String = ""
+  var detail: String = ""
+  var tags: [String] = []
+}
+
+@StreamParseable
+struct BenchmarkQwen3Recommendation: Equatable {
+  var decision: String = ""
+  var confidence: Double = 0
+  var steps: [String] = []
 }
 
 // `BenchmarkLLMMessage`'s spine with the scalars renamed, for the same split as
@@ -499,10 +704,10 @@ struct BenchmarkDiscardedScalar: Equatable, StreamInitializable, StreamParseable
   static var streamSchema: StreamSchema {
     StreamSchema(
       shape: .scalar,
-      applyString: { _, _, _ in true },
-      applyNumber: { _, _, _, _ in true },
-      applyBoolean: { _, _, _ in true },
-      applyNull: { _, _ in true }
+      applyString: { _, _, _ in .applied },
+      applyNumber: { _, _, _, _ in .applied },
+      applyBoolean: { _, _, _ in .applied },
+      applyNull: { _, _ in .applied }
     )
   }
 }

@@ -9,8 +9,10 @@
   extension Data: StreamStringConvertible, StreamParseableRoot {
     public static func streamInitialValue() -> Self { Data() }
 
-    public mutating func streamAppend(utf8 bytes: Span<UInt8>) {
+    @discardableResult
+    public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
       bytes.withUnsafeBufferPointer { self.append($0) }
+      return .applied
     }
   }
 
@@ -96,9 +98,9 @@
           case Self.StreamField.namePrefix: streamAppendPersonName(&p.pointee.namePrefix, bytes)
           case Self.StreamField.nameSuffix: streamAppendPersonName(&p.pointee.nameSuffix, bytes)
           case Self.StreamField.nickname: streamAppendPersonName(&p.pointee.nickname, bytes)
-          default: return false
+          default: return .unsupported
           }
-          return true
+          return .applied
         },
         applyNull: { storage, field in
           let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
@@ -110,9 +112,9 @@
           case Self.StreamField.nameSuffix: p.pointee.nameSuffix = nil
           case Self.StreamField.nickname: p.pointee.nickname = nil
           case Self.StreamField.phoneticRepresentation: p.pointee.phoneticRepresentation = nil
-          default: return false
+          default: return .unsupported
           }
-          return true
+          return .applied
         },
         enterField: { storage, field in
           guard field == Self.StreamField.phoneticRepresentation else { return nil }
@@ -170,7 +172,7 @@
     _ storage: UnsafeMutableRawPointer,
     _ field: Int32,
     _ body: (inout String?) -> Void
-  ) -> Bool {
+  ) -> StreamApplyResult {
     typealias StreamField = PersonNameComponents.StreamField
     let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
     var phonetic = p.pointee.phoneticRepresentation ?? PersonNameComponents()
@@ -181,10 +183,10 @@
     case StreamField.namePrefix: body(&phonetic.namePrefix)
     case StreamField.nameSuffix: body(&phonetic.nameSuffix)
     case StreamField.nickname: body(&phonetic.nickname)
-    default: return false
+    default: return .unsupported
     }
     p.pointee.phoneticRepresentation = phonetic
-    return true
+    return .applied
   }
 
   // MARK: - Legacy handler registration
