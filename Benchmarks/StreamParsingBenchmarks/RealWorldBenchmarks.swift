@@ -106,6 +106,13 @@ private func validateRealWorldModels() {
   }
   precondition(hintedCanada.features?.count == 1)
   precondition(hintedCanada.features?[0].geometry?.coordinates?.count == 480)
+  let canadaStreamInitialValue = expectParses {
+    try streamBulkDiscarding(
+      Payloads.canada, as: BenchmarkCanadaStreamInitialValue.Partial.self
+    )
+  }
+  precondition(canadaStreamInitialValue.features.count == 1)
+  precondition(canadaStreamInitialValue.features[0].geometry.coordinates.count == 480)
   let gsoc = expectParses {
     try streamBulkDiscarding(
       Payloads.gsoc2018,
@@ -239,6 +246,11 @@ private func addRealWorldBaselineConvenienceRows() {
     "Canada dynamic coordinates",
     payload: Payloads.canada,
     as: BenchmarkCanadaDynamic.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "Canada streamInitialValue",
+    payload: Payloads.canada,
+    as: BenchmarkCanadaStreamInitialValue.Partial.self
   )
   addRealWorldConvenienceRows(
     "CITM catalog",

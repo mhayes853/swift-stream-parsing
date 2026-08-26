@@ -237,6 +237,36 @@ struct BenchmarkCanadaCapacityHintGeometry: Hashable, Sendable {
   var coordinates: [[[Double]]] = []
 }
 
+// The same shape as `BenchmarkCanada`, with every member initialized through
+// `streamInitialValue()` instead of `nil`. Kept as a permanent control so the two
+// `partialMembers` modes stay directly comparable on a real dataset rather than only on
+// synthetic shapes.
+@StreamParseable(partialMembers: .streamInitialValue)
+struct BenchmarkCanadaStreamInitialValue: Hashable, Sendable {
+  var type: String = ""
+  var features: [BenchmarkCanadaStreamInitialValueFeature] = []
+}
+
+@StreamParseable(partialMembers: .streamInitialValue)
+struct BenchmarkCanadaStreamInitialValueFeature: Hashable, Sendable {
+  var type: String = ""
+  var properties: BenchmarkCanadaStreamInitialValueProperties =
+    BenchmarkCanadaStreamInitialValueProperties()
+  var geometry: BenchmarkCanadaStreamInitialValueGeometry =
+    BenchmarkCanadaStreamInitialValueGeometry()
+}
+
+@StreamParseable(partialMembers: .streamInitialValue)
+struct BenchmarkCanadaStreamInitialValueProperties: Hashable, Sendable {
+  var name: String = ""
+}
+
+@StreamParseable(partialMembers: .streamInitialValue)
+struct BenchmarkCanadaStreamInitialValueGeometry: Hashable, Sendable {
+  var type: String = ""
+  var coordinates: [[SIMD2<Double>]] = []
+}
+
 // MARK: - Mesh
 
 // A three.js mesh export: one object of long flat numeric arrays. The model keeps every one of
