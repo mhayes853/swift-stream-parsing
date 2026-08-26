@@ -109,9 +109,9 @@ public final class StreamSchema: Sendable {
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
   // Appends a run of numbers to an array whose elements are numbers, returning how many were
-  // taken (see `StreamNumberBatch`). Arrays of number-convertible elements only; nil means the
+  // taken: `(storage, batch, from, to)` appends the `number` records in `from..<to` and returns how many it took. Arrays of number-convertible elements only; nil means the
   // batch is unrolled through `appendElement` and `applyNumber` one number at a time.
-  public let appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+  public let appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
 
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
@@ -134,7 +134,7 @@ public final class StreamSchema: Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
     },
-    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)? = nil
+    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil
   ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
@@ -171,7 +171,7 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// as ``StreamSchema/appendNumbers`` so `PartialSink` can take a batch without routing each
   /// number through a frame.
   static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)? { get }
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? { get }
 
   /// The schema this type is written through when a container holds it, and the value that
   /// container opens its slot with.
@@ -349,7 +349,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
 extension StreamParseableRoot {
   @inlinable
   public static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
   { nil }
 }
 
@@ -363,28 +363,24 @@ extension StreamParseableRoot {
 extension StreamParseableRoot where Self: StreamNumberConvertible {
   @inlinable
   public static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamNumberBatch) -> Int)?
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
   {
-    { storage, batch in
+    { storage, batch, from, to in
       let array = storage.assumingMemoryBound(to: StreamArray<Self>.self)
-      let count = batch.count
-      guard count > 0 else { return 0 }
+      guard to > from else { return 0 }
       array.pointee.drainPending()
-      let infos = batch.infos
-      var index = 0
-      let last = count &- 1
+      var index = from
+      let last = to &- 1
       while index < last {
-        guard let value = Self(streamParsing: batch.token(at: index), info: infos[index]) else {
-          return index
-        }
+        guard let value = Self(streamParsing: batch.bytes(of: index), info: batch.info(of: index))
+        else { return index &- from }
         array.pointee.commit(value)
         index &+= 1
       }
-      guard let value = Self(streamParsing: batch.token(at: last), info: infos[last]) else {
-        return last
-      }
+      guard let value = Self(streamParsing: batch.bytes(of: last), info: batch.info(of: last))
+      else { return last &- from }
       array.pointee.pending = value
-      return count
+      return to &- from
     }
   }
 }

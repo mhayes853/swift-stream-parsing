@@ -193,19 +193,19 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Containers
 
-  public mutating func beginObject() {
+  mutating func beginObject() {
     self.enterContainer(shape: .object)
   }
 
-  public mutating func beginArray() {
+  mutating func beginArray() {
     self.enterContainer(shape: .array)
   }
 
-  public mutating func endObject() {
+  mutating func endObject() {
     self.popFrame()
   }
 
-  public mutating func endArray() {
+  mutating func endArray() {
     self.popFrame()
   }
 
@@ -278,7 +278,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // other schema call costs. The frames standing over subtrees the destination has no field for
   // are exactly those schemas, and they see most of the keys in a document a model only partly
   // declares — 52% of `twitter.json`'s.
-  public mutating func key(_ bytes: Span<UInt8>) {
+  mutating func key(_ bytes: Span<UInt8>) {
     guard let top = self.topFrame else { return }
     // Read through the frame each time rather than bound to a local. A local outlives the call it
     // is passed to, and `enterKey` takes the frame's own storage, so the optimizer has to keep the
@@ -299,7 +299,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Scalars
 
-  public mutating func stringBegin() {
+  mutating func stringBegin() {
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
@@ -315,16 +315,16 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
-  public mutating func stringChunk(_ bytes: Span<UInt8>) {
+  mutating func stringChunk(_ bytes: Span<UInt8>) {
     guard let target = self.scalarTarget else { return }
     _ = target.schema.applyString(target.storage, target.field, bytes)
   }
 
-  public mutating func stringEnd() {
+  mutating func stringEnd() {
     self.scalarTarget = nil
   }
 
-  public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     self.withScalarTarget { storage, field, schema in
       schema.applyNumber(storage, field, bytes, info)
     }
@@ -343,6 +343,21 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     var index = 0
     while index < count {
       let record = records[index]
+      // A run of numbers into an array of numbers takes the schema's bulk appender: no frame
+      // per element, no schema borrow per value. Its rejection is the element it refused.
+      if record.kind == .number, let top = self.topFrame, top.pointee.schema.shape == .array,
+        let append = top.pointee.schema.appendNumbers
+      {
+        var runEnd = index &+ 1
+        while runEnd < count && records[runEnd].kind == .number { runEnd &+= 1 }
+        let taken = append(top.pointee.storage, batch, index, runEnd)
+        if taken < runEnd &- index {
+          self.recordFailure(.typeMismatch)
+          return index &+ taken
+        }
+        index = runEnd
+        continue
+      }
       if record.kind == .key, index &+ 1 < count, let top = self.topFrame,
         top.pointee.schema.shape == .object, top.pointee.schema.keyRouting == .match
       {
@@ -422,31 +437,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // resolution per batch instead of one per number, and none of the per-element routing that
   // the profile counted as five retains and six releases per number. Any other destination
   // unrolls the batch through `number`, exactly as the protocol's default would.
-  public mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
-    if let top = self.topFrame, top.pointee.schema.shape == .array,
-      let append = top.pointee.schema.appendNumbers
-    {
-      let taken = append(top.pointee.storage, batch)
-      if taken < batch.count { self.recordFailure(.typeMismatch) }
-      return taken
-    }
-    let infos = batch.infos
-    var index = 0
-    while index < batch.count {
-      self.number(batch.token(at: index), info: infos[index])
-      if self.streamFailure != nil { return index }
-      index &+= 1
-    }
-    return index
-  }
-
-  public mutating func boolean(_ value: Bool) {
+  mutating func boolean(_ value: Bool) {
     self.withScalarTarget { storage, field, schema in
       schema.applyBoolean(storage, field, value)
     }
   }
 
-  public mutating func null() {
+  mutating func null() {
     if self.topFrame == nil, !self.started {
       if !self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField) {
         self.recordFailure(.typeMismatch)

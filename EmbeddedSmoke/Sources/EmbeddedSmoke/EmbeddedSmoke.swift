@@ -74,6 +74,30 @@ struct SmokeSink: StreamParseSink {
 
   mutating func boolean(_ value: Bool) { self.booleans &+= 1 }
   mutating func null() { self.nulls &+= 1 }
+
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    var index = 0
+    while index < batch.count {
+      let record = records[index]
+      switch record.kind {
+      case .beginObject: self.beginObject()
+      case .endObject: self.endObject()
+      case .beginArray: self.beginArray()
+      case .endArray: self.endArray()
+      case .key: self.key(batch.bytes(of: index))
+      case .stringBegin: self.stringBegin()
+      case .stringChunk: self.stringChunk(batch.bytes(of: index))
+      case .stringEnd: self.stringEnd()
+      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
+      case .boolean: self.boolean(record.booleanValue)
+      case .null: self.null()
+      case .string: self.string(batch.bytes(of: index))
+      }
+      index &+= 1
+    }
+    return index
+  }
 }
 
 // MARK: - Driving the parser

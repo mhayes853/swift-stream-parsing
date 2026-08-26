@@ -1,7 +1,7 @@
 import Benchmark
 import StreamParsingCore
 
-struct FastCountingSink: StreamParseSink {
+struct FastCountingSink: EventSink {
   var streamFailure: StreamSinkFailure?
   var checksum: UInt64 = 0
   var tokens = 0
@@ -34,20 +34,10 @@ struct FastCountingSink: StreamParseSink {
     self.checksum &+= Self.fold(info)
   }
 
-  // A run of numbers from the windowed path: the same checksum, without a call per number.
-  mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int {
-    let infos = batch.infos
-    var sum: UInt64 = 0
-    for i in 0..<batch.count { sum &+= Self.fold(infos[i]) }
-    self.tokens &+= batch.count
-    self.checksum &+= sum
-    return batch.count
-  }
-
   mutating func boolean(_ value: Bool) { self.tokens &+= 1 }
   mutating func null() { self.tokens &+= 1 }
 
-  // A window's events from the windowed path: the same counts and checksum, in one loop. The
+  // Every event arrives here: the same counts and checksum as the per-event methods, in one loop. The
   // common kinds are tested first as compares rather than through the switch's jump table,
   // and the subscripts are unchecked: the loop is the whole per-event cost of this sink.
   mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
@@ -66,8 +56,18 @@ struct FastCountingSink: StreamParseSink {
         tokens &+= 1
         checksum &+= UInt64(record.length)
       } else if kind == .number {
-        tokens &+= 1
-        checksum &+= Self.fold(batch.info(of: i))
+        // A run of numbers is folded in place: one branch per element on the record kind and
+        // the same tight loop over the contiguous infos that the number batches had.
+        var j = i
+        var sum: UInt64 = 0
+        while j < count && records[unchecked: j].kind == .number {
+          sum &+= Self.fold(batch.info(of: j))
+          j &+= 1
+        }
+        tokens &+= j &- i
+        checksum &+= sum
+        i = j
+        continue
       } else if kind == .stringChunk {
         checksum &+= UInt64(record.length)
       } else if kind == .endObject || kind == .endArray || kind == .stringEnd {

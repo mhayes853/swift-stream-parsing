@@ -73,7 +73,7 @@ struct `Number buffer bounds tests` {
   }
 }
 
-private struct BoundsRecordingSink: StreamParseSink {
+private struct BoundsRecordingSink: EventSink {
   var streamFailure: StreamSinkFailure?
   var magnitudes: [UInt64] = []
 

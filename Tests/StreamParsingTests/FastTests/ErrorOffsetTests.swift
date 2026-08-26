@@ -187,13 +187,17 @@ struct `Error offset tests` {
     expectNoDifference(error?.byteOffset, 2, "split at \(splitAt)")
   }
 
+  // A string is refused at its `stringBegin` — that is where a typed destination learns it
+  // will not take a string — and a whole `string` record is refused at the same point, so the
+  // offset is the byte after the opening quote whether the chunking made it one record or
+  // three (see `StreamEventRecord.Kind.string`).
   @Test(arguments: 0...9)
   func `Reports a rejected string at its own token, not the next`(splitAt: Int) {
     let error = Self.sinkFailure(
       #"["a","b"]"#, sink: RejectingSink(rejecting: .string), splitAt: splitAt
     )
     expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
-    expectNoDifference(error?.byteOffset, 4, "split at \(splitAt)")
+    expectNoDifference(error?.byteOffset, 2, "split at \(splitAt)")
   }
 
   // The parse has to stop at the rejection, not carry on into the next token's events.
@@ -209,7 +213,7 @@ struct `Error offset tests` {
 
 // Fails on the first token of one kind, and records how many string tokens it was told about, so
 // a fusion that ran past a rejection shows up as an event count as well as an offset.
-private struct RejectingSink: StreamParseSink {
+private struct RejectingSink: EventSink {
   enum Kind { case number, string }
 
   let rejecting: Kind
@@ -231,9 +235,12 @@ private struct RejectingSink: StreamParseSink {
   mutating func beginArray() {}
   mutating func endArray() {}
   mutating func key(_ bytes: Span<UInt8>) {}
-  mutating func stringBegin() { self.startedStrings &+= 1 }
+  mutating func stringBegin() {
+    self.startedStrings &+= 1
+    if self.rejecting == .string { self.fail() }
+  }
   mutating func stringChunk(_ bytes: Span<UInt8>) {}
-  mutating func stringEnd() { if self.rejecting == .string { self.fail() } }
+  mutating func stringEnd() {}
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     if self.rejecting == .number { self.fail() }
   }

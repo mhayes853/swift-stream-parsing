@@ -5,7 +5,7 @@ import Testing
 import StreamParsingCore
 
 // Materializes events into a tree so results can be compared against JSONSerialization.
-struct TreeSink: StreamParseSink {
+struct TreeSink: EventSink {
   enum Node: Equatable {
     case object([(String, Node)])
     case array([Node])

@@ -62,6 +62,10 @@ public struct JSONParser: ~Copyable {
   // has buffered nothing yet, and misrouting it emitted the decoded byte as string content.
   @usableFromInline var isKeyToken = false
   @usableFromInline var keyContainsNonASCII = false
+  // A string value's opening quote has been consumed and its `stringBegin` not yet recorded:
+  // the string loop records one whole `string` event if the string completes cleanly in the
+  // chunk, and `stringBegin` followed by chunks otherwise.
+  @usableFromInline var stringBeginPending = false
 
   @usableFromInline var literalKind: UInt8 = 0
   @usableFromInline var literalIndex = 0
@@ -80,10 +84,20 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var windowDensity: Int = .max
   @usableFromInline var windowsSinceProbe = 0
 
+  // The event recorder (JSONParserEvents.swift): records and, for number records, their infos,
+  // and the chunk the input-sourced records point into, set at every entry point.
+  @usableFromInline var eventScratch: UnsafeMutablePointer<StreamEventRecord>
+  @usableFromInline var eventInfoScratch: UnsafeMutablePointer<NumberInfo>
+  @usableFromInline var eventCount = 0
+  @usableFromInline var chunkBase: UnsafeRawPointer
+
   public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
     self.buffer = .allocate(capacity: Swift.max(bufferCapacity, 64))
     self.ownsBuffer = true
     self.windowThreshold = windowThreshold
+    self.eventScratch = .allocate(capacity: Self.eventBatchCapacity)
+    self.eventInfoScratch = .allocate(capacity: Self.eventBatchCapacity)
+    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   public init(buffer: UnsafeMutableBufferPointer<UInt8>, windowThreshold: Int = .max) {
@@ -94,11 +108,16 @@ public struct JSONParser: ~Copyable {
     self.buffer = buffer
     self.ownsBuffer = false
     self.windowThreshold = windowThreshold
+    self.eventScratch = .allocate(capacity: Self.eventBatchCapacity)
+    self.eventInfoScratch = .allocate(capacity: Self.eventBatchCapacity)
+    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   deinit {
     if self.ownsBuffer { self.buffer.deallocate() }
     self.windowScratch?.deallocate()
+    self.eventScratch.deallocate()
+    self.eventInfoScratch.deallocate()
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -128,13 +147,23 @@ public struct JSONParser: ~Copyable {
     var scalar = byte
     try withUnsafePointer(to: &scalar) { pointer throws(JSONParsingError) in
       let base = UnsafeRawPointer(pointer)
+      self.chunkBase = base
       var i = 0
-      if self.pendingUTF8Count > 0 {
-        i = try self.completePendingUTF8(base: base, count: 1, into: &sink)
+      do throws(JSONParsingError) {
+        if self.pendingUTF8Count > 0 {
+          i = try self.completePendingUTF8(base: base, count: 1, into: &sink)
+        }
+        while i < 1 {
+          i = try self.dispatchOnce(base: base, from: i, to: 1, into: &sink)
+        }
+      } catch {
+        try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
+        try self.flushEvents(into: &sink)
+        throw error
       }
-      while i < 1 {
-        i = try self.dispatchOnce(base: base, from: i, to: 1, into: &sink)
-      }
+      // The byte's pointer does not outlive this closure, and neither may a record into it.
+      try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
+      try self.flushEvents(into: &sink)
       self.consumedByteCount &+= 1
     }
   }
@@ -147,12 +176,35 @@ public struct JSONParser: ~Copyable {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
     let n = input.count
+    self.chunkBase = base
     if n >= self.windowThreshold {
       try self.parseWindowed(base: base, count: n, into: &sink)
       return
     }
     var i = 0
 
+    do throws(JSONParsingError) {
+      try self.parseDispatching(base: base, count: n, into: &sink)
+    } catch {
+      // Events recorded before the error are delivered first: a sink rejection among them is
+      // earlier in the document than the grammar error and is what gets reported.
+      try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+      try self.flushEvents(into: &sink)
+      throw error
+    }
+    try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+    try self.flushEvents(into: &sink)
+    self.consumedByteCount &+= n
+  }
+
+  // The bulk loop, in its own function only so `parse` can wrap it in the flush-on-error
+  // handler; it is forced inline so the loop's layout is what it was when it lived in `parse`.
+  @inlinable
+  @inline(__always)
+  mutating func parseDispatching<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, count n: Int, into sink: inout Sink
+  ) throws(JSONParsingError) {
+    var i = 0
     if self.pendingUTF8Count > 0 {
       i = try self.completePendingUTF8(base: base, count: n, into: &sink)
     }
@@ -184,10 +236,7 @@ public struct JSONParser: ~Copyable {
       case .literal:
         i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
       }
-      try self.checkSink(&sink, at: i)
     }
-
-    self.consumedByteCount &+= n
   }
 
   @inlinable
@@ -209,7 +258,6 @@ public struct JSONParser: ~Copyable {
     }
     if self.depth > 0 { throw self.error(.unterminatedContainer, at: 0) }
     if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8, at: 0) }
-    try self.checkSink(&sink, at: 0)
   }
 
   // MARK: Structural
@@ -268,7 +316,6 @@ public struct JSONParser: ~Copyable {
         i &-= 1
         break
       }
-      try self.checkSink(&sink, at: i)
       if !state.isStructural { break }
     }
     return i
@@ -291,13 +338,13 @@ public struct JSONParser: ~Copyable {
     case .value, .firstValue:
       switch byte {
       case .asciiObjectStart:
-        sink.beginObject()
+        try self.record(.beginObject, start: at, length: 1, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
         containers |= 1 &<< UInt64(depth)
         depth &+= 1
         state = .firstKey
       case .asciiArrayStart:
-        sink.beginArray()
+        try self.record(.beginArray, start: at, length: 1, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
         containers &= ~(1 &<< UInt64(depth))
         depth &+= 1
@@ -306,12 +353,12 @@ public struct JSONParser: ~Copyable {
         guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
-        sink.endArray()
+        try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       case .asciiQuote:
         self.isKeyToken = false
-        sink.stringBegin()
+        self.stringBeginPending = true
         state = .inString
       case .asciiLowerT:
         self.startLiteral(kind: 0)
@@ -339,14 +386,14 @@ public struct JSONParser: ~Copyable {
         guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
-        sink.endArray()
+        try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       case .asciiObjectEnd:
         guard Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
-        sink.endObject()
+        try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
@@ -380,7 +427,7 @@ public struct JSONParser: ~Copyable {
         guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)
         }
-        sink.endObject()
+        try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
@@ -434,10 +481,9 @@ public struct JSONParser: ~Copyable {
   @inline(__always)
   mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
-  ) -> Int {
+  ) throws(JSONParsingError) -> Int {
     guard self.depth > 0, from < to,
-      base.load(fromByteOffset: from, as: UInt8.self) == .asciiComma,
-      sink.streamFailure == nil
+      base.load(fromByteOffset: from, as: UInt8.self) == .asciiComma
     else {
       return from
     }
@@ -456,7 +502,7 @@ public struct JSONParser: ~Copyable {
     switch byte {
     case .asciiQuote:
       self.isKeyToken = false
-      sink.stringBegin()
+      self.stringBeginPending = true
       self.state = .inString
       return next &+ 1
     case .asciiDash, .asciiZero ... .asciiNine:
@@ -499,8 +545,30 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var i = from
+    var run = streamStringRun(base: base, from: i, to: to)
+    if self.stringBeginPending {
+      self.stringBeginPending = false
+      // The whole string is in this chunk and has no escape: one `string` record, the same
+      // event the windowed walk records, with the same rejection point (the opening quote).
+      if run.end < to, base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote {
+        do throws(JSONParsingError) {
+          try self.validateUTF8IfNeeded(
+            base: base, from: i, to: run.end, containsNonASCII: run.containsNonASCII,
+            reportAt: nil
+          )
+        } catch {
+          // `stringBegin` precedes the error on the call-per-event path; keep that order.
+          try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, into: &sink)
+          throw error
+        }
+        try self.record(.string, start: i, length: run.end &- i, end: run.end &+ 1, into: &sink)
+        self.state = .afterValue
+        return try self.fuseAfterValue(base: base, from: run.end &+ 1, to: to, into: &sink)
+      }
+      // The quote may be in the previous chunk; `i` is where its `stringBegin` was read.
+      try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, into: &sink)
+    }
     while true {
-      let run = streamStringRun(base: base, from: i, to: to)
       let end = run.end
 
       if end > i {
@@ -514,11 +582,7 @@ public struct JSONParser: ~Copyable {
             containsNonASCII: run.containsNonASCII,
             reportAt: nil
           )
-          let slice = UnsafeBufferPointer(
-            start: base.advanced(by: i).assumingMemoryBound(to: UInt8.self),
-            count: emitEnd &- i
-          )
-          sink.stringChunk(Span(_unsafeElements: slice))
+          try self.record(.stringChunk, start: i, length: emitEnd &- i, end: emitEnd, into: &sink)
         }
         if emitEnd < end {
           try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
@@ -533,14 +597,15 @@ public struct JSONParser: ~Copyable {
       i &+= 1
       if byte == .asciiQuote {
         if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
-        sink.stringEnd()
+        try self.record(.stringEnd, start: byteAt, length: 1, end: i, into: &sink)
         self.state = .afterValue
-        return self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
+        return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
       } else if byte == .asciiBackslash {
         // Decoding the escape here keeps the scan going; the states exist for the escape that
         // straddles a chunk boundary and for the ones carrying diagnostics.
         if let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
           i = fused
+          run = streamStringRun(base: base, from: i, to: to)
           continue
         }
         self.state = .escape
@@ -777,7 +842,7 @@ public struct JSONParser: ~Copyable {
       try self.emitBufferedNumber(into: &sink, reportAt: end)
     }
     self.state = .afterValue
-    return self.fuseAfterValue(base: base, from: end, to: to, into: &sink)
+    return try self.fuseAfterValue(base: base, from: end, to: to, into: &sink)
   }
 
   @inlinable
@@ -787,21 +852,27 @@ public struct JSONParser: ~Copyable {
     let count = self.bufferCount
     try self.emitNumber(
       base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count, into: &sink,
-      reportAt: reportAt
+      reportAt: reportAt, source: .parserBuffer
     )
     self.bufferCount = 0
+    // The record points into the buffer, which the next cut token overwrites.
+    try self.flushEvents(into: &sink)
   }
 
   // Parses and validates in the same walk: the grammar is the segment order itself, so a byte
   // the grammar has no place for fails the final position check rather than a tracked flag.
   // That is also what rejects doubled exponent signs, which the per-byte rules accepted.
+  // Forced inline: recording instead of calling the sink made this small enough for the
+  // optimizer to leave it out of line, at two call sites in `consumeNumber`.
   @inlinable
+  @inline(__always)
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
     from: Int,
     to: Int,
     into sink: inout Sink,
-    reportAt: Int
+    reportAt: Int,
+    source: StreamEventRecord.Source = .input
   ) throws(JSONParsingError) {
     // The shape four of the seven corpus payloads are mostly made of: an unsigned integer of one
     // to eight digits, no sign, no dot, no exponent. The kernel's digit test doubles as the shape
@@ -811,18 +882,15 @@ public struct JSONParser: ~Copyable {
       base.load(fromByteOffset: from, as: UInt8.self) != .asciiZero || to &- from == 1,
       let magnitude = streamShortInteger(base: base, from: from, end: to)
     {
-      let slice = UnsafeBufferPointer(
-        start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self),
-        count: to &- from
-      )
-      sink.number(
-        Span(_unsafeElements: slice),
+      try self.recordNumber(
+        start: from, length: to &- from, end: reportAt, source: source,
         info: NumberInfo(
           magnitude: magnitude,
           exponent: 0,
           digitCount: UInt16(truncatingIfNeeded: to &- from),
           flags: []
-        )
+        ),
+        into: &sink
       )
       return
     }
@@ -892,11 +960,9 @@ public struct JSONParser: ~Copyable {
       digitCount: UInt16(truncatingIfNeeded: totalDigits),
       flags: flags
     )
-    let slice = UnsafeBufferPointer(
-      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self),
-      count: to &- from
+    try self.recordNumber(
+      start: from, length: to &- from, end: reportAt, source: source, info: info, into: &sink
     )
-    sink.number(Span(_unsafeElements: slice), info: info)
   }
 
   // MARK: Literals
@@ -932,11 +998,13 @@ public struct JSONParser: ~Copyable {
       i &+= 1
     }
     if self.literalIndex == expected.count {
-      switch self.literalKind {
-      case 0: sink.boolean(true)
-      case 1: sink.boolean(false)
-      default: sink.null()
-      }
+      // A literal cut by a chunk began in the previous one; its bytes are never read, so the
+      // record names the part of it in this chunk.
+      let start = Swift.max(i &- expected.count, 0)
+      try self.record(
+        self.literalKind == 2 ? .null : .boolean, start: start, length: i &- start, end: i,
+        extra: self.literalKind == 0 ? 1 : 0, into: &sink
+      )
       self.state = .afterValue
     }
     return i
@@ -969,10 +1037,7 @@ public struct JSONParser: ~Copyable {
     try self.validateUTF8IfNeeded(
       base: base, from: from, to: to, containsNonASCII: containsNonASCII, reportAt: to
     )
-    let slice = UnsafeBufferPointer(
-      start: base.advanced(by: from).assumingMemoryBound(to: UInt8.self), count: to &- from
-    )
-    sink.key(Span(_unsafeElements: slice))
+    try self.record(.key, start: from, length: to &- from, end: to &+ 1, into: &sink)
   }
 
   @inlinable
@@ -988,10 +1053,13 @@ public struct JSONParser: ~Copyable {
       containsNonASCII: self.keyContainsNonASCII,
       reportAt: reportAt
     )
-    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress!, count: count)
-    sink.key(Span(_unsafeElements: slice))
+    try self.record(
+      .key, start: 0, length: count, end: reportAt &+ 1, source: .parserBuffer, into: &sink
+    )
     self.bufferCount = 0
     self.keyContainsNonASCII = false
+    // The record points into the buffer, which the next cut token or escape overwrites.
+    try self.flushEvents(into: &sink)
   }
 
   // MARK: UTF-8
@@ -1084,8 +1152,9 @@ public struct JSONParser: ~Copyable {
         break
       }
     }
-    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress! + tailStart, count: needed)
-    sink.stringChunk(Span(_unsafeElements: slice))
+    try self.recordInlineChunk(
+      UnsafeRawPointer(self.buffer.baseAddress! + tailStart), count: needed, end: i, into: &sink
+    )
     return i
   }
 
@@ -1204,6 +1273,7 @@ public struct JSONParser: ~Copyable {
   }
 
   @inlinable
+  @inline(__always)
   mutating func emitScratch<Sink: StreamParseSink & ~Copyable>(
     count: Int, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
@@ -1215,8 +1285,10 @@ public struct JSONParser: ~Copyable {
       )
       return
     }
-    let slice = UnsafeBufferPointer(start: self.buffer.baseAddress! + at, count: count)
-    sink.stringChunk(Span(_unsafeElements: slice))
+    try self.recordInlineChunk(
+      UnsafeRawPointer(self.buffer.baseAddress! + at), count: count, end: reportAt &+ 1,
+      into: &sink
+    )
   }
 
   // MARK: Container stack

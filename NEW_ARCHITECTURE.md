@@ -4429,3 +4429,112 @@ path, and leaves the record `Hashable` and trivially copyable. The remaining raw
 12–15% on the string-heavy corpora against a walk that emitted directly — is the price of the
 one requirement every production sink takes, and the layer rows it pays for: Twitter 624 →
 883, Mesh 144 → 322, GitHub 408 → 479 against the gate-off path.
+
+## One requirement: the legacy sink methods removed
+
+`StreamParseSink` had thirteen requirements: eleven per-event methods, `numbers`, and
+`events`. Only `events` was the batch API; the rest existed because the byte fed dispatcher
+still called them — nineteen sites in JSONParser.swift, every token when the window gate is
+off (the default), every cut token and escaped key when it is on — and `PartialSink`
+implemented them as its real logic. This round makes `events(_:)` the sole requirement (plus
+`streamFailure`) and has every path record instead of call.
+
+### What changed
+
+- **The recorder lives on the parser** (JSONParserEvents.swift): `eventScratch` (256 records),
+  a parallel `NumberInfo` side array, `eventCount`, and `chunkBase`, set at every entry point.
+  Any dispatcher function records without new parameters; the flush happens at the end of
+  every `parse` and `finish` call, before a grammar error is rethrown (events before the error
+  were delivered before it on the call path too), when the scratch fills, and immediately
+  after any record whose bytes live in the parser's buffer, because the next cut token or
+  escape reuses it.
+- **The record grew back to 20 bytes** — `kind`, `source`, `start`, `length`, an explicit
+  `end` — because the dispatcher has records the walk never had: a key or number reassembled
+  in the parser's buffer (`source: .parserBuffer`, offset into the buffer) and a decoded
+  escape or a UTF-8 sequence rejoined across chunks, at most four bytes, carried *in* the
+  record (`source: .inline`, in `extra`). `end` cannot be derived for those, and the 16-byte
+  layout had measured as noise anyway. `bytes(of:)` selects the base by source.
+- **Lazy `stringBegin`.** The structural run sets `stringBeginPending` at the opening quote;
+  `consumeStringRun` records one whole `.string` when the string completes cleanly in the
+  chunk — the walk's trick, three records to one — and `stringBegin` followed by chunks
+  otherwise. A pending begin is settled at the end of the chunk, so a chunk that ends on an
+  opening quote still shows the string opened, as it did (the array-streaming tests caught
+  the version that deferred it to the next chunk).
+- **`numbers` folded into `events`.** The numeric shape loop records `number` records like
+  everything else; `StreamSchema.appendNumbers` is now `(storage, batch, from, to)`, and
+  `PartialSink.events` hands a run of consecutive `number` records under an array frame to
+  it. `StreamNumberBatch` is gone.
+- **Rejection offsets** are the record's `end`, or the byte after the opening quote for a
+  `.string` record — which is where `PartialSink` refuses a string (its type check runs at
+  `stringBegin`). `ErrorOffsetTests` now rejects at `stringBegin` and expects that offset for
+  every split, which is the chunking-independent form. `fuseAfterValue` no longer reads the
+  sink's failure: nothing is delivered until the flush, so the fusion cannot move a rejection.
+- Test and benchmark sinks conform through an `EventSink` adapter (per-event methods, an
+  `events` that unrolls); it is test support, not API.
+
+### What it cost, and what it took to get there
+
+The first build lost 10–28% on every raw row. Three of those were defects, found in the
+assembly and the profiles, not the design:
+
+- `emitNumber` had fallen out of line at both `consumeNumber` sites — recording made it small
+  enough for the inliner to leave it. `@inline(__always)`: canada/mesh bulk −11% → −6%/−4%.
+- The inline chunk's copy compiled to a `memmove` call per `\u` escape, and `emitScratch`
+  went out of line with it (188 + 75 + 68 samples of ~1,200 on Twitter escaped). One word
+  load and a mask, `emitScratch` forced inline: Twitter escaped bulk −29% → −8%.
+- `StreamEventBatch.bytes(of:)` and `records` were not `@inlinable`, so every consumer paid a
+  cross-module call per key it read.
+
+With those, the counting sink's rows against the pre-events dispatcher (MB/s, best of two):
+
+| bulk, gate off | before | after | | 16KB chunks | before | after |
+| --- | ---: | ---: | --- | --- | ---: | ---: |
+| CITM catalog | 2,077 | 1,784 (−14%) | | CITM catalog | 2,067 | 1,770 (−14%) |
+| Canada | 928 | 863 (−7%) | | Canada | 928 | 869 (−6%) |
+| GSoC 2018 | 4,223 | 3,569 (−16%) | | GSoC 2018 | 4,203 | 3,509 (−17%) |
+| GitHub events | 1,802 | 1,652 (−8%) | | GitHub events | 1,802 | 1,673 (−7%) |
+| LLM message | 3,599 | 3,243 (−10%) | | LLM message | 3,555 | 3,225 (−9%) |
+| Mesh | 730 | 704 (−4%) | | Mesh | 731 | 700 (−4%) |
+| Twitter | 1,507 | 1,433 (−5%) | | Twitter | 1,504 | 1,427 (−5%) |
+| Twitter escaped | 1,068 | 981 (−8%) | | Twitter escaped | 1,073 | 978 (−9%) |
+
+Bulk windowed against the 16-byte-record build (2c2a25d): CITM +1%, GitHub 0%, Twitter −3%,
+Twitter escaped −7%, Mesh −7%, LLM −11%, GSoC −12%, Canada −14%. GSoC and LLM are sparse and
+route to the dispatcher, so theirs is the dispatcher's tax. Canada's is open: the numeric
+loop records 20 bytes plus the info per number where it wrote 8 plus the info, and its
+number arm now spills and reloads around every record; a register-resident count, hoisted
+scratch pointers and a run-folding sink each measured nothing. The profile puts the loop at
+the same share of the index's fixed cost as before, so the loss is inside the arm's schedule
+rather than in any one instruction — left for a dedicated look.
+
+### What it bought: the layer, without the gate
+
+This is the point of the exercise. Every `PartialSink` row with the window gate **off** —
+the default, and what the byte fed and small-chunk paths run — now gets the batched routing
+that only the windowed path had (best of two, MB/s):
+
+| bulk discarding, gate off | before | after |
+| --- | ---: | ---: |
+| Mesh | 144 | 300 (+108%) |
+| Twitter | 631 | 821 (+30%) |
+| Twitter escaped | 455 | 533 (+17%) |
+| Canada | 114 | 131 (+15%) |
+| GitHub events | 411 | 449 (+9%) |
+| CITM catalog | 438 | 476 (+9%) |
+| GSoC 2018 | 587 | 623 (+6%) |
+| LLM message | 706 | 694 (−2%) |
+
+The 16KB-chunk layer rows are the same numbers to the percent. The windowed layer rows are
+flat to slightly up (CITM +5%, GSoC +5%, Canada +2%, Mesh +2%, GitHub/Twitter 0%, LLM/Twitter
+escaped −1%), which is the expected shape: they already had the batches.
+
+### The byte fed price
+
+Byte fed rows lost far more than the few percent predicted: LLM message 135 → 80 (−41%) raw
+and 55 → 37 (−33%) through the layer; Twitter escaped 133 → 99 (−26%) and 105 → 79 (−25%).
+The mechanism is exact: a byte inside a string is one `stringChunk` record, and the parse
+call ends, so it is delivered alone — a `deliverEvents` call, a batch construction and an
+`events` call for one record, where the call-per-event path did one direct call. The
+observation boundary *is* the parse call (a byte fed caller reads the partial after each
+byte), so the per-call flush is the contract, not an accident. What can still move is the
+constant: the single-record delivery is ~80 instructions where the direct call was ~5.

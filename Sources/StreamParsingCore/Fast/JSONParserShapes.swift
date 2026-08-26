@@ -29,9 +29,8 @@ extension JSONParser {
   // or whitespace before the comma — falls back before anything is emitted, and the walk's
   // scanning path re-parses it and reports exactly what the dispatcher reports.
   //
-  // Numbers are not emitted one at a time: they accumulate in the batch scratch and go to the
-  // sink as one `numbers` call per 64, or at the run's end — before any other event, so the
-  // sink's order is the document's. Where a rejection surfaces is the same offset either way.
+  // Numbers are recorded like every other event; a sink sees the run as consecutive `number`
+  // records in one batch and can take it in one pass (`PartialSink.events` does).
   @inlinable
   @inline(never)
   mutating func consumeNumericArray<Sink: StreamParseSink & ~Copyable>(
@@ -39,8 +38,6 @@ extension JSONParser {
     to n: Int,
     count: Int,
     indices: UnsafeMutablePointer<UInt32>,
-    batchInfos: UnsafeMutablePointer<NumberInfo>,
-    batchTokens: UnsafeMutablePointer<UInt32>,
     cursor: inout Int,
     k: inout Int,
     state: inout State,
@@ -49,11 +46,14 @@ extension JSONParser {
     into sink: inout Sink
   ) throws(JSONParsingError) -> ShapeOutcome {
     let rootDepth = depth
+    var eventCount = self.eventCount
+    defer { self.eventCount = eventCount }
+    let events = self.eventScratch
+    let infos = self.eventInfoScratch
     var expectingValue = true
     // Entered after `[` (`.firstValue`) or, mid-array, after a `,` (`.value`): the state says
     // whether a `]` may come next.
     var first = state == .firstValue
-    var batched = 0
     while k < count {
       if expectingValue {
         var start = cursor
@@ -78,35 +78,26 @@ extension JSONParser {
               break
             }
           }
-          batchInfos[batched] = info
-          batchTokens[2 &* batched] = UInt32(truncatingIfNeeded: start)
-          batchTokens[2 &* batched &+ 1] = UInt32(truncatingIfNeeded: separator &- start)
-          batched &+= 1
-          if batched == Self.numberBatchCapacity {
-            try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
-            batched = 0
-          }
+          try self.recordNumber(
+            start: start, length: separator &- start, end: separator, info: info,
+            events: events, infos: infos, count: &eventCount, into: &sink
+          )
           cursor = separator
           k = separatorEntry
           expectingValue = false
           continue
         case .asciiArrayStart:
           guard depth < Self.maximumDepth else { break }
-          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
-          batched = 0
-          sink.beginArray()
+          try self.record(.beginArray, start: start, length: 1, end: start &+ 1, events: events, count: &eventCount, into: &sink)
           containers &= ~(1 &<< UInt64(depth))
           depth &+= 1
           cursor = start &+ 1
           k = k &+ 1
-          try self.checkSink(&sink, at: cursor)
           first = true
           continue
         case .asciiArrayEnd:
           guard first else { break }
-          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
-          batched = 0
-          sink.endArray()
+          try self.record(.endArray, start: start, length: 1, end: start &+ 1, events: events, count: &eventCount, into: &sink)
           depth &-= 1
           cursor = start &+ 1
           k = k &+ 1
@@ -114,13 +105,11 @@ extension JSONParser {
             state = depth == 0 ? .done : .afterValue
             return .closed
           }
-          try self.checkSink(&sink, at: cursor)
           expectingValue = false
           continue
         default:
           break
         }
-        try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
         state = first ? .firstValue : .value
         return .fellBack
       } else {
@@ -133,9 +122,7 @@ extension JSONParser {
           first = false
           continue
         case .asciiArrayEnd:
-          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
-          batched = 0
-          sink.endArray()
+          try self.record(.endArray, start: position, length: 1, end: position &+ 1, events: events, count: &eventCount, into: &sink)
           depth &-= 1
           cursor = position &+ 1
           k &+= 1
@@ -143,46 +130,15 @@ extension JSONParser {
             state = depth == 0 ? .done : .afterValue
             return .closed
           }
-          try self.checkSink(&sink, at: cursor)
           continue
         default:
-          try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
           state = .afterValue
           return .fellBack
         }
       }
     }
-    try self.flushNumberBatch(batched, infos: batchInfos, tokens: batchTokens, base: base, chunkEnd: n, into: &sink)
     state = expectingValue ? (first ? .firstValue : .value) : .afterValue
     return .fellBack
-  }
-
-  // Hands the batch to the sink and reads its failure once, at the offset the dispatcher would
-  // have read it: the byte after the number the sink stopped at.
-  @inlinable
-  @inline(__always)
-  mutating func flushNumberBatch<Sink: StreamParseSink & ~Copyable>(
-    _ count: Int,
-    infos: UnsafeMutablePointer<NumberInfo>,
-    tokens: UnsafeMutablePointer<UInt32>,
-    base: UnsafeRawPointer,
-    chunkEnd n: Int,
-    into sink: inout Sink
-  ) throws(JSONParsingError) {
-    guard count > 0 else { return }
-    let batch = StreamNumberBatch(
-      infoBase: UnsafePointer(infos), tokenBase: UnsafePointer(tokens), count: count,
-      bytesBase: base.assumingMemoryBound(to: UInt8.self), byteCount: n
-    )
-    let taken = sink.numbers(batch)
-    if taken < count {
-      precondition(
-        sink.streamFailure != nil,
-        "StreamParseSink.numbers returned \(taken) of \(count) without recording a failure."
-      )
-      try self.checkSink(&sink, at: batch.end(of: taken))
-    }
-    try self.checkSink(&sink, at: batch.end(of: count &- 1))
   }
 
   // `emitNumber` without the emission: the same walk, the same errors at the same offsets,
@@ -313,9 +269,6 @@ extension JSONParser {
     state: inout State,
     depth: inout Int,
     containers: inout UInt64,
-    events: UnsafeMutablePointer<StreamEventRecord>,
-    eventInfos: UnsafeMutablePointer<NumberInfo>,
-    eventCount: inout Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> ShapeOutcome {
     var first = state == .firstKey
@@ -344,10 +297,7 @@ extension JSONParser {
       try self.validateUTF8IfNeeded(
         base: base, from: open &+ 1, to: close, containsNonASCII: keyNonASCII, reportAt: close
       )
-      try self.recordEvent(
-        StreamEventRecord(kind: .key, start: open &+ 1, length: close &- open &- 1),
-        events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
-      )
+      try self.record(.key, start: open &+ 1, length: close &- open &- 1, end: close &+ 1, into: &sink)
       cursor = colon &+ 1
       k &+= 3
       first = false
@@ -383,17 +333,11 @@ extension JSONParser {
               reportAt: nil
             )
           } catch {
-            try self.recordEvent(
-              StreamEventRecord(kind: .stringBegin, start: start, length: 1),
-              events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
-            )
+            try self.record(.stringBegin, start: start, length: 1, end: start &+ 1, into: &sink)
             throw error
           }
         }
-        try self.recordEvent(
-          StreamEventRecord(kind: .string, start: start &+ 1, length: closeQuote &- start &- 1),
-          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
-        )
+        try self.record(.string, start: start &+ 1, length: closeQuote &- start &- 1, end: closeQuote &+ 1, into: &sink)
         cursor = closeQuote &+ 1
         k &+= 2
       case .asciiDash, .asciiZero ... .asciiNine:
@@ -412,8 +356,7 @@ extension JSONParser {
           return .fellBack
         }
         try self.recordNumber(
-          start: start, end: separator, info: info, events, eventInfos, count: &eventCount,
-          base: base, chunkEnd: n, into: &sink
+          start: start, length: separator &- start, end: separator, info: info, into: &sink
         )
         cursor = separator
         k = afterValueEntry
@@ -430,13 +373,7 @@ extension JSONParser {
           j &+= 1
         }
         guard index == expected.count else { state = .value; return .fellBack }
-        try self.recordEvent(
-          StreamEventRecord(
-            kind: kind == 2 ? .null : .boolean, start: start, length: j &- start,
-            extra: kind == 0 ? 1 : 0
-          ),
-          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
-        )
+        try self.record(kind == 2 ? .null : .boolean, start: start, length: j &- start, end: j, extra: kind == 0 ? 1 : 0, into: &sink)
         cursor = j
         k = afterValueEntry
       default:
@@ -454,10 +391,7 @@ extension JSONParser {
         cursor = position &+ 1
         k &+= 1
       case .asciiObjectEnd:
-        try self.recordEvent(
-          StreamEventRecord(kind: .endObject, start: position, length: 1),
-          events, eventInfos, count: &eventCount, base: base, chunkEnd: n, into: &sink
-        )
+        try self.record(.endObject, start: position, length: 1, end: position &+ 1, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
         cursor = position &+ 1

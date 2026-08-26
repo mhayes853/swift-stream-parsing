@@ -1,7 +1,7 @@
 import Benchmark
 import StreamParsingCore
 
-private struct SpanDictionaryAllocationSink: StreamParseSink {
+private struct SpanDictionaryAllocationSink: EventSink {
   var streamFailure: StreamSinkFailure?
   var dictionary = StreamDictionary<Int>()
   var pendingValue: UnsafeMutableRawPointer?

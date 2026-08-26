@@ -6,7 +6,7 @@ import StreamParsingCore
 // Records every key and where its span pointed. A key that arrives whole inside a chunk is a
 // borrow into the parser's input; one the chunk cuts is reassembled in the parser's buffer. Both
 // deliver the same bytes, and the test below pins which is which.
-struct KeyRecordingSink: StreamParseSink {
+struct KeyRecordingSink: EventSink {
   var streamFailure: StreamSinkFailure?
   private(set) var keys = [String]()
   private(set) var keyAddresses = [UnsafeRawPointer?]()
