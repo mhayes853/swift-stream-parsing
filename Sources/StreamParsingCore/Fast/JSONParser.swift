@@ -181,8 +181,6 @@ public struct JSONParser: ~Copyable {
       try self.parseWindowed(base: base, count: n, into: &sink)
       return
     }
-    var i = 0
-
     do throws(JSONParsingError) {
       try self.parseDispatching(base: base, count: n, into: &sink)
     } catch {
