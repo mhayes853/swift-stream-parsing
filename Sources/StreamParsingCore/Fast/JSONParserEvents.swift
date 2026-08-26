@@ -129,6 +129,45 @@ extension JSONParser {
     }
   }
 
+  // One string byte, handed over without touching the scratch. Out of line by force and for the
+  // reason `deliverEvents` is: `parse(byte:)` is the dispatcher every byte fed document walks
+  // once per byte, and its inlining is the least stable thing in this parser — an always-inline
+  // delivery tried in an earlier round grew `parse` to a 1,388 byte specialisation with 26 calls
+  // and gave back everything it won. This stays one call from `parse(byte:)`, and the batch it
+  // builds lives in this frame rather than in `self`.
+  //
+  // `bufferBase` is the parser's buffer as always; nothing in a one-record inline batch reads it,
+  // but the batch's shape does not vary by path.
+  @inlinable
+  @inline(never)
+  mutating func deliverStringByte<Sink: StreamParseSink & ~Copyable>(
+    _ byte: UInt8, into sink: inout Sink
+  ) throws(JSONParsingError) {
+    // Slot zero of the scratch rather than a local: `withUnsafePointer` on a local record spawns
+    // a second out-of-line closure, so the fast path cost two calls instead of one. The scratch's
+    // address is already stable and `eventCount` is zero by the caller's guard, so slot zero is
+    // free and nothing reads it until the next record is written there anyway.
+    self.eventScratch[0] = StreamEventRecord(
+      kind: .stringChunk, start: 0, length: 1, end: 1, extra: UInt32(byte), source: .inline
+    )
+    let batch = StreamEventBatch(
+      recordBase: UnsafePointer(self.eventScratch),
+      infoBase: UnsafePointer(self.eventInfoScratch),
+      count: 1,
+      bytesBase: self.chunkBase.assumingMemoryBound(to: UInt8.self),
+      bufferBase: UnsafePointer(self.buffer.baseAddress!)
+    )
+    let taken = sink.events(batch)
+    if taken < 1 {
+      precondition(
+        sink.streamFailure != nil,
+        "StreamParseSink.events returned 0 of 1 without recording a failure."
+      )
+    }
+    try self.checkSink(&sink, at: 1)
+    self.consumedByteCount &+= 1
+  }
+
   // The empty check is inline at the call sites — the byte fed path flushes after every byte,
   // and most bytes record nothing — and the delivery is out of line.
   @inlinable

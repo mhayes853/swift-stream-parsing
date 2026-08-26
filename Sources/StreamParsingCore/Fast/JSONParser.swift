@@ -144,6 +144,33 @@ public struct JSONParser: ~Copyable {
     // measured -3 to -6% on the byte fed rows, and moving the bulk loop out of `parse` into a
     // shared function to dodge it measured -4% on canada bulk. `dispatchOnce` is the bulk
     // loop's body, so the byte fed path runs the same handlers as before.
+    // The one shape byte fed input is mostly made of: an ordinary ASCII byte inside a string
+    // value. It produces exactly one `stringChunk` and nothing else, so it does not need the
+    // dispatcher, the scan, the scratch or `deliverEvents`' frame — it needs one `events` call
+    // with one record, which is the narrowest the single requirement allows. The record carries
+    // the byte itself (`source: .inline`), so there is no pointer to take and no `chunkBase` to
+    // store either.
+    //
+    // Every condition here is one the general path would otherwise have to settle: a pending
+    // begin would have to be recorded first, a pending UTF-8 tail or a high surrogate would have
+    // to be joined, a non-empty scratch would have to be flushed in order, and a non-ASCII byte
+    // may be a truncated sequence that `trimmingIncompleteUTF8` holds back rather than emits.
+    // `"` and `\` end the run, and a byte below space is a grammar error. Anything that fails
+    // falls through to the dispatcher unchanged.
+    // Order matters, and it is two tests deep for everything that does not qualify. `state` is one
+    // load and rejects every structural, literal and escape byte. The byte's own range is next
+    // and rejects non-ASCII, which can only ever be the head or tail of a sequence the pending
+    // path has to join — reaching that verdict through the three state loads below instead cost
+    // `Fast Non-ASCII string - byte by byte` measurably. The remaining three are loads only the
+    // bytes that already look right ever pay for.
+    if self.state == .inString,
+      byte &- .asciiSpace < 0x60, byte != .asciiQuote, byte != .asciiBackslash,
+      !self.stringBeginPending, self.pendingUTF8Count == 0, self.highSurrogate == 0,
+      self.eventCount == 0
+    {
+      try self.deliverStringByte(byte, into: &sink)
+      return
+    }
     var scalar = byte
     try withUnsafePointer(to: &scalar) { pointer throws(JSONParsingError) in
       let base = UnsafeRawPointer(pointer)
