@@ -4003,3 +4003,69 @@ That leaves three honest options, none of which is "add a route":
 The dictionary route and its `openValueStorage` witness were reverted; `inlineCapacity` was kept,
 because it stops `fixedElementCount` from meaning two things. `Optional` element handling never
 entered the picture.
+
+## The power-of-ten table: what a Swift array global actually cost
+
+`digitPow10Value` was the last lookup table still written in Swift — two `[Double]` globals, 309
+positive and 325 negative entries, subscripted after a branch on the sign of the exponent. It is
+reached from `Double.init(streamParsing:info:)` on the exact path, the one that scales a
+significand rather than sending it to Eisel-Lemire.
+
+The premise going in was `swift_once` and a heap allocation per access. The release binary says
+otherwise, and the difference matters for what is left to win. The optimizer *does* fold an array
+literal of constants into a statically initialized array object, so no once-token check ran at the
+use site. What it did cost:
+
+- the object landed in `__DATA` behind a 0x28-byte array header, so the load was
+  `adrp`/`add`/`add`/`ldr [x8, #0x28]` rather than a table-relative index;
+- the addressor and one-time-initialization functions were still emitted, and any build that does
+  not get the static-init fold — debug, Embedded — really does pay them;
+- two tables meant branching on the sign of the exponent before either could be indexed, each with
+  its own signed bounds check;
+- and the function stayed **out of line**: `bl`, with `Optional<Double>` returned in a register
+  pair that the caller took apart with `bics`/`and`/`cbz`.
+
+The replacement is `Pow10_Double.c`: one contiguous `.rodata` run of 633 `double`s covering
+10^-324 … 10^308, indexed by `exponent + 324`, emitted as C hex-float literals so every entry is
+bit-identical to the Swift literal it replaces (`Pow10TableTests` checks all 633 against the
+standard library's parser). It is reached through an `always_inline` C accessor rather than a
+`const double *const` global, because a pointer *variable* costs a dependent load of the pointer
+before the load of the entry. The Swift side is `@inline(__always)`, one unsigned compare covering
+both ends of the range.
+
+At the call site the exponent arrives as `abs(exponent)`, which is enough for the optimizer to
+drop the low half of the bounds check and the entire negative half of the table. The whole lookup
+becomes two instructions:
+
+```
+cmp  w8, #0x134                  ; 308
+ldr  d1, [x9, w8, uxth #3]       ; x9 = adrp/add of the .rodata table
+```
+
+### Measured: a small win exactly where the census says it should be
+
+The path only runs when the significand fits 2^53 *and* the exponent is non-zero. Counting tokens
+in the corpus:
+
+| payload | exponent == 0 (no lookup) | pow10 exact path | Eisel-Lemire / fallback |
+| --- | ---: | ---: | ---: |
+| `mesh.json` | 55.6% | **44.4%** | 0.0% |
+| `canada.json` | 0.0% | **8.8%** | 91.2% |
+| `citm_catalog.json` | 100.0% | 0.0% | 0.0% |
+
+Twelve interleaved rounds, two prebuilt binaries, median of per-round percentiles:
+
+| row | p0 | p50 |
+| --- | ---: | ---: |
+| `Numbers floats - discarding` (nearly every token) | **-0.77%** | -1.80% |
+| `Real Mesh - bulk discarding` (44%) | **-0.72%** | -0.80% |
+| `Real Canada - bulk discarding` (8.8%) | +0.32% | -0.14% |
+| `Real Canada - 16KB chunks discarding` | +0.39% | +1.93% |
+| `Numbers large integers - discarding` (never reaches it) | 0.00% | -0.87% |
+| `Numbers floats - bulk` (fast sink, no conversion) | 0.00% | -0.15% |
+
+The two rows that cannot touch the table came back at exactly 0.00% p0, which is what makes the
+two ~0.7% p0 wins readable at all; Canada's +0.3-0.4% p0 is code layout on a payload where 91% of
+tokens never reach the lookup. The honest summary is that this is a correctness-and-size cleanup
+(664 lines to 32, `__DATA` to `.rodata`, Embedded no longer pays a once-token) that buys a small
+throughput win in proportion to how often the exact path actually runs.
