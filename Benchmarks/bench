@@ -1,0 +1,44 @@
+#!/bin/bash
+# Fast benchmark driver: separates the build (slow, SwiftPM) from the run (fast, direct).
+#
+# `swift package benchmark run` pays ~60-85s of SwiftPM manifest + build-plan overhead on
+# EVERY invocation, even when nothing changed. That dwarfs most measurement rounds and is
+# the reason A/B protocols take hours. BenchmarkTool -- the plugin's own host process --
+# can be pointed at an already-built binary directly, which costs ~0.3s of overhead.
+#
+#   ./Benchmarks/bench build              # rebuild the benchmark binary (only after a code change)
+#   ./Benchmarks/bench run "Fast Literals.*"   # measure, no build
+#   ./Benchmarks/bench list
+#
+# NOTE: --filter is a whole-name regex match, not a substring search. Suffix `.*`.
+# NOTE: --time-units nanoseconds is deliberate: without it the tool auto-scales units
+#       per row AND per side of an A/B, which has silently corrupted comparisons before.
+set -euo pipefail
+
+PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PRODUCTS="$PKG/.build/out/Products/Release"
+TOOL="$PRODUCTS/BenchmarkTool"
+BIN="$PRODUCTS/StreamParsingBenchmarks"
+
+cmd="${1:-run}"; shift || true
+
+case "$cmd" in
+  build)
+    swift build --package-path "$PKG" -c release --product StreamParsingBenchmarks "$@"
+    test -x "$BIN" || { echo "build failed: no $BIN" >&2; exit 1; }
+    echo "built: $BIN"
+    ;;
+  run|list|baseline|thresholds)
+    test -x "$TOOL" && test -x "$BIN" || { echo "run './bench build' first" >&2; exit 1; }
+    args=(--benchmark-executable-paths "$BIN"
+          --command "$cmd"
+          --format markdown
+          --baseline-storage-path "$PKG/.benchmarkBaselines"
+          --grouping benchmark
+          --no-progress
+          --time-units nanoseconds)
+    for f in "$@"; do args+=(--filter "$f"); done
+    "$TOOL" "${args[@]}"
+    ;;
+  *) echo "usage: bench {build|run|list} [filter-regex ...]" >&2; exit 2 ;;
+esac
