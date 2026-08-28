@@ -4204,3 +4204,51 @@ headroom it cannot spend.
 The savings were smaller than expected for a duller reason than cache lines: the scan was never a
 large share of the work. Widening it caps at 18% on `canada` and less elsewhere, which is the same
 Amdahl argument that put the string tier at +33% on `llm_message` and +3.8% on `twitter`.
+
+## Inter-block ILP in the AVX2 scanners
+
+Adjacent blocks in the AVX2 UTF-8 validator are independent: each reconstructs its three previous
+byte views with overlapping loads, and the caller needs only valid or invalid rather than the
+first error lane. The main loop now validates two 32 byte blocks, ORs their error vectors, and
+pays one `vptest` and branch per 64 bytes. The single-block cleanup and both scratch paths are
+unchanged.
+
+Release assembly on the i7-10710U has eight overlapping loads, six `vpshufb`, one final
+`vpor`/`vptest`, all seven constants resident in YMM registers and no spills in the paired loop.
+Clang emits the two error DAGs consecutively rather than interleaving their instructions; the
+out-of-order window can overlap them, but the measured gain is principally the removed reduction
+and loop control. The function grows from 635 to 871 bytes. Five alternating rounds, median p50
+payload throughput:
+
+| row | 32 byte loop | 64 byte loop | change |
+| --- | ---: | ---: | ---: |
+| Fast Non-ASCII string, bulk | 5243 MB/s | **5299 MB/s** | **+1.1%** |
+| Fast Non-ASCII string, 64 B chunks | **850 MB/s** | 848 MB/s | -0.2% |
+| Real LLM message, bulk | 2241 MB/s | **2251 MB/s** | **+0.4%** |
+| Real LLM message, 16 KB chunks | 2211 MB/s | **2223 MB/s** | **+0.5%** |
+| Real Twitter, bulk | 734 MB/s | **735 MB/s** | +0.1% |
+| Real Twitter, 16 KB chunks | 724 MB/s | **727 MB/s** | +0.4% |
+
+The complete 78-row `Real .*` sweep ran once per binary. Its sequential second half slowed by
+roughly 10% even on ASCII-only paths, so the apparent outliers were re-run in alternating order:
+CITM and LLM discarding were flat, GSoC and GitHub were +0.2%, and Twitter remained within 0.2%.
+The broad pass is a coverage check here; the alternating rows above are the decision measurement.
+
+**A late two-block string unroll was measured and rejected.** Two ordinary AVX2 blocks were kept
+in front, so the paired loop ran only after a string survived 96 bytes including Swift's initial
+SIMD16 blocks. The release loop interleaved both classification DAGs, packed their two movemasks
+into one 64-bit first-hit mask and had no spills. It nevertheless grew the function from 228 to
+596 bytes and split by workload over five alternating rounds:
+
+| row | one block | late two-block | change |
+| --- | ---: | ---: | ---: |
+| Fast Non-ASCII string, bulk | 7415 MB/s | **8463 MB/s** | **+14.1%** |
+| Fast Non-ASCII string, 64 B chunks | **893 MB/s** | 878 MB/s | **-1.7%** |
+| Real GSoC 2018, bulk | **2091 MB/s** | 2049 MB/s | **-2.0%** |
+| Real GitHub events, bulk | 880 MB/s | **895 MB/s** | +1.7% |
+| Real LLM message, bulk | **2255 MB/s** | 2237 MB/s | **-0.8%** |
+| Real Twitter, bulk | 736 MB/s | **746 MB/s** | +1.4% |
+
+The long synthetic run proves the paired kernel can be faster, but the GSoC and LLM regressions
+are larger and more relevant than that isolated win. The experiment was reverted; the original
+one-block string loop and its 228 byte footprint remain.

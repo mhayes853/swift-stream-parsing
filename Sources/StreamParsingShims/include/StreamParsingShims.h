@@ -208,6 +208,26 @@ stream_parsing_utf8_validate_avx2(const unsigned char *p, ptrdiff_t from, ptrdif
   }
 
   ptrdiff_t i = from + 32;
+  for (; i + 64 <= to; i += 64) {
+    // Adjacent blocks are independent because each reconstructs its three previous-byte views
+    // with overlapping loads. Keep both error DAGs in flight, then pay one scalar reduction and
+    // branch for the pair. The validator reports only validity; the scalar diagnostic walk finds
+    // the offending byte after a failure, so combining the error vectors loses no information.
+    const unsigned char *q0 = p + i;
+    const unsigned char *q1 = q0 + 32;
+    __m256i err0 = stream_parsing_utf8_errors(
+        _mm256_loadu_si256((const __m256i *)q0),
+        _mm256_loadu_si256((const __m256i *)(q0 - 1)),
+        _mm256_loadu_si256((const __m256i *)(q0 - 2)),
+        _mm256_loadu_si256((const __m256i *)(q0 - 3)), ph, pl, ch);
+    __m256i err1 = stream_parsing_utf8_errors(
+        _mm256_loadu_si256((const __m256i *)q1),
+        _mm256_loadu_si256((const __m256i *)(q1 - 1)),
+        _mm256_loadu_si256((const __m256i *)(q1 - 2)),
+        _mm256_loadu_si256((const __m256i *)(q1 - 3)), ph, pl, ch);
+    if (!STREAM_PARSING_AVX2_ALL_ZERO(_mm256_or_si256(err0, err1))) return 0;
+  }
+
   for (; i + 32 <= to; i += 32) {
     // The "previous byte" views are overlapping unaligned loads rather than lane shifts off a
     // carried block: the loads issue on the load ports, where a shift would compete with the
