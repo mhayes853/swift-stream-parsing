@@ -4069,3 +4069,96 @@ two ~0.7% p0 wins readable at all; Canada's +0.3-0.4% p0 is code layout on a pay
 tokens never reach the lookup. The honest summary is that this is a correctness-and-size cleanup
 (664 lines to 32, `__DATA` to `.rodata`, Embedded no longer pays a once-token) that buys a small
 throughput win in proportion to how often the exact path actually runs.
+
+## Where `canada.json`'s number budget actually goes
+
+Measured before proposing anything, because two rounds of guessing at this got it wrong in
+opposite directions. `canada.json` is 2,251,051 bytes and 111,126 numbers, parsed at 594 MB/s on
+x86-64, which is **33.6 ns per number** — about 118 cycles at 3.5 GHz. The stages were isolated by
+transcribing the shipped kernels into a standalone probe and adding one stage at a time. Every
+variant is `@inline(never)`, so each carries the same call overhead and the *deltas* are the
+trustworthy figures; the absolute numbers run slightly high against the real inlined parser.
+
+| stage | ns/number | delta | share of 33.6 |
+| --- | --- | --- | --- |
+| number-run scan, SIMD16 | 8 | 8 | 24% |
+| \+ integer digit accumulation | 12 | 4 | 12% |
+| \+ sign, dot, fraction, exponent | 23 | **11** | **33%** |
+| \+ Eisel-Lemire | 30 | 7 | 21% |
+| full parse (parser state machine, sink, containers) | 33.6 | 3.6 | 11% |
+
+**There is no dominant stage.** The largest is token decomposition — walking the fraction and the
+exponent after the integer part — not the scan and not the conversion.
+
+### Three hypotheses, all measured, all rejected
+
+- **"Eisel-Lemire dominates."** It does not: 7 ns, 21%. The earlier 18 ns figure came from
+  subtracting the wrong baseline (`scan + integer digits`, 12 ns) instead of the full
+  decomposition (23 ns). The 11 ns of fraction and exponent handling had been mis-assigned to it.
+- **"The `Double?` return is the cost."** It is not. A variant returning a bare `Double` with
+  success reported through an `inout Bool` measured 32 ns against the optional's 30 — *slower*,
+  within noise plus the cost of the extra `inout`. The optional is free here.
+- **"The scalar digit tail is the cost."** `streamAccumulateDigits` converts eight digits at a
+  time and walks the remainder one byte at a time, and `canada`'s significands average 16.7
+  digits, so ~7-9 digits are walked with a dependent multiply-add each. Converting that tail with
+  the right-aligned SWAR trick from `streamShortInteger` measured **29 ns against 23** — six
+  nanoseconds *worse*, because counting the tail's length first walks the digits twice. A
+  variable-length conversion that does not need the count up front might still win; this one does
+  not.
+
+### Two facts that bound what is worth trying
+
+**91.2% of `canada`'s numbers exceed 2^53**, so they miss both exact fast paths and reach
+Eisel-Lemire. That is a property of full-precision GeoJSON, not of JSON, and it is why this
+document is a poor proxy for anything else.
+
+The kernel's own escape hatches almost never fire: the second 64x64 multiply fires on **0.76%** of
+tokens, and Eisel-Lemire declines on **0.145%** (matching the 0.146% already recorded for it).
+Neither is worth optimizing.
+
+### The pow10 table is not a cache problem
+
+`canada`'s exponents span **-15 to 0, ten distinct values**. The table is indexed contiguously by
+exponent at 16 bytes a row, so the working set is **16 rows, 256 bytes, four cache lines**,
+L1-resident and reused 111,126 times. There is no scatter to fix.
+
+## Cache line behaviour in the x86 scanners: measured, and it is not the constraint
+
+Three separate places where alignment or load-port pressure was the plausible explanation for
+smaller-than-expected AVX2 savings. All three measured against the theory.
+
+**Four overlapping loads beat the load-free shape.** The AVX2 UTF-8 kernel reads `current` and
+three "previous byte" views as four unaligned 256-bit loads per block. The simdjson shape derives
+the three views from a carried block with `_mm256_permute2x128_si256` plus `_mm256_alignr_epi8`,
+trading three load-port micro-ops for six. Measured, whole-document, MB/s:
+
+| document | four overlapping loads | one load + `permute2x128`/`alignr` |
+| --- | --- | --- |
+| `llm_message` | **13926** | 11497 (-17%) |
+| `twitter` | **14350** | 11692 (-19%) |
+| `canada` | **15101** | 12479 (-17%) |
+
+`permute2x128` is a cross-lane shuffle on the same port the three nibble-table `vpshufb`s already
+contend for, and Skylake-derived cores handle line-splitting 32-byte loads far better than the old
+rule of thumb. The arm64 shim reached the same conclusion about `ext` versus reloading, for an
+unrelated reason; the answers agree by coincidence, not by mechanism.
+
+**Aligning the string scan to 32 bytes is much worse.** A scalar prologue to reach a 32-byte
+boundary walks up to 31 bytes:
+
+| document | unaligned `loadu` | align-to-32 first |
+| --- | --- | --- |
+| `llm_message` | **2397** | 1962 (-18%) |
+| `twitter` | **1899** | 830 (**-56%**) |
+| `canada` | **2577** | 2480 (-4%) |
+
+`twitter`'s median string run is 11 bytes, so the prologue usually consumes the entire run before
+the vector loop is entered at all. Alignment turns a one-vector scan into a byte loop.
+
+**The scan is not bandwidth-bound.** `canada`'s number scan runs at 2577 MB/s standalone while the
+full parse runs at 594 MB/s, so there is no memory ceiling being hit and a wider vector has
+headroom it cannot spend.
+
+The savings were smaller than expected for a duller reason than cache lines: the scan was never a
+large share of the work. Widening it caps at 18% on `canada` and less elsewhere, which is the same
+Amdahl argument that put the string tier at +33% on `llm_message` and +3.8% on `twitter`.

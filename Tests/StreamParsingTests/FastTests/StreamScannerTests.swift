@@ -117,6 +117,63 @@ struct `Stream scanner tests` {
     }
   }
 
+  // The wide tier. `streamStringRun` escalates out of the inlined SIMD16 loop once a run survives
+  // two blocks, so only runs past 32 bytes reach it -- which is exactly the population the random
+  // test above under-samples, since it stops at 80. Lengths here run past four 32 byte blocks so
+  // the `seen` accumulator is carried across several, and the high byte is placed at every offset
+  // so a flag that is set one block too early or one lane too late is caught.
+  @Test
+  func `Long string runs agree with the reference at every high byte position`() {
+    for length in [33, 40, 63, 64, 65, 96, 127, 128, 129, 160, 200] {
+      for highIndex in 0..<length {
+        for terminatorIndex in [length - 1, length / 2, length - 33] where terminatorIndex > 0 {
+          var bytes = [UInt8](repeating: 0x61, count: length)
+          bytes[highIndex] = 0xC3
+          bytes[terminatorIndex] = 0x22
+          let expected = Self.naiveStringRun(bytes, from: 0, to: length)
+          let actual = Self.withBase(bytes) { streamStringRun(base: $0, from: 0, to: length) }
+          expectNoDifference(
+            actual.end, expected.0, "end, length \(length) high \(highIndex) term \(terminatorIndex)"
+          )
+          expectNoDifference(
+            actual.containsNonASCII, expected.1,
+            "flag, length \(length) high \(highIndex) term \(terminatorIndex)"
+          )
+        }
+      }
+    }
+  }
+
+  // Random adversarial data at lengths that force the wide tier, which the length-capped random
+  // test above never reaches. Held to the reference rather than to a second implementation: the
+  // SIMD16 continuation that used to sit behind the wide tier is gone, because `streamStringRun`
+  // now only escalates when the kernel is callable.
+  @Test
+  func `Long random string runs agree with the reference`() {
+    var generator = SystemRandomNumberGenerator()
+    for length in [33, 48, 64, 96, 129, 192, 256] {
+      for _ in 0..<40 {
+        var bytes = (0..<length).map { _ in UInt8.random(in: 0x20...0x7E, using: &generator) }
+        for index in bytes.indices where Int.random(in: 0..<10, using: &generator) == 0 {
+          bytes[index] = UInt8.random(in: 0x80...0xFF, using: &generator)
+        }
+        for index in bytes.indices where Int.random(in: 0..<24, using: &generator) == 0 {
+          bytes[index] = [0x22, 0x5C, 0x00, 0x1F].randomElement(using: &generator)!
+        }
+        for from in [0, 1, 7, 16, 31] where from < length {
+          let expected = Self.naiveStringRun(bytes, from: from, to: length)
+          let actual = Self.withBase(bytes) {
+            streamStringRun(base: $0, from: from, to: length)
+          }
+          expectNoDifference(actual.end, expected.0, "end, length \(length) from \(from)")
+          expectNoDifference(
+            actual.containsNonASCII, expected.1, "flag, length \(length) from \(from)"
+          )
+        }
+      }
+    }
+  }
+
   @Test
   func `String run scanning stops at each terminator kind`() {
     for terminator: UInt8 in [0x22, 0x5C, 0x00, 0x1F] {

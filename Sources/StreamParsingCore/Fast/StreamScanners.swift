@@ -76,7 +76,28 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
 
   var scanned = SIMD16<UInt8>.zero
   var i = from
-  while i &+ streamScannerVectorWidth <= to {
+  // The escalation bound, computed once at entry instead of counted per iteration.
+  //
+  // A counter incremented and tested inside the loop was measured first, and it cost documents
+  // that never escalate: `CITM catalog` -2.6% and the 564 byte `Qwen 3 search tool call` -5.0%,
+  // both made of short keys that never reach the wide tier at all. Folding the limit into the
+  // loop bound adds nothing per iteration -- one `min` at entry and one compare after the loop --
+  // and `to` is what the bound was already compared against, so the loop shape is unchanged.
+  //
+  // Availability is deliberately *not* folded in here. Gating the bound on `streamHasAVX2` was
+  // measured and reverted: the global's initializer calls a C function, so it is not a constant
+  // expression, and Swift routes every read through a lazy-init accessor -- a `call` at the entry
+  // of a function that is `@inline(__always)` into the parse loop. Disassembly showed it, and it
+  // cost `CITM catalog` -9.9%, `Twitter` -6.1% and even `Canada` -1.7% against untouched code.
+  // The check belongs behind `@inline(never)`, which is where it is.
+  //
+  // Off x86 this is `to` and the whole thing folds away.
+#if arch(x86_64)
+  let narrowLimit = Swift.min(to, from &+ 2 &* streamScannerVectorWidth)
+#else
+  let narrowLimit = to
+#endif
+  while i &+ streamScannerVectorWidth <= narrowLimit {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
     if any(hit) {
@@ -103,6 +124,16 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
     scanned |= chunk
     i &+= streamScannerVectorWidth
   }
+#if arch(x86_64)
+  // Reaching `narrowLimit` with a full block still ahead means the run survived two blocks
+  // without a terminator, which is the only thing that makes it long: `to` is the chunk end, not
+  // the run end, so no width test at entry could have told a short run from a long one -- only
+  // scanning can. Everything about the wide tier past this point -- the availability check, the
+  // shim call -- lives behind `@inline(never)`, so this loop's register pressure does not move.
+  if i &+ streamScannerVectorWidth <= to {
+    return streamStringRunWide(base: base, from: i, to: to, scanned: scanned)
+  }
+#endif
   var containsNonASCII = streamVectorContainsNonASCII(scanned)
   while i < to {
     let byte = base.load(fromByteOffset: i, as: UInt8.self)
@@ -231,6 +262,71 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
   }
   return streamWhitespaceScalarEnd(base: base, from: i, to: to)
 }
+
+
+#if arch(x86_64)
+// Out of line on purpose, and this is where the availability check belongs: reading
+// `streamHasAVX2` is a lazy-init accessor call, which is affordable once per escalated run and
+// ruinous at the entry of the inlined scanner (measured -9.9% on `CITM catalog`).
+//
+// Without AVX2 the scan continues at SIMD16 rather than failing, which is what the narrow twin
+// below is for.
+@inlinable
+@inline(never)
+package func streamStringRunWide(
+  base: UnsafeRawPointer, from: Int, to: Int, scanned: SIMD16<UInt8>
+) -> StreamStringRun {
+  let soFar = streamVectorContainsNonASCII(scanned)
+  if streamHasAVX2 {
+    var high: Int32 = 0
+    let end = stream_parsing_string_run_avx2(base, from, to, &high)
+    return StreamStringRun(end: end, containsNonASCII: soFar || high != 0)
+  }
+  return streamStringRunNarrow(base: base, from: from, to: to, nonASCIISoFar: soFar)
+}
+
+// The SIMD16 continuation, reachable when AVX2 is absent. A second copy of the loop above rather
+// than a shared body, for the reason the UTF-8 validator's two variants already document.
+@inlinable
+@inline(never)
+package func streamStringRunNarrow(
+  base: UnsafeRawPointer, from: Int, to: Int, nonASCIISoFar: Bool
+) -> StreamStringRun {
+  let quote = SIMD16<UInt8>(repeating: .asciiQuote)
+  let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)
+  let space = SIMD16<UInt8>(repeating: .asciiSpace)
+  let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+
+  var scanned = SIMD16<UInt8>.zero
+  var i = from
+  while i &+ streamScannerVectorWidth <= to {
+    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
+    if any(hit) {
+      for lane in 0..<streamScannerVectorWidth where hit[lane] {
+        let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
+        let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+        return StreamStringRun(
+          end: i &+ lane,
+          containsNonASCII: nonASCIISoFar || streamVectorContainsNonASCII(scanned | prefix)
+        )
+      }
+    }
+    scanned |= chunk
+    i &+= streamScannerVectorWidth
+  }
+  var containsNonASCII = nonASCIISoFar || streamVectorContainsNonASCII(scanned)
+  while i < to {
+    let byte = base.load(fromByteOffset: i, as: UInt8.self)
+    if byte == .asciiQuote || byte == .asciiBackslash || byte < .asciiSpace {
+      return StreamStringRun(end: i, containsNonASCII: containsNonASCII)
+    }
+    containsNonASCII = containsNonASCII || byte >= .utf8ContinuationFloor
+    i &+= 1
+  }
+  return StreamStringRun(end: to, containsNonASCII: containsNonASCII)
+}
+#endif
 
 // MARK: - Key words
 
