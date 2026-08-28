@@ -1,9 +1,10 @@
 import StreamParsingShims
 
-// 10^exponent as a `Double`, or `nil` outside the range `Double` can express.
+// 10^exponent as an exact `Double`, or `nil` outside 0 ... 22.
 //
-// The table is `stream_parsing_pow10_double_storage` in `Pow10_Double.c` -- one contiguous
-// `.rodata` run of 633 entries covering 10^-324 ... 10^308, indexed by `exponent + 324`.
+// The table is `stream_parsing_pow10_double_storage` in `Pow10_Double.c`: 23 contiguous `.rodata`
+// entries indexed directly by the positive exponent. 10^22 is the last exact entry because its
+// odd factor, 5^22, is the largest that fits Double's 53-bit significand.
 //
 // It used to be two Swift `[Double]` globals. What that cost, read off the release binary rather
 // than assumed: the optimizer does fold an array literal of constants into a statically
@@ -16,18 +17,16 @@ import StreamParsingShims
 // take apart.
 //
 // One `.rodata` table plus `@inline(__always)` collapses all of that. At the only call site the
-// exponent arrives as `abs(exponent)`, which is enough for the optimizer to drop the low half of
-// the bounds check and the whole negative half of the table: what is left in
-// `Double.init(streamParsing:info:)` is `cmp #0x134` and `ldr d1, [table, exponent, lsl #3]`.
+// exponent arrives as `abs(exponent)`, so one unsigned compare simultaneously proves the table
+// index and the exactness precondition before the direct indexed load.
 @inlinable
 @inline(__always)
 func digitPow10Value(_ exponent: Int) -> Double? {
-  // One unsigned compare covers both ends: a negative index wraps to a huge `UInt`.
-  let index = exponent &- Int(STREAM_PARSING_POW10_DOUBLE_MIN_EXPONENT)
+  // One unsigned compare covers both ends: a negative exponent wraps to a huge `UInt`.
   let count = UInt(UInt32(bitPattern: STREAM_PARSING_POW10_DOUBLE_COUNT))
-  guard UInt(bitPattern: index) < count else { return nil }
+  guard UInt(bitPattern: exponent) < count else { return nil }
   // The accessor is `static inline` in C and imports as an implicitly unwrapped pointer; the
   // unsafe unwrap is what keeps a null check out of the inlined copy. It can never be null --
   // it returns the address of a `.rodata` array.
-  return stream_parsing_pow10_double().unsafelyUnwrapped[index]
+  return stream_parsing_pow10_double().unsafelyUnwrapped[exponent]
 }

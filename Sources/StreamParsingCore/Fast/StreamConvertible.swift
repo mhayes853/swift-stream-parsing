@@ -95,9 +95,8 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
   // Anything outside that range falls back to the standard library's parser, which is slow but
   // correct.
   //
-  // Known gap: for types narrower than Double the scaled path rounds twice, once into Double
-  // and once into Self, which can differ from the correctly rounded result in rare cases. Float
-  // needs its own bound before this is relied on for exactness.
+  // For types narrower than Double, `Self(exactly: scale)` narrows the usable exponent window to
+  // the powers that type can itself represent exactly; the arithmetic still rounds only once.
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard !info.flags.contains(.overflowed) else {
       guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
@@ -125,8 +124,11 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
     }
 
     // Everything the two exact paths above could not reach, which is where `canada.json` sent
-    // 91.2% of its tokens: a significand past the mantissa, or a power of ten that is not itself
-    // representable. Eisel-Lemire answers those bit-exactly, and declines rather than guessing.
+    // 91.2% of its tokens: a significand past the mantissa, or a power of ten beyond 10^22.
+    // 10^22 is the last power whose factor of five fits Double's 53-bit significand; using the
+    // rounded Double value of 10^23 or above as a scale can miss the correctly rounded result by
+    // one ULP. Eisel-Lemire answers values inside its table bit-exactly and declines rather than
+    // guessing, leaving the existing fallback to handle exponents outside that table.
     //
     // `Double`'s alone, deliberately. The kernel computes in `Double`, so a narrower `Self` would
     // round twice -- once into `Double`, once into `Self` -- which is *worse* than the fallback

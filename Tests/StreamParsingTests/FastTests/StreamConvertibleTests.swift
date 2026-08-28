@@ -156,7 +156,7 @@ struct `Stream convertible tests` {
   }
 
   @Test
-  func `Fractional and exponential doubles re-scan the span`() {
+  func `Fractional and exponential doubles convert`() {
     Self.span("98.25") { bytes in
       let info = Self.info(9825, digits: 4, exponent: -2, flags: .fraction)
       expectNoDifference(Double(streamParsing: bytes, info: info), 98.25)
@@ -168,6 +168,34 @@ struct `Stream convertible tests` {
     Self.span("-98.25") { bytes in
       let info = Self.info(9825, digits: 4, exponent: -2, flags: [.fraction, .negative])
       expectNoDifference(Double(streamParsing: bytes, info: info), -98.25)
+    }
+  }
+
+  @Test
+  func `Wide exponent doubles are correctly rounded`() {
+    let cases: [(String, UInt64, UInt16, Int16, NumberInfo.Flags)] = [
+      ("18446744073709551615e-342", UInt64.max, 20, -342, .exponent),
+      ("5e-324", 5, 1, -324, .exponent),
+      ("-1234567890123457e250", 1_234_567_890_123_457, 16, 250, [.exponent, .negative]),
+      ("1e308", 1, 1, 308, .exponent),
+    ]
+    for (text, magnitude, digits, exponent, flags) in cases {
+      Self.span(text) { bytes in
+        let info = Self.info(magnitude, digits: digits, exponent: exponent, flags: flags)
+        let actual = Double(streamParsing: bytes, info: info)
+        #expect(actual?.bitPattern == Double(text)?.bitPattern)
+      }
+    }
+  }
+
+  // 10^23 is not exactly representable as a Double. Multiplying by the rounded table entry
+  // produces 0x47ded80843672e32 here, one ULP below the correctly rounded decimal result.
+  @Test
+  func `Inexact powers of ten use the correctly rounded fallback`() {
+    Self.span("1639941743779501e23") { bytes in
+      let info = Self.info(1_639_941_743_779_501, digits: 16, exponent: 23, flags: .exponent)
+      let actual = Double(streamParsing: bytes, info: info)
+      #expect(actual?.bitPattern == Double("1639941743779501e23")?.bitPattern)
     }
   }
 

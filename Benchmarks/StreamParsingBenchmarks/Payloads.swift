@@ -132,6 +132,25 @@ enum Payloads {
     .utf8
   )
 
+  // Every Eisel-Lemire table row, repeated enough to make conversion dominate the measurement.
+  // The significand shrinks near the upper limit to keep every JSON number finite, while the
+  // lower limit uses 19 digits so the smallest rows exercise subnormal rounding rather than all
+  // collapsing to zero. Ordinary corpus payloads do not leave -22 ... 22.
+  static let wideExponentFloats = Array(
+    Self.makeNumberArray(count: 6_510) { index in
+      let exponent = -342 + index % 651
+      let sign = index & 1 == 0 ? "" : "-"
+      if exponent < -323 {
+        return "\(sign)9876543210123456789e\(exponent)"
+      }
+      if exponent <= 289 {
+        return "\(sign)1234567890123457e\(exponent)"
+      }
+      return "\(sign)1e\(exponent)"
+    }
+    .utf8
+  )
+
   // MARK: - Real world
 
   static let twitter = Self.resource("twitter")

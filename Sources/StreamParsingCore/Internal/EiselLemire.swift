@@ -17,10 +17,10 @@ import StreamParsingShims
 // the token is needed.
 
 @inlinable
-package var streamPow10MinExponent: Int { Int(stream_parsing_pow10_128_min_exponent) }
+package var streamPow10MinExponent: Int { Int(STREAM_PARSING_POW10_128_MIN_EXPONENT) }
 
 @inlinable
-package var streamPow10MaxExponent: Int { Int(stream_parsing_pow10_128_max_exponent) }
+package var streamPow10MaxExponent: Int { Int(STREAM_PARSING_POW10_128_MAX_EXPONENT) }
 
 // 52 explicit mantissa bits, a -1023 minimum exponent, 0x7FF for infinity: `Double`, spelled out
 // because the kernel indexes and shifts by them rather than reading them from the type.
@@ -35,9 +35,12 @@ package var streamPow10MaxExponent: Int { Int(stream_parsing_pow10_128_max_expon
 @inline(__always)
 package func streamPow10Product(_ exponent: Int, _ significand: UInt64) -> (high: UInt64, low: UInt64) {
   let index = 2 &* (exponent &- streamPow10MinExponent)
-  let (firstHigh, firstLow) = significand.multipliedFullWidth(by: stream_parsing_pow10_128[index])
+  // The C accessor always returns the address of static `.rodata`; unsafe unwrapping tells Swift
+  // what C's type system cannot express and keeps a null check out of this inlined kernel.
+  let table = stream_parsing_pow10_128().unsafelyUnwrapped
+  let (firstHigh, firstLow) = significand.multipliedFullWidth(by: table[index])
   guard firstHigh & 0x1FF == 0x1FF else { return (firstHigh, firstLow) }
-  let (secondHigh, _) = significand.multipliedFullWidth(by: stream_parsing_pow10_128[index &+ 1])
+  let (secondHigh, _) = significand.multipliedFullWidth(by: table[index &+ 1])
   let (low, carried) = firstLow.addingReportingOverflow(secondHigh)
   return (carried ? firstHigh &+ 1 : firstHigh, low)
 }
@@ -54,8 +57,8 @@ package func streamPowerOfTwoExponent(_ exponent: Int) -> Int {
 package func streamEiselLemire(magnitude: UInt64, exponent: Int, negative: Bool) -> Double? {
   let signBit: UInt64 = negative ? 1 << 63 : 0
   if magnitude == 0 || exponent < streamPow10MinExponent {
-    // Only a true zero significand is a zero here: an exponent below the table's floor means the
-    // value underflows every `Double`, including the subnormals.
+    // Only a true zero significand is a zero here. A nonzero value below the table floor declines
+    // to the fallback just like one above the ceiling; the table floor is not an underflow bound.
     return magnitude == 0 ? Double(bitPattern: signBit) : nil
   }
   guard exponent <= streamPow10MaxExponent else { return nil }
@@ -67,20 +70,26 @@ package func streamEiselLemire(magnitude: UInt64, exponent: Int, negative: Bool)
 
   let upperBit = Int(product.high >> 63)
   var mantissa = product.high >> UInt64(upperBit &+ 9)
-  var power2 =
-    streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- streamDoubleMinExponent
 
-  if power2 <= 0 {
-    // Subnormal, or small enough to round to zero. The shift is what the exponent field cannot
-    // express, applied to the mantissa instead.
-    guard -power2 &+ 1 < 64 else { return Double(bitPattern: signBit) }
-    mantissa >>= UInt64(-power2 &+ 1)
-    mantissa &+= mantissa & 1
-    mantissa >>= 1
-    let biased: UInt64 = mantissa < (1 << UInt64(streamDoubleMantissaBits)) ? 0 : 1
-    return Double(
-      bitPattern: signBit | (biased << UInt64(streamDoubleMantissaBits)) | mantissa
-    )
+  // Even `1e-307` is normal, so the subnormal branch is unreachable above -308 regardless of
+  // significand. Keeping the power calculation inside this guard preserves the short dependency
+  // chain used by ordinary exponents; the full-range table should not tax the old -22 ... 22
+  // working set just because it makes the extreme lower rows reachable.
+  if exponent <= -308 {
+    let subnormalPower2 =
+      streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- streamDoubleMinExponent
+    if subnormalPower2 <= 0 {
+      // Subnormal, or small enough to round to zero. The shift is what the exponent field cannot
+      // express, applied to the mantissa instead.
+      guard -subnormalPower2 &+ 1 < 64 else { return Double(bitPattern: signBit) }
+      mantissa >>= UInt64(-subnormalPower2 &+ 1)
+      mantissa &+= mantissa & 1
+      mantissa >>= 1
+      let biased: UInt64 = mantissa < (1 << UInt64(streamDoubleMantissaBits)) ? 0 : 1
+      return Double(
+        bitPattern: signBit | (biased << UInt64(streamDoubleMantissaBits)) | mantissa
+      )
+    }
   }
 
   // The one case the approximation genuinely cannot separate: an exact halfway value in the
@@ -90,6 +99,8 @@ package func streamEiselLemire(magnitude: UInt64, exponent: Int, negative: Bool)
 
   mantissa &+= mantissa & 1
   mantissa >>= 1
+  var power2 =
+    streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- streamDoubleMinExponent
   if mantissa >= (1 << UInt64(streamDoubleMantissaBits &+ 1)) {
     mantissa >>= 1
     power2 &+= 1
@@ -97,6 +108,9 @@ package func streamEiselLemire(magnitude: UInt64, exponent: Int, negative: Bool)
   guard power2 < streamDoubleInfinitePower else { return nil }
   mantissa &= ~(1 << UInt64(streamDoubleMantissaBits))
   return Double(
-    bitPattern: signBit | (UInt64(power2) << UInt64(streamDoubleMantissaBits)) | mantissa
+    // The -308 guard above proves this is positive. Spelling the conversion as truncating keeps
+    // Swift from emitting a second sign check that leads only to an unreachable trap.
+    bitPattern: signBit
+      | (UInt64(truncatingIfNeeded: power2) << UInt64(streamDoubleMantissaBits)) | mantissa
   )
 }

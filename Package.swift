@@ -64,9 +64,9 @@ let package = Package(
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
       swiftSettings: suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
-    // Header-only C target carrying the NEON intrinsics Swift's SIMD API has no spelling for
-    // (`tbl`, for the UTF-8 validator). Empty on other architectures, where the Swift side
-    // takes its portable path.
+    // C interoperability target. Executable shims live as inline functions in the header so
+    // their scalar/NEON forms can disappear into Swift callers; generated lookup-table storage
+    // stays in translation units so importing the header cannot instantiate duplicate tables.
     .target(name: "StreamParsingShims"),
     .target(
       name: "StreamParsingCore",

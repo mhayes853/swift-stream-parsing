@@ -330,30 +330,37 @@ static inline int stream_parsing_utf8_validate(const void *base, ptrdiff_t from,
 #endif  // __x86_64__
 
 // The Eisel-Lemire power-of-ten table, defined in `Pow10_128.c` and generated -- see the header
-// comment there. Exposed as a pointer rather than a sized array because Swift imports a
-// fixed-size C array as a tuple of that many elements, which is unusable at this size.
-extern const uint64_t *const stream_parsing_pow10_128;
-extern const int32_t stream_parsing_pow10_128_min_exponent;
-extern const int32_t stream_parsing_pow10_128_max_exponent;
+// comment there. The array is declared incomplete because Swift imports a sized C array as a
+// tuple of that many elements. As with the Double table below, an always-inlined accessor avoids
+// a pointer variable's dependent load and lets the caller materialise the array address directly.
+extern const uint64_t stream_parsing_pow10_128_storage[];
 
-// Exact `double` values of 10^q for q in -324 ... 308, defined in `Pow10_Double.c` and
-// generated -- see the header comment there. One contiguous table indexed by `q + 324`, so the
-// Swift side's bounds check is a single unsigned compare covering both signs. Same reason as
-// above for living in C: `.rodata` instead of a lazily allocated Swift array global.
+STREAM_PARSING_SIMD_SHIM const uint64_t *stream_parsing_pow10_128(void) {
+  return stream_parsing_pow10_128_storage;
+}
+
+// These are part of the generated table's shape, not runtime data. Keeping them as macros lets
+// Swift fold both range checks and the index bias instead of loading two exported C globals.
+#define STREAM_PARSING_POW10_128_MIN_EXPONENT (-342)
+#define STREAM_PARSING_POW10_128_MAX_EXPONENT (308)
+
+// Exact `double` values of 10^q for q in 0 ... 22, defined in `Pow10_Double.c` and generated --
+// see the header comment there. Same reason as above for living in C: `.rodata` instead of a
+// lazily allocated Swift array global.
 //
-// Reached through an always-inlined accessor rather than a `const double *const` global like
-// the table above, because a pointer *variable* costs a dependent load of the pointer itself
-// before the load of the entry. The accessor folds into the Swift caller as the `adrp`/`add`
-// pair that materialises the table's address, so only the entry is loaded. The array is
-// declared incomplete because Swift imports a sized C array as a tuple of that many elements.
+// Reached through an always-inlined accessor rather than a `const double *const` global, because
+// a pointer variable costs a dependent load of the pointer itself before the load of the entry.
+// The accessor folds into the Swift caller as the `adrp`/`add` pair that materialises the table's
+// address, so only the entry is loaded. The array is declared incomplete because Swift imports a
+// sized C array as a tuple of that many elements.
 extern const double stream_parsing_pow10_double_storage[];
 
 STREAM_PARSING_SIMD_SHIM const double *stream_parsing_pow10_double(void) {
   return stream_parsing_pow10_double_storage;
 }
 
-#define STREAM_PARSING_POW10_DOUBLE_MIN_EXPONENT (-324)
-#define STREAM_PARSING_POW10_DOUBLE_MAX_EXPONENT (308)
-#define STREAM_PARSING_POW10_DOUBLE_COUNT (633)
+#define STREAM_PARSING_POW10_DOUBLE_MIN_EXPONENT (0)
+#define STREAM_PARSING_POW10_DOUBLE_MAX_EXPONENT (22)
+#define STREAM_PARSING_POW10_DOUBLE_COUNT (23)
 
 #endif

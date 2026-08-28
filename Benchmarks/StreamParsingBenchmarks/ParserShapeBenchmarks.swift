@@ -158,11 +158,13 @@ private func chunkBoundaryBenchmarks() {
 // comma-separated corpora, none of which called the shipped scanners; that file is gone. These
 // measure the same token shapes through the real parser. `large integers` is the 17-19 digit run
 // the eight-digit block was chosen for — a document id — and `floats` is what `canada.json` is
-// made of, so the synthetic and real-world rows can be read against each other.
+// made of. `wide exponent floats` covers every Eisel-Lemire table row because no real-world
+// payload currently leaves -22 ... 22.
 private func numberBenchmarks() {
   let payloads: [(String, [UInt8])] = [
     ("large integers", Payloads.largeIntegers),
     ("floats", Payloads.floats),
+    ("wide exponent floats", Payloads.wideExponentFloats),
     ("small integers", Payloads.matrix),
   ]
 
@@ -195,6 +197,18 @@ private func numberBenchmarks() {
     for _ in benchmark.scaledIterations {
       blackHole(
         expectParses { try streamBulkDiscarding(Payloads.floats, as: BenchmarkFloats.Partial.self) }
+      )
+    }
+  }
+
+  Benchmark("Numbers wide exponent floats - discarding") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(
+            Payloads.wideExponentFloats, as: BenchmarkFloats.Partial.self
+          )
+        }
       )
     }
   }

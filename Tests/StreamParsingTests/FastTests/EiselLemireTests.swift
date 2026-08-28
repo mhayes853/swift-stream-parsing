@@ -112,6 +112,33 @@ struct `Eisel-Lemire tests` {
     #expect(outcome.mismatches.isEmpty, "\(outcome.mismatches)")
   }
 
+  // Pin both the intended table extent and representative rows that used to decline. These
+  // values must be answered by the kernel itself; equality-only differential tests otherwise
+  // permit a regression that silently sends the full range back through String.
+  @Test
+  func `Full Double exponent range stays on the kernel`() {
+    #expect(streamPow10MinExponent == -342)
+    #expect(streamPow10MaxExponent == 308)
+
+    let cases: [(UInt64, Int, Bool)] = [
+      (1, -342, false),
+      (UInt64.max, -342, true),
+      (5, -324, false),
+      (1, -323, true),
+      (UInt64.max, -308, false),
+      (1_234_567_890_123_457, -300, false),
+      (1_234_567_890_123_457, 250, true),
+      (1, 308, false),
+    ]
+    for (magnitude, exponent, negative) in cases {
+      let text = "\(negative ? "-" : "")\(magnitude)e\(exponent)"
+      let actual = streamEiselLemire(
+        magnitude: magnitude, exponent: exponent, negative: negative
+      )
+      #expect(actual?.bitPattern == Double(text)?.bitPattern, "\(text) declined or mismatched")
+    }
+  }
+
   // A zero significand is a signed zero, not a decline: the fallback would allocate a String to
   // reach the same answer.
   @Test

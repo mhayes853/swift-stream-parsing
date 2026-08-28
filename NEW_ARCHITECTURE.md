@@ -4070,6 +4070,48 @@ tokens never reach the lookup. The honest summary is that this is a correctness-
 (664 lines to 32, `__DATA` to `.rodata`, Embedded no longer pays a once-token) that buys a small
 throughput win in proportion to how often the exact path actually runs.
 
+### Follow-up: only 0 ... 22 are exact scales
+
+The first C version preserved every correctly rounded `Double` table entry, but that is not the
+same as preserving an *exact decimal scale*. `10^22` is the last power whose odd factor fits the
+53-bit significand. Multiplying by the rounded `Double` representation of `10^23` or above can
+double-round the final value; for example, `1639941743779501e23` landed one ULP low.
+
+The exact-path table is therefore now 23 positive entries (`10^0 ... 10^22`, 184 bytes) rather
+than 633 signed entries (5,064 bytes). Its existing unsigned bounds check is also the exactness
+check; larger exponents continue through Eisel-Lemire when its table covers them and otherwise
+reach the standard parser. Two interleaved x86-64 rounds measured Canada discarding 1.4-1.8%
+faster at p0, Mesh within 0.0-0.4%, and the synthetic exact-float conversion row 1.3% slower. The
+last result remains despite a five-byte-smaller specialized hot path, so it is recorded rather
+than explained by instruction count.
+
+### Follow-up: the Eisel-Lemire table covers all of `Double`
+
+The exact-scale table above remains deliberately small, but Eisel-Lemire now has all 651 rows
+from `10^-342 ... 10^308`: 10,416 bytes rather than 720, generated with exact integer arithmetic
+by `Scripts/generate_pow10_128.py`. The bounds are C macros and the inline accessor folds to a
+direct table address. On x86-64 the product is still a `lea` plus indexed `mulq`; there is no
+pointer-variable load, and `exponent + 342` is checked with one unsigned comparison.
+
+No number in the real-world corpus has an effective exponent outside -22 ... 22, so a synthetic
+document repeats every table row ten times through both the raw sink and `[Double]` conversion.
+Three final interleaved small/full-table rounds measured median p0 wall time:
+
+| row | 45 rows | 651 rows | change |
+| --- | ---: | ---: | ---: |
+| wide exponents, `[Double]` | 7,414,643 ns | **422,997 ns** | **17.5x faster** |
+| wide exponents, raw sink | 198,746 ns | **197,695 ns** | -0.5% |
+| ordinary floats, `[Double]` | 120,338 ns | **119,705 ns** | -0.5% |
+| Canada, `[Double]` | 225 MB/s | 222 MB/s | -1.3% |
+| Mesh, `[Double]` | 3,906,340 ns | 3,910,223 ns | +0.1% |
+
+Allocations on the wide document fell from 6,102 to 232. Enabling the bottom table rows also
+makes the kernel's subnormal rounding live; guarding it with the fact that `1e-307` is normal
+keeps its dependency chain off ordinary exponents and recovered about half of Canada's initial
+2% regression. Moving the subnormal body out of line was worse (Canada returned to -2% and the
+wide row slowed), so the bounded inline form shipped. The final `Real .*` sweep completed all 78
+registered corpus rows.
+
 ## Where `canada.json`'s number budget actually goes
 
 Measured before proposing anything, because two rounds of guessing at this got it wrong in

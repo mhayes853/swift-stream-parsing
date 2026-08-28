@@ -10,7 +10,7 @@ struct `Pow 10 table tests` {
   // emitted.
   @Test
   func `Every Entry Is The Correctly Rounded Power Of Ten`() {
-    for exponent in -324...308 {
+    for exponent in 0...22 {
       let expected = Double("1e\(exponent)")!
       let actual = digitPow10Value(exponent)
       #expect(actual?.bitPattern == expected.bitPattern, "10^\(exponent)")
@@ -19,8 +19,8 @@ struct `Pow 10 table tests` {
 
   @Test
   func `Exponents Outside The Table Decline`() {
-    #expect(digitPow10Value(309) == nil)
-    #expect(digitPow10Value(-325) == nil)
+    #expect(digitPow10Value(23) == nil)
+    #expect(digitPow10Value(-1) == nil)
     #expect(digitPow10Value(Int.max) == nil)
     #expect(digitPow10Value(Int.min) == nil)
   }
