@@ -52,6 +52,28 @@ stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
   uint8x16_t must_continue = vandq_u8(vorrq_u8(third, fourth), vdupq_n_u8(0x80));
   return (stream_parsing_u8x16)veorq_u8(special, must_continue);
 }
+
+// The arm64 movemask, which Swift cannot spell: `vshrn_n_u16` takes an immediate, so it does not
+// import at all (`cannot find 'vshrn_n_u16' in scope`) and there is no portable SIMD operator
+// that lowers to it. Reading the vector as eight `uint16_t` and narrowing each by a four bit
+// shift folds every input byte to a nibble of the result: lane `n` of the input lands in nibble
+// `n` of the returned word, 0xF where the byte was 0xFF and 0x0 where it was 0x00.
+//
+// This is the idiom every first-hit-lane problem in the scanners has been working around. Swift's
+// two options were a `uminv` reduction, which is a dependent vector chain that a short run pays
+// in full, and a per lane `umov` + branch ladder, which is sixteen moves, sixteen branches and
+// sixteen constant-materialising exit blocks. One `shrn` plus one `fmov` answers both "is there a
+// terminator in this block" and "which lane" -- `rbit`/`clz` on the complement gives the lane in
+// a general register, with no second pass over the vector.
+//
+// Kept deliberately as a leaf returning a scalar rather than a kernel returning a struct: that is
+// the shape that survived in `stream_parsing_utf8_block_errors` and the shape that did not in the
+// `streamStringRun` port, whose better kernel still made the parse slower at the boundary.
+STREAM_PARSING_SIMD_SHIM uint64_t
+stream_parsing_movemask_u8(stream_parsing_u8x16 value) {
+  return vget_lane_u64(
+      vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8((uint8x16_t)value), 4)), 0);
+}
 #endif
 
 // MARK: - x86: the UTF-8 validator

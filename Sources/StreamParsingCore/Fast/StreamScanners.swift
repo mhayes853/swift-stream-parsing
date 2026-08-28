@@ -600,9 +600,13 @@ package var streamNumberClassLowTable: SIMD16<UInt8> {
       let high = stream_parsing_tbl1q_u8(highTable, chunk &>> 4)
       let low = stream_parsing_tbl1q_u8(lowTable, chunk & nibbleMask)
       let hitBytes = vtstq_u8(high, low)
-      if streamVectorIsNonZero(~hitBytes) {
-        for lane in 0..<streamScannerVectorWidth where hitBytes[lane] == 0 { return i &+ lane }
-      }
+      // The bound check *is* the terminator test, so nothing depends on the branch: a mask of all
+      // ones has no terminator, its complement is zero, and `trailingZeroBitCount` of zero is 64 --
+      // which is lane 16, one past the block. So `lane` and the branch condition become ready in
+      // the same cycle, where testing the mask first leaves `mvn`/`rbit`/`clz` strictly *after*
+      // the branch and a short token pays that chain in full before it can exit.
+      let lane = (~stream_parsing_movemask_u8(hitBytes)).trailingZeroBitCount &>> 2
+      if lane < streamScannerVectorWidth { return i &+ lane }
       i &+= streamScannerVectorWidth
     }
     return streamNumberRunEndTail(base: base, from: i, to: to)
