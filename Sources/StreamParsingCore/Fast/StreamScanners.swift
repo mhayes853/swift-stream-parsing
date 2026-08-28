@@ -895,6 +895,20 @@ package func streamMaskBytes(_ mask: SIMDMask<SIMD16<Int8>>) -> SIMD16<UInt8> {
 #if arch(arm64)
   @inlinable
   @inline(__always)
+  package func streamUTF8BlockErrorsShimmed(
+    current: SIMD16<UInt8>,
+    previous1: SIMD16<UInt8>,
+    previous2: SIMD16<UInt8>,
+    previous3: SIMD16<UInt8>
+  ) -> SIMD16<UInt8> {
+    stream_parsing_utf8_block_errors(
+      current, previous1, previous2, previous3,
+      streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
+    )
+  }
+
+  @inlinable
+  @inline(__always)
   package func streamUTF8BlockIsInvalidShimmed(
     current: SIMD16<UInt8>,
     previous1: SIMD16<UInt8>,
@@ -902,9 +916,8 @@ package func streamMaskBytes(_ mask: SIMDMask<SIMD16<Int8>>) -> SIMD16<UInt8> {
     previous3: SIMD16<UInt8>
   ) -> Bool {
     streamVectorIsNonZero(
-      stream_parsing_utf8_block_errors(
-        current, previous1, previous2, previous3,
-        streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
+      streamUTF8BlockErrorsShimmed(
+        current: current, previous1: previous1, previous2: previous2, previous3: previous3
       )
     )
   }
@@ -975,6 +988,12 @@ package func streamUTF8BlockIsInvalidPortable(
     var scratch = SIMD32<UInt8>.zero
     return withUnsafeMutableBytes(of: &scratch) { raw -> Bool in
       let s = raw.baseAddress!
+      // Every block ORs into an accumulator and the run pays one reduction at the end. The
+      // validator answers only valid or not -- the parser's scalar walk locates an invalid
+      // byte afterwards -- so combining the error vectors loses nothing, and an invalid run
+      // is rare enough that scanning it to the end costs nothing that matters.
+      var errors0 = SIMD16<UInt8>.zero
+      var errors1 = SIMD16<UInt8>.zero
       // Layout: [0, 3) the three bytes before the block, [3, 19) the block, [19, 32) zero.
       let first = Swift.min(count, 16)
       if first == 16 {
@@ -990,25 +1009,23 @@ package func streamUTF8BlockIsInvalidPortable(
           )
         }
       }
-      if streamUTF8BlockIsInvalidShimmed(
+      errors0 |= streamUTF8BlockErrorsShimmed(
         current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
         previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
         previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
         previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
-      ) {
-        return false
-      }
+      )
 
       var i = from &+ 16
+      // The reduction is deferred to one test for the whole run: the block errors are
+      // accumulated instead, which drops a `dup`/`orr`/`fmov`/`cbnz` per sixteen bytes.
       while i &+ 16 <= to {
-        if streamUTF8BlockIsInvalidShimmed(
+        errors0 |= streamUTF8BlockErrorsShimmed(
           current: base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self),
           previous1: base.loadUnaligned(fromByteOffset: i &- 1, as: SIMD16<UInt8>.self),
           previous2: base.loadUnaligned(fromByteOffset: i &- 2, as: SIMD16<UInt8>.self),
           previous3: base.loadUnaligned(fromByteOffset: i &- 3, as: SIMD16<UInt8>.self)
-        ) {
-          return false
-        }
+        )
         i &+= 16
       }
 
@@ -1028,16 +1045,14 @@ package func streamUTF8BlockIsInvalidPortable(
             toByteOffset: 3 &+ j, as: UInt8.self
           )
         }
-        if streamUTF8BlockIsInvalidShimmed(
+        errors1 |= streamUTF8BlockErrorsShimmed(
           current: s.loadUnaligned(fromByteOffset: 3, as: SIMD16<UInt8>.self),
           previous1: s.loadUnaligned(fromByteOffset: 2, as: SIMD16<UInt8>.self),
           previous2: s.loadUnaligned(fromByteOffset: 1, as: SIMD16<UInt8>.self),
           previous3: s.loadUnaligned(fromByteOffset: 0, as: SIMD16<UInt8>.self)
-        ) {
-          return false
-        }
+        )
       }
-      return true
+      return !streamVectorIsNonZero(errors0 | errors1)
     }
   }
 #endif
