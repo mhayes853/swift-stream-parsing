@@ -13,7 +13,8 @@ import PackageDescription
 let package = Package(
   name: "EmbeddedSmoke",
   products: [.executable(name: "EmbeddedSmoke", targets: ["EmbeddedSmoke"])],
-  dependencies: [.package(path: "..")],
+  // Named explicitly so the build works from a git worktree whose directory has another name.
+  dependencies: [.package(name: "swift-stream-parsing", path: "..")],
   targets: [
     .executableTarget(
       name: "EmbeddedSmoke",

@@ -60,6 +60,19 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
     }
   }
 
+  // The same convenience-layer parse through the windowed path, which is where number batches
+  // reach `PartialSink`. The row above is its gate-off control.
+  Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
+    benchmark in
+    measurePayloadThroughput(benchmark, payload: payload) {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
+        }
+      )
+    }
+  }
+
   if includeByteByByte {
     Benchmark("Real \(name) - byte by byte discarding", configuration: payloadConfiguration) {
       benchmark in
@@ -201,6 +214,22 @@ private func addRealWorldFastRows() {
     Benchmark("Real \(name) - 16KB chunks", configuration: payloadConfiguration) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         blackHole(expectParses { try runFastParser(payload, chunk: 16_384) })
+      }
+    }
+
+    // The same two feeds through the windowed path (JSONParserWindow.swift), which the gate
+    // takes for any chunk at or above the threshold. Both variants live in one binary so they
+    // can be interleaved in one run.
+    Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
+      }
+    }
+
+    Benchmark("Real \(name) - 16KB chunks windowed", configuration: payloadConfiguration) {
+      benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(expectParses { try runFastParser(payload, chunk: 16_384, windowThreshold: 1) })
       }
     }
   }

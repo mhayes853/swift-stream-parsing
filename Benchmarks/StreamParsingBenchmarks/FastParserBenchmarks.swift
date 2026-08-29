@@ -1,7 +1,7 @@
 import Benchmark
 import StreamParsingCore
 
-struct FastCountingSink: StreamParseSink {
+struct FastCountingSink: EventSink {
   var streamFailure: StreamSinkFailure?
   var checksum: UInt64 = 0
   var tokens = 0
@@ -20,13 +20,67 @@ struct FastCountingSink: StreamParseSink {
   mutating func stringChunk(_ bytes: Span<UInt8>) { self.checksum &+= UInt64(bytes.count) }
   mutating func stringEnd() {}
 
+  // Every field of the info is folded in, deliberately: a sink that reads only the magnitude
+  // lets the compiler drop the exponent, digit count and flag work on a directly emitted
+  // number, which made the unbatched rows look cheaper than any real sink's path is.
+  @inline(__always)
+  static func fold(_ info: NumberInfo) -> UInt64 {
+    info.magnitude &+ UInt64(bitPattern: Int64(info.exponent))
+      &+ UInt64(info.digitCount) &+ UInt64(info.flags.rawValue)
+  }
+
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     self.tokens &+= 1
-    self.checksum &+= info.magnitude
+    self.checksum &+= Self.fold(info)
   }
 
   mutating func boolean(_ value: Bool) { self.tokens &+= 1 }
   mutating func null() { self.tokens &+= 1 }
+
+  // Every event arrives here: the same counts and checksum as the per-event methods, in one loop. The
+  // common kinds are tested first as compares rather than through the switch's jump table,
+  // and the subscripts are unchecked: the loop is the whole per-event cost of this sink.
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    var tokens = 0
+    var checksum: UInt64 = 0
+    var i = 0
+    let count = batch.count
+    while i < count {
+      let record = records[unchecked: i]
+      let kind = record.kind
+      if kind == .key {
+        tokens &+= 1
+        checksum &+= batch.bytes(of: i).paddedLeadingWord()
+      } else if kind == .string {
+        tokens &+= 1
+        checksum &+= UInt64(record.length)
+      } else if kind == .number {
+        // A run of numbers is folded in place: one branch per element on the record kind and
+        // the same tight loop over the contiguous infos that the number batches had.
+        var j = i
+        var sum: UInt64 = 0
+        while j < count && records[unchecked: j].kind == .number {
+          sum &+= Self.fold(batch.info(of: j))
+          j &+= 1
+        }
+        tokens &+= j &- i
+        checksum &+= sum
+        i = j
+        continue
+      } else if kind == .stringChunk {
+        checksum &+= UInt64(record.length)
+      } else if kind == .endObject || kind == .endArray || kind == .stringEnd {
+        // nothing
+      } else {
+        tokens &+= 1
+      }
+      i &+= 1
+    }
+    self.tokens &+= tokens
+    self.checksum &+= checksum
+    return count
+  }
 }
 
 // MARK: - Runners
@@ -36,9 +90,10 @@ struct FastCountingSink: StreamParseSink {
 func runFastParser(
   _ payload: [UInt8],
   chunk: Int,
-  bufferCapacity: Int = 4_096
+  bufferCapacity: Int = 4_096,
+  windowThreshold: Int = .max
 ) throws -> UInt64 {
-  var parser = JSONParser(bufferCapacity: bufferCapacity)
+  var parser = JSONParser(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
   var sink = FastCountingSink()
   try payload.withUnsafeBufferPointer { buffer in
     var offset = 0

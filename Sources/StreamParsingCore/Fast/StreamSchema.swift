@@ -233,6 +233,14 @@ public final class StreamSchema: Sendable {
   // Returns a frame for the value stored under a dynamic key. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
 
+  // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
+  // appends the `number` records in `from..<to` and returns how many it took. Arrays of
+  // number-convertible elements only; nil means the batch is unrolled through `appendElement` and
+  // `applyNumber` one number at a time.
+  public let appendNumbers: (
+    @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
+  )?
+
   // Exact homogeneous operations the sink may perform without constructing a StreamFrame or
   // calling a stored closure. Hand-written schemas and unrecognized protocol conformers remain
   // `.generic`, preserving the public API's open-ended behavior.
@@ -272,7 +280,8 @@ public final class StreamSchema: Sendable {
     },
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
-    }
+    },
+    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil
   ) {
     self.init(
       shape: shape,
@@ -285,6 +294,7 @@ public final class StreamSchema: Sendable {
       enterField: enterField,
       appendElement: appendElement,
       enterKey: enterKey,
+      appendNumbers: appendNumbers,
       leafRoute: .generic,
       fixedElementCount: -1,
       inlineCapacity: 0
@@ -315,6 +325,9 @@ public final class StreamSchema: Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
     },
+    appendNumbers: (
+      @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
+    )? = nil,
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
     inlineCapacity: Int32 = 0
@@ -332,6 +345,7 @@ public final class StreamSchema: Sendable {
     self.applyNull = applyNull
     self.enterField = enterField
     self.appendElement = appendElement
+    self.appendNumbers = appendNumbers
     self.enterKey = enterKey
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
@@ -350,6 +364,13 @@ public final class StreamSchema: Sendable {
 // that one, and it must not match a `String` field and hand it a frame instead of a scalar write.
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
+
+  /// Appends a run of numbers to a `StreamArray<Self>` in one call, or `nil` when `Self` is not
+  /// a number. Supplied for every ``StreamNumberConvertible`` type; the array schema carries it
+  /// as ``StreamSchema/appendNumbers`` so `PartialSink` can take a batch without routing each
+  /// number through a frame.
+  static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? { get }
 
   /// The schema this type is written through when a container holds it, and the value that
   /// container opens its slot with.
@@ -649,8 +670,48 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
         schema: element
       )
     },
+    appendNumbers: Element._streamArrayNumberAppender,
     leafRoute: .array(element.leafRoute)
   )
+}
+
+extension StreamParseableRoot {
+  @inlinable
+  public static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
+  { nil }
+}
+
+// The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending
+// swap — convert and commit in a loop. A plain loop, deliberately: unrolling it two, four and
+// eight wide with the conversions hoisted ahead of the commits measured monotonically worse
+// (Mesh 323 → 316 → 312 → 311 MB/s), because the core already overlaps the independent
+// conversions and the unrolled bodies only add code. The last number is left as the array's open element,
+// which is where the one-at-a-time path leaves it, so a snapshot taken between a batch and the
+// array's close sees the same array either way.
+extension StreamParseableRoot where Self: StreamNumberConvertible {
+  @inlinable
+  public static var _streamArrayNumberAppender:
+    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
+  {
+    { storage, batch, from, to in
+      let array = storage.assumingMemoryBound(to: StreamArray<Self>.self)
+      guard to > from else { return 0 }
+      array.pointee.drainPending()
+      var index = from
+      let last = to &- 1
+      while index < last {
+        guard let value = Self(streamParsing: batch.bytes(of: index), info: batch.info(of: index))
+        else { return index &- from }
+        array.pointee.commit(value)
+        index &+= 1
+      }
+      guard let value = Self(streamParsing: batch.bytes(of: last), info: batch.info(of: last))
+      else { return last &- from }
+      array.pointee.pending = value
+      return to &- from
+    }
+  }
 }
 
 // The schema an optional element or dictionary value is written through.

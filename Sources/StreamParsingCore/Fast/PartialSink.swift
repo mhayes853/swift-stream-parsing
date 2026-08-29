@@ -214,11 +214,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Containers
 
-  public mutating func beginObject() {
+  mutating func beginObject() {
     self.enterContainer(shape: .object)
   }
 
-  public mutating func beginArray() {
+  mutating func beginArray() {
     switch self.activeLeafRoute {
     case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
       .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
@@ -230,11 +230,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     self.enterContainer(shape: .array)
   }
 
-  public mutating func endObject() {
+  mutating func endObject() {
     self.popFrame()
   }
 
-  public mutating func endArray() {
+  mutating func endArray() {
     if self.droppedFrameCount == 0 {
       let expected: Int32
       if self.activeLeafRoute == .inlineArray {
@@ -333,7 +333,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // other schema call costs. The frames standing over subtrees the destination has no field for
   // are exactly those schemas, and they see most of the keys in a document a model only partly
   // declares — 52% of `twitter.json`'s.
-  public mutating func key(_ bytes: Span<UInt8>) {
+  mutating func key(_ bytes: Span<UInt8>) {
     guard let top = self.topFrame else { return }
     // Read through the frame each time rather than bound to a local. A local outlives the call it
     // is passed to, and `enterKey` takes the frame's own storage, so the optimizer has to keep the
@@ -365,7 +365,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Scalars
 
-  public mutating func stringBegin() {
+  mutating func stringBegin() {
     switch self.activeLeafRoute {
     case .arrayStreamString, .arrayOptionalStreamString,
       .dictionaryStreamString, .dictionaryOptionalStreamString:
@@ -404,7 +404,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       : 0
   }
 
-  public mutating func stringChunk(_ bytes: Span<UInt8>) {
+  mutating func stringChunk(_ bytes: Span<UInt8>) {
     if let storage = self.homogeneousStringStorage {
       storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
       return
@@ -439,7 +439,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
-  public mutating func stringEnd() {
+  mutating func stringEnd() {
     self.homogeneousStringStorage = nil
     self.scalarTarget = nil
     self.inlineStringCapacity = 0
@@ -456,7 +456,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
-  public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     switch self.activeLeafRoute {
     case .arrayDouble:
       self.appendHomogeneousDouble(bytes, info: info)
@@ -477,7 +477,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
-  public mutating func boolean(_ value: Bool) {
+  mutating func boolean(_ value: Bool) {
     switch self.activeLeafRoute {
     case .arrayBool, .arrayOptionalBool, .dictionaryBool, .dictionaryOptionalBool:
       self.applyKnownBoolean(value, route: self.activeLeafRoute)
@@ -493,7 +493,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
   }
 
-  public mutating func null() {
+  mutating func null() {
     if self.topFrame == nil, !self.started {
       let result = self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField)
       if result != .applied {
@@ -516,6 +516,133 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.applyNullNormally()
       return
     }
+  }
+
+  // MARK: Events
+
+  // A batch of events. Under an object frame that matches keys, each `key` followed by a scalar
+  // is routed in place: one `matchField`, one apply, nothing else — no frame resolution, no
+  // `ScalarTarget` copy of the schema (a retain and a release per value), no closure per string
+  // piece. The failure points are the single path's: a string is accepted at its `stringBegin`
+  // (the empty span materialises the destination), a number or literal at itself. Everything
+  // else — a container after a key, a dictionary frame, an array frame, a frame that ignores
+  // keys — unrolls into the single events below, exactly as the one-at-a-time path did.
+  public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    let count = batch.count
+    var index = 0
+    while index < count {
+      let record = records[index]
+      // A run of numbers into an array of numbers takes the schema's bulk appender: no frame per
+      // element, no schema borrow per value. Its rejection is the element it refused. Only
+      // `_streamArraySchema` carries one, so a fixed array or an array of SIMD vectors — whose
+      // leaf routes need the frame's element cursor — never reaches this and falls through to
+      // `number` below.
+      if record.kind == .number, let top = self.topFrame, top.pointee.schema.shape == .array,
+        let append = top.pointee.schema.appendNumbers
+      {
+        var runEnd = index &+ 1
+        while runEnd < count && records[runEnd].kind == .number { runEnd &+= 1 }
+        let taken = append(top.pointee.storage, batch, index, runEnd)
+        if taken < runEnd &- index {
+          self.recordFailure(.typeMismatch)
+          return index &+ taken
+        }
+        index = runEnd
+        continue
+      }
+      if record.kind == .key, index &+ 1 < count, let top = self.topFrame,
+        top.pointee.schema.shape == .object, top.pointee.schema.keyRouting == .match
+      {
+        let next = records[index &+ 1]
+        let field = top.pointee.schema.matchField(batch.bytes(of: index))
+        top.pointee.pendingField = field
+        switch next.kind {
+        case .string:
+          if field >= 0 {
+            // An object field resolves to the frame's own schema and `wholeValueField` is never
+            // in play, so this is exactly what `resolveScalarTarget` would have handed back —
+            // including for bounded inline storage, whose capacity route keys off a *scalar*
+            // schema's leaf route and is therefore not reachable from an object field either way.
+            let opened = top.pointee.schema.applyString(top.pointee.storage, field, Span())
+            if opened != .applied {
+              self.recordFailure(Self.failureReason(for: opened))
+              return index &+ 1
+            }
+            if next.length > 0 {
+              let result = top.pointee.schema.applyString(
+                top.pointee.storage, field, batch.bytes(of: index &+ 1)
+              )
+              if result != .applied {
+                self.recordFailure(Self.failureReason(for: result))
+                return index &+ 1
+              }
+            }
+          }
+          index &+= 2
+          continue
+        case .number:
+          if field >= 0 {
+            let result = top.pointee.schema.applyNumber(
+              top.pointee.storage, field, batch.bytes(of: index &+ 1), batch.info(of: index &+ 1)
+            )
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        case .boolean:
+          if field >= 0 {
+            let result = top.pointee.schema.applyBoolean(
+              top.pointee.storage, field, next.booleanValue
+            )
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        case .null:
+          if field >= 0 {
+            let result = top.pointee.schema.applyNull(top.pointee.storage, field)
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        default:
+          // A container follows: the key is already routed; the container takes the single path.
+          index &+= 1
+          continue
+        }
+      }
+      switch record.kind {
+      case .beginObject: self.beginObject()
+      case .endObject: self.endObject()
+      case .beginArray: self.beginArray()
+      case .endArray: self.endArray()
+      case .key: self.key(batch.bytes(of: index))
+      case .stringBegin: self.stringBegin()
+      case .stringChunk: self.stringChunk(batch.bytes(of: index))
+      case .stringEnd: self.stringEnd()
+      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
+      case .boolean: self.boolean(record.booleanValue)
+      case .null: self.null()
+      case .string:
+        self.stringBegin()
+        if self.streamFailure != nil { return index }
+        if record.length > 0 { self.stringChunk(batch.bytes(of: index)) }
+        self.stringEnd()
+      }
+      if self.streamFailure != nil { return index }
+      index &+= 1
+    }
+    return index
   }
 
   // MARK: Scalar routing

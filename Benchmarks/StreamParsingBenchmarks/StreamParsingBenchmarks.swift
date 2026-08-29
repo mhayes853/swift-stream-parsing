@@ -128,6 +128,8 @@ let benchmarks: @Sendable () -> Void = {
   layerOverheadBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
+  stageOneBenchmarks()
+  numberKernelBenchmarks()
   streamingAPIBenchmarks()
   retentionBenchmarks()
   dictionaryAllocationBenchmarks()

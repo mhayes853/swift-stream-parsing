@@ -3694,6 +3694,7 @@ tests green, because the out of bounds bytes are masked away before they reach t
 reports `heap-buffer-overflow` under ASan. A backward read that lands in mapped memory cannot be
 seen by any assertion about values. CI does not currently run a sanitizer pass.
 
+---
 
 ## Native fixed-width arrays: `InlineArray`
 
@@ -4892,3 +4893,870 @@ number is `objdump` of the specialised run, counting `bl` targets -- the only on
 `streamWhitespaceRunEnd`, `validateNonASCIIRun` and the sink. The six inline `throw` expansions,
 ~20 instructions and their runtime calls each, are the budget to reclaim before any more work
 goes in here.
+---
+
+## Stage-1 extraction: the census and the budget
+
+The dispatch loop's optimization horizon is one token: scan to the next byte that needs
+attention, dispatch on it, repeat. The question on the table is whether shifting that horizon
+to a whole chunk — one classification pass extracting quote/whitespace/structural information,
+then a consuming pass that walks positions instead of scanning bytes — can beat it, and at what
+window size. This section is the pre-work: what the corpora look like through that lens, and
+what the extraction pass alone costs, measured before any stage 2 exists. Everything below ran
+on 2026-08-23; the kernels live in `Benchmarks/StageOneLab` (a benchmark-only C target — nothing
+ships from it) with rows `Stage1 *` in the suite.
+
+The one directly relevant prior measurement — the "simdjson style structural bitmaps are
+counterproductive here" microbench early in this document — tested *iterating a dense bitmap*
+against testing bytes. It did not test the bits-to-indices decompression simdjson actually
+ships, and it predates the parser being fast enough for scan cost to be a large share. It rules
+out neither direction measured here.
+
+### The census
+
+One index entry per thing a consuming pass would visit: every structural char outside a string,
+every unescaped quote, and the first byte of every number/literal. Per 64-byte block, over each
+corpus (`Benchmarks/StageOneLab/stage1_census.py`, single-pass grammar walk):
+
+| corpus | str% | ws% | num% | entries | idx as %doc (u32) | entries/block p50 | blocks with 0 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| canada | 0 | 0 | 90 | 334,385 | 59% | 10 | 0% |
+| mesh | 0 | 10 | 79 | 153,285 | 85% | 8 | 0% |
+| citm_catalog | 13 | 71 | 7 | 162,594 | 38% | 6 | 0% |
+| twitter | 59 | 26 | 2 | 73,362 | 47% | 8 | 13% |
+| twitterescaped | 83 | 0 | 2 | 73,362 | 52% | 8 | 31% |
+| github_events | 71 | 18 | 1 | 6,547 | 40% | 6 | 16% |
+| gsoc-2018 | 89 | 8 | 0 | 109,969 | 13% | 0 | 70% |
+| llm_message | 99 | 0 | 0 | 11,850 | 4% | 0 | 94% |
+
+Two populations. The number-dense pair would carry an index more than half the document's own
+size — the old density objection, quantified. The string-heavy pair inverts it: 70–94% of their
+blocks contain nothing a consuming pass would stop at, so for them the *string mask alone* is
+most of the information. A sub-chunk of 64 KB or less also makes every index entry a `u16`,
+halving that traffic; nothing below measures that variant yet.
+
+### The kernel and its verification
+
+`StageOneLab.c` is simdjson's stage 1 restated for streaming: the paper's odd-backslash-run
+escape finder with a one-bit carry, quote parity via PMULL prefix-XOR, the nibble-table
+classifier (`tbl`), the NEON movemask, and 8-at-a-time bits-to-indices — plus what simdjson
+never carries: in-string/escape/scalar state flowing across window boundaries, and no padding
+(a short tail block is memcpy'd into a whitespace-padded scratch, bits past the end masked).
+A Swift scalar reference with identical semantics checks the kernel at registration over all
+eight corpora, 130 backslash runs of every parity crossing the 64/128-byte boundaries, and 500
+seeded byte-soup buffers, each at whole-buffer and 64/128-byte windows; a mismatch traps before
+any row runs. One shared quirk is pinned there: the nibble tables classify NUL as whitespace,
+which a real stage 2 must reject itself.
+
+### The budget: what stage 1 costs against the parser it would tax
+
+p50 Payload MB/s, same session; "tax" is the share of the current parser's whole time budget
+the pass would consume (`Real <name> - bulk` is the comparator).
+
+| corpus | parser | string mask | full masks | index | tax: mask | full | index |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| canada | 869 | ~23,000 | 8,567 | 4,021 | 3.8% | 10.1% | 21.6% |
+| mesh | 709 | ~23,000 | 8,559 | 4,009 | 3.1% | 8.3% | 17.7% |
+| citm_catalog | 1,988 | ~23,000 | 8,735 | 5,643 | 8.6% | 22.8% | 35.2% |
+| twitter | 1,451 | ~23,000 | 8,567 | 5,031 | 6.3% | 16.9% | 28.8% |
+| twitterescaped | 1,055 | ~23,000 | 8,783 | 4,819 | 4.6% | 12.0% | 21.9% |
+| github_events | 1,725 | ~23,000 | 8,783 | 5,503 | 7.5% | 19.6% | 31.3% |
+| gsoc-2018 | 3,863 | ~23,000 | 8,743 | 6,071 | 16.8% | 44.2% | 63.6% |
+| llm_message | 3,453 | ~23,000 | 8,567 | 7,399 | 15.0% | 40.3% | 46.7% |
+
+The string mask runs at effective memory bandwidth and is corpus-independent. Full masks are
+flat at ~8.6 GB/s — the classify work is per block, not per token. Extraction is what varies:
+it tracks entry density, from 7.4 GB/s on llm_message down to 4.0 on canada/mesh.
+
+What the arithmetic rules out immediately: a full structural index on the string-heavy corpora.
+On gsoc-2018 the index pass alone consumes 64% of the parser's entire current budget — a stage 2
+would have to walk 110 K positions in a third of the time the current parser takes to do
+everything. The full simdjson shape is dead on that population, and not marginally.
+
+What it leaves alive, sharply: the number-dense pair. On canada and mesh the index costs 18–22%,
+which leaves stage 2 ~80% of the current budget — and those are exactly the corpora where known
+token extents unlock work the dispatch loop structurally cannot do (batching Eisel–Lemire
+multiply chains across numbers for ILP). The bar is "beat the current number path by ~27%", and
+2.2× kernels have come out of that path before. The string mask as a *substrate* (tier 1, 3–9%
+tax on the slow corpora) stays alive too, but on notice: whatever it simplifies in the
+structural walk has to buy back its tax first.
+
+### The window sweep, and what the L1 hypothesis actually earned
+
+The prediction was that a second pass over a whole-document chunk re-reads from L2/L3 while a
+sub-chunk-sized window keeps it in L1, so extraction should interleave with consumption per
+sub-chunk. Measured with a synthetic stage 2 (load one byte per index entry, interleaved per
+window — a *lower bound* on real consumption traffic), p50 MB/s:
+
+| corpus | 512B | 4KB | 32KB | 256KB | whole |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| canada | 3,379 | 3,549 | **3,637** | 3,499 | 3,441 |
+| citm_catalog | 4,599 | 4,883 | **5,115** | 4,971 | 4,911 |
+| gsoc-2018 | 5,391 | 5,751 | **5,855** | 5,691 | 5,603 |
+| twitter | 3,557 | 4,395 | **4,651** | 4,471 | 4,431 |
+
+The shape is the same on all four: 32 KB wins everywhere, whole-document costs 4–6% against it,
+and 512B costs 5–24% — per-window overhead (the carry round-trip and the call) eats the
+locality gain long before L1 pressure matters. So the hypothesis was directionally right and
+quantitatively modest: these corpora top out at 3.2 MB, which sits entirely inside this
+machine's 12 MB L2, so "whole chunk" never actually reaches memory — the sweep measured
+L1-vs-L2, not L1-vs-DRAM. Two consequences: sub-chunking at tens-of-KB is free structure (it
+also buys the u16 index and a fixed scratch), and the penalty for full-document extraction
+would grow, not shrink, on documents larger than L2 — but nothing measured here shows the
+cliff, and claiming one without a >12 MB payload would repeat the exact mistake the whitespace
+discovery section documents.
+
+### What this stage of the experiment decides
+
+Ruled out: full-index two-pass as the *general* architecture (gsoc/llm taxes are unpayable),
+and 512B windows. Ruled in for a vertical slice: tier 2 + batched number parsing on the
+number-dense corpora, at a 32 KB window, where the budget leaves stage 2 ~80% of current time.
+Undecided, needs the slice: whether tier 1's string mask pays for itself as a substrate under
+the existing structural walk, and how a real consuming pass (which reads token bytes, not one
+byte per token) moves the sweep. The byte-fed path is untouched by construction — any of this
+would sit behind a chunk-size gate at `parse`, and the gate lives out of line of both loops.
+
+## The windowed walk: first pass
+
+Built as planned after the section above: stage 1 graduated into `StreamParsingShims`
+(`stream_parsing_index_window`: u32 chunk-relative positions plus two per-block bitmaps,
+`needs_scan` for a backslash or a control byte inside a string and `non_ascii`), and a
+consuming walk in `Fast/JSONParserWindow.swift` behind a chunk-size gate in `parse`. The gate
+defaults to off (`windowThreshold: .max`). The dispatcher is untouched: `consumeStructuralRun`
+and `consumeNumber` are byte-identical in size against HEAD, `consumeStringRun` and
+`consumeKeyRun` moved by one 16-byte alignment slot. Getting the gate to cost nothing took two
+tries. The compare in front of every byte measured -3 to -6% on the byte fed rows. Moving the
+bulk loop out of `parse` into a shared `parseIncremental` so `parse(byte:)` could skip the
+gate fixed those and cost canada bulk -4% over four interleaved rounds, with the loop body
+1160 bytes against 1168 — nothing in the code, everything in where it landed. The shape that
+measured clean everywhere (canada +0.1%, mesh +0.3%, byte fed 0 to +3.6%) keeps the loop in
+`parse` behind the gate and has `parse(byte:)` drive `dispatchOnce`, the loop's body, itself.
+
+### The seam, and the bug it had first
+
+A window starts only in a structural state with nothing buffered, so the indexer needs no
+carried state. The walk hands a token back to the dispatcher in three cases — a string whose
+closing quote is past the window, a number or literal that reaches the chunk's end, and a key
+with an escape — and the dispatcher takes exactly one step. The first version re-indexed a new
+window from the handed-back position and hung: a cut string at the chunk's end is handed back
+in a structural state, so it was indexed and handed back again forever. The fix is the shape
+that should have been obvious: a hand-back forces one `dispatchOnce`, and the walk then
+*resumes in the existing index* at the first entry past the dispatcher's cursor. The index is
+the truth about positions regardless of who consumed the bytes.
+
+### Correctness
+
+`WindowedParserTests` records every sink event (spans copied, number info, the error if any)
+and compares the dispatcher against the windowed path at the *same* chunking — bulk, 64, 100,
+1000, 32 KB and 40 KB chunks — across 58 documents covering every error reason, strings longer
+than a window, numbers on the window boundary, invalid UTF-8 at several depths, and a rejecting
+sink for every event kind. The oracle had to be the same chunking: a byte fed run emits one
+string chunk per byte, so it is not a reference for a bulk run. `StageOneIndexTests` pins the
+kernel against a scalar reference, including NUL (now a scalar, rejected by the walk, instead
+of whitespace as simdjson's table has it). Full suite green, 475 + 28 tests.
+
+### The measurement
+
+Interleaved against a HEAD worktree, three rounds, best p50 MB/s:
+
+| corpus | dispatcher | windowed | delta | index share of dispatcher time | walk alone / dispatcher |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GitHub events | 1,784 | 1,869 | **+4.8%** | 32% | 0.63 |
+| CITM catalog | 2,063 | 1,915 | -7.2% | 37% | 0.71 |
+| Twitter | 1,485 | 1,422 | -4.2% | 30% | 0.75 |
+| Mesh | 743 | 662 | -10.9% | 19% | 0.94 |
+| Canada | 949 | 794 | -16.3% | 24% | 0.96 |
+| Twitter escaped | 1,078 | 876 | -18.7% | 22% | 1.01 |
+| GSoC 2018 | 4,227 | 2,801 | -33.7% | 70% | 0.81 |
+| LLM message | 3,631 | 2,209 | -39.2% | 42% | 1.22 |
+
+The last two columns are the decomposition (windowed time = index time + walk time, with the
+index time taken from the `Stage1 Index` rows), and they invert the hypothesis this experiment
+was built on. The walk consumes the structure-heavy corpora 25-37% faster than the dispatcher
+— the positions walk really is cheaper than the scan-and-dispatch loop where there is structure
+to dispatch on — and loses every bit of it to the index tax. On the number-dense corpora the
+walk is *not* faster at all: canada's profile is walk self time 38%, `emitNumber` 37%, indexer
+25%, against the dispatcher's `emitNumber` 42%, `consumeStructuralRun` 26%, `consumeNumber`
+25%. The dispatcher's fused comma path is already a tight number loop with no structural
+dispatch in it, so known extents buy nothing there, and the index is pure cost. The budget
+section above picked canada and mesh as the promising pair because it assumed a stage 2
+uniformly faster than the dispatcher; the corpora where that is true are the ones whose
+index is most expensive.
+
+### What this decides, and what it leaves open
+
+The plain walk fails the floor the plan set (parity on canada/mesh) and lands on the branch
+gated off, where it costs nothing. What it establishes is that the lever is the index, not the
+walk: full masks run at 8.6 GB/s and the index at 4.0-5.6, so extraction is roughly half of
+stage 1, and the block kernel spends six movemasks per block where the two flag bits could be
+an OR-reduce. CITM needs the index under ~29% of dispatcher time to break even, i.e. about
+7 GB/s from today's 5.6. Batched Eisel-Lemire remains the only lever on canada and would have
+to recover the whole 16%, which its 37% `emitNumber` share makes unlikely on its own. The
+windowed rows stay in the suite so the next round measures against these.
+
+## Index cost: three moves, and what each one bought
+
+The first-pass table above said the lever was the index, not the walk, and named three moves.
+All three were built in sequence, each measured before the next, with the differential suite
+as the gate. Numbers are p50 MB/s from two-round runs against the previous build (drift
+reference: the dispatcher rows in the same runs, all within ±1.5%); the final table is a
+fresh three-round interleaved A/B against HEAD.
+
+### The extraction loop was not unrolled
+
+The review asked whether the bits-to-indices loop could be unrolled. The assembly said it
+never had been: the counted `for (i < 8)` compiled to a twelve-instruction loop with a taken
+branch per index — two `rbit`s in the whole 464-instruction kernel. Spelled out as eight slots
+it is six instructions per index and no branch; sixteen `rbit`s now. Alongside it the
+non-ASCII flag became a `vmaxvq` reduce on the raw vectors (no compare, no movemask), since
+the walk only ever asks whether, never where.
+
+### Move 2, first form: the gap check — REJECTED as built
+
+Numbers and literals stopped being indexed; the walk skipped whitespace from its cursor before
+every entry and treated a byte short of the entry as a scalar (value state) or an error.
+Correct, and canada gained +10% from a third fewer entries. But CITM lost 13% and mesh 8%:
+the skip is `streamWhitespaceEnd`, and on pretty-printed input nearly every entry has
+whitespace after it, so the walk ran a vector scan per entry over whitespace that the index
+used to absorb for free. The census had said this: citm is 71% whitespace, mesh has a space
+after every one of 73 K commas.
+
+### Move 2, second form: index a scalar only when whitespace precedes it
+
+`scalar & (whitespace << 1)`, with a one-bit carry. Then any gap that *begins* with a
+whitespace byte is pure whitespace — a non-whitespace byte after whitespace would be an entry
+— so the walk's gap check is one load and one compare, never a scan; a scalar directly after
+a structural byte sits at the cursor and is found there. Minified numbers cost no entry,
+pretty-printed ones cost what they always did.
+
+| corpus | windowed before | after | delta |
+| --- | ---: | ---: | ---: |
+| canada | 794 | 905 | **+14.0%** |
+| github_events | 1,869 | 2,079 | **+11.2%** |
+| twitterescaped | 876 | 967 | +10.4% |
+| twitter | 1,422 | 1,491 | +4.9% |
+| gsoc-2018 | 2,801 | 2,925 | +4.4% |
+| llm_message | 2,209 | 2,277 | +3.1% |
+| citm_catalog | 1,915 | 1,962 | +2.5% |
+| mesh | 662 | 616 | −6.9% |
+
+Mesh is the one loss and it is not yet explained: its numbers all follow a space so they are
+entries as before, and inlining the scalar path (the first suspect) measured exactly 0.0%.
+Open. The bug found on the way is worth its line: a block whose only quote is at bit 0 has a
+prefix-XOR of all ones, so "all inside a string" must test `quote == 0` too, or the opening
+quote is dropped. The byte-soup reference caught it on the first run.
+
+### Move 1: the two-speed block
+
+Quote and backslash masks first; if the block is string interior edge to edge, its two flags
+come from `vminvq`/`vmaxvq` reduces and it skips the table lookups, the structural and
+whitespace movemasks, and extraction. gsoc-2018 windowed +14.3%, llm_message +18.9%, every
+other corpus within ±1.4%. The kernel is now 4 movemasks per full block (was 6) and 2 per
+interior block.
+
+### Move 3: routing sparse windows to the dispatcher
+
+Entries per block of the last indexed window below 3 sends the next window through
+`dispatchOnce` steps, bounded by where they stop rather than what they scan (so a string
+crossing the span still arrives as one chunk); every eighth window is indexed regardless.
+gsoc-2018 and llm_message land at −5% against the dispatcher, from −34/−39% at the first pass.
+
+### Where it stands, against HEAD (three rounds, interleaved)
+
+| corpus | dispatcher bulk | windowed bulk | delta | 16 KB chunks windowed vs dispatcher |
+| --- | ---: | ---: | ---: | ---: |
+| github_events | 1,780 | 2,151 | **+20.8%** | +19.7% |
+| twitter | 1,504 | 1,514 | +0.7% | +1.6% |
+| canada | 934 | 893 | −4.4% | −4.5% |
+| gsoc-2018 | 4,219 | 3,973 | −5.8% | −4.2% |
+| llm_message | 3,613 | 3,431 | −5.0% | −5.0% |
+| citm_catalog | 2,081 | 1,965 | −5.6% | −6.4% |
+| twitterescaped | 1,086 | 989 | −8.9% | −9.4% |
+| mesh | 738 | 619 | −16.1% | **−3.0%** |
+
+Gate off, every dispatcher row is within ±1% of HEAD and the byte fed rows are +1.5%; the
+dispatcher's functions are byte-identical in size. Window size is not a variable any more: a
+16 KB window measured within ±1% of 32 KB on every corpus with the real walk. Which makes the
+mesh row the open question: the same document windowed through 16 KB *chunks* runs at 712
+against 619 in bulk, and it is not the window length. Unexplained, and next.
+
+The shape of the table is now the census's shape exactly: the walk wins where structure is
+dense and strings are short (github: 6.4 entries/block, 10-byte strings), breaks even on
+twitter, and loses a bounded 4–6% everywhere else, where that bound is the routing's probe
+cost plus the index tax on windows the walk consumes no faster than the dispatcher.
+
+## Shape loops: the walk stops being a state machine
+
+The index-cost round ended with the walk consuming structure-dense corpora faster than the
+dispatcher but replaying its state machine token by token everywhere else: one entry, one
+`(state, byte)` switch, one state write, one `checkSink`, and on numbers a `streamNumberRunEnd`
+scan for an end the index already held one slot over. Known extents were being used to find
+the next byte faster, not to do less. Shape loops are the version where the machine goes away
+for the length of a run whose shape the index makes visible in advance.
+
+Both loops live in `Fast/JSONParserShapes.swift`, out of line, entered from one arm of the walk
+each, and both are speculative: an element is pattern-checked from the index before any sink
+call or state change for it, and the first off-pattern element returns to the walk at a
+position the walk understands (just after a `[`/`,`/`{` in the matching state, or at a
+separator in `.afterValue`). The loops never throw a grammar error themselves — every
+malformed byte is the walk's, whose errors are the dispatcher's — and they emit only through
+the walk's own emitters. That is what let the differential suite stay the oracle: 35 new
+documents (nested numeric pairs, arrays that stop being numeric mid-way, members with container
+values and escaped keys mid-object, every malformed variant, and both shapes straddling a
+32 KB window), zero changes to the reference.
+
+### Numeric array subtrees
+
+Per element: one byte test on the element's first byte, one on its separator, `emitNumber` on
+the extent `start..<separator` with no scan. `emitNumber` validates on both its paths before it
+calls the sink, so an extent it rejects — `2x,` or `1 ,` — falls back with nothing emitted, and
+the walk's scanning path re-parses it and reports the dispatcher's reason at the dispatcher's
+offset. Nested arrays stay in the loop (Canada's `[x,y]` pairs). Measured against the committed
+baseline, two rounds: Canada windowed 893 → 1,118 (+25%); Mesh 619 → 643 (+4%).
+
+Mesh's small gain was a seam bug the profile named: `consumeGapScalar` 175 samples against the
+loop's 33. The loop was entered only at `[`, and Mesh's arrays are thousands of elements long,
+so after the first window boundary the walk resumed mid-array with no `[` to re-enter on.
+Canada's two-element arrays re-enter constantly, which is why it never showed. Entering from
+the walk's comma arm inside an array too — `first` derived from the state, since `[1,]` must
+still fail — took Mesh to 949 (+50% on the step, +29% over the dispatcher) and Canada to 1,180.
+
+### Object members with scalar values
+
+Per member: three loads at known offsets (quote, quote, colon), the key emitted in place, then
+the value by its first byte — clean string, number, literal — and the separator. Four state
+transitions become straight-line loads. A container value, an escaped key or string, or
+anything malformed falls back at the key or the separator; the walk handles it and re-enters
+the loop at the next comma. Two rounds against step 1: GitHub 2,073 → 2,513 (+21%), Twitter
+1,464 → 1,832 (+25%), CITM 1,888 → 2,131 (+13%), Twitter escaped 952 → 1,055 (+11%).
+
+Step 1 had cost the object corpora ~3.5% — a call and two loads at every `[` — which step 2
+buried; it is noted because the pattern test's cost on non-matching structure is real and
+would show again on a corpus of small non-numeric arrays.
+
+### Where it stands, against HEAD (three rounds, interleaved)
+
+| corpus | dispatcher bulk | windowed bulk | delta | 16 KB chunks windowed vs dispatcher |
+| --- | ---: | ---: | ---: | ---: |
+| github_events | 1,800 | 2,493 | **+38.5%** | +38.3% |
+| mesh | 739 | 954 | **+29.1%** | +4.1% |
+| canada | 942 | 1,198 | **+27.2%** | +26.8% |
+| twitter | 1,504 | 1,826 | **+21.4%** | +20.7% |
+| twitterescaped | 1,092 | 1,055 | −3.4% | −3.7% |
+| citm_catalog | 2,093 | 2,003 | −4.3% | −3.4% |
+| gsoc-2018 | 4,231 | 4,013 | −5.2% | −4.3% |
+| llm_message | 3,643 | 3,435 | −5.7% | −5.1% |
+
+Gate off, every dispatcher row is within ±0.6% of HEAD and the byte fed rows are +2.2% / 0%;
+`consumeStructuralRun`, `consumeNumber`, `consumeStringRun`, `consumeKeyRun` and `parse` are
+byte-identical in size to the previous round, and `consumeWindow` shrank by 12 bytes.
+
+The table is now the hypothesis this experiment opened with, confirmed on the corpora it was
+made for: the number-dense pair that the first pass measured at "no gain" is +27–29%, because
+the walk finally uses extents to do less rather than to scan faster. The four losses are the
+string-heavy population, at the bounded 3–6% the routing round left them, and CITM, which
+sits on the line (it measured +4% in the two-round step comparison and −4% here; it is 71%
+whitespace and its members are short, so the pattern test's cost and the member loop's saving
+are the same size). Mesh through 16 KB chunks is the one row that moved the wrong way against
+its bulk form (+4% against +29%): every chunk cuts an element, and the seam hands the cut
+number to the dispatcher, whose `fuseAfterValue` then carries on through the following
+elements before the walk gets the array back. Cheap to fix — the walk can take a `.value`
+state back at the next comma — and next.
+
+Open, in order: interleaved digit accumulation for consecutive numbers (Canada's profile is
+`emitNumber` 45%, the indexer 22%, the loop 14%); the Mesh-through-chunks seam; and CITM's
+line, which a cheaper pattern test or a member loop that also takes container values would
+settle.
+
+## The number kernel lab: interleaving, single-pass validation, and where the cycles are
+
+Two questions from the shape-loop round, answered in `NumberKernelBenchmarks.swift` over the
+real number extents of four corpora (extents found by a scan at registration; every kernel is
+verified against a port of the shipping number path on every extent it accepts):
+
+1. Is Canada's ~24 cycles per 18-digit number in `emitNumber` a latency chain that explicit
+   interleaving could overlap, or instruction count?
+2. Does a single vector classification that merges validation with parsing beat the shipping
+   path's per-block validation plus grammar walk — and on what shapes?
+
+The uniformity question came first, from the census the verification pass produces: the
+"simple decimal" shape (optional `-`, digits, at most one interior `.`, no exponent, at most 19
+digits) covers **every** number in Canada, CITM and Twitter and all but 5 of Mesh's 73,013. The
+shape is uniform. The *length* is not — Canada p50 18, CITM 9, Mesh 4 with 13-15 byte floats,
+Twitter 3 — and length is what decides the kernel.
+
+MB/s of number bytes, p50, kernels inlined into the Swift loop (the first run had them out of
+line and read 4-7% worse on the short corpora; the boundary was a confound, not the cause):
+
+| corpus | current port | single pass (32 B classify) | paired | hybrid (≤8 port, ≤16 one vector, else 32 B) |
+| --- | ---: | ---: | ---: | ---: |
+| Canada (p50 18) | 1,559 | **1,887 (+21%)** | 1,962 (+26%) | **1,927 (+24%)** |
+| Mesh (p50 4) | 1,226 | 1,109 (−9%) | 1,090 | 1,236 (+1%) |
+| CITM (p50 9) | 1,855 | 1,290 (−30%) | 1,263 | 1,349 (−27%) |
+| Twitter (p50 3) | 957 | 651 (−32%) | 707 | 853 (−11%) |
+
+**Interleaving: the headroom is +4%.** Pairing two extents so both are classified before either
+is parsed gains 4% over the single kernel on Canada and nothing elsewhere. The out-of-order core
+was already overlapping consecutive numbers — the shape loop gives it nothing to stall on — so
+the raw parser's number cost is instructions, not latency. Software pipelining stays where the
+chain actually is: Eisel–Lemire in the layer, once numbers arrive batched.
+
+**Single-pass classification: a long-number kernel, not a number kernel.** It wins 21-24% on
+Canada's 17-digit floats and loses 27-32% on 9-digit integers, and the reason is the shape of
+the cost, not its size: the classification is two vector compares, three pairwise adds and a
+lane move *in series*, ~10 cycles of latency that must complete before the first digit can be
+accumulated. Eighteen digits amortize that; nine do not, because the shipping path for nine
+digits is one validated block and a tail, already close to the floor. The one-vector variant
+halves the work and not the latency, which is why it did not rescue CITM.
+
+So the kernel earns its place under one condition: extent length above 16, chosen by one
+compare on the length the index already knows. Below that, the shipping path — the backward
+short-integer read up to eight bytes, the validated blocks above — stays. On this corpus that
+means Canada alone (+24% on its `emitNumber`, ~+10% on the row), Mesh's floats being 13-15
+bytes. It is a bounded, contained gain inside the numeric shape loop, and it needs one guard
+the lab did not: the classify reads 32 bytes from the extent's start, so an extent within 32
+bytes of the chunk's end takes the shipping path.
+
+Not built yet; the decision is whether +10% on one corpus is worth a third number path.
+
+### The third number path, landed
+
+`stream_parsing_decimal32` in StreamParsingShims.h (static inline, so the Swift caller pays no
+call), taken by the numeric shape loop for an extent longer than sixteen bytes that lies at
+least 32 bytes inside the chunk; everything it declines takes `emitNumber` unchanged, and the
+short and mid-length paths are untouched. The differential suite gained the long-decimal
+documents: every accepted shape, every declined one (20 digits, leading zeros, trailing dot,
+exponent, leading dot, 21 digits), a long number at a chunk end, and long numbers after
+whitespace. Two rounds against the shape-loop build:
+
+| corpus | windowed before | after | delta |
+| --- | ---: | ---: | ---: |
+| Canada | 1,198 | **1,362** | **+13.7%** |
+| Mesh | 954 | 927 | −2.8% |
+| Twitter | 1,826 | 1,847 | +1.2% |
+| CITM | 2,003 | 2,000 | −0.1% |
+
+Canada windowed now stands at **+45% over the dispatcher** (1,362 against 942). Mesh gives back
+2.8%: its floats are 13–16 bytes, so almost all of them fail the length gate and pay only the
+compare, and the few 17-byte ones pay a classification that barely amortizes. That is the lab's
+own table at the boundary, and it is the price of the gate being one compare rather than a
+histogram; a threshold of 17 would trade Mesh's 2.8% against a sliver of Canada's numbers.
+
+## Number batching in the sink protocol: step 1
+
+The Canada convenience-layer row parses at 117 MB/s against 942 raw, and the profile says why:
+560 K retains and 732 K releases per parse — five retains and six-and-a-half releases per
+number — with the top of the stack in ARC and malloc and `streamEiselLemire` well down it. The
+layer's cost is per *event*: frame walk, schema references, closure dispatch, per number. So a
+batch event is worth what it amortizes, 64×, and the multiply-chain interleaving it also
+enables is the smaller part.
+
+### The shape
+
+`StreamNumberBatch` (`~Escapable`, borrowed for the call: `infos: Span<NumberInfo>`,
+`token(at:)`, `end(of:)`, `count`) and one requirement with a default:
+
+    mutating func numbers(_ batch: borrowing StreamNumberBatch) -> Int
+    static var streamAcceptsNumberBatches: Bool { get }   // default false
+
+The return value is how many were taken; a sink that rejects records its failure and returns
+that number's index, and the parser reports the rejection at the byte after that token — the
+offset the dispatcher reports for a single `number` event. The default `numbers` unrolls into
+`number(_:info:)` calls and stops at the first failure, so every existing sink compiles and
+behaves as before.
+
+The static gate was not in the first design and is the measurement's contribution. Delivering
+through the default alone — accumulate, flush, unroll — cost the raw rows 7% on Canada and 18%
+on Mesh: a deferred round trip that a sink which only re-delivers one at a time gets nothing
+for. With `streamAcceptsNumberBatches` a constant `false`, the batching code folds away in the
+parser's specialization for that sink and the unbatched path is the shipping one, `emitNumber`
+included. Two rounds against the pre-batching build: Canada windowed +0.4%, Mesh +2.6%, CITM
+−0.2%, Twitter +1.0%, every dispatcher row within ±1.2%.
+
+Two dead ends on the way, recorded because they will look tempting again. A non-generic
+`parseNumber` (the `emitNumber` walk returning `NumberInfo` instead of emitting) was left as a
+cross-module call by the inliner even under `@inline(__always)`, and a phantom sink generic
+parameter did not change that; `emitNumber` inlines because its callers' specializations clone
+it. The opted-in path still uses `parseNumber`, and its per-number cost there sits under the
+layer's, which is the row that will decide step 2.
+
+### Where batches come from
+
+The numeric shape loop, and nowhere else: it is already a contiguous homogeneous run, so it
+accumulates into a 64-slot scratch (after the window bitmaps) and flushes on 64, before a
+nested `[`, before `]`, and before every fallback return — before any other event, so the
+sink's order stays the document's. `WindowedParserTests` gained a sink that opts in and records
+batch sizes: the flattened stream equals the dispatcher's on eight documents at three
+chunkings, a 1,000-element run arrives as 15 batches of 64 and one of 40, and a rejection at
+number 1, 2, 63, 64, 65, 130 and 1,000 of a batched run reports the dispatcher's offset.
+
+Step 2 is the `StreamArray<Double>` / `PartialSink` override, measured on `Real Canada - bulk
+discarding` and `Real Mesh - bulk discarding`.
+
+### The gate, removed
+
+`streamAcceptsNumberBatches` lasted one round. Every production sink should take batches, so
+the requirement is gone, every sink gets `numbers` (default: unroll), and the numeric loop
+always batches. The raw benchmark sink now consumes batches natively — and folds every field
+of `NumberInfo` into its checksum, deliberately: a sink reading only the magnitude let the
+compiler drop the exponent, digit count and flag work on a directly emitted number, which had
+been flattering the unbatched rows by ~3% on Canada (the dispatcher rows dropped by that much
+when the sink was made honest). Measured against the pre-batching build, with that sink, ratio
+of windowed to dispatcher:
+
+| corpus | before | after |
+| --- | ---: | ---: |
+| Canada | 1.446 | 1.339 |
+| Mesh | 1.244 | 1.390 |
+| Twitter | 1.225 | 1.225 |
+| CITM | 0.956 | 0.933 |
+
+Mesh gains ~12% net — 64 short numbers per sink call instead of one, and `parseNumber`
+inlined at last via `@_transparent`, the same attribute the branchless number tail needed,
+after `@inline(__always)` had been declined with and without a phantom generic parameter
+(Mesh −15% as a call). Canada gives back ~5% net on the raw row: not the store traffic (packing
+tokens to `(UInt32, UInt32)` pairs measured ±0.6%), not the inlining (the same −8% with
+`parseNumber` out of line); the fixed cost of a deferred round trip against a sink whose
+per-number work is an add. That is the row batching was never for — the layer row it was for
+is step 2 — and it is left as the price, with the attribution recorded so it is not re-chased.
+CITM's −2.3% on the ratio is unattributed; its numbers are members, not arrays, so the suspect
+is the pattern test at every `[` inside a now-larger loop.
+
+## Real-world throughput: the arc so far
+
+Three rounds interleaved against HEAD (the dispatcher as shipped), p50 MB/s, raw sink. The
+"first pass" column is the same delta from the first windowed walk, before the index-cost
+round, the shape loops, the long-decimal path and batching.
+
+| corpus | KB | HEAD bulk | windowed bulk | delta | first pass | 16 KB chunks windowed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| github_events | 64 | 1,836 | 2,489 | **+35.6%** | +4.8% | +37.0% |
+| mesh | 707 | 747 | 1,015 | **+35.9%** | −10.9% | +1.6% |
+| canada | 2,198 | 954 | 1,243 | **+30.3%** | −16.3% | +30.7% |
+| twitter | 617 | 1,514 | 1,859 | **+22.8%** | −4.2% | +21.9% |
+| twitterescaped | 549 | 1,095 | 1,047 | −4.4% | −18.7% | −4.8% |
+| gsoc-2018 | 3,250 | 4,259 | 4,039 | −5.2% | −33.7% | −4.9% |
+| llm_message | 1,045 | 3,647 | 3,403 | −6.7% | −39.2% | −6.8% |
+| citm_catalog | 1,687 | 2,101 | 1,940 | −7.7% | −7.2% | −7.2% |
+
+Gate off, every dispatcher row reads −0.3 to −2.7% against HEAD in this run, with the
+number-heavy corpora at the bottom of that band: the benchmark sink now folds every
+`NumberInfo` field where HEAD's folds only the magnitude, so those rows carry that work and
+the windowed deltas above are understated by the same ~2–3% on canada and mesh. The layer rows
+(`- bulk discarding`) are unchanged to within ±2%, as they must be: the gate defaults to off and
+`PartialSink` has not opted into batches yet, so nothing above reaches the convenience layer
+until step 2.
+
+The one row that moved the wrong way against its own bulk form is mesh through 16 KB chunks
+(+1.6% against +35.9%), the seam already noted: a chunk cuts an element, the dispatcher takes
+it, and its fused comma path keeps the array until the next window boundary.
+
+## Number batching, step 2: the layer takes the batch
+
+`StreamSchema.appendNumbers`, filled by `_streamArraySchema` from a new `StreamParseableRoot`
+static (`_streamArrayNumberAppender`, `nil` by default and supplied for every
+`StreamNumberConvertible` element), and `PartialSink.numbers`: an array frame with an appender
+takes the batch in one call — no frame per element, no schema borrow, no pending swap — and
+leaves the last number as the array's open element, which is where the one-at-a-time path
+leaves it, so a snapshot between a batch and the array's close is the same array either way
+(`NumberBatchLayerTests` pins the values, the mid-array snapshot and the rejection errors
+against the unbatched path). `JSONStreamFormat` gained `windowThreshold` so the layer rows can
+reach the windowed path; the `- bulk discarding windowed` rows are new and the existing ones
+are their gate-off control.
+
+The first measurement was Mesh at *half* speed with the retains down five-fold, and the profile
+named it: `_swift_getGenericMetadata`, `ConcurrentReadableHashMap::find`, `protocol witness for
+Numeric.init` — the appender's `Self(streamParsing:)` reached the conversion through the
+protocol witness into the *unspecialised* generic `BinaryFloatingPoint` / `FixedWidthInteger`
+implementation, with a metadata lookup per number, where the old per-element closure had a
+specialised copy. Making the two initialisers `@inlinable` gives the specialised appender a
+specialised conversion. Two rounds, convenience layer, bulk:
+
+| corpus | gate off | windowed | delta | retains per parse |
+| --- | ---: | ---: | ---: | ---: |
+| Mesh | 144 | **322** | **+124%** | 170 K → 33 K |
+| Canada | 112 | 132 | +18% | 560 K → 449 K |
+| Twitter | 636 | 750 | +18% | 13 K |
+| GitHub events | 409 | 441 | +8% | 3.9 M |
+| CITM catalog | 437 | 427 | −2% | 127 K |
+
+Mesh is the flat-array case the batch was designed for, and it more than doubles. Canada is
+the arity case the design section predicted: 55 K inner arrays of two, so every batch is two
+numbers and the retain count falls only 20% — the per-array frame push and pop is now the
+majority, and only a fixed-arity row event would reach it. Twitter and GitHub gain from the
+windowed walk itself (no batches there); CITM stays on its line. GitHub's 3.9 M retains per
+parse of a 64 KB document, untouched by any of this, is the layer's next number to look at.
+
+### Unrolling the appender: measured, and left alone
+
+The review asked whether the appender's commit loop would benefit from unrolling. Built with
+the conversions computed ahead of the commits so their chains sit together, factor swept on
+the two rows that take the path (two rounds each, convenience layer, windowed):
+
+| unroll | Mesh | Canada |
+| --- | ---: | ---: |
+| 1 | **323** | **133** |
+| 2 | 316 | 132 |
+| 4 | 312 | 131 |
+| 8 | 311 | 131 |
+
+Monotonically worse, by a little. The same finding as the number kernel lab's pairing
+experiment one level down: consecutive conversions have no dependency between them and the
+out-of-order core overlaps them unaided, so hoisting buys nothing and the unrolled bodies cost
+their size. The plain loop stays, with the table beside it so it is not rebuilt.
+
+## Event batching, step 1: the tax, measured
+
+`StreamEventRecord` (32 bytes: kind, start, length, end, `NumberInfo`), `StreamEventBatch`
+(records plus one borrowed span into the chunk), and `events(_:)` with a default that unrolls
+into the single events. The walk records instead of emitting — structurals, keys, clean
+strings, literals, gap numbers, the member loop's members — and flushes at 256 records, at the
+window's end, and before anything that emits directly (a hand-back, an escaped string, the
+numeric loop, whose number batches stay as they are). A grammar error thrown mid-window flushes
+first, so a sink rejection earlier in the document wins, as it does for the dispatcher. The
+differential suite gained an `events`-overriding sink: every document at three chunkings
+flattens to the dispatcher's stream, and a rejection of every event kind reports its offset.
+
+Two rounds, against the build before it:
+
+| row | before | after | delta |
+| --- | ---: | ---: | ---: |
+| GitHub events, raw windowed | 2,489 | 1,966 | **−21.0%** |
+| Twitter, raw windowed | 1,859 | 1,547 | −16.8% |
+| CITM, raw windowed | 1,940 | 1,626 | −16.2% |
+| Twitter escaped, raw windowed | 1,047 | 968 | −7.5% |
+| Canada / Mesh / GSoC / LLM, raw windowed | | | −0.6 / −1.4 / −3.5 / +0.9% |
+| Twitter, layer windowed (default unroll) | 750 | 703 | −6.3% |
+| GitHub, layer windowed (default unroll) | 441 | 419 | −5.0% |
+| CITM, layer windowed (default unroll) | 427 | 400 | −6.3% |
+| Canada / Mesh, layer windowed | 132 / 322 | 132 / 324 | 0 / +0.6% |
+
+Read in absolute terms the tax is small and uniform: GitHub's 64 KB is ~15 K events, and the
+7 µs it lost is ~0.5 ns — about two cycles — per event, the record's store and reload. What
+makes it 21% on that row is the consumer: the counting sink's per-event work is an add, so the
+direct call was ~1.7 ns per event and two cycles is a fifth of it. On the layer, where an event
+costs tens of nanoseconds, the same two cycles read as the 5–6% the default unroll shows — the
+unroll adds a switch and a span per event to a path that was already a direct call.
+
+So step 1 says what it was built to say, and it is not the verdict either way. The raw rows
+with the counting sink are the wrong instrument for a deferral tax, and the number-dense rows,
+whose events were already batched, are unmoved. The question the event batch exists to answer
+— whether sink-side lookahead over a window of events buys more than two cycles per event —
+is step 2's, on the layer rows, where GitHub's 3.9 M retains per parse say the headroom is.
+Pending that, the raw table's object-corpus rows carry this tax.
+
+## Event batching, step 2: the sink takes the run
+
+`PartialSink.events`: under an object frame that matches keys, each `key` record followed by a
+scalar — `stringBegin`/`stringChunk`/`stringEnd`, `number`, `boolean`, `null` — is routed in
+place with one `matchField` and one apply. Gone per member: the frame resolution, the strong
+`ScalarTarget` copy of the schema (a retain and a release), the three closure calls a string
+made. The failure points are the single path's — a string is accepted at its `stringBegin`
+through the empty span, a number or literal at itself — and a container after a key, a
+dictionary or array frame, or a frame that ignores keys unroll into the single events exactly
+as the default does. The differential suite's rejection cases cover every kind.
+
+Two rounds, convenience layer, bulk:
+
+| corpus | gate off | events, default unroll | events, runs | vs gate off |
+| --- | ---: | ---: | ---: | ---: |
+| Twitter | 624 | 703 | **828** | **+32.7%** |
+| GitHub events | 408 | 419 | **465** | **+14.0%** |
+| CITM catalog | 436 | 400 | 433 | −0.7% |
+| GSoC 2018 | 572 | 557 | 562 | −1.7% |
+| Canada | 112 | 132 | 132 | +17.9% |
+| Mesh | 142 | 324 | 323 | +127.5% |
+
+The run routing is worth 11–18% over the unrolled events on the object corpora, and it puts
+every layer row at or above the gate-off control. GitHub's retain count did not move
+(3.88 M → 3.87 M per parse), so those retains are not the member routing — the next profile's
+question, and a large one. The raw counting-sink rows keep the two-cycle-per-event deferral tax
+recorded in step 1; that is the price of one batch requirement instead of three, and it is a
+price paid by a sink whose per-event work is an add.
+
+### Recovering the raw rows: what came back and what is inherent
+
+Two moves against the counting-sink tax. A whole-`string` record kind (one record where the
+trio was three; the default `events` unrolls it, and a rejected one is reported at the byte
+after its opening quote — the `stringBegin` point, the only one a shipping sink refuses a
+string at) took the object corpora's record traffic down ~40%: GitHub raw windowed 1,966 →
+2,193 (+11.5%), Twitter 1,547 → 1,621 (+4.8%), CITM unmoved. Then the consumer loop rewritten
+with the common kinds as direct compares and unchecked subscripts: +0.6% on CITM, 0 elsewhere.
+
+Against the pre-events build the raw windowed rows now stand at GitHub −11.9%, Twitter −12.7%,
+CITM −15.5%, Twitter escaped −7.1%, the number-dense and string-heavy rows within ±1.7%. The
+CITM profile puts the residual where it is inherent: the record's store on the walk's side and
+its load and dispatch on the sink's, ~2 cycles per event, against a direct path whose whole
+sink-side cost was an add folded into the walk's own arm. No consumer-loop shape removes that;
+only not making the round trip does. The two ways to have both numbers are a sink-declared
+opt-out (a static the counting sink sets, folded away per specialization, so the raw rows
+measure the walk emitting directly and the layer rows the batched path every production sink
+takes) or a leaner record (16 bytes, numbers' info out of line), which attacks the load and
+store but not the dispatch and is worth a few percent at most.
+
+### Separate methods instead of one event stream: measured
+
+To test whether the tax is the event stream's shape or the round trip itself, the walk was
+rebuilt with per-kind batches: `numbers` as before, a new `members(_:)` carrying **one 32-byte
+record per member** (key range, value kind, value range, info) produced by the member loop and
+flushed at every exit, and everything else — structurals, array strings, gap scalars —
+emitted directly again with the dispatcher's per-token `checkSink`. `PartialSink.members`
+routes a run in place as `events` did.
+
+| raw windowed | pre-events | events (`.string` record) | member batches |
+| --- | ---: | ---: | ---: |
+| GitHub events | 2,489 | 2,193 (−12%) | 2,229 (−10%) |
+| Twitter | 1,859 | 1,623 (−13%) | 1,617 (−13%) |
+| CITM catalog | 1,940 | 1,639 (−16%) | 1,705 (−12%) |
+| Twitter escaped | 1,047 | 973 (−7%) | 919 (−12%) |
+
+Layer rows: Twitter 850 against 860, GitHub 472 against 472, CITM 419 against 430 — the same.
+
+So the shape of the API is not the cost. A member record is one store and one load where two
+event records were two, and the raw rows moved by the difference between them and no more;
+Twitter escaped lost ground because every escaped value exits the member loop and flushes a
+batch of a few members. What the two builds share is the round trip, and the round trip is
+the tax. The general event stream keeps one requirement and the sink-side lookahead for the
+same numbers; the per-kind form buys nothing it does not already have.
+
+### The leaner record: measured, and kept
+
+With the per-kind form ruled out, the single `events(_:)` requirement came back and the record
+shrank from 32 bytes to 16: `kind` (UInt8), `start`, `length`, `extra` (a boolean's value).
+`end` is derived — `start + length`, plus one past the closing quote for a `key` or a whole
+`.string` — and a number's `NumberInfo` lives in a parallel side array in the scratch, written
+only for number records and read through `StreamEventBatch.info(of:)`. The member loop and
+the walk record as they did in step 2; the flush reads the sink's failure at the same offsets.
+
+| raw windowed | pre-events | 32-byte record | 16-byte record |
+| --- | ---: | ---: | ---: |
+| GitHub events | 2,489 | 2,193 | 2,177 (−0.7% / −12.5%) |
+| Twitter | 1,859 | 1,623 | 1,636 (+0.8% / −12.0%) |
+| CITM catalog | 1,940 | 1,639 | 1,655 (+1.0% / −14.7%) |
+| Twitter escaped | 1,047 | 973 | 986 (+1.3% / −5.8%) |
+| Canada | 1,243 | 1,227 | 1,239 (+1.0% / −0.3%) |
+
+Layer rows (bulk discarding, windowed): Twitter 860 → 883 (+2.7%), GitHub 472 → 479 (+1.5%),
+CITM 430 → 440 (+2.3%). Mesh 1,009, GSoC 3,955, LLM 3,449 — unchanged from pre-events.
+
+Half the bytes per record bought about one percent on the raw rows — inside the run-to-run
+noise — and a couple of percent for the layer, whose `events` consumer touches each record
+twice (the run check and the apply). The estimate of a quarter to a third of the tax was
+wrong for a reason the member-batch build already showed: the store and the reload are not
+where the cycles go. A 32-byte record is two stores the OoO core retires in the shadow of
+the parse; the cost is the flush's call, the consumer's per-event branch on `kind`, and the
+loss of the direct call's specialisation, none of which shrink with the record. The 16-byte
+layout stays because it is smaller for nothing, keeps the info write off the non-number
+path, and leaves the record `Hashable` and trivially copyable. The remaining raw-row tax —
+12–15% on the string-heavy corpora against a walk that emitted directly — is the price of the
+one requirement every production sink takes, and the layer rows it pays for: Twitter 624 →
+883, Mesh 144 → 322, GitHub 408 → 479 against the gate-off path.
+
+## One requirement: the legacy sink methods removed
+
+`StreamParseSink` had thirteen requirements: eleven per-event methods, `numbers`, and
+`events`. Only `events` was the batch API; the rest existed because the byte fed dispatcher
+still called them — nineteen sites in JSONParser.swift, every token when the window gate is
+off (the default), every cut token and escaped key when it is on — and `PartialSink`
+implemented them as its real logic. This round makes `events(_:)` the sole requirement (plus
+`streamFailure`) and has every path record instead of call.
+
+### What changed
+
+- **The recorder lives on the parser** (JSONParserEvents.swift): `eventScratch` (256 records),
+  a parallel `NumberInfo` side array, `eventCount`, and `chunkBase`, set at every entry point.
+  Any dispatcher function records without new parameters; the flush happens at the end of
+  every `parse` and `finish` call, before a grammar error is rethrown (events before the error
+  were delivered before it on the call path too), when the scratch fills, and immediately
+  after any record whose bytes live in the parser's buffer, because the next cut token or
+  escape reuses it.
+- **The record grew back to 20 bytes** — `kind`, `source`, `start`, `length`, an explicit
+  `end` — because the dispatcher has records the walk never had: a key or number reassembled
+  in the parser's buffer (`source: .parserBuffer`, offset into the buffer) and a decoded
+  escape or a UTF-8 sequence rejoined across chunks, at most four bytes, carried *in* the
+  record (`source: .inline`, in `extra`). `end` cannot be derived for those, and the 16-byte
+  layout had measured as noise anyway. `bytes(of:)` selects the base by source.
+- **Lazy `stringBegin`.** The structural run sets `stringBeginPending` at the opening quote;
+  `consumeStringRun` records one whole `.string` when the string completes cleanly in the
+  chunk — the walk's trick, three records to one — and `stringBegin` followed by chunks
+  otherwise. A pending begin is settled at the end of the chunk, so a chunk that ends on an
+  opening quote still shows the string opened, as it did (the array-streaming tests caught
+  the version that deferred it to the next chunk).
+- **`numbers` folded into `events`.** The numeric shape loop records `number` records like
+  everything else; `StreamSchema.appendNumbers` is now `(storage, batch, from, to)`, and
+  `PartialSink.events` hands a run of consecutive `number` records under an array frame to
+  it. `StreamNumberBatch` is gone.
+- **Rejection offsets** are the record's `end`, or the byte after the opening quote for a
+  `.string` record — which is where `PartialSink` refuses a string (its type check runs at
+  `stringBegin`). `ErrorOffsetTests` now rejects at `stringBegin` and expects that offset for
+  every split, which is the chunking-independent form. `fuseAfterValue` no longer reads the
+  sink's failure: nothing is delivered until the flush, so the fusion cannot move a rejection.
+- Test and benchmark sinks conform through an `EventSink` adapter (per-event methods, an
+  `events` that unrolls); it is test support, not API.
+
+### What it cost, and what it took to get there
+
+The first build lost 10–28% on every raw row. Three of those were defects, found in the
+assembly and the profiles, not the design:
+
+- `emitNumber` had fallen out of line at both `consumeNumber` sites — recording made it small
+  enough for the inliner to leave it. `@inline(__always)`: canada/mesh bulk −11% → −6%/−4%.
+- The inline chunk's copy compiled to a `memmove` call per `\u` escape, and `emitScratch`
+  went out of line with it (188 + 75 + 68 samples of ~1,200 on Twitter escaped). One word
+  load and a mask, `emitScratch` forced inline: Twitter escaped bulk −29% → −8%.
+- `StreamEventBatch.bytes(of:)` and `records` were not `@inlinable`, so every consumer paid a
+  cross-module call per key it read.
+
+With those, the counting sink's rows against the pre-events dispatcher (MB/s, best of two):
+
+| bulk, gate off | before | after | | 16KB chunks | before | after |
+| --- | ---: | ---: | --- | --- | ---: | ---: |
+| CITM catalog | 2,077 | 1,784 (−14%) | | CITM catalog | 2,067 | 1,770 (−14%) |
+| Canada | 928 | 863 (−7%) | | Canada | 928 | 869 (−6%) |
+| GSoC 2018 | 4,223 | 3,569 (−16%) | | GSoC 2018 | 4,203 | 3,509 (−17%) |
+| GitHub events | 1,802 | 1,652 (−8%) | | GitHub events | 1,802 | 1,673 (−7%) |
+| LLM message | 3,599 | 3,243 (−10%) | | LLM message | 3,555 | 3,225 (−9%) |
+| Mesh | 730 | 704 (−4%) | | Mesh | 731 | 700 (−4%) |
+| Twitter | 1,507 | 1,433 (−5%) | | Twitter | 1,504 | 1,427 (−5%) |
+| Twitter escaped | 1,068 | 981 (−8%) | | Twitter escaped | 1,073 | 978 (−9%) |
+
+Bulk windowed against the 16-byte-record build (2c2a25d): CITM +1%, GitHub 0%, Twitter −3%,
+Twitter escaped −7%, Mesh −7%, LLM −11%, GSoC −12%, Canada −14%. GSoC and LLM are sparse and
+route to the dispatcher, so theirs is the dispatcher's tax. Canada's is open: the numeric
+loop records 20 bytes plus the info per number where it wrote 8 plus the info, and its
+number arm now spills and reloads around every record; a register-resident count, hoisted
+scratch pointers and a run-folding sink each measured nothing. The profile puts the loop at
+the same share of the index's fixed cost as before, so the loss is inside the arm's schedule
+rather than in any one instruction — left for a dedicated look.
+
+### What it bought: the layer, without the gate
+
+This is the point of the exercise. Every `PartialSink` row with the window gate **off** —
+the default, and what the byte fed and small-chunk paths run — now gets the batched routing
+that only the windowed path had (best of two, MB/s):
+
+| bulk discarding, gate off | before | after |
+| --- | ---: | ---: |
+| Mesh | 144 | 300 (+108%) |
+| Twitter | 631 | 821 (+30%) |
+| Twitter escaped | 455 | 533 (+17%) |
+| Canada | 114 | 131 (+15%) |
+| GitHub events | 411 | 449 (+9%) |
+| CITM catalog | 438 | 476 (+9%) |
+| GSoC 2018 | 587 | 623 (+6%) |
+| LLM message | 706 | 694 (−2%) |
+
+The 16KB-chunk layer rows are the same numbers to the percent. The windowed layer rows are
+flat to slightly up (CITM +5%, GSoC +5%, Canada +2%, Mesh +2%, GitHub/Twitter 0%, LLM/Twitter
+escaped −1%), which is the expected shape: they already had the batches.
+
+### The byte fed price
+
+Byte fed rows lost far more than the few percent predicted: LLM message 135 → 80 (−41%) raw
+and 55 → 37 (−33%) through the layer; Twitter escaped 133 → 99 (−26%) and 105 → 79 (−25%).
+The mechanism is exact: a byte inside a string is one `stringChunk` record, and the parse
+call ends, so it is delivered alone — a `deliverEvents` call, a batch construction and an
+`events` call for one record, where the call-per-event path did one direct call. The
+observation boundary *is* the parse call (a byte fed caller reads the partial after each
+byte), so the per-call flush is the contract, not an accident. What can still move is the
+constant: the single-record delivery is ~80 instructions where the direct call was ~5.
