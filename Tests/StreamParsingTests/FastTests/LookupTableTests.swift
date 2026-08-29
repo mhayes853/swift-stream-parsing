@@ -22,4 +22,22 @@ struct `Lookup table tests` {
     let actual = values.map(streamDecodeSimpleEscape)
     expectNoDifference(actual, expected)
   }
+
+  // `sequenceLength` counts thresholds where it used to branch between constants, so the ladder
+  // is the oracle and is spelled out here rather than described. Both are asked all 256 bytes:
+  // the interesting ones are the continuation bytes, which have no length of their own and which
+  // the ladder answered 1 for by falling through its leading `lead < 0x80` arm.
+  @Test
+  func `Sequence Length Agrees With The Compare Ladder On Every Byte`() {
+    func ladder(_ lead: UInt8) -> Int {
+      if lead < 0x80 { return 1 }
+      if lead >= 0xF0 { return 4 }
+      if lead >= 0xE0 { return 3 }
+      if lead >= 0xC0 { return 2 }
+      return 1
+    }
+
+    let values = UInt8.min...UInt8.max
+    expectNoDifference(values.map(JSONParser.sequenceLength), values.map(ladder))
+  }
 }

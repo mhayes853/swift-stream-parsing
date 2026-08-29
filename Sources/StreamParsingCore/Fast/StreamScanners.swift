@@ -49,6 +49,45 @@ package func streamIsWhitespace(_ byte: UInt8) -> Bool {
   (streamWhitespaceBitmap >> UInt64(byte)) & 1 != 0
 }
 
+// The lowest lane where `mask` is set, or 16 when no lane is.
+//
+// This is the portable spelling of the movemask idiom `stream_parsing_movemask_u8` gives arm64,
+// and it exists because the alternative the scanners were using is a disaster wherever `simd` is
+// unavailable. `for lane in 0 ..< 16 where hit[lane]` unrolls into sixteen `test`/`js` pairs plus
+// sixteen constant-materialising exit blocks -- over a hundred bytes of branch ladder, walked to
+// the terminator's lane, once per string token and once per key. Worse, the block above it has
+// already computed `pmovmskb` for its own `any(hit)` test and then throws the answer away: the
+// lane is `tzcnt` of a value the machine was holding.
+//
+// The mask's bytes are 0xFF or 0x00, so reading them as two 64-bit words puts each lane in its
+// own byte and the lane index is the trailing zero count over eight. `UInt64(littleEndian:)`
+// because `trailingZeroBitCount` counts from the low byte and only little-endian storage agrees
+// with lane order -- the same correction `streamCompareBytes` already applies to its xor.
+//
+// The combination is arithmetic rather than a select. Written as `low != 0 ? ... : ...` the
+// intent was a `cmov`, and on arm64 that is what it would be -- but LLVM's `X86CmovConverterPass`
+// converts a `cmov` back into a branch whenever it judges the condition predictable and the
+// value on a critical path, so x86 got two branches and a jump-around instead.
+// `trailingZeroBitCount` is 64 for an empty word, so bit 6 of the low word's count *is* "the low
+// word had no hit", and masking the high word's contribution by it gives the same answer with
+// nothing to predict:
+//
+//   low has a hit    lane = lowCount/8            (0 ... 7,  mask is 0)
+//   low is empty     lane = 8 + highCount/8       (8 ... 16, mask is all ones)
+//
+// Two zero words give 8 + 8 == 16, one past the block, so "is there a hit" and "where" remain the
+// same value. Both counts are computed either way, which is the point: no branch to mispredict on
+// a terminator whose lane is, by nature, unpredictable.
+@inlinable
+@inline(__always)
+package func streamFirstHitLane(_ mask: SIMDMask<SIMD16<Int8>>) -> Int {
+  let words = unsafeBitCast(streamMaskBytes(mask), to: SIMD2<UInt64>.self)
+  let lowCount = UInt64(littleEndian: words[0]).trailingZeroBitCount
+  let highCount = UInt64(littleEndian: words[1]).trailingZeroBitCount
+  let lowEmpty = 0 &- (lowCount &>> 6)
+  return (lowCount &>> 3) &+ ((highCount &>> 3) & lowEmpty)
+}
+
 @inlinable
 @inline(__always)
 package func streamVectorContainsNonASCII(_ bytes: SIMD16<UInt8>) -> Bool {
@@ -111,14 +150,13 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
         containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
       )
 #else
-      for lane in 0..<streamScannerVectorWidth where hit[lane] {
-        let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
-        let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
-        return StreamStringRun(
-          end: i &+ lane,
-          containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
-        )
-      }
+      let lane = streamFirstHitLane(hit)
+      let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(truncatingIfNeeded: lane))
+      let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+      return StreamStringRun(
+        end: i &+ lane,
+        containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
+      )
 #endif
     }
     scanned |= chunk
@@ -255,7 +293,7 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
       let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: miss)
       return i &+ Int(simd_reduce_min(candidates))
 #else
-      for lane in 0..<streamScannerVectorWidth where miss[lane] { return i &+ lane }
+      return i &+ streamFirstHitLane(miss)
 #endif
     }
     i &+= streamScannerVectorWidth
@@ -303,14 +341,13 @@ package func streamStringRunNarrow(
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
     if any(hit) {
-      for lane in 0..<streamScannerVectorWidth where hit[lane] {
-        let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
-        let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
-        return StreamStringRun(
-          end: i &+ lane,
-          containsNonASCII: nonASCIISoFar || streamVectorContainsNonASCII(scanned | prefix)
-        )
-      }
+      let lane = streamFirstHitLane(hit)
+      let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(truncatingIfNeeded: lane))
+      let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+      return StreamStringRun(
+        end: i &+ lane,
+        containsNonASCII: nonASCIISoFar || streamVectorContainsNonASCII(scanned | prefix)
+      )
     }
     scanned |= chunk
     i &+= streamScannerVectorWidth
@@ -631,13 +668,15 @@ package func streamNumberRunEndScalar(base: UnsafeRawPointer, from: Int, to: Int
     hit .|= chunk .== plus
     hit .|= chunk .== dash
     if !all(hit) {
-      // The per lane loop, deliberately: it unrolls into sixteen independent `umov` + branch
-      // pairs, and for a miss in the first few lanes — every number under sixteen digits — that
-      // resolves in one move plus predicted branches. The `uminv` reduction the other scanners
-      // use was measured here and lost: `citm_catalog` +10.5%, nested arrays +11%, against
-      // -2% on `canada`, because its `bsl` → `uminv` → `fmov` chain is dependent latency that a
-      // short number pays in full while the ladder exits early.
-      for lane in 0..<streamScannerVectorWidth where !hit[lane] { return i &+ lane }
+      // The per lane loop this replaces was kept deliberately once: it unrolls into sixteen
+      // independent `umov` + branch pairs, and for a miss in the first few lanes — every number
+      // under sixteen digits — that resolves in one move plus predicted branches. The `uminv`
+      // reduction the other scanners used was measured here and lost, `citm_catalog` +10.5% and
+      // nested arrays +11% against -2% on `canada`, because its `bsl` → `uminv` → `fmov` chain is
+      // dependent latency a short number pays in full while the ladder exits early. The mask-word
+      // form is neither of those: it is the same answer out of two general registers, with no
+      // vector reduction to wait on and no ladder to walk.
+      return i &+ streamFirstHitLane(.!hit)
     }
     i &+= streamScannerVectorWidth
   }
@@ -1093,7 +1132,21 @@ package func streamUTF8BlockIsInvalidPortable(
 package func streamShortInteger(base: UnsafeRawPointer, from: Int, end: Int) -> UInt64? {
   let word = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: end &- 8, as: UInt64.self))
   let shift = UInt64(truncatingIfNeeded: 8 &* (8 &- (end &- from)))
-  let keep = UInt64.max << shift
+  // Masking shift, not the smart one. A token is one to eight bytes, so `shift` is 0 ... 56 and
+  // the over-shift case the smart shift defends against cannot arise -- but the compiler cannot
+  // see that range from here, so it emitted the defence: `xor`, `cmp rax,0x40` and a `cmovb` to
+  // substitute zero, three instructions and a flag dependency in front of the `and` that every
+  // other operation in the kernel waits on. Removing it also let the shift amount fall to eight
+  // bits (`neg al` for `mov eax,0x40` / `sub`), so five instructions leave the critical path.
+  //
+  // The lower bound is asserted rather than guarded. Spelling it in the caller as an unsigned
+  // range test -- `UInt(bitPattern: to &- from &- 1) < 8` in place of `to &- from <= 8` -- was
+  // measured and reverted: it costs one `lea` on the *entry* guard, which every number pays,
+  // including the fractional ones that never reach this kernel at all. `Mesh` -2.8%,
+  // `Qwen 3 search tool call` -3.3% and `Twitter` -1.3% against `Canada` +9.7%, where the
+  // shift change alone accounts for the gain.
+  assert(end > from && end &- from <= 8)
+  let keep = UInt64.max &<< shift
   let biased = (word & keep) &- (0x3030_3030_3030_3030 & keep)
   let bad = ((biased &+ 0x7676_7676_7676_7676) | biased) & 0x8080_8080_8080_8080
   guard bad == 0 else { return nil }

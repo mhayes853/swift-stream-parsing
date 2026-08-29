@@ -262,13 +262,13 @@ public struct JSONParser: ~Copyable {
       case .asciiObjectStart:
         sink.beginObject()
         guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
-        containers |= 1 &<< UInt64(depth)
+        containers |= 1 &<< Self.shiftAmount(depth)
         depth &+= 1
         state = .firstKey
       case .asciiArrayStart:
         sink.beginArray()
         guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
-        containers &= ~(1 &<< UInt64(depth))
+        containers &= ~(1 &<< Self.shiftAmount(depth))
         depth &+= 1
         state = .firstValue
       case .asciiArrayEnd:
@@ -1058,13 +1058,30 @@ public struct JSONParser: ~Copyable {
     return i
   }
 
+  // The three lead thresholds counted rather than branched between. A lead's length is how many
+  // of `0xC0`, `0xE0`, `0xF0` it reaches, plus one, and the three tests are independent, so this
+  // is `cmp`/`adc` three times with nothing to predict -- where the four-compare ladder it
+  // replaces was four branches choosing between four constants. A continuation byte reaches none
+  // of them and answers 1, which is what the ladder's leading `lead < 0x80` arm answered for it,
+  // so the two agree on all 256 bytes; `LookupTableTests` holds this to the ladder exhaustively.
+  //
+  // A packed nibble table -- one length per nibble of `0x4322_1111_1111_1111`, indexed by
+  // `lead >> 4` -- is fewer operations still and was measured first. It lost, by 2 to 4% across
+  // the whole corpus including payloads with no non-ASCII byte in them at all, because its
+  // 64-bit immediate is ten bytes of `movabs` at every site this inlines into, and one of those
+  // sites is `completePendingUTF8`, which inlines into `parse`. Nothing here is hot enough to
+  // pay for growing the dispatcher: the branches this removes were never taken on those payloads
+  // in the first place. The counting form is the same size as the ladder and wins where the
+  // ladder was actually walked -- `Twitter` +1.4%, `Twitter escaped` +2.0%, `LLM message` +1.8%
+  // -- at the cost of `Canada` -3.7%, which is the same dispatcher-layout effect in the other
+  // direction on a payload with no strings to speak of.
   @inlinable
-  static func sequenceLength(_ lead: UInt8) -> Int {
-    if lead < .utf8ContinuationFloor { return 1 }
-    if lead >= .utf8FourByteFloor { return 4 }
-    if lead >= .utf8ThreeByteFloor { return 3 }
-    if lead >= .utf8TwoByteFloor { return 2 }
-    return 1
+  package static func sequenceLength(_ lead: UInt8) -> Int {
+    var length = 1
+    if lead >= .utf8TwoByteFloor { length &+= 1 }
+    if lead >= .utf8ThreeByteFloor { length &+= 1 }
+    if lead >= .utf8FourByteFloor { length &+= 1 }
+    return length
   }
 
   // The two guards inline at every call site and settle every ASCII run; a run with a high bit
@@ -1194,6 +1211,19 @@ public struct JSONParser: ~Copyable {
   @inline(__always)
   var topIsObject: Bool {
     Self.topIsObject(depth: self.depth, containers: self.containers)
+  }
+
+  // `depth` as a shift amount. The conversion is truncating rather than checked because
+  // `UInt64(depth)` is a *trapping* conversion -- `depth` is an `Int` and a negative one has no
+  // `UInt64` -- and the optimiser cannot prove the parser never makes it negative, so it planted
+  // `test`/`js` and a `ud2` block at both container pushes, the two hottest structural bytes in
+  // any document. `depth` is bounded to `0 ..< maximumDepth` by the guard immediately above each
+  // use, so nothing is being reinterpreted here; the trap edge was pure tax, and a trap edge in
+  // the middle of a block also stops the surrounding compares from being if-converted.
+  @inlinable
+  @inline(__always)
+  static func shiftAmount(_ depth: Int) -> UInt64 {
+    UInt64(truncatingIfNeeded: depth)
   }
 
   // `depth` never exceeds `maximumDepth`, so the masking shift is exact and skips the overshift
