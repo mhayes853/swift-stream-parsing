@@ -260,8 +260,12 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Bool {
     let at = cursor &- 1
-    switch state {
-    case .value, .firstValue:
+    // A ladder over the raw value rather than a `switch`, which lowers to a jump table: a
+    // `leaq`, a `movslq` out of it and an indirect branch, per structural byte, with the table's
+    // base pinned in a register for the whole run loop. The `State` case order was chosen so the
+    // structural pairs are adjacent, which makes each rung one unsigned compare.
+    let raw = state.rawValue
+    if raw <= State.firstValue.rawValue {
       switch byte {
       case .asciiObjectStart:
         sink.beginObject()
@@ -303,7 +307,7 @@ public struct JSONParser: ~Copyable {
         throw self.error(.unexpectedToken, at: at)
       }
 
-    case .afterValue:
+    } else if raw == State.afterValue.rawValue {
       switch byte {
       case .asciiComma:
         guard depth > 0 else { throw self.error(.unexpectedToken, at: at) }
@@ -326,7 +330,7 @@ public struct JSONParser: ~Copyable {
         throw self.error(.unexpectedToken, at: at)
       }
 
-    case .key, .firstKey:
+    } else if raw <= State.firstKey.rawValue {
       switch byte {
       case .asciiQuote:
         // A key is read here, in place, whenever its closing quote is in this chunk — the
@@ -360,14 +364,12 @@ public struct JSONParser: ~Copyable {
         throw self.error(.unexpectedToken, at: at)
       }
 
-    case .afterKey:
+    } else if raw == State.afterKey.rawValue {
       guard byte == .asciiColon else { throw self.error(.unexpectedToken, at: at) }
       state = .value
-
-    case .done:
+    } else if raw == State.done.rawValue {
       throw self.error(.trailingContent, at: at)
-
-    default:
+    } else {
       throw self.error(.unexpectedToken, at: at)
     }
     return false

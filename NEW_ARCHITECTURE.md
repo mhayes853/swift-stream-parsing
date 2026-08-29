@@ -4473,11 +4473,11 @@ Two L1 accesses for one byte, on the hottest loop in the parser. `streamWhitespa
 removes things**, which is why it does not run into the ceiling every other candidate in this file
 has hit: the loop got smaller, not larger.
 
-**The register allocator collected a second win nobody asked for.** The back edge's
-`checkSink` load needed a scratch register and had been taking `%r15`, which held `depth` -- so
+**The register allocator collected a second win nobody asked for, and it is probably the larger
+half.** In the control the back edge's `checkSink` load scratched `%r15`, which held `depth` -- so
 `depth` was stored to the stack in nearly every arm and reloaded on every iteration, a loop-carried
 store-to-load round trip of exactly the kind the "register-resident state" section removed from
-`state`. Freeing the byte-load register let `depth` stay resident:
+`state`. After the change `checkSink` scratches `%r14` and `depth` stays resident:
 
 ```
    before                                after
@@ -4488,6 +4488,14 @@ be917  jl     be3a0                  be993  jl     be3d0
 
 Stack traffic 89 -> 83 accesses. The function grew 2049 -> 2128 bytes, all of it in the cold
 whitespace tail where the byte has to be reloaded after a run.
+
+**That second effect is observed, not attributed.** Removing the load and un-spilling `depth`
+cannot be split into two builds -- there is no variant that deletes the load while forcing the
+spill -- so which of them the numbers below are paying for is not established here. The duplicate
+load's own latency was hidden (its address is known an iteration early), so it can only have cost a
+uop and a load-port slot; the `depth` round trip sits on the loop-carried path, and the
+register-resident state section measured that class of defect at 2-13%. That is the reason for
+believing the spill is the larger half, and it is inference, not measurement.
 
 Two independent eight-round interleaved sweeps, best-of-N, both metrics agreeing within 0.1 points
 on every row:
@@ -4535,8 +4543,12 @@ It costs, and it splits by document in the shape this file has now seen four tim
 `fuseAfterValue` is `@inline(__always)` into `consumeStringRun` and `consumeNumber`, the two
 functions this document has repeatedly established are at their register ceiling -- the colon
 fusion, the in-place key read and the split `validateUTF8IfNeeded` were all rejected there, and all
-three for this reason. A tuple return keeps one more value live across the fusion's branches, and
-the byte-fed rows losing 6-8% is the same layout signature those rejections produced. The documents
+three for this reason. The mechanism is visible in both controls: the whitespace early-out is
+`cmpb $0x20, (%rdx,%rax)`, a compare against memory that needs no register at all, and the byte
+only enters one at the dispatch a few instructions later. Handing it back instead **extends the
+byte's live range backward across the whitespace branch** -- which `consumeStructuralRun` can
+absorb and these two cannot. The byte-fed rows losing 6-8% is the same layout signature those
+rejections produced. The documents
 that gain are the ones whose values are numbers and long strings, where the object arm of the
 fusion is cold and the extra live value costs nothing.
 
@@ -4544,3 +4556,96 @@ fusion is cold and the extra live value costs nothing.
 "where code is added matters more than how much", pointed the other way. `consumeStructuralRun`
 owns its registers and banks the saving; the fusion sites do not and pay for it. Only the
 structural run is in the tree.
+
+---
+
+## Two dispatchers, one transformation, opposite signs
+
+The parser has two dispatchers, and both were reading a byte out of memory to index a jump table
+and take an indirect branch. `parse` does it once per *token*; `consumeStructural` does it once per
+*structural byte*. The same transformation was applied to each -- feed the switch from a register,
+then replace the table with a ladder -- and the results are opposite in sign and large in both
+directions. **The transformation is not the variable. What is being dispatched on is.**
+
+### Landed: the structural step's state ladder
+
+`consumeStructural`'s `switch state` lowered to a `leaq`, a `movslq` out of the table and
+`jmpq *`, per structural byte, with the table's base pinned in a register for the whole run loop.
+The `State` case order already groups the structural pairs adjacently -- it exists so
+`isStructural` is one unsigned compare -- so a ladder over `rawValue` reaches each arm in one to
+three compares. `consumeStructuralRun` went **2128 -> 1961 bytes** and from two indirect branches
+to one.
+
+Two eight-round interleaved sweeps, best-of-N, both metrics agreeing throughout:
+
+| document | before | after | sweep 1 | sweep 2 |
+| --- | ---: | ---: | ---: | ---: |
+| Canada, bulk | 561 MB/s | 593 MB/s | +5.70% | +5.70% |
+| CITM catalog, bulk | 1342 | 1411 | +5.14% | +4.99% |
+| GitHub events, bulk | 1108 | 1163 | +4.96% | +4.96% |
+| Mesh, bulk | 436 | 456 | +4.59% | +4.59% |
+| Twitter, 16 KB chunks | 918 | 958 | +4.36% | +4.13% |
+| GSoC 2018, bulk | 2603 | 2693 | +3.46% | +3.23% |
+| **Twitter, bulk** | **928** | **951** | **+2.48%** | **+2.48%** |
+| LLM message, bulk | 2455 | 2505 | +2.04% | +2.04% |
+| Twitter escaped, bulk | 607 | 615 | +1.32% | +1.65% |
+| byte-fed canaries | — | — | flat | flat |
+
+Every row positive, byte-fed flat, and `canada` -- almost nothing but `[`, `,` and numbers, so
+nearly pure structural run -- takes the largest share, which is what a change to the structural
+step should do.
+
+### Rejected: the same ladder in `parse`
+
+`parse`'s `switch self.state` is the same shape one level up, and it was attacked in four
+variants. Two are worth stating separately because together they isolate the cause.
+
+**Feeding the switch from a register works.** The handlers were changed to return
+`(Int, State)` -- still storing `self.state`, which is what a chunk boundary resumes from, but
+handing the successor back in `%rdx` so the dispatch no longer waits on a store-to-load round trip
+through `self`. The reload survives only in the loop preheader. Measured against HEAD: `Twitter`
++1.29%, `LLM message` +2.28%, `GSoC` +2.77%, `GitHub` +2.17% -- but `canada` **-4.81%**, `Mesh`
+**-8.49%**, and the byte-fed rows -5 to -14%. `consumeNumber` grew 986 -> 1029 bytes and
+`consumeKeyRun` 1516 -> 1571 for their second return value, which is where the number-shaped
+documents lost it. Narrowing the change to the two handlers whose size did not move recovered
+`canada` to -2.85% and cost `CITM` its gain. Neither variant is a win.
+
+**Replacing the table with a ladder is a 5-point loss, and the cause is not code size.**
+`parse` grew in every variant, so size was the obvious suspect -- until the fourth variant
+falsified it. Holding the register-feed constant and changing only table to ladder:
+
+| variant | `parse` | dispatch | Twitter bulk | Twitter escaped, byte fed |
+| --- | ---: | --- | ---: | ---: |
+| HEAD | 967 | table, state from memory | — | — |
+| register-feed | 1036 | table, state from register | **+1.29%** | -14.3% |
+| register-feed, narrowed | 1053 | table, state from register | +1.18% | -11.8% |
+| **+ ladder** | **1032** | **ladder**, state from register | **-4.31%** | -15.2% |
+| + ladder, narrowed | 1064 | **ladder**, state from register | **-5.28%** | -20.9% |
+
+The ladder variant with the **smallest** `parse` of the four is 5.6 points worse than the table
+variant with a larger one. Size is not the controlling variable; the branch structure is.
+
+**Why the same transformation inverts.** A ladder replaces one history-predicted indirect branch
+with a chain of individually-predicted direct ones, and that trade turns on how the dispatched
+value behaves. Per token the state alternates between classes -- structural, string, structural,
+number -- so `isStructural` is close to a coin flip and the ladder's first rung mispredicts
+constantly, while an indirect predictor with history learns the *sequence*. Inside a structural
+run the states are near-deterministic given the byte just consumed, so every rung is heavily
+biased and the direct branches are nearly free. **A value can be predictable as a sequence and
+unpredictable as a series of binary tests, and a ladder can only exploit the second.**
+
+The `parse` attribution is clean, because two variants differ only in table versus ladder. The
+structural-run attribution is not: the ladder there both removed an indirect branch and shrank the
+function 167 bytes, and those cannot be split without a variant that does one and not the other.
+The sign is not in doubt; the split is not established.
+
+### Rejected: the structural step's byte ladder
+
+The second indirect branch, `.value`'s byte switch, got the same treatment -- and it is worth
+recording what LLVM did with it. The table covers `0x5b ... 0x7b`, so `{`, `[`, `]` and the three
+literal leads, while a quote and a digit -- the two commonest value starts in any document -- fail
+the range test and reach a ladder anyway. Hoisting those two in front looked free. Written as a
+ladder, LLVM **re-formed the table for the six remaining arms** and the function grew 1961 -> 1979
+bytes for two hoisted compares. Measured against the state ladder alone: `Twitter escaped` -3.91%,
+`Twitter` -2.73%, `Twitter` 16 KB -3.34%, `CITM` -2.35%, `canada` -1.52%, nothing better than
+flat. Only the state ladder is in the tree.
