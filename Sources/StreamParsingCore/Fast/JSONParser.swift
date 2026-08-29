@@ -265,6 +265,60 @@ public struct JSONParser: ~Copyable {
     // base pinned in a register for the whole run loop. The `State` case order was chosen so the
     // structural pairs are adjacent, which makes each rung one unsigned compare.
     let raw = state.rawValue
+    // A quote in a value or key state is scanned here, once, before the ladder: the string
+    // scanner is the largest thing inlined into this function, and keys and string values share
+    // one copy of it rather than one per arm. A token whose closing quote is in this chunk, with
+    // no escape before it, is finished in place -- a key as a borrowed span, a value as
+    // begin/chunk/end -- and the run carries on to the colon or comma. Only a token the chunk
+    // cuts, or one with an escape, sets the per-byte state and leaves. Before string values were
+    // read here, every value ended the run: `parse` re-dispatched, `consumeStringRun` paid a
+    // ten-register prologue, and `fuseAfterValue` handed the comma back, which measured ~25% of
+    // the instructions on `twitter` as transitions rather than token work.
+    if byte == .asciiQuote, raw <= State.firstKey.rawValue, raw != State.afterValue.rawValue {
+      let run = streamStringRun(base: base, from: cursor, to: to)
+      let closed = run.end < to && base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote
+      // A run that stops short of the closing quote -- on an escape, or at the chunk end --
+      // leaves the token to the per-byte path whole, which rescans from the opening quote. Handing
+      // the scanned prefix on instead was built and measured: it returned `gsoc-2018`'s long,
+      // escape-bearing descriptions their 2.5%, and cost `twitter` 2% and `Pretty printed users`
+      // 3-7% for the extra state it kept live through the emission -- see NEW_ARCHITECTURE.md.
+      if raw <= State.firstValue.rawValue {
+        self.isKeyToken = false
+        sink.stringBegin()
+        guard closed else {
+          state = .inString
+          return false
+        }
+        if run.end > cursor {
+          try self.validateUTF8IfNeeded(
+            base: base, from: cursor, to: run.end, containsNonASCII: run.containsNonASCII,
+            reportAt: nil
+          )
+          let slice = UnsafeBufferPointer(
+            start: base.advanced(by: cursor).assumingMemoryBound(to: UInt8.self),
+            count: run.end &- cursor
+          )
+          sink.stringChunk(Span(_unsafeElements: slice))
+        }
+        sink.stringEnd()
+        cursor = run.end &+ 1
+        state = .afterValue
+        return false
+      }
+      guard closed else {
+        self.isKeyToken = true
+        self.bufferCount = 0
+        self.keyContainsNonASCII = false
+        state = .inKey
+        return false
+      }
+      try self.emitKeyInPlace(
+        base: base, from: cursor, to: run.end, containsNonASCII: run.containsNonASCII, into: &sink
+      )
+      cursor = run.end &+ 1
+      state = .afterKey
+      return false
+    }
     if raw <= State.firstValue.rawValue {
       switch byte {
       case .asciiObjectStart:
@@ -286,17 +340,44 @@ public struct JSONParser: ~Copyable {
         sink.endArray()
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
-      case .asciiQuote:
-        self.isKeyToken = false
-        sink.stringBegin()
-        state = .inString
+      // `"` was taken ahead of the ladder.
       case .asciiLowerT:
+        // A literal whole in the chunk is one word compare and an event, finished here so the
+        // run carries on to the comma. The per-byte `.literal` state remains for a literal the
+        // chunk cuts, which is every literal under byte-fed input.
+        if to &- at >= 4,
+          UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))
+            == 0x6575_7274
+        {
+          sink.boolean(true)
+          cursor = at &+ 4
+          state = .afterValue
+          return false
+        }
         self.startLiteral(kind: 0)
         state = .literal
       case .asciiLowerF:
+        if to &- at >= 5,
+          UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at &+ 1, as: UInt32.self))
+            == 0x6573_6c61
+        {
+          sink.boolean(false)
+          cursor = at &+ 5
+          state = .afterValue
+          return false
+        }
         self.startLiteral(kind: 1)
         state = .literal
       case .asciiLowerN:
+        if to &- at >= 4,
+          UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))
+            == 0x6c6c_756e
+        {
+          sink.null()
+          cursor = at &+ 4
+          state = .afterValue
+          return false
+        }
         self.startLiteral(kind: 2)
         state = .literal
       case .asciiDash, .asciiZero ... .asciiNine:
@@ -332,30 +413,7 @@ public struct JSONParser: ~Copyable {
 
     } else if raw <= State.firstKey.rawValue {
       switch byte {
-      case .asciiQuote:
-        // A key is read here, in place, whenever its closing quote is in this chunk — the
-        // scan is the string scanner's, and the emission is a borrow into the input. Only a key
-        // the chunk cuts goes to `consumeKeyRun` to be buffered. Reading it here rather than
-        // there is what keeps the string loop's registers for string content.
-        //
-        // The run does not carry straight on through: `"key": value` costs this call and two
-        // more loop iterations, one for the colon and one for the value's opening byte. Peeling
-        // either of them here was built four ways and measured, and all four lost — see the
-        // structural run's size section in `NEW_ARCHITECTURE.md`.
-        let run = streamStringRun(base: base, from: cursor, to: to)
-        if run.end < to, base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote {
-          try self.emitKeyInPlace(
-            base: base, from: cursor, to: run.end, containsNonASCII: run.containsNonASCII,
-            into: &sink
-          )
-          cursor = run.end &+ 1
-          state = .afterKey
-          return false
-        }
-        self.isKeyToken = true
-        self.bufferCount = 0
-        self.keyContainsNonASCII = false
-        state = .inKey
+      // `"` was taken ahead of the ladder.
       case .asciiObjectEnd:
         guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers) else {
           throw self.error(.unexpectedToken, at: at)

@@ -4819,3 +4819,76 @@ vector, every value shape after it, escaped keys, keys longer than the scanner's
 malformed spellings that must still be rejected — plus that a sink rejecting a key reports the
 key's own offset rather than one past the colon, which is the correctness requirement any future
 fusion here has to meet and the reason `fuseAfterValue` reads `streamFailure` before it fuses.
+
+## String values and literals finish inside the structural run
+
+The previous section ended on "it has to come from the key path costing less". It came from the
+value path instead, and from the same observation that put keys in the run: the structural run
+already contains the string scanner, and a token whose closing quote is in the chunk does not
+need a state, a return to `parse` or a second function to read it.
+
+### What a member actually cost
+
+`sample` on `Real Twitter - bulk` (1,505 / 1,461 MB/s p0/p50 at the start of this round):
+`consumeStructuralRun` 47%, `consumeStringRun` 15%, `streamWhitespaceRunEnd` 15%, `parse` 9%.
+The disassembly says what those are made of. Every value ended the run: the run returned,
+`parse` re-dispatched, `consumeStringRun` paid a 0x160-byte frame with six register pairs and
+re-splatted its constants, `fuseAfterValue` handed the comma back, `parse` dispatched again and
+the run paid its own ten-register prologue. A literal was worse -- it left to `parse`, called
+`literalBytes.unsafeMutableAddressor`, walked the bytes storing `literalIndex` on each, and never
+fused the comma. On `twitter` -- 13,345 keys, 4,754 string values, 4,737 literals -- roughly a
+quarter of all instructions were those transitions, not token work.
+
+### The change
+
+`consumeStructural` tests for `"` once, ahead of the state ladder, in any value or key state, and
+scans with `streamStringRun` from one site. A token closed in the chunk with no escape is finished
+there: a key as the borrowed span it already was, a value as `stringBegin` / `stringChunk` /
+`stringEnd`, and the run continues to the colon or comma. Only a token the chunk cuts or one with
+an escape sets `.inString` / `.inKey` and leaves. `t` / `f` / `n` whole in the chunk are one
+32-bit word compare and an event. The per-byte states, `consumeStringRun`, `consumeKeyRun` and
+`consumeLiteral` are untouched; byte-fed input never takes the new branches. The two ladder
+`.asciiQuote` arms are gone, since the quote never reaches them.
+
+Official rows, interleaved against the pristine binary, three rounds, p0 / p50 MB/s:
+
+| benchmark | before | after | Δp0 | Δp50 |
+| --- | ---: | ---: | ---: | ---: |
+| Real Twitter, bulk | 1496 / 1458 | 1673 / 1619 | **+11.8%** | **+11.0%** |
+| Real Twitter escaped, bulk | 1057 / 1037 | 1232 / 1205 | +16.6% | +16.2% |
+| Real GitHub events, bulk | 1764 / 1746 | 1865 / 1826 | +5.7% | +4.6% |
+| Real Canada, bulk | 966 / 944 | 990 / 960 | +2.5% | +1.7% |
+| Real LLM message, bulk | 3780 / 3673 | 3860 / 3765 | +2.1% | +2.5% |
+| Fast Literals, bulk | 643 / 629 | 935 / 911 | +45.4% | +44.8% |
+| Real Mesh, bulk | 803 / 784 | 808 / 781 | +0.6% | -0.4% |
+| Real CITM catalog, bulk | 2084 / 2037 | 2074 / 2013 | -0.5% | -1.2% |
+| Fast Pretty printed users, bulk | 1147 / 1126 | 1126 / 1112 | -1.8% | -1.2% |
+| Real GSoC 2018, bulk | 4160 / 4075 | 4058 / 3965 | **-2.5%** | -2.7% |
+| every byte-fed row | | | ±1.4% | |
+
+The standalone harness (a tight loop over the same sink, best-of) reads Twitter 1,443 -> 1,673
+(+16%) and GSoC -1%; `sample` after the change puts `parse` at 1% and the run at 63%.
+
+### The GSoC loss, and the fix that was measured and not kept
+
+GSoC's long descriptions carry escapes. A value is now scanned in the run up to its first
+backslash, then `consumeStringRun` starts at the opening quote and scans that prefix again. The
+handoff -- emit the scanned prefix, set the cursor at the backslash -- was built, and it returned
+GSoC to flat (813 vs 814 us). It also grew the run 580 -> 686 instructions with the key half,
+592 without, and cost `twitter` 2% and `Pretty printed users` 3-7% for the state it kept live
+through the emission -- payloads on which it never runs. Twitter's 16% against GSoC's 2.5% on a
+payload already past 4 GB/s is the trade taken; the handoff is the first thing to revisit if the
+run ever gets cheaper to grow.
+
+### The cliff, named
+
+Stacking an `@inline(__always)` twin of `streamWhitespaceRunEnd` for the run alone measured
+-23..-28% on every text payload. The run shrank 657 -> 169 instructions: the SIL inliner stopped
+inlining `consumeStructural` and emitted a `bl` per structural byte. Raising
+`-sil-inline-overall-caller-block-limit` and the soft block limit did not change it. That is the
+mechanism behind the previous section's "size, not work": past some size the step is out-lined,
+and the loop this function exists to be is gone. The check before trusting any structural-run
+number is `objdump` of the specialised run, counting `bl` targets -- the only ones that belong are
+`streamWhitespaceRunEnd`, `validateNonASCIIRun` and the sink. The six inline `throw` expansions,
+~20 instructions and their runtime calls each, are the budget to reclaim before any more work
+goes in here.
