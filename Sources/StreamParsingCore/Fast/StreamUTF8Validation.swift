@@ -1,7 +1,4 @@
 // swiftlint:disable identifier_name
-#if canImport(simd)
-  import simd
-#endif
 import StreamParsingShims
 
 @inlinable

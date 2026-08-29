@@ -74,6 +74,15 @@ stream_parsing_movemask_u8(stream_parsing_u8x16 value) {
   return vget_lane_u64(
       vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8((uint8x16_t)value), 4)), 0);
 }
+
+// Whether any byte has its high bit set. This is the NEON equivalent of
+// `simd_reduce_max(value) >= 0x80`, exposed here so every arm64 platform gets the same
+// two-instruction reduction rather than only Apple platforms where Swift's `simd` module is
+// available.
+STREAM_PARSING_SIMD_SHIM int
+stream_parsing_any_high_u8(stream_parsing_u8x16 value) {
+  return vmaxvq_u8((uint8x16_t)value) >= 0x80;
+}
 #endif
 
 // MARK: - x86: the AVX2 tier

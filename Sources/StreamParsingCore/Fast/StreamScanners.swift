@@ -1,8 +1,5 @@
 // Short indices and accumulators keep the scanner kernels close to their measured operations.
 // swiftlint:disable identifier_name
-#if canImport(simd)
-  import simd
-#endif
 import StreamParsingShims
 
 // MARK: - Whitespace and string runs
@@ -51,13 +48,12 @@ package func streamIsWhitespace(_ byte: UInt8) -> Bool {
 
 // The lowest lane where `mask` is set, or 16 when no lane is.
 //
-// This is the portable spelling of the movemask idiom `stream_parsing_movemask_u8` gives arm64,
-// and it exists because the alternative the scanners were using is a disaster wherever `simd` is
-// unavailable. `for lane in 0 ..< 16 where hit[lane]` unrolls into sixteen `test`/`js` pairs plus
-// sixteen constant-materialising exit blocks -- over a hundred bytes of branch ladder, walked to
-// the terminator's lane, once per string token and once per key. Worse, the block above it has
-// already computed `pmovmskb` for its own `any(hit)` test and then throws the answer away: the
-// lane is `tzcnt` of a value the machine was holding.
+// This is the portable spelling of the movemask idiom `stream_parsing_movemask_u8` gives arm64.
+// It exists because the old alternative, `for lane in 0 ..< 16 where hit[lane]`, unrolls into
+// sixteen `test`/`js` pairs plus sixteen constant-materialising exit blocks -- over a hundred
+// bytes of branch ladder, walked to the terminator's lane, once per string token and once per key.
+// Worse, the block above it has already computed `pmovmskb` for its own `any(hit)` test and then
+// throws the answer away: the lane is `tzcnt` of a value the machine was holding.
 //
 // The mask's bytes are 0xFF or 0x00, so reading them as two 64-bit words puts each lane in its
 // own byte and the lane index is the trailing zero count over eight. `UInt64(littleEndian:)`
@@ -88,14 +84,30 @@ package func streamFirstHitLane(_ mask: SIMDMask<SIMD16<Int8>>) -> Int {
   return (lowCount &>> 3) &+ ((highCount &>> 3) & lowEmpty)
 }
 
+#if arch(arm64)
+  // The arm64 spelling of the same operation. `stream_parsing_movemask_u8` uses `vshrn_n_u16`,
+  // which Swift cannot import directly because its shift is an immediate. Each mask byte becomes
+  // one nibble, so the first set lane is the trailing-zero count divided by four. A zero mask's
+  // count is 64 and therefore answers 16, matching the portable function.
+  @inlinable
+  @inline(__always)
+  package func streamFirstHitLaneNEON(_ mask: SIMDMask<SIMD16<Int8>>) -> Int {
+    stream_parsing_movemask_u8(streamMaskBytes(mask)).trailingZeroBitCount &>> 2
+  }
+#endif
+
 @inlinable
 @inline(__always)
 package func streamVectorContainsNonASCII(_ bytes: SIMD16<UInt8>) -> Bool {
-#if canImport(simd)
-  simd_reduce_max(bytes) >= .utf8ContinuationFloor
-#else
-  any(bytes .>= SIMD16<UInt8>(repeating: .utf8ContinuationFloor))
-#endif
+  #if arch(arm64)
+    return stream_parsing_any_high_u8(bytes) != 0
+  #else
+    // No horizontal reduction from the Apple-only `simd` module. The high bit of each byte is
+    // invariant under the word reinterpretation, and this avoids the out-of-line `SIMD.min` call
+    // some standard-library `any(mask)` forms produce.
+    let words = unsafeBitCast(bytes, to: SIMD2<UInt64>.self)
+    return (words[0] | words[1]) & 0x8080_8080_8080_8080 != 0
+  #endif
 }
 
 @inlinable
@@ -140,24 +152,17 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
     if any(hit) {
-#if canImport(simd)
-      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: hit)
-      let lane = Int(simd_reduce_min(candidates))
-      let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(lane))
-      let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
-      return StreamStringRun(
-        end: i &+ lane,
-        containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
-      )
+#if arch(arm64)
+      let lane = streamFirstHitLaneNEON(hit)
 #else
       let lane = streamFirstHitLane(hit)
+#endif
       let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(truncatingIfNeeded: lane))
       let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
       return StreamStringRun(
         end: i &+ lane,
         containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
       )
-#endif
     }
     scanned |= chunk
     i &+= streamScannerVectorWidth
@@ -288,10 +293,8 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
     let hit = chunk .== space .| chunk .== tab .| chunk .== lineFeed .| chunk .== carriageReturn
     if !all(hit) {
       let miss = .!hit
-#if canImport(simd)
-      let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
-      let candidates = SIMD16<UInt8>(repeating: 16).replacing(with: lanes, where: miss)
-      return i &+ Int(simd_reduce_min(candidates))
+#if arch(arm64)
+      return i &+ streamFirstHitLaneNEON(miss)
 #else
       return i &+ streamFirstHitLane(miss)
 #endif
@@ -815,17 +818,10 @@ package func streamDecodeSimpleEscape(_ byte: UInt8) -> UInt8? {
 @inlinable
 @inline(__always)
 package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
-#if !canImport(simd)
-  let high = SIMD16<UInt8>(repeating: .utf8ContinuationFloor)
-#endif
   var i = from
   while i &+ streamScannerVectorWidth <= to {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
-#if canImport(simd)
-    if simd_reduce_max(chunk) >= .utf8ContinuationFloor { return true }
-#else
-    if any(chunk .>= high) { return true }
-#endif
+    if streamVectorContainsNonASCII(chunk) { return true }
     i &+= streamScannerVectorWidth
   }
   while i < to {
