@@ -4252,3 +4252,203 @@ into one 64-bit first-hit mask and had no spills. It nevertheless grew the funct
 The long synthetic run proves the paired kernel can be faster, but the GSoC and LLM regressions
 are larger and more relevant than that isolated win. The experiment was reverted; the original
 one-block string loop and its 228 byte footprint remain.
+
+## Inter-block ILP on arm64: reduction removal pays, latency removal does not
+
+The AVX2 section above has an arm64 counterpart, and running it produced one result worth stating
+before any of the numbers: **the two are not symmetric.** Four candidates were disassembled,
+built and measured; two landed, two were rejected, and the rejections locate the boundary more
+usefully than the wins do.
+
+The framing that made the round productive is the one the AVX2 section states in passing --
+*"the measured gain is principally the removed reduction and loop control."* These scanners are
+branch-predictable and throughput-bound, so the out-of-order window already overlaps adjacent
+iterations and manual interleaving adds nothing. What the window cannot remove is a **per-block
+cross-lane reduction**: a `uminv`/`umaxv` plus a vector-to-GPR `fmov`. Reduction elimination is
+the lever. Interleaving is not, and -- the round's last finding -- neither is latency that sits
+*beside* a loop rather than inside it.
+
+### Landed: defer the UTF-8 validator's per-block reduction
+
+`streamValidateUTF8Shimmed` reduced and branched every sixteen bytes. It now ORs each block's
+error vector into an accumulator and pays one `streamVectorIsNonZero` for the whole run; the
+first block and the tail fold in too, so no path keeps the early exit. This is free of
+information: the validator answers only valid or invalid, and `JSONParser.swift`'s failure path
+already hands error *location* to the scalar diagnostic walk. `streamUTF8BlockErrorsShimmed`
+returns the vector and `streamUTF8BlockIsInvalidShimmed` is defined in terms of it, so the
+scratch paths and tests keep their spelling.
+
+The whole function went from a `dup`/`orr`/`fmov`/`cbnz` per block to **one `fmov` in the entire
+function** (nine `tbl`, one `fmov`). Eight interleaved rounds, median p50, MB/s and wall clock
+agreeing within 0.5 points on every row:
+
+| row | before | after | change |
+| --- | ---: | ---: | ---: |
+| Fast Non-ASCII string, bulk | 7013 MB/s | **7415 MB/s** | **+5.7%** |
+| Real LLM message, bulk | 3571 MB/s | **3677 MB/s** | **+3.0%** |
+| Fast Non-ASCII string, 64 B chunks | 2071 MB/s | **2117 MB/s** | **+2.2%** |
+
+Every other row landed within ±0.4%. No regressions.
+
+**The 2x unroll of that same loop was measured and rejected, and this is the asymmetry with x86.**
+With two accumulators the target rows came back *numerically identical* to the deferral alone
+(7415 and 2117 in both sweeps) while `canada`, `gsoc` and `citm` lost 2-3% to code growth. The
+codegen was exactly as intended -- eight loads, twenty-six vector ALU, two `orr.16b` into separate
+registers, zero vector-to-GPR in the loop -- so this is not a codegen failure. **On arm64 the
+deferral already collects the whole win that the AVX2 pairing had to unroll to reach.** Splitting
+the candidate into defer-only and defer-plus-unroll is what made that attributable; a single
+combined variant would have credited the unroll.
+
+### Landed: the arm64 movemask, and the lane the mask already held
+
+`streamNumberRunEndShimmed` found its terminator with a per lane ladder. In the shipped binary
+that was worse than the source suggests: thirty-two `umov`/`cbz` instructions **plus fifteen
+two-instruction exit blocks** whose only job was to materialise a constant 0-15 before converging
+on one `add` -- about sixty instructions inlined into `consumeNumber` to produce an integer the
+hit mask already contained.
+
+`vshrn_n_u16` is the arm64 movemask and Swift cannot say it: the intrinsic takes an immediate and
+does not import at all. `stream_parsing_movemask_u8` wraps it, folding each byte of a vector to a
+nibble of a `uint64_t`. It is deliberately a **leaf returning a scalar** -- the shape that survived
+in `stream_parsing_utf8_block_errors` and the shape that did not in the `streamStringRun` port
+documented above.
+
+The form that landed fuses the test into the lane:
+
+```swift
+let lane = (~stream_parsing_movemask_u8(hitBytes)).trailingZeroBitCount &>> 2
+if lane < streamScannerVectorWidth { return i &+ lane }
+```
+
+`trailingZeroBitCount` of an all-ones mask's complement is 64, which is lane 16 -- one past the
+block -- so **the bound check is the terminator test** and nothing depends on the branch. LLVM
+does better than the source asks: it compares the raw `clz` against `#0x3f`, so the `lsr #2`
+disappears from the loop, and the exit block collapses to a single
+`add x23, x8, x9, lsr #2`. Object-wide, 117 instructions went away and `umov.b` fell from 65 to
+32, the remainder being the untouched scalar twin.
+
+Eight interleaved rounds against its own control:
+
+| row | ladder | movemask | change |
+| --- | ---: | ---: | ---: |
+| Numbers floats, bulk | 666 MB/s | **783 MB/s** | **+17.6%** |
+| Real Mesh, bulk | 714 MB/s | **754 MB/s** | **+5.6%** |
+| Numbers wide exponent floats, bulk | 1629 MB/s | **1708 MB/s** | **+4.8%** |
+| Numbers large integers, bulk | 1622 MB/s | **1684 MB/s** | **+3.8%** |
+| Real Canada, bulk | 907 MB/s | **936 MB/s** | **+3.1%** |
+| Real GitHub events, bulk | 1737 MB/s | **1757 MB/s** | +1.2% |
+| Real LLM message, bulk | 3545 MB/s | **3580 MB/s** | +1.0% |
+| Real CITM catalog, bulk | 2010 MB/s | **2028 MB/s** | +0.8% |
+| Real GSoC 2018, bulk | **4061 MB/s** | 4054 MB/s | -0.2% |
+| Real Twitter, bulk | **1454 MB/s** | 1450 MB/s | -0.2% |
+| `Payloads.matrix` (both spellings) | **453 MB/s** | 418 MB/s | **-7.9%** |
+
+**No real payload regresses.** The one loser is synthetic and is a single data point wearing two
+names: `Fast Nested arrays` and `Numbers small integers` are both `Payloads.matrix`, whose control
+MB/s and nanoseconds are identical row to row. `makeMatrix(rows: 40, columns: 25)` emits values
+0-999, so it is exclusively one to three digit integers.
+
+**This is not the `uminv` idiom already rejected in this same function** (citm +10.5%, nested
+arrays +11%), and the reason that was believed -- "the word form adds zero vector ops" -- turned
+out to be the wrong reading of why that one lost. Vector op count was never the mechanism.
+`umov v3[n]` depends only on the hit vector, so the ladder's moves issue *in parallel* with the
+loop-test reduction and a three digit token exits almost immediately; any movemask makes the lane
+strictly serial behind `shrn` and `fmov`. The movemask reproduces the old failure on the same row
+at nearly the same magnitude. **The correct statement of the earlier rejection is dependent
+latency to the lane, not vector work**, and it applies to every spelling.
+
+Two rejected variants pin that down:
+
+- **Plain movemask** (test the mask, then derive the lane in the exit block: `mvn`/`rbit`/`clz`/
+  `add`). Strictly worse than the fused form on nearly every row and, decisively, it regressed
+  `citm` by 0.4% where the fused form gains 0.8%.
+- **Movemask for the loop test only, ladder kept for the lane.** Median **-0.95%**, losing almost
+  everywhere. This is the useful one: it proves the cheaper loop test is *not* the win and is
+  mildly harmful on its own, because the ladder's `umov`s and the `shrn` both read the hit vector
+  and contend for the vector-to-GPR ports. **The entire gain is deleting the exit.**
+
+A third refinement was measured and is worth recording as a closed door. The fused form was built
+on the theory that short tokens were paying the `mvn`/`rbit`/`clz` chain *after* the branch; the
+exit is now one instruction and `matrix` is unchanged, -7.3% against the plain form's -7.4%. So
+that chain was never the cost, and **no movemask formulation can beat the ladder on one to three
+digit tokens.** The fused form's real gains came from somewhere else -- a shorter loop body and a
+one-instruction exit, which help the *long* token rows (Canada +1.0 point, large integers +1.1,
+citm +1.2 over the plain form).
+
+### Rejected: the whitespace run end, in two forms
+
+`streamWhitespaceRunEnd` pays `all(hit)`'s `uminv` and `fmov` to branch, then on the miss a second
+cross-lane reduction (`bit`, `uminv`, `fmov`) to find the lane -- plus, found only in the
+disassembly, a constant-pool `ldr q0` for the lane index vector. Reading the mask as two `UInt64`s
+and taking the lane from `rbit`/`clz` removes all of it. Measured mixed, twice:
+
+| variant | CITM bulk | Twitter bulk | GSoC | Pretty printed |
+| --- | ---: | ---: | ---: | ---: |
+| body and exit | **+1.2%** | **+1.7%** | -1.3% | -0.5% |
+| exit only, body byte-identical | +0.6% | +0.4% | -0.9% | -0.5% |
+
+The decomposition falsified the hypothesis behind it. The prediction was that the extra GPR
+transfer added to the *loop body* was what cost the short-run documents, so the second variant
+changed only the miss path -- and it is *worse*. The body change is where citm's and twitter's
+gains came from; the exit change is what costs gsoc. A third form follows directly (word test for
+the branch, original `simd_reduce_min` for the lane) but at the 1% level with mixed signs this did
+not clear the bar and was not built.
+
+### Rejected: the string run hit path, where the chain was real and the cost was not
+
+This was ranked the largest of the four candidates before measurement. It is nothing, and that is
+the most useful result in the round.
+
+`consumeStringRun`'s hit path was a single chain about nine deep -- `ldr q4, [sp]`, `bsl`, `uminv`,
+`dup`, `fmov`, `cmhi`, `and`, `orr`, `umaxv`, `smov` -- roughly twenty-five cycles, firing once per
+string span, which is about 164,000 spans across the five string-heavy corpus documents.
+Everything after `uminv` existed only because `containsNonASCII` was masked by a lane the code had
+just computed. The lane index constant was genuinely round-tripping through memory: `str q0,
+[sp, #0x10]` at entry -- paid on every call, hit or not -- reloaded on every hit. Frame `0xb0`.
+
+Two variants. The first took the movemask for the lane only and left the vector prefix alone; it
+keeps `lanes`, so it keeps the spill (verified: two q-stores and two q-loads, frame still `0xb0`).
+The second moved the whole hit path into the word domain: two *independent* movemasks off the same
+chunk (terminator, and `chunk >= 0x80`), `(m & -m) - 1` for "the bytes before the terminator", and
+`containsNonASCII` split on the identity that `max(a|b) >= 0x80` iff either side is, so the
+reduction over `scanned` depends on the loop rather than on the lane.
+
+The second variant's codegen is better than it was written. LLVM lowered `chunk >= 0x80` to a
+single `cmlt.16b #0` sign test, rewrote `nonASCII & ((m & -m) - 1)` into `sub`/`bic`/`tst`, and
+fused the two booleans with a branchless `ccmp`. **Stack traffic went to zero and the frame shrank
+`0xb0` to `0x90` -- the exact shrink the rejected C port achieved, reached here in pure Swift with
+no boundary.**
+
+Five interleaved rounds over seventeen rows: **lane-only median +0.14%, word-domain median
++0.07%.** Nothing moves. `Real LLM message` +2.1%, `Fast Long string` 64 B chunks +3.4% and byte
+by byte +2.9% lean positive; `Real CITM catalog` is **-0.9%**, against a prediction of "order 1%
+on citm and gsoc". That the variant which removes the spill and the one which keeps it land in the
+same place says the spill was not costing anything either.
+
+**A dependency chain that is real in the disassembly is not a cost if the out-of-order window has
+other work to cover it.** The hit path runs once per span with an entire parse iteration around
+it, so fifteen saved cycles of pure latency -- no instruction count worth naming, no reduction
+removed from a loop -- simply disappear. This is the round's opening premise pointed at latency
+instead of throughput: **removing a serial chain pays where the chain is the loop, not where it
+sits beside the loop.** The UTF-8 deferral was per block, inside the loop. The number movemask is
+per token, in a loop the token spends its whole life in. This one is per span, alongside. Prefer
+per-iteration targets.
+
+One thing it does settle: **the C port's `Fast Non-ASCII string, 64 B chunks` -37.8% was the
+boundary, not the algorithm.** The same restructure in Swift measures +0.0% / -1.1% on that row,
+with `Fast Long string` byte by byte, `Fast Escaped string` 64 B and `Fast Dictionary` 64 B -- the
+other three rows that caught the port -- all flat.
+
+### Two methodology notes
+
+**Rows where the two metrics disagree carry no evidence.** `Payload MB/s` and `Time (wall clock)`
+are both quantized, and on short rows they quantize differently: `Fast Non-ASCII string, bulk` once
+read 6879 / 7139 / 7415 MB/s across sweeps while its wall clock sat flat at 1334 / 1333 ns, a
+disagreement of 3.6 points. `Real GitHub events` moves in single 36000-to-37000 ns steps. Any row
+whose two metrics disagree by more than about 1.5 points should be discarded rather than
+tabulated, in either direction.
+
+**This machine drifts at the 1% level across sweeps.** `Real Canada` read +2.1%, +4.2% and -12.6%
+for the *same* binary in three separate sweeps on the same day. Eight-round two-way sweeps are
+materially steadier than five-round three-way ones, and the 1%-magnitude rows in any single sweep
+(here `gsoc` and `twitter`) should not be given signs.
