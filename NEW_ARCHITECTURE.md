@@ -4649,3 +4649,173 @@ ladder, LLVM **re-formed the table for the six remaining arms** and the function
 bytes for two hoisted compares. Measured against the state ladder alone: `Twitter escaped` -3.91%,
 `Twitter` -2.73%, `Twitter` 16 KB -3.34%, `CITM` -2.35%, `canada` -1.52%, nothing better than
 flat. Only the state ladder is in the tree.
+
+---
+
+## The structural run is limited by its size, not by its iteration count
+
+The section above left a question open: the state ladder both removed an indirect branch and
+shrank `consumeStructuralRun` by 167 bytes, and nothing separated the two. Four variants aimed at
+a different target answered it by accident, and the answer changes what is worth trying here.
+
+The target was the three loop iterations `"key": "value"` costs. `fuseAfterValue`'s object arm
+stops *at* the key's opening quote and leaves `.key`, so the run takes it from there:
+
+| iteration | byte | state on entry | ladder rungs walked |
+| --- | --- | --- | ---: |
+| 1 | `"` | `.key` / `.firstKey` | 3 |
+| 2 | `:` | `.afterKey` | 4 |
+| 3 | `"` | `.value` | 1 |
+
+Iteration 1 does the work — it runs the string scanner and emits the key span in place.
+Iterations 2 and 3 each pay a whitespace scan, a bounds test, an increment, the ladder,
+`checkSink`, `isStructural` and the back edge, to move one byte. Four ways of removing them were
+built. All four lost, and the way they lost is the finding.
+
+### Reordering the ladder to match what the run actually sees
+
+`.afterValue` sits at rung 2 and `.afterKey` at rung 4, which is the grammar's order. It is not
+this run's order: `.afterKey` arrives once per key, on every colon in the document. Moving it up
+costs nothing to write — the rung bounds are spelled `State.firstKey.rawValue`, so swapping two
+enum cases moves the rungs with them.
+
+The disassembly did exactly what it was asked to. LLVM merges the `key`/`firstKey` pair with the
+rung after it, so the control's colon path is `cmpb $0x1` / `cmpb $0x2` / `cmpb $0x5` / `cmpb
+$0x3a` — four compares. Reordered, it becomes `cmpb $0x1` / `cmpb $0x4` / `je` / `cmpb $0x3a`,
+where the `je` reuses the flags the `cmpb $0x4` already set: **three**. `key`/`firstKey` went
+three to two. Per object member, eight compares became six.
+
+It lost 4-6% on everything. Interleaved, eight rounds, p50, best/median:
+
+| benchmark | control | reordered | |
+| --- | ---: | ---: | ---: |
+| Fast Dictionary, bulk | 545 MB/s | 492 | **-9.72 / -10.26%** |
+| Real Twitter, 16 KB | 957 | 899 | -6.06 / -6.12% |
+| Real Canada, bulk | 593 | 558 | -5.90 / -5.90% |
+| Real GitHub events, bulk | 1167 | 1102 | -5.57 / -5.59% |
+| Real Twitter, bulk | 952 | 908 | **-4.62 / -4.68%** |
+| Real GSoC 2018, bulk | 2691 | 2567 | -4.61 / -4.44% |
+| Real Mesh, bulk | 457 | 436 | -4.60 / -4.18% |
+| Real CITM catalog, bulk | 1408 | 1344 | -4.55 / -4.28% |
+| Real Twitter escaped, bulk | 615 | 596 | -3.09 / -3.18% |
+
+Two things went wrong, and only one was predicted. `.afterValue` is not rare: `fuseAfterValue`
+runs at the two value-*end* sites, so it never sees a value that ended in a literal or a container
+close, and every `}` and `]` in the document arrives here in `.afterValue`. Demoting it from two
+compares to four is paid on every container close, which is why `canada` — which has almost no
+keys and nothing to gain — lost 5.90%. The rung order was rebalanced toward a state that is
+common per *member* and away from one that is common per *container*, and the corpus has more
+containers than the estimate assumed.
+
+The unpredicted part is that a pure reorder is not free. The function grew 1961 → 1997 bytes and
+another specialization grew 168, because the new rung needs `movzbl %r9b, %edx; cmpl $0x5, %edx`
+where the old one had a byte compare, and the block layout shuffled around it.
+
+### Peeling the colon, two ways
+
+If the ladder cannot be reordered, the colon iteration can be skipped outright: the key arm knows
+where the closing quote is, so it can look at the byte after it and set `.value` directly. Two
+spellings, differing only in how they reach the colon.
+
+**Through the whitespace scanner.** `streamWhitespaceEndByte`'s fast path is one compare that
+hands the byte back, so it costs what a bare `== .asciiColon` costs and additionally peels
+`"key" : value`, which is legal and which no printer emits. It compiles to **+207 bytes**: the
+scanner is `@inline(__always)` and a second copy brings its whole scalar-versus-vector branch.
+
+**Through a bare compare.** Whitespace before the colon falls back to `.afterKey` and the run loop
+handles it as it does today. **+49 bytes.**
+
+Both interleaved against the control in one sweep, six rounds, p50, best/median:
+
+| benchmark | control | scanner (+207) | compare (+49) |
+| --- | ---: | ---: | ---: |
+| Real Twitter, bulk | 950 MB/s | 928 (-2.32 / -2.32%) | 965 (**+1.58 / +1.53%**) |
+| Real Twitter, 16 KB | 957 | 916 (-4.28 / -4.19%) | 962 (+0.52 / +0.63%) |
+| Fast Pretty printed, byte fed | 90 | 89 (-1.11 / -1.11%) | 92 (+2.22 / +1.67%) |
+| Fast Long string, byte fed | 77 | 79 (+2.60 / +0.00%) | 79 (+2.60 / +1.30%) |
+| Real CITM catalog, bulk | 1407 | 1308 (-7.04 / -6.85%) | 1397 (-0.71 / -0.43%) |
+| Real GSoC 2018, bulk | 2687 | 2559 (-4.76 / -4.66%) | 2657 (-1.12 / -1.42%) |
+| Real GitHub events, bulk | 1168 | 1101 (-5.74 / -5.66%) | 1149 (-1.63 / -1.54%) |
+| Fast Dictionary, bulk | 538 | 503 (-6.51 / -6.45%) | 532 (-1.12 / -2.25%) |
+| Real Mesh, bulk | 456 | 428 (-6.14 / -6.15%) | 439 (-3.73 / -3.74%) |
+| Real Canada, bulk | 593 | 539 (-9.11 / -9.36%) | 571 (**-3.71 / -3.71%**) |
+
+The two spellings do the same work and differ only in code size, and the +207 one is worse on
+every row. That alone is most of the answer.
+
+The +49 one is the closest thing to a win in this round, and it is still not one. `canada` and
+`Mesh` lose 3.7% each, and neither contains a key the peel could fire on — `canada` is arrays of
+numbers. **A document that never executes the new code pays for it anyway, in proportion to how
+much of it there is.**
+
+### The variant that removes more work and is slower
+
+The doc's own test for a fusion is that it consume everything structural before the next
+non-structural token, otherwise the run loop still runs. The bare-compare peel fails it — the
+value's opening quote still follows. Extending it through the quote passes it: with `.inString`
+set, `isStructural` breaks on the next line, and `"key": "value"` costs one iteration instead of
+three. **+214 bytes.** Against the same control, six rounds:
+
+| benchmark | control | peel colon (+49) | peel colon and quote (+214) |
+| --- | ---: | ---: | ---: |
+| Real Twitter, bulk | 951 MB/s | 966 (**+1.58 / +1.58%**) | 921 (**-3.15 / -3.11%**) |
+| Real Twitter, 16 KB | 956 | 961 (+0.52 / +0.37%) | 908 (-5.02 / -5.29%) |
+| Real CITM catalog, bulk | 1408 | 1397 (-0.78 / -0.43%) | 1264 (-10.23 / -9.91%) |
+| Real Mesh, bulk | 457 | 438 (-4.16 / -3.74%) | 413 (-9.63 / -9.45%) |
+| Fast Dictionary, bulk | 533 | 525 (-1.50 / -1.61%) | 493 (-7.50 / -7.28%) |
+| Real GitHub events, bulk | 1169 | 1148 (-1.80 / -1.55%) | 1101 (-5.82 / -5.81%) |
+| Real Canada, bulk | 593 | 571 (-3.71 / -3.55%) | 558 (-5.90 / -5.74%) |
+| Real GSoC 2018, bulk | 2685 | 2651 (-1.27 / -1.23%) | 2561 (-4.62 / -4.78%) |
+| Fast Pretty printed, byte fed | 90 | 92 (+2.22 / +2.22%) | 88 (-2.22 / -2.22%) |
+
+This is the experiment worth keeping. The two variants sit on the same code path and differ only
+in how much of the member they consume: one removes a third of the loop iterations an object
+member costs, the other removes two thirds. **The one that removes twice as much work is 4.7
+points slower on `Twitter` and ten points slower on `CITM`.** Iteration count is not what this
+loop is paying.
+
+### What the four say together
+
+Every variant that grew `consumeStructuralRun` lost, and the loss tracks the growth rather than
+the work removed. On the `FastCountingSink` specialization:
+
+| variant | Δ size | work removed | Twitter, bulk |
+| --- | ---: | --- | ---: |
+| state ladder (landed) | **-167** | one indirect branch per byte | **+2.48%** |
+| bare-compare colon peel | +49 | one iteration in three | +1.58% |
+| ladder reorder | +36 | two ladder compares per member | -4.68% |
+| scanner colon peel | +207 | one iteration in three | -2.32% |
+| colon and quote peel | +214 | two iterations in three | -3.15% |
+
+The ladder reorder is the one row that does not fit a pure size story, and it has its own reason:
+it added two compares to every container close, on top of growing. The other four are monotone in
+size and unordered in work removed.
+
+This settles the split the previous section left open, in the direction of size. The state ladder
+removed an indirect branch *and* shrank the function; here five variants change the size without
+touching the indirect branch count, and they line up with the size. That does not prove the
+indirect branch contributed nothing to the ladder's win, but it removes the reason to assume it
+was the main term.
+
+**The consequence for this function is a standing constraint, not a result.** Anything added to
+`consumeStructuralRun` is paid by every document in the corpus, including the ones with no keys,
+no objects and nothing to gain — and 49 bytes is enough to cost `canada` 3.7%. The remaining cost
+of `"key": value` is real (two loop iterations per member, ~22% of `canada` and ~33% of
+`citm_catalog` spent in this function overall), but it cannot be bought with code here. It has to
+come from the key path costing *less*, which is where the open items already point.
+
+Not attempted, and now gated behind a condition that did not arrive: `streamStringRun` loads the
+sixteen bytes containing the key's closing quote, so the colon at quote + 1 is usually already in
+that register, and handing it back would make the peel free of a reload. It was held for after a
+peel proved itself, on the grounds that widening a shared leaf's return taxes `consumeStringRun`
+— the function nothing may be added to. No peel proved itself, so it stays unbuilt.
+
+### The tests stayed
+
+`KeyColonFusionTests` and the key-rejection offset cases in `ErrorOffsetTests` were written before
+the variants and outlive them. They assert the whole parsed tree, at every chunk boundary and
+again one byte at a time, for whitespace on either side of the colon, whitespace longer than a
+vector, every value shape after it, escaped keys, keys longer than the scanner's tiers, and the
+malformed spellings that must still be rejected — plus that a sink rejecting a key reports the
+key's own offset rather than one past the colon, which is the correctness requirement any future
+fusion here has to meet and the reason `fuseAfterValue` reads `streamFailure` before it fuses.

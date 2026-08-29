@@ -196,6 +196,39 @@ struct `Error offset tests` {
     expectNoDifference(error?.byteOffset, 4, "split at \(splitAt)")
   }
 
+  // A key is read in place by the structural run, which then wants to carry on through the colon
+  // and into the value. Any such fusion has to stop at a sink that already failed, or the
+  // rejection surfaces with the cursor parked past bytes the unfused path had not consumed yet.
+  @Test(arguments: 0...9)
+  func `Reports a rejected key at its own token, not past the colon`(splitAt: Int) {
+    let error = Self.sinkFailure(
+      #"{"a":"b"}"#, sink: RejectingSink(rejecting: .key), splitAt: splitAt
+    )
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.byteOffset, 4, "split at \(splitAt)")
+  }
+
+  // The same, with the whitespace a fusion would also swallow, so a guard that only covers the
+  // colon still shows up here.
+  @Test(arguments: 0...12)
+  func `Reports a rejected key before the whitespace around its colon`(splitAt: Int) {
+    let error = Self.sinkFailure(
+      #"{"a"  :  "b"}"#, sink: RejectingSink(rejecting: .key), splitAt: splitAt
+    )
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.byteOffset, 4, "split at \(splitAt)")
+  }
+
+  // A rejected key must not deliver the value's `stringBegin` either.
+  @Test
+  func `Stops before the value when the key is rejected`() {
+    var parser = JSONParser()
+    var sink = RejectingSink(rejecting: .key)
+    let bytes = Array(#"{"a":"b"}"#.utf8)
+    _ = try? bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    expectNoDifference(sink.startedStrings, 0)
+  }
+
   // The parse has to stop at the rejection, not carry on into the next token's events.
   @Test
   func `Delivers no further tokens after a rejection`() {
@@ -210,7 +243,7 @@ struct `Error offset tests` {
 // Fails on the first token of one kind, and records how many string tokens it was told about, so
 // a fusion that ran past a rejection shows up as an event count as well as an offset.
 private struct RejectingSink: StreamParseSink {
-  enum Kind { case number, string }
+  enum Kind { case number, string, key }
 
   let rejecting: Kind
   var streamFailure: StreamSinkFailure?
@@ -230,7 +263,7 @@ private struct RejectingSink: StreamParseSink {
   mutating func endObject() {}
   mutating func beginArray() {}
   mutating func endArray() {}
-  mutating func key(_ bytes: Span<UInt8>) {}
+  mutating func key(_ bytes: Span<UInt8>) { if self.rejecting == .key { self.fail() } }
   mutating func stringBegin() { self.startedStrings &+= 1 }
   mutating func stringChunk(_ bytes: Span<UInt8>) {}
   mutating func stringEnd() { if self.rejecting == .string { self.fail() } }

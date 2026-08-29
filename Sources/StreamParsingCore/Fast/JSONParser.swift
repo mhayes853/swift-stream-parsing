@@ -336,9 +336,12 @@ public struct JSONParser: ~Copyable {
         // A key is read here, in place, whenever its closing quote is in this chunk — the
         // scan is the string scanner's, and the emission is a borrow into the input. Only a key
         // the chunk cuts goes to `consumeKeyRun` to be buffered. Reading it here rather than
-        // there is what keeps the string loop's registers for string content, and it also
-        // means the run carries straight on through the colon into the value's first byte, so
-        // `"key": value` costs this call and no other.
+        // there is what keeps the string loop's registers for string content.
+        //
+        // The run does not carry straight on through: `"key": value` costs this call and two
+        // more loop iterations, one for the colon and one for the value's opening byte. Peeling
+        // either of them here was built four ways and measured, and all four lost — see the
+        // structural run's size section in `NEW_ARCHITECTURE.md`.
         let run = streamStringRun(base: base, from: cursor, to: to)
         if run.end < to, base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote {
           try self.emitKeyInPlace(
@@ -443,21 +446,6 @@ public struct JSONParser: ~Copyable {
       return from
     }
   }
-
-  // The colon after a key, fused together with the value's first byte. The colon alone was
-  // measured and rejected earlier in this file's history: it moved one byte into the key's call
-  // and the structural run still had to happen for the quote that always follows it. Consuming
-  // the value's opening byte as well is what passes the test that fusion set — nothing
-  // structural is left before the next token — so for `"key": "value"` and `"key": 42`, which
-  // is most of every object in the corpus, the structural run does not run at all. Whitespace
-  // between them is the one space every pretty printer emits, scanned the same way
-  // `fuseAfterValue` scans its run.
-  //
-  // Containers and literals after the colon are left to the structural run: `{` and `[` push a
-  // frame and `t`/`f`/`n` start a literal, and spelling those here would grow `consumeStringRun`
-  // for arms the profile says are a small share of keys. Same guard order as `fuseAfterValue`,
-  // and for the same reason: a sink that rejected the key must stop the fusion so the rejection
-  // surfaces where the unfused path reports it.
 
   // MARK: Strings
 
