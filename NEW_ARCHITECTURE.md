@@ -4452,3 +4452,95 @@ tabulated, in either direction.
 for the *same* binary in three separate sweeps on the same day. Eight-round two-way sweeps are
 materially steadier than five-round three-way ones, and the 1%-magnitude rows in any single sweep
 (here `gsoc` and `twitter`) should not be given signs.
+
+---
+
+## The byte the whitespace scan already loaded
+
+`streamWhitespaceEnd` returns an index. Its one-compare fast path -- the compare that settles the
+no-whitespace case for the whole of `canada` and `llm_message` and half of every other document --
+loads the byte, tests it against `0x20`, and throws it away. `consumeStructuralRun` then reloads
+the same address to switch on it. In the release build that is nine instructions apart:
+
+```
+be3a0  cmpb   $0x20, (%rdi,%rsi)   ; whitespace early-out
+be3a4  jbe    ...                   ; not taken on a structural byte
+be452  movzbl (%rdi,%r14), %eax     ; the same address, again
+```
+
+Two L1 accesses for one byte, on the hottest loop in the parser. `streamWhitespaceEndByte` returns
+`(end, byte)` instead, and the dispatch reads a register. **This is the rare change that only
+removes things**, which is why it does not run into the ceiling every other candidate in this file
+has hit: the loop got smaller, not larger.
+
+**The register allocator collected a second win nobody asked for.** The back edge's
+`checkSink` load needed a scratch register and had been taking `%r15`, which held `depth` -- so
+`depth` was stored to the stack in nearly every arm and reloaded on every iteration, a loop-carried
+store-to-load round trip of exactly the kind the "register-resident state" section removed from
+`state`. Freeing the byte-load register let `depth` stay resident:
+
+```
+   before                                after
+be900  movzbl (%r10), %r15d          be980  movzbl (%r10), %r14d
+be913  movq   -0x28(%rbp), %r15      be990  cmpq   %r15, %r8
+be917  jl     be3a0                  be993  jl     be3d0
+```
+
+Stack traffic 89 -> 83 accesses. The function grew 2049 -> 2128 bytes, all of it in the cold
+whitespace tail where the byte has to be reloaded after a run.
+
+Two independent eight-round interleaved sweeps, best-of-N, both metrics agreeing within 0.1 points
+on every row:
+
+| document | before | after | sweep 1 | sweep 2 |
+| --- | ---: | ---: | ---: | ---: |
+| CITM catalog, bulk | 1305 MB/s | 1344 MB/s | +2.68% | +2.99% |
+| GSoC 2018, bulk | 2525 | 2611 | +2.69% | +3.41% |
+| GitHub events, bulk | 1075 | 1106 | +2.60% | +2.88% |
+| Canada, bulk | 550 | 561 | +2.00% | +2.00% |
+| **Twitter, bulk** | **912** | **929** | **+1.86%** | **+1.86%** |
+| Twitter, 16 KB chunks | 903 | 917 | +1.66% | +1.55% |
+| Twitter escaped, bulk | 598 | 607 | +1.51% | +1.51% |
+| LLM message, bulk | 2429 | 2457 | +0.82% | +1.15% |
+| Mesh, bulk | 435 | 437 | +0.46% | +0.23% |
+| LLM message / Twitter escaped, byte by byte | — | — | flat | flat |
+
+No row regresses and the byte-fed canaries do not move, which is what distinguishes this from
+every fusion in this document: there is no chunk-size precondition to fail on. A one-byte chunk
+loads its byte once either way.
+
+### The same defect at the fusion site: built, measured, REJECTED
+
+`fuseAfterValue` has the identical pattern -- `cmpb $0x20, (%rdx,%rax)` for the whitespace
+early-out, then `movzbl (%rdx,%rax), %edx` to dispatch on it. The same substitution removes the
+same load, and the codegen is exactly as intended: `consumeNumber` grew 986 -> 1007 bytes,
+`consumeStringRun` 2221 -> 2224, and the duplicated load is gone from both.
+
+It costs, and it splits by document in the shape this file has now seen four times:
+
+| document | structural run only | + fusion site |
+| --- | ---: | ---: |
+| Twitter, bulk | 930 MB/s | 868 (**-6.67%**) |
+| CITM catalog, bulk | 1343 | 1257 (-6.40%) |
+| GitHub events, bulk | 1109 | 1058 (-4.60%) |
+| Twitter, 16 KB chunks | 918 | 874 (-4.79%) |
+| GSoC 2018, bulk | 2601 | 2547 (-2.08%) |
+| Twitter escaped, bulk | 607 | 598 (-1.48%) |
+| LLM message, bulk | 2455 | 2571 (+4.73%) |
+| Mesh, bulk | 437 | 454 (+3.89%) |
+| Canada, bulk | 561 | 569 (+1.43%) |
+| LLM message, byte by byte | 81 | 76 (**-6.17%**) |
+| Twitter escaped, byte by byte | 91 | 84 (**-7.69%**) |
+
+`fuseAfterValue` is `@inline(__always)` into `consumeStringRun` and `consumeNumber`, the two
+functions this document has repeatedly established are at their register ceiling -- the colon
+fusion, the in-place key read and the split `validateUTF8IfNeeded` were all rejected there, and all
+three for this reason. A tuple return keeps one more value live across the fusion's branches, and
+the byte-fed rows losing 6-8% is the same layout signature those rejections produced. The documents
+that gain are the ones whose values are numbers and long strings, where the object arm of the
+fusion is cold and the extra live value costs nothing.
+
+**Where the load is removed matters more than that it is removed** -- the same sentence as
+"where code is added matters more than how much", pointed the other way. `consumeStructuralRun`
+owns its registers and banks the saving; the fusion sites do not and pay for it. Only the
+structural run is in the tree.

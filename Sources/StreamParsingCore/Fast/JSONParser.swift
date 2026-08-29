@@ -224,9 +224,13 @@ public struct JSONParser: ~Copyable {
       self.containers = containers
     }
     while i < to {
-      i = streamWhitespaceEnd(base: base, from: i, to: to)
+      // The scan hands back the byte it stopped on rather than just the index, so the dispatch
+      // below reads a register instead of loading the same address the scan's one-compare fast
+      // path just tested. Two L1 accesses per structural byte became one.
+      let scanned = streamWhitespaceEndByte(base: base, from: i, to: to)
+      i = scanned.end
       if i == to { break }
-      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      let byte = scanned.byte
       i &+= 1
       // A number is the one token whose first byte belongs to the token itself, so the run ends
       // and the byte is handed back for `.number` to re-read.

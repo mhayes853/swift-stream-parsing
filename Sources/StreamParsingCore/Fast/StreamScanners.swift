@@ -228,6 +228,36 @@ package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> 
   return streamWhitespaceRunEnd(base: base, from: from, to: to)
 }
 
+// The run end and the byte that ends it, for callers that dispatch on that byte.
+//
+// `streamWhitespaceEnd` returns only an index, so its one-compare fast path loads the byte, tests
+// it, and throws it away — and every caller then reloads the same address to switch on it. In the
+// release build that is `cmpb $0x20, (%rdi,%rsi)` at the top of `consumeStructuralRun`'s loop and
+// `movzbl (%rdi,%r14), %eax` nine instructions later, two L1 accesses to one byte on the hottest
+// path in the parser. Handing the byte back costs nothing: it is already in a register on the path
+// that matters, and the loop gets smaller rather than larger, which is the only shape this loop has
+// ever accepted.
+//
+// The byte is meaningless when `end == to` and is reported as zero there. Every caller tests that
+// first, because a run that reaches the chunk end has no byte to dispatch on.
+@inlinable
+@inline(__always)
+package func streamWhitespaceEndByte(
+  base: UnsafeRawPointer, from: Int, to: Int
+) -> (end: Int, byte: UInt8) {
+  if from < to {
+    let byte = base.load(fromByteOffset: from, as: UInt8.self)
+    if byte > .asciiSpace { return (from, byte) }
+  }
+  // Spelled out rather than delegating to `streamWhitespaceEnd`, so the reload below stays on the
+  // cold side of the early return instead of becoming a second exit from a shared tail.
+  let end =
+    to &- from < streamScannerVectorWidth
+    ? streamWhitespaceScalarEnd(base: base, from: from, to: to)
+    : streamWhitespaceRunEnd(base: base, from: from, to: to)
+  return (end, end < to ? base.load(fromByteOffset: end, as: UInt8.self) : 0)
+}
+
 @inlinable
 @inline(__always)
 package func streamWhitespaceScalarEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
