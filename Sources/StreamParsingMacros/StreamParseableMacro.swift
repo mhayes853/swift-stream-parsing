@@ -278,7 +278,6 @@ extension StreamParseableMacro {
     var applyNumber = [String]()
     var applyBoolean = [String]()
     var applyNull = [String]()
-    var enter = [String]()
     // One stored schema per container field. See `containerSchemaConstants`.
     var containerSchemas = [String]()
   }
@@ -361,21 +360,21 @@ extension StreamParseableMacro {
       }
 
       let target = "p.pointee.\(property.name)"
-      let capacityHint = property.initialCapacity.map { ", capacity: \($0)" } ?? ""
+      let constant = "streamContainerSchema_\(property.name)"
+      let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
       for key in property.keyNames {
         cases.fields.append(
           """
                 StreamParsingCore.StreamField(
                   key: \(Self.stringLiteral(key)), index: \(field),
-                  route: _streamFieldRoute(&\(target)),
-                  offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)\(capacityHint)
+                  route: _streamFieldRoute(&\(target), schema: Self.\(constant)\(capacityArgument)),
+                  offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)
                 ),
           """
         )
       }
       switch Self.fieldShape(for: property.type) {
       case .scalarOrObject:
-        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
         cases.applyString.append(
           "    case \(field): return streamApply(&\(target), utf8: bytes\(capacityArgument))"
         )
@@ -388,19 +387,9 @@ extension StreamParseableMacro {
         cases.applyNull.append(
           "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
         )
-        let constant = "streamContainerSchema_\(property.name)"
         cases.containerSchemas.append(
           "private static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
         )
-        if let initialCapacity = property.initialCapacity {
-          cases.enter.append(
-            "    case \(field): return _streamEnterContainerField(&\(target), schema: Self.\(constant).unsafelyUnwrapped, initialCapacity: \(initialCapacity))"
-          )
-        } else {
-          cases.enter.append(
-            "    case \(field): return _streamEnterField(&\(target), containerSchema: Self.\(constant))"
-          )
-        }
       case .array, .dictionary:
         // A container field can be nulled like any other. Emitted through the same helper as a
         // scalar's, so an optional member clears and a non-optional one falls to the disfavoured
@@ -409,16 +398,8 @@ extension StreamParseableMacro {
         cases.applyNull.append(
           "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
         )
-        let constant = "streamContainerSchema_\(property.name)"
         cases.containerSchemas.append(
           "private static let \(constant) = \(Self.schemaExpression(for: property.type))"
-        )
-        let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
-        cases.enter.append(
-          """
-              case \(field):
-                return _streamEnterContainerField(&\(target), schema: Self.\(constant)\(capacityArgument))
-          """
         )
       }
     }
@@ -482,14 +463,6 @@ extension StreamParseableMacro {
           }
         }
 
-        \(modifierPrefix)static func streamEnterField(
-          _ storage: UnsafeMutableRawPointer, _ field: Int32
-        ) -> StreamParsingCore.StreamFrame? {
-      \(storageBinding(cases.enter))    switch field {
-      \(switchBody(cases.enter))    default: return nil
-          }
-        }
-
         \(modifierPrefix)static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
           of: Self.self, prototype: Self()
         ) { p in
@@ -504,7 +477,6 @@ extension StreamParseableMacro {
           applyNumber: Self.streamApplyNumber,
           applyBoolean: Self.streamApplyBoolean,
           applyNull: Self.streamApplyNull,
-          enterField: Self.streamEnterField,
           fields: Self.streamFields
         )
       """

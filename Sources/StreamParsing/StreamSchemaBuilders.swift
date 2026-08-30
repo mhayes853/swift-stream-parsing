@@ -80,200 +80,6 @@ public func _streamContainerSchema<T>(for type: T.Type) -> StreamSchema? {
   nil
 }
 
-// MARK: - Field entry
-
-// Degrades to nil rather than failing to compile when the field is not a nested object, which
-// is what lets the macro emit an entry case for every field without knowing which are. Every
-// overload takes the hoisted `containerSchema` so the macro can emit one call shape; only the
-// `StreamContainerPartial` one reads it.
-@inlinable
-public func _streamEnterField<T: StreamParseableObject>(
-  _ value: inout T?,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  // Non-nil by construction: `_streamContainerSchema(for:)` resolves through
-  // `StreamContainerPartial`, which `StreamParseableObject` refines.
-  _streamEnterOptionalObject(&value, schema: containerSchema.unsafelyUnwrapped)
-}
-
-@_disfavoredOverload
-@inlinable
-public func _streamEnterField<T: StreamContainerPartial>(
-  _ value: inout T?,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  _streamEnterOptionalContainer(
-    &value,
-    initial: T.streamInitialValue(),
-    schema: containerSchema.unsafelyUnwrapped
-  )
-}
-
-@_disfavoredOverload
-@inlinable
-public func _streamEnterField<T>(
-  _ value: inout T?,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  nil
-}
-
-// The initialized members mode gives non-optional members, so every entry point needs a
-// counterpart that takes the value directly.
-@inlinable
-public func _streamEnterField<T: StreamParseableObject>(
-  _ value: inout T,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  _streamEnterObject(&value, schema: containerSchema.unsafelyUnwrapped)
-}
-
-// The source spelling did not identify a built-in container. Resolve through the actual partial
-// storage type instead, which covers aliases, generic spelling and user-defined containers.
-@_disfavoredOverload
-@inlinable
-public func _streamEnterField<T: StreamContainerPartial>(
-  _ value: inout T,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  withUnsafeMutablePointer(to: &value) {
-    // Non-nil by construction: `_streamContainerSchema(for:)` resolves its constrained overload
-    // for exactly the types that resolve this one.
-    T.streamContainerFrame(at: UnsafeMutableRawPointer($0), schema: containerSchema.unsafelyUnwrapped)
-  }
-}
-
-@_disfavoredOverload
-@inlinable
-public func _streamEnterField<T>(
-  _ value: inout T,
-  containerSchema: StreamSchema?
-) -> StreamFrame? {
-  nil
-}
-
-// Takes the field's finished schema rather than its element's, so the schema can be a stored
-// static on the generated `Partial` and the entry is a materialize and a frame.
-//
-// These replaced a pair that took `element:` and built `_streamArraySchema` on every call.
-// `enterField` runs once per container occurrence, so that was an allocation per `[` — two with
-// the element schema — for a value the type could only ever have one of.
-@inlinable
-public func _streamEnterContainerField<T: StreamInitializable>(
-  _ value: inout T?,
-  schema: StreamSchema
-) -> StreamFrame? {
-  _streamEnterOptionalContainer(&value, initial: T.streamInitialValue(), schema: schema)
-}
-
-@inlinable
-public func _streamEnterContainerField<T>(
-  _ value: inout T,
-  schema: StreamSchema
-) -> StreamFrame? {
-  _streamEnterContainer(&value, schema: schema)
-}
-
-// Capacity-aware forms are deliberately container-specific. `initialCapacity` is macro-facing
-// vocabulary; how each container maps the hint onto its storage remains private to that type.
-@inlinable
-public func _streamEnterContainerField<Element>(
-  _ value: inout StreamArray<Element>?,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  if value != nil { value!.reserveCapacity(initialCapacity) }
-  return _streamEnterOptionalContainer(
-    &value,
-    initial: StreamArray(initialCapacity: initialCapacity),
-    schema: schema
-  )
-}
-
-@inlinable
-public func _streamEnterContainerField<Element>(
-  _ value: inout StreamArray<Element>,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  value.reserveCapacity(initialCapacity)
-  return _streamEnterContainer(&value, schema: schema)
-}
-
-@inlinable
-public func _streamEnterContainerField<Value>(
-  _ value: inout StreamDictionary<Value>?,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  if value != nil { value!.reserveCapacity(initialCapacity) }
-  return _streamEnterOptionalContainer(
-    &value,
-    initial: StreamDictionary(initialCapacity: initialCapacity),
-    schema: schema
-  )
-}
-
-@inlinable
-public func _streamEnterContainerField<Value>(
-  _ value: inout StreamDictionary<Value>,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  value.reserveCapacity(initialCapacity)
-  return _streamEnterContainer(&value, schema: schema)
-}
-
-// A string is a scalar, so this entry point is never reached for a matching JSON value. The
-// macro still emits one because aliases are indistinguishable from objects in syntax; accepting
-// the call lets the capacity-aware `streamApply` overload reserve at the opening quote.
-@inlinable
-public func _streamEnterContainerField(
-  _ value: inout StreamString?,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  nil
-}
-
-@inlinable
-public func _streamEnterContainerField(
-  _ value: inout StreamString,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  nil
-}
-
-// The macro cannot resolve aliases, but overload resolution can: an alias whose partial storage
-// is a StreamArray or StreamDictionary selects one of the concrete overloads above. These
-// fallbacks keep an annotation on a scalar or object from silently becoming a no-op.
-@available(
-  *, unavailable,
-  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
-)
-@_disfavoredOverload
-public func _streamEnterContainerField<T>(
-  _ value: inout T?,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  nil
-}
-
-@available(
-  *, unavailable,
-  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
-)
-@_disfavoredOverload
-public func _streamEnterContainerField<T>(
-  _ value: inout T,
-  schema: StreamSchema,
-  initialCapacity: Int
-) -> StreamFrame? {
-  nil
-}
-
 // MARK: - Optional aware scalar application
 
 // Partial members are optional, so a value has to exist before it can be appended to.
@@ -315,70 +121,220 @@ public func streamApply<T: StreamBooleanConvertible>(
 
 // What a member's type resolves to for the field table, by the same overload structure
 // `streamApply` uses, so a member is classified exactly the way it would have been applied. Two
-// overloads per protocol, for the optional and the initialised members modes.
+// overloads per protocol, for the optional and the initialised members modes. Every overload
+// takes the field's hoisted container schema so the macro can emit one call shape; only the
+// container ones read it.
+//
+// A container route carries that schema and, when the member needs it, a `prepare` that
+// materialises the optional or reserves the declared capacity. The closures capture nothing --
+// the capacity arrives from the entry -- so after specialisation each is a bare function with
+// no context to retain.
 
 @inlinable
-public func _streamFieldRoute<T: StreamStringConvertible>(_ value: inout T?) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamStringConvertible>(
+  _ value: inout T?, schema: StreamSchema?
+) -> StreamFieldRoute {
   _streamStringFieldRoute(T.self, optional: true)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamStringConvertible>(_ value: inout T) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamStringConvertible>(
+  _ value: inout T, schema: StreamSchema?
+) -> StreamFieldRoute {
   _streamStringFieldRoute(T.self, optional: false)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamNumberConvertible>(_ value: inout T?) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamNumberConvertible>(
+  _ value: inout T?, schema: StreamSchema?
+) -> StreamFieldRoute {
   StreamFieldRoute(_streamNumberFieldKind(T.self), optional: true)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamNumberConvertible>(_ value: inout T) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamNumberConvertible>(
+  _ value: inout T, schema: StreamSchema?
+) -> StreamFieldRoute {
   StreamFieldRoute(_streamNumberFieldKind(T.self), optional: false)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamBooleanConvertible>(_ value: inout T?) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamBooleanConvertible>(
+  _ value: inout T?, schema: StreamSchema?
+) -> StreamFieldRoute {
   StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: true)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamBooleanConvertible>(_ value: inout T) -> StreamFieldRoute {
+public func _streamFieldRoute<T: StreamBooleanConvertible>(
+  _ value: inout T, schema: StreamSchema?
+) -> StreamFieldRoute {
   StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: false)
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamParseableObject>(_ value: inout T?) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: true)
+public func _streamFieldRoute<T: StreamParseableObject>(
+  _ value: inout T?, schema: StreamSchema?
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: true, schema: schema, prepare: _streamOptionalContainerPrepare(T.self)
+  )
 }
 
 @inlinable
-public func _streamFieldRoute<T: StreamParseableObject>(_ value: inout T) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false)
+public func _streamFieldRoute<T: StreamParseableObject>(
+  _ value: inout T, schema: StreamSchema?
+) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamContainerPrepare)
+}
+
+// The source spelling did not identify a built-in container. Resolve through the actual partial
+// storage type instead, which covers aliases, generic spelling and user-defined containers.
+@_disfavoredOverload
+@inlinable
+public func _streamFieldRoute<T: StreamContainerPartial>(
+  _ value: inout T?, schema: StreamSchema?
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: true, schema: schema, prepare: _streamOptionalContainerPrepare(T.self)
+  )
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamFieldRoute<T: StreamContainerPartial>(_ value: inout T?) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: true)
-}
-
-@_disfavoredOverload
-@inlinable
-public func _streamFieldRoute<T: StreamContainerPartial>(_ value: inout T) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false)
+public func _streamFieldRoute<T: StreamContainerPartial>(
+  _ value: inout T, schema: StreamSchema?
+) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamContainerPrepare)
 }
 
 // A type none of the protocols above describe: whatever `streamApply` does with it, the table
 // does not know, so it stays on the closures.
 @_disfavoredOverload
 @inlinable
-public func _streamFieldRoute<T>(_ value: inout T?) -> StreamFieldRoute {
+public func _streamFieldRoute<T>(_ value: inout T?, schema: StreamSchema?) -> StreamFieldRoute {
   StreamFieldRoute(.custom, optional: true)
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamFieldRoute<T>(_ value: inout T) -> StreamFieldRoute {
+public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: false)
+}
+
+// Materialises an optional container member and then lets the wrapped type prepare its own
+// storage, which an `Optional` wrapped in another does.
+@inlinable
+public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
+  _ type: T.Type
+) -> StreamFieldPrepare {
+  { storage, _ in
+    _streamMaterializeOptional(storage, as: T.self)
+    T._streamContainerPrepare?(storage, 0)
+  }
+}
+
+// MARK: - Field routes with a capacity
+
+// Capacity-aware forms are deliberately container-specific. `initialCapacity` is macro-facing
+// vocabulary; how each container maps the hint onto its storage remains private to that type.
+// The capacity itself travels on the entry, not in the closure, so the closure has no context.
+
+@inlinable
+public func _streamFieldRoute(
+  _ value: inout StreamString?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.streamString, optional: true, capacity: initialCapacity)
+}
+
+@inlinable
+public func _streamFieldRoute(
+  _ value: inout StreamString, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.streamString, optional: false, capacity: initialCapacity)
+}
+
+@inlinable
+public func _streamFieldRoute<Element>(
+  _ value: inout StreamArray<Element>?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: true, capacity: initialCapacity, schema: schema,
+    prepare: { storage, capacity in
+      let pointer = storage.assumingMemoryBound(to: StreamArray<Element>?.self)
+      if pointer.pointee == nil {
+        pointer.pointee = StreamArray(initialCapacity: Int(capacity))
+      } else {
+        pointer.pointee!.reserveCapacity(Int(capacity))
+      }
+    }
+  )
+}
+
+@inlinable
+public func _streamFieldRoute<Element>(
+  _ value: inout StreamArray<Element>, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: false, capacity: initialCapacity, schema: schema,
+    prepare: { storage, capacity in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
+        .reserveCapacity(Int(capacity))
+    }
+  )
+}
+
+@inlinable
+public func _streamFieldRoute<Value>(
+  _ value: inout StreamDictionary<Value>?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: true, capacity: initialCapacity, schema: schema,
+    prepare: { storage, capacity in
+      let pointer = storage.assumingMemoryBound(to: StreamDictionary<Value>?.self)
+      if pointer.pointee == nil {
+        pointer.pointee = StreamDictionary(initialCapacity: Int(capacity))
+      } else {
+        pointer.pointee!.reserveCapacity(Int(capacity))
+      }
+    }
+  )
+}
+
+@inlinable
+public func _streamFieldRoute<Value>(
+  _ value: inout StreamDictionary<Value>, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(
+    .container, optional: false, capacity: initialCapacity, schema: schema,
+    prepare: { storage, capacity in
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
+        .reserveCapacity(Int(capacity))
+    }
+  )
+}
+
+// The macro cannot resolve aliases, but overload resolution can: an alias whose partial storage
+// is a StreamArray or StreamDictionary selects one of the concrete overloads above. These
+// fallbacks keep an annotation on a scalar or object from silently becoming a no-op.
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamFieldRoute<T>(
+  _ value: inout T?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: true)
+}
+
+@available(
+  *, unavailable,
+  message: "@StreamParseableMember(initialCapacity:) is only supported on array, dictionary, and string properties."
+)
+@_disfavoredOverload
+public func _streamFieldRoute<T>(
+  _ value: inout T, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
   StreamFieldRoute(.custom, optional: false)
 }

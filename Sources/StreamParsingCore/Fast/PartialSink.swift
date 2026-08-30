@@ -38,6 +38,24 @@ struct BorrowedFrame {
     self.pendingField = frame.pendingField
     self.leafRoute = .generic
   }
+
+  // From a schema's object address, as the field table and a container schema hold it. The bits
+  // become the unowned field directly; no reference is formed, so nothing is retained.
+  @usableFromInline
+  @inline(__always)
+  init(storage: UnsafeMutableRawPointer, schemaBits: UnsafeRawPointer) {
+    self.storage = storage
+    self.schema = unsafeBitCast(schemaBits, to: StreamSchema.self)
+    self.pendingField = -1
+    self.leafRoute = .generic
+  }
+
+  // A strong reference from the same bits, for the one holder that wants one (`ScalarTarget`).
+  @usableFromInline
+  @inline(__always)
+  static func schema(fromBits bits: UnsafeRawPointer) -> StreamSchema {
+    Unmanaged<StreamSchema>.fromOpaque(bits).takeUnretainedValue()
+  }
 }
 
 // Embedded Swift has no `weak`, so the audit compiles out there along with the calls to it. That
@@ -116,7 +134,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // Cached from the top frame in padding next to `started`, so the common scalar route tests a
   // fixed byte rather than calling out to rediscover the top frame and its schema.
   @usableFromInline var activeLeafRoute: _StreamLeafRoute = .generic
-  @usableFromInline var pendingDictionaryFrame: BorrowedFrame?
+  // The slot `enterKey` opened for the value after the last dictionary key, written through the
+  // dictionary schema's `elementSchema`. Consumed by the value that follows.
   @usableFromInline var pendingDictionaryStorage: UnsafeMutableRawPointer?
 
   // The frame stack, one fixed allocation rather than an `Array`.
@@ -256,8 +275,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       let canHoldContainer = self.rootSchema.shape.canHold(container: shape)
       if !canHoldContainer { self.recordFailure(.typeMismatch) }
       if canHoldContainer { self.rootSchema.prepareRoot(self.root) }
-      let schema = canHoldContainer ? self.rootSchema : Self.ignoredSchema
-      self.pushFrame(BorrowedFrame(storage: self.root, schema: schema))
+      self.pushFrame(
+        canHoldContainer
+          ? BorrowedFrame(storage: self.root, schema: self.rootSchema)
+          : self.ignoredFrame
+      )
       return
     }
 
@@ -266,12 +288,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       // A container under an unknown object key is ignored. Every other missing target describes
       // a known destination whose schema cannot accept a container.
       if hasKnownDestination { self.recordFailure(.typeMismatch) }
-      self.pushFrame(BorrowedFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(self.ignoredFrame)
       return
     }
     guard target.schema.shape.canHold(container: shape) else {
       self.recordFailure(.typeMismatch)
-      self.pushFrame(BorrowedFrame(storage: self.root, schema: Self.ignoredSchema))
+      self.pushFrame(self.ignoredFrame)
       return
     }
     self.pushFrame(target)
@@ -283,9 +305,22 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     case .array: return true
     case .object: return top.pointee.pendingField >= 0
     case .dictionary:
-      return self.pendingDictionaryStorage != nil || self.pendingDictionaryFrame != nil
+      return self.pendingDictionaryStorage != nil
     case .scalar: return true
     }
+  }
+
+  // The slot for the next element of the array frame at `top`: addressed from the cursor when
+  // the schema declares a stride, opened by the schema's `appendElement` otherwise.
+  @inline(__always)
+  private static func openElement(
+    _ top: UnsafeMutablePointer<BorrowedFrame>, _ index: Int32
+  ) -> UnsafeMutableRawPointer? {
+    let stride = top.pointee.schema.elementStride
+    if stride != 0 {
+      return top.pointee.storage + Int(index) &* Int(stride)
+    }
+    return top.pointee.schema.appendElement(top.pointee.storage, index)
   }
 
   // Produces the frame a value should be written through, appending an array element first when
@@ -305,12 +340,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         self.recordFailure(.capacityExceeded)
         return nil
       }
-      guard let frame = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+      guard let slot = Self.openElement(top, index) else {
         if indexed { self.recordFailure(.capacityExceeded) }
         return nil
       }
       if indexed { top.pointee.pendingField = index &+ 1 }
-      return self.borrow(frame)
+      // A slot with nothing to describe it -- a hand-written array schema that declared no
+      // element schema -- is a destination the sink cannot write, and is ignored.
+      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      return BorrowedFrame(storage: slot, schemaBits: bits)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
       var field = top.pointee.pendingField
@@ -319,6 +357,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         // A scalar member cannot hold a container; the caller reads nil against a known
         // destination as the mismatch it is.
         guard entry.pointee.kind == .container else { return nil }
+        // The entry names the child's schema: the frame is the member's address and that schema,
+        // once the member is prepared -- an optional materialised, a capacity reserved. No
+        // closure for a member that needs neither, and never a `StreamFrame` to lower.
+        if let bits = entry.pointee.schemaBits {
+          let member = top.pointee.storage + Int(entry.pointee.offset)
+          if entry.pointee.hasPrepare {
+            let prepare = top.pointee.schema.fieldPrepares.unsafelyUnwrapped + Int(field)
+            prepare.pointee.unsafelyUnwrapped(member, entry.pointee.capacity)
+          }
+          return BorrowedFrame(storage: member, schemaBits: bits)
+        }
         field = entry.pointee.index
       }
       guard let frame = top.pointee.schema.enterField(top.pointee.storage, field) else {
@@ -326,8 +375,10 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       }
       return self.borrow(frame)
     case .dictionary:
-      defer { self.pendingDictionaryFrame = nil }
-      return self.pendingDictionaryFrame
+      guard let slot = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      return BorrowedFrame(storage: slot, schemaBits: bits)
     case .scalar:
       return nil
     }
@@ -359,15 +410,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         self.pendingDictionaryStorage = self.openKnownDictionaryValue(
           top.pointee.storage, route: self.activeLeafRoute, forKey: bytes
         )
-        self.pendingDictionaryFrame = nil
         return
       default:
         break
       }
-      // The key span does not outlive this call, so the value's frame is resolved now rather
-      // than remembered and resolved when the value arrives.
-      self.pendingDictionaryFrame = top.pointee.schema.enterKey(top.pointee.storage, bytes)
-        .map { self.borrow($0) }
+      // The key span does not outlive this call, so the value's slot is opened now rather than
+      // remembered and opened when the value arrives.
+      self.pendingDictionaryStorage = top.pointee.schema.enterKey(top.pointee.storage, bytes)
     case .ignore:
       top.pointee.pendingField = -1
     }
@@ -754,7 +803,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     // The table entry the target came from, or nil for a target the closures apply: an array
     // element, a dictionary value, a scalar root, or a `custom`/`container` field. For a table
     // target `storage` is already the member's address.
-    var entry: UnsafePointer<StreamField>?
+    var entry: UnsafePointer<StreamFieldEntry>?
   }
 
   @usableFromInline var scalarTarget: ScalarTarget?
@@ -1048,7 +1097,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // a `custom` or `container` entry keeps the object's storage, which is what its closures take.
   @inline(__always)
   private static func tableTarget(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     _ storage: UnsafeMutableRawPointer,
     _ schema: StreamSchema
   ) -> ScalarTarget {
@@ -1094,7 +1143,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // the closure, so the schema never comes through here.
   @inline(never)
   private static func writeTableNumber(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer,
     _ bytes: Span<UInt8>,
     _ info: NumberInfo
@@ -1121,7 +1170,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   @inline(never)
   private static func writeTableBoolean(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer,
     _ value: Bool
   ) -> StreamApplyResult {
@@ -1139,7 +1188,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // as `streamApplyNull`'s disfavoured overload always reported it.
   @inline(never)
   private static func writeTableNull(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
     let kind = entry.pointee.kind
@@ -1189,7 +1238,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // for a kind the table writes and the object's for `custom`.
   @inline(never)
   private mutating func openTableString(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     _ storage: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
     switch entry.pointee.kind {
@@ -1225,7 +1274,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // The batched form: a whole string value in one record, written from the frame.
   @inline(never)
   private mutating func writeTableString(
-    _ entry: UnsafePointer<StreamField>,
+    _ entry: UnsafePointer<StreamFieldEntry>,
     frame: UnsafeMutablePointer<BorrowedFrame>,
     _ bytes: Span<UInt8>
   ) -> StreamApplyResult {
@@ -1292,15 +1341,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         self.recordFailure(.capacityExceeded)
         return nil
       }
-      guard let element = top.pointee.schema.appendElement(top.pointee.storage, index) else {
+      guard let slot = Self.openElement(top, index) else {
         if indexed { self.recordFailure(.capacityExceeded) }
         return nil
       }
       if indexed { top.pointee.pendingField = index &+ 1 }
-      let borrowed = self.borrow(element)
+      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
       return ScalarTarget(
-        storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField,
-        entry: nil
+        storage: slot, schema: BorrowedFrame.schema(fromBits: bits),
+        field: StreamSchema.wholeValueField, entry: nil
       )
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
@@ -1313,19 +1362,12 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         entry: nil
       )
     case .dictionary:
-      if let storage = self.pendingDictionaryStorage {
-        self.pendingDictionaryStorage = nil
-        return ScalarTarget(
-          storage: storage,
-          schema: top.pointee.schema,
-          field: StreamSchema.wholeValueField,
-          entry: nil
-        )
-      }
-      guard let frame = self.pendingDictionaryFrame else { return nil }
+      guard let slot = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
       return ScalarTarget(
-        storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField,
-        entry: nil
+        storage: slot, schema: BorrowedFrame.schema(fromBits: bits),
+        field: StreamSchema.wholeValueField, entry: nil
       )
     case .scalar:
       return ScalarTarget(
@@ -1351,7 +1393,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // The same, when the target may be a table entry: `table` writes it, `body` is the closure
   // route for everything else.
   private mutating func withScalarTarget(
-    table: (UnsafePointer<StreamField>, UnsafeMutableRawPointer, StreamSchema) -> StreamApplyResult,
+    table: (UnsafePointer<StreamFieldEntry>, UnsafeMutableRawPointer, StreamSchema) -> StreamApplyResult,
     _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
   ) {
     guard let target = self.resolveScalarTarget() else { return }
@@ -1383,15 +1425,21 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     self.streamFailure = StreamSinkFailure(reason: reason)
   }
 
-  // A schema that accepts and discards everything, used for subtrees the destination has no
-  // field for. Without it an unknown key's nested object would be routed to the parent.
+  // A frame over a subtree the destination has no field for, with a schema that accepts and
+  // discards everything. Without it an unknown key's nested object would be routed to the
+  // parent. Built from the schema's bits: reading the global as a reference and storing it into
+  // the frame's unowned field was a retain and a release per ignored container, and a model that
+  // declares part of a document opens hundreds of them.
   @usableFromInline
-  static var ignoredSchema: StreamSchema {
-    ignoredStreamSchema
+  var ignoredFrame: BorrowedFrame {
+    BorrowedFrame(storage: self.root, schemaBits: ignoredStreamSchemaBits)
   }
 }
 
 @usableFromInline let ignoredStreamSchema = StreamSchema(shape: .object)
+@usableFromInline nonisolated(unsafe) let ignoredStreamSchemaBits = UnsafeRawPointer(
+  Unmanaged.passUnretained(ignoredStreamSchema).toOpaque()
+)
 
 extension PartialSink where Root: StreamParseableRoot {
   public init(root: UnsafeMutablePointer<Root>) {

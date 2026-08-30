@@ -37,8 +37,11 @@ public enum StreamFieldKind: UInt8, Sendable {
   case streamString
   /// `StreamInlineString<N>`: an `Int32` count and then exactly `capacity` bytes.
   case inlineString
-  /// An object, array, dictionary or fixed-width vector: entered through `enterField` with the
-  /// entry's `index`. A scalar arriving here is a type mismatch.
+  /// An object, array, dictionary or fixed-width vector. Entered from the entry itself when it
+  /// carries the child's `schema` -- the frame is the member's address and that schema, after
+  /// the entry's `prepare` (if any) has materialised an optional or reserved a capacity -- and
+  /// through the schema's `enterField` closure with the entry's `index` when it does not. A scalar
+  /// arriving here is a type mismatch.
   case container
 
   @inlinable
@@ -49,10 +52,14 @@ public enum StreamFieldKind: UInt8, Sendable {
 
 // MARK: - StreamField
 
-/// One member of an object schema, as the sink sees it.
-///
-/// Forty bytes, laid out so the match reads the first sixteen -- the key's first word and its
-/// length -- and touches the rest only on a hit.
+/// What runs over a container member's storage before a frame is pushed over it: materialising
+/// an optional, reserving a declared capacity. `nil` for a member that needs neither. The second
+/// argument is the entry's `capacity`, passed in so the closure need not capture it.
+public typealias StreamFieldPrepare = @Sendable (UnsafeMutableRawPointer, Int32) -> Void
+
+/// One member of an object schema, as declared. The schema packs these into the forty-byte
+/// entries the sink matches against (`StreamFieldEntry`); this form keeps the key and the strong
+/// references those entries only point at.
 public struct StreamField: Sendable {
   /// The key's first eight bytes, little-endian, zero padded.
   public var keyWord: UInt64
@@ -75,10 +82,20 @@ public struct StreamField: Sendable {
     public init(rawValue: UInt8) { self.rawValue = rawValue }
     /// The member is `Optional`; a write must materialise it and a null clears it.
     @inlinable public static var optional: Flags { Flags(rawValue: 1) }
+    /// The entry has a `prepare` closure to run before a frame is pushed over the member.
+    @inlinable public static var prepare: Flags { Flags(rawValue: 2) }
   }
 
   /// The key as declared, kept until the schema packs every entry's key into one blob.
   @usableFromInline var key: [UInt8]
+
+  /// For a `container` member, the schema the frame over it carries: the hoisted static the
+  /// enclosing `Partial` owns. The entry keeps an unowned copy; this is the reference that keeps
+  /// the declaration form honest about what it points at.
+  public var schema: StreamSchema?
+
+  /// See ``StreamFieldPrepare``. Only a `container` member has one.
+  public var prepare: StreamFieldPrepare?
 
   public init(
     key: String,
@@ -104,6 +121,8 @@ public struct StreamField: Sendable {
     self.index = index
     self.capacity = Int32(capacity)
     self.keyStart = 0
+    self.schema = nil
+    self.prepare = nil
   }
 
   @inlinable public var isOptional: Bool { self.flags.contains(.optional) }
@@ -115,6 +134,50 @@ public struct StreamField: Sendable {
       key: key, index: index, kind: route.kind, optional: route.optional, offset: offset,
       capacity: route.capacity != 0 ? route.capacity : capacity
     )
+    self.schema = route.schema
+    self.prepare = route.prepare
+  }
+}
+
+/// The packed form of a ``StreamField``: what the sink reads.
+///
+/// Forty bytes, laid out so the match reads the first sixteen -- the key's first word and its
+/// length -- and touches the rest only on a hit. The child schema is its object address as raw
+/// bits rather than a reference of any strength: the sink copies the bits into a frame, and
+/// forming a reference on the way -- even `unowned(unsafe)` bound with `if let` -- is a retain
+/// and a release per container open that the optimizer does not remove, because nothing owns the
+/// value it could prove the lifetime against. The table owns every schema an entry names.
+@usableFromInline
+struct StreamFieldEntry {
+  @usableFromInline var keyWord: UInt64
+  @usableFromInline var keyLength: UInt16
+  @usableFromInline var kind: StreamFieldKind
+  @usableFromInline var flags: StreamField.Flags
+  @usableFromInline var offset: UInt32
+  @usableFromInline var index: Int32
+  @usableFromInline var capacity: Int32
+  @usableFromInline var keyStart: UInt32
+  // Padding the layout already had; a later kind may claim it.
+  @usableFromInline var reserved: UInt32
+  @usableFromInline var schemaBits: UnsafeRawPointer?
+
+  @inlinable public var isOptional: Bool { self.flags.contains(.optional) }
+  /// Whether the entry has a `prepare` closure in the table's parallel array.
+  @inlinable public var hasPrepare: Bool { self.flags.contains(.prepare) }
+
+  @usableFromInline
+  init(_ field: StreamField, keyStart: Int) {
+    self.keyWord = field.keyWord
+    self.keyLength = field.keyLength
+    self.kind = field.kind
+    self.flags = field.flags
+    if field.prepare != nil { self.flags.insert(.prepare) }
+    self.offset = field.offset
+    self.index = field.index
+    self.capacity = field.capacity
+    self.keyStart = UInt32(keyStart)
+    self.reserved = 0
+    self.schemaBits = field.schema.map { UnsafeRawPointer(Unmanaged.passUnretained($0).toOpaque()) }
   }
 }
 
@@ -124,13 +187,26 @@ public struct StreamField: Sendable {
 public struct StreamFieldRoute: Sendable {
   public var kind: StreamFieldKind
   public var optional: Bool
-  /// A capacity the kind itself dictates -- an inline string's -- or zero.
+  /// A capacity the kind itself dictates -- an inline string's, a string member's reservation --
+  /// or zero.
   public var capacity: Int
+  /// A container member's child schema. See ``StreamField/schema``.
+  public var schema: StreamSchema?
+  /// See ``StreamFieldPrepare``.
+  public var prepare: StreamFieldPrepare?
 
-  public init(_ kind: StreamFieldKind, optional: Bool, capacity: Int = 0) {
+  public init(
+    _ kind: StreamFieldKind,
+    optional: Bool,
+    capacity: Int = 0,
+    schema: StreamSchema? = nil,
+    prepare: StreamFieldPrepare? = nil
+  ) {
     self.kind = kind
     self.optional = optional
     self.capacity = capacity
+    self.schema = schema
+    self.prepare = prepare
   }
 }
 
@@ -188,32 +264,40 @@ public func _streamBooleanFieldKind<T: StreamBooleanConvertible>(_ type: T.Type)
 /// schema outlives, which is what `BorrowedFrame` already requires of the schema itself.
 @usableFromInline
 final class StreamFieldTable: @unchecked Sendable {
-  @usableFromInline let entries: UnsafeMutablePointer<StreamField>
+  @usableFromInline let entries: UnsafeMutablePointer<StreamFieldEntry>
   @usableFromInline let count: Int
   @usableFromInline let keyBytes: UnsafeMutablePointer<UInt8>
+  // Parallel to `entries`, indexed by entry. Off the entry itself so the match's stride stays
+  // forty bytes; a container open reads its slot once, and only when the entry's flag says so.
+  @usableFromInline let prepares: UnsafeMutablePointer<StreamFieldPrepare?>
+  // The owners of every schema an entry points at unowned.
+  @usableFromInline let schemas: [StreamSchema]
 
   @usableFromInline
   init(_ fields: [StreamField]) {
     self.count = fields.count
     self.entries = .allocate(capacity: Swift.max(fields.count, 1))
+    self.prepares = .allocate(capacity: Swift.max(fields.count, 1))
+    self.schemas = fields.compactMap(\.schema)
     let keyByteCount = fields.reduce(0) { $0 + $1.key.count }
     self.keyBytes = .allocate(capacity: Swift.max(keyByteCount, 1))
     var keyStart = 0
     for (index, field) in fields.enumerated() {
-      var entry = field
-      entry.keyStart = UInt32(keyStart)
       field.key.withUnsafeBufferPointer { buffer in
         guard let base = buffer.baseAddress else { return }
         (self.keyBytes + keyStart).update(from: base, count: buffer.count)
       }
+      (self.entries + index).initialize(to: StreamFieldEntry(field, keyStart: keyStart))
+      (self.prepares + index).initialize(to: field.prepare)
       keyStart &+= field.key.count
-      (self.entries + index).initialize(to: entry)
     }
   }
 
   deinit {
     self.entries.deinitialize(count: self.count)
     self.entries.deallocate()
+    self.prepares.deinitialize(count: self.count)
+    self.prepares.deallocate()
     self.keyBytes.deallocate()
   }
 
@@ -229,7 +313,7 @@ final class StreamFieldTable: @unchecked Sendable {
 @inlinable
 @inline(__always)
 func streamMatchField(
-  _ entries: UnsafePointer<StreamField>,
+  _ entries: UnsafePointer<StreamFieldEntry>,
   count: Int,
   keyBytes: UnsafePointer<UInt8>,
   _ key: Span<UInt8>
@@ -254,7 +338,7 @@ func streamMatchField(
 @usableFromInline
 @inline(never)
 func streamFieldTailMatches(
-  _ entry: UnsafePointer<StreamField>, keyBytes: UnsafePointer<UInt8>, _ key: Span<UInt8>
+  _ entry: UnsafePointer<StreamFieldEntry>, keyBytes: UnsafePointer<UInt8>, _ key: Span<UInt8>
 ) -> Bool {
   key.withUnsafeBufferPointer { buffer in
     let stored = UnsafeRawPointer(keyBytes + Int(entry.pointee.keyStart) + 8)

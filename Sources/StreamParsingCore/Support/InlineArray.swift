@@ -60,18 +60,18 @@ public func _streamInlineArraySchema<let count: Int, Element: StreamParseableRoo
   element: StreamSchema
 ) -> StreamSchema {
   precondition(count <= Int(Int32.max), "InlineArray count exceeds the stream frame cursor")
+  precondition(
+    MemoryLayout<Element>.stride <= Int(Int32.max)
+      && MemoryLayout<InlineArray<count, Element>>.size == count * MemoryLayout<Element>.stride,
+    "InlineArray storage does not match the stride the parser addresses elements through"
+  )
+  // No `appendElement`: the storage is `count` elements at a stride, and the sink addresses
+  // element `i` from the frame's cursor as `storage + i * elementStride`, bounds checked against
+  // `fixedElementCount` before it does.
   return StreamSchema(
     shape: .array,
-    appendElement: { storage, index in
-      // PartialSink owns this cursor and checks it against fixedElementCount before invoking the
-      // witness. Keep the witness branch-free so a specialized closure becomes one scaled address
-      // calculation rather than repeating that bounds check for every element.
-      return _streamOpenInlineElement(
-        in: &storage.assumingMemoryBound(to: InlineArray<count, Element>.self).pointee,
-        at: Int(index),
-        schema: element
-      )
-    },
+    elementSchema: element,
+    elementStride: Int32(MemoryLayout<Element>.stride),
     leafRoute: .inlineArray,
     fixedElementCount: Int32(count)
   )

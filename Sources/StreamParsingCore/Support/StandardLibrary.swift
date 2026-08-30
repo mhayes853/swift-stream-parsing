@@ -392,6 +392,8 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterKey(storage, key)
       },
+      elementSchema: wrapped.elementSchema,
+      elementStride: wrapped.elementStride,
       // Fixed SIMD arrays keep their cursor in the sink frame and write through the optional's
       // offset-zero payload after `prepareRoot` materializes it. Other container routes continue
       // to use their ordinary frame operations.
@@ -433,11 +435,10 @@ extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial
   }
 
   @inlinable
-  public static func streamContainerFrame(
-    at storage: UnsafeMutableRawPointer,
-    schema: StreamSchema
-  ) -> StreamFrame {
-    _streamMaterializeOptional(storage, as: Wrapped.self)
-    return Wrapped.streamContainerFrame(at: storage, schema: schema)
+  public static var _streamContainerPrepare: StreamFieldPrepare? {
+    { storage, capacity in
+      _streamMaterializeOptional(storage, as: Wrapped.self)
+      Wrapped._streamContainerPrepare?(storage, capacity)
+    }
   }
 }

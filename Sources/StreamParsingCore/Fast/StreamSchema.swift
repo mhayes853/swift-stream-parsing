@@ -202,9 +202,24 @@ public final class StreamSchema: @unchecked Sendable {
   // sink reads the three raw views, because loading a class reference off a frame's
   // `unowned(unsafe)` schema is a retain and a release, and the sink does it per key.
   @usableFromInline let fields: StreamFieldTable?
-  @usableFromInline let fieldEntries: UnsafePointer<StreamField>?
+  @usableFromInline let fieldEntries: UnsafePointer<StreamFieldEntry>?
   @usableFromInline let fieldCount: Int
   @usableFromInline let fieldKeyBytes: UnsafePointer<UInt8>?
+  @usableFromInline let fieldPrepares: UnsafePointer<StreamFieldPrepare?>?
+
+  // The schema an array's elements or a dictionary's values are written through, for a schema
+  // whose `appendElement` or `enterKey` hands back a slot. The frame the sink pushes over that
+  // slot is the slot and this schema, so the element schema is data on the parent rather than a
+  // value the closure returns -- returning it was a `StreamFrame`, whose strong schema was a
+  // retain on the way out and a release when the sink lowered it, per element. The bits are
+  // what the sink copies into a frame (see `StreamFieldEntry.schemaBits` for why bits); the
+  // strong reference is the owner.
+  public let elementSchema: StreamSchema?
+  @usableFromInline let elementSchemaBits: UnsafeRawPointer?
+
+  // For a fixed array whose elements sit at a stride from its storage: the sink addresses element
+  // `i` at `storage + i * elementStride` and calls nothing. Zero for every other schema.
+  @usableFromInline let elementStride: Int32
 
   // Whether this schema declares no matcher. Read when one schema is wrapped in another, so the
   // wrapper does not install a matcher over a destination that has none.
@@ -236,15 +251,13 @@ public final class StreamSchema: @unchecked Sendable {
   // replaces.
   public let enterField: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
 
-  // Appends an element and returns a frame for it. Arrays only.
-  //
-  // Dynamic arrays ignore `index`; fixed arrays use it to address their inline storage. Carrying
-  // the cursor through the existing operation avoids adding a second element-opening witness to
-  // every schema merely for the fixed case.
-  public let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame?
+  // Appends an element and returns its slot, which the sink writes through ``elementSchema``.
+  // Arrays only. `index` is the element's position, which a dynamic array ignores.
+  public let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
 
-  // Returns a frame for the value stored under a dynamic key. Dictionaries only.
-  public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame?
+  // Returns the slot of the value stored under a dynamic key, written through
+  // ``elementSchema``. Dictionaries only.
+  public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
 
   // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
   // appends the `number` records in `from..<to` and returns how many it took. Arrays of
@@ -288,13 +301,14 @@ public final class StreamSchema: @unchecked Sendable {
       _, _ in .unsupported
     },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
-    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
-    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
+    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
     appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil,
+    elementSchema: StreamSchema? = nil,
     fields: [StreamField] = []
   ) {
     self.init(
@@ -309,6 +323,7 @@ public final class StreamSchema: @unchecked Sendable {
       appendElement: appendElement,
       enterKey: enterKey,
       appendNumbers: appendNumbers,
+      elementSchema: elementSchema,
       leafRoute: .generic,
       fixedElementCount: -1,
       inlineCapacity: 0,
@@ -334,15 +349,17 @@ public final class StreamSchema: @unchecked Sendable {
       _, _ in .unsupported
     },
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
-    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = {
+    appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
-    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
+    enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
     appendNumbers: (
       @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
     )? = nil,
+    elementSchema: StreamSchema? = nil,
+    elementStride: Int32 = 0,
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
     inlineCapacity: Int32 = 0,
@@ -354,6 +371,12 @@ public final class StreamSchema: @unchecked Sendable {
     self.fieldEntries = fields.map { UnsafePointer($0.entries) }
     self.fieldCount = fields?.count ?? 0
     self.fieldKeyBytes = fields.map { UnsafePointer($0.keyBytes) }
+    self.fieldPrepares = fields.map { UnsafePointer($0.prepares) }
+    self.elementSchema = elementSchema
+    self.elementSchemaBits = elementSchema.map {
+      UnsafeRawPointer(Unmanaged.passUnretained($0).toOpaque())
+    }
+    self.elementStride = elementStride
     self.ignoresKeys = matchField == nil && fields == nil
     // A dictionary routes keys through `enterKey` whether or not it also carries a matcher, which
     // is the order the sink already applied. A table outranks a matcher: a schema built with both
@@ -384,8 +407,8 @@ public final class StreamSchema: @unchecked Sendable {
 // an overload on its behalf. `partials(of:from:)` is exactly such a function, so a root schema
 // has to come from a protocol requirement rather than an overload.
 //
-// Kept separate from `StreamParseableObject` because the constrained `_streamEnterField` keys off
-// that one, and it must not match a `String` field and hand it a frame instead of a scalar write.
+// Kept separate from `StreamParseableObject` because the constrained `_streamFieldRoute` keys off
+// that one, and it must not match a `String` field and route it as a container.
 public protocol StreamParseableRoot: StreamInitializable {
   static var streamSchema: StreamSchema { get }
 
@@ -478,12 +501,11 @@ public protocol StreamContainerPartial: StreamParseableRoot {
   /// `private static let` on the generated `Partial` and passes it back per entry.
   static var streamContainerSchema: StreamSchema { get }
 
-  /// Returns the frame that writes a container into `storage`, carrying a resolved
-  /// ``streamContainerSchema``.
-  static func streamContainerFrame(
-    at storage: UnsafeMutableRawPointer,
-    schema: StreamSchema
-  ) -> StreamFrame
+  /// Makes the storage of a member of this type ready for ``streamContainerSchema`` to write
+  /// through, before the sink pushes a frame over it; runs once per container occurrence. `nil`
+  /// for a type whose storage is its own value, which is every type but `Optional`, which
+  /// materialises its payload here. The table stores it as the member's `prepare`.
+  static var _streamContainerPrepare: StreamFieldPrepare? { get }
 }
 
 extension StreamContainerPartial {
@@ -493,12 +515,7 @@ extension StreamContainerPartial {
   }
 
   @inlinable
-  public static func streamContainerFrame(
-    at storage: UnsafeMutableRawPointer,
-    schema: StreamSchema
-  ) -> StreamFrame {
-    StreamFrame(storage: storage, schema: schema)
-  }
+  public static var _streamContainerPrepare: StreamFieldPrepare? { nil }
 }
 
 // Refines `StreamContainerPartial` so that a nested object field's schema is hoisted by its
@@ -687,14 +704,14 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
 ) -> StreamSchema {
   StreamSchema(
     shape: .array,
+    // Captures nothing: the element schema is data on this schema, and the initial value is the
+    // element type's. A closure without a context is a call and nothing else.
     appendElement: { storage, _ in
-      _streamOpenElement(
-        in: &storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee,
-        initial: Element.streamElementInitialValue(),
-        schema: element
-      )
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
+        ._openElement(Element.streamElementInitialValue())
     },
     appendNumbers: Element._streamArrayNumberAppender,
+    elementSchema: element,
     leafRoute: .array(element.leafRoute)
   )
 }
@@ -777,6 +794,8 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     enterField: base.enterField,
     appendElement: base.appendElement,
     enterKey: base.enterKey,
+    elementSchema: base.elementSchema,
+    elementStride: base.elementStride,
     leafRoute: base.leafRoute == .inlineArray
       ? .inlineArray
       : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
@@ -800,12 +819,10 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   return StreamSchema(
     shape: .array,
     appendElement: { storage, _ in
-      _streamOpenElement(
-        in: &storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee,
-        initial: Wrapped?.some(Wrapped.streamInitialValue()),
-        schema: element
-      )
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
+        ._openElement(.some(Wrapped.streamInitialValue()))
     },
+    elementSchema: element,
     leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic
   )
 }
@@ -819,13 +836,10 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   return StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
-      _streamEnterDictionaryValue(
-        &storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee,
-        key: key,
-        initial: Wrapped?.some(Wrapped.streamInitialValue()),
-        schema: value
-      )
+      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
+        ._openValue(forKey: key, initial: .some(Wrapped.streamInitialValue()))
     },
+    elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic
   )
 }
@@ -838,13 +852,10 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
   StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
-      _streamEnterDictionaryValue(
-        &storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee,
-        key: key,
-        initial: Value.streamElementInitialValue(),
-        schema: valueSchema
-      )
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
+        ._openValue(forKey: key, initial: Value.streamElementInitialValue())
     },
+    elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
     inlineCapacity: valueSchema.inlineCapacity
   )

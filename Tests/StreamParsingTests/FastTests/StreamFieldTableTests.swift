@@ -27,6 +27,8 @@ private struct TableScalars: Equatable {
   var aliased: Int = 0
   @StreamParseableMember(initialCapacity: 64)
   var text: String = ""
+  @StreamParseableMember(initialCapacity: 16)
+  var tags: [String] = []
 }
 
 @StreamParseable
@@ -38,6 +40,10 @@ private struct TableNested: Equatable {
 private struct TableInitialized: Equatable {
   var count: Int = 0
   var name: String = ""
+  var nested: TableNested = TableNested()
+  var scores: [Int] = []
+  @StreamParseableMember(initialCapacity: 16)
+  var tags: [String] = []
 }
 
 // A number type the library has no layout for: it must stay on the closures.
@@ -87,6 +93,7 @@ struct StreamFieldTableTests {
       expectNoDifference(Int(self.entry("alias_a", in: fields).offset), MemoryLayout<P>.offset(of: \.aliased)!)
       expectNoDifference(Int(self.entry("alias_b", in: fields).offset), MemoryLayout<P>.offset(of: \.aliased)!)
       expectNoDifference(Int(self.entry("text", in: fields).offset), MemoryLayout<P>.offset(of: \.text)!)
+      expectNoDifference(Int(self.entry("tags", in: fields).offset), MemoryLayout<P>.offset(of: \.tags)!)
 
       typealias I = TableInitialized.Partial
       let initialized = I.streamFields
@@ -121,6 +128,35 @@ struct StreamFieldTableTests {
       expectNoDifference(self.entry("count", in: custom).kind, .int)
     }
 
+    // A container entry carries the child's schema, so entering it is a frame built from the
+    // entry rather than a closure call; an optional or capacity-hinted member carries a `prepare`
+    // to materialise or reserve first, and a member that needs neither carries none.
+    @Test
+    func `Container entries carry the child schema and a prepare only when needed`() {
+      let fields = TableScalars.Partial.streamFields
+      expectNoDifference(self.entry("nested", in: fields).schema?.shape, .object)
+      expectNoDifference(self.entry("scores", in: fields).schema?.shape, .array)
+      expectNoDifference(self.entry("counts", in: fields).schema?.shape, .dictionary)
+      expectNoDifference(self.entry("tags", in: fields).schema?.shape, .array)
+      expectNoDifference(self.entry("tags", in: fields).capacity, 16)
+      expectNoDifference(self.entry("count", in: fields).schema == nil, true)
+      // Optional members: every container prepares (materialises).
+      expectNoDifference(self.entry("nested", in: fields).prepare != nil, true)
+      expectNoDifference(self.entry("scores", in: fields).prepare != nil, true)
+      expectNoDifference(self.entry("count", in: fields).prepare == nil, true)
+
+      let initialized = TableInitialized.Partial.streamFields
+      expectNoDifference(self.entry("nested", in: initialized).schema?.shape, .object)
+      expectNoDifference(self.entry("nested", in: initialized).prepare == nil, true)
+      expectNoDifference(self.entry("scores", in: initialized).prepare == nil, true)
+      // A capacity hint on a non-optional member still needs a reservation.
+      expectNoDifference(self.entry("tags", in: initialized).prepare != nil, true)
+      expectNoDifference(self.entry("tags", in: initialized).capacity, 16)
+
+      let custom = TableCustom.Partial.streamFields
+      expectNoDifference(self.entry("temperature", in: custom).schema == nil, true)
+    }
+
     @Test
     func `Aliased keys share an index`() {
       let fields = TableScalars.Partial.streamFields
@@ -137,7 +173,7 @@ struct StreamFieldTableTests {
       let json = #"""
         {"flag":true,"count":-7,"small":-3,"wide":18446744073709551615,"ratio":2.5,
          "single":0.5,"name":"blob","nested":{"value":9},"scores":[1,2],"counts":{"a":1},
-         "alias_b":42,"text":"long"}
+         "alias_b":42,"text":"long","tags":["a","b"]}
         """#
       var stream = PartialsStream(initialValue: TableScalars.Partial(), from: .json())
       try stream.next(Array(json.utf8))
@@ -154,12 +190,18 @@ struct StreamFieldTableTests {
       expectNoDifference(value.counts?["a"], 1)
       expectNoDifference(value.aliased, 42)
       expectNoDifference(value.text.map(String.init), "long")
+      expectNoDifference(value.tags?.map(String.init), ["a", "b"])
 
       var initialized = PartialsStream(initialValue: TableInitialized.Partial(), from: .json())
-      try initialized.next(Array(#"{"count":3,"name":"x"}"#.utf8))
+      try initialized.next(
+        Array(#"{"count":3,"name":"x","nested":{"value":4},"scores":[5],"tags":["t"]}"#.utf8)
+      )
       let initializedValue = try initialized.finish()
       expectNoDifference(initializedValue.count, 3)
       expectNoDifference(String(initializedValue.name), "x")
+      expectNoDifference(initializedValue.nested.value, 4)
+      expectNoDifference(Array(initializedValue.scores), [5])
+      expectNoDifference(initializedValue.tags.map(String.init), ["t"])
 
       var custom = PartialsStream(initialValue: TableCustom.Partial(), from: .json())
       try custom.next(Array(#"{"temperature":21.5,"count":1}"#.utf8))

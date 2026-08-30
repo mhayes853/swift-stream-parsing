@@ -6064,3 +6064,75 @@ are the routes the table does not yet cover.
 - **Key matching** is a linear scan; a branchless first-word compare across the table is the
   obvious next form once the entries are laid out for it.
 
+
+## Container entry as data: the frame is the entry
+
+The first thing left on the closures after the field table was entering a container: an object
+member, an array, a dictionary. `enterField` was a closure call that materialised the optional,
+built a `StreamFrame` -- a *strong* schema reference, so a retain on the way out -- and handed it
+back to be lowered into a `BorrowedFrame`, a release. `appendElement` and `enterKey` did the same
+per element and per dictionary value. Two retain/release pairs per container open, on documents
+that are mostly container opens.
+
+### What changed in the contract
+
+- **A `container` entry carries its child schema and a `prepare`.** The macro passes the hoisted
+  `private static let streamContainerSchema_x` into `_streamFieldRoute(&p.pointee.x, schema:)`,
+  so the entry knows the schema the frame over that member takes. Entering is: the member's
+  address, that schema, and -- only when the entry's flag says so -- one `prepare` call that
+  materialises an optional or reserves a declared capacity. A non-optional member with no
+  capacity hint calls nothing at all. The generated `streamEnterField` switch is gone; the
+  schema's `enterField` closure survives for hand-written schemas only.
+- **`appendElement` and `enterKey` return the slot, not a frame.** The element or value schema is
+  data on the parent (`elementSchema`), read once when the parent's frame is built over. The array
+  closures capture nothing any more -- the element schema they used to capture is on the schema
+  -- so their context is null and the retain of it is a null check.
+- **`InlineArray` has no `appendElement`.** Its elements sit at `MemoryLayout<Element>.stride`
+  from the storage; the schema carries `elementStride` and the sink addresses element `i` from
+  the frame's cursor. No call.
+- **`StreamContainerPartial.streamContainerFrame` became `_streamContainerPrepare`**, an optional
+  closure that is `nil` for every type but `Optional`, which materialises. The frame itself is no
+  longer anyone's to build.
+
+### Bits, not references
+
+The first build of this kept every retain. `if let schema = entry.pointee.schema` on an
+`unowned(unsafe)` optional forms a strong temporary, and storing it into the frame's
+`unowned(unsafe)` field does not make the optimizer drop the copy: there is no owner it can prove
+the lifetime against, so `swift_retain` / `swift_release` bracket the frame construction -- for
+the entry's schema, for `elementSchemaRef` on the array and dictionary paths, and for the
+`ignoredSchema` global every ignored subtree pushes. The disassembly of `valueTarget` showed five
+retains and six releases.
+
+The child schema is therefore stored as its object address (`schemaBits`, `elementSchemaBits`,
+`ignoredStreamSchemaBits`) and `BorrowedFrame.init(storage:schemaBits:)` bit-casts it into the
+unowned field. No reference is ever formed, so there is nothing to retain. After that,
+`valueTarget`'s table branch has no ARC at all; the two pairs left are the `appendElement`
+closure's null context and the hand-written `enterField` fallback.
+
+### Measured (3 rounds interleaved, p50, vs 113ae98)
+
+| Row | Before | After | Δ |
+|---|---|---|---|
+| Sink synthetic container churn | 216 MB/s (14.5 ns/ev) | 285 (11.0) | +32% |
+| Sink synthetic dictionary | 181 (41.7 ns) | 212 (35.6) | +17% |
+| Sink synthetic int fields | 851 (7.8 ns) | 949 (7.0) | +12%, retains 16K → 8K |
+| Sink synthetic int fields, no key matches | 933 | 1064 | +14% |
+| Sink CITM catalog | 528 | 573 | +8.5%, retains 85K → 63K |
+| Sink Twitter / Twitter escaped / GitHub | 2233 / 1192 / 781 | 2303 / 1228 / 803 | +3% each |
+| Sink GSoC / LLM / Mesh / Canada | | | +1.5 / +1.6 / +0.3 / +0.4% |
+| Real CITM catalog - bulk discarding | 420 | 446 | +6.2% |
+| Real GitHub events - bulk discarding | 536 | 549 | +2.4% |
+| Real Twitter escaped - bulk discarding | 599 | 610 | +1.8% |
+| Fixed array booleans / numbers / objects / composite - inline | 60 / 63 / 143 / 120 | 70 / 73 / 164 / 137 | +17 / +16 / +15 / +14% |
+| Fixed array * - dynamic | | | +3..+8% |
+| Real * - bulk (raw parser) | | | −1.1..+2.3%, code untouched |
+
+The int-fields row is the one to read: it has no containers at all beyond the row objects, and
+it moved 12% because each row is an array element open, which lost its `StreamFrame`.
+
+Canada, Mesh and the double-pairs row did not move (retains 161K → 141K on pairs). Their
+per-element cost is the element open itself -- `drainPending`, the commit, the `StreamArray`
+swap -- and the number run after it, none of which the frame touched. That, and the scalar
+element and dictionary-value routes still going through `wholeValueField` and the closures, is
+the next step.

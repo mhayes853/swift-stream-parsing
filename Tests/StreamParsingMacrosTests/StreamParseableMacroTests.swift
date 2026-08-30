@@ -159,32 +159,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -197,7 +183,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -395,32 +380,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "customKeyName", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -433,7 +404,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -739,37 +709,23 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "customKeyName", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "customKeyName2", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -782,7 +738,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -1061,32 +1016,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -1099,7 +1040,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -1296,32 +1236,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -1334,7 +1260,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -1505,25 +1430,13 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -1536,7 +1449,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -1705,25 +1617,13 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.stored:
-                return _streamEnterField(&p.pointee.stored, containerSchema: Self.streamContainerSchema_stored)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "stored", index: Self.StreamField.stored,
-                  route: _streamFieldRoute(&p.pointee.stored),
+                  route: _streamFieldRoute(&p.pointee.stored, schema: Self.streamContainerSchema_stored),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.stored, in: p)
                 ),
               ]
@@ -1736,7 +1636,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -1954,25 +1853,13 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.stored:
-                return _streamEnterField(&p.pointee.stored, containerSchema: Self.streamContainerSchema_stored)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "stored", index: Self.StreamField.stored,
-                  route: _streamFieldRoute(&p.pointee.stored),
+                  route: _streamFieldRoute(&p.pointee.stored, schema: Self.streamContainerSchema_stored),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.stored, in: p)
                 ),
               ]
@@ -1985,7 +1872,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -2176,32 +2062,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -2214,7 +2086,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -2576,32 +2447,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -2614,7 +2471,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -2811,32 +2667,18 @@ extension BaseTestSuite {
               }
             }
 
-            public static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             public static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -2849,7 +2691,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -3042,32 +2883,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -3080,7 +2907,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -3273,32 +3099,18 @@ extension BaseTestSuite {
               }
             }
 
-            fileprivate static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             fileprivate static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -3311,7 +3123,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -3508,32 +3319,18 @@ extension BaseTestSuite {
               }
             }
 
-            public static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             public static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -3546,7 +3343,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -3743,32 +3539,18 @@ extension BaseTestSuite {
               }
             }
 
-            public static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             public static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "name", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -3781,7 +3563,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -3982,37 +3763,23 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "blob", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "name2", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -4025,7 +3792,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -4222,37 +3988,23 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "blob", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "name2", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -4265,7 +4017,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -4462,37 +4213,23 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.name:
-                return _streamEnterField(&p.pointee.name, containerSchema: Self.streamContainerSchema_name)
-              case Self.StreamField.age:
-                return _streamEnterField(&p.pointee.age, containerSchema: Self.streamContainerSchema_age)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "blob", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "name2", index: Self.StreamField.name,
-                  route: _streamFieldRoute(&p.pointee.name),
+                  route: _streamFieldRoute(&p.pointee.name, schema: Self.streamContainerSchema_name),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "age", index: Self.StreamField.age,
-                  route: _streamFieldRoute(&p.pointee.age),
+                  route: _streamFieldRoute(&p.pointee.age, schema: Self.streamContainerSchema_age),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                 ),
               ]
@@ -4505,7 +4242,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
@@ -4686,32 +4422,18 @@ extension BaseTestSuite {
               }
             }
 
-            static func streamEnterField(
-              _ storage: UnsafeMutableRawPointer, _ field: Int32
-            ) -> StreamParsingCore.StreamFrame? {
-              let p = storage.assumingMemoryBound(to: Self.self)
-              switch field {
-              case Self.StreamField.items:
-                return _streamEnterContainerField(&p.pointee.items, schema: Self.streamContainerSchema_items)
-              case Self.StreamField.index:
-                return _streamEnterContainerField(&p.pointee.index, schema: Self.streamContainerSchema_index)
-              default:
-                return nil
-              }
-            }
-
             static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
               of: Self.self, prototype: Self()
             ) { p in
               [
                 StreamParsingCore.StreamField(
                   key: "items", index: Self.StreamField.items,
-                  route: _streamFieldRoute(&p.pointee.items),
+                  route: _streamFieldRoute(&p.pointee.items, schema: Self.streamContainerSchema_items),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.items, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "index", index: Self.StreamField.index,
-                  route: _streamFieldRoute(&p.pointee.index),
+                  route: _streamFieldRoute(&p.pointee.index, schema: Self.streamContainerSchema_index),
                   offset: StreamParsingCore._streamFieldOffset(&p.pointee.index, in: p)
                 ),
               ]
@@ -4724,7 +4446,6 @@ extension BaseTestSuite {
               applyNumber: Self.streamApplyNumber,
               applyBoolean: Self.streamApplyBoolean,
               applyNull: Self.streamApplyNull,
-              enterField: Self.streamEnterField,
               fields: Self.streamFields
             )
           }
