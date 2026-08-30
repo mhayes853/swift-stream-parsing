@@ -18,17 +18,22 @@ struct BorrowedFrame {
   @usableFromInline var storage: UnsafeMutableRawPointer
   @usableFromInline unowned(unsafe) var schema: StreamSchema
   @usableFromInline var pendingField: Int32
-  // Occupies padding the 24-byte frame already had. Copying the schema's precomputed byte when a
-  // container opens keeps ordinary object scalars from chasing cold leaf metadata merely to
-  // reject a fast route.
-  @usableFromInline var leafRoute: _StreamLeafRoute
+  // Occupies padding the 24-byte frame already had: the schema's `routeBits` -- leaf route,
+  // element kind, element optionality -- copied when a container opens, so ordinary object
+  // scalars test a word on the frame rather than chasing cold leaf metadata to reject a fast
+  // route, and a scalar arriving at an element, value or lane finds its kind there.
+  @usableFromInline var routeBits: UInt32
+
+  @usableFromInline var leafRoute: _StreamLeafRoute { StreamRouteBits.leafRoute(self.routeBits) }
+  @usableFromInline var elementKind: StreamFieldKind { StreamRouteBits.elementKind(self.routeBits) }
+  @usableFromInline var elementOptional: Bool { StreamRouteBits.elementOptional(self.routeBits) }
 
   @usableFromInline
   init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
     self.storage = storage
     self.schema = schema
     self.pendingField = pendingField
-    self.leafRoute = .generic
+    self.routeBits = 0
   }
 
   @usableFromInline
@@ -36,7 +41,7 @@ struct BorrowedFrame {
     self.storage = frame.storage
     self.schema = frame.schema
     self.pendingField = frame.pendingField
-    self.leafRoute = .generic
+    self.routeBits = 0
   }
 
   // From a schema's object address, as the field table and a container schema hold it. The bits
@@ -47,7 +52,7 @@ struct BorrowedFrame {
     self.storage = storage
     self.schema = unsafeBitCast(schemaBits, to: StreamSchema.self)
     self.pendingField = -1
-    self.leafRoute = .generic
+    self.routeBits = 0
   }
 
   // A strong reference from the same bits, for the one holder that wants one (`ScalarTarget`).
@@ -120,6 +125,28 @@ struct BorrowedFrame {
   }
 #endif
 
+// At file scope, not nested in `PartialSink<Root>`: nested in the generic type, its metadata is
+// formally dependent on `Root`, and one build lowered `scalarTarget = nil` in `stringBegin` to a
+// metadata accessor and a value-witness destroy instead of a release -- 20-30% on every string
+// element. Nothing here depends on `Root`.
+@usableFromInline
+struct ScalarTarget {
+  var storage: UnsafeMutableRawPointer
+  // Strong, unlike `BorrowedFrame`, and measured rather than assumed. Borrowing here made things
+  // worse: a stored closure loaded off an `unowned(unsafe)` reference has to be converted to a
+  // strong one first, where the same load off a strong stored property is a borrow the optimizer
+  // gets for free. `Layer LLM message bulk - partial sink` went 604 -> 485 MB/s with retains
+  // rising 12,000 -> 37,000, because this target is re-read once per `stringChunk` and that
+  // document is the one made of long strings. Twitter, which routes many short scalars and few
+  // chunks, preferred the borrow by 11% — the string path is the larger of the two.
+  var schema: StreamSchema
+  var field: Int32
+  // The table entry the target came from, or nil for a target the closures apply: an array
+  // element, a dictionary value, a scalar root, or a `custom`/`container` field. For a table
+  // target `storage` is already the member's address.
+  var entry: UnsafePointer<StreamFieldEntry>?
+}
+
 // Routes parse events into a value described by a StreamSchema.
 //
 // Frames point into the value being built. Only the innermost open container is ever mutated,
@@ -131,9 +158,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   @usableFromInline var root: UnsafeMutableRawPointer
   @usableFromInline var rootSchema: StreamSchema
   @usableFromInline var started = false
-  // Cached from the top frame in padding next to `started`, so the common scalar route tests a
-  // fixed byte rather than calling out to rediscover the top frame and its schema.
-  @usableFromInline var activeLeafRoute: _StreamLeafRoute = .generic
+  // The top frame's `routeBits`, cached next to `started`, so the common scalar route tests a
+  // fixed word rather than calling out to rediscover the top frame and its schema.
+  @usableFromInline var activeRouteBits: UInt32 = 0
+  @usableFromInline var activeLeafRoute: _StreamLeafRoute {
+    StreamRouteBits.leafRoute(self.activeRouteBits)
+  }
+  // Non-zero when a scalar arriving at the top frame has a typed slot: an element, value or
+  // lane of a kind the table writes.
+  @usableFromInline var activeElementKindBits: UInt32 {
+    self.activeRouteBits & StreamRouteBits.elementKindMask
+  }
   // The slot `enterKey` opened for the value after the last dictionary key, written through the
   // dictionary schema's `elementSchema`. Consumed by the value that follows.
   @usableFromInline var pendingDictionaryStorage: UnsafeMutableRawPointer?
@@ -206,7 +241,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       return
     }
     var frame = initialFrame
-    frame.leafRoute = frame.schema.leafRoute
+    frame.routeBits = frame.schema.routeBits
     if frame.leafRoute.usesFrameElementIndex {
       // Objects use this field for a matched member. A fixed-width array has no keys, so the same
       // four bytes are its element cursor without increasing the 24-byte frame.
@@ -214,7 +249,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     }
     (self.frames + self.frameCount).initialize(to: frame)
     self.frameCount &+= 1
-    self.activeLeafRoute = frame.leafRoute
+    self.activeRouteBits = frame.routeBits
   }
 
   @usableFromInline
@@ -226,9 +261,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     guard self.frameCount > 0 else { return }
     self.frameCount &-= 1
     (self.frames + self.frameCount).deinitialize(count: 1)
-    self.activeLeafRoute = self.frameCount == 0
-      ? .generic
-      : (self.frames + (self.frameCount &- 1)).pointee.leafRoute
+    self.activeRouteBits = self.frameCount == 0
+      ? 0
+      : (self.frames + (self.frameCount &- 1)).pointee.routeBits
   }
 
   // MARK: Containers
@@ -254,17 +289,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   }
 
   mutating func endArray() {
-    if self.droppedFrameCount == 0 {
-      let expected: Int32
-      if self.activeLeafRoute == .inlineArray {
-        expected = self.topFrame?.pointee.schema.fixedElementCount ?? -1
-      } else {
-        let lanes = self.activeLeafRoute.fixedSIMDLaneCount
-        expected = lanes == 0 ? -1 : lanes
-      }
-      if expected >= 0, self.topFrame?.pointee.pendingField != expected {
-        self.recordFailure(.typeMismatch)
-      }
+    if self.droppedFrameCount == 0, self.activeLeafRoute.usesFrameElementIndex,
+      let top = self.topFrame, top.pointee.pendingField != top.pointee.schema.fixedElementCount
+    {
+      // A fixed array -- an `InlineArray`, a SIMD vector -- that closes short of its arity.
+      self.recordFailure(.typeMismatch)
     }
     self.popFrame()
   }
@@ -440,6 +469,10 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     default:
       break
     }
+    if self.activeElementKindBits != 0 {
+      self.openKnownStringSlot()
+      return
+    }
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
@@ -467,9 +500,29 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     // the resolved target is the same shape whether the destination is a scalar field, an array
     // element or a dictionary value -- one route covers all three, and none of them requires the
     // sink to know which `StreamInlineString` capacity it is writing into.
-    self.inlineStringCapacity = target.schema.leafRoute == .valueInlineString
-      ? target.schema.inlineCapacity
-      : 0
+    if target.schema.leafRoute == .valueInlineString {
+      self.inlineStringCapacity = target.schema.inlineCapacity
+      self.inlineStringStorage = target.storage
+      self.scalarTarget = nil
+    }
+  }
+
+  // An element, value or lane of a kind the table knows: a string slot is opened in place and
+  // the chunks append to it; any other kind cannot hold a string. Outlined so `stringBegin`'s
+  // object path keeps its instruction stream; inlined, it doubled the function.
+  @inline(never)
+  private mutating func openKnownStringSlot() {
+    self.scalarTarget = nil
+    guard let (slot, kind) = self.knownScalarSlot() else { return }
+    switch kind {
+    case .streamString:
+      self.homogeneousStringStorage = slot
+    case .inlineString:
+      self.inlineStringCapacity = self.topFrame.unsafelyUnwrapped.pointee.schema.inlineCapacity
+      self.inlineStringStorage = slot
+    default:
+      self.recordFailure(.typeMismatch)
+    }
   }
 
   mutating func stringChunk(_ bytes: Span<UInt8>) {
@@ -477,14 +530,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
       return
     }
-    guard let target = self.scalarTarget else { return }
-    if self.inlineStringCapacity != 0 {
-      let result = _streamInlineStringAppend(
-        target.storage, capacity: self.inlineStringCapacity, bytes
-      )
+    // Bounded inline storage has its own slot, tested *after* the `StreamString` path: a byte
+    // test ahead of that append cost `LLM message` and `GSoC` 2-3%, documents made of long
+    // strings fed as many chunks.
+    if let storage = self.inlineStringStorage {
+      let result = _streamInlineStringAppend(storage, capacity: self.inlineStringCapacity, bytes)
       self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
       return
     }
+    guard let target = self.scalarTarget else { return }
     // The one added check on the string hot path. A destination that reached `stringBegin` has
     // already proved it accepts strings, so this branch is never taken except by bounded storage
     // that has filled up -- predicted not-taken, and it is what turns an overflow into a reported
@@ -509,6 +563,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   mutating func stringEnd() {
     self.homogeneousStringStorage = nil
+    self.inlineStringStorage = nil
     self.scalarTarget = nil
     self.inlineStringCapacity = 0
     // Once per string value rather than once per chunk, which is what makes the fold above worth
@@ -532,15 +587,13 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     case .arrayInt:
       self.appendHomogeneousInt(bytes, info: info)
       return
-    case .simd2Double, .simd3Double, .simd4Double,
-      .optionalSIMD2Double, .optionalSIMD3Double, .optionalSIMD4Double:
-      self.applyKnownSIMDDouble(bytes, info: info, route: self.activeLeafRoute)
-      return
-    case .simd2Number, .simd3Number, .simd4Number:
-      self.applySIMDNumberNormally(bytes, info: info, route: self.activeLeafRoute)
-      return
     default:
-      self.applyNumberNormally(bytes, info: info)
+      // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
+      if self.activeElementKindBits != 0 {
+        self.applyKnownNumber(bytes, info: info)
+      } else {
+        self.applyNumberNormally(bytes, info: info)
+      }
       return
     }
   }
@@ -556,7 +609,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.recordFailure(.typeMismatch)
       return
     default:
-      self.applyBooleanNormally(value)
+      if self.activeElementKindBits != 0 {
+        self.applyKnownBoolean(value)
+      } else {
+        self.applyBooleanNormally(value)
+      }
       return
     }
   }
@@ -581,7 +638,11 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       self.recordFailure(.typeMismatch)
       return
     default:
-      self.applyNullNormally()
+      if self.activeElementKindBits != 0 {
+        self.applyKnownNull()
+      } else {
+        self.applyNullNormally()
+      }
       return
     }
   }
@@ -788,27 +849,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // MARK: Scalar routing
 
-  @usableFromInline
-  struct ScalarTarget {
-    var storage: UnsafeMutableRawPointer
-    // Strong, unlike `BorrowedFrame`, and measured rather than assumed. Borrowing here made things
-    // worse: a stored closure loaded off an `unowned(unsafe)` reference has to be converted to a
-    // strong one first, where the same load off a strong stored property is a borrow the optimizer
-    // gets for free. `Layer LLM message bulk - partial sink` went 604 -> 485 MB/s with retains
-    // rising 12,000 -> 37,000, because this target is re-read once per `stringChunk` and that
-    // document is the one made of long strings. Twitter, which routes many short scalars and few
-    // chunks, preferred the borrow by 11% — the string path is the larger of the two.
-    var schema: StreamSchema
-    var field: Int32
-    // The table entry the target came from, or nil for a target the closures apply: an array
-    // element, a dictionary value, a scalar root, or a `custom`/`container` field. For a table
-    // target `storage` is already the member's address.
-    var entry: UnsafePointer<StreamFieldEntry>?
-  }
-
   @usableFromInline var scalarTarget: ScalarTarget?
 
   @usableFromInline var homogeneousStringStorage: UnsafeMutableRawPointer?
+
+  // The open string value's bounded inline slot -- a table member, an element, a value -- with
+  // `inlineStringCapacity` its capacity. Kept apart from `homogeneousStringStorage` so the
+  // `StreamString` chunk path tests one pointer and nothing else.
+  @usableFromInline var inlineStringStorage: UnsafeMutableRawPointer?
 
   // Non-zero while the open string value writes into bounded inline storage, in which case it is
   // that storage's capacity. One store per string value at `stringBegin`, which is what buys the
@@ -986,58 +1034,39 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       ._openElement(value)
   }
 
-  @inline(never)
-  private mutating func applyKnownSIMDDouble(
-    _ bytes: Span<UInt8>,
-    info: NumberInfo,
-    route: _StreamLeafRoute
-  ) {
-    guard let top = self.topFrame else { return }
-    let lane = top.pointee.pendingField
-    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
-      self.recordFailure(.typeMismatch)
-      return
-    }
-    guard let value = Double(streamParsing: bytes, info: info) else {
-      self.recordFailure(.typeMismatch)
-      return
-    }
-    switch route {
-    case .simd2Double, .optionalSIMD2Double:
-      top.pointee.storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(lane)] = value
-    case .simd3Double, .optionalSIMD3Double:
-      top.pointee.storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(lane)] = value
-    case .simd4Double, .optionalSIMD4Double:
-      top.pointee.storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(lane)] = value
-    default:
-      preconditionFailure("A non-Double SIMD route reached the closed Double writer")
-    }
-    top.pointee.pendingField = lane &+ 1
-  }
-
-  @inline(never)
-  private mutating func applySIMDNumberNormally(
-    _ bytes: Span<UInt8>,
-    info: NumberInfo,
-    route: _StreamLeafRoute
-  ) {
-    guard let top = self.topFrame else { return }
-    let lane = top.pointee.pendingField
-    guard lane >= 0, lane < route.fixedSIMDLaneCount else {
-      self.recordFailure(.typeMismatch)
-      return
-    }
-    let result = top.pointee.schema.applyNumber(top.pointee.storage, lane, bytes, info)
-    guard result == .applied else {
-      self.recordFailure(Self.failureReason(for: result))
-      return
-    }
-    top.pointee.pendingField = lane &+ 1
-  }
-
   // Outlining the closure route keeps its register pressure out of `number`. The public entry
   // point can then tail-call one of three routes after testing the cached byte instead of saving
   // every register needed only by the generic schema branch before it knows which route applies.
+  // The typed slot paths, each outlined behind the one word test in its entry point, so the
+  // closure paths beside them keep the instruction streams they were measured with.
+  @inline(never)
+  private mutating func applyKnownNumber(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let (slot, kind) = self.knownScalarSlot() else { return }
+    let result = Self.storeNumber(
+      kind, optional: StreamRouteBits.elementOptional(self.activeRouteBits), at: slot, bytes, info
+    )
+    if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+  }
+
+  @inline(never)
+  private mutating func applyKnownBoolean(_ value: Bool) {
+    guard let (slot, kind) = self.knownScalarSlot() else { return }
+    let result = Self.storeBoolean(
+      kind, optional: StreamRouteBits.elementOptional(self.activeRouteBits), at: slot, value
+    )
+    if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+  }
+
+  @inline(never)
+  private mutating func applyKnownNull() {
+    guard let (slot, kind) = self.knownScalarSlot() else { return }
+    let result = Self.storeNull(
+      kind, optional: StreamRouteBits.elementOptional(self.activeRouteBits), at: slot,
+      capacity: self.topFrame.unsafelyUnwrapped.pointee.schema.inlineCapacity
+    )
+    if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+  }
+
   @inline(never)
   private mutating func applyNumberNormally(_ bytes: Span<UInt8>, info: NumberInfo) {
     self.withScalarTarget(
@@ -1074,6 +1103,49 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       }
     ) { storage, field, schema in
       schema.applyNull(storage, field)
+    }
+  }
+
+  // MARK: Known scalar slots
+
+  // The slot a scalar arriving at the top frame is written to, and its kind, when the frame's
+  // child kind is one the table writes: an array element (opened here), a dictionary value (the
+  // slot the key opened), a SIMD lane or an `InlineArray` slot (addressed from the cursor). Nil
+  // sends the scalar down the closure path: an object frame (the table handles those), a custom
+  // kind, a frame with no destination. Opening the element before knowing whether the token fits
+  // is what the closure path did too; a refused token stops the parse either way.
+  @inline(__always)
+  private mutating func knownScalarSlot() -> (UnsafeMutableRawPointer, StreamFieldKind)? {
+    guard let top = self.topFrame else { return nil }
+    let kind = top.pointee.elementKind
+    guard kind != .custom else { return nil }
+    switch top.pointee.schema.shape {
+    case .array:
+      if top.pointee.leafRoute.usesFrameElementIndex {
+        let index = top.pointee.pendingField
+        guard index < top.pointee.schema.fixedElementCount else {
+          // Past the arity: bounded storage overflowing for an `InlineArray`, a mismatch for a
+          // vector, which is what each reported before the lanes were typed.
+          self.recordFailure(
+            top.pointee.leafRoute == .inlineArray ? .capacityExceeded : .typeMismatch
+          )
+          return nil
+        }
+        top.pointee.pendingField = index &+ 1
+        return (
+          top.pointee.storage + Int(index) &* Int(top.pointee.schema.elementStride), kind
+        )
+      }
+      guard let slot = top.pointee.schema.appendElement(top.pointee.storage, -1) else {
+        return nil
+      }
+      return (slot, kind)
+    case .dictionary:
+      guard let slot = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      return (slot, kind)
+    case .object, .scalar:
+      return nil
     }
   }
 
@@ -1148,8 +1220,20 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     _ bytes: Span<UInt8>,
     _ info: NumberInfo
   ) -> StreamApplyResult {
-    let kind = entry.pointee.kind
-    let optional = entry.pointee.isOptional
+    Self.storeNumber(entry.pointee.kind, optional: entry.pointee.isOptional, at: member, bytes, info)
+  }
+
+  // A number of `kind` at `member`, or `.unsupported` for a kind that is not a number. One switch
+  // shared by the table, the element, the value and the lane paths. Inlined: as an outlined call
+  // it cost the SIMD lane path 3% against the direct Double store it replaced.
+  @inline(__always)
+  private static func storeNumber(
+    _ kind: StreamFieldKind,
+    optional: Bool,
+    at member: UnsafeMutableRawPointer,
+    _ bytes: Span<UInt8>,
+    _ info: NumberInfo
+  ) -> StreamApplyResult {
     switch kind {
     case .int: return Self.storeNumber(Int.self, at: member, optional: optional, bytes, info)
     case .double: return Self.storeNumber(Double.self, at: member, optional: optional, bytes, info)
@@ -1174,8 +1258,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     member: UnsafeMutableRawPointer,
     _ value: Bool
   ) -> StreamApplyResult {
-    guard entry.pointee.kind == .bool else { return .unsupported }
-    if entry.pointee.isOptional {
+    Self.storeBoolean(entry.pointee.kind, optional: entry.pointee.isOptional, at: member, value)
+  }
+
+  @inline(__always)
+  private static func storeBoolean(
+    _ kind: StreamFieldKind, optional: Bool, at member: UnsafeMutableRawPointer, _ value: Bool
+  ) -> StreamApplyResult {
+    guard kind == .bool else { return .unsupported }
+    if optional {
       member.assumingMemoryBound(to: Bool?.self).pointee = value
     } else {
       member.assumingMemoryBound(to: Bool.self).pointee = value
@@ -1191,8 +1282,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
-    let kind = entry.pointee.kind
-    guard entry.pointee.isOptional else { return .unsupported }
+    Self.storeNull(
+      entry.pointee.kind, optional: entry.pointee.isOptional, at: member,
+      capacity: entry.pointee.capacity
+    )
+  }
+
+  @inline(never)
+  private static func storeNull(
+    _ kind: StreamFieldKind, optional: Bool, at member: UnsafeMutableRawPointer, capacity: Int32
+  ) -> StreamApplyResult {
+    guard optional else { return .unsupported }
     switch kind {
     case .int: return Self.storeNil(Int.self, at: member)
     case .double: return Self.storeNil(Double.self, at: member)
@@ -1212,8 +1312,7 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       // `StreamInlineString<N>?`: the payload has no spare bits (an `Int32` count and raw bytes),
       // so the optional's tag is the byte after the payload, and nil is a one there.
       member.storeBytes(
-        of: 1, toByteOffset: _streamInlineStringByteOffset + Int(entry.pointee.capacity),
-        as: UInt8.self
+        of: 1, toByteOffset: _streamInlineStringByteOffset + Int(capacity), as: UInt8.self
       )
       return .applied
     case .custom, .container:
@@ -1257,6 +1356,9 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         Self.materializeInlineString(storage, capacity: entry.pointee.capacity)
       }
       self.inlineStringCapacity = entry.pointee.capacity
+      self.inlineStringStorage = storage
+      // The chunks write through the slot; nothing needs the target, and holding it is a retain.
+      self.scalarTarget = nil
       return .applied
     case .custom:
       // The closure route, exactly as before the table: the empty span materialises and settles.

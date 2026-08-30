@@ -6136,3 +6136,68 @@ per-element cost is the element open itself -- `drainPending`, the commit, the `
 swap -- and the number run after it, none of which the frame touched. That, and the scalar
 element and dictionary-value routes still going through `wholeValueField` and the closures, is
 the next step.
+
+## Known scalar kinds: elements, values, lanes and slots as typed stores
+
+With object members on the table and container entry on the entry, the closures were left
+holding scalars that arrive *at* a container: an array element, a dictionary value, a SIMD lane,
+an `InlineArray` slot. Each of those went through `resolveScalarTarget` -- a `ScalarTarget`
+with a *strong* schema, a retain -- and then the child schema's `applyNumber` closure, its
+context retained around the call. Two pairs per value, for a value the library knew the layout
+of.
+
+### The contract
+
+- A scalar schema declares its `scalarKind` (the field table's vocabulary: `int`..`float`,
+  `bool`, `streamString`, `inlineString`; `custom` for a conversion the library cannot see) and
+  `scalarOptional` for the `.some`-opened slot of an optional element.
+- A container schema caches its child's kind as `elementKind` / `elementOptional`; a SIMD schema
+  names its lane kind directly, with `elementStride` the scalar's stride and `fixedElementCount`
+  the lane count. `_streamSIMDnSchema` therefore writes any numeric scalar's lanes without a
+  closure, where only `Double` had a direct route before.
+- The frame carries `routeBits`: leaf route, element kind and optionality in one word, copied
+  from the schema at push and cached on the sink as the active route. The scalar entry points
+  test one mask (`elementKind != custom`) and branch to an outlined typed path:
+  `knownScalarSlot()` opens the slot (`appendElement`, the pending dictionary slot, or
+  `storage + cursor * stride` for lanes and inline slots) and `storeNumber` / `storeBoolean` /
+  `storeNull` write it -- the same switches the table uses.
+- Bounded inline strings get their own slot field, tested *after* the `StreamString` chunk path.
+
+### Three things the measurements caught
+
+1. **A byte test ahead of the `StreamString` chunk append** cost LLM 3% and GSoC 2.4%: the
+   documents made of long strings fed as many chunks. Moved after it, both are flat.
+2. **Three bytes copied at push instead of one** (leaf route, kind, optionality as separate
+   loads and stores) drifted every corpus 1-3%. Packed into one word, `pushFrame` is 28
+   instructions against the previous 30 -- but only once the decode was a bit cast:
+   `init(rawValue:)` on the way out is a range check and an unwrap, and put `number` at 59
+   instructions from 27.
+3. **`ScalarTarget` nested in `PartialSink<Root>`.** In this build, `scalarTarget = nil` on the
+   fast string route lowered to a metadata accessor for `Optional<ScalarTarget>` and a
+   value-witness destroy -- the struct's metadata is formally `Root`-dependent -- instead of the
+   one `swift_release` the previous build emitted. `Leaf Array String` lost 22%, `Leaf
+   Dictionary String` 29%. Hoisted to file scope, both are exactly flat. Nothing in the struct
+   ever depended on `Root`; the lowering did.
+
+### Measured (3 rounds interleaved, p50, vs 9d706cd)
+
+| Row | Before | After | Δ |
+|---|---|---|---|
+| Sink synthetic dictionary (`[String: Int]`) | 209 MB/s (36 ns/ev) | 256 (29) | +22.5%, retains 40K → 20K |
+| Leaf Dictionary Optional Int / Array Optional Int | 40 / 21 | 44 / 23 | +10% / +9.5% |
+| Leaf Dictionary Double | 57 | 59 | +3.5% |
+| Inline string Array 32/64/128 short, 128 medium | 34 / 33 / 28 / 217 | 40 / 40 / 33 / 253 | +17..+21%, retains 8K → 2K |
+| Inline string Dictionary 32 short | 47 | 53 | +13% |
+| Fixed array booleans / numbers / strings - inline | 70 / 72 / 40 | 87 / 82 / 48 | +24% / +14% / +20% |
+| Fixed array composite / composite 64B - inline | 136 / 106 | 155 / 118 | +14% / +11% |
+| Sink CITM catalog | 564 | 579 | +2.7% |
+| Leaf Nested SIMD2 Double | 210 | 214 | +1.9% (lanes through the kind path) |
+| Leaf Array/Dictionary String, Bool, Double, Int | | | −0.3..+0.5% |
+| Sink Twitter escaped | 1203 | 1179 | −2.0% (typed row −0.3%) |
+| Real * (raw and typed) | | | within ±1.6% |
+
+What is left on the closures now: a `custom` scalar anywhere, a hand-written `enterField`, the
+`appendElement` / `enterKey` closures themselves (null context, one call), and the number-run
+appender. The cost that remains on Canada and Mesh is the element open inside
+`StreamArray<StreamArray<Double>>` -- 141 K retains on 20 K pairs are its two buffer references
+moving from the pending slot to the tail -- which is a container design question, not a route.

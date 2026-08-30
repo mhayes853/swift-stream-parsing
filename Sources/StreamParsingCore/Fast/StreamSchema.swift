@@ -128,6 +128,41 @@ enum _StreamLeafRoute: UInt8, Sendable {
   }
 }
 
+// The packing of a frame's route word: the leaf route in the low byte, the element kind above
+// it, the element's optionality above that. `elementKindMask` is non-zero exactly when a scalar
+// arriving at the frame has a typed slot, which is the one test the scalar entry points make.
+@usableFromInline
+enum StreamRouteBits {
+  @usableFromInline static var elementKindShift: UInt32 { 8 }
+  @usableFromInline static var elementKindMask: UInt32 { 0xff << 8 }
+  @usableFromInline static var elementOptionalBit: UInt32 { 1 << 16 }
+
+  @inlinable
+  static func pack(
+    leafRoute: _StreamLeafRoute, elementKind: StreamFieldKind, elementOptional: Bool
+  ) -> UInt32 {
+    UInt32(leafRoute.rawValue)
+      | (UInt32(elementKind.rawValue) << Self.elementKindShift)
+      | (elementOptional ? Self.elementOptionalBit : 0)
+  }
+
+  // Bit casts, not `init(rawValue:)`: the word was packed from these enums, and the raw-value
+  // initialiser is a range check and an unwrap on every read, which put a dozen instructions
+  // back into each scalar entry point.
+  @inlinable
+  static func leafRoute(_ bits: UInt32) -> _StreamLeafRoute {
+    unsafeBitCast(UInt8(truncatingIfNeeded: bits), to: _StreamLeafRoute.self)
+  }
+
+  @inlinable
+  static func elementKind(_ bits: UInt32) -> StreamFieldKind {
+    unsafeBitCast(UInt8(truncatingIfNeeded: bits >> Self.elementKindShift), to: StreamFieldKind.self)
+  }
+
+  @inlinable
+  static func elementOptional(_ bits: UInt32) -> Bool { bits & Self.elementOptionalBit != 0 }
+}
+
 // `@unchecked` only for the three raw views of the field table below: immutable pointers into
 // storage the schema itself owns for its whole lifetime, read and never written after `init`.
 public final class StreamSchema: @unchecked Sendable {
@@ -217,9 +252,30 @@ public final class StreamSchema: @unchecked Sendable {
   public let elementSchema: StreamSchema?
   @usableFromInline let elementSchemaBits: UnsafeRawPointer?
 
-  // For a fixed array whose elements sit at a stride from its storage: the sink addresses element
-  // `i` at `storage + i * elementStride` and calls nothing. Zero for every other schema.
+  // For a fixed array whose elements sit at a stride from its storage -- an `InlineArray`, a SIMD
+  // vector's lanes: the sink addresses element `i` at `storage + i * elementStride` and calls
+  // nothing. Zero for every other schema.
   @usableFromInline let elementStride: Int32
+
+  // The kind of value this schema writes when it stands over a scalar -- the same vocabulary the
+  // field table uses for an object's members, so an array element, a dictionary value or a SIMD
+  // lane of a type the library knows is a typed store at the slot rather than a closure call.
+  // `custom` for a scalar the library has no layout for, and for every non-scalar schema.
+  // `scalarOptional` says the slot is an `Optional` opened `.some`, so a store writes `.some`
+  // and a null writes `nil`.
+  @usableFromInline let scalarKind: StreamFieldKind
+  @usableFromInline let scalarOptional: Bool
+
+  // The child's `scalarKind` and `scalarOptional`, cached on the container so the frame over it
+  // can copy them at push time: a scalar arriving at an array, dictionary or fixed-array frame
+  // reads a byte off the frame rather than chasing the element schema.
+  @usableFromInline let elementKind: StreamFieldKind
+  @usableFromInline let elementOptional: Bool
+
+  // `leafRoute`, `elementKind` and `elementOptional` in one word, which is what a frame copies at
+  // push and the sink caches as its active route: one load and one store, where three bytes
+  // measured as a 1-3% drift on every corpus. Layout in `StreamRouteBits`.
+  @usableFromInline let routeBits: UInt32
 
   // Whether this schema declares no matcher. Read when one schema is wrapped in another, so the
   // wrapper does not install a matcher over a destination that has none.
@@ -360,6 +416,10 @@ public final class StreamSchema: @unchecked Sendable {
     )? = nil,
     elementSchema: StreamSchema? = nil,
     elementStride: Int32 = 0,
+    scalarKind: StreamFieldKind = .custom,
+    scalarOptional: Bool = false,
+    elementKind: StreamFieldKind? = nil,
+    elementOptional: Bool? = nil,
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
     inlineCapacity: Int32 = 0,
@@ -377,6 +437,15 @@ public final class StreamSchema: @unchecked Sendable {
       UnsafeRawPointer(Unmanaged.passUnretained($0).toOpaque())
     }
     self.elementStride = elementStride
+    self.scalarKind = scalarKind
+    self.scalarOptional = scalarOptional
+    // Defaulted from the element schema, so a container builder says nothing; a SIMD schema,
+    // which has lanes rather than an element schema, names its lane kind directly.
+    self.elementKind = elementKind ?? elementSchema?.scalarKind ?? .custom
+    self.elementOptional = elementOptional ?? elementSchema?.scalarOptional ?? false
+    self.routeBits = StreamRouteBits.pack(
+      leafRoute: leafRoute, elementKind: self.elementKind, elementOptional: self.elementOptional
+    )
     self.ignoresKeys = matchField == nil && fields == nil
     // A dictionary routes keys through `enterKey` whether or not it also carries a matcher, which
     // is the order the sink already applied. A table outranks a matcher: a schema built with both
@@ -552,6 +621,7 @@ public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> S
       applyString: { storage, _, bytes in
         storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
       },
+      scalarKind: .inlineString,
       leafRoute: .valueInlineString,
       inlineCapacity: Int32(inlineCapacity)
     )
@@ -561,6 +631,7 @@ public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> S
     applyString: { storage, _, bytes in
       storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
     },
+    scalarKind: T.self == StreamString.self ? .streamString : .custom,
     leafRoute: T.self == StreamString.self ? .valueStreamString : .generic
   )
 }
@@ -576,6 +647,7 @@ public func _streamNumberSchema<T: StreamNumberConvertible>(_ type: T.Type) -> S
       storage.assumingMemoryBound(to: T.self).pointee = parsed
       return .applied
     },
+    scalarKind: _streamNumberFieldKind(T.self),
     leafRoute: T.self == Double.self
       ? .valueDouble
       : (T.self == Int.self ? .valueInt : .generic)
@@ -590,6 +662,7 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
       storage.assumingMemoryBound(to: T.self).pointee = T(streamParsingBoolean: value)
       return .applied
     },
+    scalarKind: _streamBooleanFieldKind(T.self),
     leafRoute: T.self == Bool.self ? .valueBool : .generic
   )
 }
@@ -597,9 +670,10 @@ public func _streamBooleanSchema<T: StreamBooleanConvertible>(_ type: T.Type) ->
 // MARK: - Fixed-width SIMD schemas
 
 // A SIMD value is a JSON array, but unlike `StreamArray` its element count and storage are known
-// before parsing begins. `PartialSink` keeps the next lane in the frame's existing `pendingField`
-// and passes it here as `field` for scalar types without a closed direct route. There is therefore
-// no cursor, optional pending element or allocation in the value itself.
+// before parsing begins. `PartialSink` keeps the next lane in the frame's existing `pendingField`;
+// for a scalar the library knows (`elementKind`) it writes lane `i` at `storage + i * stride`
+// itself, and only a custom scalar reaches `applyNumber` with the lane as `field`. There is
+// therefore no cursor, optional pending element or allocation in the value itself.
 @inlinable
 public func _streamSIMD2Schema<Scalar>(
   _ type: SIMD2<Scalar>.Type
@@ -614,7 +688,11 @@ public func _streamSIMD2Schema<Scalar>(
       storage.assumingMemoryBound(to: SIMD2<Scalar>.self).pointee[Int(field)] = value
       return .applied
     },
-    leafRoute: .simd2Number
+    elementStride: Int32(MemoryLayout<Scalar>.stride),
+    elementKind: _streamNumberFieldKind(Scalar.self),
+    elementOptional: false,
+    leafRoute: .simd2Number,
+    fixedElementCount: 2
   )
 }
 
@@ -632,7 +710,11 @@ public func _streamSIMD3Schema<Scalar>(
       storage.assumingMemoryBound(to: SIMD3<Scalar>.self).pointee[Int(field)] = value
       return .applied
     },
-    leafRoute: .simd3Number
+    elementStride: Int32(MemoryLayout<Scalar>.stride),
+    elementKind: _streamNumberFieldKind(Scalar.self),
+    elementOptional: false,
+    leafRoute: .simd3Number,
+    fixedElementCount: 3
   )
 }
 
@@ -650,7 +732,11 @@ public func _streamSIMD4Schema<Scalar>(
       storage.assumingMemoryBound(to: SIMD4<Scalar>.self).pointee[Int(field)] = value
       return .applied
     },
-    leafRoute: .simd4Number
+    elementStride: Int32(MemoryLayout<Scalar>.stride),
+    elementKind: _streamNumberFieldKind(Scalar.self),
+    elementOptional: false,
+    leafRoute: .simd4Number,
+    fixedElementCount: 4
   )
 }
 
@@ -666,7 +752,11 @@ let _streamSIMD2DoubleSchema = StreamSchema(
     storage.assumingMemoryBound(to: SIMD2<Double>.self).pointee[Int(field)] = value
     return .applied
   },
-  leafRoute: .simd2Double
+  elementStride: Int32(MemoryLayout<Double>.stride),
+  elementKind: .double,
+  elementOptional: false,
+  leafRoute: .simd2Double,
+  fixedElementCount: 2
 )
 
 @usableFromInline
@@ -679,7 +769,11 @@ let _streamSIMD3DoubleSchema = StreamSchema(
     storage.assumingMemoryBound(to: SIMD3<Double>.self).pointee[Int(field)] = value
     return .applied
   },
-  leafRoute: .simd3Double
+  elementStride: Int32(MemoryLayout<Double>.stride),
+  elementKind: .double,
+  elementOptional: false,
+  leafRoute: .simd3Double,
+  fixedElementCount: 3
 )
 
 @usableFromInline
@@ -692,7 +786,11 @@ let _streamSIMD4DoubleSchema = StreamSchema(
     storage.assumingMemoryBound(to: SIMD4<Double>.self).pointee[Int(field)] = value
     return .applied
   },
-  leafRoute: .simd4Double
+  elementStride: Int32(MemoryLayout<Double>.stride),
+  elementKind: .double,
+  elementOptional: false,
+  leafRoute: .simd4Double,
+  fixedElementCount: 4
 )
 
 // MARK: - Container schemas
@@ -712,7 +810,8 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
     },
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
-    leafRoute: .array(element.leafRoute)
+    leafRoute: .array(element.leafRoute),
+    inlineCapacity: element.inlineCapacity
   )
 }
 
@@ -796,12 +895,17 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     enterKey: base.enterKey,
     elementSchema: base.elementSchema,
     elementStride: base.elementStride,
+    scalarKind: base.scalarKind,
+    scalarOptional: true,
+    elementKind: base.elementKind,
+    elementOptional: base.elementOptional,
     leafRoute: base.leafRoute == .inlineArray
       ? .inlineArray
       : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
         ? .optionalValue(base.leafRoute)
         : .generic),
     fixedElementCount: base.fixedElementCount,
+    inlineCapacity: base.inlineCapacity,
     fields: base.fields
   )
 }
@@ -823,7 +927,8 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
         ._openElement(.some(Wrapped.streamInitialValue()))
     },
     elementSchema: element,
-    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic
+    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,
+    inlineCapacity: element.inlineCapacity
   )
 }
 
@@ -840,7 +945,8 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
         ._openValue(forKey: key, initial: .some(Wrapped.streamInitialValue()))
     },
     elementSchema: value,
-    leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic
+    leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
+    inlineCapacity: value.inlineCapacity
   )
 }
 

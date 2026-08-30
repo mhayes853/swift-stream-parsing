@@ -394,6 +394,8 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       },
       elementSchema: wrapped.elementSchema,
       elementStride: wrapped.elementStride,
+      elementKind: wrapped.elementKind,
+      elementOptional: wrapped.elementOptional,
       // Fixed SIMD arrays keep their cursor in the sink frame and write through the optional's
       // offset-zero payload after `prepareRoot` materializes it. Other container routes continue
       // to use their ordinary frame operations.
