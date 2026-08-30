@@ -5839,3 +5839,122 @@ scratch base hoisted into the run's locals) was cherry-picked onto the merge and
 same way. `madd` became `lsl #4` as promised, the run grew 859 → 897, and the rows moved as
 they did on the branch: Twitter bulk +1.5%, windowed +1.8…2.7%, GSoC +1…1.6%, Twitter escaped
 byte by byte +6…8%; Canada windowed −4…−8%, CITM and GSoC layer −1…−2%. Not landed.
+
+## The sink in isolation: recorded batches, replayed
+
+Every typed row so far has been the parser and `PartialSink` added together, and nothing in
+the suite could say which of the two a change had moved. The `Layer` rows compare sinks under
+the same parse, but the parser's own cost changes with the sink it is specialised for, so the
+difference between two of those rows is never only the sink. The `Sink` rows
+(`Benchmarks/StreamParsingBenchmarks/PartialSinkReplayBenchmarks.swift`) hold the parser at
+zero: a bulk parse is run once at registration through a recording sink that keeps every
+`StreamEventBatch` it is handed, and the measured region replays those batches into a sink
+with no parser in the loop.
+
+Three rules make the recording the sink's real input rather than an approximation of it. The
+batch boundaries are the parser's own, because `PartialSink.events` has fast paths that only
+see records in the same batch — a key followed by its scalar, a run of numbers into an array —
+and re-batching would drive a sink the parser never drives. `.parserBuffer` records point at
+scratch the next cut token or escape overwrites, so their bytes are copied out and the record
+re-pointed at the copy. `.input` records are re-based from the chunk to the payload, so a
+chunked recording replays the same way as a bulk one. `StreamEventBatch` gained an
+`@_spi(Benchmarks)` initialiser over caller-owned memory for this; nothing else changed in the
+library.
+
+Four rows per recording: a null sink (`@_optimize(none)`, the harness floor), `FastCountingSink`
+(so `Real <x> - bulk` minus it is the parser alone), `PartialSink` into the corpus's model, and
+`PartialSink` with the whole recording delivered as one batch (what the parser's batch seams
+cost the sink). Each reports payload MB/s of the recording's source bytes, so it composes with
+the `Real` rows, and events per second, which is the view that compares across corpora.
+
+### The recording is exact, and the harness costs nothing
+
+Retain counts on every corpus match the `Real <x> - bulk discarding` row to the thousand
+(Twitter 11 K / 11 K, Canada 116 K / 116 K, CITM 124 K / 124 K, Mesh 10 K / 10 K) and mallocs to
+within four, which is the sink doing exactly the work it does under the parser. The one
+exception is GSoC (73 K under `PartialsStream`, 49 K replayed), and the difference is the
+wrapper's, not the parser's: the `Sink` row feeds `PartialSink` directly, like the `Layer`
+rows, and the root there is a `StreamDictionary`. The null floor is ~2 ns per batch — 0.6 µs
+for Twitter's ~125 batches — so the sink rows below are read as absolute numbers.
+
+### Composition, and the fact it establishes
+
+p50, one session, 2026-08-29. "Predicted" is `1 / (1/typed − 1/raw)`: the throughput the sink
+alone would have to run at for the two to add up to the typed row.
+
+| corpus | raw bulk | typed bulk | predicted sink | replayed | one batch | counting replayed | events | ns / event |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Twitter | 1,519 | 848 | 1,920 | **1,623** | 1,645 | 11,000 | 32 K | 12.0 |
+| Twitter escaped | 1,055 | 521 | 1,029 | **939** | 937 | 6,899 | 65 K | 9.2 |
+| Canada | 898 | 353 | 582 | **539** | 541 | 6,883 | 221 K | 18.9 |
+| CITM catalog | 1,740 | 362 | 457 | **440** | 437 | 10,000 | 82 K | 47.6 |
+| GSoC 2018 | 3,515 | 600 | 723 | **826** | 818 | 29,000 | 69 K | 58.8 |
+| GitHub events | 1,727 | 442 | 594 | **590** | 588 | 13,000 | 3 K | 40.0 |
+| LLM message | 3,367 | 678 | 849 | **835** | 836 | 35,000 | 29 K | 43.5 |
+| Mesh | 737 | 438 | 1,080 | **944** | 967 | 8,583 | 80 K | 9.6 |
+
+**The parser and the sink are additive.** The replayed row lands on the predicted one within
+4–15% on every corpus, and on the side that says the sink costs slightly *more* in isolation
+than under the parser, not less. So there is no overlap to exploit: the core does not hide the
+sink's work behind the parser's or the other way round, and the typed row is, to first order,
+the parser's time plus the sink's time. That is the number the ceiling section needed: on
+Twitter the typed target of 1,800 MB/s is a 350 µs budget for the whole document, the raw
+parser alone takes 415 µs today, and the sink alone takes 389 µs. Neither half fits the budget
+by itself, which is the case for fusing them stated as a measurement rather than an argument.
+
+**The batch seams cost the sink nothing.** One batch against as-delivered is within ±2%
+everywhere. The per-flush fixed term the events ledger measured is therefore entirely on the
+parser's side (`deliverEvents`, its frame, `checkSink`), and a larger batch capacity has
+nothing to give the sink.
+
+**The counting sink is 1–2 ns an event; `PartialSink` is 9–59.** The number-dense corpora sit
+at the bottom of that range (Twitter escaped 9.2, Mesh 9.6, Twitter 12.0) and the string and
+dictionary corpora at the top (LLM 43.5, CITM 47.6, GSoC 58.8). Per event, the layer's cost is
+in strings and dynamic keys, not numbers.
+
+### One route per row
+
+Synthetic shapes recorded and replayed the same way, each exercising one of the sink's routes
+and as little else as it can; sizes 300–700 KB so the MB/s column is on the corpus scale. The
+int payload is recorded once and replayed into two models, so the matched and missed rows
+differ in the model and nothing else.
+
+| shape | route | events | MB/s | ns / event | mallocs | retains | releases |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| int fields | `matchField` + `applyNumber` into a field | 142 K | 303 | 21.3 | 261 | 144 K | 145 K |
+| int fields, no key matches | `matchField` miss, value ignored | 143 K | 530 | 12.0 | 261 | 80 K | 81 K |
+| string fields | `matchField` + `applyString` into `String` | 85 K | 141 | 76.9 | 167 | 290 K | 370 K |
+| double array | `appendNumbers`, long runs | 40 K | 1,851 | 9.4 | 1,263 | 2 K | 4 K |
+| double pairs | `[[Double]]`: a frame per pair, runs of two | 77 K | 104 | 90.9 | 21,000 | 161 K | 222 K |
+| container churn | `enterField`, push, pop, three deep | 119 K | 151 | 20.0 | 386 | 120 K | 121 K |
+| dictionary | `enterKey` into `[String: Int]` | 39 K | 180 | 47.6 | 43 | 60 K | 60 K |
+
+What the table says, row by row:
+
+- **A retain/release pair per event, on routes that allocate nothing.** Int fields: 144 K
+  retains for 142 K events with 261 mallocs; container churn 120 K for 119 K. The frames borrow
+  their schema, so this is not the frame stack — it is the closure call. `applyNumber`,
+  `enterField` and the rest are closures stored on the schema, and calling one loads and
+  retains its context. That pair is the largest fixed cost on the cheapest routes and the first
+  thing a plan-driven route removes.
+- **A matched integer member costs 21 ns; an ignored one 12.** The 9 ns between them is
+  `applyNumber` and the conversion. The 12 ns is what every member pays before any value is
+  written — key match, pending-field bookkeeping, the record decode.
+- **A short `String` field is 77 ns and 3.4 retains an event, with no malloc** (twelve-byte
+  values stay inline). Two `applyString` calls per value (the open with an empty span, then the
+  bytes), then `String` construction with its own validation of bytes the parser has already
+  validated. This is the route under CITM, GSoC, LLM and GitHub, and it is the most expensive
+  one the sink has.
+- **`[Double]` is 9.4 ns a number**, which is the conversion plus the append and nothing else:
+  the floor for a number in this layer. Canada at 18.9 is that plus the `SIMD2` frame per pair;
+  `[[Double]]` pairs at 90.9 ns with a malloc per pair is why Canada's model does not use them.
+- **A dictionary member is 48 ns**: the `enterKey` closure, the key copy and the entry.
+
+### What this changes about the next step
+
+The `Real` rows could not say whether a typed win had to come from the parser or the sink.
+These can. The sink's cost is additive, its batching is free, and its per-event cost is
+dominated by closure dispatch and by strings, in that order of reach. A fused typed path is
+judged against this table route by route — an int member has to beat 21 ns, a string member 77,
+a double 9.4 — and a route that does not move is visible here before any corpus row is run.
+

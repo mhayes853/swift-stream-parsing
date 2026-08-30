@@ -151,6 +151,26 @@ public struct StreamEventBatch: ~Escapable {
     self.bufferBase = bufferBase
   }
 
+  // A batch over memory the caller owns rather than the parser's scratch. For the benchmark
+  // suite's replay rows, which record the batches a parse delivered and hand them back to a sink
+  // with no parser in the loop (`Benchmarks/.../PartialSinkReplayBenchmarks.swift`). Not API:
+  // nothing checks that the pointers agree with the records, which is the parser's job.
+  @_spi(Benchmarks)
+  @_lifetime(borrow recordBase)
+  public init(
+    replaying recordBase: UnsafePointer<StreamEventRecord>,
+    infoBase: UnsafePointer<NumberInfo>,
+    count: Int,
+    bytesBase: UnsafePointer<UInt8>,
+    bufferBase: UnsafePointer<UInt8>
+  ) {
+    self.recordBase = recordBase
+    self.infoBase = infoBase
+    self.count = count
+    self.bytesBase = bytesBase
+    self.bufferBase = bufferBase
+  }
+
   public var records: Span<StreamEventRecord> {
     @inlinable
     @_lifetime(borrow self)

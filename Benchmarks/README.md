@@ -48,6 +48,7 @@ what matters about them is whether they are correct, not how fast they are wrong
 | `Buffer` | `bufferCapacity`, and the parser's own malloc |
 | `Boundary` | chunk sizes that land inside tokens rather than between them |
 | `Numbers` | number token shapes through the real parser |
+| `Sink` | sinks replaying recorded event batches with no parser in the loop: `PartialSink` in isolation |
 
 Payload benchmarks report both iterations per second and payload MB/s.
 
