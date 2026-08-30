@@ -1213,8 +1213,10 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // The kinds the table writes, at the member's own address. `custom` is the caller's to route to
   // the closure, so the schema never comes through here.
+  // Internal rather than private: the fused slice (FusedParseExperiment.swift) stores a matched
+  // member's number through the same routine the batch path uses.
   @inline(never)
-  private static func writeTableNumber(
+  static func writeTableNumber(
     _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer,
     _ bytes: Span<UInt8>,

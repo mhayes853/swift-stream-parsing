@@ -6242,3 +6242,100 @@ when the table is packed -- constant cost without the vector-to-scalar chain -- 
 separate piece of work with its own row to justify it. The experiment's code was not committed;
 the kernel is the eleven NEON intrinsics described above, the table side two padded arrays and
 a `paddedCount > 8` dispatch, which is enough to rebuild it if it is picked up.
+
+## The fused slice: the seam priced before the protocol is touched
+
+The composition ledger established that the typed path is the parser's time plus the sink's with
+no overlap, and that neither half fits the ceiling budget alone -- the case for fusing them as a
+measurement. This section is the next measurement: what the record/replay seam itself is worth,
+route by route, taken with **no protocol change and no commitment**. `JSONParser` and
+`PartialSink` share a module, so the slice is a private loop that calls the sink's own internals
+at the lex points; if the numbers had been thin, the whole fusion discussion would have ended
+here at the cost of one file.
+
+### What the slice is
+
+`FusedParseExperiment.swift`: a whole-document parse loop (`parseFusedDocument`, under
+`@_spi(Benchmarks)`) that runs the real parser's kernels -- `streamWhitespaceEndByte`,
+`streamStringRun`, the short-integer fast path and `emitNumber`'s structured walk (cloned as
+`fusedNumberInfo`), the comma fusion, `validateUTF8IfNeeded` -- and, where the recorded loop
+writes a 16-byte record, calls the sink's routing instead. Two routes are fused, the two the
+one-route-per-row table says have the most to give:
+
+- **A table object's members.** The key is matched (`streamMatchField`) while its span is in
+  registers, the entry pointer held across the colon, and the number that follows parsed into
+  registers and stored by `writeTableNumber` -- the same `@inline(never)` store the batch path
+  calls, so the pair's delta is the transport, not the store.
+- **An array of `Double`.** One run loop: lex, parse, convert while the `NumberInfo` is still in
+  registers, commit. Pending drained at the run's start, the last value left as the open
+  element -- byte for byte what the bulk `appendNumbers` leaves for a snapshot.
+
+Everything else -- strings, literals, dictionaries, ignored subtrees, container transitions --
+delegates to the sink's single-token internals, which keeps the loop correct on any document
+while only the fused routes are priced. It is deliberately not a parser: one chunk, no escapes,
+`preconditionFailure` on anything cut. `FusedParseTests` holds it differentially to the recorded
+path on values, failures and error offsets, including the offset conventions (`.string`
+rejections at content start, literals at the first diverging byte, the `finish()` order for
+truncated documents).
+
+### Two codegen findings before any honest number existed
+
+1. **An unspecialized generic loop cannot price fusion.** Generic over `Root`, the loop
+   materialized `PartialSink<Root>` metadata at thirteen call sites -- one ahead of the
+   per-member number store. The fix is the observation that the sink's behavior is entirely
+   schema-driven and `Root` types nothing but the root pointer: the slice is concrete over a
+   phantom `FusedSliceRoot`, every sink call compiles direct, and there is still exactly one
+   copy of the loop. Worth roughly +30% on the table route by itself, and it settles a design
+   question the eventual production path would have faced: fusion does not need per-model
+   specialization, it needs the generic parameter out of the hot loop.
+2. **The inliner prices a big loop differently than a small closure.** `StreamArray.commit`
+   inlines into the bulk appender closure and refused to inline into the (larger) fused run, so
+   the run paid an outlined call per number and the first measurement showed +6% where the real
+   figure is +22%. Forced-inline clone (`fusedCommitDouble`), kept in lockstep with `commit`.
+
+One access flip in shipping code: `PartialSink.writeTableNumber` private -> internal. The
+drift A/B (below) is the receipt that it moved nothing.
+
+### Measured (3 rounds interleaved vs 31aaa61, best-of-3 p0 wall clock)
+
+Payloads are the replay rows' own; "increment" is the row minus the raw counting row on the
+same payload, per value written. 40,000 numbers in the double payload; 64,000 members in the
+int payload.
+
+| payload | raw counting | recorded parse | fused parse | sink increment | E2E |
+|---|---:|---:|---:|---|---:|
+| double array | 548.3 us | 889.7 us | 731.4 us | 8.54 -> **4.58 ns/number** | **+21.6%** |
+| int fields | 1583.2 us | 2240.4 us | 1578.2 us | 10.27 -> **-0.08 ns/member** | **+42.0%** |
+| int fields, no key matches | 1583.2 us | 2131.2 us | 1449.5 us | 8.56 -> **-2.09 ns/member** | **+47.0%** |
+
+p50s agree: +22.4%, +40.2%, +48.7%. The corpus and replay rows against clean HEAD are flat --
+p50 deltas straddle zero (-4.7%..+7.7% across 31 rows), retains identical everywhere; the raw
+discarding rows sit near -2% at p0, and they share no code with the slice.
+
+What the table says, row by row:
+
+- **A table member's sink cost is the seam, entirely.** The fused increment is zero: matching
+  the key and storing the int costs no more than the counting sink's checksum of the same
+  tokens. The 10.3 ns the recorded path pays per member -- record encode, batch decode, the
+  re-dispatch, the `pendingField` round trip -- is transport, and fusion deletes all of it.
+  The old plan said an int member has to beat 21 ns; it now costs approximately nothing.
+- **A double's residual is the conversion.** 4.58 ns against the 8.54 the batch pays: what
+  remains is `Double(streamParsing:)` (a call, same as the bulk appender pays) plus the inlined
+  commit. The seam was 46% of the number route.
+- **A missed key is cheaper than counting.** The fused loop matches, misses, and skips the
+  number's conversion entirely -- the recorded path must still encode and decode the events it
+  will ignore.
+
+### What this licenses
+
+The seam is real, large, and now priced: on the routes that dominate the number-dense and
+field-dense corpora, fusing removes roughly half to all of the sink's per-value cost. Scaled
+against the composition ledger's Twitter arithmetic (415 us parser + 389 us sink against a
+350 us budget), a fused typed path recovering this fraction of the sink's half is the first
+credible route under the ceiling that has appeared in this document. What the slice does not yet
+price: strings (the 77 ns route is `String` construction, not transport), escapes and chunk
+cuts (the fused loop must fall back to the recorded path at a boundary), and the byte-fed path
+(fuses nothing by construction). Those bound the production design -- one protocol whose
+per-token methods are the primitives, batching as the recorded transport where lookahead or
+chunk-cut reassembly wants it -- which is the follow-up discussion this measurement was run to
+inform.
