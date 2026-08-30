@@ -6201,3 +6201,44 @@ What is left on the closures now: a `custom` scalar anywhere, a hand-written `en
 appender. The cost that remains on Canada and Mesh is the element open inside
 `StreamArray<StreamArray<Double>>` -- 141 K retains on 20 K pairs are its two buffer references
 moving from the pending slot to the tail -- which is a container design question, not a route.
+
+## The block key match: measured, and not kept
+
+The last item on the sink plan was the key match, a linear scan over forty-byte entries. The
+experiment: pack the first words and lengths into two contiguous arrays padded to a multiple of
+eight, and compare eight entries at once on arm64 -- four `cmeq.2d`, two `uzp1` narrowings, one
+`cmeq.8h` over the lengths, `shrn` movemask, `rbit`/`clz` for the lane -- with a scalar fallback
+elsewhere. Constant cost per block of eight where the scan paid a compare and a branch per entry.
+
+Four variants were measured, three rounds interleaved each against 9d706cd (Stage 2b as the
+control):
+
+| Variant | 48-member last / undeclared | int fields | no key matches | Twitter sink / escaped | churn |
+|---|---|---|---|---|---|
+| block on every table | +7% / +8% | +2.4% | **+30%** | +1.9% / −3% | −4.3% |
+| scan for ≤2 entries, block above | +7% / +8% | 0% | +15% | −0.2% / −2.9% | −1.4% |
+| scan for ≤8 (over the packed arrays) | +7% / +7% | −4.7% | +5.6% | +1.7% / −1.1% | −1.1% |
+| scan for ≤8 (over the entries), block outlined, views last in the class | +7% / +6% | −5.7% | −4.0% | −1.9% / −2.6% | −2.1% |
+
+Three things the numbers say:
+
+1. **The block is a latency problem, not an instruction-count one.** Its result is a dependent
+   chain of some twenty cycles before the entry's index exists. A scan whose branches the
+   predictor has learnt -- keys arrive in the same order every row -- retires an entry every
+   couple of cycles, so the block only wins past eight entries or on a miss over eight.
+2. **Two codegen effects mattered more than the kernel.** A `count <= 8` branch dominating the
+   scan is a trip-count bound, and LLVM unrolled the loop eight times (276 instructions). And
+   with the block in the same body, or its three extra views loaded ahead of the scan, the small
+   path paid for a path it never took.
+3. **The residual is not explained.** With the small path restored to the committed code plus
+   one load and a predicted branch, `int fields` still measured −5.7% and `no key matches` −4%
+   across three runs. Layout was ruled out (the new class fields moved to the end); inlining
+   was ruled out (`events` at 662 instructions, `matchTable` at 93 against 78). It was not
+   worth a fifth variant: the realised gain is +6% on a 48-member synthetic model and nothing
+   on any real corpus, whose models declare eight members or fewer.
+
+What a wide object wants is not a block scan but a perfect hash on (first word, length) built
+when the table is packed -- constant cost without the vector-to-scalar chain -- and that is a
+separate piece of work with its own row to justify it. The experiment's code was not committed;
+the kernel is the eleven NEON intrinsics described above, the table side two padded arrays and
+a `paddedCount > 8` dispatch, which is enough to rebuild it if it is picked up.
