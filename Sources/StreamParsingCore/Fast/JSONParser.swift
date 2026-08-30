@@ -351,7 +351,7 @@ public struct JSONParser: ~Copyable {
   }
 
   @inlinable
-  @inline(__always)
+  @_transparent
   mutating func consumeStructural<Sink: StreamParseSink & ~Copyable>(
     _ byte: UInt8,
     base: UnsafeRawPointer,
@@ -404,7 +404,7 @@ public struct JSONParser: ~Copyable {
         } catch {
           // `stringBegin` precedes the error on the call-per-event path; keep that order.
           try self.record(.stringBegin, start: at, length: 1, end: cursor, into: &sink)
-          throw error
+          try Self.fail(error)
         }
         try self.record(.string, start: cursor, length: run.end &- cursor, end: run.end &+ 1, into: &sink)
         cursor = run.end &+ 1
@@ -429,19 +429,19 @@ public struct JSONParser: ~Copyable {
       switch byte {
       case .asciiObjectStart:
         try self.record(.beginObject, start: at, length: 1, end: cursor, into: &sink)
-        guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
+        guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
         containers |= 1 &<< Self.shiftAmount(depth)
         depth &+= 1
         state = .firstKey
       case .asciiArrayStart:
         try self.record(.beginArray, start: at, length: 1, end: cursor, into: &sink)
-        guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: at) }
+        guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
         containers &= ~(1 &<< Self.shiftAmount(depth))
         depth &+= 1
         state = .firstValue
       case .asciiArrayEnd:
         guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers) else {
-          throw self.error(.unexpectedToken, at: at)
+          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
@@ -491,30 +491,30 @@ public struct JSONParser: ~Copyable {
         state = .number
         return true
       default:
-        throw self.error(.unexpectedToken, at: at)
+        try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
       }
 
     } else if raw == State.afterValue.rawValue {
       switch byte {
       case .asciiComma:
-        guard depth > 0 else { throw self.error(.unexpectedToken, at: at) }
+        guard depth > 0 else { try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at) }
         state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
       case .asciiArrayEnd:
         guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
-          throw self.error(.unexpectedToken, at: at)
+          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       case .asciiObjectEnd:
         guard Self.topIsObject(depth: depth, containers: containers) else {
-          throw self.error(.unexpectedToken, at: at)
+          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
-        throw self.error(.unexpectedToken, at: at)
+        try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
       }
 
     } else if raw <= State.firstKey.rawValue {
@@ -522,22 +522,22 @@ public struct JSONParser: ~Copyable {
       // `"` was taken ahead of the ladder.
       case .asciiObjectEnd:
         guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers) else {
-          throw self.error(.unexpectedToken, at: at)
+          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
-        throw self.error(.unexpectedToken, at: at)
+        try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
       }
 
     } else if raw == State.afterKey.rawValue {
-      guard byte == .asciiColon else { throw self.error(.unexpectedToken, at: at) }
+      guard byte == .asciiColon else { try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at) }
       state = .value
     } else if raw == State.done.rawValue {
-      throw self.error(.trailingContent, at: at)
+      try Self.fail(.trailingContent, byteOffset: self.consumedByteCount &+ at)
     } else {
-      throw self.error(.unexpectedToken, at: at)
+      try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
     }
     return false
   }
@@ -1425,6 +1425,32 @@ public struct JSONParser: ~Copyable {
   @inlinable
   func error(_ reason: JSONParsingError.Reason, at offset: Int) -> JSONParsingError {
     JSONParsingError(reason: reason, byteOffset: self.consumedByteCount &+ offset)
+  }
+
+  // The throw itself, out of line. A typed `throw` is not the two stores it looks like: the
+  // release build expands each one into the error's construction, an OS version test for the
+  // weakly linked `swift_willThrowTypedImpl` hook, and the call to it — 25 instructions, and
+  // nine of them sat inline in `consumeStructuralRun`, 231 of its 859 instructions, on paths a
+  // valid document never takes. Behind a call that returns `Never` a site is the argument moves
+  // and a `bl`; the offset arithmetic and the hook go with it. The inliner's budget for the run
+  // is what the size buys back: `consumeStructural` must stay folded into the run (see the
+  // comment on `consumeStructuralRun`), and every instruction the cold paths give up is one the
+  // hot paths can spend.
+  //
+  // Static, and handed the absolute offset, rather than a method: as a method the first build
+  // copied all 160 bytes of `self` onto the stack at every site to pass it borrowed while the
+  // run's `inout self` had its write-back pending — thirteen copies, a 2 KB frame, and the run
+  // no smaller than before. A static call is the reason, an add and a `bl`.
+  @inlinable
+  @inline(never)
+  static func fail(_ reason: JSONParsingError.Reason, byteOffset: Int) throws(JSONParsingError) -> Never {
+    throw JSONParsingError(reason: reason, byteOffset: byteOffset)
+  }
+
+  @inlinable
+  @inline(never)
+  static func fail(_ error: JSONParsingError) throws(JSONParsingError) -> Never {
+    throw error
   }
 
   @inlinable

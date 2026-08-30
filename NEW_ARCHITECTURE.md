@@ -5760,3 +5760,82 @@ call ends, so it is delivered alone — a `deliverEvents` call, a batch construc
 observation boundary *is* the parse call (a byte fed caller reads the partial after each
 byte), so the per-call flush is the contract, not an accident. What can still move is the
 constant: the single-record delivery is ~80 instructions where the direct call was ~5.
+
+## Outlined throws, and the whitespace inline they were blocking
+
+The event-batch merge left `consumeStructuralRun` at 859 instructions, and 231 of them — nine
+inline typed-throw expansions of ~25 each — were on paths a valid document never takes. A typed
+`throw` in the release build is the error's construction, an OS version test for the weakly
+linked `swift_willThrowTypedImpl` hook, and the call to it. `JSONParser.fail(_:byteOffset:)`,
+`@inline(never)` and returning `Never`, takes all of that behind one `bl`; a site is now a
+load, an add and the call.
+
+The first spelling was a method, and the run came out *larger* (866): the compiler copied all
+160 bytes of `self` onto the stack at every site to pass it borrowed while the run's `inout
+self` had its write-back pending — thirteen copies and a 2 KB frame. Static, with the absolute
+offset computed at the site, the run is 667 instructions with a 128 byte frame. On its own,
+three interleaved rounds against the merge: no row outside −0.4…+1.0% on bulk, Twitter windowed
++1.2…1.7%. An enabler, as expected.
+
+What it enabled was the whitespace vector body inline in the run, which the size cliff had
+rejected twice at −27%. It turned out not to be a size budget at all: with 192 instructions
+freed, adding the body still pushed the step out of line (146 instructions, one call per
+structural byte); `@_transparent` on the step brought it back and pushed `streamWhitespaceEndByte`
+out instead; `@_transparent` on the scanner pair too finally held. Transparent inlining runs
+before the optimizer's heuristics, and also before the library's `any`/`all` on a composed mask
+get specialised — `streamStringRun`'s `any(hit)` became a call to the generic `SIMD.min` and
+had to be respelled through the `vmaxvq` shim. The run is 795 instructions with no scanner
+calls: only `deliverEvents`, `fail` and `validateNonASCIIRun` remain.
+
+| bulk, p50 MB/s | before | after | |
+| --- | ---: | ---: | ---: |
+| Twitter | 1435 | 1502 | **+4.7%** |
+| GitHub events | 1645 | 1689 | +2.7% |
+| GSoC 2018 | 3409 | 3493 | +2.5% |
+| LLM message | 3279 | 3361 | +2.5% |
+| Twitter escaped, byte by byte | 109 | 111 | +1.8% |
+| Canada | 890 | 871 | **−2.1%** |
+| Mesh | 733 | 728 | −0.7% |
+| CITM / Twitter escaped / layer rows | | | −0.5…+1.1% |
+
+Canada was the cost at that point: its whitespace runs are one byte and every structural byte
+hands off to a number, so it pays the run's extra register pressure (the four splats, 67 `movi`
+sites across the paths) and gets nothing from the scan.
+
+### The hit test as a table
+
+Review asked whether the four compares ORed together could be a table operation. They can: the
+four whitespace bytes have distinct low nibbles, so a sixteen entry `tbl` indexed by
+`chunk & 0x0F` returns the one whitespace byte a lane could be and `chunk .!= lookup` is the
+miss mask — `and`, `tbl`, `cmeq` with one table and one splat where the OR form kept four splats
+live. (The filler is 0x00, not 0xFF: 0xFF has low nibble 0xF and matched itself at entry
+fifteen; the scanner oracle caught the byte 0xFF scanning as whitespace.) `movi` sites in the run
+went 67 → 45, and most of Canada's loss came back. Three builds, two interleaved rounds, p50:
+
+| row | before | OR form | table form | table vs before |
+| --- | ---: | ---: | ---: | ---: |
+| Twitter, bulk | 1429 | 1493 | 1508 | **+5.5%** |
+| GitHub events, bulk | 1631 | 1680 | 1733 | **+6.3%** |
+| GSoC 2018, bulk | 3397 | 3499 | 3521 | +3.7% |
+| LLM message, bulk | 3277 | 3361 | 3355 | +2.4% |
+| CITM catalog, bulk | 1692 | 1689 | 1731 | +2.3% |
+| Canada, bulk | 888 | 865 | 880 | −0.9% |
+| Mesh, bulk | 732 | 727 | 728 | −0.5% |
+| Fast Literals, bulk | 829 | 833 | 883 | +6.5% |
+| Twitter escaped, byte by byte | 109 | 111 | 112 | +2.8% |
+| Twitter / GSoC / LLM, raw windowed | 1542 / 3345 / 3143 | | 1562 / 3447 / 3205 | +1.3 / +3.0 / +2.0% |
+| GitHub / CITM / Canada / Mesh, raw windowed | 2163 / 1669 / 1070 / 943 | | 2169 / 1677 / 1068 / 939 | +0.3 / +0.5 / −0.2 / −0.4% |
+| Twitter / CITM / Canada, layer bulk | 820 / 364 / 354 | | 835 / 370 / 357 | +1.8 / +1.6 / +0.8% |
+| layer windowed rows | | | | −1.3 … +1.4% |
+
+The windowed path barely moves on the object corpora because it does not run this loop: its
+whitespace is skipped by the stage-1 index. The bulk dispatcher is where the whitespace scan
+lived, and that is where the gain is.
+
+### The record repack, re-measured
+
+`t3code/tier1-record-repack` (5242a10: 16-byte packed `StreamEventRecord`, event cursor and
+scratch base hoisted into the run's locals) was cherry-picked onto the merge and measured the
+same way. `madd` became `lsl #4` as promised, the run grew 859 → 897, and the rows moved as
+they did on the branch: Twitter bulk +1.5%, windowed +1.8…2.7%, GSoC +1…1.6%, Twitter escaped
+byte by byte +6…8%; Canada windowed −4…−8%, CITM and GSoC layer −1…−2%. Not landed.

@@ -151,7 +151,16 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
   while i &+ streamScannerVectorWidth <= narrowLimit {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
     let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
-    if any(hit) {
+    // `any(hit)` spelled through the shim on arm64: once this body reaches
+    // `consumeStructuralRun` through the transparent step, the standard library's `any` on a
+    // composed mask lost its specialisation and became a call to the generic `SIMD.min` — one
+    // `bl` per sixteen string bytes. A hit lane is 0xFF, so "any high bit" is the same test.
+#if arch(arm64)
+    let anyHit = streamVectorContainsNonASCII(streamMaskBytes(hit))
+#else
+    let anyHit = any(hit)
+#endif
+    if anyHit {
 #if arch(arm64)
       let lane = streamFirstHitLaneNEON(hit)
 #else
@@ -241,7 +250,7 @@ package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> 
 // The byte is meaningless when `end == to` and is reported as zero there. Every caller tests that
 // first, because a run that reaches the chunk end has no byte to dispatch on.
 @inlinable
-@inline(__always)
+@_transparent
 package func streamWhitespaceEndByte(
   base: UnsafeRawPointer, from: Int, to: Int
 ) -> (end: Int, byte: UInt8) {
@@ -254,7 +263,7 @@ package func streamWhitespaceEndByte(
   let end =
     to &- from < streamScannerVectorWidth
     ? streamWhitespaceScalarEnd(base: base, from: from, to: to)
-    : streamWhitespaceRunEnd(base: base, from: from, to: to)
+    : streamWhitespaceRunEndInline(base: base, from: from, to: to)
   return (end, end < to ? base.load(fromByteOffset: end, as: UInt8.self) : 0)
 }
 
@@ -274,9 +283,38 @@ package func streamWhitespaceScalarEnd(base: UnsafeRawPointer, from: Int, to: In
   return i
 }
 
+// Which lanes of a block are not whitespace. On arm64 this is one table lookup and a compare
+// rather than four compares ORed together: the four whitespace bytes -- 0x20, 0x09, 0x0A, 0x0D
+// -- have distinct low nibbles, so a sixteen entry table indexed by the low nibble hands back
+// the one whitespace byte a lane could be, and `chunk .!= lookup` is the miss mask. The filler
+// is 0x00, not 0xFF: a filler must differ from every byte that indexes it, and 0xFF has the low
+// nibble 0xF, so at entry fifteen it matched itself -- the scanner oracle caught the byte 0xFF
+// scanning as whitespace. 0x00's low nibble is zero, and entry zero holds the space. `and`, `tbl`, `cmeq`, with one table constant and one
+// mask splat where the OR form kept four splats live -- the register pressure that inlining this
+// body into the structural run was always going to pay. The table is written out rather than
+// built, so it is a literal the compiler loads from the constant pool.
+@inlinable
+@_transparent
+package func streamWhitespaceMissMask(_ chunk: SIMD16<UInt8>) -> SIMDMask<SIMD16<Int8>> {
+  #if arch(arm64)
+    let table = SIMD16<UInt8>(
+      0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x0A, 0x00, 0x00, 0x0D, 0x00, 0x00
+    )
+    return chunk .!= stream_parsing_tbl1q_u8(table, chunk & SIMD16<UInt8>(repeating: 0x0F))
+  #else
+    let space = SIMD16<UInt8>(repeating: .asciiSpace)
+    let tab = SIMD16<UInt8>(repeating: .asciiTab)
+    let lineFeed = SIMD16<UInt8>(repeating: .asciiLineFeed)
+    let carriageReturn = SIMD16<UInt8>(repeating: .asciiCarriageReturn)
+    return .!(chunk .== space .| chunk .== tab .| chunk .== lineFeed .| chunk .== carriageReturn)
+  #endif
+}
+
 // Kept out of line deliberately. Inlining the vector body into the parse loop measured 18-35%
 // *slower* on escape dense documents, which contain no whitespace for it to scan at all: the
 // loop's own register pressure is the cost, not the scan.
+// `consumeStructuralRun` takes the inline twin below instead; `parse` and `streamWhitespaceEnd`
+// keep this one.
 @inlinable
 @inline(never)
 package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -313,22 +351,58 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
       i &+= 1
     }
   }
-  let space = SIMD16<UInt8>(repeating: .asciiSpace)
-  let tab = SIMD16<UInt8>(repeating: .asciiTab)
-  let lineFeed = SIMD16<UInt8>(repeating: .asciiLineFeed)
-  let carriageReturn = SIMD16<UInt8>(repeating: .asciiCarriageReturn)
-
   while i &+ streamScannerVectorWidth <= to {
     let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
-    let hit = chunk .== space .| chunk .== tab .| chunk .== lineFeed .| chunk .== carriageReturn
-    if !all(hit) {
-      let miss = .!hit
+    let miss = streamWhitespaceMissMask(chunk)
 #if arch(arm64)
+    if streamVectorContainsNonASCII(streamMaskBytes(miss)) {
       return i &+ streamFirstHitLaneNEON(miss)
-#else
-      return i &+ streamFirstHitLane(miss)
-#endif
     }
+#else
+    if any(miss) { return i &+ streamFirstHitLane(miss) }
+#endif
+    i &+= streamScannerVectorWidth
+  }
+  return streamWhitespaceScalarEnd(base: base, from: i, to: to)
+}
+
+// The same body as `streamWhitespaceRunEnd`, for `consumeStructuralRun` alone, where it is
+// forced inline. The out-of-line twin's comment says why inlining the vector body was wrong for
+// `parse`; the structural run is a different caller — its whitespace is between tokens, one run
+// per structural byte, and the call was 16% of `twitter`. It only became possible once the run's
+// throw expansions were out of line (`JSONParser.fail`), and even then the size heuristic did
+// not do it: freed of 192 instructions the inliner still pushed the step out of line the moment
+// this body went in, and forcing the step back with `@_transparent` pushed *this* out instead.
+// `@_transparent` on the whole chain — the step, `streamWhitespaceEndByte`, this — is what
+// holds, and it inlines before the optimizer's heuristics get a vote. That is also why the
+// hit test is the shim and not `all(hit)`: inlined at that stage the library's `any`/`all` on a
+// composed mask lost their specialisation and became a call to the generic `SIMD.min`.
+// Measured against the tree before both changes, with the table form of the hit test below,
+// p50 MB/s: `twitter` +5.5%, `github_events` +6.3%, `gsoc` +3.7%, `llm_message` +2.4%,
+// `citm_catalog` +2.3%; `canada` −0.9%, `mesh` −0.5%, the rest within ±1.5%. See
+// NEW_ARCHITECTURE.md, "Outlined throws, and the whitespace inline".
+@inlinable
+@_transparent
+package func streamWhitespaceRunEndInline(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
+  var i = from
+  if i < to {
+    guard streamIsWhitespace(base.load(fromByteOffset: i, as: UInt8.self)) else { return i }
+    i &+= 1
+    if i < to {
+      guard streamIsWhitespace(base.load(fromByteOffset: i, as: UInt8.self)) else { return i }
+      i &+= 1
+    }
+  }
+  while i &+ streamScannerVectorWidth <= to {
+    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let miss = streamWhitespaceMissMask(chunk)
+#if arch(arm64)
+    if streamVectorContainsNonASCII(streamMaskBytes(miss)) {
+      return i &+ streamFirstHitLaneNEON(miss)
+    }
+#else
+    if any(miss) { return i &+ streamFirstHitLane(miss) }
+#endif
     i &+= streamScannerVectorWidth
   }
   return streamWhitespaceScalarEnd(base: base, from: i, to: to)
