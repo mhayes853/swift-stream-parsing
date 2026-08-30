@@ -313,9 +313,17 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       return self.borrow(frame)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
-      guard
-        let frame = top.pointee.schema.enterField(top.pointee.storage, top.pointee.pendingField)
-      else { return nil }
+      var field = top.pointee.pendingField
+      if top.pointee.schema.keyRouting == .table {
+        let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+        // A scalar member cannot hold a container; the caller reads nil against a known
+        // destination as the mismatch it is.
+        guard entry.pointee.kind == .container else { return nil }
+        field = entry.pointee.index
+      }
+      guard let frame = top.pointee.schema.enterField(top.pointee.storage, field) else {
+        return nil
+      }
       return self.borrow(frame)
     case .dictionary:
       defer { self.pendingDictionaryFrame = nil }
@@ -340,6 +348,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     // schema alive across it — which is a retain, and cost one per entry on the dictionary path.
     // Read in place it is a borrow, and the loads fold.
     switch top.pointee.schema.keyRouting {
+    case .table:
+      top.pointee.pendingField = Self.matchTable(top, bytes)
     case .match:
       top.pointee.pendingField = top.pointee.schema.matchField(bytes)
     case .dictionary:
@@ -384,6 +394,15 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     let target = self.resolveScalarTarget()
     self.scalarTarget = target
     guard let target else { return }
+    if let entry = target.entry {
+      // A table member: materialised and reserved here, appended to in place by the chunks.
+      let result = self.openTableString(entry, target.storage)
+      if result != .applied {
+        self.scalarTarget = nil
+        self.recordFailure(Self.failureReason(for: result))
+      }
+      return
+    }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
     let result = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
@@ -551,6 +570,79 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         index = runEnd
         continue
       }
+      // The table form of the same fast path: the key resolves to an entry, and the scalar after
+      // it is written by the entry's kind -- a typed store at the member's offset, no closure.
+      if record.kind == .key, index &+ 1 < count, let top = self.topFrame,
+        top.pointee.schema.keyRouting == .table
+      {
+        let field = Self.matchTable(top, batch.bytes(of: index))
+        top.pointee.pendingField = field
+        let next = records[index &+ 1]
+        let entry = field >= 0 ? top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field) : nil
+        switch next.kind {
+        case .string:
+          if let entry {
+            let result = self.writeTableString(entry, frame: top, batch.bytes(of: index &+ 1))
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        case .number:
+          if let entry {
+            let bytes = batch.bytes(of: index &+ 1)
+            let info = batch.info(of: index &+ 1)
+            let result =
+              entry.pointee.kind == .custom
+              ? top.pointee.schema.applyNumber(top.pointee.storage, entry.pointee.index, bytes, info)
+              : Self.writeTableNumber(
+                entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
+              )
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        case .boolean:
+          if let entry {
+            let result =
+              entry.pointee.kind == .custom
+              ? top.pointee.schema.applyBoolean(
+                top.pointee.storage, entry.pointee.index, next.booleanValue
+              )
+              : Self.writeTableBoolean(
+                entry, member: top.pointee.storage + Int(entry.pointee.offset), next.booleanValue
+              )
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        case .null:
+          if let entry {
+            let kind = entry.pointee.kind
+            let result =
+              kind == .custom || kind == .container
+              ? top.pointee.schema.applyNull(top.pointee.storage, entry.pointee.index)
+              : Self.writeTableNull(entry, member: top.pointee.storage + Int(entry.pointee.offset))
+            if result != .applied {
+              self.recordFailure(Self.failureReason(for: result))
+              return index &+ 1
+            }
+          }
+          index &+= 2
+          continue
+        default:
+          index &+= 1
+          continue
+        }
+      }
       if record.kind == .key, index &+ 1 < count, let top = self.topFrame,
         top.pointee.schema.shape == .object, top.pointee.schema.keyRouting == .match
       {
@@ -659,6 +751,10 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
     // chunks, preferred the borrow by 11% — the string path is the larger of the two.
     var schema: StreamSchema
     var field: Int32
+    // The table entry the target came from, or nil for a target the closures apply: an array
+    // element, a dictionary value, a scalar root, or a `custom`/`container` field. For a table
+    // target `storage` is already the member's address.
+    var entry: UnsafePointer<StreamField>?
   }
 
   @usableFromInline var scalarTarget: ScalarTarget?
@@ -895,24 +991,279 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   // every register needed only by the generic schema branch before it knows which route applies.
   @inline(never)
   private mutating func applyNumberNormally(_ bytes: Span<UInt8>, info: NumberInfo) {
-    self.withScalarTarget { storage, field, schema in
+    self.withScalarTarget(
+      table: { entry, storage, schema in
+        entry.pointee.kind == .custom
+          ? schema.applyNumber(storage, entry.pointee.index, bytes, info)
+          : Self.writeTableNumber(entry, member: storage, bytes, info)
+      }
+    ) { storage, field, schema in
       schema.applyNumber(storage, field, bytes, info)
     }
   }
 
   @inline(never)
   private mutating func applyBooleanNormally(_ value: Bool) {
-    self.withScalarTarget { storage, field, schema in
+    self.withScalarTarget(
+      table: { entry, storage, schema in
+        entry.pointee.kind == .custom
+          ? schema.applyBoolean(storage, entry.pointee.index, value)
+          : Self.writeTableBoolean(entry, member: storage, value)
+      }
+    ) { storage, field, schema in
       schema.applyBoolean(storage, field, value)
     }
   }
 
   @inline(never)
   private mutating func applyNullNormally() {
-    self.withScalarTarget { storage, field, schema in
+    self.withScalarTarget(
+      table: { entry, storage, schema in
+        entry.pointee.kind == .custom || entry.pointee.kind == .container
+          ? schema.applyNull(storage, entry.pointee.index)
+          : Self.writeTableNull(entry, member: storage)
+      }
+    ) { storage, field, schema in
       schema.applyNull(storage, field)
     }
   }
+
+  // MARK: Table writes
+
+  // The key match against the top frame's table, through the schema's raw views: nothing here
+  // loads a reference, so nothing is retained per key.
+  @inline(__always)
+  private static func matchTable(
+    _ frame: UnsafeMutablePointer<BorrowedFrame>, _ key: Span<UInt8>
+  ) -> Int32 {
+    streamMatchField(
+      frame.pointee.schema.fieldEntries.unsafelyUnwrapped,
+      count: frame.pointee.schema.fieldCount,
+      keyBytes: frame.pointee.schema.fieldKeyBytes.unsafelyUnwrapped,
+      key
+    )
+  }
+
+  // A table entry's target. For a kind the table writes, `storage` is the member's own address;
+  // a `custom` or `container` entry keeps the object's storage, which is what its closures take.
+  @inline(__always)
+  private static func tableTarget(
+    _ entry: UnsafePointer<StreamField>,
+    _ storage: UnsafeMutableRawPointer,
+    _ schema: StreamSchema
+  ) -> ScalarTarget {
+    let kind = entry.pointee.kind
+    let direct = kind != .custom && kind != .container
+    return ScalarTarget(
+      storage: direct ? storage + Int(entry.pointee.offset) : storage,
+      schema: schema,
+      field: entry.pointee.index,
+      entry: entry
+    )
+  }
+
+  // The typed store behind every number kind: convert, then write the value or its `.some`. The
+  // optional store is a typed assignment rather than a raw write because `Optional`'s tag is
+  // laid out per payload type, and the compiler knows where.
+  @inline(__always)
+  private static func storeNumber<T: StreamNumberConvertible>(
+    _ type: T.Type,
+    at storage: UnsafeMutableRawPointer,
+    optional: Bool,
+    _ bytes: Span<UInt8>,
+    _ info: NumberInfo
+  ) -> StreamApplyResult {
+    guard let value = T(streamParsing: bytes, info: info) else { return .unsupported }
+    if optional {
+      storage.assumingMemoryBound(to: T?.self).pointee = value
+    } else {
+      storage.assumingMemoryBound(to: T.self).pointee = value
+    }
+    return .applied
+  }
+
+  @inline(__always)
+  private static func storeNil<T>(
+    _ type: T.Type, at storage: UnsafeMutableRawPointer
+  ) -> StreamApplyResult {
+    storage.assumingMemoryBound(to: T?.self).pointee = nil
+    return .applied
+  }
+
+  // The kinds the table writes, at the member's own address. `custom` is the caller's to route to
+  // the closure, so the schema never comes through here.
+  @inline(never)
+  private static func writeTableNumber(
+    _ entry: UnsafePointer<StreamField>,
+    member: UnsafeMutableRawPointer,
+    _ bytes: Span<UInt8>,
+    _ info: NumberInfo
+  ) -> StreamApplyResult {
+    let kind = entry.pointee.kind
+    let optional = entry.pointee.isOptional
+    switch kind {
+    case .int: return Self.storeNumber(Int.self, at: member, optional: optional, bytes, info)
+    case .double: return Self.storeNumber(Double.self, at: member, optional: optional, bytes, info)
+    case .int64: return Self.storeNumber(Int64.self, at: member, optional: optional, bytes, info)
+    case .uint64: return Self.storeNumber(UInt64.self, at: member, optional: optional, bytes, info)
+    case .uint: return Self.storeNumber(UInt.self, at: member, optional: optional, bytes, info)
+    case .int32: return Self.storeNumber(Int32.self, at: member, optional: optional, bytes, info)
+    case .uint32: return Self.storeNumber(UInt32.self, at: member, optional: optional, bytes, info)
+    case .int16: return Self.storeNumber(Int16.self, at: member, optional: optional, bytes, info)
+    case .uint16: return Self.storeNumber(UInt16.self, at: member, optional: optional, bytes, info)
+    case .int8: return Self.storeNumber(Int8.self, at: member, optional: optional, bytes, info)
+    case .uint8: return Self.storeNumber(UInt8.self, at: member, optional: optional, bytes, info)
+    case .float: return Self.storeNumber(Float.self, at: member, optional: optional, bytes, info)
+    case .custom, .bool, .streamString, .inlineString, .container:
+      return .unsupported
+    }
+  }
+
+  @inline(never)
+  private static func writeTableBoolean(
+    _ entry: UnsafePointer<StreamField>,
+    member: UnsafeMutableRawPointer,
+    _ value: Bool
+  ) -> StreamApplyResult {
+    guard entry.pointee.kind == .bool else { return .unsupported }
+    if entry.pointee.isOptional {
+      member.assumingMemoryBound(to: Bool?.self).pointee = value
+    } else {
+      member.assumingMemoryBound(to: Bool.self).pointee = value
+    }
+    return .applied
+  }
+
+  // A null clears an optional member of any kind the table writes. A container member is nulled
+  // through the closure, which knows the container's type; a non-optional member is a mismatch,
+  // as `streamApplyNull`'s disfavoured overload always reported it.
+  @inline(never)
+  private static func writeTableNull(
+    _ entry: UnsafePointer<StreamField>,
+    member: UnsafeMutableRawPointer
+  ) -> StreamApplyResult {
+    let kind = entry.pointee.kind
+    guard entry.pointee.isOptional else { return .unsupported }
+    switch kind {
+    case .int: return Self.storeNil(Int.self, at: member)
+    case .double: return Self.storeNil(Double.self, at: member)
+    case .int64: return Self.storeNil(Int64.self, at: member)
+    case .uint64: return Self.storeNil(UInt64.self, at: member)
+    case .uint: return Self.storeNil(UInt.self, at: member)
+    case .int32: return Self.storeNil(Int32.self, at: member)
+    case .uint32: return Self.storeNil(UInt32.self, at: member)
+    case .int16: return Self.storeNil(Int16.self, at: member)
+    case .uint16: return Self.storeNil(UInt16.self, at: member)
+    case .int8: return Self.storeNil(Int8.self, at: member)
+    case .uint8: return Self.storeNil(UInt8.self, at: member)
+    case .float: return Self.storeNil(Float.self, at: member)
+    case .bool: return Self.storeNil(Bool.self, at: member)
+    case .streamString: return Self.storeNil(StreamString.self, at: member)
+    case .inlineString:
+      // `StreamInlineString<N>?`: the payload has no spare bits (an `Int32` count and raw bytes),
+      // so the optional's tag is the byte after the payload, and nil is a one there.
+      member.storeBytes(
+        of: 1, toByteOffset: _streamInlineStringByteOffset + Int(entry.pointee.capacity),
+        as: UInt8.self
+      )
+      return .applied
+    case .custom, .container:
+      return .unsupported
+    }
+  }
+
+  // Materialises an optional inline string by hand: a zero count and a zero tag after the payload.
+  @inline(__always)
+  private static func materializeInlineString(
+    _ member: UnsafeMutableRawPointer, capacity: Int32
+  ) {
+    let tagOffset = _streamInlineStringByteOffset + Int(capacity)
+    if member.load(fromByteOffset: tagOffset, as: UInt8.self) != 0 {
+      member.storeBytes(of: 0, as: Int32.self)
+      member.storeBytes(of: 0, toByteOffset: tagOffset, as: UInt8.self)
+    }
+  }
+
+  // Opens a string member for in-place appends: materialises an optional, reserves the hinted
+  // capacity, and points the chunk path at the storage. `storage` is the member's own address
+  // for a kind the table writes and the object's for `custom`.
+  @inline(never)
+  private mutating func openTableString(
+    _ entry: UnsafePointer<StreamField>,
+    _ storage: UnsafeMutableRawPointer
+  ) -> StreamApplyResult {
+    switch entry.pointee.kind {
+    case .streamString:
+      if entry.pointee.isOptional {
+        _streamMaterializeOptional(storage, as: StreamString.self)
+      }
+      if entry.pointee.capacity > 0 {
+        storage.assumingMemoryBound(to: StreamString.self).pointee
+          .streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
+      }
+      self.homogeneousStringStorage = storage
+      return .applied
+    case .inlineString:
+      if entry.pointee.isOptional {
+        Self.materializeInlineString(storage, capacity: entry.pointee.capacity)
+      }
+      self.inlineStringCapacity = entry.pointee.capacity
+      return .applied
+    case .custom:
+      // The closure route, exactly as before the table: the empty span materialises and settles.
+      let schema = self.scalarTarget.unsafelyUnwrapped.schema
+      let field = entry.pointee.index
+      return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+        let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
+        return schema.applyString(storage, field, Span(_unsafeElements: empty))
+      }
+    default:
+      return .unsupported
+    }
+  }
+
+  // The batched form: a whole string value in one record, written from the frame.
+  @inline(never)
+  private mutating func writeTableString(
+    _ entry: UnsafePointer<StreamField>,
+    frame: UnsafeMutablePointer<BorrowedFrame>,
+    _ bytes: Span<UInt8>
+  ) -> StreamApplyResult {
+    let storage = frame.pointee.storage
+    let member = storage + Int(entry.pointee.offset)
+    switch entry.pointee.kind {
+    case .streamString:
+      if entry.pointee.isOptional {
+        _streamMaterializeOptional(member, as: StreamString.self)
+      }
+      let string = member.assumingMemoryBound(to: StreamString.self)
+      if entry.pointee.capacity > 0 {
+        string.pointee.streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
+      }
+      if bytes.count > 0 { string.pointee.streamAppend(utf8: bytes) }
+      return .applied
+    case .inlineString:
+      if entry.pointee.isOptional {
+        Self.materializeInlineString(member, capacity: entry.pointee.capacity)
+      }
+      return _streamInlineStringAppend(member, capacity: entry.pointee.capacity, bytes)
+    case .custom:
+      let opened = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
+        let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
+        return frame.pointee.schema.applyString(
+          storage, entry.pointee.index, Span(_unsafeElements: empty)
+        )
+      }
+      if opened != .applied { return opened }
+      if bytes.count > 0 {
+        return frame.pointee.schema.applyString(storage, entry.pointee.index, bytes)
+      }
+      return .applied
+    default:
+      return .unsupported
+    }
+  }
+
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
     #if DEBUG && !hasFeature(Embedded)
@@ -927,7 +1278,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         return nil
       }
       return ScalarTarget(
-        storage: self.root, schema: self.rootSchema, field: StreamSchema.wholeValueField
+        storage: self.root, schema: self.rootSchema, field: StreamSchema.wholeValueField,
+        entry: nil
       )
     }
     switch top.pointee.schema.shape {
@@ -947,12 +1299,18 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
       if indexed { top.pointee.pendingField = index &+ 1 }
       let borrowed = self.borrow(element)
       return ScalarTarget(
-        storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField
+        storage: borrowed.storage, schema: borrowed.schema, field: StreamSchema.wholeValueField,
+        entry: nil
       )
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
+      if top.pointee.schema.keyRouting == .table {
+        let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(top.pointee.pendingField)
+        return Self.tableTarget(entry, top.pointee.storage, top.pointee.schema)
+      }
       return ScalarTarget(
-        storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField
+        storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField,
+        entry: nil
       )
     case .dictionary:
       if let storage = self.pendingDictionaryStorage {
@@ -960,16 +1318,19 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
         return ScalarTarget(
           storage: storage,
           schema: top.pointee.schema,
-          field: StreamSchema.wholeValueField
+          field: StreamSchema.wholeValueField,
+          entry: nil
         )
       }
       guard let frame = self.pendingDictionaryFrame else { return nil }
       return ScalarTarget(
-        storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField
+        storage: frame.storage, schema: frame.schema, field: StreamSchema.wholeValueField,
+        entry: nil
       )
     case .scalar:
       return ScalarTarget(
-        storage: top.pointee.storage, schema: top.pointee.schema, field: StreamSchema.wholeValueField
+        storage: top.pointee.storage, schema: top.pointee.schema, field: StreamSchema.wholeValueField,
+        entry: nil
       )
     }
   }
@@ -982,6 +1343,24 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   ) {
     guard let target = self.resolveScalarTarget() else { return }
     let result = body(target.storage, target.field, target.schema)
+    if result != .applied {
+      self.recordFailure(Self.failureReason(for: result))
+    }
+  }
+
+  // The same, when the target may be a table entry: `table` writes it, `body` is the closure
+  // route for everything else.
+  private mutating func withScalarTarget(
+    table: (UnsafePointer<StreamField>, UnsafeMutableRawPointer, StreamSchema) -> StreamApplyResult,
+    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
+  ) {
+    guard let target = self.resolveScalarTarget() else { return }
+    let result =
+      if let entry = target.entry {
+        table(entry, target.storage, target.schema)
+      } else {
+        body(target.storage, target.field, target.schema)
+      }
     if result != .applied {
       self.recordFailure(Self.failureReason(for: result))
     }

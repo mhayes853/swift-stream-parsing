@@ -310,3 +310,75 @@ public func streamApply<T: StreamBooleanConvertible>(
   value = T(streamParsingBoolean: boolean)
   return .applied
 }
+
+// MARK: - Field routes
+
+// What a member's type resolves to for the field table, by the same overload structure
+// `streamApply` uses, so a member is classified exactly the way it would have been applied. Two
+// overloads per protocol, for the optional and the initialised members modes.
+
+@inlinable
+public func _streamFieldRoute<T: StreamStringConvertible>(_ value: inout T?) -> StreamFieldRoute {
+  _streamStringFieldRoute(T.self, optional: true)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamStringConvertible>(_ value: inout T) -> StreamFieldRoute {
+  _streamStringFieldRoute(T.self, optional: false)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamNumberConvertible>(_ value: inout T?) -> StreamFieldRoute {
+  StreamFieldRoute(_streamNumberFieldKind(T.self), optional: true)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamNumberConvertible>(_ value: inout T) -> StreamFieldRoute {
+  StreamFieldRoute(_streamNumberFieldKind(T.self), optional: false)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamBooleanConvertible>(_ value: inout T?) -> StreamFieldRoute {
+  StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: true)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamBooleanConvertible>(_ value: inout T) -> StreamFieldRoute {
+  StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: false)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamParseableObject>(_ value: inout T?) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: true)
+}
+
+@inlinable
+public func _streamFieldRoute<T: StreamParseableObject>(_ value: inout T) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: false)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamFieldRoute<T: StreamContainerPartial>(_ value: inout T?) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: true)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamFieldRoute<T: StreamContainerPartial>(_ value: inout T) -> StreamFieldRoute {
+  StreamFieldRoute(.container, optional: false)
+}
+
+// A type none of the protocols above describe: whatever `streamApply` does with it, the table
+// does not know, so it stays on the closures.
+@_disfavoredOverload
+@inlinable
+public func _streamFieldRoute<T>(_ value: inout T?) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: true)
+}
+
+@_disfavoredOverload
+@inlinable
+public func _streamFieldRoute<T>(_ value: inout T) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: false)
+}

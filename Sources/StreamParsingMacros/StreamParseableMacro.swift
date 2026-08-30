@@ -239,6 +239,18 @@ extension StreamParseableMacro {
     return "0x" + grouped.joined(separator: "_")
   }
 
+  private static func stringLiteral(_ key: String) -> String {
+    var escaped = ""
+    for scalar in key.unicodeScalars {
+      switch scalar {
+      case "\\": escaped += "\\\\"
+      case "\"": escaped += "\\\""
+      default: escaped.unicodeScalars.append(scalar)
+      }
+    }
+    return "\"\(escaped)\""
+  }
+
   private static func keyMatchGuard(for key: String) -> String {
     let count = key.utf8.count
     var conditions = ["key.count == \(count)"]
@@ -260,6 +272,8 @@ extension StreamParseableMacro {
 
   private struct SchemaCases: Hashable, Sendable {
     var match = [String]()
+    // One table entry per key name. See `StreamFieldTable.swift`.
+    var fields = [String]()
     var applyString = [String]()
     var applyNumber = [String]()
     var applyBoolean = [String]()
@@ -347,6 +361,18 @@ extension StreamParseableMacro {
       }
 
       let target = "p.pointee.\(property.name)"
+      let capacityHint = property.initialCapacity.map { ", capacity: \($0)" } ?? ""
+      for key in property.keyNames {
+        cases.fields.append(
+          """
+                StreamParsingCore.StreamField(
+                  key: \(Self.stringLiteral(key)), index: \(field),
+                  route: _streamFieldRoute(&\(target)),
+                  offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)\(capacityHint)
+                ),
+          """
+        )
+      }
       switch Self.fieldShape(for: property.type) {
       case .scalarOrObject:
         let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
@@ -464,6 +490,13 @@ extension StreamParseableMacro {
           }
         }
 
+        \(modifierPrefix)static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
+          of: Self.self, prototype: Self()
+        ) { p in
+          [
+      \(switchBody(cases.fields))    ]
+        }
+
         \(modifierPrefix)static let streamSchema = StreamParsingCore.StreamSchema(
           shape: .object,
           matchField: Self.streamMatchField,
@@ -471,7 +504,8 @@ extension StreamParseableMacro {
           applyNumber: Self.streamApplyNumber,
           applyBoolean: Self.streamApplyBoolean,
           applyNull: Self.streamApplyNull,
-          enterField: Self.streamEnterField
+          enterField: Self.streamEnterField,
+          fields: Self.streamFields
         )
       """
   }

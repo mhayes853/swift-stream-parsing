@@ -398,7 +398,11 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       leafRoute: wrapped.leafRoute.fixedSIMDLaneCount != 0 || wrapped.leafRoute == .inlineArray
         ? wrapped.leafRoute
         : .generic,
-      fixedElementCount: wrapped.fixedElementCount
+      fixedElementCount: wrapped.fixedElementCount,
+      // The table writes at `storage + offset` with no materialising closure in front of it,
+      // which is sound for an optional root because `prepareRoot` materialises it before any
+      // frame is pushed over it.
+      fields: wrapped.fields
     )
   }
 }

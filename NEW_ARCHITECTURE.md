@@ -5958,3 +5958,109 @@ dominated by closure dispatch and by strings, in that order of reach. A fused ty
 judged against this table route by route — an int member has to beat 21 ns, a string member 77,
 a double 9.4 — and a route that does not move is visible here before any corpus row is run.
 
+## The field table: the sink's object routes as data
+
+The replay rows put a number on what a scalar member cost inside `PartialSink`: 21 ns and a
+retain/release pair for an integer, on a route that allocates nothing. The route was two
+generated `switch`es behind two stored closures -- `matchField` to turn the key into a field
+identifier, `applyNumber` to turn the identifier back into a member -- and the sink's own frame
+bookkeeping between them. This section replaces the pair with a table
+(`StreamFieldTable.swift`): one entry per key name, carrying the key's first word and length,
+the *kind* of the member, its byte offset inside the `Partial`, and, for the two kinds the table
+cannot write itself, the field identifier the closures still take.
+
+### What the macro emits, and what resolves it
+
+The macro sees only spelling, so it cannot say whether `var temperature: Celsius` is an integer,
+a string or a nested object. It emits one `StreamField` per key with the kind left to an
+overload set in `StreamParsing` -- `_streamFieldRoute(&p.pointee.member)` -- structured exactly
+like `streamApply`'s, so a member is classified the way it would have been applied: the
+`StreamNumberConvertible` overload answers `.int`/`.double`/... for the twelve standard number
+types and `.custom` for anything else, `StreamStringConvertible` answers `.streamString` or
+`.inlineString` (with its capacity) or `.custom`, `StreamParseableObject` and
+`StreamContainerPartial` answer `.container`, and the disfavoured fallback answers `.custom`.
+Two overloads each, for the optional and the initialised members modes, and the optional one
+sets a flag the writers read.
+
+The offset comes from pointer arithmetic over a prototype (`_streamFieldOffset`), not from
+`MemoryLayout.offset(of:)`, because a key path does not compile under Embedded Swift.
+`StreamFieldTableTests` pins the two against each other for every kind, both members modes,
+aliased keys and a capacity hint, and drives every kind through the parser.
+
+The generated `streamApplyString/Number/Boolean/Null` and `streamEnterField` switches are still
+emitted: a `custom` entry is applied through them with its index, and a `container` entry is
+entered through `enterField`. A hand-written schema with no table (`PersonNameComponents`) still
+routes through `matchField` as before; a table outranks a matcher when a schema carries both.
+
+### What the sink does with it
+
+Under a `.table` frame, `pendingField` is the entry index. The batched key-plus-scalar path
+matches the key against the entries -- a linear scan of first word and length, the tail
+verified on a hit for keys longer than a word -- and writes the scalar by kind: a typed store of
+`T` or `T?` at `storage + offset` for the number kinds and `Bool`, an in-place append for
+`StreamString` (materialised through the optional first, reserved to the hint at the opening
+quote), the erased append for `StreamInlineString`. A null on an optional member is a typed
+`nil` store; on a non-optional one it is the mismatch it always was. The single-event path
+resolves the same entry into the existing `ScalarTarget`, with `storage` already the member.
+
+### The retain that was not the closure's
+
+The first build of this kept every retain: `Sink synthetic int fields` went 21.3 to 18.9 ns
+with 144 K retains for 142 K events, unchanged. The pair was not the closure context. It was the
+schema itself: a frame holds its schema `unowned(unsafe)`, and loading that into a strong
+parameter to pass to a helper is a retain and a release -- as was loading the table's class
+reference off it per key. The fix is that nothing on the table path takes a schema or a class:
+the schema exposes the table as three raw views (entries, count, key bytes) read through the
+frame, and the writers take the member's address. The `events` disassembly now shows the ten
+retains that remain all loading closure pairs at the schema's closure offsets, on the matcher
+and `custom` branches only; the table branch calls `matchTable` and the four writers and
+nothing else. The counts agree: int fields 144 K to 16 K, which is two per container open --
+`appendElement` and the borrow -- and is the next section's subject.
+
+### Measured
+
+Three rounds, interleaved, against 5648255 (sink-identical to 3e85688, with the replay rows),
+best p0 and median p50, 2026-08-30.
+
+| row | base p0 / p50 | table p0 / p50 | Δ p50 | retains |
+| --- | ---: | ---: | ---: | ---: |
+| Sink synthetic int fields | 314 / 303 | 870 / 843 | **+178%** | 144 K → 16 K |
+| Sink synthetic int fields, no key matches | 551 / 535 | 951 / 926 | +73% | 80 K → 16 K |
+| Sink synthetic string fields | 150 / 145 | 230 / 221 | +52% | 290 K → 170 K |
+| Sink synthetic container churn | 157 / 153 | 221 / 214 | +40% | 120 K → 72 K |
+| Sink Twitter | 1,697 / 1,649 | 2,295 / 2,223 | +35% | 11 K → 4 K |
+| Sink GitHub events | 605 / 588 | 801 / 781 | +33% | 4 K → 2 K |
+| Sink Twitter escaped | 963 / 933 | 1,220 / 1,186 | +27% | 12 K → 5 K |
+| Sink GSoC 2018 | 859 / 830 | 1,043 / 1,005 | +21% | 49 K → 16 K |
+| Sink CITM catalog | 460 / 445 | 538 / 517 | +16% | 124 K → 85 K |
+| Sink LLM message | 854 / 830 | 947 / 915 | +10% | 12 K → 10 K |
+| Sink Canada / Mesh / double array / double pairs / dictionary | — | — | +0.2 / 0.0 / +0.2 / +1.9 / −1.6% | unchanged |
+| Real GitHub events - bulk discarding | 451 / 438 | 549 / 530 | **+21%** | |
+| Real Twitter - bulk discarding | 862 / 839 | 999 / 976 | +16% | |
+| Real GSoC 2018 - bulk discarding | 623 / 596 | 716 / 686 | +15% | |
+| Real Twitter escaped - bulk discarding | 539 / 525 | 612 / 596 | +14% | |
+| Real CITM catalog - bulk discarding | 377 / 363 | 428 / 411 | +13% | |
+| Real LLM message - bulk discarding | 687 / 664 | 744 / 723 | +9% | |
+| Real Canada / Mesh - bulk discarding | 365 / 352, 447 / 434 | 367 / 356, 448 / 431 | +1.1 / −0.7% | |
+| every `Real <x> - bulk` (raw) | | | −0.8 … +1.9% | |
+
+Per event, an integer member is 7.6 ns where it was 21.3, and a missed key 7.0 where it was
+12.0. The raw rows did not move, which is the standing constraint: nothing here touched the
+parser. The rows that did not move on the typed side are exactly the ones that never take an
+object route -- Canada and Mesh are number arrays, the dictionary row is `enterKey` -- and they
+are the routes the table does not yet cover.
+
+### What is left on the closures
+
+- **Container entry**: `enterField`, `appendElement`, `enterKey` are still closure calls, and
+  the 16 K retains left on int fields are the two per array element open. A table entry for a
+  container already knows its child schema and offset; the remaining work is the materialisation
+  of an optional member, which needs the wrapped type's initial value.
+- **Array elements and dictionary values** are still routed through `wholeValueField` and the
+  leaf routes rather than a kind, so a `[Int]` element or a `[String: Int]` value pays the old
+  path.
+- **Strings**: 47 ns a member now, from 77 -- the rest is `StreamString`'s own append and the
+  optional materialisation, not routing.
+- **Key matching** is a linear scan; a branchless first-word compare across the table is the
+  obvious next form once the entries are laid out for it.
+

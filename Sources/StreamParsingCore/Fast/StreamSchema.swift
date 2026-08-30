@@ -128,7 +128,9 @@ enum _StreamLeafRoute: UInt8, Sendable {
   }
 }
 
-public final class StreamSchema: Sendable {
+// `@unchecked` only for the three raw views of the field table below: immutable pointers into
+// storage the schema itself owns for its whole lifetime, read and never written after `init`.
+public final class StreamSchema: @unchecked Sendable {
   public enum Shape: UInt8, Sendable {
     case object
     case array
@@ -189,9 +191,20 @@ public final class StreamSchema: Sendable {
     case match
     case dictionary
     case ignore
+    // Keys resolve against the field table; `pendingField` on such a frame is a table index.
+    case table
   }
 
   @usableFromInline let keyRouting: KeyRouting
+
+  // The field table (StreamFieldTable.swift), or nil for a schema that routes keys through
+  // `matchField`. Every macro-generated object schema carries one. The owner is `fields`; the
+  // sink reads the three raw views, because loading a class reference off a frame's
+  // `unowned(unsafe)` schema is a retain and a release, and the sink does it per key.
+  @usableFromInline let fields: StreamFieldTable?
+  @usableFromInline let fieldEntries: UnsafePointer<StreamField>?
+  @usableFromInline let fieldCount: Int
+  @usableFromInline let fieldKeyBytes: UnsafePointer<UInt8>?
 
   // Whether this schema declares no matcher. Read when one schema is wrapped in another, so the
   // wrapper does not install a matcher over a destination that has none.
@@ -281,7 +294,8 @@ public final class StreamSchema: Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> StreamFrame? = {
       _, _ in nil
     },
-    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil
+    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil,
+    fields: [StreamField] = []
   ) {
     self.init(
       shape: shape,
@@ -297,7 +311,8 @@ public final class StreamSchema: Sendable {
       appendNumbers: appendNumbers,
       leafRoute: .generic,
       fixedElementCount: -1,
-      inlineCapacity: 0
+      inlineCapacity: 0,
+      fields: fields.isEmpty ? nil : StreamFieldTable(fields)
     )
   }
 
@@ -330,14 +345,23 @@ public final class StreamSchema: Sendable {
     )? = nil,
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
-    inlineCapacity: Int32 = 0
+    inlineCapacity: Int32 = 0,
+    fields: StreamFieldTable? = nil
   ) {
     self.shape = shape
     self.prepareRoot = prepareRoot
-    self.ignoresKeys = matchField == nil
+    self.fields = fields
+    self.fieldEntries = fields.map { UnsafePointer($0.entries) }
+    self.fieldCount = fields?.count ?? 0
+    self.fieldKeyBytes = fields.map { UnsafePointer($0.keyBytes) }
+    self.ignoresKeys = matchField == nil && fields == nil
     // A dictionary routes keys through `enterKey` whether or not it also carries a matcher, which
-    // is the order the sink already applied.
-    self.keyRouting = shape == .dictionary ? .dictionary : (matchField == nil ? .ignore : .match)
+    // is the order the sink already applied. A table outranks a matcher: a schema built with both
+    // matches through the table, and the matcher only serves a schema that wraps this one.
+    self.keyRouting =
+      shape == .dictionary
+      ? .dictionary
+      : (fields != nil ? .table : (matchField == nil ? .ignore : .match))
     self.matchField = matchField ?? { _ in -1 }
     self.applyString = applyString
     self.applyNumber = applyNumber
@@ -758,7 +782,8 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
       : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
         ? .optionalValue(base.leafRoute)
         : .generic),
-    fixedElementCount: base.fixedElementCount
+    fixedElementCount: base.fixedElementCount,
+    fields: base.fields
   )
 }
 
