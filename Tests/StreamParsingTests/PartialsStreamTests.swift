@@ -88,4 +88,41 @@ struct `PartialsStream Tests` {
     }
     expectNoDifference(try stream.finish(), [[1], [2, 3]])
   }
+
+  @Test
+  func `Finish Value Moves The Final Value Out`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<StreamArray<Int>>(), from: .json())
+    for byte in "[[1],[2,3]]".utf8 {
+      try stream.next(byte)
+    }
+    let value = try stream.finishValue()
+    expectNoDifference(value, [[1], [2, 3]])
+  }
+
+  @Test
+  func `Finish Value Throws On An Incomplete Document`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+    for byte in "[1,2".utf8 {
+      try stream.next(byte)
+    }
+    do {
+      _ = try stream.finishValue()
+      Issue.record("finishValue accepted an incomplete document")
+    } catch is JSONParsingError {
+    }
+  }
+
+  @Test
+  func `Finish Value Throws After Parser Throws`() throws {
+    var stream = PartialsStream(initialValue: 0, from: .json())
+    #expect(throws: JSONParsingError.self) {
+      _ = try stream.next(UInt8(ascii: "@"))
+    }
+    do {
+      _ = try stream.finishValue()
+      Issue.record("finishValue succeeded after the parser threw")
+    } catch let error as StreamParsingError {
+      expectNoDifference(error, .parserThrows)
+    }
+  }
 }

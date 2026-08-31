@@ -178,7 +178,7 @@ func streamDiscarding<Value: StreamParseableRoot>(
   for byte in bytes {
     try stream.next(byte)
   }
-  return try stream.finish()
+  return try stream.finishValue()
 }
 
 func streamDiscardingChunks<Value: StreamParseableRoot>(
@@ -194,7 +194,7 @@ func streamDiscardingChunks<Value: StreamParseableRoot>(
     try stream.next(bytes[index..<end])
     index = end
   }
-  return try stream.finish()
+  return try stream.finishValue()
 }
 
 func streamSnapshotting<Value: StreamParseableRoot>(
@@ -249,5 +249,5 @@ func streamBulkDiscarding<Value: StreamParseableRoot>(
 ) throws -> Value {
   var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
   try stream.next(bytes)
-  return try stream.finish()
+  return try stream.finishValue()
 }

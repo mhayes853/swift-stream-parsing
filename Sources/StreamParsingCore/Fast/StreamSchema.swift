@@ -806,7 +806,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
     // element type's. A closure without a context is a call and nothing else.
     appendElement: { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
-        ._openElement(Element.streamElementInitialValue())
+        ._openElement(initializedBy: Element.streamElementInitialValue)
     },
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
@@ -924,7 +924,7 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
     shape: .array,
     appendElement: { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
-        ._openElement(.some(Wrapped.streamInitialValue()))
+        ._openElement(initializedBy: { .some(Wrapped.streamInitialValue()) })
     },
     elementSchema: element,
     leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,

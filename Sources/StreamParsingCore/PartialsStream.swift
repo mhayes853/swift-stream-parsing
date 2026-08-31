@@ -178,4 +178,31 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     }
     return self.current
   }
+
+  /// Completes parsing and returns the final value by taking it from the stream.
+  ///
+  /// This is ``finish()`` without the snapshot: `finish()` returns ``current``, which copies the
+  /// whole tree through its value witnesses and leaves the stream's own copy behind to be
+  /// destroyed with the stream. Consuming the stream instead moves the tree out — a bitwise
+  /// move, no retains and no destroys — so the value returned is the one the parser built.
+  ///
+  /// On payloads small enough that per-parse cost matters (a tool call, a structured response),
+  /// the snapshot and the doomed original are a measurable share of the whole parse; use this
+  /// when the stream is done the moment the value is.
+  ///
+  /// - Returns: The final parsed value.
+  @inlinable
+  public consuming func finishValue() throws -> Value {
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    try self.parser.finish(into: &self.sink)
+    // Move rather than read: `storage.move()` transfers the tree bitwise, so no copy is made.
+    // The slot is refilled with the empty initial value for the deinit to destroy — a tree of
+    // nils, which costs a few outlined destroys instead of a walk over everything that was
+    // parsed. (`discard self` would skip even that, but it requires every stored property to be
+    // trivially destroyed, and the parser and sink own buffers.)
+    let value = self.storage.move()
+    self.storage.initialize(to: Value.streamInitialValue())
+    return value
+  }
 }

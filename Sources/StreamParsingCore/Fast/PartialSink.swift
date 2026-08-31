@@ -55,7 +55,14 @@ struct BorrowedFrame {
     self.routeBits = 0
   }
 
-  // A strong reference from the same bits, for the one holder that wants one (`ScalarTarget`).
+  // The unowned field back out as bits, for a `ScalarTarget` built from a frame: a bitcast is
+  // a plain load, where `Unmanaged.passUnretained` of the field would first form a guaranteed
+  // reference — which is the retain this type exists to avoid.
+  @usableFromInline
+  @inline(__always)
+  var schemaBits: UnsafeRawPointer { unsafeBitCast(self.schema, to: UnsafeRawPointer.self) }
+
+  // A strong reference from the same bits, for a holder that wants one.
   @usableFromInline
   @inline(__always)
   static func schema(fromBits bits: UnsafeRawPointer) -> StreamSchema {
@@ -133,15 +140,29 @@ struct BorrowedFrame {
 @usableFromInline
 struct ScalarTarget {
   var storage: UnsafeMutableRawPointer
-  // Strong, unlike `BorrowedFrame`, and measured rather than assumed. Borrowing here made things
-  // worse: a stored closure loaded off an `unowned(unsafe)` reference has to be converted to a
-  // strong one first, where the same load off a strong stored property is a borrow the optimizer
-  // gets for free. `Layer LLM message bulk - partial sink` went 604 -> 485 MB/s with retains
-  // rising 12,000 -> 37,000, because this target is re-read once per `stringChunk` and that
-  // document is the one made of long strings. Twitter, which routes many short scalars and few
-  // chunks, preferred the borrow by 11% — the string path is the larger of the two.
-  var schema: StreamSchema
+  // Raw bits rather than a reference of any strength, and the distinction is load-bearing
+  // twice over. A strong field made the struct non-trivially destroyable: `scalarTarget = nil`
+  // was a value-witness destroy on every `stringBegin`/`stringEnd` (4% of a small typed parse,
+  // sampled) and every assignment paid a retain/release. An `unowned(unsafe)` field fixed that
+  // but moved the pair: reading the field into anything the compiler must guarantee — a closure
+  // argument, an apply's self — emitted a retain/release per *scalar*, +4-5% on every byte-fed
+  // shape row. Bits with `Unmanaged.takeUnretainedValue()` at the use site are the one form the
+  // compiler trusts at +0 (the same idiom `BorrowedFrame(storage:schemaBits:)` established).
+  // The schema graph is owned by the root schema the sink stores strong, so nothing here needs
+  // keeping alive.
+  var schemaBits: UnsafeRawPointer
   var field: Int32
+
+  @inline(__always)
+  var schema: StreamSchema { BorrowedFrame.schema(fromBits: self.schemaBits) }
+
+  // The zero-ARC read. The computed property above returns at +1 — a retain in the getter and a
+  // release after the use, one pair per scalar token on the byte-fed rows. `Unmanaged`'s
+  // guaranteed-ref scope is the one form that hands the reference over borrowed.
+  @inline(__always)
+  func withSchema<R>(_ body: (StreamSchema) -> R) -> R {
+    Unmanaged<StreamSchema>.fromOpaque(self.schemaBits)._withUnsafeGuaranteedRef(body)
+  }
   // The table entry the target came from, or nil for a target the closures apply: an array
   // element, a dictionary value, a scalar root, or a `custom`/`container` field. For a table
   // target `storage` is already the member's address.
@@ -510,7 +531,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
     let result = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
       let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-      return target.schema.applyString(target.storage, target.field, Span(_unsafeElements: empty))
+      return target.withSchema { $0.applyString(target.storage, target.field, Span(_unsafeElements: empty)) }
     }
     if result != .applied {
       self.scalarTarget = nil
@@ -521,8 +542,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // the resolved target is the same shape whether the destination is a scalar field, an array
     // element or a dictionary value -- one route covers all three, and none of them requires the
     // sink to know which `StreamInlineString` capacity it is writing into.
-    if target.schema.leafRoute == .valueInlineString {
-      self.inlineStringCapacity = target.schema.inlineCapacity
+    let (leafRoute, inlineCapacity) = target.withSchema { ($0.leafRoute, $0.inlineCapacity) }
+    if leafRoute == .valueInlineString {
+      self.inlineStringCapacity = inlineCapacity
       self.inlineStringStorage = target.storage
       self.scalarTarget = nil
     }
@@ -578,7 +600,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // The cost is where the failure surfaces: at the closing quote rather than at the chunk that
     // overflowed. Same token, so the reported offset is the end of the string value instead of
     // its middle -- which is what `stringEnd` reads it for.
-    let result = target.schema.applyString(target.storage, target.field, bytes)
+    let result = target.withSchema { $0.applyString(target.storage, target.field, bytes) }
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
@@ -1118,13 +1140,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private static func tableTarget(
     _ entry: UnsafePointer<StreamFieldEntry>,
     _ storage: UnsafeMutableRawPointer,
-    _ schema: StreamSchema
+    _ schemaBits: UnsafeRawPointer
   ) -> ScalarTarget {
     let kind = entry.pointee.kind
     let direct = kind != .custom && kind != .container
     return ScalarTarget(
       storage: direct ? storage + Int(entry.pointee.offset) : storage,
-      schema: schema,
+      schemaBits: schemaBits,
       field: entry.pointee.index,
       entry: entry
     )
@@ -1311,11 +1333,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return .applied
     case .custom:
       // The closure route, exactly as before the table: the empty span materialises and settles.
-      let schema = self.scalarTarget.unsafelyUnwrapped.schema
+      let target = self.scalarTarget.unsafelyUnwrapped
       let field = entry.pointee.index
       return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
         let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-        return schema.applyString(storage, field, Span(_unsafeElements: empty))
+        return target.withSchema { $0.applyString(storage, field, Span(_unsafeElements: empty)) }
       }
     default:
       return .unsupported
@@ -1378,7 +1400,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         return nil
       }
       return ScalarTarget(
-        storage: self.root, schema: self.rootSchema, field: StreamSchema.wholeValueField,
+        storage: self.root,
+        schemaBits: Unmanaged.passUnretained(self.rootSchema).toOpaque(),
+        field: StreamSchema.wholeValueField,
         entry: nil
       )
     }
@@ -1399,31 +1423,29 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       if indexed { top.pointee.pendingField = index &+ 1 }
       guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
       return ScalarTarget(
-        storage: slot, schema: BorrowedFrame.schema(fromBits: bits),
-        field: StreamSchema.wholeValueField, entry: nil
+        storage: slot, schemaBits: bits, field: StreamSchema.wholeValueField, entry: nil
       )
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
       if top.pointee.schema.keyRouting == .table {
         let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(top.pointee.pendingField)
-        return Self.tableTarget(entry, top.pointee.storage, top.pointee.schema)
+        return Self.tableTarget(entry, top.pointee.storage, top.pointee.schemaBits)
       }
       return ScalarTarget(
-        storage: top.pointee.storage, schema: top.pointee.schema, field: top.pointee.pendingField,
-        entry: nil
+        storage: top.pointee.storage, schemaBits: top.pointee.schemaBits,
+        field: top.pointee.pendingField, entry: nil
       )
     case .dictionary:
       guard let slot = self.pendingDictionaryStorage else { return nil }
       self.pendingDictionaryStorage = nil
       guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
       return ScalarTarget(
-        storage: slot, schema: BorrowedFrame.schema(fromBits: bits),
-        field: StreamSchema.wholeValueField, entry: nil
+        storage: slot, schemaBits: bits, field: StreamSchema.wholeValueField, entry: nil
       )
     case .scalar:
       return ScalarTarget(
-        storage: top.pointee.storage, schema: top.pointee.schema, field: StreamSchema.wholeValueField,
-        entry: nil
+        storage: top.pointee.storage, schemaBits: top.pointee.schemaBits,
+        field: StreamSchema.wholeValueField, entry: nil
       )
     }
   }
@@ -1435,7 +1457,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
   ) {
     guard let target = self.resolveScalarTarget() else { return }
-    let result = body(target.storage, target.field, target.schema)
+    let result = target.withSchema { body(target.storage, target.field, $0) }
     if result != .applied {
       self.recordFailure(Self.failureReason(for: result))
     }
@@ -1450,9 +1472,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     guard let target = self.resolveScalarTarget() else { return }
     let result =
       if let entry = target.entry {
-        table(entry, target.storage, target.schema)
+        target.withSchema { table(entry, target.storage, $0) }
       } else {
-        body(target.storage, target.field, target.schema)
+        target.withSchema { body(target.storage, target.field, $0) }
       }
     if result != .applied {
       self.recordFailure(Self.failureReason(for: result))

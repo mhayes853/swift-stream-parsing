@@ -6554,3 +6554,62 @@ specializations grew (the appended schedule math inlines into them) with no spec
 lost and no cliff. The hinted rows still win (LLM hinted 1255 vs 1024 unhinted) — a hint now
 buys reservation and a big start, not survival. Remaining string-heavy residual: per-fragment
 append overhead (hinted LLM 1255 vs discard-build 1872) and CITM's dictionary machinery.
+
+## The small-payload fixed cost — three ARC leaks leave the typed layer
+
+The Qwen rows (a tool call, a structured response — the library's core use case) had the worst
+retained ratios in the suite: 9–17% of raw, ~35 µs of typed overhead on an 11 KB payload where
+the raw parser takes ~4 µs. The census had already ruled out byte storage and allocation; a
+clean profile (a standalone `-O` harness looping the two Qwen parses, no benchmark hooks — the
+hooks alone inflate these rows ~25%, and sampling the bench binary also catches registration
+validation) attributed the overhead: whole-tree copy/destroy traffic, an outlined value-witness
+destroy per string value, and a retain/release pair per scalar. Three changes, one commit:
+
+- **`PartialsStream.finishValue()`** — a `consuming` finish that `storage.move()`s the tree out
+  (bitwise, zero ARC) instead of returning a `current` snapshot, refilling the slot with the
+  empty initial value for the deinit (`discard self` is unavailable: the parser and sink have
+  buffers to free). One full-tree value-witness copy and one full-tree destroy per parse gone.
+- **`ScalarTarget` is trivially destroyable** — the strong `schema` field became `schemaBits:
+  UnsafeRawPointer`. The strong field's cost had three heads: `scalarTarget = nil` was an
+  outlined value-witness destroy on every `stringBegin`/`stringEnd` (4% of a small typed parse,
+  sampled), every assignment paid a retain/release, and `resolveScalarTarget` reading the
+  frame's unowned schema into the strong field was the "strong from unowned(unsafe)" trap
+  again. Two intermediate forms failed before the bits form: `unowned(unsafe) var schema`
+  moved the pair to every *use* (a retain/release per scalar token — +4–5% wall on every
+  byte-fed shape row, caught by the gate), and a computed `schema` property over the bits
+  returns at +1, which re-emits the same pair. The form that is actually free is
+  `Unmanaged.fromOpaque(bits)._withUnsafeGuaranteedRef { ... }` (`ScalarTarget.withSchema`) —
+  the one shape the compiler trusts borrowed. `applyBooleanNormally` 41 → 39 instructions and
+  zero ARC calls; `stringBegin` 142 → 102.
+- **`StreamArray.drainPending` takes the payload bitwise** — `taken.unsafelyUnwrapped` is a
+  read accessor, so committing the open element *copied* it (an outlined `WOc` with a retain
+  per reference field, plus the matching destroy of `taken`) once per array element. The
+  payload of a single-payload enum lives at offset zero, so it is moved out by pointer and the
+  slot re-marked nil. This was most of the per-element ARC on arrays of struct partials — the
+  workspace-edit model's 96 elements each paid the pair. `_openElement(initializedBy:)` also
+  lets the initial value forward into `pending` instead of materializing in the caller.
+
+### Measured (3 clean interleaved rounds vs 84b1c5a, best-of-3 p0 / median p50)
+
+| row | Δp0 | Δp50 | note |
+|---|---:|---:|---|
+| Real Qwen 3 search tool call - bulk discarding | **+43.9%** | +39.5% | 132 → 190 MB/s |
+| Real Qwen 3 structured response - bulk discarding | **+37.1%** | +35.6% | retains 1K → ~0 |
+| Real Qwen 3 workspace edit tool call - bulk discarding | **+33.3%** | +33.2% | |
+| Real CITM catalog - bulk discarding | **+14.9%** | +11.9% | retains 42K → 21K |
+| Real GitHub events - bulk discarding | **+10.3%** | +8.4% | |
+| Real LLM message - bulk discarding | **+9.8%** | +7.4% | retains 6K → 2K |
+| Real Twitter - bulk discarding | **+5.6%** | +3.5% | retains → ~0 |
+| GSoC / Twitter escaped discarding | +3.3% / +3.7% | | |
+| Canada / Mesh discarding | +0.6 / −1.0% | −2.5 / −1.5% | number-heavy; the two rows the changes barely touch |
+| raw rows (all) | flat | | ±0.2%, drift ±1.9% |
+| Fused nested miss - fused parse | +12.4% | +11.8% | retains 12K → 6K |
+| Stream Array of structs (byte-fed, typed) | +24..+46% | | view read per 16B +45.7% |
+| Scaling 10/400 users - discarding | +25.8 / +27.7% | | |
+| Fast * - byte by byte (raw) | −2..−7% | | every executed body instruction-identical to base (verified per symbol); code-placement drift on the alignment-sensitive rows |
+
+Clean harness (no hooks): structured 34.5 → 27.8 µs/parse, workspace edit 51.0 → 42.2 µs.
+Where the remaining typed overhead sits, in profile order: memmove (the two inherent
+per-element moves and string bytes), the key-match scan, the user-side destroy of the returned
+tree, malloc in array growth, and the per-element `appendElement` closure-context pair in
+`valueTarget` — the next stage if the Qwen gap is chased further.

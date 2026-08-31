@@ -113,7 +113,18 @@ public struct StreamArray<Element> {
     var taken = Element?.none
     swap(&taken, &self.pending)
     guard taken != nil else { return }
-    self.commit(taken.unsafelyUnwrapped)
+    // The payload is moved out of the optional bitwise rather than unwrapped. `unsafelyUnwrapped`
+    // is a read accessor, so unwrapping copies the element — with a retain for every reference it
+    // holds and a matching release when `taken` is destroyed. On an array of struct partials that
+    // pair was most of the per-element ARC traffic. A single-payload enum keeps its payload at
+    // offset zero, so `.some`'s bits are the element's bits; after the move the slot is re-marked
+    // nil so nothing is destroyed twice.
+    let value = withUnsafeMutablePointer(to: &taken) { box -> Element in
+      let value = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Element.self).move()
+      box.initialize(to: nil)
+      return value
+    }
+    self.commit(value)
   }
 
   // Forced inline: left to the optimizer this inlines into the small bulk-appender closure but
@@ -442,6 +453,21 @@ extension StreamArray {
   public mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
     self.drainPending()
     self.pending = initial
+    return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
+  }
+
+  /// The same, with the initial value produced inside the call rather than passed into it.
+  ///
+  /// The difference is one whole-element move: an element passed as an argument is materialized
+  /// in the caller and copied into `pending`, where a maker invoked against the assignment can
+  /// have its return slot forwarded straight into the optional's payload. Structured-output
+  /// elements are a couple hundred bytes of mostly-nil fields, and the extra memmove per element
+  /// was ~3% of a whole small typed parse, sampled.
+  @inlinable
+  @inline(__always)
+  public mutating func _openElement(initializedBy make: () -> Element) -> UnsafeMutableRawPointer {
+    self.drainPending()
+    self.pending = make()
     return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 }
