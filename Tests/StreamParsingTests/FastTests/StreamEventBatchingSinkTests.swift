@@ -25,6 +25,16 @@ private struct BatchedRows: Equatable {
   var values: [Double] = []
 }
 
+private struct SizeRecordingConsumer: StreamEventBatchConsumer {
+  var sizes: [Int] = []
+  var streamFailure: StreamSinkFailure? { nil }
+
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    self.sizes.append(batch.count)
+    return batch.count
+  }
+}
+
 // Replays every delivered batch into a directly held PartialSink: the shape a cross-boundary
 // consumer has, minus the boundary.
 private struct PartialReplayConsumer: StreamEventBatchConsumer, ~Copyable {
@@ -179,6 +189,19 @@ struct StreamEventBatchingSinkTests {
   func `A rejection surfaces with the direct path's reason`() {
     self.differential(#"{"rows":[{"count":"not a number"}]}"#)
     self.differential(#"{"values":[1.5,{"deep":1},2.5]}"#)
+  }
+
+  // The 256 cadence, relocated from the parser's recorder: a long numeric run reaches the
+  // consumer as full batches, with the remainder delivered by the commit at end of input.
+  @Test
+  func `Long numeric runs fill the adapter's batches`() throws {
+    let bytes = Array(("[" + (0..<1000).map { "\($0)" }.joined(separator: ",") + "]").utf8)
+    var sink = StreamEventBatchingSink(consumer: SizeRecordingConsumer())
+    var parser = JSONParser()
+    try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    try parser.finish(into: &sink)
+    // beginArray + 1000 numbers + endArray = 1002 events: three full batches and the tail.
+    expectNoDifference(sink.consumer.sizes, [256, 256, 256, 234])
   }
 
   @Test

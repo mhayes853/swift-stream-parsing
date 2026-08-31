@@ -115,7 +115,12 @@ public struct StreamArray<Element> {
     self.commit(taken.unsafelyUnwrapped)
   }
 
+  // Forced inline: left to the optimizer this inlines into the small bulk-appender closure but
+  // stays an outlined call inside larger loops — the fused slice measured that call hiding
+  // two-thirds of the double-array win (+6% observed where +22% was real), and the per-element
+  // append route pays it once per number.
   @inlinable
+  @inline(__always)
   mutating func commit(_ element: Element) {
     let blockCapacity = Int(self.blockCapacityBits)
     let neededCapacity = self.tail.count &+ 1

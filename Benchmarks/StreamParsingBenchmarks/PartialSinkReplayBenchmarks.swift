@@ -484,64 +484,9 @@ private func validateSyntheticModels() {
 
 func partialSinkReplayBenchmarks() {
   validateSyntheticModels()
+  // The replay rows are retired: they measured the sink behind the record/replay seam, and the
+  // parser no longer records — `RecordedEvents.record` would capture nothing, because `events`
+  // is never called by the parser. The fused rows in FusedParseBenchmarks measure the same
+  // payloads end to end; the recording machinery above goes with `events()` itself.
 
-  // The real corpus, recorded from the bulk parse the `Real <x> - bulk discarding` rows run.
-  addReplayRows(
-    "Twitter", RecordedEvents.record(Payloads.twitter),
-    as: BenchmarkTwitterMatched.Partial.self
-  )
-  addReplayRows(
-    "Twitter escaped", RecordedEvents.record(Payloads.twitterEscaped),
-    as: BenchmarkTwitterMatched.Partial.self
-  )
-  addReplayRows(
-    "Canada", RecordedEvents.record(Payloads.canada),
-    as: BenchmarkCanada.Partial.self
-  )
-  addReplayRows(
-    "CITM catalog", RecordedEvents.record(Payloads.citmCatalog),
-    as: BenchmarkCITM.Partial.self
-  )
-  addReplayRows(
-    "GSoC 2018", RecordedEvents.record(Payloads.gsoc2018),
-    as: StreamDictionary<BenchmarkGSoCProject.Partial>.self
-  )
-  addReplayRows(
-    "GitHub events", RecordedEvents.record(Payloads.githubEvents),
-    as: StreamArray<BenchmarkGitHubEvent.Partial>.self
-  )
-  addReplayRows(
-    "LLM message", RecordedEvents.record(Payloads.llmMessage),
-    as: BenchmarkLLMMessage.Partial.self
-  )
-  addReplayRows(
-    "Mesh", RecordedEvents.record(Payloads.mesh),
-    as: BenchmarkMesh.Partial.self
-  )
-
-  // One route per row. The int payload is recorded once and replayed into two models, so the
-  // matched and the missed key rows differ in the model and nothing else.
-  let intFields = RecordedEvents.record(SinkReplayPayloads.intFields)
-  addReplayRows("synthetic int fields", intFields, as: SinkIntRows.Partial.self)
-  addReplayRows("synthetic int fields, no key matches", intFields, as: SinkMissRows.Partial.self, floors: false)
-  addReplayRows(
-    "synthetic string fields", RecordedEvents.record(SinkReplayPayloads.stringFields),
-    as: SinkStringRows.Partial.self
-  )
-  addReplayRows(
-    "synthetic double array", RecordedEvents.record(SinkReplayPayloads.doubleArray),
-    as: SinkDoubles.Partial.self
-  )
-  addReplayRows(
-    "synthetic double pairs", RecordedEvents.record(SinkReplayPayloads.doublePairs),
-    as: SinkDoublePairs.Partial.self
-  )
-  addReplayRows(
-    "synthetic container churn", RecordedEvents.record(SinkReplayPayloads.containerChurn),
-    as: SinkChurnRows.Partial.self
-  )
-  addReplayRows(
-    "synthetic dictionary", RecordedEvents.record(SinkReplayPayloads.dictionary),
-    as: SinkCounts.Partial.self
-  )
 }

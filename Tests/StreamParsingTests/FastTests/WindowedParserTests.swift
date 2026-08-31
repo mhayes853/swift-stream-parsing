@@ -388,15 +388,9 @@ struct `Windowed parser tests` {
     }
   }
 
-  // A numeric run is delivered as full batches of records, so a sink sees it as runs of
-  // consecutive `number` records rather than one event at a time.
-  @Test
-  func `Long numeric runs fill the event batches`() {
-    let bytes = Array(("[" + (0..<1000).map { "\($0)" }.joined(separator: ",") + "]").utf8)
-    let (outcome, sizes) = Self.runBatched(bytes, chunk: .max)
-    #expect(outcome.error == nil)
-    #expect(sizes.count == 4 && sizes.prefix(3).allSatisfy { $0 == 256 }, "\(sizes)")
-  }
+  // Full-batch delivery for long runs moved with the batching itself: the parser emits per
+  // token now, and the 256 cadence is `StreamEventBatchingSink`'s — pinned in
+  // `StreamEventBatchingSinkTests`.
 
   // A rejection in the middle of a batch must surface at that number's end, exactly where the
   // dispatcher, which checks after every number, reports it.

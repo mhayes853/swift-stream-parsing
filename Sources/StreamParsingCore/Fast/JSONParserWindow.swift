@@ -69,15 +69,15 @@ extension JSONParser {
         into: &sink
       )
     } catch {
-      // Events recorded before the error are delivered first: a sink rejection among them
-      // is earlier in the document than the grammar error, and is what gets reported.
+      // The commit lands before the error propagates: everything emitted ahead of the error is
+      // the sink's, and a deferring sink's late rejection is earlier in the document than the
+      // grammar error and is what gets reported.
       try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
-      try self.flushEvents(into: &sink)
-      throw error
+      try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
     _ = i
     try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
-    try self.flushEvents(into: &sink)
+    try self.commitSink(chunkEnd: n, into: &sink)
     self.consumedByteCount &+= n
   }
 

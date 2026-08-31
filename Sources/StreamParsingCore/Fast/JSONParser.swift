@@ -185,12 +185,11 @@ public struct JSONParser: ~Copyable {
         }
       } catch {
         try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
-        try self.flushEvents(into: &sink)
-        throw error
+        try self.commitSink(chunkEnd: 1, replacing: error, into: &sink)
       }
-      // The byte's pointer does not outlive this closure, and neither may a record into it.
+      // The byte's pointer does not outlive this closure, so the commit lands before it dies.
       try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
-      try self.flushEvents(into: &sink)
+      try self.commitSink(chunkEnd: 1, into: &sink)
       self.consumedByteCount &+= 1
     }
   }
@@ -211,14 +210,14 @@ public struct JSONParser: ~Copyable {
     do throws(JSONParsingError) {
       try self.parseDispatching(base: base, count: n, into: &sink)
     } catch {
-      // Events recorded before the error are delivered first: a sink rejection among them is
+      // The commit lands before the error propagates: everything emitted ahead of the error is
+      // the sink's, exactly as delivered events were, and a deferring sink's late rejection is
       // earlier in the document than the grammar error and is what gets reported.
       try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
-      try self.flushEvents(into: &sink)
-      throw error
+      try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
     try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
-    try self.flushEvents(into: &sink)
+    try self.commitSink(chunkEnd: n, into: &sink)
     self.consumedByteCount &+= n
   }
 
@@ -281,6 +280,9 @@ public struct JSONParser: ~Copyable {
     case .afterValue, .done:
       break
     }
+    // Everything is emitted; the lifetime signal goes out before the structural checks, which
+    // deliver nothing new to the sink.
+    try self.commitSink(chunkEnd: 0, into: &sink)
     if self.depth > 0 { throw self.error(.unterminatedContainer, at: 0) }
     if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8, at: 0) }
   }
@@ -935,8 +937,6 @@ public struct JSONParser: ~Copyable {
       reportAt: reportAt, source: .parserBuffer
     )
     self.bufferCount = 0
-    // The record points into the buffer, which the next cut token overwrites.
-    try self.flushEvents(into: &sink)
   }
 
   // Parses and validates in the same walk: the grammar is the segment order itself, so a byte
@@ -1138,8 +1138,6 @@ public struct JSONParser: ~Copyable {
     )
     self.bufferCount = 0
     self.keyContainsNonASCII = false
-    // The record points into the buffer, which the next cut token or escape overwrites.
-    try self.flushEvents(into: &sink)
   }
 
   // MARK: UTF-8

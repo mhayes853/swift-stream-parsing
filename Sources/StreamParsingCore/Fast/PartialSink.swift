@@ -591,6 +591,47 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
+  // The whole-string form, overridden for the two object routes the batch decoder paired: a
+  // key that resolved to a table entry writes the member in place, a matched field goes through
+  // the schema's closure with the empty span settling acceptance first (so a mismatch reports
+  // at the opening quote, exactly as `stringBegin` would have). Everything else — elements,
+  // dictionary values, roots — unrolls into the chunked triple, exactly as the decoder did.
+  public mutating func string(_ bytes: Span<UInt8>) {
+    if self.activeElementKindBits == 0, let top = self.topFrame,
+      top.pointee.schema.shape == .object
+    {
+      let field = top.pointee.pendingField
+      switch top.pointee.schema.keyRouting {
+      case .table:
+        if field >= 0 {
+          let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+          let result = self.writeTableString(entry, frame: top, bytes)
+          if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+        }
+        return
+      case .match:
+        if field >= 0 {
+          let opened = top.pointee.schema.applyString(top.pointee.storage, field, Span())
+          if opened != .applied {
+            self.recordFailure(Self.failureReason(for: opened))
+            return
+          }
+          if bytes.count > 0 {
+            let result = top.pointee.schema.applyString(top.pointee.storage, field, bytes)
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+        }
+        return
+      default:
+        break
+      }
+    }
+    self.stringBegin()
+    if self.streamFailure != nil { return }
+    if bytes.count > 0 { self.stringChunk(bytes) }
+    self.stringEnd()
+  }
+
   public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     switch self.activeLeafRoute {
     case .arrayDouble:
@@ -603,9 +644,38 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
       if self.activeElementKindBits != 0 {
         self.applyKnownNumber(bytes, info: info)
-      } else {
-        self.applyNumberNormally(bytes, info: info)
+        return
       }
+      // The batch decoder's key+scalar pairing, relocated: a scalar under an object frame
+      // always immediately follows its key (the grammar guarantees it), so the field the key
+      // matched is fresh and the value is a typed store at the member's offset — no frame
+      // resolution, no `ScalarTarget` copy of the schema.
+      if let top = self.topFrame, top.pointee.schema.shape == .object {
+        let field = top.pointee.pendingField
+        switch top.pointee.schema.keyRouting {
+        case .table:
+          if field >= 0 {
+            let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+            let result =
+              entry.pointee.kind == .custom
+              ? top.pointee.schema.applyNumber(top.pointee.storage, entry.pointee.index, bytes, info)
+              : Self.writeTableNumber(
+                entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
+              )
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        case .match:
+          if field >= 0 {
+            let result = top.pointee.schema.applyNumber(top.pointee.storage, field, bytes, info)
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        default:
+          break
+        }
+      }
+      self.applyNumberNormally(bytes, info: info)
       return
     }
   }
@@ -623,9 +693,35 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     default:
       if self.activeElementKindBits != 0 {
         self.applyKnownBoolean(value)
-      } else {
-        self.applyBooleanNormally(value)
+        return
       }
+      // The pairing, as in `number` above.
+      if let top = self.topFrame, top.pointee.schema.shape == .object {
+        let field = top.pointee.pendingField
+        switch top.pointee.schema.keyRouting {
+        case .table:
+          if field >= 0 {
+            let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+            let result =
+              entry.pointee.kind == .custom
+              ? top.pointee.schema.applyBoolean(top.pointee.storage, entry.pointee.index, value)
+              : Self.writeTableBoolean(
+                entry, member: top.pointee.storage + Int(entry.pointee.offset), value
+              )
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        case .match:
+          if field >= 0 {
+            let result = top.pointee.schema.applyBoolean(top.pointee.storage, field, value)
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        default:
+          break
+        }
+      }
+      self.applyBooleanNormally(value)
       return
     }
   }
@@ -652,9 +748,35 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     default:
       if self.activeElementKindBits != 0 {
         self.applyKnownNull()
-      } else {
-        self.applyNullNormally()
+        return
       }
+      // The pairing, as in `number` above. `container` joins `custom` on the closure route: a
+      // null for a container member nils the optional through the schema.
+      if let top = self.topFrame, top.pointee.schema.shape == .object {
+        let field = top.pointee.pendingField
+        switch top.pointee.schema.keyRouting {
+        case .table:
+          if field >= 0 {
+            let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+            let kind = entry.pointee.kind
+            let result =
+              kind == .custom || kind == .container
+              ? top.pointee.schema.applyNull(top.pointee.storage, entry.pointee.index)
+              : Self.writeTableNull(entry, member: top.pointee.storage + Int(entry.pointee.offset))
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        case .match:
+          if field >= 0 {
+            let result = top.pointee.schema.applyNull(top.pointee.storage, field)
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          return
+        default:
+          break
+        }
+      }
+      self.applyNullNormally()
       return
     }
   }
