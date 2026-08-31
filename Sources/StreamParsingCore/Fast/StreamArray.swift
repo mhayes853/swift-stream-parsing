@@ -104,6 +104,7 @@ public struct StreamArray<Element> {
   }
 
   @inlinable
+  @inline(__always)
   mutating func drainPending() {
     // Swapped out rather than read out. Reading leaves the original to be destroyed by the
     // reassignment, which is two element sized copies where this is one, and measured 30% worse on
@@ -437,6 +438,7 @@ extension StreamArray {
   /// pointer stays valid until the next call, which is what the sink guarantees by resolving an
   /// element's destination once per element rather than once per token.
   @inlinable
+  @inline(__always)
   public mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
     self.drainPending()
     self.pending = initial

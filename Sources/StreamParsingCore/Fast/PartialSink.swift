@@ -946,7 +946,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  @inline(never)
+  // Forced inline since the fusion series: this is `number`'s hottest arm on number-dense
+  // corpora, `number` is itself out of line, and the outlined call per element (plus the
+  // outlined `drainPending` behind it) is most of the gap between this route and the fused
+  // slice's register-held run.
+  @inline(__always)
   private mutating func appendHomogeneousDouble(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let value = Double(streamParsing: bytes, info: info) else {
       self.recordFailure(.typeMismatch)
@@ -957,7 +961,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       ._openElement(value)
   }
 
-  @inline(never)
+  @inline(__always)
   private mutating func appendHomogeneousInt(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let value = Int(streamParsing: bytes, info: info) else {
       self.recordFailure(.typeMismatch)
