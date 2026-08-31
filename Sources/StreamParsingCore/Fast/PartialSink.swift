@@ -125,10 +125,11 @@ struct BorrowedFrame {
   }
 #endif
 
-// At file scope, not nested in `PartialSink<Root>`: nested in the generic type, its metadata is
-// formally dependent on `Root`, and one build lowered `scalarTarget = nil` in `stringBegin` to a
-// metadata accessor and a value-witness destroy instead of a release -- 20-30% on every string
-// element. Nothing here depends on `Root`.
+// At file scope from the days when `PartialSink` was generic over its root: nested in the
+// generic type, its metadata was formally dependent on `Root`, and one build lowered
+// `scalarTarget = nil` in `stringBegin` to a metadata accessor and a value-witness destroy
+// instead of a release -- 20-30% on every string element. The sink is no longer generic, but
+// this stays at file scope so re-introducing a type parameter can never re-create the trap.
 @usableFromInline
 struct ScalarTarget {
   var storage: UnsafeMutableRawPointer
@@ -152,7 +153,14 @@ struct ScalarTarget {
 // Frames point into the value being built. Only the innermost open container is ever mutated,
 // so an element pointer stays valid for that element's lifetime: appending to an outer array
 // cannot happen while an inner one is open.
-public struct PartialSink<Root>: ~Copyable, StreamParseSink {
+//
+// Deliberately not generic over the root. The sink's behavior is entirely schema-driven -- a
+// root type would type the pointer at init and nothing else -- and a phantom parameter is not
+// free: nested types formally depend on it (see `ScalarTarget` above), and a caller compiled
+// unspecialized materializes `PartialSink<Root>` metadata at every call site (the fused-slice
+// experiment measured thirteen accessor calls in its loop, ~30% on the table route). One
+// non-generic type is one copy of everything, permanently.
+public struct PartialSink: ~Copyable, StreamParseSink {
   public private(set) var streamFailure: StreamSinkFailure?
 
   @usableFromInline var root: UnsafeMutableRawPointer
@@ -212,10 +220,14 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
 
   // A document whose root is an array, a dictionary or a bare scalar is as valid as one rooted
   // in an object, so the root's shape comes from its schema rather than from a constraint.
-  public init(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
-    self.root = UnsafeMutableRawPointer(root)
+  public init(root: UnsafeMutableRawPointer, schema: StreamSchema) {
+    self.root = root
     self.rootSchema = schema
     self.frames = .allocate(capacity: Self.frameCapacity)
+  }
+
+  public init<Root>(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
+    self.init(root: UnsafeMutableRawPointer(root), schema: schema)
   }
 
   deinit {
@@ -1545,8 +1557,8 @@ public struct PartialSink<Root>: ~Copyable, StreamParseSink {
   Unmanaged.passUnretained(ignoredStreamSchema).toOpaque()
 )
 
-extension PartialSink where Root: StreamParseableRoot {
-  public init(root: UnsafeMutablePointer<Root>) {
-    self.init(root: root, schema: Root.streamSchema)
+extension PartialSink {
+  public init<Root: StreamParseableRoot>(root: UnsafeMutablePointer<Root>) {
+    self.init(root: UnsafeMutableRawPointer(root), schema: Root.streamSchema)
   }
 }

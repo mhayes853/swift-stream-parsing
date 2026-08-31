@@ -51,7 +51,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 
   @usableFromInline var parser: JSONParser
-  @usableFromInline var sink: PartialSink<Value>
+  @usableFromInline var sink: PartialSink
 
   @usableFromInline var hasFinished = false
   @usableFromInline var hasParserThrown = false

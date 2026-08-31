@@ -58,23 +58,16 @@ struct FusedRouteContext {
 
 // MARK: - The slice's concrete sink
 
-// The fused loop is deliberately not generic. `PartialSink`'s behavior is entirely
-// schema-driven -- `Root` types the root pointer at init and nothing else -- but a generic loop
-// compiled unspecialized materializes `PartialSink<Root>` metadata at every sink call site
-// (thirteen accessor calls in the first build, one ahead of the per-member number store). A
-// phantom root makes every call concrete and direct, keeps one copy of the loop, and prices the
-// seam without conflating it with per-root specialization.
-public enum FusedSliceRoot {}
-
+// The fused loop is deliberately not generic. The first build was generic over the root and
+// materialized `PartialSink<Root>` metadata at every sink call site (thirteen accessor calls,
+// one ahead of the per-member number store); a phantom root fixed it here, and Stage 0 of the
+// fusion series then removed the type parameter from `PartialSink` itself, which is why this
+// is now a plain wrapper the benchmarks call by its old name.
 @_spi(Benchmarks)
 public func makeFusedSliceSink(
   root: UnsafeMutableRawPointer, schema: StreamSchema
-) -> PartialSink<FusedSliceRoot> {
-  // The pointer is never read at `FusedSliceRoot`; the sink stores it raw and writes through the
-  // schema, exactly as it does for a real root.
-  PartialSink<FusedSliceRoot>(
-    root: root.assumingMemoryBound(to: FusedSliceRoot.self), schema: schema
-  )
+) -> PartialSink {
+  PartialSink(root: root, schema: schema)
 }
 
 // MARK: - Helpers
@@ -209,7 +202,7 @@ extension JSONParser {
   // `unowned(unsafe)` field, which is a retain per refresh (the `key(_:)` comment in
   // PartialSink.swift).
   @inline(__always)
-  static func fusedRouteContext(_ sink: inout PartialSink<FusedSliceRoot>) -> FusedRouteContext {
+  static func fusedRouteContext(_ sink: inout PartialSink) -> FusedRouteContext {
     guard let top = sink.topFrame else { return FusedRouteContext(route: .other) }
     if top.pointee.schema.shape == .object, top.pointee.schema.keyRouting == .table {
       return FusedRouteContext(
@@ -248,7 +241,7 @@ extension JSONParser {
   // past the token.
   @inline(__always)
   static func fusedCheck(
-    _ sink: inout PartialSink<FusedSliceRoot>, at offset: Int
+    _ sink: inout PartialSink, at offset: Int
   ) throws(JSONParsingError) {
     if let failure = sink.streamFailure {
       throw JSONParsingError(reason: .sinkRejectedToken(failure), byteOffset: offset)
@@ -269,7 +262,7 @@ extension JSONParser {
     to n: Int,
     entry: UnsafePointer<StreamFieldEntry>?,
     frame: UnsafeMutablePointer<BorrowedFrame>,
-    into sink: inout PartialSink<FusedSliceRoot>
+    into sink: inout PartialSink
   ) throws(JSONParsingError) -> (cursor: Int, fusedKey: Bool) {
     let end = streamNumberRunEnd(base: base, from: from, to: n)
     guard end < n else {
@@ -283,13 +276,13 @@ extension JSONParser {
           frame.pointee.storage, entry.pointee.index, fusedSpan(base, from, end), info
         )
       } else {
-        result = PartialSink<FusedSliceRoot>.writeTableNumber(
+        result = PartialSink.writeTableNumber(
           entry, member: frame.pointee.storage + Int(entry.pointee.offset),
           fusedSpan(base, from, end), info
         )
       }
       if result != .applied {
-        sink.recordFailure(PartialSink<FusedSliceRoot>.failureReason(for: result))
+        sink.recordFailure(PartialSink.failureReason(for: result))
         try Self.fusedCheck(&sink, at: end)
       }
     }
@@ -313,7 +306,7 @@ extension JSONParser {
     from: Int,
     to n: Int,
     array: UnsafeMutablePointer<StreamArray<Double>>,
-    into sink: inout PartialSink<FusedSliceRoot>
+    into sink: inout PartialSink
   ) throws(JSONParsingError) -> Int {
     array.pointee.drainPending()
     var i = from
@@ -355,7 +348,7 @@ extension JSONParser {
     base: UnsafeRawPointer,
     from: Int,
     to n: Int,
-    into sink: inout PartialSink<FusedSliceRoot>
+    into sink: inout PartialSink
   ) throws(JSONParsingError) -> Int {
     let end = streamNumberRunEnd(base: base, from: from, to: n)
     guard end < n else {
@@ -375,7 +368,7 @@ extension JSONParser {
   @_spi(Benchmarks)
   public mutating func parseFusedDocument(
     _ input: UnsafeBufferPointer<UInt8>,
-    into sink: inout PartialSink<FusedSliceRoot>
+    into sink: inout PartialSink
   ) throws(JSONParsingError) {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
