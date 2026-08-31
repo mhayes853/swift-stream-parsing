@@ -211,7 +211,7 @@ struct `JSON conformance tests` {
   }
 }
 
-struct CountingConformanceSink: EventSink {
+struct CountingConformanceSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
 
   mutating func beginObject() {}

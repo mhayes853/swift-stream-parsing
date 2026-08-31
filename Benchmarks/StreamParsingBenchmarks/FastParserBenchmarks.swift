@@ -1,7 +1,7 @@
 import Benchmark
 import StreamParsingCore
 
-struct FastCountingSink: EventSink {
+struct FastCountingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   var checksum: UInt64 = 0
   var tokens = 0

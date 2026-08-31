@@ -246,7 +246,7 @@ struct `Error offset tests` {
 
 // Fails on the first token of one kind, and records how many string tokens it was told about, so
 // a fusion that ran past a rejection shows up as an event count as well as an offset.
-private struct RejectingSink: EventSink {
+private struct RejectingSink: StreamParseSink {
   enum Kind { case number, string, key }
 
   let rejecting: Kind

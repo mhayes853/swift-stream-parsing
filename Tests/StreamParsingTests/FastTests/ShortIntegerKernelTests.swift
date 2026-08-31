@@ -127,7 +127,7 @@ struct `Short integer kernel tests` {
   }
 }
 
-private struct NumberRecordingSink: EventSink {
+private struct NumberRecordingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   var magnitudes: [UInt64] = []
 

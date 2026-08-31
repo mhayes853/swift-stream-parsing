@@ -139,6 +139,20 @@ private struct RecordingSink: StreamParseSink {
     self.recorded.append(batch, chunkOffset: self.chunkOffset)
     return batch.count
   }
+
+  // A batch-transport sink: the parser reaches it through `events` only, so the per-token
+  // requirements are dead weight it satisfies and never runs.
+  mutating func beginObject() {}
+  mutating func endObject() {}
+  mutating func beginArray() {}
+  mutating func endArray() {}
+  mutating func key(_ bytes: Span<UInt8>) {}
+  mutating func stringBegin() {}
+  mutating func stringChunk(_ bytes: Span<UInt8>) {}
+  mutating func stringEnd() {}
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {}
+  mutating func boolean(_ value: Bool) {}
+  mutating func null() {}
 }
 
 // MARK: - Replay
@@ -191,17 +205,30 @@ func replay<Sink: StreamParseSink & ~Copyable>(
   }
 }
 
-// Takes every batch and reads nothing. Not an `EventSink`: that adapter unrolls the batch into
-// per-event calls, which is a cost, and this row is the floor those costs are read against.
-// Unoptimized by force so the call survives: inlined, the batch construction folds into the sum
-// of the ranges and the row measures nothing at all. What it measures otherwise is ~2 ns per
-// batch — a Twitter recording is ~125 batches and reads 0.6 µs — so the floor is below anything
-// a sink row can resolve, and the sink rows are read as absolute rather than against it.
+// Takes every batch and reads nothing. Overrides `events` rather than inheriting the default:
+// the default unrolls the batch into per-token calls, which is a cost, and this row is the
+// floor those costs are read against. Unoptimized by force so the call survives: inlined, the
+// batch construction folds into the sum of the ranges and the row measures nothing at all.
+// What it measures otherwise is ~2 ns per batch — a Twitter recording is ~125 batches and reads
+// 0.6 µs — so the floor is below anything a sink row can resolve, and the sink rows are read as
+// absolute rather than against it.
 private struct NullReplaySink: StreamParseSink {
   var streamFailure: StreamSinkFailure? { nil }
 
   @_optimize(none)
   mutating func events(_ batch: borrowing StreamEventBatch) -> Int { batch.count }
+
+  mutating func beginObject() {}
+  mutating func endObject() {}
+  mutating func beginArray() {}
+  mutating func endArray() {}
+  mutating func key(_ bytes: Span<UInt8>) {}
+  mutating func stringBegin() {}
+  mutating func stringChunk(_ bytes: Span<UInt8>) {}
+  mutating func stringEnd() {}
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {}
+  mutating func boolean(_ value: Bool) {}
+  mutating func null() {}
 }
 
 func runReplayNullSink(_ recorded: RecordedEvents, _ batching: ReplayBatching) -> Int {

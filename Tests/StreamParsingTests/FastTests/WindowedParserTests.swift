@@ -19,7 +19,7 @@ struct `Windowed parser tests` {
     case boolean(Bool), null
   }
 
-  struct RecordingSink: EventSink {
+  struct RecordingSink: StreamParseSink {
     var events: [Event] = []
     var streamFailure: StreamSinkFailure?
     var rejecting: Set<String> = []

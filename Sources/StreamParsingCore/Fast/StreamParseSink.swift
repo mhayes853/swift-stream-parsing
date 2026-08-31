@@ -222,19 +222,112 @@ public struct StreamEventBatch: ~Escapable {
 
 // MARK: - StreamParseSink
 
-/// Receives the parser's events, a batch at a time. The batch borrows the parser's input and
-/// buffer and is invalid once the call returns; a key, string chunk or number is readable only
-/// within its span's count — there is no padding behind it. Every string and key span ends on
-/// a UTF-8 sequence boundary; a key is always whole; a number is exactly one event carrying the
-/// whole token and its parsed info.
+/// Receives the parser's tokens.
 ///
-/// The method does not throw: a check after every event sits on the hottest path, so a sink
-/// records its failure, returns the index of the event it refused, and the parser reads the
-/// failure once per batch and reports it at that event.
+/// The per-token methods are the primary interface: the parser calls them at the lex points,
+/// and a sink compiled in the same specialization domain has them inlined into the parse loop —
+/// there is no transport between lexing a token and storing it. Every span borrows the parser's
+/// input or buffer and is invalid once the call returns; a key, string chunk or number is
+/// readable only within its span's count — there is no padding behind it. Every string and key
+/// span ends on a UTF-8 sequence boundary; a key is always whole (the parser reassembles one a
+/// chunk boundary or escape cut); a number is exactly one call carrying the whole token and its
+/// parsed info, so no sink re-lexes digits.
+///
+/// No method throws or returns a result: a check after every token sits on the hottest path and
+/// pins the callee's tail calls (measured on the string chunk path), so a sink records its
+/// failure and the parser polls ``streamFailure`` at token boundaries, reporting the failure at
+/// the token that provoked it. The failure is sticky: once recorded, later tokens must not
+/// clear it.
 public protocol StreamParseSink: ~Copyable {
-  /// Consumes events in order and returns how many were taken: `batch.count` when all were, or
-  /// the index of the event the sink refused after recording ``streamFailure``.
+
+  // Structure. The parser owns grammar and depth; these observe.
+  mutating func beginObject()
+  mutating func endObject()
+  mutating func beginArray()
+  mutating func endArray()
+
+  /// An object member's key, always whole: unescaped, validated UTF-8.
+  mutating func key(_ bytes: Span<UInt8>)
+
+  /// The fallback string form: a value cut by a chunk boundary or carrying escapes arrives as
+  /// `stringBegin`, chunks, `stringEnd`. Rare per document, mandatory for correctness — a sink
+  /// that ignores these is wrong on chunked input.
+  mutating func stringBegin()
+  mutating func stringChunk(_ bytes: Span<UInt8>)
+  mutating func stringEnd()
+
+  /// The common string: complete in the chunk and escape-free, a zero-copy borrow of the input
+  /// delivered as one call. Defaulted through the chunked triple, so a minimal sink implements
+  /// nothing extra and an optimized one overrides exactly the hot form.
+  mutating func string(_ bytes: Span<UInt8>)
+
+  /// One call per number: the whole token and its parsed form.
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo)
+
+  mutating func boolean(_ value: Bool)
+  mutating func null()
+
+  /// Called when memory the sink's spans borrowed is about to become invalid: at the end of
+  /// each parse call and at finish. A sink that deferred work referencing borrowed bytes — a
+  /// batching adapter holding record offsets into the input — must complete it now. The parser
+  /// signals lifetimes only; when and how much to buffer stays the sink's business. Defaulted
+  /// to a no-op.
+  mutating func commit()
+
+  /// Batch transport: consumes recorded events in order and returns how many were taken —
+  /// `batch.count` when all were, or the index of the event the sink refused after recording
+  /// ``streamFailure``. Defaulted to replaying the batch into the per-token methods.
+  ///
+  /// Transitional: this is how the parser currently delivers tokens (recorded to scratch,
+  /// flushed at 256), and `PartialSink` overrides it with a batch-aware decode. The fusion
+  /// series moves the parser onto the per-token methods and this requirement onto the batching
+  /// adapter, after which it leaves the protocol.
   mutating func events(_ batch: borrowing StreamEventBatch) -> Int
 
   var streamFailure: StreamSinkFailure? { get }
+}
+
+extension StreamParseSink where Self: ~Copyable {
+  /// A whole string is the chunked triple with the middle skipped when empty. `stringBegin`
+  /// settles whether the destination accepts strings at all, so the failure check between it
+  /// and the chunk keeps a refusal at the opening quote from feeding bytes anyway.
+  @inlinable
+  public mutating func string(_ bytes: Span<UInt8>) {
+    self.stringBegin()
+    if self.streamFailure != nil { return }
+    if bytes.count > 0 { self.stringChunk(bytes) }
+    self.stringEnd()
+  }
+
+  @inlinable
+  public mutating func commit() {}
+
+  /// The default transport: one token call per record, stopping at the first recorded failure.
+  /// `.string` records route through ``string(_:)`` so a sink's whole-string override is honored
+  /// on the batch path too.
+  @inlinable
+  public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    let records = batch.records
+    var index = 0
+    while index < batch.count {
+      let record = records[index]
+      switch record.kind {
+      case .beginObject: self.beginObject()
+      case .endObject: self.endObject()
+      case .beginArray: self.beginArray()
+      case .endArray: self.endArray()
+      case .key: self.key(batch.bytes(of: index))
+      case .stringBegin: self.stringBegin()
+      case .stringChunk: self.stringChunk(batch.bytes(of: index))
+      case .stringEnd: self.stringEnd()
+      case .string: self.string(batch.bytes(of: index))
+      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
+      case .boolean: self.boolean(record.booleanValue)
+      case .null: self.null()
+      }
+      if self.streamFailure != nil { return index }
+      index &+= 1
+    }
+    return index
+  }
 }

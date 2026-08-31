@@ -191,7 +191,7 @@ struct `Adversarial conformance tests` {
 
 // Concatenates each string token's chunks, so a token's whole decoded content can be compared
 // without depending on how the parser split it.
-private struct StringCollectingSink: EventSink {
+private struct StringCollectingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   var strings: [[UInt8]] = []
 

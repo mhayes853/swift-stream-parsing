@@ -24,7 +24,7 @@ import StreamParsingCore
 
 // Conforms and does nothing. The collapsed `key` and `string` are overridden, as every serious
 // sink overrides them, so the floor is not measuring three calls where a sink would take one.
-struct NullSink: EventSink {
+struct NullSink: StreamParseSink {
   var streamFailure: StreamSinkFailure? { nil }
 
   mutating func beginObject() {}

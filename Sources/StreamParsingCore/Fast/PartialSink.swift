@@ -280,11 +280,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // MARK: Containers
 
-  mutating func beginObject() {
+  public mutating func beginObject() {
     self.enterContainer(shape: .object)
   }
 
-  mutating func beginArray() {
+  public mutating func beginArray() {
     switch self.activeLeafRoute {
     case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
       .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
@@ -296,11 +296,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.enterContainer(shape: .array)
   }
 
-  mutating func endObject() {
+  public mutating func endObject() {
     self.popFrame()
   }
 
-  mutating func endArray() {
+  public mutating func endArray() {
     if self.droppedFrameCount == 0, self.activeLeafRoute.usesFrameElementIndex,
       let top = self.topFrame, top.pointee.pendingField != top.pointee.schema.fixedElementCount
     {
@@ -433,7 +433,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // other schema call costs. The frames standing over subtrees the destination has no field for
   // are exactly those schemas, and they see most of the keys in a document a model only partly
   // declares — 52% of `twitter.json`'s.
-  mutating func key(_ bytes: Span<UInt8>) {
+  public mutating func key(_ bytes: Span<UInt8>) {
     guard let top = self.topFrame else { return }
     // Read through the frame each time rather than bound to a local. A local outlives the call it
     // is passed to, and `enterKey` takes the frame's own storage, so the optimizer has to keep the
@@ -465,7 +465,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // MARK: Scalars
 
-  mutating func stringBegin() {
+  public mutating func stringBegin() {
     switch self.activeLeafRoute {
     case .arrayStreamString, .arrayOptionalStreamString,
       .dictionaryStreamString, .dictionaryOptionalStreamString:
@@ -537,7 +537,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  mutating func stringChunk(_ bytes: Span<UInt8>) {
+  public mutating func stringChunk(_ bytes: Span<UInt8>) {
     if let storage = self.homogeneousStringStorage {
       storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
       return
@@ -573,7 +573,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
-  mutating func stringEnd() {
+  public mutating func stringEnd() {
     self.homogeneousStringStorage = nil
     self.inlineStringStorage = nil
     self.scalarTarget = nil
@@ -591,7 +591,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+  public mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     switch self.activeLeafRoute {
     case .arrayDouble:
       self.appendHomogeneousDouble(bytes, info: info)
@@ -610,7 +610,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  mutating func boolean(_ value: Bool) {
+  public mutating func boolean(_ value: Bool) {
     switch self.activeLeafRoute {
     case .arrayBool, .arrayOptionalBool, .dictionaryBool, .dictionaryOptionalBool:
       self.applyKnownBoolean(value, route: self.activeLeafRoute)
@@ -630,7 +630,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  mutating func null() {
+  public mutating func null() {
     if self.topFrame == nil, !self.started {
       let result = self.rootSchema.applyNull(self.root, StreamSchema.wholeValueField)
       if result != .applied {
