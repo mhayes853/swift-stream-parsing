@@ -6339,3 +6339,90 @@ cuts (the fused loop must fall back to the recorded path at a boundary), and the
 per-token methods are the primitives, batching as the recorded transport where lookahead or
 chunk-cut reassembly wants it -- which is the follow-up discussion this measurement was run to
 inform.
+
+## The fusion series: per-token emission lands, the recorder is deleted
+
+2026-08-30, five commits. The slice's numbers licensed the real thing, and the discussion that
+followed settled the shape: one protocol whose requirements are the per-token methods, batching
+demoted from the parser's transport to an adapter a sink can opt into, and one lifetime hook
+(`commit()`) as the only thing the parser still tells a sink beyond the tokens themselves.
+
+### The stages, each gated by a clean interleaved A/B
+
+**Stage 0 — `PartialSink` drops its phantom root.** The sink is entirely schema-driven; `Root`
+typed the init pointer and nothing else, while making nested types formally generic (the
+`ScalarTarget` trap) and materializing metadata at unspecialized call sites. Non-generic, there
+is one copy of everything permanently. Measured flat to mildly positive — and the cross-module
+replay rows jumped (`Sink Twitter escaped` +14.6%), which was metadata cost this parameter had
+been charging all along.
+
+**Stage 1 — the primitives become the protocol.** The eleven per-token methods the two
+`EventSink` test adapters had been re-deriving from batches are now `StreamParseSink` itself,
+plus a whole-string form defaulted through the chunked triple and a defaulted no-op `commit()`.
+Failure stays a recorded channel (`streamFailure`) rather than a per-call result: the 8.7%
+`stringChunk` tail-call lesson, kept. `events()` remained a defaulted requirement for one stage
+as scaffolding. Flat.
+
+**Stage 2 — batching becomes `StreamEventBatchingSink`.** The recorder relocated behind the
+protocol it used to be: records the per-token calls, flushes to a `StreamEventBatchConsumer` at
+256 and on `commit()`. Two contracts are deliberately looser than the parser's recorder had —
+bytes are copied (a span carries no chunk offset, and every consumer this adapter serves
+crosses a boundary borrowed bytes could not survive), and a rejection surfaces at the next
+flush. Its parity tests double as the fusion oracle, and pinned the error-path contract:
+commit *before* an error propagates, and never re-check an already-thrown rejection inside a
+`catch` (a `throw` there replaces the in-flight error — found the hard way at the chunk end).
+
+**Stage 3 — the parser emits per token.** The five choke points in JSONParserEvents.swift kept
+their names and call sites — every measured layout decision in the dispatcher, the runs, the
+windowed walk and the shapes untouched — but their bodies became direct calls into the sink's
+per-token methods: `record` is `@inline(__always)` with a constant `kind`, so the switch folds
+to exactly one primitive call per site, with the same spans a batch reconstructed and the same
+failure offsets batch delivery reported. `flushEvents` sites became the `commit()` signal.
+`PartialSink` took what its batch decoder was about to lose — the key+scalar pairing ported
+into `number`/`boolean`/`null`, a whole-string override for the table and match routes — and
+`StreamArray.commit` was forced inline (the slice's trap, again: outlined, it had hidden
+two-thirds of the double win).
+
+**Stage 4 — the deletion.** `events()` leaves the protocol; `PartialSink`'s ~190-line batch
+decoder, the parser's event scratch, the register-count record forms and the replay benchmark
+machinery go with it. `StreamEventBatch.replay(into:)` survives as the receiving end of the
+adapter's transport. The batch types survive as the adapter's currency and nothing else's.
+
+### What stage 3 measured (vs stage 2, 3 clean interleaved rounds, best-of-3 p0)
+
+The typed corpus rows, which are parse + `PartialSink` end to end:
+
+| row | Δp0 | note |
+|---|---:|---|
+| Real Canada - bulk discarding | **+42.8%** | retains 115K → 3K: the per-number schema retain is gone |
+| Real Twitter - bulk discarding | **+20.0%** | 1027 → 1232 MB/s |
+| Real CITM catalog - bulk discarding | **+20.0%** | retains 63K → 42K |
+| Real Twitter escaped - bulk discarding | +12.7% | |
+| Real LLM message / GSoC / GitHub | +7.0 / +6.4 / +5.3% | string-heavy: `String` construction still dominates |
+| Real Mesh - bulk discarding | +0.7% | retains 10K → 2K |
+
+The raw rows reclaim the recorder tax and more — `Real Twitter - bulk` 1545 → 1848 MB/s
+(+19.6%), CITM +22.1%, the synthetic int-fields raw row +38.0%: a specialized no-op primitive
+is free where a record write never was.
+
+And the cliff that was the series' standing risk inverted: the byte-fed rows are the biggest
+winners of the whole change. Byte-by-byte +8% to +99% (`Fast Long string - byte by byte`
+doubled, 228 → 453 MB/s — one direct `stringChunk` call where a one-record batch used to be
+built and delivered), 64B chunks +7 to +28%, snapshot-per-byte +4%, and not one regression in
+the set. Assembly, audited before believing any of it: per-sink specializations of the whole
+parse machinery exist for every benchmark sink (the parser was already `@inlinable`
+throughout, so cross-module call sites specialize), zero witness calls and zero metadata
+accessors in the `PartialSink` structural run, counting-sink primitives folded to inline math,
+and every hot specialization *smaller* than its stage-2 twin.
+
+### What composition means now
+
+The old ledger — parser cost plus sink cost, strictly additive across the events seam — is
+dead, which was the point. There is no seam to price: a sink's primitives compile into the
+parse loop, and what remains between lexing a token and storing it is the work itself. The
+known residuals, in order: the pure `[Double]` run through the per-element append is ~10%
+behind the old batched bulk appender and ~30% behind the slice's register-held run (the one
+regression anywhere, `Fused synthetic double array` normal path 791 → 712 MB/s — the next
+targeted change); strings still pay `String` construction; and `.wholeValue`/`rawContainer`
+emission for ignored subtrees (stage 5, deferred) has the miss-heavy payload's +47% as its
+known floor.

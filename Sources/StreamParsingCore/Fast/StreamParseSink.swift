@@ -274,16 +274,6 @@ public protocol StreamParseSink: ~Copyable {
   /// to a no-op.
   mutating func commit()
 
-  /// Batch transport: consumes recorded events in order and returns how many were taken —
-  /// `batch.count` when all were, or the index of the event the sink refused after recording
-  /// ``streamFailure``. Defaulted to replaying the batch into the per-token methods.
-  ///
-  /// Transitional: this is how the parser currently delivers tokens (recorded to scratch,
-  /// flushed at 256), and `PartialSink` overrides it with a batch-aware decode. The fusion
-  /// series moves the parser onto the per-token methods and this requirement onto the batching
-  /// adapter, after which it leaves the protocol.
-  mutating func events(_ batch: borrowing StreamEventBatch) -> Int
-
   var streamFailure: StreamSinkFailure? { get }
 }
 
@@ -301,31 +291,36 @@ extension StreamParseSink where Self: ~Copyable {
 
   @inlinable
   public mutating func commit() {}
+}
 
-  /// The default transport: one token call per record, stopping at the first recorded failure.
-  /// `.string` records route through ``string(_:)`` so a sink's whole-string override is honored
-  /// on the batch path too.
+extension StreamEventBatch {
+  /// Replays the batch into a sink's per-token methods, stopping at the first recorded failure:
+  /// the receiving end of the batch transport, for a `StreamEventBatchConsumer` that drives an
+  /// ordinary sink on the far side of whatever boundary the batching crossed. Returns how many
+  /// events were taken — `count` when all were, or the index of the refused event. `.string`
+  /// records route through ``StreamParseSink/string(_:)`` so a whole-string override is honored
+  /// on this path too.
   @inlinable
-  public mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
-    let records = batch.records
+  public func replay<S: StreamParseSink & ~Copyable>(into sink: inout S) -> Int {
+    let records = self.records
     var index = 0
-    while index < batch.count {
+    while index < self.count {
       let record = records[index]
       switch record.kind {
-      case .beginObject: self.beginObject()
-      case .endObject: self.endObject()
-      case .beginArray: self.beginArray()
-      case .endArray: self.endArray()
-      case .key: self.key(batch.bytes(of: index))
-      case .stringBegin: self.stringBegin()
-      case .stringChunk: self.stringChunk(batch.bytes(of: index))
-      case .stringEnd: self.stringEnd()
-      case .string: self.string(batch.bytes(of: index))
-      case .number: self.number(batch.bytes(of: index), info: batch.info(of: index))
-      case .boolean: self.boolean(record.booleanValue)
-      case .null: self.null()
+      case .beginObject: sink.beginObject()
+      case .endObject: sink.endObject()
+      case .beginArray: sink.beginArray()
+      case .endArray: sink.endArray()
+      case .key: sink.key(self.bytes(of: index))
+      case .stringBegin: sink.stringBegin()
+      case .stringChunk: sink.stringChunk(self.bytes(of: index))
+      case .stringEnd: sink.stringEnd()
+      case .string: sink.string(self.bytes(of: index))
+      case .number: sink.number(self.bytes(of: index), info: self.info(of: index))
+      case .boolean: sink.boolean(record.booleanValue)
+      case .null: sink.null()
       }
-      if self.streamFailure != nil { return index }
+      if sink.streamFailure != nil { return index }
       index &+= 1
     }
     return index

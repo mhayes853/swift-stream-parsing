@@ -86,17 +86,12 @@ public struct JSONParser: ~Copyable {
 
   // The event recorder (JSONParserEvents.swift): records and, for number records, their infos,
   // and the chunk the input-sourced records point into, set at every entry point.
-  @usableFromInline var eventScratch: UnsafeMutablePointer<StreamEventRecord>
-  @usableFromInline var eventInfoScratch: UnsafeMutablePointer<NumberInfo>
-  @usableFromInline var eventCount = 0
   @usableFromInline var chunkBase: UnsafeRawPointer
 
   public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
     self.buffer = .allocate(capacity: Swift.max(bufferCapacity, 64))
     self.ownsBuffer = true
     self.windowThreshold = windowThreshold
-    self.eventScratch = .allocate(capacity: Self.eventBatchCapacity)
-    self.eventInfoScratch = .allocate(capacity: Self.eventBatchCapacity)
     self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
@@ -108,16 +103,12 @@ public struct JSONParser: ~Copyable {
     self.buffer = buffer
     self.ownsBuffer = false
     self.windowThreshold = windowThreshold
-    self.eventScratch = .allocate(capacity: Self.eventBatchCapacity)
-    self.eventInfoScratch = .allocate(capacity: Self.eventBatchCapacity)
     self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   deinit {
     if self.ownsBuffer { self.buffer.deallocate() }
     self.windowScratch?.deallocate()
-    self.eventScratch.deallocate()
-    self.eventInfoScratch.deallocate()
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -165,8 +156,7 @@ public struct JSONParser: ~Copyable {
     // bytes that already look right ever pay for.
     if self.state == .inString,
       byte &- .asciiSpace < 0x60, byte != .asciiQuote, byte != .asciiBackslash,
-      !self.stringBeginPending, self.pendingUTF8Count == 0, self.highSurrogate == 0,
-      self.eventCount == 0
+      !self.stringBeginPending, self.pendingUTF8Count == 0, self.highSurrogate == 0
     {
       try self.deliverStringByte(byte, into: &sink)
       return

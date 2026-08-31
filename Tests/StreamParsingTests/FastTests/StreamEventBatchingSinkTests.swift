@@ -43,7 +43,7 @@ private struct PartialReplayConsumer: StreamEventBatchConsumer, ~Copyable {
   var streamFailure: StreamSinkFailure? { self.sink.streamFailure }
 
   mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
-    self.sink.events(batch)
+    batch.replay(into: &self.sink)
   }
 }
 

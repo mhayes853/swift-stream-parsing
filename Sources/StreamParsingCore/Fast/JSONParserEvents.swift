@@ -11,12 +11,8 @@
 // the dispatcher, the run loops and the shapes — what is inlined where, which locals live in
 // registers — was measured against call sites of this shape, and each `record` is
 // `@inline(__always)` with a constant `kind`, so the switch below folds to exactly one
-// primitive call per site. The register-count variants keep their extra parameters as inert
-// history until the scratch they described is deleted with the rest of the recorder.
+// primitive call per site.
 extension JSONParser {
-  // Sizes the (now idle) event scratch the parser still allocates; dies with it.
-  @usableFromInline static var eventBatchCapacity: Int { 256 }
-
   // A span over the token's bytes: the chunk's own for `.input`, the parser's buffer for
   // `.parserBuffer` — exactly what `StreamEventBatch.bytes(of:)` handed the sink. Valid for the
   // duration of the primitive call it is passed to, which is the whole contract.
@@ -136,37 +132,6 @@ extension JSONParser {
     try self.checkEmission(&sink, at: end)
   }
 
-  // The register-count forms the shape loops call. The count they maintained amortized scratch
-  // flushes that no longer exist; the extra parameters are ignored and go when the scratch does.
-  @inlinable
-  @inline(__always)
-  mutating func record<Sink: StreamParseSink & ~Copyable>(
-    _ kind: StreamEventRecord.Kind,
-    start: Int,
-    length: Int,
-    end: Int,
-    events: UnsafeMutablePointer<StreamEventRecord>,
-    count: inout Int,
-    into sink: inout Sink
-  ) throws(JSONParsingError) {
-    try self.record(kind, start: start, length: length, end: end, into: &sink)
-  }
-
-  @inlinable
-  @inline(__always)
-  mutating func recordNumber<Sink: StreamParseSink & ~Copyable>(
-    start: Int,
-    length: Int,
-    end: Int,
-    info: NumberInfo,
-    events: UnsafeMutablePointer<StreamEventRecord>,
-    infos: UnsafeMutablePointer<NumberInfo>,
-    count: inout Int,
-    into sink: inout Sink
-  ) throws(JSONParsingError) {
-    try self.recordNumber(start: start, length: length, end: end, info: info, into: &sink)
-  }
-
   // A string chunk of at most four bytes — a decoded escape, a UTF-8 sequence rejoined across
   // chunks — handed over directly from the scratch it was decoded into, which is alive for the
   // duration of the call. The word-packing the record needed is gone with the record.
@@ -227,13 +192,4 @@ extension JSONParser {
     self.consumedByteCount &+= 1
   }
 
-  // Dead weight kept callable while call sites are converted: emission is synchronous now, so
-  // there is never anything to flush. The buffer-reuse flushes (`emitBufferedKey`,
-  // `emitBufferedNumber`) are moot for the same reason — by the time the buffer is overwritten,
-  // the sink has already consumed the span.
-  @inlinable
-  @inline(__always)
-  mutating func flushEvents<Sink: StreamParseSink & ~Copyable>(
-    into sink: inout Sink
-  ) throws(JSONParsingError) {}
 }

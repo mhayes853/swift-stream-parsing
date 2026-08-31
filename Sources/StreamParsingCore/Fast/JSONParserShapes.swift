@@ -46,10 +46,6 @@ extension JSONParser {
     into sink: inout Sink
   ) throws(JSONParsingError) -> ShapeOutcome {
     let rootDepth = depth
-    var eventCount = self.eventCount
-    defer { self.eventCount = eventCount }
-    let events = self.eventScratch
-    let infos = self.eventInfoScratch
     var expectingValue = true
     // Entered after `[` (`.firstValue`) or, mid-array, after a `,` (`.value`): the state says
     // whether a `]` may come next.
@@ -79,8 +75,7 @@ extension JSONParser {
             }
           }
           try self.recordNumber(
-            start: start, length: separator &- start, end: separator, info: info,
-            events: events, infos: infos, count: &eventCount, into: &sink
+            start: start, length: separator &- start, end: separator, info: info, into: &sink
           )
           cursor = separator
           k = separatorEntry
@@ -88,7 +83,7 @@ extension JSONParser {
           continue
         case .asciiArrayStart:
           guard depth < Self.maximumDepth else { break }
-          try self.record(.beginArray, start: start, length: 1, end: start &+ 1, events: events, count: &eventCount, into: &sink)
+          try self.record(.beginArray, start: start, length: 1, end: start &+ 1, into: &sink)
           containers &= ~(1 &<< UInt64(depth))
           depth &+= 1
           cursor = start &+ 1
@@ -97,7 +92,7 @@ extension JSONParser {
           continue
         case .asciiArrayEnd:
           guard first else { break }
-          try self.record(.endArray, start: start, length: 1, end: start &+ 1, events: events, count: &eventCount, into: &sink)
+          try self.record(.endArray, start: start, length: 1, end: start &+ 1, into: &sink)
           depth &-= 1
           cursor = start &+ 1
           k = k &+ 1
@@ -122,7 +117,7 @@ extension JSONParser {
           first = false
           continue
         case .asciiArrayEnd:
-          try self.record(.endArray, start: position, length: 1, end: position &+ 1, events: events, count: &eventCount, into: &sink)
+          try self.record(.endArray, start: position, length: 1, end: position &+ 1, into: &sink)
           depth &-= 1
           cursor = position &+ 1
           k &+= 1
