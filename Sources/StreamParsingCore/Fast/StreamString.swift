@@ -12,16 +12,21 @@
 // allocation. Once the inline buffer overflows, storage takes `StreamArray`'s shape for the same
 // snapshot reasons:
 //
-// - **Sealed bytes live in fixed size blocks.** A reservation made before promotion can privately
-//   select a larger power-of-two block, but that size is fixed for the accumulator's lifetime.
-//   Once a block fills it is never written again, so a snapshot shares it forever and an append
-//   after a snapshot copies at most the tail, not the accumulated string.
+// - **Sealed bytes live in power-of-two blocks that double as the value grows.** The first block
+//   is 512 bytes (or larger, when a reservation made before promotion privately selects so), and
+//   each sealed block doubles the last up to the 8 KiB cap. Growth is what keeps a long unhinted
+//   value from paying one allocation per 512 bytes — the measured majority of the typed layer's
+//   cost on string-heavy documents — while a short promoted value still allocates only a small
+//   tail. The schedule is a pure function of the first block's shift and the block index, so
+//   locating a byte stays closed form (one `clz`) rather than a search over prefix sums. Once a
+//   block fills it is never written again, so a snapshot shares it forever and an append after a
+//   snapshot copies at most the tail, not the accumulated string.
 // - **Blocks are `ContiguousArray` rather than a class wrapping one.** A single refcounted
 //   pointer each, copy on write for the shared tail comes for free, and every stored property
 //   stays a value type, which is what lets `Sendable` be checked rather than asserted.
 //
-// Physical layout can differ between hinted and unhinted values. Every physical block is a
-// power-of-two multiple of 512, so reads, equality, ordering and hashing retain canonical
+// Physical layout can differ between hinted, unhinted and differently-fed values. Every physical
+// block boundary is a multiple of 512, so reads, equality, ordering and hashing retain canonical
 // 512-byte logical windows across layouts.
 public struct StreamString {
   @usableFromInline
@@ -42,12 +47,17 @@ public struct StreamString {
   // Kept directly in the value. A copied short string copies these bytes, so snapshots need no
   // reference counting and a short append needs no allocation.
   @usableFromInline var inlineBytes: InlineBuffer
-  // The low byte is the inline count (0...64); the remaining bits hold the physical block shift.
-  // Packing the policy here keeps StreamString's value layout unchanged.
+  // The low byte is the inline count (0...64); bits 8..15 hold the *first* physical block's
+  // shift, from which every later block derives: block `k` holds `1 << min(shift + k, 13)`
+  // bytes. Bits 16..23 cache the shift of the block the tail is currently filling — always
+  // `min(first + blocks.count, 13)` — so the append hot path reads one word it already loads
+  // instead of chasing the blocks array's count behind its pointer (measured -6..-17% on
+  // byte-fed rows without the cache). Packing the policy here keeps the value layout unchanged.
   @usableFromInline var storageBits: Int
 
-  // Sealed and never written again. Every block holds exactly `storageBlockCapacity` bytes, which
-  // keeps indexing a shift and a mask rather than a search over prefix sums.
+  // Sealed and never written again. Block `k` holds exactly `1 << min(startBlockShift + k,
+  // maximumBlockShift)` bytes — the doubling schedule — which keeps indexing closed form (see
+  // `sealedPosition(of:)`) rather than a search over prefix sums.
   @usableFromInline var blocks: [ContiguousArray<UInt8>]
 
   // The filling block. The only allocated storage an append can touch, and so the most a
@@ -56,9 +66,10 @@ public struct StreamString {
 
   @usableFromInline static var inlineCapacity: Int { 64 }
 
-  // 512 bytes is both the unhinted physical size and the canonical logical window. A hint can
-  // raise the physical size as far as 8 KiB: large enough to collapse malloc traffic while
-  // bounding the tail a snapshot can force an append to copy.
+  // 512 bytes is both the unhinted first physical block and the canonical logical window. Blocks
+  // double from there up to 8 KiB — large enough to collapse malloc traffic while bounding the
+  // tail a snapshot can force an append to copy; a hint can start the schedule at any size in
+  // that range directly.
   @usableFromInline static var blockShift: Int { 9 }
   @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
   @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
@@ -71,13 +82,53 @@ public struct StreamString {
     set { self.storageBits = (self.storageBits & ~0xFF) | newValue }
   }
 
-  @usableFromInline var storageBlockShift: Int { self.storageBits &>> 8 }
-  @usableFromInline var storageBlockCapacity: Int { 1 &<< self.storageBlockShift }
-  @usableFromInline var storageBlockMask: Int { self.storageBlockCapacity &- 1 }
+  // The first sealed block's shift; block `k` uses `min(startBlockShift + k, maximumBlockShift)`.
+  @usableFromInline var startBlockShift: Int { (self.storageBits &>> 8) & 0xFF }
+  @usableFromInline var startBlockCapacity: Int { 1 &<< self.startBlockShift }
+
+  // The capacity of the block the tail is currently filling, read from the cached shift.
+  @usableFromInline
+  var tailBlockCapacity: Int { 1 &<< ((self.storageBits &>> 16) & 0xFF) }
+
+  // (Re)starts the schedule at `shift`: both the first block's shift and the tail cache, only
+  // ever while no bytes are blocked, which is what keeps the two fields consistent with
+  // `blocks.count == 0`.
+  @inlinable
+  mutating func setStartBlockShift(_ shift: Int) {
+    self.storageBits = (shift &<< 16) | (shift &<< 8) | self.inlineCount
+  }
+
+  // Bytes sealed ahead of block `k`: while the schedule doubles, prefix sums are the geometric
+  // series `2^(s+k) - 2^s`; past the cap they grow linearly at `2^13` per block.
+  @inlinable
+  func sealedPrefix(before block: Int) -> Int {
+    let shift = self.startBlockShift
+    let ramp = min(block, Self.maximumBlockShift &- shift)
+    return (1 &<< (shift &+ ramp)) &- (1 &<< shift)
+      &+ ((block &- ramp) &<< Self.maximumBlockShift)
+  }
+
+  // Locates the sealed block holding byte `position`, inverting `sealedPrefix`: inside the
+  // doubling ramp the block index is `log2((position >> s) + 1)` — one `clz` — and past the ramp
+  // it is a shift and a mask, exactly the uniform layout this generalizes.
+  @inlinable
+  func sealedPosition(of position: Int) -> (block: Int, offset: Int) {
+    let shift = self.startBlockShift
+    let rampBytes = (1 &<< Self.maximumBlockShift) &- (1 &<< shift)
+    if position < rampBytes {
+      let block = Int.bitWidth &- 1 &- ((position &>> shift) &+ 1).leadingZeroBitCount
+      return (block, position &- ((1 &<< (shift &+ block)) &- (1 &<< shift)))
+    }
+    let beyond = position &- rampBytes
+    return (
+      (Self.maximumBlockShift &- shift) &+ (beyond &>> Self.maximumBlockShift),
+      beyond & ((1 &<< Self.maximumBlockShift) &- 1)
+    )
+  }
 
   public init() {
     self.inlineBytes = InlineBuffer()
-    self.storageBits = Self.blockShift &<< 8
+    self.storageBits = (Self.blockShift &<< 16) | (Self.blockShift &<< 8)
     self.blocks = [ContiguousArray<UInt8>]()
     self.tail = ContiguousArray<UInt8>()
   }
@@ -89,7 +140,7 @@ public struct StreamString {
   }
 
   @usableFromInline var usesInlineStorage: Bool { self.blocks.isEmpty && self.tail.isEmpty }
-  @usableFromInline var sealedCount: Int { self.blocks.count &<< self.storageBlockShift }
+  @usableFromInline var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
 
   /// The number of UTF-8 bytes accumulated so far.
   @inlinable
@@ -118,15 +169,35 @@ public struct StreamString {
         self.inlineCount = needed
         return
       }
-      self.promoteInlineStorage(reserving: needed)
+      self.promoteSizedInlineStorage(reserving: needed)
     }
     self.appendBlocked(buffer)
+  }
+
+  // The first overflow append sizes the schedule's start, the same way a reservation does: a
+  // value that arrives as one big span (an unescaped long string parsed in bulk) starts on a
+  // block matched to half its size instead of walking the whole doubling ramp, while a
+  // fragment-fed value keeps the 512-byte start and lets the ramp absorb growth. Never lowers a
+  // shift a reservation already raised, and never runs once bytes are blocked.
+  //
+  // Outlined: promotion happens once per value, and its body inlined into every `stringChunk`
+  // call site is exactly the kind of growth that flips the parse loop's inlining (the byte-fed
+  // rows pay double digits when it does — see the parse-inlining-cliff history).
+  @inlinable
+  @inline(never)
+  mutating func promoteSizedInlineStorage(reserving needed: Int) {
+    let half = (needed &>> 1) &+ (needed & 1)
+    let desiredShift = Int.bitWidth &- (half &- 1).leadingZeroBitCount
+    if desiredShift > self.startBlockShift {
+      self.setStartBlockShift(min(desiredShift, Self.maximumBlockShift))
+    }
+    self.promoteInlineStorage(reserving: needed)
   }
 
   @inlinable
   mutating func promoteInlineStorage(reserving capacity: Int) {
     let count = self.inlineCount
-    let blockCapacity = self.storageBlockCapacity
+    let blockCapacity = self.startBlockCapacity
     let reservation = count == 0
       ? min(capacity, blockCapacity)
       : blockCapacity
@@ -146,7 +217,7 @@ public struct StreamString {
   @inlinable
   mutating func appendBlocked(_ buffer: UnsafeBufferPointer<UInt8>) {
     guard let base = buffer.baseAddress else { return }
-    let blockCapacity = self.storageBlockCapacity
+    var blockCapacity = self.tailBlockCapacity
     var offset = 0
     while offset < buffer.count {
       let take = min(blockCapacity &- self.tail.count, buffer.count &- offset)
@@ -159,6 +230,12 @@ public struct StreamString {
       guard self.tail.count == blockCapacity else { continue }
       self.blocks.append(self.tail)
       self.tail = ContiguousArray<UInt8>()
+      // A seal moves the schedule to the next block, doubling until the cap; the cached shift
+      // in `storageBits` moves with it so the next append call reloads it for free.
+      if blockCapacity < 1 &<< Self.maximumBlockShift {
+        self.storageBits &+= 1 &<< 16
+        blockCapacity &<<= 1
+      }
     }
   }
 
@@ -188,15 +265,12 @@ public struct StreamString {
       return
     }
     let sealed = self.sealedCount
-    let blockShift = self.storageBlockShift
-    let blockCapacity = self.storageBlockCapacity
-    let blockMask = blockCapacity &- 1
     var written = 0
     var position = range.lowerBound
     while position < min(range.upperBound, sealed) {
-      let block = position &>> blockShift
-      let start = position & blockMask
-      let take = min(blockCapacity &- start, range.upperBound &- position)
+      let (block, start) = self.sealedPosition(of: position)
+      // Sealed blocks are full, so a block's own count is its capacity on the schedule.
+      let take = min(self.blocks[block].count &- start, range.upperBound &- position)
       self.blocks[block].withUnsafeBufferPointer { source in
         (base + written).initialize(from: source.baseAddress! + start, count: take)
       }
@@ -235,9 +309,6 @@ public struct StreamString {
         )
       }
     }
-    let blockShift = self.storageBlockShift
-    let blockMask = self.storageBlockMask
-    let firstBlock = range.lowerBound &>> blockShift
     if range.lowerBound >= self.sealedCount {
       let start = range.lowerBound &- self.sealedCount
       let end = range.upperBound &- self.sealedCount
@@ -245,8 +316,8 @@ public struct StreamString {
         String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
       }
     }
-    if range.upperBound <= (firstBlock &+ 1) &<< blockShift {
-      let start = range.lowerBound & blockMask
+    let (firstBlock, start) = self.sealedPosition(of: range.lowerBound)
+    if range.count <= self.blocks[firstBlock].count &- start {
       let end = start &+ range.count
       return self.blocks[firstBlock].withUnsafeBufferPointer { buffer in
         String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
@@ -272,7 +343,8 @@ extension StreamString {
     }
     let sealed = self.sealedCount
     if position < sealed {
-      return self.blocks[position &>> self.storageBlockShift][position & self.storageBlockMask]
+      let (block, offset) = self.sealedPosition(of: position)
+      return self.blocks[block][offset]
     }
     let offset = position &- sealed
     precondition(offset < self.tail.count, "StreamString byte offset out of range")
@@ -293,12 +365,9 @@ extension StreamString {
     }
     let sealed = self.sealedCount
     if position < sealed {
-      return self.blocks[position &>> self.storageBlockShift].withUnsafeBufferPointer { buffer in
-        body(
-          UnsafeBufferPointer(
-            start: buffer.baseAddress! + (position & self.storageBlockMask), count: count
-          )
-        )
+      let (block, offset) = self.sealedPosition(of: position)
+      return self.blocks[block].withUnsafeBufferPointer { buffer in
+        body(UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count))
       }
     }
     return self.tail.withUnsafeBufferPointer { buffer in
@@ -771,11 +840,17 @@ extension StreamString {
       let half = (utf8ByteCount &>> 1) &+ (utf8ByteCount & 1)
       let desiredShift = Int.bitWidth &- (half &- 1).leadingZeroBitCount
       let blockShift = min(max(desiredShift, Self.blockShift), Self.maximumBlockShift)
-      self.storageBits = (blockShift &<< 8) | self.inlineCount
+      // Only ever raises: an append-sized promotion cannot have run yet (no blocked bytes), and
+      // a lower late hint must not shrink the schedule the cached tail shift already follows.
+      if blockShift > self.startBlockShift {
+        self.setStartBlockShift(blockShift)
+      }
       self.promoteInlineStorage(reserving: utf8ByteCount)
     }
-    self.tail.reserveCapacity(min(utf8ByteCount, self.storageBlockCapacity))
-    self.blocks.reserveCapacity(utf8ByteCount &>> self.storageBlockShift)
+    self.tail.reserveCapacity(min(utf8ByteCount, self.tailBlockCapacity))
+    // The schedule makes the block count for a byte count exact rather than a shift: the block
+    // holding the last byte, plus one.
+    self.blocks.reserveCapacity(self.sealedPosition(of: utf8ByteCount &- 1).block &+ 1)
   }
 
   /// Appends the UTF-8 bytes of `text`.

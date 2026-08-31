@@ -6504,3 +6504,53 @@ zero witness or metadata traffic. The disposition branch costs non-skipping sink
 2484); `PartialSink`'s grew exactly the two skip arms (+64 bytes). Typed Twitter now sits at
 1503 MB/s against the plan's ~1,800 ceiling, with strings' `String` construction the largest
 named residual.
+
+## StreamString adaptive block growth — the allocator leaves the string-heavy typed path
+
+The stage-5 residual read "strings' `String` construction"; a census proved that wrong in the
+useful direction. The typed layer never materializes `String`s at parse time — values
+accumulate as raw bytes in `StreamString` — but the accumulation itself paid one
+`ContiguousArray` allocation per 512 sealed bytes. GSoC 2018 ran 13,000 mallocs per parse.
+A three-way census (production vs a build whose `append(utf8:)` discards bytes vs this change)
+attributed the string-heavy corpora's cost: byte storage was ~47% of typed GSoC and ~63% of
+typed LLM message, and effectively 0% of CITM, whose cost is dictionary machinery.
+
+The change, entirely private to `StreamString`:
+
+- **Sealed blocks double** — 512, 1K, 2K, 4K, then the existing 8 KiB cap forever. Block `k`'s
+  size is `1 << min(startShift + k, 13)`, so locating a byte stays closed form: one `clz`
+  inside the doubling ramp, shift-and-mask past it (`sealedPosition(of:)`). Boundaries remain
+  multiples of 512, so the canonical 512-byte logical windows behind equality, ordering and
+  hashing are untouched, and sealed blocks are still never rewritten (snapshot sharing holds).
+- **The first overflow append sizes the schedule's start** exactly as a `streamReserve` hint
+  does: a long unescaped string arriving as one span starts on a block matched to half its
+  size instead of walking the ramp. Fragment-fed values (escaped text) keep the 512 start.
+- **The tail block's shift is cached in `storageBits`** (bits 16..23, maintained at seal /
+  promotion / reserve) so the append hot path reads the one word it already loads instead of
+  chasing `blocks.count` behind the array pointer.
+
+Two codegen traps cost a round each and are why the shape above is exact:
+
+- Reading `blocks.count` per `appendBlocked` call is a dependent load; byte-fed rows paid
+  −6..−17% until the shift was cached in `storageBits`.
+- The promotion sizing inlined into `append(utf8:)` grew every `stringChunk` call site past
+  the inliner's budget — the parse-inlining cliff again, `Stream Long string - discarding`
+  +15% wall clock. `promoteSizedInlineStorage` is `@inline(never)`: promotion is once per
+  value, and outlining it makes the inlined append *smaller* than before the change.
+
+### Measured (3 clean interleaved rounds vs 7505e6a, best-of-3 p0 / median p50)
+
+| row | Δp0 | Δp50 | note |
+|---|---:|---:|---|
+| Real LLM message - bulk discarding | **+22.9%** | +26.9% | 833 → 1024 MB/s; mallocs 4744 → 2913 |
+| Real GSoC 2018 - bulk discarding | **+6.9%** | +6.9% | 13,000 → 11,000 mallocs; escape-fragmented, so the ramp, not the sizing, does the work |
+| Stream Long string - discarding (byte-fed) | **+6.6%** | +6.8% | |
+| Twitter / Twitter escaped / CITM / Canada / Mesh / GitHub / Qwen typed | −0.9..+0.9% | | |
+| raw rows, byte-fed set | flat | | worst p0 −2.2% (nested-miss drift, raw row drifts the same) |
+
+Assembly: every `consumeStringRun` specialization byte-identical; `appendBlocked` +36 bytes
+(the seal-bump arm); `promoteSizedInlineStorage` outlined at 300 bytes. `PartialSink` parse
+specializations grew (the appended schedule math inlines into them) with no specialization
+lost and no cliff. The hinted rows still win (LLM hinted 1255 vs 1024 unhinted) — a hint now
+buys reservation and a big start, not survival. Remaining string-heavy residual: per-fragment
+append overhead (hinted LLM 1255 vs discard-build 1872) and CITM's dictionary machinery.

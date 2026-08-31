@@ -370,6 +370,56 @@ func `Adaptive Reservations Preserve Canonical Value Behavior`(hint: Int) {
   expectNoDifference(reserved > snapshot, true)
 }
 
+// The unhinted doubling schedule seals blocks at 512, 1K, 2K, 4K and 8K, then 8K forever, so
+// its boundaries sit at 512, 1536, 3584, 7680, 15872, 24064, ... — every one a multiple of 512
+// but no longer evenly spaced. These pin reads, slices and search across the uneven boundaries.
+@Test(arguments: [1, 77, 512, 8_192, Int.max])
+func `Content Growing Past The Block Cap Reads Back Whole`(chunk: Int) {
+  // ~40 KB: the whole ramp plus several capped blocks.
+  let content = (0..<40_000).map { UInt8(33 + ($0 % 90)) }
+  var value = StreamString()
+  content.withUnsafeBufferPointer { buffer in
+    var offset = 0
+    while offset < buffer.count {
+      let count = min(chunk, buffer.count - offset)
+      let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
+      value.streamAppend(utf8: Span(_unsafeElements: slice))
+      offset += count
+    }
+  }
+  expectNoDifference(value.utf8Count, content.count)
+  expectNoDifference(String(value), String(decoding: content, as: UTF8.self))
+  for boundary in [511, 512, 1_535, 1_536, 3_583, 3_584, 7_679, 7_680, 15_871, 15_872, 24_064] {
+    expectNoDifference(value.utf8[boundary], content[boundary])
+  }
+}
+
+@Test
+func `Slices And Search Cross Uneven Block Boundaries`() {
+  var text = String(repeating: "x", count: 3_580) + "needle one"
+  text += String(repeating: "y", count: 15_866 - text.utf8.count) + "needle two"
+  text += String(repeating: "z", count: 500)
+  var value = StreamString()
+  let bytes = Array(text.utf8)
+  bytes.withUnsafeBufferPointer { buffer in
+    var offset = 0
+    while offset < buffer.count {
+      let count = min(97, buffer.count - offset)
+      let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
+      value.streamAppend(utf8: Span(_unsafeElements: slice))
+      offset += count
+    }
+  }
+  // "needle one" spans the 3584 boundary; "needle two" spans the 15872 boundary.
+  let first = value.range(of: "needle one")
+  let second = value.range(of: "needle two")
+  expectNoDifference(first, 3_580..<3_590)
+  expectNoDifference(second, 15_866..<15_876)
+  expectNoDifference(String(value.utf8[first!]), "needle one")
+  expectNoDifference(String(value.utf8[second!]), "needle two")
+  expectNoDifference(value.contains("needle two"), true)
+}
+
 @Test(arguments: [0, 7, 8, 15, 16, 17, 511, 512, 513, 8_191])
 func `Ordering Uses The First Difference Across SIMD And Block Boundaries`(offset: Int) {
   var lowBytes = Array(repeating: UInt8(ascii: "m"), count: offset &+ 2)
