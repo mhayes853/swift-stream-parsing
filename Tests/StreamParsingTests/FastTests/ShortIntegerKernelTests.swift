@@ -131,9 +131,9 @@ private struct NumberRecordingSink: StreamParseSink {
   var streamFailure: StreamSinkFailure?
   var magnitudes: [UInt64] = []
 
-  mutating func beginObject() {}
+  mutating func beginObject() -> StreamContainerDisposition { .stream }
   mutating func endObject() {}
-  mutating func beginArray() {}
+  mutating func beginArray() -> StreamContainerDisposition { .stream }
   mutating func endArray() {}
   mutating func key(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() {}

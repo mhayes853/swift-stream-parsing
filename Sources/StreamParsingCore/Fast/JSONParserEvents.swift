@@ -99,9 +99,13 @@ extension JSONParser {
     into sink: inout Sink
   ) throws(JSONParsingError) {
     switch kind {
-    case .beginObject: sink.beginObject()
+    // Open dispositions are discarded here; the sites that can honor a skip go through
+    // `recordContainerOpen` below. Discarding is legal by the advisory contract — the one
+    // remaining open site that records through here (`consumeNumericArray`'s nested `[`, which
+    // a skipping sink never streams into) just parses the subtree it was told it could skip.
+    case .beginObject: _ = sink.beginObject()
     case .endObject: sink.endObject()
-    case .beginArray: sink.beginArray()
+    case .beginArray: _ = sink.beginArray()
     case .endArray: sink.endArray()
     case .key: sink.key(self.emissionSpan(source, start, length))
     case .stringBegin: sink.stringBegin()
@@ -116,6 +120,18 @@ extension JSONParser {
     // A rejected whole string reports at its content start — the byte after the opening quote —
     // and every other token at the byte after itself, exactly where batch delivery reported.
     try self.checkEmission(&sink, at: kind == .string ? start : end)
+  }
+
+  // A container open whose site can honor the sink's answer: the same emission and failure
+  // check as `record`, with the disposition handed back so the caller can enter skip mode.
+  @inlinable
+  @inline(__always)
+  mutating func recordContainerOpen<Sink: StreamParseSink & ~Copyable>(
+    object: Bool, end: Int, into sink: inout Sink
+  ) throws(JSONParsingError) -> StreamContainerDisposition {
+    let disposition = object ? sink.beginObject() : sink.beginArray()
+    try self.checkEmission(&sink, at: end)
+    return disposition
   }
 
   @inlinable

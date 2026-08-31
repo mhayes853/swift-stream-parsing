@@ -35,6 +35,11 @@ public struct JSONParser: ~Copyable {
   enum State: UInt8 {
     case value, firstValue, afterValue, key, firstKey, afterKey, done
     case inString, inKey, escape, unicode, number, literal
+    // A sink answered `.skip` at a container open: the subtree is being scanned structurally
+    // (JSONParserSkip.swift), with `skipEndDepth` naming where it ends. The string and escape
+    // twins carry a skipped string across a chunk boundary. Past `done` on purpose, so
+    // `isStructural` stays one compare.
+    case skipping, skippingString, skippingEscape
 
     @inlinable
     var isStructural: Bool { self.rawValue <= State.done.rawValue }
@@ -69,6 +74,11 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline var literalKind: UInt8 = 0
   @usableFromInline var literalIndex = 0
+
+  // The depth the current skip ends at: a close that brings `depth` back to this emits the
+  // matching end call and leaves skip mode. Valid only while `state` is one of the skipping
+  // states.
+  @usableFromInline var skipEndDepth = 0
 
   @usableFromInline var pendingUTF8Count = 0
   @usableFromInline var consumedByteCount = 0
@@ -249,6 +259,9 @@ public struct JSONParser: ~Copyable {
 
       case .literal:
         i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
+
+      case .skipping, .skippingString, .skippingEscape:
+        i = try self.consumeSkipRun(base: base, from: i, to: n, into: &sink)
       }
     }
   }
@@ -263,10 +276,12 @@ public struct JSONParser: ~Copyable {
       self.state = .done
     case .value, .firstValue, .key, .firstKey, .afterKey:
       throw self.error(.unexpectedToken, at: 0)
-    case .inString, .inKey, .escape, .unicode:
+    case .inString, .inKey, .escape, .unicode, .skippingString, .skippingEscape:
       throw self.error(.unterminatedString, at: 0)
     case .literal:
       throw self.error(.invalidLiteral, at: 0)
+    case .skipping:
+      throw self.error(.unterminatedContainer, at: 0)
     case .afterValue, .done:
       break
     }
@@ -420,17 +435,30 @@ public struct JSONParser: ~Copyable {
     if raw <= State.firstValue.rawValue {
       switch byte {
       case .asciiObjectStart:
-        try self.record(.beginObject, start: at, length: 1, end: cursor, into: &sink)
+        let disposition = try self.recordContainerOpen(object: true, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
         containers |= 1 &<< Self.shiftAmount(depth)
         depth &+= 1
-        state = .firstKey
+        // A skip leaves the run: the loop's `isStructural` check breaks, and the dispatcher
+        // re-enters through the skip scanner. For a sink whose answer is the constant `.stream`
+        // the branch folds away in its specialization.
+        if disposition != .stream {
+          self.skipEndDepth = depth &- 1
+          state = .skipping
+        } else {
+          state = .firstKey
+        }
       case .asciiArrayStart:
-        try self.record(.beginArray, start: at, length: 1, end: cursor, into: &sink)
+        let disposition = try self.recordContainerOpen(object: false, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
         containers &= ~(1 &<< Self.shiftAmount(depth))
         depth &+= 1
-        state = .firstValue
+        if disposition != .stream {
+          self.skipEndDepth = depth &- 1
+          state = .skipping
+        } else {
+          state = .firstValue
+        }
       case .asciiArrayEnd:
         guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
@@ -1220,6 +1248,10 @@ public struct JSONParser: ~Copyable {
         break
       }
     }
+    // A sequence rejoined inside a skipped string is validated (above) and dropped: the skip
+    // delivers nothing, and this is the one emission its string scanner shares with the
+    // normal path.
+    if self.state == .skippingString { return i }
     try self.recordInlineChunk(
       UnsafeRawPointer(self.buffer.baseAddress! + tailStart), count: needed, end: i, into: &sink
     )

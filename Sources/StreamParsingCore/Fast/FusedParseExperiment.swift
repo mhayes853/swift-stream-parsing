@@ -417,7 +417,7 @@ extension JSONParser {
           state = .afterValue
 
         case .asciiObjectStart:
-          sink.beginObject()
+          _ = sink.beginObject()
           try Self.fusedCheck(&sink, at: i)
           guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: at) }
           containers |= 1 &<< Self.shiftAmount(depth)
@@ -427,7 +427,7 @@ extension JSONParser {
           ctx = Self.fusedRouteContext(&sink)
 
         case .asciiArrayStart:
-          sink.beginArray()
+          _ = sink.beginArray()
           try Self.fusedCheck(&sink, at: i)
           guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: at) }
           containers &= ~(1 &<< Self.shiftAmount(depth))
@@ -592,8 +592,9 @@ extension JSONParser {
       case .done:
         try Self.fail(.trailingContent, byteOffset: at)
 
-      case .inString, .inKey, .escape, .unicode, .number, .literal:
-        preconditionFailure("The fused slice never enters a per-byte state.")
+      case .inString, .inKey, .escape, .unicode, .number, .literal,
+        .skipping, .skippingString, .skippingEscape:
+        preconditionFailure("The fused slice never enters a per-byte or skipping state.")
       }
     }
 
@@ -604,8 +605,9 @@ extension JSONParser {
       try Self.fail(.unexpectedToken, byteOffset: n)
     case .afterValue, .done:
       break
-    case .inString, .inKey, .escape, .unicode, .number, .literal:
-      preconditionFailure("The fused slice never enters a per-byte state.")
+    case .inString, .inKey, .escape, .unicode, .number, .literal,
+      .skipping, .skippingString, .skippingEscape:
+      preconditionFailure("The fused slice never enters a per-byte or skipping state.")
     }
     guard depth == 0 else { try Self.fail(.unterminatedContainer, byteOffset: n) }
     try Self.fusedCheck(&sink, at: n)

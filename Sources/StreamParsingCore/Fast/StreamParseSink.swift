@@ -220,6 +220,34 @@ public struct StreamEventBatch: ~Escapable {
   public func end(of index: Int) -> Int { Int(self.recordBase[index].end) }
 }
 
+// MARK: - StreamContainerDisposition
+
+/// A sink's answer to a container opening: how it wants the subtree delivered.
+///
+/// Returned from ``StreamParseSink/beginObject()`` and ``StreamParseSink/beginArray()``. The
+/// answer is *advisory*: a deliverer that cannot skip — the batching adapter's replay, which has
+/// already recorded the subtree — delivers the interior anyway, so a sink answering ``skip``
+/// must still be correct receiving it (`PartialSink` keeps its ignored frame for exactly this).
+/// What the answer buys when the parser *can* honor it: the subtree's interior runs at
+/// structural-scan speed — no key matching, no number parse, no escape decode, no sink calls.
+///
+/// Non-exhaustive so a byte-delivering case (`wholeValue`, handing the subtree's raw bytes to
+/// the sink at the close) can be added without breaking clients that switch over this.
+@nonexhaustive
+public enum StreamContainerDisposition: UInt8, Hashable, Sendable {
+  /// Parse and deliver the subtree token by token: the normal path.
+  case stream = 0
+  /// The sink has no use for the subtree's interior. The parser skips to the matching close
+  /// and delivers only the matching `endObject`/`endArray` call — nothing in between.
+  ///
+  /// A skipped interior is validated *structurally*, not tokenwise: brackets must match by
+  /// kind, strings must terminate (with control bytes still rejected and UTF-8 still
+  /// validated), and the depth cap still holds — but number grammar, escape selectors and
+  /// comma/colon placement inside it are not checked. A malformed interior a streaming sink
+  /// would have rejected can therefore pass under a skipping one.
+  case skip = 1
+}
+
 // MARK: - StreamParseSink
 
 /// Receives the parser's tokens.
@@ -233,17 +261,27 @@ public struct StreamEventBatch: ~Escapable {
 /// chunk boundary or escape cut); a number is exactly one call carrying the whole token and its
 /// parsed info, so no sink re-lexes digits.
 ///
-/// No method throws or returns a result: a check after every token sits on the hottest path and
+/// The two container opens return a ``StreamContainerDisposition``: a sink with no use for a
+/// subtree's interior answers ``StreamContainerDisposition/skip`` and the parser scans past it
+/// at structural speed, delivering only the matching close. The answer is advisory — see the
+/// disposition's own documentation for the contract.
+///
+/// No other method throws or returns a result: a check after every token sits on the hottest path and
 /// pins the callee's tail calls (measured on the string chunk path), so a sink records its
 /// failure and the parser polls ``streamFailure`` at token boundaries, reporting the failure at
 /// the token that provoked it. The failure is sticky: once recorded, later tokens must not
 /// clear it.
 public protocol StreamParseSink: ~Copyable {
 
-  // Structure. The parser owns grammar and depth; these observe.
-  mutating func beginObject()
+  // Structure. The parser owns grammar and depth; these observe — and answer. The returned
+  // disposition is deliberately not defaulted: a defaulted returning requirement silently
+  // shadows a conformer's `Void` implementation (the classic near-miss), and a sink author
+  // should decide, per container, whether the interior matters. Answer `.stream` when in doubt.
+  // The answer is advisory (see `StreamContainerDisposition`): a `.skip` answer may still be
+  // followed by the interior, but the matching end call always arrives.
+  mutating func beginObject() -> StreamContainerDisposition
   mutating func endObject()
-  mutating func beginArray()
+  mutating func beginArray() -> StreamContainerDisposition
   mutating func endArray()
 
   /// An object member's key, always whole: unescaped, validated UTF-8.
@@ -307,9 +345,12 @@ extension StreamEventBatch {
     while index < self.count {
       let record = records[index]
       switch record.kind {
-      case .beginObject: sink.beginObject()
+      // Dispositions are discarded: the subtree was already recorded, so there is nothing left
+      // to skip. The advisory contract is what makes that legal — a sink that answered `.skip`
+      // routes the interior through whatever it kept standing (PartialSink's ignored frame).
+      case .beginObject: _ = sink.beginObject()
       case .endObject: sink.endObject()
-      case .beginArray: sink.beginArray()
+      case .beginArray: _ = sink.beginArray()
       case .endArray: sink.endArray()
       case .key: sink.key(self.bytes(of: index))
       case .stringBegin: sink.stringBegin()

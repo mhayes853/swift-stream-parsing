@@ -29,6 +29,7 @@ extension UInt8 {
   @usableFromInline static let asciiZero: UInt8 = 0x30
   @usableFromInline static let asciiNine: UInt8 = 0x39
   @usableFromInline static let asciiUpperA: UInt8 = 0x41
+  @usableFromInline static let asciiUpperE: UInt8 = 0x45
   @usableFromInline static let asciiUpperF: UInt8 = 0x46
   @usableFromInline static let asciiLowerN: UInt8 = 0x6E
   @usableFromInline static let asciiLowerR: UInt8 = 0x72
@@ -39,6 +40,7 @@ extension UInt8 {
   @usableFromInline static let asciiLowerL: UInt8 = 0x6C
   @usableFromInline static let asciiLowerE: UInt8 = 0x65
   @usableFromInline static let asciiLowerF: UInt8 = 0x66
+  @usableFromInline static let asciiLowerZ: UInt8 = 0x7A
 }
 
 extension UInt32 {

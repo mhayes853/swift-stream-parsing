@@ -263,9 +263,9 @@ private struct RejectingSink: StreamParseSink {
     }
   }
 
-  mutating func beginObject() {}
+  mutating func beginObject() -> StreamContainerDisposition { .stream }
   mutating func endObject() {}
-  mutating func beginArray() {}
+  mutating func beginArray() -> StreamContainerDisposition { .stream }
   mutating func endArray() {}
   mutating func key(_ bytes: Span<UInt8>) { if self.rejecting == .key { self.fail() } }
   mutating func stringBegin() {

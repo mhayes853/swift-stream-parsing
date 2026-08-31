@@ -280,20 +280,20 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // MARK: Containers
 
-  public mutating func beginObject() {
+  public mutating func beginObject() -> StreamContainerDisposition {
     self.enterContainer(shape: .object)
   }
 
-  public mutating func beginArray() {
+  public mutating func beginArray() -> StreamContainerDisposition {
     switch self.activeLeafRoute {
     case .arraySIMD2Double, .arraySIMD3Double, .arraySIMD4Double,
       .arrayOptionalSIMD2Double, .arrayOptionalSIMD3Double, .arrayOptionalSIMD4Double:
       self.openKnownSIMDDoubleElement(self.activeLeafRoute)
-      return
+      return .stream
     default:
       break
     }
-    self.enterContainer(shape: .array)
+    return self.enterContainer(shape: .array)
   }
 
   public mutating func endObject() {
@@ -310,7 +310,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.popFrame()
   }
 
-  private mutating func enterContainer(shape: StreamSchema.Shape) {
+  private mutating func enterContainer(shape: StreamSchema.Shape) -> StreamContainerDisposition {
     guard self.started else {
       self.started = true
       let canHoldContainer = self.rootSchema.shape.canHold(container: shape)
@@ -321,23 +321,32 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           ? BorrowedFrame(storage: self.root, schema: self.rootSchema)
           : self.ignoredFrame
       )
-      return
+      return .stream
     }
 
     let hasKnownDestination = self.hasKnownValueDestination
     guard let target = self.valueTarget() else {
       // A container under an unknown object key is ignored. Every other missing target describes
-      // a known destination whose schema cannot accept a container.
-      if hasKnownDestination { self.recordFailure(.typeMismatch) }
+      // a known destination whose schema cannot accept a container — that stays `.stream` so the
+      // failure just recorded surfaces at the opening bracket, exactly as before.
+      if hasKnownDestination {
+        self.recordFailure(.typeMismatch)
+        self.pushFrame(self.ignoredFrame)
+        return .stream
+      }
+      // The ignored frame is pushed even though the answer is `.skip`: the disposition is
+      // advisory, so the interior may still arrive (the batching adapter's replay), and the
+      // matching end call always does. Either way the frame is popped exactly once.
       self.pushFrame(self.ignoredFrame)
-      return
+      return .skip
     }
     guard target.schema.shape.canHold(container: shape) else {
       self.recordFailure(.typeMismatch)
       self.pushFrame(self.ignoredFrame)
-      return
+      return .stream
     }
     self.pushFrame(target)
+    return .stream
   }
 
   private var hasKnownValueDestination: Bool {

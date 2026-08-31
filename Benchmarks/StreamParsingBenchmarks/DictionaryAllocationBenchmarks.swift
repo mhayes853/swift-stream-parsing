@@ -6,9 +6,9 @@ private struct SpanDictionaryAllocationSink: StreamParseSink {
   var dictionary = StreamDictionary<Int>()
   var pendingValue: UnsafeMutableRawPointer?
 
-  mutating func beginObject() {}
+  mutating func beginObject() -> StreamContainerDisposition { .stream }
   mutating func endObject() {}
-  mutating func beginArray() {}
+  mutating func beginArray() -> StreamContainerDisposition { .stream }
   mutating func endArray() {}
 
   mutating func key(_ bytes: Span<UInt8>) {

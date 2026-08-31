@@ -48,6 +48,17 @@ enum SinkReplayPayloads {
     "\"inner\":{\"leaf\":{\"n\":\(row)}}"
   }.utf8)
 
+  // A declared scalar next to an undeclared *subtree* per row: the `.skip` disposition's
+  // payload. Most of the document's bytes sit inside containers the model has no field for, so
+  // the delta between this row's raw and partial-sink forms is what a skipped interior costs —
+  // structural scan against full streaming.
+  static let nestedMiss = Array(Self.makeRows(count: 6_000) { row in
+    "\"alpha\":\(row),"
+      + "\"extra\":{\"a\":[\(row),\(row &+ 1),\(row &+ 2)],"
+      + "\"b\":\"tail_\(row)_some_padding_text\","
+      + "\"c\":{\"d\":true,\"e\":null,\"f\":\(row).5}}"
+  }.utf8)
+
   // Dynamic keys into `[String: Int]`: `enterKey` and the entry, per member.
   static let dictionary = Array(
     "{\"counts\":{\((0..<20_000).map { "\"key_\($0)\":\($0)" }.joined(separator: ","))}}".utf8
@@ -122,6 +133,17 @@ struct SinkMissRows: Equatable {
   var rows: [SinkMissRow] = []
 }
 
+// One declared field; everything else in a `nestedMiss` row is a skipped subtree.
+@StreamParseable
+struct SinkSkipRow: Equatable {
+  var alpha: Int = 0
+}
+
+@StreamParseable
+struct SinkSkipRows: Equatable {
+  var rows: [SinkSkipRow] = []
+}
+
 @StreamParseable
 struct SinkDoubles: Equatable {
   var values: [Double] = []
@@ -182,6 +204,10 @@ private func validateSyntheticModels() {
     try streamBulkDiscarding(SinkReplayPayloads.dictionary, as: SinkCounts.Partial.self)
   }
   precondition(counts.counts?.count == 20_000)
+  let skips = expectParses {
+    try streamBulkDiscarding(SinkReplayPayloads.nestedMiss, as: SinkSkipRows.Partial.self)
+  }
+  precondition(skips.rows?.count == 6_000 && skips.rows?[5_999].alpha == 5_999)
 }
 
 func partialSinkReplayBenchmarks() {

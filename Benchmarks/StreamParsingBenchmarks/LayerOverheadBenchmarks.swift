@@ -27,9 +27,9 @@ import StreamParsingCore
 struct NullSink: StreamParseSink {
   var streamFailure: StreamSinkFailure? { nil }
 
-  mutating func beginObject() {}
+  mutating func beginObject() -> StreamContainerDisposition { .stream }
   mutating func endObject() {}
-  mutating func beginArray() {}
+  mutating func beginArray() -> StreamContainerDisposition { .stream }
   mutating func endArray() {}
 
   mutating func key(_ bytes: Span<UInt8>) {}

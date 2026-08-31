@@ -42,8 +42,14 @@ struct TreeSink: StreamParseSink {
   var value: Node? { self.root }
   private(set) var numbers = [NumberInfo]()
 
-  mutating func beginObject() { self.frames.append(.object([], pendingKey: nil)) }
-  mutating func beginArray() { self.frames.append(.array([])) }
+  mutating func beginObject() -> StreamContainerDisposition {
+    self.frames.append(.object([], pendingKey: nil))
+    return .stream
+  }
+  mutating func beginArray() -> StreamContainerDisposition {
+    self.frames.append(.array([]))
+    return .stream
+  }
 
   mutating func endObject() {
     guard case .object(let members, _)? = self.frames.popLast() else { return }

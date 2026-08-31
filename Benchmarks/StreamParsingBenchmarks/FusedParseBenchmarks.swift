@@ -92,6 +92,15 @@ private func validateFusedSlice() {
   var missed = SinkMissRows.Partial.streamInitialValue()
   expectParses { try parseInto(&missed, SinkReplayPayloads.intFields, fused: true) }
   precondition(missed.rows?.count == 8_000 && missed.rows?[0].absent0 == nil)
+
+  // The skipped-subtree payload builds the same value whether the deliverer honors the skip
+  // (the production path) or streams the interior anyway (the slice discards dispositions).
+  var skipHonored = SinkSkipRows.Partial.streamInitialValue()
+  var skipStreamed = SinkSkipRows.Partial.streamInitialValue()
+  expectParses { try parseInto(&skipHonored, SinkReplayPayloads.nestedMiss, fused: false) }
+  expectParses { try parseInto(&skipStreamed, SinkReplayPayloads.nestedMiss, fused: true) }
+  precondition(skipHonored.rows?.count == 6_000 && skipStreamed.rows?.count == 6_000)
+  precondition(skipHonored.rows?[5_999].alpha == 5_999 && skipStreamed.rows?[5_999].alpha == 5_999)
 }
 
 private func parseInto<Value: StreamParseableRoot>(
@@ -123,5 +132,13 @@ func fusedParseBenchmarks() {
   addFusedPair(
     "synthetic int fields, no key matches", SinkReplayPayloads.intFields,
     as: SinkMissRows.Partial.self, raw: false
+  )
+  // The `.skip` disposition's payload: undeclared subtrees carry most of the bytes. The
+  // "recorded parse" row (the production per-token path) honors the skip; the slice row does
+  // not (it discards dispositions), so the pair's delta prices the skip itself on top of the
+  // same lexing.
+  addFusedPair(
+    "synthetic nested miss subtrees", SinkReplayPayloads.nestedMiss,
+    as: SinkSkipRows.Partial.self
   )
 }

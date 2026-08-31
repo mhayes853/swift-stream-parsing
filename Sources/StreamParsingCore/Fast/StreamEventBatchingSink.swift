@@ -8,7 +8,7 @@
 // a sink that can be specialized into the parse loop should conform to `StreamParseSink`
 // directly and skip the transport entirely.
 //
-// Two contracts are deliberately looser than the parser's own recorder had:
+// Three contracts are deliberately looser than direct delivery:
 //
 // - Bytes are copied. A per-token span borrows parser memory the adapter cannot hold past the
 //   call, and the span carries no offset into the chunk, so records into live input are not
@@ -20,6 +20,10 @@
 //   stops there, and the reported offset is the token that was current at the flush, not the
 //   one refused. `StreamEventRecord.end` is likewise not populated: it was a chunk offset only
 //   the parser's own recorder could know.
+// - Skips are not honored. The adapter answers `.stream` at every container open (its consumer
+//   has not seen the open yet, so it cannot be asked), and the replay on the far side discards
+//   the consumer's dispositions — a subtree the consumer's sink would have skipped is parsed,
+//   validated and delivered in full on this path.
 public protocol StreamEventBatchConsumer: ~Copyable {
   /// Consumes events in order and returns how many were taken: `batch.count` when all were, or
   /// the index of the first event refused after recording ``streamFailure``.
@@ -117,9 +121,20 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
 
   // MARK: StreamParseSink
 
-  public mutating func beginObject() { self.append(.beginObject) }
+  // Always `.stream`: the transport's whole point is deferred delivery, so the consumer cannot
+  // be asked about a subtree it has not seen yet, and the replay on the far side discards the
+  // dispositions it collects (the advisory contract makes that legal). A third documented
+  // looseness: a subtree the consumer's sink would have skipped is parsed — and its interior
+  // grammar checked — in full on this path.
+  public mutating func beginObject() -> StreamContainerDisposition {
+    self.append(.beginObject)
+    return .stream
+  }
   public mutating func endObject() { self.append(.endObject) }
-  public mutating func beginArray() { self.append(.beginArray) }
+  public mutating func beginArray() -> StreamContainerDisposition {
+    self.append(.beginArray)
+    return .stream
+  }
   public mutating func endArray() { self.append(.endArray) }
   public mutating func key(_ bytes: Span<UInt8>) { self.append(.key, copying: bytes) }
   public mutating func stringBegin() { self.append(.stringBegin) }

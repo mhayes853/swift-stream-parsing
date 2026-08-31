@@ -6,9 +6,15 @@ struct FastCountingSink: StreamParseSink {
   var checksum: UInt64 = 0
   var tokens = 0
 
-  mutating func beginObject() { self.tokens &+= 1 }
+  mutating func beginObject() -> StreamContainerDisposition {
+    self.tokens &+= 1
+    return .stream
+  }
   mutating func endObject() {}
-  mutating func beginArray() { self.tokens &+= 1 }
+  mutating func beginArray() -> StreamContainerDisposition {
+    self.tokens &+= 1
+    return .stream
+  }
   mutating func endArray() {}
 
   mutating func key(_ bytes: Span<UInt8>) {

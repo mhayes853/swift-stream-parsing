@@ -181,6 +181,8 @@ extension JSONParser {
       i = try self.consumeNumber(base: base, from: i, to: n, into: &sink)
     case .literal:
       i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
+    case .skipping, .skippingString, .skippingEscape:
+      i = try self.consumeSkipRun(base: base, from: i, to: n, into: &sink)
     }
     return i
   }
@@ -308,26 +310,39 @@ extension JSONParser {
         case .asciiObjectStart:
           // The dispatcher sends `beginObject` and then rejects the depth; recorded, the event
           // precedes the error in the same order.
-          try self.record(.beginObject, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          let disposition = try self.recordContainerOpen(object: true, end: pos &+ 1, into: &sink)
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
           containers |= 1 &<< UInt64(depth)
           depth &+= 1
-          state = .firstKey
           cursor = pos &+ 1
           k &+= 1
+          if disposition != .stream {
+            // The walk hands the cursor back with the skip state set; `parseWindows` routes it
+            // through `dispatchOnce` into the skip scanner, and the index resync picks the walk
+            // up wherever the skip stops.
+            self.skipEndDepth = depth &- 1
+            state = .skipping
+            return cursor
+          }
+          state = .firstKey
           _ = try self.consumeObjectMembers(
             base: base, windowStart: windowStart, to: n, count: count, indices: indices,
             needsScan: needsScan, nonASCII: nonASCII, cursor: &cursor, k: &k,
             state: &state, depth: &depth, containers: &containers, into: &sink
           )
         case .asciiArrayStart:
-          try self.record(.beginArray, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          let disposition = try self.recordContainerOpen(object: false, end: pos &+ 1, into: &sink)
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
           containers &= ~(1 &<< UInt64(depth))
           depth &+= 1
-          state = .firstValue
           cursor = pos &+ 1
           k &+= 1
+          if disposition != .stream {
+            self.skipEndDepth = depth &- 1
+            state = .skipping
+            return cursor
+          }
+          state = .firstValue
           // A numeric array subtree is a shape loop's; it decides in two loads whether this is
           // one. It emits to the sink directly, so everything recorded so far goes first.
           if k < count {

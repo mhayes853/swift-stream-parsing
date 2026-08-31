@@ -6426,3 +6426,81 @@ regression anywhere, `Fused synthetic double array` normal path 791 → 712 MB/s
 targeted change); strings still pay `String` construction; and `.wholeValue`/`rawContainer`
 emission for ignored subtrees (stage 5, deferred) has the miss-heavy payload's +47% as its
 known floor.
+
+## Stage 5: container dispositions — skipped subtrees run at structural speed
+
+2026-08-31. The fusion series' deferred stage, built as designed with one honest rename: the
+sink's answer is a `StreamContainerDisposition` (`.stream`/`.skip`), not the sketched
+`.wholeValue` — delivering a subtree's raw bytes needs a cross-chunk buffering contract nobody
+has asked for yet, so the enum is `@nonexhaustive` and that case waits for its user. What
+shipped is the part with the measured payoff: `beginObject()`/`beginArray()` return the
+disposition, and a subtree the sink has no use for is scanned to its matching close instead of
+parsed.
+
+### The contract, and why it is advisory
+
+`.skip` means "I don't need the interior," not "the interior will not arrive." The parser
+honors it; a deliverer that cannot — `StreamEventBatch.replay`, which already recorded the
+subtree, and the batching adapter, whose consumer hasn't seen the open yet — discards it and
+delivers everything. Two consequences fall out:
+
+- **The close is always delivered.** A skipping sink stays balanced by construction:
+  `PartialSink` pushes its ignored frame at the open either way and pops it at the close,
+  so the same sink is correct under a parser that skips and a replay that doesn't. No skip
+  depth leaks into any sink, and no conformer needs two code paths.
+- **Discarding a disposition is always legal**, which is what let the windowed walk, the
+  dispatcher and the numeric shape loop adopt honoring independently (the numeric loop's
+  nested-`[` arm doesn't honor it; a skipping sink never streams into that arm anyway).
+
+The disposition is deliberately not defaulted: a defaulted returning requirement silently
+shadows a conformer's `Void` implementation — the classic protocol near-miss — and every sink
+in the tree answering an explicit `.stream` is cheaper than one silent misroute.
+
+### What a skipped interior still validates
+
+The scanner (JSONParserSkip.swift) is the structural run minus token work: brackets tracked in
+the same `depth`/`containers` registers (so `[` closed by `}` still fails, and the 64-deep cap
+still holds — the bitmap is the reason the cap is load-bearing), strings terminated with
+control bytes rejected and UTF-8 validated through the same trim/hold/complete machinery the
+string loop uses (`completePendingUTF8` gained a one-compare no-emit branch), numbers reduced
+to their byte class in one `streamNumberRunEnd`, escape selectors consumed blind, commas and
+colons unpositioned, literals loose letters. simdjson's On Demand makes the same trade for
+skipped values. Three parser states carry a skip across chunk cuts (`skipping`,
+`skippingString`, `skippingEscape` — past `done`, so `isStructural` stays one compare), and
+the one cross-chunk bug the sweep caught is worth recording: a number the chunk cuts resumes
+at `.`, `+` or `E`, so the structural position must accept the whole number byte class, not
+just its first bytes.
+
+`PartialSink` answers `.skip` in exactly one case: a container under an object key that
+matched no field. A known member that cannot hold a container is still the mismatch it was,
+reported at the opening bracket; everything else streams.
+
+### Measured (3 clean interleaved rounds vs 3d13c11, best-of-3 p0 / median p50)
+
+The corpus rows with ignored subtrees are the whole story; every other row is drift:
+
+| row | Δp0 | Δp50 | note |
+|---|---:|---:|---|
+| Real Twitter - bulk discarding | **+21.9%** | +21.2% | 1233 → 1503 MB/s; retains 4K → 1K |
+| Real Twitter escaped - bulk discarding | **+18.0%** | +18.9% | |
+| Real GitHub events - bulk discarding | **+13.1%** | +13.5% | |
+| CITM / LLM / GSoC / Canada / Mesh typed | −0.4..+0.8% | | few or no undeclared subtrees |
+| raw rows, whole corpus | −2.0..+3.1% | | non-skipping sinks: pure layout drift |
+
+The byte-fed and chunked set is flat to positive (−3.0% worst single row, +4.9% best) — no
+cliff. The new synthetic (`Fused synthetic nested miss subtrees`: one declared scalar per row,
+the bytes dominated by an undeclared subtree) decomposes the win: raw counting 791 MB/s,
+`PartialSink` with the skip honored **636**, the slice streaming the same interior 470, and
+the production path with the skip toggled off measures 451 — the skip is **+41%** on its own
+payload and puts the typed path at 80% of the structural-scan floor. The old ledger's "+47%
+floor" was a different payload's recorded-vs-slice arithmetic; this is the number that
+replaces it.
+
+Assembly, audited: per-sink specializations of `consumeSkipRun` exist for every benchmark
+sink; the `PartialSink` copy's loop is call-free except the per-string `skipStringBody`, with
+only outlined throws, the UTF-8 validator and the three close-time sink calls out of line, and
+zero witness or metadata traffic. The disposition branch costs non-skipping sinks nothing —
+`FastCountingSink`'s `consumeStructuralRun` is byte-identical to its stage-4 twin (2484 →
+2484); `PartialSink`'s grew exactly the two skip arms (+64 bytes). Typed Twitter now sits at
+1503 MB/s against the plan's ~1,800 ceiling, with strings' `String` construction the largest
+named residual.

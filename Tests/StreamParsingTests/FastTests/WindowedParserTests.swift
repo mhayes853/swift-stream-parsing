@@ -39,9 +39,15 @@ struct `Windowed parser tests` {
       }
     }
 
-    mutating func beginObject() { self.record(.beginObject, kind: "object") }
+    mutating func beginObject() -> StreamContainerDisposition {
+      self.record(.beginObject, kind: "object")
+      return .stream
+    }
     mutating func endObject() { self.record(.endObject, kind: "endObject") }
-    mutating func beginArray() { self.record(.beginArray, kind: "array") }
+    mutating func beginArray() -> StreamContainerDisposition {
+      self.record(.beginArray, kind: "array")
+      return .stream
+    }
     mutating func endArray() { self.record(.endArray, kind: "endArray") }
     private static func copy(_ span: Span<UInt8>) -> [UInt8] {
       var out = [UInt8]()
