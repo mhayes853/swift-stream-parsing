@@ -127,14 +127,26 @@ public struct StreamDictionary<Value> {
   @inlinable
   mutating func drainPending() {
     guard self.pendingSlot >= 0 else { return }
-    var value = Value?.none
-    swap(&value, &self.pendingValue)
+    var taken = Value?.none
+    swap(&taken, &self.pendingValue)
     let slot = Int(self.pendingSlot)
     self.pendingSlot = -1
+    // The payload is moved out of the optional bitwise rather than unwrapped, for the same reason
+    // `StreamArray.drainPending` does: `unsafelyUnwrapped` is a read accessor, so unwrapping copies
+    // the value — a retain for every reference field and a matching release when `taken` is
+    // destroyed, once per committed key. A single-payload enum keeps its payload at offset zero, so
+    // `.some`'s bits are the value's bits; after the move the slot is re-marked nil so nothing is
+    // destroyed twice. `pendingSlot >= 0` guarantees the case is `.some` — `_openValue` and
+    // `updateValue` set both together.
+    let value = withUnsafeMutablePointer(to: &taken) { box -> Value in
+      let value = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Value.self).move()
+      box.initialize(to: nil)
+      return value
+    }
     if slot < self.storedValues.count {
-      self.storedValues[slot] = value.unsafelyUnwrapped
+      self.storedValues[slot] = value
     } else {
-      self.storedValues.append(value.unsafelyUnwrapped)
+      self.storedValues.append(value)
     }
   }
 
