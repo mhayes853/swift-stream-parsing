@@ -1162,7 +1162,16 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private static func matchTable(
     _ frame: UnsafeMutablePointer<BorrowedFrame>, _ key: Span<UInt8>
   ) -> Int32 {
-    streamMatchField(
+    if let index = frame.pointee.schema.fieldIndex {
+      return streamMatchFieldIndexed(
+        frame.pointee.schema.fieldEntries.unsafelyUnwrapped,
+        index: index,
+        mask: frame.pointee.schema.fieldIndexMask,
+        keyBytes: frame.pointee.schema.fieldKeyBytes.unsafelyUnwrapped,
+        key
+      )
+    }
+    return streamMatchField(
       frame.pointee.schema.fieldEntries.unsafelyUnwrapped,
       count: frame.pointee.schema.fieldCount,
       keyBytes: frame.pointee.schema.fieldKeyBytes.unsafelyUnwrapped,

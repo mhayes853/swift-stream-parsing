@@ -273,12 +273,43 @@ final class StreamFieldTable: @unchecked Sendable {
   // The owners of every schema an entry points at unowned.
   @usableFromInline let schemas: [StreamSchema]
 
+  // Open-addressed slot table over `entries`, -1 where empty, built once at construction since a
+  // field table never grows (unlike `StreamDictionary`, whose entries arrive at parse time). `nil`
+  // below `indexThreshold`: a scan over a handful of entries measures the same as a probe and
+  // costs no table at all. Above it, a struct like a 40-field API object pays for a hash instead
+  // of a scan whose length no longer fits in what the prefetcher hides.
+  @usableFromInline let index: UnsafeMutablePointer<Int32>?
+  @usableFromInline let indexMask: Int
+
+  /// Field counts at or below this scan for free; the index only pays for itself past it.
+  @usableFromInline static var indexThreshold: Int { 16 }
+
   @usableFromInline
   init(_ fields: [StreamField]) {
     self.count = fields.count
     self.entries = .allocate(capacity: Swift.max(fields.count, 1))
     self.prepares = .allocate(capacity: Swift.max(fields.count, 1))
     self.schemas = fields.compactMap(\.schema)
+    if fields.count > Self.indexThreshold {
+      // Half load, same as `StreamDictionary`'s table: linear probing degrades sharply past it.
+      var capacity = 16
+      while capacity < fields.count &* 2 { capacity <<= 1 }
+      let table = UnsafeMutablePointer<Int32>.allocate(capacity: capacity)
+      table.initialize(repeating: -1, count: capacity)
+      let mask = capacity - 1
+      for (entryIndex, field) in fields.enumerated() {
+        let hash = streamFieldHash(word: field.keyWord, length: field.keyLength)
+        var probe = Int(truncatingIfNeeded: hash) & mask
+        while table[probe] >= 0 { probe = (probe &+ 1) & mask }
+        table[probe] = Int32(entryIndex)
+      }
+      self.index = table
+      self.indexMask = mask
+    } else {
+      self.index = nil
+      self.indexMask = 0
+    }
+
     let keyByteCount = fields.reduce(0) { $0 + $1.key.count }
     self.keyBytes = .allocate(capacity: Swift.max(keyByteCount, 1))
     var keyStart = 0
@@ -299,6 +330,7 @@ final class StreamFieldTable: @unchecked Sendable {
     self.prepares.deinitialize(count: self.count)
     self.prepares.deallocate()
     self.keyBytes.deallocate()
+    self.index?.deallocate()
   }
 
 }
@@ -333,6 +365,50 @@ func streamMatchField(
     index &+= 1
   }
   return -1
+}
+
+/// Murmur3's `fmix64`: two multiplies and three xor-shifts, chosen because the input is already a
+/// dense 64-bit word (the key's leading bytes) rather than a byte stream -- there is nothing here
+/// for a wider mix to fold in, only avalanche to add so nearby keys don't cluster in the table.
+@inlinable
+@inline(__always)
+func streamFieldHash(word: UInt64, length: UInt16) -> UInt64 {
+  var z = word ^ (UInt64(length) &<< 56)
+  z = (z ^ (z >> 33)) &* 0xff51afd7ed558ccd
+  z = (z ^ (z >> 33)) &* 0xc4ceb9fe1a85ec53
+  z = z ^ (z >> 33)
+  return z
+}
+
+/// The entry index for `key` in an indexed table, or -1. Same match as ``streamMatchField(_:count:keyBytes:_:)``
+/// once a candidate is found; the difference is how the candidate is found; a probe rather than a
+/// walk.
+@inlinable
+@inline(__always)
+func streamMatchFieldIndexed(
+  _ entries: UnsafePointer<StreamFieldEntry>,
+  index: UnsafePointer<Int32>,
+  mask: Int,
+  keyBytes: UnsafePointer<UInt8>,
+  _ key: Span<UInt8>
+) -> Int32 {
+  let length = key.count
+  guard length <= Int(UInt16.max) else { return -1 }
+  let word = key.paddedLeadingWord()
+  let keyLength = UInt16(truncatingIfNeeded: length)
+  let hash = streamFieldHash(word: word, length: keyLength)
+  var probe = Int(truncatingIfNeeded: hash) & mask
+  while true {
+    let slot = index[probe]
+    guard slot >= 0 else { return -1 }
+    let entry = entries + Int(slot)
+    if entry.pointee.keyWord == word && entry.pointee.keyLength == keyLength {
+      if length <= 8 || streamFieldTailMatches(entry, keyBytes: keyBytes, key) {
+        return slot
+      }
+    }
+    probe = (probe &+ 1) & mask
+  }
 }
 
 @usableFromInline

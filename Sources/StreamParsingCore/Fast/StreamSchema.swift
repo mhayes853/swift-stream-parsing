@@ -241,6 +241,9 @@ public final class StreamSchema: @unchecked Sendable {
   @usableFromInline let fieldCount: Int
   @usableFromInline let fieldKeyBytes: UnsafePointer<UInt8>?
   @usableFromInline let fieldPrepares: UnsafePointer<StreamFieldPrepare?>?
+  // The open-addressed index over `fields`, or nil below `StreamFieldTable.indexThreshold`.
+  @usableFromInline let fieldIndex: UnsafePointer<Int32>?
+  @usableFromInline let fieldIndexMask: Int
 
   // The schema an array's elements or a dictionary's values are written through, for a schema
   // whose `appendElement` or `enterKey` hands back a slot. The frame the sink pushes over that
@@ -432,6 +435,8 @@ public final class StreamSchema: @unchecked Sendable {
     self.fieldCount = fields?.count ?? 0
     self.fieldKeyBytes = fields.map { UnsafePointer($0.keyBytes) }
     self.fieldPrepares = fields.map { UnsafePointer($0.prepares) }
+    self.fieldIndex = fields?.index.map { UnsafePointer($0) }
+    self.fieldIndexMask = fields?.indexMask ?? 0
     self.elementSchema = elementSchema
     self.elementSchemaBits = elementSchema.map {
       UnsafeRawPointer(Unmanaged.passUnretained($0).toOpaque())
