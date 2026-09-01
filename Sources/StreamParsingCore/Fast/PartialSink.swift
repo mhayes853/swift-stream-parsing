@@ -62,6 +62,15 @@ struct BorrowedFrame {
   @inline(__always)
   var schemaBits: UnsafeRawPointer { unsafeBitCast(self.schema, to: UnsafeRawPointer.self) }
 
+  // The zero-ARC closure call, same idiom as `ScalarTarget.withSchema`: a stored closure called
+  // off the unowned field directly is copied first — a retain and a release of its context box
+  // per call. Inside the guaranteed-ref scope the property call borrows.
+  @usableFromInline
+  @inline(__always)
+  func withSchema<R>(_ body: (StreamSchema) -> R) -> R {
+    Unmanaged<StreamSchema>.fromOpaque(self.schemaBits)._withUnsafeGuaranteedRef(body)
+  }
+
   // A strong reference from the same bits, for a holder that wants one.
   @usableFromInline
   @inline(__always)
@@ -413,7 +422,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     if stride != 0 {
       return top.pointee.storage + Int(index) &* Int(stride)
     }
-    return top.pointee.schema.appendElement(top.pointee.storage, index)
+    // Called inside a guaranteed-ref scope for the same reason `ScalarTarget.withSchema` exists:
+    // loading `appendElement` off the frame's unowned schema copied the closure — a retain and a
+    // release of its context box once per element. With the schema guaranteed for the scope, the
+    // property call borrows.
+    return Unmanaged<StreamSchema>.fromOpaque(top.pointee.schemaBits)._withUnsafeGuaranteedRef {
+      $0.appendElement(top.pointee.storage, index)
+    }
   }
 
   // Produces the frame a value should be written through, appending an array element first when
@@ -463,9 +478,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         }
         field = entry.pointee.index
       }
-      guard let frame = top.pointee.schema.enterField(top.pointee.storage, field) else {
-        return nil
-      }
+      let entered = top.pointee.withSchema { $0.enterField(top.pointee.storage, field) }
+      guard let frame = entered else { return nil }
       return self.borrow(frame)
     case .dictionary:
       guard let slot = self.pendingDictionaryStorage else { return nil }
@@ -495,7 +509,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .table:
       top.pointee.pendingField = Self.matchTable(top, bytes)
     case .match:
-      top.pointee.pendingField = top.pointee.schema.matchField(bytes)
+      top.pointee.pendingField = top.pointee.withSchema { $0.matchField(bytes) }
     case .dictionary:
       switch self.activeLeafRoute {
       case .dictionaryStreamString, .dictionaryOptionalStreamString,
@@ -509,7 +523,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
       // The key span does not outlive this call, so the value's slot is opened now rather than
       // remembered and opened when the value arrives.
-      self.pendingDictionaryStorage = top.pointee.schema.enterKey(top.pointee.storage, bytes)
+      self.pendingDictionaryStorage = top.pointee.withSchema { $0.enterKey(top.pointee.storage, bytes) }
     case .ignore:
       top.pointee.pendingField = -1
     }

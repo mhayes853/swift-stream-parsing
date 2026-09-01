@@ -6631,3 +6631,34 @@ parsed data's array tails, not lifecycle. The previous stage's changes had alrea
 the lifecycle cost this was aimed at; what remains on a 600-byte tool call is per-token sink
 work. The canonical from-scratch rows stay the library's headline numbers; the reused rows
 exist to keep this measurable, not to replace them.
+
+## The last closure pairs — guaranteed-ref scopes on the frame routes
+
+Stage follow-up to the ScalarTarget fix, and the same idiom finishing the job: every closure
+still called *through* a frame's unowned schema paid a retain/release of the closure's context
+box per call — `appendElement` once per array element, `enterKey` once per dictionary key
+(CITM's whole remaining sink gap), `enterField`/`matchField` on the closure-routed object
+paths. `BorrowedFrame.withSchema` wraps those calls in
+`Unmanaged.fromOpaque(bits)._withUnsafeGuaranteedRef`; with the schema guaranteed for the
+scope, the property call borrows. `key(_:)` now contains zero ARC lib calls; `valueTarget`
+kept one (the prepare-closure copy, once per member-container open).
+
+Also tried and REJECTED in the same stage: a one-entry key-match predictor (probe "the entry
+after the last match" before the scan). Serializer key order is stable, the probe hit — and
+Twitter/CITM/LLM/GSoC still lost ~1% each, because for ≤8-entry tables the branch-predicted
+scan was already free and the predictor's bookkeeping is pure addition. Same conclusion as the
+rejected NEON block match, from the other direction: do not put anything in front of that scan.
+
+### Measured (3 clean interleaved rounds vs be975c0, best-of-3 p0 / median p50)
+
+| row | Δp0 | Δp50 | note |
+|---|---:|---:|---|
+| Real CITM catalog - bulk discarding | **+5.5%** | +5.3% | retains 21K → 11K; the per-key `enterKey` pair |
+| Fused synthetic int fields / nested miss (fused + recorded) | +5.5..+9.0% | | replay retains 8K/6K → 0 |
+| Real Qwen 3 workspace edit / structured - bulk discarding | +2.5% / +2.0% | | retains 122→26 / 96→60 per parse |
+| Stream Array of structs (byte-fed, typed) | +6..+11% | | |
+| Scaling 10/400 users - discarding | +1.9 / +2.5% | | |
+| GitHub / Twitter escaped discarding | +1.1 / +1.0% | | LLM retains 1687→1051, Canada 1993→1512 |
+| Twitter / LLM / GSoC / Canada / Mesh discarding | ±0.3% | | |
+| raw rows | flat | | Qwen search raw p0/p50 flipped −9.9/+8.9 — the documented bimodal row |
+| Fast * byte-fed (raw) | ±2% mixed | | no uniform pattern |
