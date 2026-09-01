@@ -336,6 +336,13 @@ where Element: StreamParseableRoot {
     _streamArraySchema(Element.self, element: Element.streamElementSchema)
   }
 
+  // Generic types cannot hold a stored static, so `streamInitialValue()` above is a real `Self()`
+  // every time rather than a load from a cached template the way a macro-generated partial's is,
+  // and forming `Array<Element>`/`ContiguousArray<Element>` for the empty fields goes through the
+  // runtime's locking generic-metadata cache. A container holding these as elements should hoist.
+  @inlinable
+  public static var _streamInitialValueIsExpensive: Bool { true }
+
   /// A borrowed window onto the array, for reading elements or spans of sealed elements without
   /// copying the whole array or any element in it.
   ///

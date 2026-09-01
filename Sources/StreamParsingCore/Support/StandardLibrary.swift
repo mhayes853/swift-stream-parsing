@@ -104,6 +104,11 @@ where Value: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
     _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
   }
+
+  // See `StreamArray`: generic, so there is no cached template to load and `Self()` pays the
+  // runtime's metadata cache on every open.
+  @inlinable
+  public static var _streamInitialValueIsExpensive: Bool { true }
 }
 
 // The accumulator carries magnitude in a UInt64, so a value wider than that arrives flagged as

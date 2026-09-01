@@ -514,6 +514,20 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// - SeeAlso: ``streamElementSchema``
   static func streamElementInitialValue() -> Self
 
+  /// Whether building ``streamElementInitialValue()`` is worth hoisting out of a container's
+  /// per-element closure into a captured template.
+  ///
+  /// It is worth it for exactly one reason: a *generic* container element — a nested
+  /// `StreamArray`/`StreamDictionary` — has no stored static to cache a template in, so
+  /// `Self()` re-enters the runtime's locking generic-metadata caches on every open. A concrete
+  /// macro-generated partial already caches its template in a stored static, so hoisting only
+  /// buys it a closure context where it had none, which is a real loss: measured against a
+  /// blanket hoist, CITM and Twitter full lost 5-8% and the 48-member schema 18-22%, while
+  /// nested-array payloads gained 10-33%. Hence the flag rather than one form for everything.
+  ///
+  /// Defaults to `false`, which is right for every concrete conformer.
+  static var _streamInitialValueIsExpensive: Bool { get }
+
   /// A borrowed window onto the value, for reading part of it without copying the whole.
   ///
   /// Defaults to ``StreamPointerView``, which is what a scalar wants: there is nothing to defer,
@@ -545,6 +559,9 @@ extension StreamParseableRoot {
 
   @inlinable
   public static func streamElementInitialValue() -> Self { Self.streamInitialValue() }
+
+  @inlinable
+  public static var _streamInitialValueIsExpensive: Bool { false }
 }
 
 extension StreamParseableRoot where View == StreamPointerView<Self> {
@@ -805,14 +822,29 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   _ type: Element.Type,
   element: StreamSchema
 ) -> StreamSchema {
-  StreamSchema(
-    shape: .array,
-    // Captures nothing: the element schema is data on this schema, and the initial value is the
-    // element type's. A closure without a context is a call and nothing else.
-    appendElement: { storage, _ in
+  // Two forms of the same closure, chosen once per schema — see
+  // ``StreamParseableRoot/_streamInitialValueIsExpensive``. The default captures nothing: the
+  // element schema is data on this schema, and the initial value is the element type's, so the
+  // closure is a call and nothing else. The hoisted form is for a generic element that would
+  // otherwise re-enter the runtime's metadata caches on every open, and pays one closure-context
+  // load to avoid it. Both keep the maker form, so the copy still forwards into `pending`'s
+  // return slot rather than materialising an element in the caller.
+  let append: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
+  if Element._streamInitialValueIsExpensive {
+    nonisolated(unsafe) let template = Element.streamElementInitialValue()
+    append = { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
+        ._openElement(initializedBy: { template })
+    }
+  } else {
+    append = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
         ._openElement(initializedBy: Element.streamElementInitialValue)
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .array,
+    appendElement: append,
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
     leafRoute: .array(element.leafRoute),
@@ -925,12 +957,22 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   element base: StreamSchema
 ) -> StreamSchema {
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
-  return StreamSchema(
-    shape: .array,
-    appendElement: { storage, _ in
+  let append: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
+  if Wrapped._streamInitialValueIsExpensive {
+    nonisolated(unsafe) let template = Wrapped?.some(Wrapped.streamInitialValue())
+    append = { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
+        ._openElement(initializedBy: { template })
+    }
+  } else {
+    append = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
         ._openElement(initializedBy: { .some(Wrapped.streamInitialValue()) })
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .array,
+    appendElement: append,
     elementSchema: element,
     leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,
     inlineCapacity: element.inlineCapacity
@@ -943,12 +985,22 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   value base: StreamSchema
 ) -> StreamSchema {
   let value = _streamOptionalElementSchema(Wrapped.self, base: base)
-  return StreamSchema(
-    shape: .dictionary,
-    enterKey: { storage, key in
+  let enter: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
+  if Wrapped._streamInitialValueIsExpensive {
+    nonisolated(unsafe) let template = Wrapped?.some(Wrapped.streamInitialValue())
+    enter = { storage, key in
+      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
+        ._openValue(forKey: key, initial: template)
+    }
+  } else {
+    enter = { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
         ._openValue(forKey: key, initial: .some(Wrapped.streamInitialValue()))
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .dictionary,
+    enterKey: enter,
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
     inlineCapacity: value.inlineCapacity
@@ -960,12 +1012,25 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
   _ type: Value.Type,
   value valueSchema: StreamSchema
 ) -> StreamSchema {
-  StreamSchema(
-    shape: .dictionary,
-    enterKey: { storage, key in
+  // See `_streamArraySchema` for why this is two forms rather than one. `_openValue`'s `initial`
+  // is an autoclosure either way, so the template is only read for a key the dictionary has not
+  // seen before; a repeated key resumes its stored value and reads nothing.
+  let enter: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
+  if Value._streamInitialValueIsExpensive {
+    nonisolated(unsafe) let template = Value.streamElementInitialValue()
+    enter = { storage, key in
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
+        ._openValue(forKey: key, initial: template)
+    }
+  } else {
+    enter = { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
         ._openValue(forKey: key, initial: Value.streamElementInitialValue())
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .dictionary,
+    enterKey: enter,
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
     inlineCapacity: valueSchema.inlineCapacity
