@@ -29,9 +29,17 @@ struct SmokeSink: StreamParseSink {
   var stringByteChecksum: UInt64 = 0
   var magnitudeSum: UInt64 = 0
 
-  mutating func beginObject() { self.objects &+= 1 }
+  // Both opens answer `.stream`: the smoke exists to lower the whole token path, so nothing
+  // here has a subtree it wants skipped.
+  mutating func beginObject() -> StreamContainerDisposition {
+    self.objects &+= 1
+    return .stream
+  }
   mutating func endObject() {}
-  mutating func beginArray() { self.arrays &+= 1 }
+  mutating func beginArray() -> StreamContainerDisposition {
+    self.arrays &+= 1
+    return .stream
+  }
   mutating func endArray() {}
 
   // The collapsed forms are overridden, which is what generated matchers do: it avoids two of

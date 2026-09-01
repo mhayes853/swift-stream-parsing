@@ -289,7 +289,8 @@ final class StreamFieldTable: @unchecked Sendable {
     self.count = fields.count
     self.entries = .allocate(capacity: Swift.max(fields.count, 1))
     self.prepares = .allocate(capacity: Swift.max(fields.count, 1))
-    self.schemas = fields.compactMap(\.schema)
+    // Closure, not `compactMap(\.schema)`: key paths cannot be lowered in embedded Swift.
+    self.schemas = fields.compactMap { $0.schema }
     if fields.count > Self.indexThreshold {
       // Half load, same as `StreamDictionary`'s table: linear probing degrades sharply past it.
       var capacity = 16
