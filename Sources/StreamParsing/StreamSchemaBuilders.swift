@@ -224,13 +224,26 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 
 // Materialises an optional container member and then lets the wrapped type prepare its own
 // storage, which an `Optional` wrapped in another does.
+//
+// This builder runs once per schema, so everything the closure would otherwise resolve per
+// container occurrence is resolved here: the initial value and the wrapped type's own prepare.
+// Evaluating `T.streamInitialValue()` inside the closure re-entered the runtime's locking
+// generic-metadata caches on every occurrence — `StreamArray<Element>()` cannot cache its own
+// template (generic types have no stored statics), so the template lives in this closure's
+// context instead, in a leaked one-slot allocation because the schema owning the closure is
+// itself immortal. Copying the template out is a plain specialized copy: its buffers are the
+// empty singletons, so the retains it takes are immortal-object fast paths.
 @inlinable
 public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
   _ type: T.Type
 ) -> StreamFieldPrepare {
-  { storage, _ in
-    _streamMaterializeOptional(storage, as: T.self)
-    T._streamContainerPrepare?(storage, 0)
+  nonisolated(unsafe) let template = UnsafeMutablePointer<T>.allocate(capacity: 1)
+  template.initialize(to: T.streamInitialValue())
+  let inner = T._streamContainerPrepare
+  return { storage, _ in
+    let pointer = storage.assumingMemoryBound(to: T?.self)
+    if pointer.pointee == nil { pointer.pointee = template.pointee }
+    inner?(storage, 0)
   }
 }
 
