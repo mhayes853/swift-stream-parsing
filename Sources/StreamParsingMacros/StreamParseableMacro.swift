@@ -157,15 +157,21 @@ extension StreamParseableMacro {
     )
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseable,
-        StreamParsingCore.StreamParseableObject {
+        StreamParsingCore.StreamParseableObject, Sendable {
         \(raw: modifierPrefix)typealias Partial = Self
 
       \(raw: propertyLines)
 
         \(raw: initializerLines)
 
+        // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+        // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+        // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+        // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+        private static let _streamInitialValueTemplate: Self = Self()
+
         \(raw: modifierPrefix)static func streamInitialValue() -> Self {
-          Self()
+          Self._streamInitialValueTemplate
         }
 
         \(raw: viewLines)

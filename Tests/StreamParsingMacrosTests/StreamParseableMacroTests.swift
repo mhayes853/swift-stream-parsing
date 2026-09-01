@@ -30,7 +30,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -44,8 +44,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -251,7 +257,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -265,8 +271,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -578,7 +590,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -592,8 +604,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -887,7 +905,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial
@@ -901,8 +919,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -1107,7 +1131,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1121,8 +1145,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -1326,7 +1356,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var age: Int.Partial?
@@ -1337,8 +1367,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -1513,7 +1549,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -1524,8 +1560,14 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -1749,7 +1791,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var stored: String.Partial?
@@ -1760,8 +1802,14 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -1933,7 +1981,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -1947,8 +1995,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -2318,7 +2372,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -2332,8 +2386,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -2538,7 +2598,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -2552,8 +2612,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             public static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             public struct View: ~Copyable, ~Escapable {
@@ -2754,7 +2820,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -2768,8 +2834,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -2970,7 +3042,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           fileprivate struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             fileprivate typealias Partial = Self
 
             fileprivate var name: String.Partial?
@@ -2984,8 +3056,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             fileprivate static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             fileprivate struct View: ~Copyable, ~Escapable {
@@ -3190,7 +3268,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -3204,8 +3282,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             public static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             public struct View: ~Copyable, ~Escapable {
@@ -3410,7 +3494,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           public struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             public typealias Partial = Self
 
             public var name: String.Partial?
@@ -3424,8 +3508,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             public static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             public struct View: ~Copyable, ~Escapable {
@@ -3632,7 +3722,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -3646,8 +3736,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -3857,7 +3953,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -3871,8 +3967,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -4082,7 +4184,7 @@ extension BaseTestSuite {
 
         extension Person: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var name: String.Partial?
@@ -4096,8 +4198,14 @@ extension BaseTestSuite {
               self.age = age
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {
@@ -4308,7 +4416,7 @@ extension BaseTestSuite {
 
         extension Feed: StreamParsingCore.StreamParseable {
           struct Partial: StreamParsingCore.StreamParseable,
-            StreamParsingCore.StreamParseableObject {
+            StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
             var items: [Item].Partial?
@@ -4322,8 +4430,14 @@ extension BaseTestSuite {
               self.index = index
             }
 
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
             static func streamInitialValue() -> Self {
-              Self()
+              Self._streamInitialValueTemplate
             }
 
             struct View: ~Copyable, ~Escapable {

@@ -546,6 +546,202 @@ struct BenchmarkTwitterUserMatched: Equatable {
   var followers_count: Int = 0
 }
 
+// Every key the corpus actually contains, at every depth (73% of statuses carry a populated
+// `retweeted_status`, one level deep — it never recurses further in this corpus; `place`,
+// `coordinates`, `geo`, and `contributors` are always JSON `null` here, so their Swift type is
+// arbitrary — `String?` — since no path ever materializes a value for them; `possibly_sensitive`
+// and `entities.media` are present on a minority of statuses and route through the same optional/
+// array machinery as everywhere else in the suite). `BenchmarkTwitterMatched` above reads 5 of a
+// tweet's 76 nested keys (~7%); this model is the fair comparator for the typed/raw ratio, since
+// everything else in the real-world suite mirrors close to its full payload shape.
+@StreamParseable
+struct BenchmarkTwitterFull: Equatable {
+  var statuses: [BenchmarkTweetFull] = []
+}
+
+@StreamParseable
+struct BenchmarkTweetFull: Equatable {
+  var metadata: BenchmarkTwitterMetadata = BenchmarkTwitterMetadata()
+  var created_at: String = ""
+  var id: Int = 0
+  var id_str: String = ""
+  var text: String = ""
+  var source: String = ""
+  var truncated: Bool = false
+  var in_reply_to_status_id: Int? = nil
+  var in_reply_to_status_id_str: String? = nil
+  var in_reply_to_user_id: Int? = nil
+  var in_reply_to_user_id_str: String? = nil
+  var in_reply_to_screen_name: String? = nil
+  var user: BenchmarkTwitterUserFull = BenchmarkTwitterUserFull()
+  var geo: String? = nil
+  var coordinates: String? = nil
+  var place: String? = nil
+  var contributors: String? = nil
+  var retweet_count: Int = 0
+  var favorite_count: Int = 0
+  var entities: BenchmarkTwitterEntities = BenchmarkTwitterEntities()
+  var favorited: Bool = false
+  var retweeted: Bool = false
+  var possibly_sensitive: Bool? = nil
+  var lang: String = ""
+  var retweeted_status: BenchmarkRetweetedStatusFull? = nil
+}
+
+// One level of `retweeted_status` nesting — the corpus never nests a second level, so this omits
+// the field itself rather than modeling unbounded recursion nothing in the data exercises.
+@StreamParseable
+struct BenchmarkRetweetedStatusFull: Equatable {
+  var metadata: BenchmarkTwitterMetadata = BenchmarkTwitterMetadata()
+  var created_at: String = ""
+  var id: Int = 0
+  var id_str: String = ""
+  var text: String = ""
+  var source: String = ""
+  var truncated: Bool = false
+  var in_reply_to_status_id: Int? = nil
+  var in_reply_to_status_id_str: String? = nil
+  var in_reply_to_user_id: Int? = nil
+  var in_reply_to_user_id_str: String? = nil
+  var in_reply_to_screen_name: String? = nil
+  var user: BenchmarkTwitterUserFull = BenchmarkTwitterUserFull()
+  var geo: String? = nil
+  var coordinates: String? = nil
+  var place: String? = nil
+  var contributors: String? = nil
+  var retweet_count: Int = 0
+  var favorite_count: Int = 0
+  var entities: BenchmarkTwitterEntities = BenchmarkTwitterEntities()
+  var favorited: Bool = false
+  var retweeted: Bool = false
+  var possibly_sensitive: Bool? = nil
+  var lang: String = ""
+}
+
+@StreamParseable
+struct BenchmarkTwitterMetadata: Equatable {
+  var result_type: String = ""
+  var iso_language_code: String = ""
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserFull: Equatable {
+  var id: Int = 0
+  var id_str: String = ""
+  var name: String = ""
+  var screen_name: String = ""
+  var location: String = ""
+  var description: String = ""
+  var url: String? = nil
+  var entities: BenchmarkTwitterUserEntities = BenchmarkTwitterUserEntities()
+  var protected: Bool = false
+  var followers_count: Int = 0
+  var friends_count: Int = 0
+  var listed_count: Int = 0
+  var created_at: String = ""
+  var favourites_count: Int = 0
+  var utc_offset: Int? = nil
+  var time_zone: String? = nil
+  var geo_enabled: Bool = false
+  var verified: Bool = false
+  var statuses_count: Int = 0
+  var lang: String = ""
+  var contributors_enabled: Bool = false
+  var is_translator: Bool = false
+  var is_translation_enabled: Bool = false
+  var profile_background_color: String = ""
+  var profile_background_image_url: String = ""
+  var profile_background_image_url_https: String = ""
+  var profile_background_tile: Bool = false
+  var profile_image_url: String = ""
+  var profile_image_url_https: String = ""
+  var profile_banner_url: String? = nil
+  var profile_link_color: String = ""
+  var profile_sidebar_border_color: String = ""
+  var profile_sidebar_fill_color: String = ""
+  var profile_text_color: String = ""
+  var profile_use_background_image: Bool = false
+  var default_profile: Bool = false
+  var default_profile_image: Bool = false
+  var following: Bool = false
+  var follow_request_sent: Bool = false
+  var notifications: Bool = false
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserEntities: Equatable {
+  var description: BenchmarkTwitterURLList = BenchmarkTwitterURLList()
+  var url: BenchmarkTwitterURLList? = nil
+}
+
+@StreamParseable
+struct BenchmarkTwitterURLList: Equatable {
+  var urls: [BenchmarkTwitterURLEntity] = []
+}
+
+@StreamParseable
+struct BenchmarkTwitterURLEntity: Equatable {
+  var url: String = ""
+  var expanded_url: String = ""
+  var display_url: String = ""
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkTwitterEntities: Equatable {
+  var hashtags: [BenchmarkTwitterHashtag] = []
+  var symbols: [BenchmarkTwitterHashtag] = []
+  var urls: [BenchmarkTwitterURLEntity] = []
+  var user_mentions: [BenchmarkTwitterUserMention] = []
+  var media: [BenchmarkTwitterMedia] = []
+}
+
+@StreamParseable
+struct BenchmarkTwitterHashtag: Equatable {
+  var text: String = ""
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserMention: Equatable {
+  var screen_name: String = ""
+  var name: String = ""
+  var id: Int = 0
+  var id_str: String = ""
+  var indices: [Int] = []
+}
+
+@StreamParseable
+struct BenchmarkTwitterMedia: Equatable {
+  var id: Int = 0
+  var id_str: String = ""
+  var indices: [Int] = []
+  var media_url: String = ""
+  var media_url_https: String = ""
+  var url: String = ""
+  var display_url: String = ""
+  var expanded_url: String = ""
+  var type: String = ""
+  var sizes: BenchmarkTwitterMediaSizes = BenchmarkTwitterMediaSizes()
+  var source_status_id: Int? = nil
+  var source_status_id_str: String? = nil
+}
+
+@StreamParseable
+struct BenchmarkTwitterMediaSizes: Equatable {
+  var thumb: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
+  var small: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
+  var medium: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
+  var large: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
+}
+
+@StreamParseable
+struct BenchmarkTwitterMediaSize: Equatable {
+  var w: Int = 0
+  var h: Int = 0
+  var resize: String = ""
+}
+
 // The same container spine as `BenchmarkTwitterMatched`, with every scalar key renamed so that no
 // scalar ever matches. Containers are still entered and elements still appended, so the difference
 // against the matched model is what materializing the values costs — `String` construction and

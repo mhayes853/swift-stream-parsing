@@ -289,6 +289,11 @@ private func addRealWorldBaselineConvenienceRows() {
     includeByteByByte: true
   )
   addRealWorldConvenienceRows(
+    "Twitter full",
+    payload: Payloads.twitter,
+    as: BenchmarkTwitterFull.Partial.self
+  )
+  addRealWorldConvenienceRows(
     "Canada",
     payload: Payloads.canada,
     as: BenchmarkCanada.Partial.self
