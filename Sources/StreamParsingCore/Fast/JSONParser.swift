@@ -121,6 +121,36 @@ public struct JSONParser: ~Copyable {
     self.windowScratch?.deallocate()
   }
 
+  /// Rewinds the parser to its freshly initialized state while keeping its allocations.
+  ///
+  /// The buffer and, if one was ever allocated, the window scratch survive: they are the whole
+  /// cost of constructing a parser, and a caller feeding many small documents through one
+  /// parser is exactly the caller for whom that cost dominates. Legal in any state, including
+  /// after a thrown parse — recovering from a malformed document and moving to the next one is
+  /// the expected use.
+  public mutating func reset() {
+    self.state = .value
+    self.containers = 0
+    self.depth = 0
+    self.bufferCount = 0
+    self.unicodeValue = 0
+    self.unicodeRemaining = 0
+    self.highSurrogate = 0
+    self.isKeyToken = false
+    self.keyContainsNonASCII = false
+    self.stringBeginPending = false
+    self.literalKind = 0
+    self.literalIndex = 0
+    self.skipEndDepth = 0
+    self.pendingUTF8Count = 0
+    self.consumedByteCount = 0
+    // Adaptive window telemetry restarts too: it describes the previous document's shape, and
+    // the next document may not share it.
+    self.windowDensity = .max
+    self.windowsSinceProbe = 0
+    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
+  }
+
   public var byteOffset: Int { self.consumedByteCount }
 
   // MARK: Entry points

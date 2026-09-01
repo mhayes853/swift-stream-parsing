@@ -113,6 +113,72 @@ struct `PartialsStream Tests` {
   }
 
   @Test
+  func `Finish Value Resetting Reuses The Stream Across Documents`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<StreamArray<Int>>(), from: .json())
+    for byte in "[[1],[2,3]]".utf8 {
+      try stream.next(byte)
+    }
+    let first = try stream.finishValue(resettingTo: StreamArray<StreamArray<Int>>())
+    expectNoDifference(first, [[1], [2, 3]])
+
+    // The reused stream starts clean: no leftover containers, buffer bytes, or failure state.
+    expectNoDifference(stream.current, [])
+    for byte in "[[7,8,9]]".utf8 {
+      try stream.next(byte)
+    }
+    let second = try stream.finishValue(resettingTo: StreamArray<StreamArray<Int>>())
+    expectNoDifference(second, [[7, 8, 9]])
+  }
+
+  @Test
+  func `Reset Recovers A Stream Whose Parser Threw`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+    #expect(throws: JSONParsingError.self) {
+      try stream.next(UInt8(ascii: "@"))
+    }
+    #expect(throws: StreamParsingError.parserThrows) {
+      try stream.next(UInt8(ascii: "1"))
+    }
+
+    stream.reset(to: StreamArray<Int>())
+    for byte in "[4,5]".utf8 {
+      try stream.next(byte)
+    }
+    expectNoDifference(try stream.finish(), [4, 5])
+  }
+
+  @Test
+  func `Reset Discards A Document Mid Parse`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+    // Stop inside an open number token so the parser holds buffered bytes, an open container,
+    // and the sink an open element.
+    for byte in "[1,2,34".utf8 {
+      try stream.next(byte)
+    }
+    expectNoDifference(stream.current, [1, 2])
+
+    stream.reset(to: StreamArray<Int>())
+    for byte in "[6]".utf8 {
+      try stream.next(byte)
+    }
+    expectNoDifference(try stream.finish(), [6])
+  }
+
+  @Test
+  func `Reset Recovers After Finish`() throws {
+    var stream = PartialsStream(initialValue: 0, from: .json())
+    try stream.next(UInt8(ascii: "1"))
+    _ = try stream.finish()
+    #expect(throws: StreamParsingError.parserFinished) {
+      try stream.next(UInt8(ascii: "2"))
+    }
+
+    stream.reset(to: 0)
+    try stream.next(UInt8(ascii: "9"))
+    expectNoDifference(try stream.finish(), 9)
+  }
+
+  @Test
   func `Finish Value Throws After Parser Throws`() throws {
     var stream = PartialsStream(initialValue: 0, from: .json())
     #expect(throws: JSONParsingError.self) {

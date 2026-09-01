@@ -256,6 +256,28 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.frames.deallocate()
   }
 
+  /// Rewinds the sink to its freshly initialized state while keeping the frame allocation.
+  ///
+  /// The root pointer and schema stay: a reused sink writes the next document into the same
+  /// slot the stream re-initializes. Legal in any state, including mid-document and after a
+  /// recorded failure.
+  public mutating func reset() {
+    self.streamFailure = nil
+    self.started = false
+    self.activeRouteBits = 0
+    self.pendingDictionaryStorage = nil
+    // Frames are trivially destroyable, so this is bookkeeping rather than work — kept in the
+    // same shape as `deinit` so a frame that ever grows a non-trivial field is still correct.
+    self.frames.deinitialize(count: self.frameCount)
+    self.frameCount = 0
+    self.droppedFrameCount = 0
+    self.scalarTarget = nil
+    self.homogeneousStringStorage = nil
+    self.inlineStringStorage = nil
+    self.inlineStringCapacity = 0
+    self.stringResultRaw = 0
+  }
+
   // MARK: Frame stack
 
   @usableFromInline

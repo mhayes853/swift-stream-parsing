@@ -6613,3 +6613,21 @@ Where the remaining typed overhead sits, in profile order: memmove (the two inhe
 per-element moves and string bytes), the key-match scan, the user-side destroy of the returned
 tree, malloc in array growth, and the per-element `appendElement` closure-context pair in
 `valueTarget` — the next stage if the Qwen gap is chased further.
+
+## Stream reuse — `reset(to:)` and `finishValue(resettingTo:)`
+
+`JSONParser.reset()` and `PartialSink.reset()` rewind state and keep every allocation (the
+4 KB buffer, the window scratch, the frame stack); `PartialsStream.reset(to:)` re-arms a
+stream in any state — including after a thrown parse, which is the case it exists for: a
+model that emitted malformed JSON is recovered from by resetting and parsing the next call.
+`finishValue(resettingTo:)` is the loop form: hand the finished value out (moved, not
+copied) and leave the stream armed.
+
+**What it is not: a throughput lever.** The hypothesis was that per-parse setup dominated the
+small-payload rows; the paired benchmark rows (`… - bulk discarding, reused stream`, Qwen
+only) falsified it: search 3208 → 3166 ns p0, structured and edit flat, and the per-parse
+malloc counts are identical between fresh and reused — the search row's 7 mallocs are the
+parsed data's array tails, not lifecycle. The previous stage's changes had already removed
+the lifecycle cost this was aimed at; what remains on a 600-byte tool call is per-token sink
+work. The canonical from-scratch rows stay the library's headline numbers; the reused rows
+exist to keep this measurable, not to replace them.

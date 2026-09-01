@@ -205,4 +205,52 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     self.storage.initialize(to: Value.streamInitialValue())
     return value
   }
+
+  /// Completes parsing, returns the final value, and re-arms the stream for the next document.
+  ///
+  /// This is the amortizing form of ``finishValue()``: instead of consuming the stream, it
+  /// keeps every allocation a stream carries — the parser's buffer, the sink's frame storage,
+  /// the value's own slot — and rewinds their state, so a loop parsing many documents of one
+  /// schema pays the setup cost once. The value is still moved out, not copied.
+  ///
+  /// A fresh stream per document remains the baseline the library is measured by; this exists
+  /// for the caller whose documents are small enough that per-parse setup dominates — a stream
+  /// of tool calls, most commonly.
+  ///
+  /// - Parameter initialValue: The value state the next document starts parsing from.
+  /// - Returns: The final parsed value of the document just completed.
+  @inlinable
+  public mutating func finishValue(
+    resettingTo initialValue: Value = Value.streamInitialValue()
+  ) throws -> Value {
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
+    let value = self.storage.move()
+    self.storage.initialize(to: initialValue)
+    self.parser.reset()
+    self.sink.reset()
+    return value
+  }
+
+  /// Discards whatever state the stream holds and re-arms it for a new document.
+  ///
+  /// Legal in any state — mid-document, after ``finish()``, and after the parser has thrown,
+  /// which is the case this exists for: a producer that emitted a malformed document is
+  /// recovered from by resetting and parsing the next one, keeping every allocation.
+  ///
+  /// - Parameter initialValue: The value state the next document starts parsing from.
+  @inlinable
+  public mutating func reset(to initialValue: Value = Value.streamInitialValue()) {
+    self.storage.pointee = initialValue
+    self.parser.reset()
+    self.sink.reset()
+    self.hasFinished = false
+    self.hasParserThrown = false
+  }
 }

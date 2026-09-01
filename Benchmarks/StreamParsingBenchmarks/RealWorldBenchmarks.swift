@@ -41,11 +41,33 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
-  includeByteByByte: Bool = false
+  includeByteByByte: Bool = false,
+  includeReusedStream: Bool = false
 ) {
   Benchmark("Real \(name) - bulk discarding", configuration: payloadConfiguration) { benchmark in
     measurePayloadThroughput(benchmark, payload: payload) {
       blackHole(expectParses { try streamBulkDiscarding(payload, as: Value.self) })
+    }
+  }
+
+  // The amortized variant: one stream, re-armed by `finishValue(resettingTo:)` between
+  // documents. Deliberately NOT a row the library's headline numbers come from — the canonical
+  // rows measure from-scratch parsing, allocations included. This one exists for the payloads
+  // small enough that per-parse setup dominates (tool calls), where the agent-loop caller
+  // reuses one stream against one schema.
+  if includeReusedStream {
+    Benchmark(
+      "Real \(name) - bulk discarding, reused stream", configuration: payloadConfiguration
+    ) { benchmark in
+      var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(
+          expectParses {
+            try stream.next(payload)
+            return try stream.finishValue(resettingTo: Value.streamInitialValue())
+          }
+        )
+      }
     }
   }
 
@@ -306,19 +328,22 @@ private func addRealWorldBaselineConvenienceRows() {
     "Qwen 3 search tool call",
     payload: Payloads.qwen3SearchToolCall,
     as: BenchmarkQwen3ToolCall.Partial.self,
-    includeByteByByte: true
+    includeByteByByte: true,
+    includeReusedStream: true
   )
   addRealWorldConvenienceRows(
     "Qwen 3 workspace edit tool call",
     payload: Payloads.qwen3WorkspaceEditToolCall,
     as: BenchmarkQwen3ToolCall.Partial.self,
-    includeByteByByte: true
+    includeByteByByte: true,
+    includeReusedStream: true
   )
   addRealWorldConvenienceRows(
     "Qwen 3 structured response",
     payload: Payloads.qwen3StructuredResponse,
     as: BenchmarkQwen3StructuredResponse.Partial.self,
-    includeByteByByte: true
+    includeByteByByte: true,
+    includeReusedStream: true
   )
   addRealWorldConvenienceRows(
     "Mesh",
