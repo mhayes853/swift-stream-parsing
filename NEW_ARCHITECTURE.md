@@ -6662,3 +6662,285 @@ rejected NEON block match, from the other direction: do not put anything in fron
 | Twitter / LLM / GSoC / Canada / Mesh discarding | ±0.3% | | |
 | raw rows | flat | | Qwen search raw p0/p50 flipped −9.9/+8.9 — the documented bimodal row |
 | Fast * byte-fed (raw) | ±2% mixed | | no uniform pattern |
+
+## Performance ceiling analysis: current M1 Pro
+
+The measurements and architectural conclusions below are a planning model, not a promise that a particular input will reach the number. They separate the raw event boundary from the typed materialization boundary, because those boundaries do different work and have different irreducible costs.
+
+### Scope and host normalization
+
+The local machine is an Apple M1 Pro MacBookPro18,3: six performance cores, two efficiency cores, 32 GiB of RAM, 128 KiB L1D per performance core, and a 12 MiB L2 shared by each three-core performance cluster. The machine reports no stable `hw.cpufrequency`; public M1 Pro measurements put peak performance-core frequency around 3.2–3.23 GHz, with lower clocks possible when several performance cores are active. The cycle conversions in this section use 3.2 GHz as a nominal single-core reference. They should be read as approximate until a fixed-clock, single-core measurement is available.
+
+Apple's published M1 Pro specification gives the same 8-core CPU split and up to 200 GB/s of memory bandwidth. The parser's current bulk rates are at most a few GB/s, so DRAM capacity and nominal bandwidth are not the primary ceiling here. RAM matters for concurrency, retained snapshots, and allocation pressure; it does not explain the current single-stream gap. The working sets in these benchmarks are small enough that L1/L2 residency, branch behavior, indirect calls, and write traffic are more relevant than raw DRAM bandwidth.
+
+### What the two boundaries include
+
+The raw benchmark is the current parser plus its event-producing sink: bytes are scanned and recognized, then represented as `StreamEventRecord`s in `StreamEventBatch` before the sink consumes them. It is therefore a useful end-to-end raw streaming boundary, not a pure structural scanner.
+
+The typed benchmark is `streamBulkDiscarding`: it parses the payload through `PartialSink`, materializes the typed value, and black-holes the result without taking a snapshot for every chunk. That excludes snapshot/async-sequence overhead but includes schema routing, frame management, numeric conversion, string assembly, and typed storage writes.
+
+The current bulk flow is consequently:
+
+```text
+bytes → JSONParser → event scratch/batch → raw sink
+bytes → JSONParser → event scratch/batch → PartialSink.events
+                                      → schema/frame routing → typed storage
+```
+
+The first line is the raw boundary. The second line is the typed boundary, and the event batch is mandatory on both paths today.
+
+### Current representative throughput
+
+The following are approximate p50 bulk results from the release benchmark executable on this M1 Pro, measured on 2026-08-29. MB/s is decimal. The corresponding cycle estimates use 3.2 GHz: `cycles/byte = 3200 / MB/s`.
+
+| Boundary and shape | Throughput | Approx. cycles/byte |
+| --- | ---: | ---: |
+| Raw, Twitter, 631 KiB | 1,515 MB/s | 2.11 |
+| Typed, Twitter, 631 KiB | 847 MB/s | 3.78 |
+| Raw, Twitter escaped, 562 KiB | 1,050 MB/s | 3.05 |
+| Typed, Twitter escaped, 562 KiB | 515 MB/s | 6.21 |
+| Raw, Canada, 2.25 MiB | 866 MB/s | 3.70 |
+| Typed, Canada, 2.25 MiB | 351 MB/s | 9.12 |
+| Raw, byte-by-byte Twitter | 111 MB/s | 28.8 |
+| Typed, byte-by-byte Twitter | 89 MB/s | 36.0 |
+
+Chunking is already close to flat for these bulk rows; changing to 16 KiB or windowed chunks does not remove the main cost. The byte-by-byte rows are a latency/adversarial mode and should not be used as the bulk throughput target.
+
+The long-ASCII-string scanner benchmark reaches roughly 13,000 MB/s, or 0.25 cycles/byte at the nominal clock. This is useful evidence that the SIMD scan itself is not the dominant cost for ordinary JSON: once token recognition, state transitions, numbers, escapes, and sink work are added, mixed documents fall much lower.
+
+### SIMD bandwidth and parser state
+
+The ARM implementation's useful scan width is SIMD16. On this NEON machine, SIMD32 means two 128-bit operations plus a recombine/extraction step; the extra work and register pressure make it slower than SIMD16 on the measured corpus. The existing run benchmark illustrates the shape of the result: SIMD16 reaches about 2.5 GB/s on short runs and 21.4 GB/s on long runs, while SWAR only wins over scalar for sufficiently long runs and SIMD32 does not beat SIMD16.
+
+An idealized one-vector-per-cycle SIMD16 scan would inspect 16 bytes per cycle, or 51.2 GB/s at 3.2 GHz. Two independent 16-byte loads could raise a load-only bandwidth bound to 102.4 GB/s if the rest of the machine and the loop permitted it. Neither number is a parser ceiling. The parser must preserve state across vectors and boundaries:
+
+- quote, backslash, control-byte, and non-ASCII state for strings;
+- UTF-8 continuation/overlap state when validation is required;
+- escape and `\\uXXXX` state, including decoded-byte emission;
+- structural depth and the object/array container bitset;
+- number state and conversion, especially decimal/floating-point conversion;
+- event-record formation, scratch capacity, and sink-visible ordering.
+
+The structural-bitmap experiment confirms that more SIMD work is not automatically better. For token-dense JSON, producing a bitmap and then iterating set bits adds enough bookkeeping that the measured bitmap path lost to the current direct structural-run path. SIMD should remain focused on finding useful runs and validating/decoding spans; it should not force a second representation unless the downstream consumer can exploit that representation.
+
+### Comparator context
+
+Published third-party results provide an order-of-magnitude check, but they are not apples-to-apples with this incremental event architecture. The yyjson benchmark table is a DOM benchmark and reports, on an iPhone 12 Pro/A14 Twitter payload, approximately 3.51 GB/s for yyjson in-situ, 2.39 GB/s for yyjson, 2.19 GB/s for simdjson, and 1.74 GB/s for sajson. Those figures include different ownership, allocation, and API contracts; yyjson in-situ also mutates/borrows the input. At an assumed 3.0–3.1 GHz A14 clock, the corresponding rough costs are about 0.85–0.88, 1.26–1.30, 1.37–1.42, and 1.72–1.78 cycles/byte respectively.
+
+The simdjson paper reports Stage 1 structural scanning around 0.5–1 cycles/byte on many documents, with total parsing varying materially by shape; its 3.4 GHz Skylake examples include roughly 2.2 GB/s on Twitter-like data and up to about 3 GB/s on GSoC, or approximately 1.55 and 1.13 cycles/byte by direct conversion. It also calls out floating-point parsing as a significant fraction of cost on float-heavy inputs. sajson's contiguous AST and one-word-per-input-byte design likewise make its memory/ownership contract different from an incremental observable parser.
+
+Sources: [yyjson performance table](https://github.com/ibireme/yyjson#performance), [yyjson benchmark corpus and methodology](https://github.com/ibireme/yyjson_benchmark), [simdjson paper](https://arxiv.org/abs/1902.08318), [simdjson performance notes](https://github.com/simdjson/simdjson/blob/master/doc/performance.md), [sajson design notes](https://github.com/chadaustin/sajson), and [Apple's M1 Pro specification](https://support.apple.com/en-us/111902).
+
+### Theoretical planning ceilings
+
+For this library, the useful ceiling is not the 50–100 GB/s load-only SIMD number and not an in-situ DOM parser's number. It is the best plausible sustained rate while preserving incremental boundaries, event ordering, validation semantics, and the library's zero-copy/raw and typed APIs.
+
+| Boundary | Current representative range | Plausible planning ceiling | Ceiling at 3.2 GHz |
+| --- | ---: | ---: | ---: |
+| Raw parser → `StreamParseSink` | 866–1,515 MB/s, 2.11–3.70 c/B | 3,000–4,000 MB/s | 1.07–0.80 c/B |
+| Typed parser → `PartialSink` materialization | 351–847 MB/s, 3.78–9.12 c/B | 1,500–2,000 MB/s | 2.13–1.60 c/B |
+
+A practical single-number target for planning is therefore about 3,500 MB/s (0.91 c/B) at the raw boundary and about 1,800 MB/s (1.78 c/B) at the typed boundary on this host. These are theoretical maximums for the current API family, not guarantees for every payload. A long ASCII string can exceed them because it is effectively a scanner benchmark; a float-heavy or escape-heavy document can remain well below them because its semantic work is larger.
+
+The raw ceiling assumes that structural scanning, token decoding, and event production can be made close to one pass over the input, with low-overhead record writes and little sink dispatch. The typed ceiling assumes a schema-specialized route can perform key selection, scalar conversion, and storage writes with mostly direct calls and no general-purpose frame/schema lookup on every token. It still leaves room for required numeric conversion, string copying into typed storage, and validation.
+
+### Data shape is a first-order term
+
+The corpus makes the limits visible:
+
+| Shape | Effect on the ceiling |
+| --- | --- |
+| Long ASCII strings | SIMD scanning dominates; the current scanner reaches about 13 GB/s, so this shape is not representative of mixed-parser throughput. |
+| Token-dense objects/arrays and small integers | Structural dispatch, event records, key routing, and branch density dominate. A structural bitmap is not automatically beneficial. |
+| Canada's float-heavy geometry | Number conversion and typed writes expose the semantic floor: roughly 866 MB/s raw and 351 MB/s typed today. |
+| Escaped Twitter and long escaped text | Escape decoding, Unicode validation, and emitted-byte handling lower both boundaries; typed storage adds another copy/assembly cost. |
+| CITM's high whitespace fraction and deep/repeated keys | Whitespace scanning is cheap when the fast path applies, but depth, key matching, and repeated routing still exercise the control plane. |
+| Small chunks or one-byte feeds | Per-call state preservation and sink checks dominate. This is a latency contract, not a realistic bulk ceiling. |
+
+RAM and cache behavior also interact with shape. A parser that retains only borrowed spans can keep input traffic low, while typed materialization necessarily writes result storage and may allocate for dynamic collections/strings. That is why the typed result cannot be inferred from raw MB/s by applying a fixed multiplier.
+
+### Biggest architectural limiter
+
+The largest remaining gap is the mandatory double interpretation of every token:
+
+```text
+JSON bytes
+  → parser recognizes token
+  → parser writes a general StreamEventRecord
+  → PartialSink.events decodes the record
+  → schema/frame machinery resolves the destination
+  → typed storage is updated
+```
+
+For the raw boundary, the event batch is still useful as the generic observable interface, but it means the parser does work to encode a record and the sink does work to decode it again. For the typed boundary, the cost is larger: an event-kind jump, frame resolution, schema loads, indirect closure calls, possible `ScalarTarget` lifetime traffic, and storage writes all sit after the parser has already classified the token. The current fused object-key/scalar path and consecutive numeric-array path prove the direction: when routing and applying are combined, the intermediate work drops. They are optimized islands inside a general event interpreter rather than the default architecture.
+
+The next architectural step should be an optional schema-specialized/fused typed path:
+
+```text
+JSON bytes → schema plan → direct field writer / direct array appender
+```
+
+That path should keep the generic event stream for raw users and dynamic/untyped sinks, while allowing known typed schemas to bypass `StreamEventBatch` for ordinary keys, scalars, strings, and numeric runs. The plan should use compact direct routes for hot fields, direct numeric appenders, and a cheap ignore-subtree state. It should avoid generating one enormous parser per model, because instruction-cache pressure and compile size can erase the gain.
+
+This is a larger lever than another isolated SIMD tweak. The current windowed results are already flat or slightly worse on escape-heavy and float-heavy rows, which indicates that feeding the same event architecture in smaller windows does not address the dominant cost. The highest-value experiment is to measure a fused typed path against the same raw parser and the same real-world payloads, then inspect both its optimized ARM64 assembly and its instruction-cache behavior.
+
+### Interpretation and measurement caveats
+
+The cycle figures are normalized estimates, not hardware-counter measurements. Actual cycles vary with thermal state, active core, clock residency, compiler version, and whether the input/result remains in cache. The comparator figures are from other CPUs and APIs, and most are DOM-oriented rather than incremental. Finally, the typed rows intentionally omit per-chunk snapshots; adding snapshots or asynchronous delivery changes the boundary and should be reported separately rather than folded into the parser's materialization ceiling.
+
+## The fused slice, retired — and where the object-heavy gap actually is
+
+2026-09-01. `FusedParseExperiment.swift`, `FusedParseTests.swift` and the fused benchmark rows are
+deleted. The slice had done its job: every finding it was built to license shipped in the fusion
+series (Stage 0's non-generic sink, the per-token protocol, the forced-inline commit, the
+key+scalar pairing, the whole-string form), and what it still cost was 615 lines of
+`@_spi(Benchmarks)` code inside the shipping module — compiled on every platform including
+Embedded/wasm, and holding hand-maintained clones of `emitNumber` and `StreamArray.commit` under a
+"kept in lockstep" comment. Its control halves survive as `TypedShapeBenchmarks.swift`: the four
+synthetic shapes (homogeneous double run, matched member, missed member, skipped subtree) paired
+raw against typed, which is the decomposition no real-world row provides.
+
+The final reading, taken before deleting it (release, p0 wall clock, single run):
+
+| payload | raw counting | typed (production) | slice | slice lead |
+|---|---:|---:|---:|---:|
+| double array, 40 K | 514 us | 924 us | 761 us | +21.4% |
+| int fields, 64 K members | 1166 us | 1849 us | 1471 us | +25.7% |
+| int fields, no key matches | 1166 us | 2013 us | 1352 us | +48.9% |
+| nested miss subtrees | 858 us | **991 us** | 1237 us | −19.9% |
+
+So the slice was still ahead on the three routing shapes and behind on the fourth, because it
+discards dispositions and stage 5 does not. Those leads are the standing headroom on the typed
+routes; they are not a corpus claim, since no real payload is 40 K homogeneous doubles.
+
+### The key match is not the object-heavy bottleneck
+
+The obvious reading of those leads is that key routing is where the typed path loses, and the
+next lever is a better matcher — a perfect hash, or a lookup table the macro precomputes. Three
+independent measurements say no.
+
+1. **Position and misses are already free on a wide table.** `Schema 48 members` — 48 fields, so
+   above `indexThreshold` and on the `fmix64` open-addressed index — measures 27 us for the first
+   member, 27 us for the last, and 26 us for an undeclared key. The index has already flattened
+   exactly the axis a better matcher would flatten.
+2. **Isolated dictionary lookups are flat and small.** `Keys diverse span` runs about 21 ns per
+   lookup at 8 keys and about 23 ns at 512 — flat in key count, as the flat `Int32` table was
+   built to be. Scaled onto `gsoc-2018.json`'s 1,264 top-level dictionary keys that is roughly
+   26 us against a 3.72 ms typed parse: **0.7%**.
+3. **Two prior experiments already bracket the small case.** The NEON block match and the
+   one-entry predictor both lost, from opposite directions, on tables of eight or fewer.
+
+A macro-emitted LUT would not reach the hot path in any case. `streamFields` and `streamSchema`
+are `static let`s, so a table — index included — is built once per process; and `_streamFields`
+reads its offsets from a live prototype, so the field array is inherently runtime-built. Moving
+the hashing to expansion time removes one-time setup, not per-key cost. If the matcher is ever
+worth changing it is the *algorithm* that has to change, and the one design point neither
+rejection covers is a SwissTable-style byte-tag vector (sixteen one-byte tags, one `cmeq.16b` and
+a `shrn`, a much shorter dependent chain than the rejected 64-bit block) — which would have to
+*replace* the scan, never precede it. That is the standing rule both rejections produced.
+
+### Where it is instead: what happens after the key resolves
+
+Corpus raw (`- bulk`) against typed (`- bulk discarding`), p0 MB/s, same run:
+
+| payload | raw | typed | typed/raw | typed mallocs |
+|---|---:|---:|---:|---:|
+| Qwen 3 search tool call | 1355 | 225 | 0.17 | 7 |
+| GSoC 2018 (`StreamDictionary`) | 4184 | 895 | 0.21 | 11 K |
+| LLM message | 3860 | 1152 | 0.30 | 2,913 |
+| Twitter full (26-field model) | 1841 | 576 | 0.31 | 1,078 |
+| CITM catalog | 2176 | 944 | 0.43 | 2,280 |
+| Canada | 1050 | 543 | 0.52 | 2,658 |
+| Mesh | 820 | 478 | 0.58 | 2,230 |
+| Twitter escaped | 1324 | 918 | 0.69 | 109 |
+| **Twitter (3-field model)** | 1841 | **1566** | **0.85** | 114 |
+
+The two Twitter rows are the same payload through the same parser and the same matcher. The model
+that declares three fields runs at 0.85 of raw with 114 mallocs; the model that declares all
+twenty-six runs at 0.31 with 1,078 mallocs and 4,493 retains. The variable is what gets stored,
+not what gets matched. The capacity-hint rows price the allocation half directly: LLM message
+2,913 → 1,415 mallocs is 1152 → 1458 MB/s (**+27%**), GSoC 11 K → 7.5 K is 895 → 1036 MB/s
+(**+16%**) — and both need a hint the caller has to supply today. Making the unhinted path
+allocate like the hinted one is a larger, more general lever than any matcher change.
+
+The Qwen rows are a different story again and should not be read with these: at 7 mallocs on a
+600-byte payload, their MB/s is fixed cost divided by a small numerator, which is the residual the
+Qwen fixed-cost stage was about.
+
+## The allocation the census found: `StreamString`'s bookkeeping, not its blocks
+
+The corpus table above says the object-heavy typed rows allocate, and that the capacity-hint
+variants of the same models buy +16% (GSoC) and +27% (LLM message) by halving the malloc count.
+The obvious hypothesis was the block schedule: an unhinted fragment-fed value starts at 512 bytes
+and walks the doubling ramp, where a hint starts it at the right size. A census settled it, and
+the hypothesis was wrong.
+
+### The census
+
+`StringSizeCensus.swift` (`STREAM_PARSING_STRING_CENSUS=1`, alongside the collision report)
+replays the block schedule over the string lengths a real parse produced, so nothing is counted
+inside `StreamString` and nothing perturbs what it measures.
+
+| payload | values | inline | promoted | block buffers, fragment-fed → hinted | blocks-array allocs, today → reserved |
+|---|---:|---:|---:|---|---|
+| GSoC 2018 | 10,112 | 5,605 | 4,507 | 6,779 → 6,197 | 2,272 → 1,690 |
+| LLM message | 1,276 | 730 | 546 | 1,494 → 1,092 | 948 → 546 |
+| Twitter full | 811 | 540 | 271 | 271 → 271 | 0 → 0 |
+
+Modelled `StreamString` totals of 9,051 (GSoC) and 2,442 (LLM) against measured whole-parse counts
+of 11,000 and 2,913: **`StreamString` is 82–84% of the typed layer's allocations on these rows**,
+and everything else — `StreamArray`, `StreamDictionary`, the dictionary's `String` keys — is the
+remainder. Twitter is the control: every promoted value lands in 65…512 bytes, one buffer each,
+nothing to save. It is also why the 512-byte start is right and raising it would be a regression.
+
+But the ramp is the smaller half. Perfect size knowledge saves only 582 block buffers on GSoC and
+402 on LLM. What the census exposed instead were two pieces of bookkeeping:
+
+1. **`blocks` is an array, and it doubles.** A three-block value paid two array reallocations on
+   top of its three buffers — 25% of GSoC's `StreamString` mallocs and 39% of LLM's.
+2. **A sealed block empties the tail, and an empty tail reserves only the fragment in hand.**
+   `tail.isEmpty ? take : blockCapacity` is right for the first block — a value that promotes and
+   stops at eighty bytes should not take 512 — and wrong for every block after it. A fragment-fed
+   value re-entered that arm at every block and grew into it in steps, paying a reallocation per
+   block. Escape-split values are exactly the fragment-fed ones, which is why the string-heavy
+   corpora paid it and the one-span rows did not.
+
+### The change
+
+Both fixes are local to `appendBlocked`, need no size prediction, and change no layout or
+boundary invariant:
+
+- Reserve the whole block once a block has already sealed. "Has one sealed" is `blockCapacity !=
+  startBlockCapacity` (or the schedule is capped) — both shifts are already in `storageBits`, so
+  it asks nothing of `blocks` and adds no dependent load, which is the trap the tail-shift cache
+  was introduced to avoid.
+- Reserve `blocks` to four at the first seal, keyed on `capacity == 0` rather than `isEmpty`:
+  `streamReserve` already sizes that array exactly, and reserving 4 over a hint that asked for 2
+  reallocates it — measured as +163 mallocs on hinted GSoC and +91 on hinted LLM before the read
+  was narrowed.
+
+### Measured (3 clean interleaved rounds, best-of-3 p0 / median p50)
+
+| row | Δp0 | Δp50 | mallocs |
+|---|---:|---:|---|
+| Real LLM message - bulk discarding | **+11.2%** | +11.4% | 2,913 → 2,069 (−29%) |
+| Real GSoC 2018 - bulk discarding | **+5.5%** | +5.6% | 11,000 → 9,518 (−13%) |
+| Real LLM message string capacity hint | +1.2% | +2.7% | 1,415 → 1,313 (−7%) |
+| CITM / Mesh / Canada / Twitter / GitHub / Twitter full | −0.4..+0.9% | | unchanged |
+| Real GSoC string capacity hint | −0.1% | +0.7% | 7,511 → 7,387 (−2%) |
+| Real Qwen 3 search - bulk discarding | −1.7% | −1.6% | 7 → 7 — the documented bimodal row |
+
+The byte-fed and streaming set is flat: `Real .* - byte by byte discarding` within ±1% (LLM
+byte-fed mallocs −31%), every `Stream Array of structs` row unchanged, `Stream Long string -
+discarding` 74 → 73 us with mallocs 14 → 9. No cliff, which the assembly explains:
+`PartialSink.stringChunk` is **340 bytes in both builds**, byte-identical, and the whole change
+landed in the out-of-line `appendBlocked` (432 → 512 bytes), which runs once per sealed block
+rather than once per chunk.
+
+### What this leaves
+
+The hinted rows still lead the unhinted ones — GSoC 1,045 against 946, LLM 1,489 against 1,290 —
+so size knowledge is still worth something, but it is now worth roughly half what it was, and the
+remaining gap is block buffers the census says a perfect hint would only cut by 582 and 402. The
+larger remaining term on these rows is not allocation at all: it is the per-fragment append
+itself, which is where the earlier `StreamString` census left it.

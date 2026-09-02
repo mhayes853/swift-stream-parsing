@@ -6,7 +6,7 @@ import StreamParsing
 // The synthetic payloads and models the sink-route benchmarks share. The replay rows that used
 // to live here are gone with the record/replay seam itself: the parser emits per token, there is
 // no recording to replay, and the routes these payloads exercise are measured end to end by the
-// rows in FusedParseBenchmarks.
+// rows in TypedShapeBenchmarks.
 
 // MARK: - Synthetic shapes, one route each
 

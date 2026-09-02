@@ -223,11 +223,37 @@ public struct StreamString {
       let take = min(blockCapacity &- self.tail.count, buffer.count &- offset)
       let needed = self.tail.count &+ take
       if self.tail.capacity < needed {
-        self.tail.reserveCapacity(self.tail.isEmpty ? take : blockCapacity)
+        // An empty tail reserves only what the fragment in hand needs, so a value that promotes
+        // and then stops short does not take a whole block for eighty bytes. That is right for
+        // the *first* block and wrong for every one after it: a seal empties the tail, so a
+        // fragment-fed value was re-entering this arm at every block and growing 512 bytes in
+        // steps, paying a reallocation per block. Escape-split values are exactly the ones that
+        // arrive in fragments, which is why the string-heavy corpora pay it and the one-span
+        // rows do not.
+        //
+        // "Has a block already sealed" is answered from `storageBits` alone — the tail's shift
+        // has moved past the start's — so this asks nothing of `blocks` and adds no dependent
+        // load to the append path. Once the schedule is capped the two shifts stop diverging, and
+        // a value that reached the cap is long by construction.
+        let provenLong =
+          blockCapacity != self.startBlockCapacity
+          || blockCapacity == 1 &<< Self.maximumBlockShift
+        self.tail.reserveCapacity(self.tail.isEmpty && !provenLong ? take : blockCapacity)
       }
       self.tail.append(contentsOf: UnsafeBufferPointer(start: base + offset, count: take))
       offset &+= take
       guard self.tail.count == blockCapacity else { continue }
+      // `blocks` grows by doubling from its first append, so a three-block value paid two array
+      // reallocations on top of its three buffers — a quarter to a third of the census's
+      // `StreamString` mallocs. Reserving at the first seal makes that one allocation for
+      // anything up to four blocks (7,680 bytes on the unhinted schedule), and the load is free
+      // here because the append below touches the same array.
+      //
+      // Keyed on `capacity`, not `isEmpty`: `streamReserve` already sizes this array to the exact
+      // block count the hint implies, and reserving 4 over a hint that asked for 2 reallocates it
+      // — measured as +163 mallocs on hinted GSoC and +91 on hinted LLM message before this read
+      // was narrowed to "nobody has reserved anything yet".
+      if self.blocks.capacity == 0 { self.blocks.reserveCapacity(4) }
       self.blocks.append(self.tail)
       self.tail = ContiguousArray<UInt8>()
       // A seal moves the schedule to the next block, doubling until the cap; the cached shift
