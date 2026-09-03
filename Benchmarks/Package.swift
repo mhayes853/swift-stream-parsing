@@ -16,18 +16,9 @@ let package = Package(
     .package(url: "https://github.com/mattt/swift-yyjson.git", from: "0.6.0")
   ],
   targets: [
-    // Prototype C kernels for the stage-1 extraction experiments. Lives here rather than in
-    // StreamParsingShims because nothing in it ships; -O2 is forced so the kernels are
-    // optimized even if the plugin ever builds debug.
-    .target(
-      name: "StageOneLab",
-      path: "StageOneLab",
-      cSettings: [.unsafeFlags(["-O2"])]
-    ),
     .executableTarget(
       name: "StreamParsingBenchmarks",
       dependencies: [
-        "StageOneLab",
         .product(name: "StreamParsing", package: "swift-stream-parsing"),
         .product(name: "StreamParsingCore", package: "swift-stream-parsing"),
         .product(name: "Benchmark", package: "benchmark"),
