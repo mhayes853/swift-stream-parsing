@@ -167,25 +167,25 @@ struct BenchmarkCounts: Equatable {
 // MARK: - Canada
 
 @StreamParseable
-struct BenchmarkCanada: Hashable, Sendable {
+struct BenchmarkCanada: Hashable, Sendable, Codable {
   var type: String = ""
   var features: [BenchmarkCanadaFeature] = []
 }
 
 @StreamParseable
-struct BenchmarkCanadaFeature: Hashable, Sendable {
+struct BenchmarkCanadaFeature: Hashable, Sendable, Codable {
   var type: String = ""
   var properties: BenchmarkCanadaProperties = BenchmarkCanadaProperties()
   var geometry: BenchmarkCanadaGeometry = BenchmarkCanadaGeometry()
 }
 
 @StreamParseable
-struct BenchmarkCanadaProperties: Hashable, Sendable {
+struct BenchmarkCanadaProperties: Hashable, Sendable, Codable {
   var name: String = ""
 }
 
 @StreamParseable
-struct BenchmarkCanadaGeometry: Hashable, Sendable {
+struct BenchmarkCanadaGeometry: Hashable, Sendable, Codable {
   var type: String = ""
   var coordinates: [[SIMD2<Double>]] = []
 }
@@ -283,7 +283,7 @@ struct BenchmarkCanadaStreamInitialValueGeometry: Hashable, Sendable {
 // `morphTargets` is an empty object in the document and is deliberately not modelled; the parser
 // skips unmatched keys, which is also what keeps this model honest about the skip path.
 @StreamParseable
-struct BenchmarkMesh: Hashable, Sendable {
+struct BenchmarkMesh: Hashable, Sendable, Codable {
   var batches: [BenchmarkMeshBatch] = []
   var positions: [Double] = []
   var tex0: [Double] = []
@@ -307,7 +307,7 @@ struct BenchmarkMeshDynamic: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkMeshBatch: Hashable, Sendable {
+struct BenchmarkMeshBatch: Hashable, Sendable, Codable {
   var indexRange: [Int] = []
   var vertexRange: [Int] = []
   var usedBones: [Int] = []
@@ -357,7 +357,7 @@ struct BenchmarkMeshCapacityHintBatch: Hashable, Sendable {
 // cannot be represented as Swift member names and are intentionally ignored; the fields below
 // retain the long string values and nested organizations which define this corpus's shape.
 @StreamParseable
-struct BenchmarkGSoCProject: Hashable, Sendable {
+struct BenchmarkGSoCProject: Hashable, Sendable, Codable {
   var name: String = ""
   var description: String = ""
   var sponsor: BenchmarkGSoCOrganization = BenchmarkGSoCOrganization()
@@ -365,7 +365,7 @@ struct BenchmarkGSoCProject: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkGSoCOrganization: Hashable, Sendable {
+struct BenchmarkGSoCOrganization: Hashable, Sendable, Codable {
   var name: String = ""
   var disambiguatingDescription: String = ""
   var description: String = ""
@@ -400,7 +400,7 @@ struct BenchmarkGSoCOrganizationStringCapacity: Hashable, Sendable {
 
 // swiftlint:disable identifier_name
 @StreamParseable
-struct BenchmarkGitHubEvent: Hashable, Sendable {
+struct BenchmarkGitHubEvent: Hashable, Sendable, Codable {
   var type: String = ""
   var created_at: String = ""
   var actor: BenchmarkGitHubActor = BenchmarkGitHubActor()
@@ -410,7 +410,7 @@ struct BenchmarkGitHubEvent: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkGitHubActor: Hashable, Sendable {
+struct BenchmarkGitHubActor: Hashable, Sendable, Codable {
   var gravatar_id: String = ""
   var login: String = ""
   var avatar_url: String = ""
@@ -419,14 +419,14 @@ struct BenchmarkGitHubActor: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkGitHubRepository: Hashable, Sendable {
+struct BenchmarkGitHubRepository: Hashable, Sendable, Codable {
   var url: String = ""
   var id: Int = 0
   var name: String = ""
 }
 
 @StreamParseable
-struct BenchmarkGitHubPayload: Hashable, Sendable {
+struct BenchmarkGitHubPayload: Hashable, Sendable, Codable {
   var commits: [BenchmarkGitHubCommit] = []
   var distinct_size: Int = 0
   var ref: String = ""
@@ -437,7 +437,7 @@ struct BenchmarkGitHubPayload: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkGitHubCommit: Hashable, Sendable {
+struct BenchmarkGitHubCommit: Hashable, Sendable, Codable {
   var url: String = ""
   var message: String = ""
   var distinct: Bool = false
@@ -446,7 +446,7 @@ struct BenchmarkGitHubCommit: Hashable, Sendable {
 }
 
 @StreamParseable
-struct BenchmarkGitHubCommitAuthor: Hashable, Sendable {
+struct BenchmarkGitHubCommitAuthor: Hashable, Sendable, Codable {
   var email: String = ""
   var name: String = ""
 }
@@ -458,7 +458,7 @@ struct BenchmarkGitHubCommitAuthor: Hashable, Sendable {
 // so this is the model that routes real data through `StreamDictionary._openValue` rather than
 // through the synthetic `Dictionary` rows.
 @StreamParseable
-struct BenchmarkCITM: Equatable {
+struct BenchmarkCITM: Equatable, Codable {
   var areaNames: [String: String] = [:]
   var seatCategoryNames: [String: String] = [:]
   var events: [String: BenchmarkCITMEvent] = [:]
@@ -466,7 +466,7 @@ struct BenchmarkCITM: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkCITMEvent: Equatable {
+struct BenchmarkCITMEvent: Equatable, Codable {
   var id: Int = 0
   var name: String = ""
   var subTopicIds: [Int] = []
@@ -474,7 +474,7 @@ struct BenchmarkCITMEvent: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkCITMPerformance: Equatable {
+struct BenchmarkCITMPerformance: Equatable, Codable {
   var eventId: Int = 0
   var id: Int = 0
   var start: Int = 0
@@ -484,20 +484,20 @@ struct BenchmarkCITMPerformance: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkCITMPrice: Equatable {
+struct BenchmarkCITMPrice: Equatable, Codable {
   var amount: Int = 0
   var audienceSubCategoryId: Int = 0
   var seatCategoryId: Int = 0
 }
 
 @StreamParseable
-struct BenchmarkCITMSeatCategory: Equatable {
+struct BenchmarkCITMSeatCategory: Equatable, Codable {
   var seatCategoryId: Int = 0
   var areas: [BenchmarkCITMArea] = []
 }
 
 @StreamParseable
-struct BenchmarkCITMArea: Equatable {
+struct BenchmarkCITMArea: Equatable, Codable {
   var areaId: Int = 0
   var blockIds: [Int] = []
 }
@@ -527,12 +527,12 @@ struct BenchmarkTwitterUser: Equatable {
 // keys, so that benchmark measures more of the discard path than it appears to. This variant
 // declares the keys the payload actually contains, keeping the write path measured alongside it.
 @StreamParseable
-struct BenchmarkTwitterMatched: Equatable {
+struct BenchmarkTwitterMatched: Equatable, Codable {
   var statuses: [BenchmarkTweetMatched] = []
 }
 
 @StreamParseable
-struct BenchmarkTweetMatched: Equatable {
+struct BenchmarkTweetMatched: Equatable, Codable {
   var id: Int = 0
   var text: String = ""
   var user: BenchmarkTwitterUserMatched = BenchmarkTwitterUserMatched()
@@ -540,7 +540,7 @@ struct BenchmarkTweetMatched: Equatable {
 
 // swiftlint:disable identifier_name
 @StreamParseable
-struct BenchmarkTwitterUserMatched: Equatable {
+struct BenchmarkTwitterUserMatched: Equatable, Codable {
   var name: String = ""
   var screen_name: String = ""
   var followers_count: Int = 0
@@ -765,7 +765,7 @@ struct BenchmarkTwitterUserStructure: Equatable {
 // MARK: - LLM message
 
 @StreamParseable
-struct BenchmarkLLMMessage: Equatable {
+struct BenchmarkLLMMessage: Equatable, Codable {
   var id: String = ""
   var role: String = ""
   var model: String = ""
@@ -775,7 +775,7 @@ struct BenchmarkLLMMessage: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkContentBlock: Equatable {
+struct BenchmarkContentBlock: Equatable, Codable {
   var type: String = ""
   var text: String = ""
   var name: String = ""
@@ -802,7 +802,7 @@ struct BenchmarkContentBlockStringCapacity: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkUsage: Equatable {
+struct BenchmarkUsage: Equatable, Codable {
   var input_tokens: Int = 0
   var output_tokens: Int = 0
 }
@@ -813,13 +813,13 @@ struct BenchmarkUsage: Equatable {
 // model accepts both fixtures: fields unused by a particular tool remain at their initial values,
 // just as they do in generated partials while a real model is still producing the call.
 @StreamParseable
-struct BenchmarkQwen3ToolCall: Equatable {
+struct BenchmarkQwen3ToolCall: Equatable, Codable {
   var name: String = ""
   var arguments: BenchmarkQwen3ToolArguments = BenchmarkQwen3ToolArguments()
 }
 
 @StreamParseable
-struct BenchmarkQwen3ToolArguments: Equatable {
+struct BenchmarkQwen3ToolArguments: Equatable, Codable {
   var query: String = ""
   var path: String = ""
   var include: [String] = []
@@ -831,14 +831,14 @@ struct BenchmarkQwen3ToolArguments: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkQwen3SearchContext: Equatable {
+struct BenchmarkQwen3SearchContext: Equatable, Codable {
   var before: Int = 0
   var after: Int = 0
   var languages: [String] = []
 }
 
 @StreamParseable
-struct BenchmarkQwen3WorkspaceEdit: Equatable {
+struct BenchmarkQwen3WorkspaceEdit: Equatable, Codable {
   var path: String = ""
   var line: Int = 0
   var delete_count: Int = 0
@@ -847,14 +847,14 @@ struct BenchmarkQwen3WorkspaceEdit: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkQwen3StructuredResponse: Equatable {
+struct BenchmarkQwen3StructuredResponse: Equatable, Codable {
   var summary: String = ""
   var findings: [BenchmarkQwen3Finding] = []
   var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
 }
 
 @StreamParseable
-struct BenchmarkQwen3Finding: Equatable {
+struct BenchmarkQwen3Finding: Equatable, Codable {
   var id: String = ""
   var severity: String = ""
   var path: String = ""
@@ -865,7 +865,7 @@ struct BenchmarkQwen3Finding: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkQwen3Recommendation: Equatable {
+struct BenchmarkQwen3Recommendation: Equatable, Codable {
   var decision: String = ""
   var confidence: Double = 0
   var steps: [String] = []

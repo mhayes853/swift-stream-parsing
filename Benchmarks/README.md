@@ -36,7 +36,7 @@ what matters about them is whether they are correct, not how fast they are wrong
 | prefix | what it covers |
 | --- | --- |
 | `Fast` | the sink interface over synthetic payload shapes, bulk / 64 B / byte by byte |
-| `Real` | the yyjson corpus and an LLM message, through both layers |
+| `Real` | the yyjson corpus and an LLM message, through the fast, convenience, and Codable layers |
 | `API` | `PartialsStream` views/snapshots and public async partial sequences |
 | `Stream` | the convenience layer: snapshots, views, chunk sizes |
 | `Scaling` | the same shape at 10 and 400 users |
@@ -50,7 +50,10 @@ what matters about them is whether they are correct, not how fast they are wrong
 | `Numbers` | number token shapes through the real parser |
 | `Sink` | sinks replaying recorded event batches with no parser in the loop: `PartialSink` in isolation |
 
-Payload benchmarks report both iterations per second and payload MB/s.
+Payload benchmarks report both iterations per second and payload MB/s. The real-world Codable
+rows decode typed models with both Foundation's `JSONDecoder` and swift-yyjson's `YYJSONDecoder`;
+their input `Data` is prepared before timing. They are therefore comparable to the parser's typed
+bulk and windowed convenience rows, not to its raw counting-sink rows.
 
 ## Payloads
 

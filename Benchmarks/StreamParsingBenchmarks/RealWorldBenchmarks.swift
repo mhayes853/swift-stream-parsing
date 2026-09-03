@@ -469,5 +469,6 @@ func realWorldBenchmarks() {
   validateRealWorldModels()
   addRealWorldFastRows()
   addAllRealWorldConvenienceRows()
+  addRealWorldCodableRows()
   addRealWorldViewRows()
 }

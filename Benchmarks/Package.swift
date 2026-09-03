@@ -12,7 +12,8 @@ let package = Package(
     // Named explicitly: a path dependency's identity defaults to its directory name, which
     // breaks the build from a git worktree whose directory is not called swift-stream-parsing.
     .package(name: "swift-stream-parsing", path: ".."),
-    .package(url: "https://github.com/ordo-one/benchmark", from: "1.36.0")
+    .package(url: "https://github.com/ordo-one/benchmark", from: "1.36.0"),
+    .package(url: "https://github.com/mattt/swift-yyjson.git", from: "0.6.0")
   ],
   targets: [
     // Prototype C kernels for the stage-1 extraction experiments. Lives here rather than in
@@ -29,7 +30,8 @@ let package = Package(
         "StageOneLab",
         .product(name: "StreamParsing", package: "swift-stream-parsing"),
         .product(name: "StreamParsingCore", package: "swift-stream-parsing"),
-        .product(name: "Benchmark", package: "benchmark")
+        .product(name: "Benchmark", package: "benchmark"),
+        .product(name: "YYJSON", package: "swift-yyjson")
       ],
       path: "StreamParsingBenchmarks",
       resources: [.copy("Resources")],
