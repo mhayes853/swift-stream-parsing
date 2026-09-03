@@ -4,8 +4,24 @@
 import CompilerPluginSupport
 import PackageDescription
 
-let StreamParsing128BitIntegers =
+let streamParsing128BitIntegers =
   "AvailabilityMacro=StreamParsing128BitIntegers:macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, visionOS 2.0"
+
+#if compiler(>=6.4)
+  let suppressedAssociatedTypes = [SwiftSetting]()
+#else
+  let suppressedAssociatedTypes = [
+    SwiftSetting.enableExperimentalFeature("SuppressedAssociatedTypes")
+  ]
+#endif
+
+// Lets `View` associated types be `~Escapable`, so a view borrowed from a stream cannot be
+// stored past the call that lent it.
+let lifetimes = [SwiftSetting.enableExperimentalFeature("Lifetimes")]
+
+// Allows addressable types to participate in protocols whose requirements are otherwise
+// implicitly copyable, such as `Equatable` and `Comparable`.
+let addressableTypes = [SwiftSetting.enableExperimentalFeature("AddressableTypes")]
 
 let package = Package(
   name: "swift-stream-parsing",
@@ -40,17 +56,22 @@ let package = Package(
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.1.0"),
-    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7"),
-    .package(url: "https://github.com/jpsim/Yams", from: "6.2.1")
+    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7")
   ],
   targets: [
     .target(
       name: "StreamParsing",
-      dependencies: ["StreamParsingCore", "StreamParsingMacros"]
+      dependencies: ["StreamParsingCore", "StreamParsingMacros"],
+      swiftSettings: suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
+    // C interoperability target. Executable shims live as inline functions in the header so
+    // their scalar/NEON forms can disappear into Swift callers; generated lookup-table storage
+    // stays in translation units so importing the header cannot instantiate duplicate tables.
+    .target(name: "StreamParsingShims"),
     .target(
       name: "StreamParsingCore",
       dependencies: [
+        "StreamParsingShims",
         .product(
           name: "Collections",
           package: "swift-collections",
@@ -62,7 +83,8 @@ let package = Package(
           condition: .when(traits: ["StreamParsingTagged"])
         )
       ],
-      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+        + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
     .macro(
       name: "StreamParsingMacros",
@@ -75,12 +97,14 @@ let package = Package(
       name: "StreamParsingTests",
       dependencies: [
         "StreamParsing",
+        "StreamParsingCore",
         .product(name: "CustomDump", package: "swift-custom-dump"),
-        .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
-        .product(name: "Yams", package: "Yams")
+        .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
       ],
+      exclude: ["ParserTests/__Snapshots__"],
       resources: [.process("Resources")],
-      swiftSettings: [.enableExperimentalFeature(StreamParsing128BitIntegers)]
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+        + lifetimes + addressableTypes
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

@@ -1,16 +1,149 @@
+// MARK: - Conversion protocols
+
+extension String: StreamStringConvertible {
+  public static func streamInitialValue() -> Self { "" }
+
+  @discardableResult
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+    bytes.withUnsafeBufferPointer { buffer in
+      self += String(decoding: buffer, as: UTF8.self)
+    }
+    return .applied
+  }
+}
+
+extension Bool: StreamBooleanConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { false }
+
+  public init(streamParsingBoolean value: Bool) {
+    self = value
+  }
+}
+
+extension Optional: StreamNullable, StreamInitializable {
+  public static func streamNullValue() -> Self { nil }
+  public static func streamInitialValue() -> Self { nil }
+}
+
+extension Array: StreamInitializable {
+  public static func streamInitialValue() -> Self { [] }
+}
+
+extension Int: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Int8: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Int16: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Int32: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Int64: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension UInt: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension UInt8: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension UInt16: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension UInt32: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension UInt64: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Double: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+extension Float: StreamNumberConvertible, StreamInitializable {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+// Root conformances. Each one picks up the schema its conversion protocol implies, so a document
+// that is a bare scalar, an array or a dictionary parses into the same shapes a field would.
+
+extension String: StreamParseableRoot {}
+extension Bool: StreamParseableRoot {}
+extension Int: StreamParseableRoot {}
+extension Int8: StreamParseableRoot {}
+extension Int16: StreamParseableRoot {}
+extension Int32: StreamParseableRoot {}
+extension Int64: StreamParseableRoot {}
+extension UInt: StreamParseableRoot {}
+extension UInt8: StreamParseableRoot {}
+extension UInt16: StreamParseableRoot {}
+extension UInt32: StreamParseableRoot {}
+extension UInt64: StreamParseableRoot {}
+extension Double: StreamParseableRoot {}
+extension Float: StreamParseableRoot {}
+
+// `Array` is a bridging destination rather than a parse target. Parsing into one means writing
+// elements through a raw pointer into a buffer other values can be sharing, which is what made
+// kept states change after the fact; `StreamArray` exists so that path does not exist.
+
+extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
+where Value: StreamParseableRoot {
+  public static var streamSchema: StreamSchema {
+    _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
+  }
+
+  // See `StreamArray`: generic, so there is no cached template to load and `Self()` pays the
+  // runtime's metadata cache on every open.
+  @inlinable
+  public static var _streamInitialValueIsExpensive: Bool { true }
+}
+
+// The accumulator carries magnitude in a UInt64, so a value wider than that arrives flagged as
+// overflowed with nothing usable in it. The registration based parser scanned the token for
+// these two types, so taking the shared conversion unchanged would narrow their range to 64
+// bits. They re-scan instead, which only happens for tokens that actually need it.
+
+@available(StreamParsing128BitIntegers, *)
+extension Int128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
+@available(StreamParsing128BitIntegers, *)
+extension UInt128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
+  public static func streamInitialValue() -> Self { 0 }
+}
+
 // MARK: - String
 
 extension String: StreamParseable {
-  public typealias Partial = Self
-}
+  public typealias Partial = StreamString
 
-extension String: StreamParseableValue {
-  public static func initialParseableValue() -> Self {
-    ""
+  public var streamPartialValue: StreamString {
+    StreamString(self)
   }
 
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerStringHandler(\.self)
+  // A string is complete at every byte boundary, so neither direction can fail and the two
+  // conversions coincide. Both are spelled out because `String` is `StreamInitializable`, and
+  // the blanket fallback would decode the accumulated bytes twice to reach the same answer.
+  public init?(streamPartial: StreamString) {
+    self.init(streamPartial)
+  }
+
+  public static func streamValueOrInitial(from partial: StreamString) -> String {
+    String(partial)
   }
 }
 
@@ -20,22 +153,10 @@ extension Double: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Double: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerDoubleHandler(\.self)
-  }
-}
-
 // MARK: - Float
 
 extension Float: StreamParseable {
   public typealias Partial = Self
-}
-
-extension Float: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerFloatHandler(\.self)
-  }
 }
 
 // MARK: - Bool
@@ -44,26 +165,10 @@ extension Bool: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Bool: StreamParseableValue {
-  public static func initialParseableValue() -> Self {
-    false
-  }
-
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerBoolHandler(\.self)
-  }
-}
-
 // MARK: - Int8
 
 extension Int8: StreamParseable {
   public typealias Partial = Self
-}
-
-extension Int8: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerInt8Handler(\.self)
-  }
 }
 
 // MARK: - Int16
@@ -72,21 +177,10 @@ extension Int16: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int16: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerInt16Handler(\.self)
-  }
-}
 // MARK: - Int32
 
 extension Int32: StreamParseable {
   public typealias Partial = Self
-}
-
-extension Int32: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerInt32Handler(\.self)
-  }
 }
 
 // MARK: - Int64
@@ -95,22 +189,10 @@ extension Int64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension Int64: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerInt64Handler(\.self)
-  }
-}
-
 // MARK: - Int
 
 extension Int: StreamParseable {
   public typealias Partial = Self
-}
-
-extension Int: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerIntHandler(\.self)
-  }
 }
 
 // MARK: - UInt8
@@ -119,22 +201,10 @@ extension UInt8: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt8: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUInt8Handler(\.self)
-  }
-}
-
 // MARK: - UInt16
 
 extension UInt16: StreamParseable {
   public typealias Partial = Self
-}
-
-extension UInt16: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUInt16Handler(\.self)
-  }
 }
 
 // MARK: - UInt32
@@ -143,34 +213,16 @@ extension UInt32: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt32: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUInt32Handler(\.self)
-  }
-}
-
 // MARK: - UInt64
 
 extension UInt64: StreamParseable {
   public typealias Partial = Self
 }
 
-extension UInt64: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUInt64Handler(\.self)
-  }
-}
-
 // MARK: - UInt
 
 extension UInt: StreamParseable {
   public typealias Partial = Self
-}
-
-extension UInt: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUIntHandler(\.self)
-  }
 }
 
 // MARK: - Int128
@@ -180,13 +232,6 @@ extension Int128: StreamParseable {
   public typealias Partial = Self
 }
 
-@available(StreamParsing128BitIntegers, *)
-extension Int128: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerInt128Handler(\.self)
-  }
-}
-
 // MARK: - UInt128
 
 @available(StreamParsing128BitIntegers, *)
@@ -194,49 +239,71 @@ extension UInt128: StreamParseable {
   public typealias Partial = Self
 }
 
-@available(StreamParsing128BitIntegers, *)
-extension UInt128: StreamParseableValue {
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerUInt128Handler(\.self)
-  }
-}
-
 // MARK: - Array
 
 extension Array: StreamParseable where Element: StreamParseable {
-  public typealias Partial = [Element.Partial]
+  public typealias Partial = StreamArray<Element.Partial>
 
-  public var streamPartialValue: [Element.Partial] {
-    self.map(\.streamPartialValue)
+  public var streamPartialValue: StreamArray<Element.Partial> {
+    StreamArray(self.lazy.map(\.streamPartialValue))
+  }
+
+  // An element that cannot be described fails the array, rather than being dropped from it:
+  // a shorter array is a wrong answer that reads like a right one.
+  public init?(streamPartial: StreamArray<Element.Partial>) {
+    self.init()
+    self.reserveCapacity(streamPartial.count)
+    for element in streamPartial {
+      guard let value = Element(streamPartial: element) else { return nil }
+      self.append(value)
+    }
+  }
+
+  // Member-wise, not the blanket fallback: `Array` is `StreamInitializable`, and taking that
+  // default would answer `[]` for an array whose last element alone was short.
+  public static func streamValueOrInitial(from partial: StreamArray<Element.Partial>) -> Self {
+    var result = Self()
+    result.reserveCapacity(partial.count)
+    for element in partial {
+      result.append(Element.streamValueOrInitial(from: element))
+    }
+    return result
   }
 }
-
-extension Array: StreamParseableValue where Element: StreamParseableValue {
-  public static func initialParseableValue() -> [Element] {
-    []
-  }
-}
-
-extension Array: StreamParseableArrayObject where Element: StreamParseableValue {}
 
 // MARK: - Dictionary
 
+// A dictionary's partial is a StreamDictionary, matching what the macro emits for a dictionary
+// member: Dictionary relocates its values on insertion, so there is no address for a frame to
+// write a nested value through.
 extension Dictionary: StreamParseable where Key == String, Value: StreamParseable {
-  public typealias Partial = [String: Value.Partial]
+  public typealias Partial = StreamDictionary<Value.Partial>
 
-  public var streamPartialValue: [String: Value.Partial] {
-    self.mapValues(\.streamPartialValue)
+  public var streamPartialValue: StreamDictionary<Value.Partial> {
+    var partial = StreamDictionary<Value.Partial>()
+    for key in self.keys.sorted() {
+      partial.updateValue(self[key]!.streamPartialValue, forKey: key)
+    }
+    return partial
+  }
+
+  public init?(streamPartial: StreamDictionary<Value.Partial>) {
+    self.init(minimumCapacity: streamPartial.count)
+    for (key, value) in streamPartial {
+      guard let value = Value(streamPartial: value) else { return nil }
+      self[key] = value
+    }
+  }
+
+  // Member-wise for the same reason as `Array`: the blanket fallback would answer `[:]`.
+  public static func streamValueOrInitial(from partial: StreamDictionary<Value.Partial>) -> Self {
+    var result = Self(minimumCapacity: partial.count)
+    for (key, value) in partial {
+      result[key] = Value.streamValueOrInitial(from: value)
+    }
+    return result
   }
 }
-
-extension Dictionary: StreamParseableValue where Key == String, Value: StreamParseableValue {
-  public static func initialParseableValue() -> [String: Value] {
-    [:]
-  }
-}
-
-extension Dictionary: StreamParseableDictionaryObject
-where Key == String, Value: StreamParseableValue {}
 
 // MARK: - Optional
 
@@ -249,20 +316,136 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
     case .some(let wrapped): wrapped.streamPartialValue
     }
   }
+
+  // The one place absence and incompleteness are told apart. A member the stream never produced
+  // is `nil`, which an optional destination can represent, so the conversion succeeds. A member
+  // it produced but left half formed cannot be represented as either the value or its absence,
+  // so it fails — silently nulling `user` because its `id` never arrived would report a document
+  // that omitted the user and one that truncated inside it as the same thing.
+  public init?(streamPartial: Wrapped.Partial?) {
+    switch streamPartial {
+    case .none:
+      self = .none
+    case .some(let partial):
+      guard let value = Wrapped(streamPartial: partial) else { return nil }
+      self = .some(value)
+    }
+  }
+
+  public static func streamValueOrInitial(from partial: Wrapped.Partial?) -> Self {
+    partial.map(Wrapped.streamValueOrInitial(from:))
+  }
 }
 
-extension Optional: StreamParseableValue where Wrapped: StreamParseableValue {
-  public static func initialParseableValue() -> Wrapped? {
-    Wrapped.initialParseableValue()
+// An optional destination materializes before it delegates, so `Int?` accepts what `Int` accepts
+// and a null still clears it. The payload sits at offset zero, the same assumption the frame
+// entry helpers rely on.
+extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
+  // The wrapped schema is resolved once and captured, not read inside each closure.
+  //
+  // `Wrapped.streamSchema` is a computed property for every scalar and container root — it builds
+  // a fresh `StreamSchema` on each access, since a stored static cannot be declared in a generic
+  // type or a protocol extension. Reading it inside the closures therefore allocated one per
+  // *token* routed through an optional destination, rather than one per schema. Capturing it here
+  // is what makes the delegation cost a call.
+  public static var streamSchema: StreamSchema {
+    let wrapped = Wrapped.streamSchema
+    // Propagated rather than always wrapped, so an optional around a destination that matches no
+    // keys stays a destination that matches no keys and skips the call the same way.
+    let delegated: @Sendable (Span<UInt8>) -> Int32 = { key in wrapped.matchField(key) }
+    let matchField: (@Sendable (Span<UInt8>) -> Int32)? = wrapped.ignoresKeys ? nil : delegated
+    return StreamSchema(
+      shape: wrapped.shape,
+      prepareRoot: { storage in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        wrapped.prepareRoot(storage)
+      },
+      matchField: matchField,
+      applyString: { storage, field, bytes in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.applyString(storage, field, bytes)
+      },
+      applyNumber: { storage, field, bytes, info in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.applyNumber(storage, field, bytes, info)
+      },
+      applyBoolean: { storage, field, value in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.applyBoolean(storage, field, value)
+      },
+      // A null clears the optional when it *is* the destination, and is a field's null when the
+      // wrapped schema stands over an object. Clearing unconditionally lost the difference: this
+      // schema is the element schema for a `StreamArray<Person.Partial?>`, so
+      // `[{"name":"a","count":null}]` wiped the whole element and took `name` with it.
+      applyNull: { storage, field in
+        guard field != StreamSchema.wholeValueField else {
+          storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
+          return .applied
+        }
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.applyNull(storage, field)
+      },
+      enterField: { storage, field in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.enterField(storage, field)
+      },
+      appendElement: { storage, index in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.appendElement(storage, index)
+      },
+      enterKey: { storage, key in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        return wrapped.enterKey(storage, key)
+      },
+      elementSchema: wrapped.elementSchema,
+      elementStride: wrapped.elementStride,
+      elementKind: wrapped.elementKind,
+      elementOptional: wrapped.elementOptional,
+      // Fixed SIMD arrays keep their cursor in the sink frame and write through the optional's
+      // offset-zero payload after `prepareRoot` materializes it. Other container routes continue
+      // to use their ordinary frame operations.
+      leafRoute: wrapped.leafRoute.fixedSIMDLaneCount != 0 || wrapped.leafRoute == .inlineArray
+        ? wrapped.leafRoute
+        : .generic,
+      fixedElementCount: wrapped.fixedElementCount,
+      // The table writes at `storage + offset` with no materialising closure in front of it,
+      // which is sound for an optional root because `prepareRoot` materialises it before any
+      // frame is pushed over it.
+      fields: wrapped.fields
+    )
+  }
+}
+
+// The two positions an optional can occupy, and the only type for which they differ.
+//
+// `streamSchema` above materialises per token because a bare optional root has no owner to do it
+// first. An optional *element* does: the container opened the slot, and
+// `_streamOptionalElementSchema` is the wrapped type's own closures with only `applyNull` replaced,
+// so a token costs one schema call rather than a materialise and a second one. That is the whole
+// 2.4x, and routing it through a requirement rather than the macro is what makes `Array<Int?>`,
+// `typealias Xs = [Int?]` and a bare `StreamArray<Int?>` root as fast as the sugared spelling —
+// none of which the macro can see.
+extension Optional where Wrapped: StreamParseableRoot {
+  @inlinable
+  public static var streamElementSchema: StreamSchema {
+    _streamOptionalElementSchema(Wrapped.self, base: Wrapped.streamSchema)
   }
 
-  public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-    handlers.registerScopedHandlers(on: Wrapped.self, \.streamParsingWrappedValue)
-    handlers.registerNilHandler(\.self)
+  @inlinable
+  public static func streamElementInitialValue() -> Self { .some(Wrapped.streamInitialValue()) }
+}
+
+extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {
+  @inlinable
+  public static var streamContainerSchema: StreamSchema {
+    Wrapped.streamContainerSchema
   }
 
-  private var streamParsingWrappedValue: Wrapped {
-    get { self ?? Wrapped.initialParseableValue() }
-    set { self = newValue }
+  @inlinable
+  public static var _streamContainerPrepare: StreamFieldPrepare? {
+    { storage, capacity in
+      _streamMaterializeOptional(storage, as: Wrapped.self)
+      Wrapped._streamContainerPrepare?(storage, capacity)
+    }
   }
 }

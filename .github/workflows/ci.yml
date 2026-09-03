@@ -10,28 +10,41 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   macos:
-    name: macOS
+    name: macOS (${{ matrix.config }})
     runs-on: macos-26
     strategy:
+      fail-fast: false
       matrix:
-        xcode: ["26.0"]
         config: ["debug", "release"]
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode ${{ matrix.xcode }}
-        run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+      - name: Select Xcode 26.5
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app
+      - name: Report the toolchain
+        run: swift --version
       - name: Run ${{ matrix.config }} tests
-        run: swift test --configuration ${{ matrix.config }} --enable-all-traits --disable-experimental-prebuilts
+        run: >-
+          swift test --configuration ${{ matrix.config }}
+          --enable-all-traits --disable-experimental-prebuilts
 
   linux:
-    name: Linux
+    name: Linux (Swift 6.4 nightly)
     runs-on: ubuntu-latest
+    container: swiftlang/swift:nightly-6.4.x-noble
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      - name: Report the toolchain
+        run: swift --version
       - name: "Test Swift Package on Linux"
-        run: swift build --build-tests --enable-all-traits --disable-experimental-prebuilts
+        run: >-
+          swift test
+          --enable-all-traits --disable-experimental-prebuilts
 
   android:
     name: Android
@@ -41,10 +54,12 @@ jobs:
       - name: "Test Swift Package on Android"
         uses: swift-android-sdk/swift-android-action@v2
         with:
-          swift-version: 6.2
-          swift-build-flags: --enable-all-traits --disable-experimental-prebuilts
+          swift-version: "6.3"
+          swift-build-flags: >-
+            --enable-all-traits --disable-experimental-prebuilts
           run-tests: false
-          build-tests: false # NB: This CI action has something against macro test targets for some reason.
+          # NB: This CI action has something against macro test targets.
+          build-tests: false
 
   windows:
     name: Windows
@@ -54,7 +69,50 @@ jobs:
       - name: "Setup Swift on Windows"
         uses: compnerd/gha-setup-swift@main
         with:
-          branch: swift-6.2-release
-          tag: 6.2-RELEASE
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
       - name: "Test Swift Package on Windows"
-        run: swift build --build-tests --disable-experimental-prebuilts --enable-all-traits
+        run: >-
+          swift test
+          --disable-experimental-prebuilts --enable-all-traits
+
+  embedded:
+    name: Embedded (wasm)
+    runs-on: ubuntu-latest
+    container: swift:6.3.2-noble
+    env:
+      SWIFT_VERSION: "6.3.2"
+      # Published with the release at swift.org/api/v1/install/releases.json.
+      WASM_SDK_CHECKSUM: >-
+        a61f0584c93283589f8b2f42db05c1f9a182b506c2957271402992655591dd7c
+      WASM_SDK_NAME: swift-6.3.2-RELEASE_wasm-embedded
+      WASMTIME_VERSION: v47.0.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the WebAssembly SDK
+        run: |
+          tag="swift-${SWIFT_VERSION}-RELEASE"
+          base="https://download.swift.org/swift-${SWIFT_VERSION}-release"
+          swift sdk install \
+            "${base}/wasm-sdk/${tag}/${tag}_wasm.artifactbundle.tar.gz" \
+            --checksum "$WASM_SDK_CHECKSUM"
+      - name: Install wasmtime
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl xz-utils
+          release="https://github.com/bytecodealliance/wasmtime/releases"
+          name="wasmtime-${WASMTIME_VERSION}-x86_64-linux"
+          curl -sSfL "${release}/download/${WASMTIME_VERSION}/${name}.tar.xz" \
+            | tar -xJ -C /usr/local/bin --strip-components=1 \
+              --wildcards '*/wasmtime'
+      - name: Build the smoke executable
+        run: >-
+          swift build --package-path EmbeddedSmoke
+          --swift-sdk "$WASM_SDK_NAME"
+      - name: Run it
+        run: |
+          bin=$(
+            swift build --package-path EmbeddedSmoke \
+              --swift-sdk "$WASM_SDK_NAME" --show-bin-path
+          )
+          wasmtime "$bin/EmbeddedSmoke.wasm"

@@ -1,21 +1,77 @@
 #if StreamParsingTagged
   import Tagged
 
+  // MARK: - Conversion protocols
+
+  // Everything forwards to the raw value, so a tagged identifier accepts exactly what its raw
+  // value accepts.
+
+  extension Tagged: StreamInitializable where RawValue: StreamInitializable {
+    public static func streamInitialValue() -> Self {
+      Tagged(rawValue: RawValue.streamInitialValue())
+    }
+  }
+
+  // One stored property, so the raw value's schema applies to a pointer to the Tagged.
+  extension Tagged: StreamParseableRoot where RawValue: StreamParseableRoot {
+    public static var streamSchema: StreamSchema {
+      _streamWrapperSchema(Self.self, wrapping: RawValue.self)
+    }
+  }
+
+  extension Tagged: StreamStringConvertible where RawValue: StreamStringConvertible {
+    @discardableResult
+    public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+      self.rawValue.streamAppend(utf8: bytes)
+    }
+  }
+
+  extension Tagged: StreamNumberConvertible where RawValue: StreamNumberConvertible {
+    public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
+      guard let rawValue = RawValue(streamParsing: bytes, info: info) else { return nil }
+      self.init(rawValue: rawValue)
+    }
+  }
+
+  extension Tagged: StreamBooleanConvertible where RawValue: StreamBooleanConvertible {
+    public init(streamParsingBoolean value: Bool) {
+      self.init(rawValue: RawValue(streamParsingBoolean: value))
+    }
+  }
+
+  extension Tagged: StreamNullable where RawValue: StreamNullable {
+    public static func streamNullValue() -> Self {
+      Tagged(rawValue: RawValue.streamNullValue())
+    }
+  }
+
+  // Needed explicitly: `StreamParseableObject` refines this, but a conditional conformance to a
+  // refined protocol does not imply one to what it refines, even though `RawValue:
+  // StreamParseableObject` below entails `RawValue: StreamContainerPartial`.
+  extension Tagged: StreamContainerPartial where RawValue: StreamContainerPartial {}
+
+  // The schema comes from the root conformance above; this is what makes a tagged object
+  // enterable as a nested field.
+  extension Tagged: StreamParseableObject where RawValue: StreamParseableObject {}
+
+  // MARK: - Legacy handler registration
+
   extension Tagged: StreamParseable where RawValue: StreamParseable {
     public typealias Partial = Tagged<Tag, RawValue.Partial>
 
     public var streamPartialValue: Tagged<Tag, RawValue.Partial> {
       Tagged<Tag, RawValue.Partial>(rawValue: self.rawValue.streamPartialValue)
     }
-  }
 
-  extension Tagged: StreamParseableValue where RawValue: StreamParseableValue {
-    public static func initialParseableValue() -> Self {
-      Tagged(rawValue: .initialParseableValue())
+    // Structure preserving in both directions, so both conversions are the raw value's, rewrapped.
+    public init?(streamPartial: Tagged<Tag, RawValue.Partial>) {
+      guard let rawValue = RawValue(streamPartial: streamPartial.rawValue) else { return nil }
+      self.init(rawValue: rawValue)
     }
 
-    public static func registerHandlers(in handlers: inout some StreamParserHandlers<Self>) {
-      handlers.registerScopedHandlers(on: RawValue.self, \.rawValue)
+    public static func streamValueOrInitial(from partial: Tagged<Tag, RawValue.Partial>) -> Self {
+      Tagged(rawValue: RawValue.streamValueOrInitial(from: partial.rawValue))
     }
   }
+
 #endif

@@ -9,7 +9,13 @@
 ///   var body: String
 /// }
 /// ```
-@attached(extension, conformances: StreamParseable, names: named(Partial))
+@attached(
+  extension,
+  conformances: StreamParseable,
+  names: named(Partial),
+  named(init),
+  named(streamValueOrInitial)
+)
 @attached(member, names: named(streamPartialValue))
 public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
@@ -23,7 +29,7 @@ public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
 /// }
 /// ```
 @attached(peer)
-public macro StreamParseableMember(key: String) =
+public macro StreamParseableMember(key: String, initialCapacity: Int? = nil) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
 /// Declares multiple key names that map to the same property when parsing.
@@ -35,7 +41,16 @@ public macro StreamParseableMember(key: String) =
 /// }
 /// ```
 @attached(peer)
-public macro StreamParseableMember(keyNames: [String]) =
+public macro StreamParseableMember(keyNames: [String], initialCapacity: Int? = nil) =
+  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
+/// Reserves storage when the parser first enters an array, dictionary, or string member.
+///
+/// The value is an expected element count for arrays and expected unique-key count for
+/// dictionaries. For strings it is the expected decoded UTF-8 byte count, not the JSON wire byte
+/// count. It is a performance hint, not a limit.
+@attached(peer)
+public macro StreamParseableMember(initialCapacity: Int) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
 /// Marks a stored property as ignored when deriving the `Partial`.
@@ -57,6 +72,6 @@ public struct PartialMembersMode: Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
   public static let optional = Self()
 
-  /// Members are initialized to their ``initialParseableValue()`` result.
-  public static let initialParseableValue = Self()
+  /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
+  public static let streamInitialValue = Self()
 }
