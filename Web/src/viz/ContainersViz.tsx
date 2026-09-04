@@ -1,5 +1,6 @@
 import type { ContainerTrace } from "../types";
-import { StepBar, useSteps } from "./common";
+import type { TapeMark } from "./common";
+import { InputTape, StepBar, StepNote, useSteps } from "./common";
 
 const OPEN = new Set(["beginObject", "beginArray"]);
 const CLOSE = new Set(["endObject", "endArray"]);
@@ -11,6 +12,11 @@ const CLOSE = new Set(["endObject", "endArray"]);
  * container at depth *n* is an object and 0 when it is an array. The token stream here is the
  * parser's actual output; the bits are re-derived from it by the parser's own documented rule,
  * because the fields themselves are internal to the module.
+ *
+ * Each step marks the token's own bytes in the document. Those offsets are the parser's: they come
+ * from the spans it hands the sink, cross-checked against a cursor that skips whitespace with the
+ * shipped scanner. Without them the animation shows a register changing and leaves the reader to
+ * guess which part of the input did it.
  */
 export function ContainersViz({ trace }: { trace: ContainerTrace }) {
   const steps = trace.steps;
@@ -18,10 +24,13 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
   const step = steps[index];
   if (!step) return null;
 
-  const consumed = steps
-    .slice(0, index + 1)
-    .map((s) => (s.text ? s.text : s.event))
-    .length;
+  const bytes = Array.from(new TextEncoder().encode(trace.sample));
+  const marks: TapeMark[] = [
+    { from: 0, to: step.offset, kind: "done" },
+    { from: step.offset, to: step.offset + step.length, kind: "cursor" }
+  ];
+
+  const changes = OPEN.has(step.event) || CLOSE.has(step.event);
 
   return (
     <div className="viz">
@@ -34,11 +43,32 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
         label="Token"
       />
 
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--text-muted)", wordBreak: "break-all" }}>
-        {trace.sample}
-      </div>
+      <StepNote op={step.event}>
+        Bytes {step.offset}–{step.offset + step.length - 1} of the document
+        {step.text ? (
+          <>
+            {" "}
+            — <code>{JSON.stringify(step.text)}</code>
+          </>
+        ) : null}
+        . {changes ? "The register changes." : "The register does not change."}
+      </StepNote>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "16px 0 6px", flexWrap: "wrap" }}>
+      <InputTape
+        bytes={bytes}
+        marks={marks}
+        blockSize={0}
+        label="the document"
+        caption={
+          <>
+            Filled is the token this step is on; everything to its left has been parsed. Only{" "}
+            {steps.filter((s) => OPEN.has(s.event) || CLOSE.has(s.event)).length} of these{" "}
+            {steps.length} tokens touch the register below.
+          </>
+        }
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "12px 0 6px", flexWrap: "wrap" }}>
         <span
           className="chip active"
           style={{
@@ -53,7 +83,7 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
           {step.text ? ` ${JSON.stringify(step.text)}` : ""}
         </span>
         <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-          token {consumed} of {steps.length} · depth{" "}
+          token {index + 1} of {steps.length} · depth{" "}
           <strong style={{ color: "var(--text-primary)" }}>{step.depthAfter}</strong>
         </span>
       </div>
@@ -63,12 +93,15 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
         {Array.from({ length: 16 }, (_, bit) => {
           const live = bit < step.depthAfter;
           const isObject = step.containersBits[bit] === 1;
+          // The one bit this token moved, so the change is visible rather than merely present.
+          const moved =
+            changes && bit === Math.min(step.depthBefore, step.depthAfter);
           return (
             <div
-              key={bit}
+              key={`${index}-${bit}`}
               className={`lane ${live ? (isObject ? "q" : "b") : "dim"} ${
                 live && bit === step.depthAfter - 1 ? "terminator" : ""
-              }`}
+              } ${moved ? "chg" : ""}`}
               style={{ width: 26 }}
               title={live ? `depth ${bit + 1}: ${isObject ? "object" : "array"}` : `depth ${bit + 1}: unused`}
             >
@@ -104,7 +137,8 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
         ) : CLOSE.has(step.event) ? (
           <>
             A container closes. Depth drops to {step.depthAfter}; the bit above it is simply no longer
-            read, so there is nothing to clear.
+            read, so there is nothing to clear — the pulse marks the bit that stopped counting, not a
+            bit that was written.
           </>
         ) : (
           <>
@@ -118,6 +152,12 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
         The ceiling is <strong>{trace.maximumDepth}</strong> levels, measured by asking the shipped
         parser where it refuses rather than by copying the constant. Depth beyond it is rejected
         rather than spilled, which is exactly what keeps container tracking to a single register.
+        {!trace.offsetsVerified && (
+          <strong style={{ color: "var(--warning)" }}>
+            {" "}
+            ⚠ The token offsets above did not agree with the parser's own spans.
+          </strong>
+        )}
       </p>
     </div>
   );

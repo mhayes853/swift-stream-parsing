@@ -783,3 +783,299 @@ input[type="range"] { accent-color: var(--series-1); }
 .escape-table tr.miss td { color: var(--text-muted); }
 .escape-table .sentinel { color: var(--text-muted); opacity: 0.55; }
 .escape-table .meaning { color: var(--text-muted); font-size: 11.5px; }
+
+/* MARK: - The input tape
+   Every kernel reads bytes out of the caller's buffer, and each step of an animation touches a
+   specific part of it. The tape is the input in its own coordinates: the whole sample once, with
+   the current vector load, the resolved lane and the consumed prefix marked. A rule every sixteen
+   bytes makes the block boundary visible without counting. */
+
+.tape {
+  margin: 10px 0 12px;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.tape-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.tape-head span:first-child { font-family: var(--font-mono); color: var(--text-secondary); }
+.tape-count { font-variant-numeric: tabular-nums; }
+.tape-bytes { display: flex; flex-wrap: wrap; gap: 1px; }
+.tape-byte {
+  width: 13px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+/* The 16-byte boundary a vector load falls on. */
+.tape-byte.tick { box-shadow: inset 1px 0 0 var(--axis); }
+/* Behind the cursor: read and finished with. */
+.tape-byte.done { color: var(--text-muted); opacity: 0.4; }
+/* The bytes this step's load or call covers. */
+.tape-byte.window {
+  background: color-mix(in srgb, var(--series-1) 18%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--series-1) 45%, transparent);
+  color: var(--text-secondary);
+}
+/* The byte the step resolves to — the terminator lane, the hovered lane, the token. */
+.tape-byte.cursor {
+  background: var(--series-1);
+  border-color: var(--series-1);
+  color: var(--surface-0);
+  font-weight: 700;
+}
+/* Where the parser will resume. */
+.tape-byte.next {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+.tape-caption { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+
+/* MARK: - The step timeline
+   A stack of registers is stepped through, so a row is not-yet-computed, computed-by-this-step or
+   already-computed. A future row keeps its box and shows nothing, which is what stops the stack
+   reflowing as the animation runs; the row a step produces is the only thing that moves. */
+
+.vec-row.future .vec-gutter { opacity: 0.3; }
+.vec-row.now .vec-op { color: var(--series-1); }
+.vec-lane.ghost {
+  background: var(--surface-2);
+  border-style: dashed;
+  border-color: var(--axis);
+}
+.vec-lane.ghost .v { color: var(--axis); }
+/* Lanes of the row this step produced, dealt left to right so the sixteen-wide operation reads as
+   one action rather than sixteen. */
+.vec-row.now .vec-lane {
+  animation: lane-in 260ms ease-out backwards;
+  animation-delay: var(--lane-delay, 0ms);
+}
+/* A lane whose value differs from the previous step, for rows that are updated rather than
+   produced: the accumulator, the SWAR word as the mask and the bias run over it. */
+.vec-lane.chg { animation: lane-chg 620ms ease-out; }
+.vec-op-row.future { opacity: 0.28; }
+.vec-op-row.now .sym { color: var(--series-1); transform: scale(1.14); }
+.vec-op-row .sym { transition: transform 160ms ease, color 160ms ease; display: inline-block; }
+
+@keyframes lane-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lane-chg {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--series-2) 80%, transparent); }
+  30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-2) 55%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* The entries a whole block reads at once — sixteen simultaneous lookups, spread across the
+   table, which is the reason indexing beats comparing. */
+.table-cell.touched { border-color: var(--series-3); background: color-mix(in srgb, var(--series-3) 14%, var(--surface-2)); }
+.table-strip.dim { opacity: 0.42; }
+.table-strip { transition: opacity 180ms ease; }
+
+/* What the step just did, under the controls, so "what changed" is readable and not only visible. */
+.step-note {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 4px 0 2px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  min-height: 34px;
+}
+.step-note code {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding: 2px 7px;
+  border: 1px solid var(--series-1);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--series-1) 14%, var(--surface-1));
+}
+
+/* Motion is the carrier of meaning here, so it degrades to an instant state change rather than
+   being removed: the phases still differ, they simply stop animating between them. */
+@media (prefers-reduced-motion: reduce) {
+  .vec-row.now .vec-lane,
+  .vec-lane.chg { animation: none; }
+  .tape-byte { transition: none; }
+  .vec-op-row .sym { transition: none; }
+}
+
+/* A branch of the movemask that the timeline has not reached, or is on right now. */
+.mm-branch.future, .mm-arith.future { opacity: 0.34; }
+.mm-branch.now { border-color: var(--series-1); }
+.mm-branch, .mm-arith { transition: opacity 180ms ease, border-color 180ms ease; }
+.mm-branch dl > div.pending dt, .pending-value { color: var(--axis); }
+.mm-branch dl > div.lit dd strong { color: var(--series-1); }
+
+/* The nesting register's bits reuse the generic lane, so the change pulse has to reach them too. */
+.lane.chg { animation: lane-chg 620ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .lane.chg { animation: none; } }
+
+/* MARK: - The simple-escape map
+   All 128 entries, four rows of thirty-two. Eight of them are non-zero and that is the whole
+   table, which is only convincing if the other 120 are on screen next to them. */
+
+.escape-map-wrap {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.escape-map { display: grid; grid-template-columns: repeat(32, 1fr); gap: 2px; }
+.escape-map.dim { opacity: 0.45; }
+.escape-map { transition: opacity 180ms ease; }
+.escape-map .emap {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+.escape-map .emap.on {
+  background: color-mix(in srgb, var(--series-3) 30%, var(--surface-1));
+  border-color: var(--series-3);
+  color: var(--text-primary);
+}
+.escape-map .emap.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.escape-result {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--grid);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.escape-result.pending { color: var(--axis); }
+.escape-result.good { border-color: var(--good); }
+.escape-result.bad { border-color: var(--critical); }
+
+.escape-table tr { cursor: pointer; }
+.escape-table tr.here td { background: color-mix(in srgb, var(--series-1) 12%, transparent); }
+
+/* MARK: - The algorithm chart
+ *
+ * The same drawing language as the page's flow chart, one scale down and inside a 680px panel.
+ * It reuses `.flow-edge-label` and `.flow-card-*` deliberately: the two charts are the same claim
+ * at two scales, and giving them two visual dialects would make that harder to see, not easier. */
+
+.algo {
+  margin: 0 0 22px;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  background: var(--plane);
+  overflow: hidden;
+}
+.algo-head { padding: 13px 15px 0; }
+.algo-head h3 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.algo-head p { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+
+/* Horizontal scroll rather than reflow, same as the page chart: the layout encodes the graph, and
+   a five-armed ladder is the normal shape here rather than the exception. */
+.algo-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 13px 4px;
+}
+.algo-svg { display: block; }
+
+.algo-node { cursor: pointer; }
+.algo-node:focus { outline: none; }
+.algo-node:focus-visible rect:first-of-type {
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+.algo-node rect { transition: stroke 120ms ease; }
+.algo-node-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--text-primary);
+}
+.algo-node-kicker {
+  font-size: 9.5px;
+  fill: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.algo-edge-label text { font-size: 9.5px; }
+
+/* The card under the chart, not beside it: the panel has no rail to put one in. */
+.algo-card {
+  border-top: 1px solid var(--grid);
+  background: var(--surface-1);
+  padding: 12px 15px 14px;
+}
+.algo-card-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+.algo-card-head h4 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.algo-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-muted);
+}
+.algo-tag.entry { color: var(--series-1); border-color: var(--series-1); }
+.algo-tag.exit { color: var(--text-secondary); }
+.algo-card-detail {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.algo-card-source {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.algo-card-source code { font-size: 11.5px; color: var(--text-primary); }
+.algo-card .flow-card-rule { margin-top: 0; }
+.algo-card .flow-card-edges p { font-size: 11.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .algo-node rect { transition: none; }
+}

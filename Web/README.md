@@ -33,9 +33,37 @@ against the real function's answer before it is written.
 | Eight bytes, backwards | the SWAR digit fold |
 
 A lookup table is *recovered* from the kernel, not copied into the recorder: the number-class and
-UTF-8 tables are `package` symbols read directly, and the whitespace table is reconstructed by
-probing the shipped predicate over all 256 bytes. `viz` names in `pipeline.json` are validated
-against the set the site knows, so a typo fails the build rather than rendering nothing.
+UTF-8 tables are `package` symbols read directly, the whitespace table is reconstructed by probing
+the shipped predicate over all 256 bytes, and the escape map by probing the shipped decoder at all
+128 indices. `viz` names in `pipeline.json` are validated against the set the site knows, so a typo
+fails the build rather than rendering nothing.
+
+### Stepping and the input tape
+
+Every one of them steps **one instruction at a time**, and every step says what it changed. A
+register row carries a `phase`:
+
+- `future` — not computed yet. It keeps its box and draws nothing, so the stack does not reflow as
+  the animation runs.
+- `now` — produced by this step. Its lanes deal in left to right, which is the only motion in the
+  visual and therefore reads as the change.
+- `past` — already computed, drawn plainly.
+
+Where a register is *updated* rather than produced — `scanned |= block`, or the SWAR word as the
+mask and the bias run over it — pass `changed` and the altered lanes pulse instead. Such a row also
+needs `epoch`, or React reuses the DOM nodes and the change happens with no animation at all. The
+step names itself in a `StepNote` under the controls: "what changed" has to be readable, not only
+visible.
+
+`InputTape` draws the sample's bytes once and marks what the current step is touching — `done`
+behind the cursor, `window` for the bytes in the register, `cursor` for the byte the step resolves
+to, `next` for where the parser resumes — with a rule every sixteen bytes so the vector boundary is
+visible without counting. The container trace therefore records a byte range per token: taken from
+the spans the parser hands the sink, cross-checked against a cursor that skips whitespace with the
+shipped `streamWhitespaceEnd` and steps over one separator. `offsetsVerified` carries that agreement
+into the bundle and generation fails without it.
+
+Under `prefers-reduced-motion` the phases still differ; they simply stop animating between them.
 
 ## Where things come from
 
@@ -88,6 +116,38 @@ is the intended degradation rather than an unreadable squeeze.
 without updating `pipeline.json` and `./Web/generate content` exits non-zero with the closest
 surviving match, rather than leaving a node in the UI pointing at nothing.
 
+## The algorithm chart
+
+Every node's Explanation tab opens with a flow chart of the node's own control flow, drawn above the
+animation: the shape of the thing, then one run through it. It comes from `steps` on the node —
+`{ id, title, kicker, detail, source, ordering, next }`, where `next` is the same edge shape as the
+pipeline graph's and the first entry is the entry point.
+
+It is deliberately the same drawing language as the page chart: the same four `kind`s, the same
+dashing, every arrow carrying its label, ordered fan-outs numbered. The pipeline graph says which
+functions reach which; this says what one of them does, and it is the only place a branch *inside*
+a kernel is written down. The geometry both charts share lives in `src/components/graph.ts` rather
+than in either of them.
+
+What the extractor enforces, beyond the arrow rules above:
+
+| Rule | Why |
+| --- | --- |
+| Every node has a `steps` graph, of at least two steps | "This step has no chart" should not be able to happen quietly |
+| Step ids are unique and every `to` resolves within the node | An arrow into nothing |
+| Every step is reachable from the first | A step nobody reaches is a claim the chart cannot draw |
+| At least one step has an empty `next` | Most of these kernels are loops, and a loop with no exit is a claim about the code that is not true of any of them |
+| A step's `source` resolves **and** is in the node's own `evidence.source` | So following a step into the Source tab lands on a declaration that is actually listed there |
+
+Layout has to cope with loops, which a longest-path rank cannot: `rankGraph` finds the back edges by
+DFS first and ranks over what is left, so a loop's head sits above its body and the returning arrow
+reads as a return. Two returns between the same pair of rows would draw the same curve, so each gets
+its own bow. The chart is then laid out twice — the first pass measures how far a loop-back label
+bows past the leftmost node and the second gives the node grid that much less — and the last few
+percent is taken by scaling the drawing rather than by scrolling the panel sideways. A step title
+that cannot wrap (`StreamStringRun(end:containsNonASCII:)` has nowhere to break) is set smaller
+rather than truncated, because a cut-off symbol reads as a *different* symbol.
+
 ## Adding a step, or attaching a new experiment
 
 1. Write the experiment in `NEW_ARCHITECTURE.md` as usual. Put the verdict in the heading
@@ -95,13 +155,18 @@ surviving match, rather than leaving a node in the UI pointing at nothing.
 2. Add its section path to the relevant node's `evidence.doc` in `pipeline.json`. The path is
    `chapter-slug/section-slug`, scoped rather than document-global so that inserting a section
    elsewhere never renumbers it.
-3. Run `./Web/generate`. Commit `Web/generated/`.
+3. If it changed the node's control flow, update that node's `steps` in the same edit — a new
+   branch, a step that stopped existing, a `source` that moved.
+4. Run `./Web/generate`. Commit `Web/generated/`.
 
 ## Traces
 
-The four animations replay the **shipped kernels**. `Sources/StreamParsingSiteTool/Trace` calls
-`streamStringRun`, `streamWhitespaceEnd`, `streamNumberRunEnd` and `streamShortInteger` directly,
-and drives a real `JSONParser` through a recording sink for the container register.
+The animations replay the **shipped kernels**. `Sources/StreamParsingSiteTool/Trace` calls
+`streamStringRun`, `streamWhitespaceEnd`, `streamNumberRunEnd`, `streamShortInteger`,
+`streamIsWhitespace` and `streamDecodeSimpleEscape` directly, and drives a real `JSONParser` through
+a recording sink for the container register — a sink that also resolves each `Span` it is handed
+back to an offset in the buffer that was parsed, which is where the tape's token positions come
+from.
 
 That target has to live in the root package rather than beside this directory: `package` access
 does not cross a SwiftPM package boundary, which is the same reason nothing in the separate

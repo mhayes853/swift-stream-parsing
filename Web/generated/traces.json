@@ -2,6 +2,7 @@
   "arch" : "arm64",
   "containers" : {
     "maximumDepth" : 64,
+    "offsetsVerified" : true,
     "sample" : "{\"id\":4,\"tags\":[\"a\",{\"k\":[true]}],\"ok\":null}",
     "steps" : [
       {
@@ -12,7 +13,9 @@
         "depthAfter" : 1,
         "depthBefore" : 0,
         "event" : "beginObject",
-        "index" : 0
+        "index" : 0,
+        "length" : 1,
+        "offset" : 0
       },
       {
         "containersAfter" : "1...............................................................",
@@ -23,6 +26,8 @@
         "depthBefore" : 1,
         "event" : "key",
         "index" : 1,
+        "length" : 4,
+        "offset" : 1,
         "text" : "id"
       },
       {
@@ -34,6 +39,8 @@
         "depthBefore" : 1,
         "event" : "number",
         "index" : 2,
+        "length" : 1,
+        "offset" : 6,
         "text" : "4"
       },
       {
@@ -45,6 +52,8 @@
         "depthBefore" : 1,
         "event" : "key",
         "index" : 3,
+        "length" : 6,
+        "offset" : 8,
         "text" : "tags"
       },
       {
@@ -56,7 +65,9 @@
         "depthAfter" : 2,
         "depthBefore" : 1,
         "event" : "beginArray",
-        "index" : 4
+        "index" : 4,
+        "length" : 1,
+        "offset" : 15
       },
       {
         "containersAfter" : "10..............................................................",
@@ -68,6 +79,8 @@
         "depthBefore" : 2,
         "event" : "string",
         "index" : 5,
+        "length" : 3,
+        "offset" : 16,
         "text" : "a"
       },
       {
@@ -80,7 +93,9 @@
         "depthAfter" : 3,
         "depthBefore" : 2,
         "event" : "beginObject",
-        "index" : 6
+        "index" : 6,
+        "length" : 1,
+        "offset" : 20
       },
       {
         "containersAfter" : "101.............................................................",
@@ -93,6 +108,8 @@
         "depthBefore" : 3,
         "event" : "key",
         "index" : 7,
+        "length" : 3,
+        "offset" : 21,
         "text" : "k"
       },
       {
@@ -106,7 +123,9 @@
         "depthAfter" : 4,
         "depthBefore" : 3,
         "event" : "beginArray",
-        "index" : 8
+        "index" : 8,
+        "length" : 1,
+        "offset" : 25
       },
       {
         "containersAfter" : "1010............................................................",
@@ -120,6 +139,8 @@
         "depthBefore" : 4,
         "event" : "boolean",
         "index" : 9,
+        "length" : 4,
+        "offset" : 26,
         "text" : "true"
       },
       {
@@ -132,7 +153,9 @@
         "depthAfter" : 3,
         "depthBefore" : 4,
         "event" : "endArray",
-        "index" : 10
+        "index" : 10,
+        "length" : 1,
+        "offset" : 30
       },
       {
         "containersAfter" : "10..............................................................",
@@ -143,7 +166,9 @@
         "depthAfter" : 2,
         "depthBefore" : 3,
         "event" : "endObject",
-        "index" : 11
+        "index" : 11,
+        "length" : 1,
+        "offset" : 31
       },
       {
         "containersAfter" : "1...............................................................",
@@ -153,7 +178,9 @@
         "depthAfter" : 1,
         "depthBefore" : 2,
         "event" : "endArray",
-        "index" : 12
+        "index" : 12,
+        "length" : 1,
+        "offset" : 32
       },
       {
         "containersAfter" : "1...............................................................",
@@ -164,6 +191,8 @@
         "depthBefore" : 1,
         "event" : "key",
         "index" : 13,
+        "length" : 4,
+        "offset" : 34,
         "text" : "ok"
       },
       {
@@ -175,6 +204,8 @@
         "depthBefore" : 1,
         "event" : "null",
         "index" : 14,
+        "length" : 4,
+        "offset" : 39,
         "text" : "null"
       },
       {
@@ -185,7 +216,9 @@
         "depthAfter" : 0,
         "depthBefore" : 1,
         "event" : "endObject",
-        "index" : 15
+        "index" : 15,
+        "length" : 1,
+        "offset" : 43
       }
     ]
   },
@@ -255,9 +288,139 @@
         "source" : "\\0"
       }
     ],
+    "map" : [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      34,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      47,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      92,
+      0,
+      0,
+      0,
+      0,
+      0,
+      8,
+      0,
+      0,
+      0,
+      12,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10,
+      0,
+      0,
+      0,
+      13,
+      0,
+      9,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
     "verified" : true
   },
-  "generatedAt" : "2026-09-04T05:43:08Z",
+  "generatedAt" : "2026-09-04T19:29:49Z",
   "number" : {
     "cases" : [
       {
@@ -927,6 +1090,25 @@
     ]
   },
   "numberTable" : {
+    "bytes" : [
+      45,
+      51,
+      46,
+      49,
+      52,
+      49,
+      53,
+      57,
+      101,
+      43,
+      49,
+      50,
+      44,
+      32,
+      34,
+      120,
+      34
+    ],
     "combine" : "and",
     "kernel" : "streamNumberRunEndShimmed",
     "lanes" : [
@@ -2708,6 +2890,28 @@
     "sample" : "{\n  \"id\": 4,\n  \"tags\": [1, 2],\n  \"compact\":{\"a\":1}\n}"
   },
   "whitespaceTable" : {
+    "bytes" : [
+      10,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      34,
+      119,
+      105,
+      100,
+      103,
+      101,
+      116,
+      34,
+      58,
+      32,
+      123
+    ],
     "combine" : "equal",
     "kernel" : "streamWhitespaceMissMask",
     "lanes" : [

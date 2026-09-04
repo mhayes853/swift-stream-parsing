@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { loadAssembly, loadSources } from "../data";
 import type { DocSection, PipelineNode, SourceDecl, TraceBundle } from "../types";
 import { Visualization } from "../viz";
+import { AlgorithmChart } from "./AlgorithmChart";
 import { Markdown, VerdictChip } from "./Markdown";
 
 type Tab = "explanation" | "experiments" | "source" | "assembly";
@@ -20,8 +21,19 @@ export function DetailPanel({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("explanation");
+  // Loaded once for the panel rather than once per tab: the Source tab lists them and the
+  // algorithm chart resolves a step's file and line out of the same bundle.
+  const [decls, setDecls] = useState<Record<string, SourceDecl[]> | null>(null);
+  const [declError, setDeclError] = useState<string | null>(null);
 
   useEffect(() => setTab("explanation"), [node.id]);
+
+  useEffect(() => {
+    loadSources().then(
+      (bundle) => setDecls(bundle.sources),
+      (e) => setDeclError(String(e))
+    );
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -53,9 +65,11 @@ export function DetailPanel({
           </div>
         </div>
         <div className="panel-body">
-          {tab === "explanation" && <Explanation node={node} sections={explanations} traces={traces} />}
+          {tab === "explanation" && (
+            <Explanation node={node} sections={explanations} traces={traces} decls={decls} />
+          )}
           {tab === "experiments" && <Experiments sections={experiments} />}
-          {tab === "source" && <Source keys={node.evidence.source} />}
+          {tab === "source" && <Source keys={node.evidence.source} decls={decls} error={declError} />}
           {tab === "assembly" && <Assembly symbols={node.evidence.asm} />}
         </div>
       </aside>
@@ -87,14 +101,18 @@ function TabButton({
 function Explanation({
   node,
   sections,
-  traces
+  traces,
+  decls
 }: {
   node: PipelineNode;
   sections: DocSection[];
   traces: TraceBundle | null;
+  decls: Record<string, SourceDecl[]> | null;
 }) {
   return (
     <>
+      {/* The chart before the animation: the shape of the thing, then one run through it. */}
+      <AlgorithmChart node={node} decls={decls} />
       {node.viz && (
         <div style={{ marginBottom: 20 }}>
           <Visualization kind={node.viz} traces={traces} />
@@ -170,17 +188,15 @@ function SectionCard({ section, defaultOpen = false }: { section: DocSection; de
   );
 }
 
-function Source({ keys }: { keys: string[] }) {
-  const [decls, setDecls] = useState<Record<string, SourceDecl[]> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadSources().then(
-      (bundle) => setDecls(bundle.sources),
-      (e) => setError(String(e))
-    );
-  }, []);
-
+function Source({
+  keys,
+  decls,
+  error
+}: {
+  keys: string[];
+  decls: Record<string, SourceDecl[]> | null;
+  error: string | null;
+}) {
   if (error) return <p className="empty">{error}</p>;
   if (!decls) return <p className="empty">Loading declarations…</p>;
   if (keys.length === 0) return <p className="empty">No source attached to this step.</p>;

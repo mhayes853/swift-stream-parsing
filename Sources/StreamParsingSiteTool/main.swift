@@ -94,7 +94,9 @@ if only == "all" || only == "content" {
       for e in report.errors { FileHandle.standardError.write(Data("error: \(e)\n".utf8)) }
       fail("\(report.errors.count) dangling reference(s) in pipeline.json")
     }
+    let stepCount = pipeline.nodes.reduce(0) { $0 + $1.steps.count }
     print("pipeline: \(pipeline.nodes.count) nodes across \(pipeline.stages.count) stages, all references resolve")
+    print("steps: \(stepCount) algorithm steps across \(pipeline.nodes.count) charts, every graph reachable and terminating")
   } else {
     for warning in docWarnings { print("warning: \(warning)") }
     print("note: no pipeline.json yet; skipping reference validation")
@@ -162,6 +164,10 @@ if only == "all" || only == "traces" {
     (traces.stringRun.verified ? 0 : 1) + traces.number.cases.filter { !$0.verified }.count
     + (traces.whitespaceTable.verified ? 0 : 1) + (traces.numberTable.verified ? 0 : 1)
     + (traces.utf8.verified ? 0 : 1) + (traces.escapes.verified ? 0 : 1)
+    // The container animation points at the input while it steps, so its token offsets are held
+    // to the same standard as a kernel mirror: the walk has to agree with the spans the parser
+    // handed over, everywhere it handed one over.
+    + (traces.containers.offsetsVerified ? 0 : 1)
   print(
     """
     traces.json: \(arch); stringRun \(traces.stringRun.blocks.count) blocks, \

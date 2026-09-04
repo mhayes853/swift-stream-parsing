@@ -36,8 +36,43 @@ struct Pipeline: Decodable {
     /// no order to claim -- protocol methods, or a choice made by a member's type.
     var ordering: Ordering?
     var next: [Edge]
+    /// The control flow *inside* this node, drawn in its own panel the same way the pipeline is
+    /// drawn on the page. The pipeline graph says which functions reach which; this says what the
+    /// one function does, and it is the only place a branch inside a kernel is written down.
+    ///
+    /// Required, and required to be a real graph: `validate` rejects a node without one, a step
+    /// nothing reaches, and a graph with no step that ends it.
+    var steps: [Step]
 
     enum Ordering: String, Decodable { case ordered, unordered }
+  }
+
+  /// One step of a node's own algorithm: an instruction, a test, or a call it makes.
+  struct Step: Decodable {
+    var id: String
+    var title: String
+    /// The short label under the title -- a width, a cost, an attribute.
+    var kicker: String?
+    /// What this step does, and why it is spelled the way it is. The one place a measurement may
+    /// be quoted rather than resolved, because it is quoting the source comment beside it.
+    var detail: String
+    /// `File.swift:symbol`, validated exactly as `evidence.source` is -- and required to *be* one
+    /// of the node's own, so clicking a step and opening the Source tab lands on the same thing.
+    var source: String?
+    var ordering: Node.Ordering?
+    var next: [Edge]
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      self.id = try c.decode(String.self, forKey: .id)
+      self.title = try c.decode(String.self, forKey: .title)
+      self.kicker = try c.decodeIfPresent(String.self, forKey: .kicker)
+      self.detail = try c.decode(String.self, forKey: .detail)
+      self.source = try c.decodeIfPresent(String.self, forKey: .source)
+      self.ordering = try c.decodeIfPresent(Node.Ordering.self, forKey: .ordering)
+      self.next = try c.decodeIfPresent([Edge].self, forKey: .next) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case id, title, kicker, detail, source, ordering, next }
   }
 
   /// A labelled edge. The chart draws `next` as arrows, so an unlabelled arrow is a step nobody
@@ -165,12 +200,91 @@ struct ReferenceReport {
       if node.prose.isEmpty {
         report.warnings.append("\(at): no teaching prose")
       }
+      Self.validateSteps(node, sources: sources, into: &report)
     }
 
     for node in pipeline.nodes where node.evidence.doc.isEmpty && node.evidence.source.isEmpty {
       report.warnings.append("node '\(node.id)': no evidence attached")
     }
     return report
+  }
+
+  /// The node's own algorithm graph, held to the same standard as the pipeline graph above.
+  ///
+  /// Every detail panel draws one, so "this node has no chart" is a build error rather than a
+  /// blank space. The three structural checks are what stop a graph from *looking* like an
+  /// algorithm without being one: an arrow into nothing, a step nothing reaches, and a graph with
+  /// no way out. The last is the interesting one -- several of these kernels are loops, and a loop
+  /// drawn with no exit is a claim about the code that is not true of any of them.
+  static func validateSteps(
+    _ node: Pipeline.Node, sources: [String: [SourceDecl]], into report: inout ReferenceReport
+  ) {
+    let at = "node '\(node.id)'"
+    guard node.steps.count >= 2 else {
+      report.errors.append(
+        "\(at): needs a 'steps' graph of at least two steps; every detail panel draws one"
+      )
+      return
+    }
+    var ids = Set<String>()
+    for step in node.steps where !ids.insert(step.id).inserted {
+      report.errors.append("\(at): duplicate step id '\(step.id)'")
+    }
+    // A step may only cite source the node already claims, so following it into the Source tab
+    // lands on a declaration that is actually listed there.
+    let owned = Set(node.evidence.source)
+    for step in node.steps {
+      let where_ = "\(at) step '\(step.id)'"
+      if let symbol = step.source {
+        if sources[symbol] == nil {
+          let near = Self.nearest(symbol, in: Set(sources.keys))
+          report.errors.append(
+            "\(where_): source '\(symbol)' does not resolve\(near.map { " (closest: '\($0)')" } ?? "")"
+          )
+        } else if !owned.contains(symbol) {
+          report.errors.append(
+            "\(where_): source '\(symbol)' is not in the node's own evidence.source"
+          )
+        }
+      }
+      if step.detail.trimmingCharacters(in: .whitespaces).isEmpty {
+        report.errors.append("\(where_): no 'detail'")
+      }
+      for edge in step.next {
+        if !ids.contains(edge.to) {
+          report.errors.append("\(where_): points at unknown step '\(edge.to)'")
+        }
+        if edge.label.trimmingCharacters(in: .whitespaces).isEmpty {
+          report.errors.append("\(where_): edge -> '\(edge.to)' has no 'label'")
+        }
+        if edge.kind == .branch, (edge.when ?? "").isEmpty {
+          report.warnings.append("\(where_): branch -> '\(edge.to)' does not say when it is taken")
+        }
+      }
+      if step.next.count > 1, step.ordering == nil {
+        report.warnings.append(
+          "\(where_): fans out to \(step.next.count) steps without saying whether they are ordered"
+        )
+      }
+    }
+
+    // Reachability from the entry, which is the first step by construction.
+    let byID = Dictionary(uniqueKeysWithValues: node.steps.map { ($0.id, $0) })
+    var seen: Set<String> = [node.steps[0].id]
+    var stack = [node.steps[0].id]
+    while let current = stack.popLast() {
+      for edge in byID[current]?.next ?? [] where seen.insert(edge.to).inserted {
+        stack.append(edge.to)
+      }
+    }
+    for step in node.steps where !seen.contains(step.id) {
+      report.errors.append(
+        "\(at): step '\(step.id)' is unreachable from '\(node.steps[0].id)'"
+      )
+    }
+    if !node.steps.contains(where: { $0.next.isEmpty }) {
+      report.errors.append("\(at): no step ends the algorithm; every path loops forever")
+    }
   }
 
   /// Cheap suggestion for a mistyped or renamed reference: longest shared prefix, then closest

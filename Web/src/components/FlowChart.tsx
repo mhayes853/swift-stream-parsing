@@ -1,5 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DocSection, EdgeKind, Pipeline, PipelineEdge, PipelineNode } from "../types";
+import type { DocSection, Pipeline, PipelineEdge, PipelineNode } from "../types";
+import type { Curve } from "./graph";
+import { DASH, KIND_GLYPH, KIND_WORD, at, clamp, placeLabels, plain, route, wrap } from "./graph";
 import { inline } from "./Markdown";
 
 // A directed graph of the parse path, laid out in stage rows. The edges are `next` in
@@ -32,10 +34,6 @@ const MAX_RAIL_W = 320;
 // characters at 12.5px and cannot be wrapped, so anything narrower paints them under the first node.
 const MIN_LANE_W = 112;
 const MAX_LANE_W = 132;
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.min(Math.max(value, low), high);
-}
 
 /**
  * Horizontal geometry for a given amount of room.
@@ -77,61 +75,12 @@ interface Edge {
   back: boolean;
   d: string;
   cp: Curve;
+  /** The drawn form, measured by `placeLabels` before anything is in the DOM. */
+  text: string;
   /** Where the label ended up, after the de-collision pass. */
   mx: number;
   my: number;
 }
-
-type Point = [number, number];
-type Curve = [Point, Point, Point, Point];
-
-/** Cubic bezier at t. Used to slide a label along its own edge when it collides with another. */
-function at([p0, p1, p2, p3]: Curve, t: number): Point {
-  const u = 1 - t;
-  const a = u * u * u;
-  const b = 3 * u * u * t;
-  const c = 3 * u * t * t;
-  const d = t * t * t;
-  return [
-    a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
-    a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]
-  ];
-}
-
-/**
- * Greedy wrap to at most `maxLines`.
- *
- * Anything past the last line is appended to it rather than dropped: a silently truncated label is
- * worse than one that runs a little wide, and `Strings and escapes` losing its third word looked
- * exactly like a rendering bug.
- */
-function wrap(text: string, perLine = 26, maxLines = 2): string[] {
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    if (line && (line + " " + word).length > perLine && lines.length < maxLines - 1) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? line + " " + word : word;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-/** SVG `<text>` has nowhere to put a `<code>` span, so the drawn form just drops the marks. */
-function plain(text: string): string {
-  return text.replace(/`/g, "");
-}
-
-const DASH: Record<EdgeKind, string | undefined> = {
-  step: undefined,
-  branch: undefined,
-  return: "5 4",
-  detail: "1.5 3.5"
-};
 
 export function FlowChart({
   pipeline,
@@ -208,7 +157,7 @@ export function FlowChart({
       p.node.next.forEach((spec, i) => {
         const to = byId.get(spec.to);
         if (!to) return;
-        const cp = route(p, to, geo.nodeW);
+        const cp = route(p, to, geo.nodeW, NODE_H);
         const [mx, my] = at(cp, 0.5);
         out.push({
           id: `${p.node.id}->${spec.to}`,
@@ -219,12 +168,18 @@ export function FlowChart({
           back: to.row < p.row,
           d: `M ${cp[0][0]} ${cp[0][1]} C ${cp[1][0]} ${cp[1][1]}, ${cp[2][0]} ${cp[2][1]}, ${cp[3][0]} ${cp[3][1]}`,
           cp,
+          text: "",
           mx,
           my: my + 4
         });
       });
     }
-    placeLabels(out, placed, geo.nodeW);
+    for (const edge of out) {
+      edge.text = plain(
+        edge.ordinal !== null ? `${edge.ordinal} · ${edge.spec.label}` : edge.spec.label
+      );
+    }
+    placeLabels(out, placed, geo.nodeW, NODE_H);
     return out;
   }, [placed, byId, geo]);
 
@@ -529,118 +484,4 @@ function leader(node: Placed, cardLeft: number, cardY: number, NODE_W: number): 
   const y2 = node.cy;
   const bend = Math.max(28, (x1 - x2) * 0.4);
   return `M ${x1} ${y1} C ${x1 - bend} ${y1}, ${x2 + bend} ${y2}, ${x2} ${y2}`;
-}
-
-const KIND_WORD: Record<EdgeKind, string> = {
-  step: "always",
-  branch: "only if",
-  return: "returns",
-  detail: "detail"
-};
-
-const KIND_GLYPH: Record<EdgeKind, string> = {
-  step: "→",
-  branch: "◆",
-  return: "↩",
-  detail: "·"
-};
-
-/**
- * Edge routing.
- *
- * Down a row: a vertical bezier between the facing edges. Along a row: a shallow arc between the
- * near sides. Back up a row: out to the left and around so a return path is never mistaken for
- * forward progress.
- */
-function route(a: Placed, b: Placed, NODE_W: number): Curve {
-  const ax = a.cx;
-  const bx = b.cx;
-
-  if (b.row > a.row) {
-    const y1 = a.cy + NODE_H / 2;
-    const y2 = b.cy - NODE_H / 2;
-    const dy = Math.max((y2 - y1) / 2, 18);
-    return [
-      [ax, y1],
-      [ax, y1 + dy],
-      [bx, y2 - dy],
-      [bx, y2]
-    ];
-  }
-
-  if (b.row === a.row) {
-    const forward = bx > ax;
-    const x1 = ax + (forward ? NODE_W / 2 : -NODE_W / 2);
-    const x2 = bx + (forward ? -NODE_W / 2 : NODE_W / 2);
-    // The apex has to clear the top of the node by enough to seat a label; for a cubic with both
-    // controls at `cy - lift` the apex is at `cy - 0.75 * lift`, hence the division. At lift 30 the
-    // arc cut straight across the boxes it was passing over.
-    const lift = (NODE_H / 2 + 24) / 0.75;
-    return [
-      [x1, a.cy],
-      [x1 + (forward ? 22 : -22), a.cy - lift],
-      [x2 + (forward ? -22 : 22), b.cy - lift],
-      [x2, b.cy]
-    ];
-  }
-
-  // Backwards: leave and re-enter on the left, bowing further out the more rows it spans.
-  const bow = 34 + (a.row - b.row) * 26;
-  const x1 = ax - NODE_W / 2;
-  const x2 = bx - NODE_W / 2;
-  return [
-    [x1, a.cy],
-    [x1 - bow, a.cy],
-    [x2 - bow, b.cy],
-    [x2, b.cy]
-  ];
-}
-
-/**
- * Keep the labels legible.
- *
- * A label wants the midpoint of its own edge, but edges converge -- three arrows into
- * `parseDispatching` put their midpoints within a few pixels of each other, and the three labels
- * land on top of one another. So each is tried at the midpoint first and then slid along its own
- * curve, with a vertical nudge as the last resort. Sliding is preferred over nudging because a
- * label that has moved along its edge is still unambiguously *that* edge's label.
- *
- * Text is measured by character count rather than by `getBBox`, since this runs during layout with
- * nothing in the DOM yet. 5.4px per character at 10.5px is an over-estimate for this font, which is
- * the safe direction to be wrong in.
- */
-function placeLabels(edges: Edge[], nodes: Placed[], NODE_W: number): void {
-  const H = 13;
-  // Seeded with the node boxes: a label over a node title is worse than a label off its midpoint.
-  const taken = nodes.map((n) => ({ x: n.cx, y: n.cy, w: NODE_W, h: NODE_H }));
-  const hits = (x: number, y: number, w: number) =>
-    taken.some(
-      (t) =>
-        Math.abs(x - t.x) * 2 < w + t.w + 6 && Math.abs(y - t.y) * 2 < H + t.h + 4
-    );
-
-  const TS = [0.5, 0.38, 0.62, 0.28, 0.72];
-  const DYS = [0, -15, 15, -30, 30, -46, 46, -62, 62];
-
-  for (const edge of edges) {
-    const text = plain(
-      edge.ordinal !== null ? `${edge.ordinal} · ${edge.spec.label}` : edge.spec.label
-    );
-    const w = text.length * 5.4 + 6;
-    let best: [number, number] | null = null;
-    outer: for (const dy of DYS) {
-      for (const t of TS) {
-        const [x, y] = at(edge.cp, t);
-        if (!hits(x, y + 4 + dy, w)) {
-          best = [x, y + 4 + dy];
-          break outer;
-        }
-      }
-    }
-    // Nothing free: leave it at the midpoint rather than flinging it somewhere unrelated.
-    const [x, y] = best ?? [edge.mx, edge.my];
-    edge.mx = x;
-    edge.my = y;
-    taken.push({ x, y, w, h: H });
-  }
 }

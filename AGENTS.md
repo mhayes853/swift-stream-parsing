@@ -84,7 +84,59 @@ and are read directly; the whitespace table is a literal inside `streamWhitespac
 recorder probes the shipped predicate over all 256 bytes and reconstructs it — a table edited in the
 parser then shows up in the explorer with nobody having to remember it.
 
+The whitespace table is recovered this way because it is a literal inside
+`streamWhitespaceMissMask`; the escape map is recovered by probing `streamDecodeSimpleEscape` at
+all 128 indices, so the eight non-zero cells the site draws are the table rather than a claim about
+it.
+
 Vector kernels are drawn as registers, not as coloured text: one `VectorRow` per 128-bit value,
 lanes aligned in columns so a value only moves down, and the operation between rows named for the
 instruction it is (`cmeq`, `tbl`, `orr`, `eor`). If a step in a kernel is a real instruction, it
 should be a row.
+
+**A visual steps through the kernel one instruction at a time, and every step says what changed.**
+A stack drawn all at once shows the answer but not the work, so a row carries a `phase`: `future`
+keeps its box and draws nothing (the stack must not reflow as the animation runs), `now` deals its
+lanes in left to right, `past` is already computed. Where a register is *updated* rather than
+produced — `scanned |= block`, the SWAR word under the mask and the bias — pass `changed` and the
+altered lanes pulse instead; a row whose contents change between steps also needs `epoch`, or React
+reuses the nodes and the change happens invisibly. Each step names itself in a `StepNote` under the
+controls, because "what changed" has to be readable and not only visible.
+
+**Every step also marks what it is touching in the input.** `InputTape` draws the sample's bytes
+once and takes `TapeMark`s over it: `done` behind the cursor, `window` for the bytes in the
+register, `cursor` for the byte the step resolves to, `next` for where the parser resumes. A rule
+every sixteen bytes makes the vector boundary visible without counting. This is the reason the
+container trace records `offset`/`length` per token — those come from the spans the parser hands
+the sink, cross-checked against a cursor that skips whitespace with the shipped `streamWhitespaceEnd`
+and steps over one separator. `offsetsVerified` carries that agreement into the bundle and
+`./Web/generate traces` fails without it, on the same footing as a drifted kernel mirror.
+
+Motion degrades under `prefers-reduced-motion` to an instant state change rather than being removed:
+the phases still differ, they simply stop animating between them.
+
+**Every node's detail panel draws its own flow chart.** The pipeline graph says which functions
+reach which; `steps` on a node says what the one function *does*, and it is the only place a branch
+*inside* a kernel is written down. `AlgorithmChart` draws it in the same language as the page chart
+— the same four `kind`s, the same dashing, every arrow carrying its label, ordered fan-outs
+numbered — because they are the same claim at two scales, and a second notation would make that
+harder to see rather than easier. The shared geometry lives in `Web/src/components/graph.ts`;
+neither chart owns it.
+
+The extractor holds a step graph to the pipeline graph's standard and then some. A node without one
+is a build error, so "this step has no chart" cannot happen quietly. So are a duplicate step id, an
+arrow into nothing, a step the entry cannot reach, and a graph with **no step that ends it** — that
+last one matters because most of these kernels are loops, and a loop drawn with no exit is a claim
+about the code that is not true of any of them. A step's `source` must resolve *and* be one the node
+already lists as evidence, so following a step into the Source tab lands on a declaration that is
+actually there.
+
+These graphs have loops in them, which is why row assignment is not a plain longest path:
+`rankGraph` finds the back edges by DFS first and ranks over what is left, so a loop's head sits
+above its body and the returning arrow reads as a return. Two returns between the same pair of rows
+would otherwise draw the same curve, so each gets its own bow. The chart is laid out twice — the
+first pass measures how far a loop-back label bows past the leftmost node, the second gives the node
+grid that much less — and the last few percent is taken by scaling rather than by scrolling the
+panel sideways.
+
+

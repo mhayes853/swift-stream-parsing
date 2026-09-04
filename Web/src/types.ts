@@ -113,6 +113,26 @@ export interface PipelineEdge {
   when?: string;
 }
 
+/**
+ * One step of a node's own algorithm — an instruction, a test, or a call it makes.
+ *
+ * The pipeline graph says which functions reach which. This says what the one function does, and
+ * it is the only place a branch *inside* a kernel is written down. The extractor holds it to the
+ * same standard as the pipeline graph: every arrow labelled, every step reachable from the first,
+ * and at least one step that ends the algorithm.
+ */
+export interface AlgorithmStep {
+  id: string;
+  title: string;
+  /** The short label under the title — a width, a cost, an attribute. */
+  kicker?: string;
+  detail: string;
+  /** `File.swift:symbol`, and required to be one the node already lists as evidence. */
+  source?: string;
+  ordering?: "ordered" | "unordered";
+  next: PipelineEdge[];
+}
+
 export interface PipelineNode {
   id: string;
   stage: string;
@@ -126,6 +146,8 @@ export interface PipelineNode {
   /** `ordered` means `next` is written in the order the source runs or tests them. */
   ordering?: "ordered" | "unordered";
   next: PipelineEdge[];
+  /** The control flow inside this node. The first entry is the entry point. */
+  steps: AlgorithmStep[];
 }
 
 export interface Pipeline {
@@ -180,6 +202,9 @@ export interface ContainerStep {
   index: number;
   event: string;
   text?: string;
+  /** The token's byte range in the sample, from the parser's own spans where it hands one over. */
+  offset: number;
+  length: number;
   depthBefore: number;
   depthAfter: number;
   containersAfter: string;
@@ -190,6 +215,7 @@ export interface ContainerTrace {
   sample: string;
   steps: ContainerStep[];
   maximumDepth: number;
+  offsetsVerified: boolean;
 }
 
 export interface NumberCase {
@@ -226,6 +252,8 @@ export interface TableTrace {
   summary: string;
   replaces: string;
   sample: string;
+  /** The sample's bytes; the lanes cover the first sixteen of them. */
+  bytes: number[];
   tables: LookupTable[];
   lanes: TableLane[];
   combine: "equal" | "and";
@@ -258,6 +286,8 @@ export interface UTF8Trace {
 
 export interface EscapeTrace {
   entries: { byte: number; source: string; decoded?: number; meaning: string }[];
+  /** The whole 128-byte map, recovered by probing the shipped decoder at every index. */
+  map: number[];
   verified: boolean;
 }
 

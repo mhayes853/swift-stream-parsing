@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 /** Printable stand-in for a byte, so a control character still occupies its lane visibly. */
 export function glyph(byte: number): string {
@@ -122,12 +123,92 @@ export function VerifiedNote({ verified }: { verified: boolean }) {
   );
 }
 
+// MARK: - The input tape
+//
+// Every kernel here is reading *the same thing*: bytes out of the caller's buffer. The animations
+// used to start at the register, which left the reader with no idea which part of the input a
+// given block or call site was looking at. The tape puts the whole sample on screen once and lets
+// each step say, in the input's own coordinates, what it is touching: the 16 bytes a vector load
+// covers, the single lane a lookup resolves, the bytes already behind the cursor.
+
+export type TapeKind = "done" | "window" | "cursor" | "next";
+
+export interface TapeMark {
+  /** Inclusive byte offset. */
+  from: number;
+  /** Exclusive byte offset. */
+  to: number;
+  kind: TapeKind;
+}
+
+/** Later marks win, so a `cursor` written after a `window` shows through it. */
+function tapeClass(offset: number, marks: TapeMark[]): string {
+  let out = "";
+  for (const mark of marks) {
+    if (offset >= mark.from && offset < mark.to) out = mark.kind;
+  }
+  return out;
+}
+
+/**
+ * The sample bytes, with whatever the current step is touching marked.
+ *
+ * `blockSize` draws a rule every *n* bytes, which is how the 16-byte vector boundary becomes
+ * visible without anyone having to count lanes.
+ */
+export function InputTape({
+  bytes,
+  marks,
+  label,
+  blockSize = 16,
+  caption
+}: {
+  bytes: number[];
+  marks: TapeMark[];
+  label?: string;
+  blockSize?: number;
+  caption?: ReactNode;
+}) {
+  return (
+    <div className="tape">
+      {label && (
+        <div className="tape-head">
+          <span>{label}</span>
+          <span className="tape-count">{bytes.length} bytes</span>
+        </div>
+      )}
+      <div className="tape-bytes">
+        {bytes.map((byte, offset) => (
+          <i
+            key={offset}
+            className={`tape-byte ${tapeClass(offset, marks)} ${
+              blockSize && offset % blockSize === 0 && offset > 0 ? "tick" : ""
+            }`}
+            title={`byte ${offset} · 0x${hex(byte)}`}
+          >
+            {glyph(byte)}
+          </i>
+        ))}
+      </div>
+      {caption && <p className="tape-caption">{caption}</p>}
+    </div>
+  );
+}
+
 // MARK: - SIMD register rendering
 //
 // Every vector operation in the parser is sixteen lanes wide, and the point of these visuals is
 // that the reader should *see* that: one row per register, the operation that produced it named on
 // the left, and lanes that line up vertically from one row to the next. A value only ever moves
 // down a column, which is what a lane is.
+//
+// The rows are also a *timeline*. A stack is stepped through, and a row is one of three things at
+// any point: not computed yet, computed by this step, or already computed. A future row keeps its
+// space and shows nothing, so the stack never reflows; the row a step produces animates its lanes
+// in left to right, which is the only motion in the visual and therefore reads as "this is what
+// changed".
+
+export type RowPhase = "past" | "now" | "future";
 
 export interface Cell {
   /** The value in this lane. */
@@ -142,6 +223,8 @@ export interface Cell {
   tone?: string;
   /** Ringed: the lane the whole operation resolves to. */
   marked?: boolean;
+  /** This lane's value differs from the previous step's — pulsed rather than merely re-rendered. */
+  changed?: boolean;
   title?: string;
 }
 
@@ -150,21 +233,30 @@ export interface Cell {
  *
  * `op` is the instruction-ish label; `note` is the register's role. Both sit in a fixed-width
  * gutter so the lanes align across every row of a stack.
+ *
+ * `phase` places the row on the step timeline. `epoch` is mixed into the lane keys so that a row
+ * whose *contents* change between steps — the accumulator, the SWAR word — remounts and replays
+ * its animation; without it React reuses the nodes and the change happens invisibly.
  */
 export function VectorRow({
   op,
   note,
   cells,
-  kind = "bytes"
+  kind = "bytes",
+  phase = "past",
+  epoch = 0
 }: {
   op: string;
   note?: string;
   cells: Cell[];
   /** `bytes` for data, `mask` for an all-ones/all-zeros compare result. */
   kind?: "bytes" | "mask";
+  phase?: RowPhase;
+  epoch?: number;
 }) {
+  const future = phase === "future";
   return (
-    <div className="vec-row">
+    <div className={`vec-row ${phase}`}>
       <div className="vec-gutter">
         <span className="vec-op">{op}</span>
         {note && <span className="vec-note">{note}</span>}
@@ -172,18 +264,27 @@ export function VectorRow({
       <div className={`vec-lanes ${kind}`}>
         {cells.map((cell, i) => (
           <div
-            key={i}
+            key={`${phase}-${epoch}-${i}`}
             className={[
               "vec-lane",
-              cell.on ? "on" : "",
-              cell.dim ? "dim" : "",
-              cell.marked ? "marked" : ""
+              future ? "ghost" : "",
+              !future && cell.on ? "on" : "",
+              !future && cell.dim ? "dim" : "",
+              !future && cell.marked ? "marked" : "",
+              !future && cell.changed ? "chg" : ""
             ].join(" ")}
-            style={cell.on && cell.tone ? { background: cell.tone, borderColor: cell.tone } : undefined}
-            title={cell.title}
+            style={
+              {
+                "--lane-delay": `${i * 16}ms`,
+                ...(!future && cell.on && cell.tone
+                  ? { background: cell.tone, borderColor: cell.tone }
+                  : {})
+              } as CSSProperties
+            }
+            title={future ? undefined : cell.title}
           >
-            <span className="v">{cell.text}</span>
-            {cell.sub !== undefined && <span className="s">{cell.sub}</span>}
+            <span className="v">{future ? "·" : cell.text}</span>
+            {cell.sub !== undefined && <span className="s">{future ? "" : cell.sub}</span>}
           </div>
         ))}
       </div>
@@ -192,9 +293,17 @@ export function VectorRow({
 }
 
 /** The operator between two register rows: `&`, `|`, `^`, `==`. */
-export function VectorOp({ symbol, label }: { symbol: string; label: string }) {
+export function VectorOp({
+  symbol,
+  label,
+  phase = "past"
+}: {
+  symbol: string;
+  label: string;
+  phase?: RowPhase;
+}) {
   return (
-    <div className="vec-op-row">
+    <div className={`vec-op-row ${phase}`}>
       <div className="vec-gutter" />
       <div className="vec-op-mark">
         <span className="sym">{symbol}</span>
@@ -213,6 +322,26 @@ export function hex(byte: number): string {
   return byte.toString(16).toUpperCase().padStart(2, "0");
 }
 
+/** Lanes whose value changed against the previous step, so the pulse marks the delta. */
+export function diff(now: number[], before: number[] | undefined): boolean[] {
+  return now.map((v, i) => before !== undefined && before[i] !== v);
+}
+
+/**
+ * The name of the step currently on screen, and what it did.
+ *
+ * Every stepped visual carries one of these directly under its controls, because "what changed"
+ * has to be readable, not only visible.
+ */
+export function StepNote({ op, children }: { op: string; children: ReactNode }) {
+  return (
+    <p className="step-note">
+      <code>{op}</code>
+      <span>{children}</span>
+    </p>
+  );
+}
+
 /** A bit field rendered low bit first, with the labels the kernel's comment gives them. */
 export function Bits({ value, labels }: { value: number; labels: string[] }) {
   return (
@@ -229,18 +358,26 @@ export function Bits({ value, labels }: { value: number; labels: string[] }) {
  *
  * Drawn as a row of sixteen so it reads as the same shape as the register it indexes into — which
  * it is: `tbl` takes a vector of indices and returns a vector of entries.
+ *
+ * `touched` is the set of entries the current block reads at all. Lighting those is what turns the
+ * table from a legend into a step: a sixteen-lane lookup is sixteen *simultaneous* reads, and the
+ * spread of the hits across the table is the reason indexing beats comparing.
  */
 export function TableStrip({
   table,
   active,
-  onHover
+  touched,
+  onHover,
+  dim
 }: {
   table: { name: string; indexedBy: string; entries: number[]; format: string; bitLabels: string[]; note: string };
   active?: number;
+  touched?: Set<number>;
   onHover?: (index: number | null) => void;
+  dim?: boolean;
 }) {
   return (
-    <div className="table-strip">
+    <div className={`table-strip ${dim ? "dim" : ""}`}>
       <div className="table-head">
         <strong>{table.name}</strong>
         <code>{table.indexedBy}</code>
@@ -249,7 +386,12 @@ export function TableStrip({
         {table.entries.map((entry, i) => (
           <div
             key={i}
-            className={`table-cell ${i === active ? "active" : ""} ${entry === 0 ? "empty" : ""}`}
+            className={[
+              "table-cell",
+              i === active ? "active" : "",
+              touched?.has(i) ? "touched" : "",
+              entry === 0 ? "empty" : ""
+            ].join(" ")}
             onMouseEnter={() => onHover?.(i)}
             onMouseLeave={() => onHover?.(null)}
           >

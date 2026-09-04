@@ -293,6 +293,7 @@ extension KernelTraces {
         """,
       replaces: "chunk == 0x20 | chunk == 0x09 | chunk == 0x0A | chunk == 0x0D",
       sample: sample,
+      bytes: bytes,
       tables: [
         TableTrace.Table(
           name: "low nibble table",
@@ -353,6 +354,7 @@ extension KernelTraces {
         """,
       replaces: "six compares and their ORs, per lane",
       sample: sample,
+      bytes: bytes,
       tables: [
         TableTrace.Table(
           name: "high nibble table",
@@ -513,10 +515,16 @@ extension KernelTraces {
         )
       )
     }
+    // The table itself, recovered index by index through the shipped decoder.
+    let map = (0..<128).map { streamDecodeSimpleEscape(UInt8($0)) ?? 0 }
+
     // Exactly eight bytes may decode, and no decode may produce the sentinel.
     let decodable = (UInt8.min...UInt8.max).filter { streamDecodeSimpleEscape($0) != nil }
     let verified =
       decodable.count == 8 && decodable.allSatisfy { streamDecodeSimpleEscape($0) != 0 }
-    return EscapeTrace(entries: entries, verified: verified)
+      // Every byte the decoder accepts is below 128, so the recovered 128-entry map is the whole
+      // table and the animation is not drawing a truncated one.
+      && decodable.allSatisfy { $0 < 128 } && map.filter { $0 != 0 }.count == 8
+    return EscapeTrace(entries: entries, map: map, verified: verified)
   }
 }

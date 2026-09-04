@@ -38,6 +38,9 @@ struct TableTrace: Encodable {
   /// The portable spelling this replaces, for the "why a table" caption.
   var replaces: String
   var sample: String
+  /// The sample's bytes. The block the lanes cover is the first sixteen of these; the rest is
+  /// what the caller's buffer holds either side of it, which is what the animation's tape draws.
+  var bytes: [UInt8]
   var tables: [Table]
   var lanes: [Lane]
   /// How the per-table values are combined into the answer: `equal` or `and`.
@@ -100,6 +103,10 @@ struct UTF8Trace: Encodable {
 /// The simple-escape table: a byte in, a byte out, zero meaning "not a simple escape".
 struct EscapeTrace: Encodable {
   var entries: [Entry]
+  /// The whole 128-byte map, recovered by asking the shipped decoder about every index rather than
+  /// by copying the `StaticString`. The animation draws it, so it has to be the real thing: eight
+  /// non-zero cells out of 128, and every other index answering with the sentinel.
+  var map: [UInt8]
   var verified: Bool
 
   struct Entry: Encodable {
@@ -170,6 +177,9 @@ struct ContainerTrace: Encodable {
   var sample: String
   var steps: [Step]
   var maximumDepth: Int
+  /// Every token offset derived by the walk matched the offset of the span the parser passed, for
+  /// every token that came with one.
+  var offsetsVerified: Bool
 
   /// One token from a real parse. `depth` and `containers` are reconstructed from the container
   /// events by the documented rule -- 1 = object, 0 = array, shifted in at `depth` -- because the
@@ -179,6 +189,11 @@ struct ContainerTrace: Encodable {
     var index: Int
     var event: String
     var text: String?
+    /// The token's byte range in `sample`. Taken from the span the parser hands the sink where
+    /// there is one, and otherwise from a whitespace-and-separator skip using the shipped
+    /// scanner; `offsetsVerified` records that the two agreed everywhere both existed.
+    var offset: Int
+    var length: Int
     var depthBefore: Int
     var depthAfter: Int
     /// 64 characters, index 0 = depth 1, `1` for an object and `0` for an array; `.` past the top.
