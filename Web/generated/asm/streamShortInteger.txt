@@ -1,0 +1,38 @@
+; StreamParsingCore.streamShortInteger(base: Swift.UnsafeRawPointer, from: Swift.Int, end: Swift.Int) -> Swift.UInt64?
+; _$s17StreamParsingCore18streamShortInteger4base4from3ends6UInt64VSgSV_S2itF
+; 33 instructions
+; llvm-objdump -d, release benchmark binary
+
+10023c124:     	add	x8, x0, x2
+10023c128:     	ldur	x8, [x8, #-0x8]
+10023c12c:     	sub	w9, w1, w2
+10023c130:     	ubfiz	x9, x9, #3, #3
+10023c134:     	mov	x10, #-0x1              ; =-1
+10023c138:     	lsl	x9, x10, x9
+10023c13c:     	and	x8, x8, x9
+10023c140:     	and	x9, x9, #0x3030303030303030
+10023c144:     	mov	x10, #0x6666666666666666 ; =7378697629483820646
+10023c148:     	orr	x10, x10, #0x7070707070707070
+10023c14c:     	sub	x8, x8, x9
+10023c150:     	add	x9, x8, x10
+10023c154:     	orr	x9, x9, x8
+10023c158:     	tst	x9, #0x8080808080808080
+10023c15c:     	b.eq	0x10023c16c <_$s17StreamParsingCore18streamShortInteger4base4from3ends6UInt64VSgSV_S2itF+0x48>
+10023c160:     	mov	x0, #0x0                ; =0
+10023c164:     	mov	w1, #0x1                ; =1
+10023c168:     	ret
+10023c16c:     	mov	w1, #0x0                ; =0
+10023c170:     	mov	w9, #0xa01              ; =2561
+10023c174:     	mul	x8, x8, x9
+10023c178:     	lsr	x8, x8, #8
+10023c17c:     	and	x8, x8, #0xff00ff00ff00ff
+10023c180:     	mov	w9, #0x1                ; =1
+10023c184:     	movk	w9, #0x64, lsl #16
+10023c188:     	mul	x8, x8, x9
+10023c18c:     	lsr	x8, x8, #16
+10023c190:     	and	x8, x8, #0xffff0000ffff
+10023c194:     	mov	x9, #0x1                ; =1
+10023c198:     	movk	x9, #0x2710, lsl #32
+10023c19c:     	mul	x8, x8, x9
+10023c1a0:     	lsr	x0, x8, #32
+10023c1a4:     	ret

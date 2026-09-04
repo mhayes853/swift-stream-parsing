@@ -1,0 +1,239 @@
+; StreamParsingCore.JSONParser.parse<A where A: StreamParsingCore.StreamParseSink, A: ~Swift.Copyable>(_: Swift.UnsafeBufferPointer<Swift.UInt8>, into: inout A) throws(StreamParsingCore.JSONParsingError) -> ()
+; _$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF
+; 233 instructions
+; 12 further specialization(s) of this symbol in the binary
+; llvm-objdump -d, release benchmark binary
+
+10020e3e0:     	sub	sp, sp, #0x70
+10020e3e4:     	str	x28, [sp, #0x10]
+10020e3e8:     	stp	x27, x26, [sp, #0x20]
+10020e3ec:     	stp	x25, x24, [sp, #0x30]
+10020e3f0:     	stp	x23, x22, [sp, #0x40]
+10020e3f4:     	stp	x20, x19, [sp, #0x50]
+10020e3f8:     	stp	x29, x30, [sp, #0x60]
+10020e3fc:     	add	x29, sp, #0x60
+10020e400:     	cbz	x0, 0x10020e484 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xa4>
+10020e404:     	mov	x22, x1
+10020e408:     	cbz	x1, 0x10020e484 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xa4>
+10020e40c:     	mov	x19, x20
+10020e410:     	mov	x23, x4
+10020e414:     	mov	x24, x3
+10020e418:     	mov	x25, x2
+10020e41c:     	mov	x27, x0
+10020e420:     	str	x0, [x20, #0x88]
+10020e424:     	ldr	x8, [x20, #0x68]
+10020e428:     	cmp	x22, x8
+10020e42c:     	b.ge	0x10020e464 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x84>
+10020e430:     	ldr	x8, [x19, #0x58]
+10020e434:     	cmp	x8, #0x1
+10020e438:     	b.lt	0x10020e488 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xa8>
+10020e43c:     	mov	x0, x27
+10020e440:     	mov	x1, x22
+10020e444:     	mov	x2, x25
+10020e448:     	mov	x3, x24
+10020e44c:     	mov	x4, x23
+10020e450:     	mov	x20, x19
+10020e454:     	bl	0x10020ea98 <_$s17StreamParsingCore10JSONParserV19completePendingUTF84base5count4intoSiSV_SixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e458:     	mov	x26, x0
+10020e45c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e460:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e464:     	mov	x0, x27
+10020e468:     	mov	x1, x22
+10020e46c:     	mov	x2, x25
+10020e470:     	mov	x3, x24
+10020e474:     	mov	x4, x23
+10020e478:     	mov	x20, x19
+10020e47c:     	bl	0x1002181b4 <_$s17StreamParsingCore10JSONParserV13parseWindowed4base5count4intoySV_SixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e480:     	cbnz	x21, 0x10020e490 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb0>
+10020e484:     	b	0x10020e498 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb8>
+10020e488:     	mov	x26, #0x0               ; =0
+10020e48c:     	b	0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e490:     	mov	x26, x0
+10020e494:     	mov	w21, #0x1               ; =1
+10020e498:     	mov	x0, x26
+10020e49c:     	ldp	x29, x30, [sp, #0x60]
+10020e4a0:     	ldp	x20, x19, [sp, #0x50]
+10020e4a4:     	ldp	x23, x22, [sp, #0x40]
+10020e4a8:     	ldp	x25, x24, [sp, #0x30]
+10020e4ac:     	ldp	x27, x26, [sp, #0x20]
+10020e4b0:     	ldr	x28, [sp, #0x10]
+10020e4b4:     	add	sp, sp, #0x70
+10020e4b8:     	ret
+10020e4bc:     	cmp	x26, x22
+10020e4c0:     	b.ge	0x10020e5c4 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x1e4>
+10020e4c4:     	ldrb	w8, [x19]
+10020e4c8:     	cmp	w8, #0x7
+10020e4cc:     	b.le	0x10020e544 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x164>
+10020e4d0:     	cmp	w8, #0xa
+10020e4d4:     	b.gt	0x10020e574 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x194>
+10020e4d8:     	cmp	w8, #0x8
+10020e4dc:     	b.eq	0x10020e648 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x268>
+10020e4e0:     	add	x28, x26, #0x1
+10020e4e4:     	cmp	w8, #0x9
+10020e4e8:     	b.ne	0x10020e514 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x134>
+10020e4ec:     	ldrb	w0, [x27, x26]
+10020e4f0:     	mov	x1, x28
+10020e4f4:     	mov	x2, x25
+10020e4f8:     	mov	x3, x24
+10020e4fc:     	mov	x4, x23
+10020e500:     	mov	x20, x19
+10020e504:     	bl	0x10020fdf8 <_$s17StreamParsingCore10JSONParserV13consumeEscape_2at4intoys5UInt8V_SixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e508:     	mov	x26, x28
+10020e50c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e510:     	b	0x10020e538 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x158>
+10020e514:     	ldrb	w0, [x27, x26]
+10020e518:     	mov	x1, x28
+10020e51c:     	mov	x2, x25
+10020e520:     	mov	x3, x24
+10020e524:     	mov	x4, x23
+10020e528:     	mov	x20, x19
+10020e52c:     	bl	0x10020ff04 <_$s17StreamParsingCore10JSONParserV19consumeUnicodeDigit_2at4intoys5UInt8V_SixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e530:     	mov	x26, x28
+10020e534:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e538:     	mov	x27, x1
+10020e53c:     	mov	x26, x0
+10020e540:     	b	0x10020e694 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b4>
+10020e544:     	mov	x0, x27
+10020e548:     	mov	x1, x26
+10020e54c:     	mov	x2, x22
+10020e550:     	mov	x3, x25
+10020e554:     	mov	x4, x24
+10020e558:     	mov	x5, x23
+10020e55c:     	mov	x20, x19
+10020e560:     	b.hs	0x10020e674 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x294>
+10020e564:     	bl	0x100210bbc <_$s17StreamParsingCore10JSONParserV20consumeStructuralRun4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e568:     	mov	x26, x0
+10020e56c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e570:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e574:     	sub	w9, w8, #0xd
+10020e578:     	mov	x0, x27
+10020e57c:     	mov	x1, x26
+10020e580:     	mov	x2, x22
+10020e584:     	mov	x3, x25
+10020e588:     	mov	x4, x24
+10020e58c:     	mov	x5, x23
+10020e590:     	mov	x20, x19
+10020e594:     	cmp	w9, #0x3
+10020e598:     	b.hs	0x10020e5ac <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x1cc>
+10020e59c:     	bl	0x100217710 <_$s17StreamParsingCore10JSONParserV14consumeSkipRun4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e5a0:     	mov	x26, x0
+10020e5a4:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e5a8:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e5ac:     	cmp	w8, #0xb
+10020e5b0:     	b.ne	0x10020e684 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2a4>
+10020e5b4:     	bl	0x10021007c <_$s17StreamParsingCore10JSONParserV13consumeNumber4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e5b8:     	mov	x26, x0
+10020e5bc:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e5c0:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e5c4:     	mov	x27, x21
+10020e5c8:     	ldrb	w8, [x19, #0x46]
+10020e5cc:     	tbz	w8, #0x0, 0x10020e604 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x224>
+10020e5d0:     	strb	wzr, [x19, #0x46]
+10020e5d4:     	ldr	x8, [x23, #0x30]
+10020e5d8:     	mov	x20, x25
+10020e5dc:     	mov	x0, x24
+10020e5e0:     	mov	x1, x23
+10020e5e4:     	blr	x8
+10020e5e8:     	ldr	x8, [x23, #0x70]
+10020e5ec:     	mov	x0, x24
+10020e5f0:     	mov	x1, x23
+10020e5f4:     	blr	x8
+10020e5f8:     	and	w8, w0, #0xff
+10020e5fc:     	cmp	w8, #0x3
+10020e600:     	b.ne	0x10020e770 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x390>
+10020e604:     	ldr	x8, [x23, #0x68]
+10020e608:     	mov	x20, x25
+10020e60c:     	mov	x0, x24
+10020e610:     	mov	x1, x23
+10020e614:     	blr	x8
+10020e618:     	ldr	x8, [x23, #0x70]
+10020e61c:     	mov	x0, x24
+10020e620:     	mov	x1, x23
+10020e624:     	blr	x8
+10020e628:     	and	w8, w0, #0xff
+10020e62c:     	ldr	x9, [x19, #0x60]
+10020e630:     	add	x1, x9, x22
+10020e634:     	cmp	w8, #0x3
+10020e638:     	b.ne	0x10020e778 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x398>
+10020e63c:     	str	x1, [x19, #0x60]
+10020e640:     	mov	x21, x27
+10020e644:     	b	0x10020e498 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb8>
+10020e648:     	mov	x0, x27
+10020e64c:     	mov	x1, x26
+10020e650:     	mov	x2, x22
+10020e654:     	mov	x3, x25
+10020e658:     	mov	x4, x24
+10020e65c:     	mov	x5, x23
+10020e660:     	mov	x20, x19
+10020e664:     	bl	0x10020f98c <_$s17StreamParsingCore10JSONParserV13consumeKeyRun4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e668:     	mov	x26, x0
+10020e66c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e670:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e674:     	bl	0x10020ee4c <_$s17StreamParsingCore10JSONParserV16consumeStringRun4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e678:     	mov	x26, x0
+10020e67c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e680:     	b	0x10020e690 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2b0>
+10020e684:     	bl	0x1002109a8 <_$s17StreamParsingCore10JSONParserV14consumeLiteral4base4from2to4intoSiSV_S2ixztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF>
+10020e688:     	mov	x26, x0
+10020e68c:     	cbz	x21, 0x10020e4bc <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xdc>
+10020e690:     	mov	x27, x1
+10020e694:     	ldrb	w8, [x19, #0x46]
+10020e698:     	tbz	w8, #0x0, 0x10020e6d0 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x2f0>
+10020e69c:     	strb	wzr, [x19, #0x46]
+10020e6a0:     	ldr	x8, [x23, #0x30]
+10020e6a4:     	mov	x20, x25
+10020e6a8:     	mov	x0, x24
+10020e6ac:     	mov	x1, x23
+10020e6b0:     	blr	x8
+10020e6b4:     	ldr	x8, [x23, #0x70]
+10020e6b8:     	mov	x0, x24
+10020e6bc:     	mov	x1, x23
+10020e6c0:     	blr	x8
+10020e6c4:     	and	w8, w0, #0xff
+10020e6c8:     	cmp	w8, #0x3
+10020e6cc:     	b.ne	0x10020e760 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x380>
+10020e6d0:     	ldr	x8, [x23, #0x68]
+10020e6d4:     	mov	x20, x25
+10020e6d8:     	mov	x0, x24
+10020e6dc:     	mov	x1, x23
+10020e6e0:     	blr	x8
+10020e6e4:     	sub	w8, w26, #0x3
+10020e6e8:     	and	w8, w8, #0xff
+10020e6ec:     	cmp	w8, #0xa
+10020e6f0:     	b.hs	0x10020e714 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x334>
+10020e6f4:     	ldr	x8, [x23, #0x70]
+10020e6f8:     	mov	x20, x25
+10020e6fc:     	mov	x0, x24
+10020e700:     	mov	x1, x23
+10020e704:     	blr	x8
+10020e708:     	and	w8, w0, #0xff
+10020e70c:     	cmp	w8, #0x3
+10020e710:     	b.ne	0x10020e760 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x380>
+10020e714:     	strb	w26, [sp]
+10020e718:     	str	x27, [sp, #0x8]
+10020e71c:     	mov	w0, #0xf                ; =15
+10020e720:     	mov	x1, #0x0                ; =0
+10020e724:     	mov	x2, #0x0                ; =0
+10020e728:     	mov	w3, #0x12               ; =18
+10020e72c:     	mov	x4, #0x0                ; =0
+10020e730:     	mov	x5, #0x0                ; =0
+10020e734:     	bl	0x1003c0fdc <_write+0x1003c0fdc>
+10020e738:     	tbz	w0, #0x0, 0x10020e754 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x374>
+10020e73c:     	bl	0x100214374 <_$s17StreamParsingCore16JSONParsingErrorVACs0E0AAWl>
+10020e740:     	mov	x2, x0
+10020e744:     	adrp	x1, 0x10044a000 <_$s13StreamParsing18PartialMembersModeVN+0x50>
+10020e748:     	add	x1, x1, #0x3c0
+10020e74c:     	mov	x0, sp
+10020e750:     	bl	0x1003c2878 <_write+0x1003c2878>
+10020e754:     	mov	x1, x27
+10020e758:     	mov	w21, #0x1               ; =1
+10020e75c:     	b	0x10020e498 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb8>
+10020e760:     	ldr	x8, [x19, #0x60]
+10020e764:     	add	x1, x8, x22
+10020e768:     	mov	x21, #0x0               ; =0
+10020e76c:     	b	0x10020e77c <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0x39c>
+10020e770:     	ldr	x8, [x19, #0x60]
+10020e774:     	add	x1, x8, x22
+10020e778:     	mov	x21, x27
+10020e77c:     	bl	0x1002150f0 <_$s17StreamParsingCore10JSONParserV17failSinkRejection_10byteOffsets5NeverOAA0aF7FailureV_SitAA16JSONParsingErrorVYKFZTf4nnd_n>
+10020e780:     	b	0x10020e490 <_$s17StreamParsingCore10JSONParserV5parse_4intoySRys5UInt8VG_xztAA16JSONParsingErrorVYKAA0A9ParseSinkRzRi_zlF+0xb0>

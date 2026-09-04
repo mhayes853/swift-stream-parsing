@@ -24,3 +24,54 @@ We have dedicated data types for streaming collections which includes dictionari
 The convenience layer is zero-copy by default as one can produce snapshots of the parsed data on-demand (down to the individual field level). However, various convenience APIs (such as the async sequences) will generally take a full snapshot of the value. This is because each parseable type is required to have a `~Copyable` and `~Escapable` view associated type, which generally is a container for a typed unsafe pointer to the value.
 
 We rely on SIMD heavily to scan and process multiple bytes at a time using various known algorithms. In some cases where we don't have enough data to fill a full SIMD register, SWAR can be faster. Make sure to always benchmark SIMD vs SWAR if you consider using either approach.
+
+## The algorithm explorer
+
+`Web/` holds the algorithm explorer: a flow chart of the parse path where every node links to the
+evidence behind it. It is a *view* over the material that already exists — it never becomes a
+second place to keep prose.
+
+**Every change that adds or revises evidence must update the explorer in the same commit.** That
+means a new experiment (landed *or* rejected), a revised measurement table, a renamed or deleted
+kernel, or a new explanation in a source comment.
+
+How the content is sourced, and therefore what you have to touch:
+
+- **Prose and measurements stay in `NEW_ARCHITECTURE.md` and in source comments.** These are the
+  source of truth. `Sources/StreamParsingSiteTool` extracts them into `Web/generated/content.json`
+  by heading slug and by declaration name. Adding a section to the doc needs no explorer change
+  beyond pointing at it.
+- **`Web/content/pipeline.json` is the only hand-authored file in the explorer.** It holds the
+  node graph (including `next`, which is what the flow chart draws), the short prose per node, and
+  the *references* — doc slugs, `File.swift:symbol` pairs, assembly symbols. A new experiment
+  attaches to the node it belongs to by adding its slug to that node's evidence list.
+- **Every arrow says what it is.** An edge in `next` is
+  `{ to, kind, label, when }`. `label` is drawn on the arrow and is **required** — the extractor
+  fails on an empty one, because an unlabelled arrow between two functions asserts only that one
+  reaches the other, which is the least interesting thing about it. `kind` is `step` (runs
+  unconditionally), `branch` (taken only when `when` holds), `return` (hands control back), or
+  `detail` (zooms into the same work); the chart draws each differently. A node that fans out also
+  carries `invokes` — one sentence on the mechanism, the `switch` or the loop — and `ordering`:
+  `ordered` when `next` is written in the order the source runs or tests them, in which case the
+  arrows are numbered, or `unordered` when there is no order to claim. Reordering `next` therefore
+  changes what the chart asserts; keep it matching the source.
+- **Keep the prose descriptive.** This is a tool for reading the parser, not a pitch for it. State
+  what a step does and what was measured; drop the adjectives.
+- **Rejected experiments matter as much as landed ones.** They are the reason a decision does not
+  get re-litigated, and the explorer surfaces them in a dedicated graveyard view. Record the
+  verdict in the section title (`Landed: …` / `Rejected: …`) so the extractor can classify it.
+
+After changing the doc, a kernel, or `pipeline.json`:
+
+```sh
+./Web/generate            # re-extracts content.json, traces.json, and the assembly snapshots
+```
+
+Generated artifacts under `Web/generated/` are committed, so the site builds without a Swift
+toolchain and evidence changes show up in diffs. The extractor **fails on a dangling reference** —
+a doc slug that no longer resolves, or a symbol that was renamed or deleted — so renaming a kernel
+without updating `pipeline.json` breaks the build rather than silently rotting the site.
+
+Traces are recorded by running the *shipped* kernels (`Sources/StreamParsingSiteTool/Trace`), not by
+reimplementing them, so the animations cannot drift from the parser. A kernel whose signature
+changes needs its recorder updated alongside it.

@@ -1,0 +1,32 @@
+; StreamParsingCore.streamWhitespaceEnd(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int) -> Swift.Int
+; _$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF
+; 27 instructions
+; llvm-objdump -d, release benchmark binary
+
+10023bf24:     	subs	x8, x2, x1
+10023bf28:     	b.le	0x10023bf7c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x58>
+10023bf2c:     	ldrb	w9, [x0, x1]
+10023bf30:     	cmp	w9, #0x20
+10023bf34:     	b.hi	0x10023bf84 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
+10023bf38:     	cmp	x8, #0xf
+10023bf3c:     	b.gt	0x10023bf8c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
+10023bf40:     	mov	w8, #0x1                ; =1
+10023bf44:     	mov	x9, #0x2600             ; =9728
+10023bf48:     	movk	x9, #0x1, lsl #32
+10023bf4c:     	ldrb	w10, [x0, x1]
+10023bf50:     	cmp	w10, #0x20
+10023bf54:     	lsl	x10, x8, x10
+10023bf58:     	and	x10, x10, x9
+10023bf5c:     	ccmp	x10, #0x0, #0x4, ls
+10023bf60:     	b.eq	0x10023bf84 <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x60>
+10023bf64:     	add	x1, x1, #0x1
+10023bf68:     	cmp	x2, x1
+10023bf6c:     	b.ne	0x10023bf4c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x28>
+10023bf70:     	mov	x1, x2
+10023bf74:     	mov	x0, x1
+10023bf78:     	ret
+10023bf7c:     	cmp	x8, #0x10
+10023bf80:     	b.ge	0x10023bf8c <_$s17StreamParsingCore19streamWhitespaceEnd4base4from2toSiSV_S2itF+0x68>
+10023bf84:     	mov	x0, x1
+10023bf88:     	ret
+10023bf8c:     	b	0x10023cc84 <_$s17StreamParsingCore22streamWhitespaceRunEnd4base4from2toSiSV_S2itF>

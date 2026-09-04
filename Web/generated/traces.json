@@ -1,0 +1,1847 @@
+{
+  "arch" : "arm64",
+  "containers" : {
+    "maximumDepth" : 64,
+    "sample" : "{\"id\":4,\"tags\":[\"a\",{\"k\":[true]}],\"ok\":null}",
+    "steps" : [
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 0,
+        "event" : "beginObject",
+        "index" : 0
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 1,
+        "event" : "key",
+        "index" : 1,
+        "text" : "id"
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 1,
+        "event" : "number",
+        "index" : 2,
+        "text" : "4"
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 1,
+        "event" : "key",
+        "index" : 3,
+        "text" : "tags"
+      },
+      {
+        "containersAfter" : "10..............................................................",
+        "containersBits" : [
+          1,
+          0
+        ],
+        "depthAfter" : 2,
+        "depthBefore" : 1,
+        "event" : "beginArray",
+        "index" : 4
+      },
+      {
+        "containersAfter" : "10..............................................................",
+        "containersBits" : [
+          1,
+          0
+        ],
+        "depthAfter" : 2,
+        "depthBefore" : 2,
+        "event" : "string",
+        "index" : 5,
+        "text" : "a"
+      },
+      {
+        "containersAfter" : "101.............................................................",
+        "containersBits" : [
+          1,
+          0,
+          1
+        ],
+        "depthAfter" : 3,
+        "depthBefore" : 2,
+        "event" : "beginObject",
+        "index" : 6
+      },
+      {
+        "containersAfter" : "101.............................................................",
+        "containersBits" : [
+          1,
+          0,
+          1
+        ],
+        "depthAfter" : 3,
+        "depthBefore" : 3,
+        "event" : "key",
+        "index" : 7,
+        "text" : "k"
+      },
+      {
+        "containersAfter" : "1010............................................................",
+        "containersBits" : [
+          1,
+          0,
+          1,
+          0
+        ],
+        "depthAfter" : 4,
+        "depthBefore" : 3,
+        "event" : "beginArray",
+        "index" : 8
+      },
+      {
+        "containersAfter" : "1010............................................................",
+        "containersBits" : [
+          1,
+          0,
+          1,
+          0
+        ],
+        "depthAfter" : 4,
+        "depthBefore" : 4,
+        "event" : "boolean",
+        "index" : 9,
+        "text" : "true"
+      },
+      {
+        "containersAfter" : "101.............................................................",
+        "containersBits" : [
+          1,
+          0,
+          1
+        ],
+        "depthAfter" : 3,
+        "depthBefore" : 4,
+        "event" : "endArray",
+        "index" : 10
+      },
+      {
+        "containersAfter" : "10..............................................................",
+        "containersBits" : [
+          1,
+          0
+        ],
+        "depthAfter" : 2,
+        "depthBefore" : 3,
+        "event" : "endObject",
+        "index" : 11
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 2,
+        "event" : "endArray",
+        "index" : 12
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 1,
+        "event" : "key",
+        "index" : 13,
+        "text" : "ok"
+      },
+      {
+        "containersAfter" : "1...............................................................",
+        "containersBits" : [
+          1
+        ],
+        "depthAfter" : 1,
+        "depthBefore" : 1,
+        "event" : "null",
+        "index" : 14,
+        "text" : "null"
+      },
+      {
+        "containersAfter" : "................................................................",
+        "containersBits" : [
+
+        ],
+        "depthAfter" : 0,
+        "depthBefore" : 1,
+        "event" : "endObject",
+        "index" : 15
+      }
+    ]
+  },
+  "generatedAt" : "2026-09-03T21:47:42Z",
+  "number" : {
+    "cases" : [
+      {
+        "acceptedByShortInteger" : true,
+        "digitCount" : 3,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 3,
+        "steps" : [
+          {
+            "bytes" : [
+              125,
+              93,
+              9,
+              58,
+              123,
+              53,
+              56,
+              50
+            ],
+            "detail" : "Eight bytes ending at the token, not starting at it — the read is behind the cursor, so one `end >= 8` test makes it safe.",
+            "hex" : "3238357B3A095D7D",
+            "label" : "load"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              255,
+              255,
+              255
+            ],
+            "detail" : "`UInt64.max << 40` keeps the 3 token bytes and zeroes the junk below them. Right alignment is also what removes the scaling step.",
+            "hex" : "FFFFFF0000000000",
+            "label" : "mask"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              53,
+              56,
+              50
+            ],
+            "detail" : "The junk prefix is gone. Masking comes *before* the bias: a byte below `'0'` would borrow into the leading digit.",
+            "hex" : "3238350000000000",
+            "label" : "masked"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              5,
+              8,
+              2
+            ],
+            "detail" : "Subtract `'0'` from every kept lane.",
+            "hex" : "0208050000000000",
+            "label" : "bias"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "Nonzero means some lane was not a digit. The digit test doubles as the shape test.",
+            "hex" : "0000000000000000",
+            "label" : "validate"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              5,
+              58,
+              82,
+              0
+            ],
+            "detail" : "×2561 >> 8 folds pairs of digits into bytes.",
+            "hex" : "00523A0500000000",
+            "label" : "tree 1"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              5,
+              0,
+              70,
+              2,
+              0,
+              0
+            ],
+            "detail" : "×6553601 >> 16 folds pairs of bytes into 16-bit groups.",
+            "hex" : "0000024600050000",
+            "label" : "tree 2"
+          },
+          {
+            "bytes" : [
+              70,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×42949672960001 >> 32 folds the halves; the low 32 bits are the value.",
+            "hex" : "0000000000000246",
+            "label" : "tree 3"
+          }
+        ],
+        "text" : "582",
+        "value" : 582,
+        "verified" : true
+      },
+      {
+        "acceptedByShortInteger" : true,
+        "digitCount" : 8,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 8,
+        "steps" : [
+          {
+            "bytes" : [
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56
+            ],
+            "detail" : "Eight bytes ending at the token, not starting at it — the read is behind the cursor, so one `end >= 8` test makes it safe.",
+            "hex" : "3837363534333231",
+            "label" : "load"
+          },
+          {
+            "bytes" : [
+              255,
+              255,
+              255,
+              255,
+              255,
+              255,
+              255,
+              255
+            ],
+            "detail" : "`UInt64.max << 0` keeps the 8 token bytes and zeroes the junk below them. Right alignment is also what removes the scaling step.",
+            "hex" : "FFFFFFFFFFFFFFFF",
+            "label" : "mask"
+          },
+          {
+            "bytes" : [
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56
+            ],
+            "detail" : "The junk prefix is gone. Masking comes *before* the bias: a byte below `'0'` would borrow into the leading digit.",
+            "hex" : "3837363534333231",
+            "label" : "masked"
+          },
+          {
+            "bytes" : [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "detail" : "Subtract `'0'` from every kept lane.",
+            "hex" : "0807060504030201",
+            "label" : "bias"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "Nonzero means some lane was not a digit. The digit test doubles as the shape test.",
+            "hex" : "0000000000000000",
+            "label" : "validate"
+          },
+          {
+            "bytes" : [
+              12,
+              23,
+              34,
+              45,
+              56,
+              67,
+              78,
+              0
+            ],
+            "detail" : "×2561 >> 8 folds pairs of digits into bytes.",
+            "hex" : "004E43382D22170C",
+            "label" : "tree 1"
+          },
+          {
+            "bytes" : [
+              210,
+              4,
+              128,
+              13,
+              46,
+              22,
+              0,
+              0
+            ],
+            "detail" : "×6553601 >> 16 folds pairs of bytes into 16-bit groups.",
+            "hex" : "0000162E0D8004D2",
+            "label" : "tree 2"
+          },
+          {
+            "bytes" : [
+              78,
+              97,
+              188,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×42949672960001 >> 32 folds the halves; the low 32 bits are the value.",
+            "hex" : "0000000000BC614E",
+            "label" : "tree 3"
+          }
+        ],
+        "text" : "12345678",
+        "value" : 12345678,
+        "verified" : true
+      },
+      {
+        "acceptedByShortInteger" : true,
+        "digitCount" : 1,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 1,
+        "steps" : [
+          {
+            "bytes" : [
+              44,
+              34,
+              125,
+              93,
+              9,
+              58,
+              123,
+              55
+            ],
+            "detail" : "Eight bytes ending at the token, not starting at it — the read is behind the cursor, so one `end >= 8` test makes it safe.",
+            "hex" : "377B3A095D7D222C",
+            "label" : "load"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              255
+            ],
+            "detail" : "`UInt64.max << 56` keeps the 1 token bytes and zeroes the junk below them. Right alignment is also what removes the scaling step.",
+            "hex" : "FF00000000000000",
+            "label" : "mask"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              55
+            ],
+            "detail" : "The junk prefix is gone. Masking comes *before* the bias: a byte below `'0'` would borrow into the leading digit.",
+            "hex" : "3700000000000000",
+            "label" : "masked"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7
+            ],
+            "detail" : "Subtract `'0'` from every kept lane.",
+            "hex" : "0700000000000000",
+            "label" : "bias"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "Nonzero means some lane was not a digit. The digit test doubles as the shape test.",
+            "hex" : "0000000000000000",
+            "label" : "validate"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7,
+              0
+            ],
+            "detail" : "×2561 >> 8 folds pairs of digits into bytes.",
+            "hex" : "0007000000000000",
+            "label" : "tree 1"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              7,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×6553601 >> 16 folds pairs of bytes into 16-bit groups.",
+            "hex" : "0000000700000000",
+            "label" : "tree 2"
+          },
+          {
+            "bytes" : [
+              7,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×42949672960001 >> 32 folds the halves; the low 32 bits are the value.",
+            "hex" : "0000000000000007",
+            "label" : "tree 3"
+          }
+        ],
+        "text" : "7",
+        "value" : 7,
+        "verified" : true
+      },
+      {
+        "acceptedByShortInteger" : false,
+        "digitCount" : 7,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 7,
+        "steps" : [
+          {
+            "bytes" : [
+              123,
+              45,
+              51,
+              46,
+              49,
+              52,
+              49,
+              53
+            ],
+            "detail" : "Eight bytes ending at the token, not starting at it — the read is behind the cursor, so one `end >= 8` test makes it safe.",
+            "hex" : "353134312E332D7B",
+            "label" : "load"
+          },
+          {
+            "bytes" : [
+              0,
+              255,
+              255,
+              255,
+              255,
+              255,
+              255,
+              255
+            ],
+            "detail" : "`UInt64.max << 8` keeps the 7 token bytes and zeroes the junk below them. Right alignment is also what removes the scaling step.",
+            "hex" : "FFFFFFFFFFFFFF00",
+            "label" : "mask"
+          },
+          {
+            "bytes" : [
+              0,
+              45,
+              51,
+              46,
+              49,
+              52,
+              49,
+              53
+            ],
+            "detail" : "The junk prefix is gone. Masking comes *before* the bias: a byte below `'0'` would borrow into the leading digit.",
+            "hex" : "353134312E332D00",
+            "label" : "masked"
+          },
+          {
+            "bytes" : [
+              0,
+              253,
+              2,
+              254,
+              0,
+              4,
+              1,
+              5
+            ],
+            "detail" : "Subtract `'0'` from every kept lane.",
+            "hex" : "05010400FE02FD00",
+            "label" : "bias"
+          },
+          {
+            "bytes" : [
+              0,
+              128,
+              0,
+              128,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "Nonzero means some lane was not a digit. The digit test doubles as the shape test.",
+            "hex" : "0000000080008000",
+            "label" : "validate"
+          },
+          {
+            "bytes" : [
+              253,
+              228,
+              27,
+              237,
+              13,
+              41,
+              15,
+              0
+            ],
+            "detail" : "×2561 >> 8 folds pairs of digits into bytes.",
+            "hex" : "000F290DED1BE4FD",
+            "label" : "tree 1"
+          },
+          {
+            "bytes" : [
+              239,
+              98,
+              153,
+              10,
+              35,
+              5,
+              0,
+              0
+            ],
+            "detail" : "×6553601 >> 16 folds pairs of bytes into 16-bit groups.",
+            "hex" : "000005230A9962EF",
+            "label" : "tree 2"
+          },
+          {
+            "bytes" : [
+              19,
+              157,
+              24,
+              15,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×42949672960001 >> 32 folds the halves; the low 32 bits are the value.",
+            "hex" : "000000000F189D13",
+            "label" : "tree 3"
+          }
+        ],
+        "text" : "-3.1415",
+        "verified" : true
+      },
+      {
+        "acceptedByShortInteger" : false,
+        "digitCount" : 4,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 4,
+        "steps" : [
+          {
+            "bytes" : [
+              93,
+              9,
+              58,
+              123,
+              49,
+              101,
+              49,
+              48
+            ],
+            "detail" : "Eight bytes ending at the token, not starting at it — the read is behind the cursor, so one `end >= 8` test makes it safe.",
+            "hex" : "303165317B3A095D",
+            "label" : "load"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              255,
+              255,
+              255,
+              255
+            ],
+            "detail" : "`UInt64.max << 32` keeps the 4 token bytes and zeroes the junk below them. Right alignment is also what removes the scaling step.",
+            "hex" : "FFFFFFFF00000000",
+            "label" : "mask"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              49,
+              101,
+              49,
+              48
+            ],
+            "detail" : "The junk prefix is gone. Masking comes *before* the bias: a byte below `'0'` would borrow into the leading digit.",
+            "hex" : "3031653100000000",
+            "label" : "masked"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              1,
+              53,
+              1,
+              0
+            ],
+            "detail" : "Subtract `'0'` from every kept lane.",
+            "hex" : "0001350100000000",
+            "label" : "bias"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              0,
+              0,
+              128,
+              0,
+              0
+            ],
+            "detail" : "Nonzero means some lane was not a digit. The digit test doubles as the shape test.",
+            "hex" : "0000800000000000",
+            "label" : "validate"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              0,
+              1,
+              63,
+              19,
+              12,
+              0
+            ],
+            "detail" : "×2561 >> 8 folds pairs of digits into bytes.",
+            "hex" : "000C133F01000000",
+            "label" : "tree 1"
+          },
+          {
+            "bytes" : [
+              0,
+              0,
+              63,
+              0,
+              168,
+              24,
+              0,
+              0
+            ],
+            "detail" : "×6553601 >> 16 folds pairs of bytes into 16-bit groups.",
+            "hex" : "000018A8003F0000",
+            "label" : "tree 2"
+          },
+          {
+            "bytes" : [
+              168,
+              24,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "detail" : "×42949672960001 >> 32 folds the halves; the low 32 bits are the value.",
+            "hex" : "00000000000018A8",
+            "label" : "tree 3"
+          }
+        ],
+        "text" : "1e10",
+        "verified" : true
+      },
+      {
+        "acceptedByShortInteger" : false,
+        "digitCount" : 11,
+        "prefix" : "\n,\"}]\t:{",
+        "runEnd" : 11,
+        "steps" : [
+
+        ],
+        "text" : "99999999999",
+        "verified" : true
+      }
+    ]
+  },
+  "stringRun" : {
+    "blocks" : [
+      {
+        "anyHit" : false,
+        "bytes" : [
+          97,
+          32,
+          115,
+          116,
+          114,
+          101,
+          97,
+          109,
+          105,
+          110,
+          103,
+          32,
+          74,
+          83,
+          79,
+          78
+        ],
+        "hit" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "hitLane" : 16,
+        "isBackslash" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "isControl" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "isQuote" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "nonASCIIAfter" : false,
+        "offset" : 0,
+        "scannedAfter" : [
+          97,
+          32,
+          115,
+          116,
+          114,
+          101,
+          97,
+          109,
+          105,
+          110,
+          103,
+          32,
+          74,
+          83,
+          79,
+          78
+        ]
+      },
+      {
+        "anyHit" : true,
+        "bytes" : [
+          32,
+          118,
+          97,
+          108,
+          117,
+          101,
+          32,
+          119,
+          105,
+          116,
+          104,
+          32,
+          97,
+          110,
+          32,
+          92
+        ],
+        "hit" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "hitLane" : 15,
+        "isBackslash" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "isControl" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "isQuote" : [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "nonASCIIAfter" : false,
+        "offset" : 16,
+        "scannedAfter" : [
+          97,
+          118,
+          115,
+          124,
+          119,
+          101,
+          97,
+          127,
+          105,
+          126,
+          111,
+          32,
+          107,
+          127,
+          111,
+          78
+        ]
+      }
+    ],
+    "bytes" : [
+      97,
+      32,
+      115,
+      116,
+      114,
+      101,
+      97,
+      109,
+      105,
+      110,
+      103,
+      32,
+      74,
+      83,
+      79,
+      78,
+      32,
+      118,
+      97,
+      108,
+      117,
+      101,
+      32,
+      119,
+      105,
+      116,
+      104,
+      32,
+      97,
+      110,
+      32,
+      92,
+      34,
+      101,
+      115,
+      99,
+      97,
+      112,
+      101,
+      92,
+      34,
+      32,
+      105,
+      110,
+      32,
+      105,
+      116
+    ],
+    "containsNonASCII" : false,
+    "end" : 31,
+    "sample" : "a streaming JSON value with an \\\"escape\\\" in it",
+    "tail" : [
+
+    ],
+    "verified" : true
+  },
+  "whitespace" : {
+    "bytes" : [
+      123,
+      10,
+      32,
+      32,
+      34,
+      105,
+      100,
+      34,
+      58,
+      32,
+      52,
+      44,
+      10,
+      32,
+      32,
+      34,
+      116,
+      97,
+      103,
+      115,
+      34,
+      58,
+      32,
+      91,
+      49,
+      44,
+      32,
+      50,
+      93,
+      44,
+      10,
+      32,
+      32,
+      34,
+      99,
+      111,
+      109,
+      112,
+      97,
+      99,
+      116,
+      34,
+      58,
+      123,
+      34,
+      97,
+      34,
+      58,
+      49,
+      125,
+      10,
+      125
+    ],
+    "calls" : [
+      {
+        "earlyOut" : true,
+        "end" : 0,
+        "firstByte" : 123,
+        "from" : 0,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 4,
+        "firstByte" : 10,
+        "from" : 1,
+        "lanes" : [
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 1
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 2
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 3
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 4
+          },
+          {
+            "byte" : 105,
+            "isWhitespace" : false,
+            "offset" : 5
+          },
+          {
+            "byte" : 100,
+            "isWhitespace" : false,
+            "offset" : 6
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 7
+          },
+          {
+            "byte" : 58,
+            "isWhitespace" : false,
+            "offset" : 8
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 9
+          },
+          {
+            "byte" : 52,
+            "isWhitespace" : false,
+            "offset" : 10
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 11
+          },
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 12
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 13
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 14
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 15
+          },
+          {
+            "byte" : 116,
+            "isWhitespace" : false,
+            "offset" : 16
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 3,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 10,
+        "firstByte" : 32,
+        "from" : 9,
+        "lanes" : [
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 9
+          },
+          {
+            "byte" : 52,
+            "isWhitespace" : false,
+            "offset" : 10
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 11
+          },
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 12
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 13
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 14
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 15
+          },
+          {
+            "byte" : 116,
+            "isWhitespace" : false,
+            "offset" : 16
+          },
+          {
+            "byte" : 97,
+            "isWhitespace" : false,
+            "offset" : 17
+          },
+          {
+            "byte" : 103,
+            "isWhitespace" : false,
+            "offset" : 18
+          },
+          {
+            "byte" : 115,
+            "isWhitespace" : false,
+            "offset" : 19
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 20
+          },
+          {
+            "byte" : 58,
+            "isWhitespace" : false,
+            "offset" : 21
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 22
+          },
+          {
+            "byte" : 91,
+            "isWhitespace" : false,
+            "offset" : 23
+          },
+          {
+            "byte" : 49,
+            "isWhitespace" : false,
+            "offset" : 24
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 1,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 15,
+        "firstByte" : 10,
+        "from" : 12,
+        "lanes" : [
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 12
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 13
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 14
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 15
+          },
+          {
+            "byte" : 116,
+            "isWhitespace" : false,
+            "offset" : 16
+          },
+          {
+            "byte" : 97,
+            "isWhitespace" : false,
+            "offset" : 17
+          },
+          {
+            "byte" : 103,
+            "isWhitespace" : false,
+            "offset" : 18
+          },
+          {
+            "byte" : 115,
+            "isWhitespace" : false,
+            "offset" : 19
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 20
+          },
+          {
+            "byte" : 58,
+            "isWhitespace" : false,
+            "offset" : 21
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 22
+          },
+          {
+            "byte" : 91,
+            "isWhitespace" : false,
+            "offset" : 23
+          },
+          {
+            "byte" : 49,
+            "isWhitespace" : false,
+            "offset" : 24
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 25
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 26
+          },
+          {
+            "byte" : 50,
+            "isWhitespace" : false,
+            "offset" : 27
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 3,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 23,
+        "firstByte" : 32,
+        "from" : 22,
+        "lanes" : [
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 22
+          },
+          {
+            "byte" : 91,
+            "isWhitespace" : false,
+            "offset" : 23
+          },
+          {
+            "byte" : 49,
+            "isWhitespace" : false,
+            "offset" : 24
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 25
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 26
+          },
+          {
+            "byte" : 50,
+            "isWhitespace" : false,
+            "offset" : 27
+          },
+          {
+            "byte" : 93,
+            "isWhitespace" : false,
+            "offset" : 28
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 29
+          },
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 30
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 31
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 32
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 33
+          },
+          {
+            "byte" : 99,
+            "isWhitespace" : false,
+            "offset" : 34
+          },
+          {
+            "byte" : 111,
+            "isWhitespace" : false,
+            "offset" : 35
+          },
+          {
+            "byte" : 109,
+            "isWhitespace" : false,
+            "offset" : 36
+          },
+          {
+            "byte" : 112,
+            "isWhitespace" : false,
+            "offset" : 37
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 1,
+        "to" : 52
+      },
+      {
+        "earlyOut" : true,
+        "end" : 24,
+        "firstByte" : 49,
+        "from" : 24,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 27,
+        "firstByte" : 32,
+        "from" : 26,
+        "lanes" : [
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 26
+          },
+          {
+            "byte" : 50,
+            "isWhitespace" : false,
+            "offset" : 27
+          },
+          {
+            "byte" : 93,
+            "isWhitespace" : false,
+            "offset" : 28
+          },
+          {
+            "byte" : 44,
+            "isWhitespace" : false,
+            "offset" : 29
+          },
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 30
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 31
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 32
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 33
+          },
+          {
+            "byte" : 99,
+            "isWhitespace" : false,
+            "offset" : 34
+          },
+          {
+            "byte" : 111,
+            "isWhitespace" : false,
+            "offset" : 35
+          },
+          {
+            "byte" : 109,
+            "isWhitespace" : false,
+            "offset" : 36
+          },
+          {
+            "byte" : 112,
+            "isWhitespace" : false,
+            "offset" : 37
+          },
+          {
+            "byte" : 97,
+            "isWhitespace" : false,
+            "offset" : 38
+          },
+          {
+            "byte" : 99,
+            "isWhitespace" : false,
+            "offset" : 39
+          },
+          {
+            "byte" : 116,
+            "isWhitespace" : false,
+            "offset" : 40
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 41
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 1,
+        "to" : 52
+      },
+      {
+        "earlyOut" : true,
+        "end" : 29,
+        "firstByte" : 44,
+        "from" : 29,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 33,
+        "firstByte" : 10,
+        "from" : 30,
+        "lanes" : [
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 30
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 31
+          },
+          {
+            "byte" : 32,
+            "isWhitespace" : true,
+            "offset" : 32
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 33
+          },
+          {
+            "byte" : 99,
+            "isWhitespace" : false,
+            "offset" : 34
+          },
+          {
+            "byte" : 111,
+            "isWhitespace" : false,
+            "offset" : 35
+          },
+          {
+            "byte" : 109,
+            "isWhitespace" : false,
+            "offset" : 36
+          },
+          {
+            "byte" : 112,
+            "isWhitespace" : false,
+            "offset" : 37
+          },
+          {
+            "byte" : 97,
+            "isWhitespace" : false,
+            "offset" : 38
+          },
+          {
+            "byte" : 99,
+            "isWhitespace" : false,
+            "offset" : 39
+          },
+          {
+            "byte" : 116,
+            "isWhitespace" : false,
+            "offset" : 40
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 41
+          },
+          {
+            "byte" : 58,
+            "isWhitespace" : false,
+            "offset" : 42
+          },
+          {
+            "byte" : 123,
+            "isWhitespace" : false,
+            "offset" : 43
+          },
+          {
+            "byte" : 34,
+            "isWhitespace" : false,
+            "offset" : 44
+          },
+          {
+            "byte" : 97,
+            "isWhitespace" : false,
+            "offset" : 45
+          }
+        ],
+        "path" : "vector",
+        "runLength" : 3,
+        "to" : 52
+      },
+      {
+        "earlyOut" : true,
+        "end" : 43,
+        "firstByte" : 123,
+        "from" : 43,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : true,
+        "end" : 44,
+        "firstByte" : 34,
+        "from" : 44,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : true,
+        "end" : 48,
+        "firstByte" : 49,
+        "from" : 48,
+        "lanes" : [
+
+        ],
+        "path" : "early",
+        "runLength" : 0,
+        "to" : 52
+      },
+      {
+        "earlyOut" : false,
+        "end" : 51,
+        "firstByte" : 10,
+        "from" : 50,
+        "lanes" : [
+          {
+            "byte" : 10,
+            "isWhitespace" : true,
+            "offset" : 50
+          },
+          {
+            "byte" : 125,
+            "isWhitespace" : false,
+            "offset" : 51
+          }
+        ],
+        "path" : "scalar",
+        "runLength" : 1,
+        "to" : 52
+      }
+    ],
+    "sample" : "{\n  \"id\": 4,\n  \"tags\": [1, 2],\n  \"compact\":{\"a\":1}\n}"
+  }
+}

@@ -86,6 +86,21 @@ let package = Package(
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
+    // The algorithm explorer's content pipeline. This lives in the root package rather than
+    // beside `Web/` because the trace recorder calls the shipped scanner kernels directly, and
+    // `package` access does not cross a SwiftPM package boundary -- which is why no benchmark in
+    // the separate `Benchmarks` package touches them either. Not a product, so consumers of the
+    // library never build it.
+    .executableTarget(
+      name: "StreamParsingSiteTool",
+      dependencies: [
+        "StreamParsingCore",
+        .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .product(name: "SwiftParser", package: "swift-syntax")
+      ],
+      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
+        + lifetimes + addressableTypes
+    ),
     .macro(
       name: "StreamParsingMacros",
       dependencies: [

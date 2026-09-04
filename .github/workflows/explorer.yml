@@ -1,0 +1,80 @@
+name: Explorer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: explorer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Enforces the rule in AGENTS.md: evidence changes and explorer content land together. If a
+  # chapter was retitled, a kernel renamed, or a measurement revised without regenerating, the
+  # extractor's reference validation fails or the committed bundle no longer matches its inputs.
+  freshness:
+    name: Generated content is current
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26.5
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app
+      - name: Regenerate content and traces
+        # `asm` is deliberately excluded: pinning disassembly needs a release build of the
+        # benchmark package, which is minutes of work for an artifact that only changes when a
+        # kernel does. It is regenerated locally with `./Web/generate asm`.
+        run: |
+          ./Web/generate content
+          ./Web/generate traces
+      - name: Fail if the committed bundle is stale
+        # `generatedAt` is a wall clock and always differs, so it is stripped before comparing.
+        run: |
+          status=0
+          for file in content sources traces; do
+            path="Web/generated/$file.json"
+            git show "HEAD:$path" | jq 'del(.generatedAt)' > /tmp/committed.json
+            jq 'del(.generatedAt)' "$path" > /tmp/current.json
+            if ! diff -q /tmp/committed.json /tmp/current.json > /dev/null; then
+              echo "::error file=$path::$path is stale — run ./Web/generate and commit the result"
+              diff /tmp/committed.json /tmp/current.json | head -40
+              status=1
+            fi
+          done
+          exit $status
+
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - run: npm ci
+        working-directory: Web
+      - run: npm run build
+        working-directory: Web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: Web/dist
+
+  deploy:
+    name: Deploy to Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build, freshness]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
