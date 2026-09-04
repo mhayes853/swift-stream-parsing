@@ -14,6 +14,29 @@ animation, prose, experiments, source and assembly.
 cd Web && npm install && npm run dev
 ```
 
+## The animations
+
+Nine nodes carry one. They are drawn from `Web/generated/traces.json`, which is produced by running
+the shipped kernels — never by reimplementing them — and every mirrored intermediate is asserted
+against the real function's answer before it is written.
+
+| Node | Shows |
+| --- | --- |
+| `streamStringRun` | the vector pipeline: load, three splatted constants, three `cmeq`/`cmlo` masks, the `orr` fold |
+| Finding the lane | `streamFirstHitLane` — mask bytes to two words to a lane index, both spellings |
+| The run scan | `streamWhitespaceMissMask` — one `tbl` where the portable path ORs four compares |
+| The greedy scan | `streamNumberRunEnd` — two nibble lookups and `vtstq_u8` instead of six compares |
+| UTF-8 validation | three tables ANDed, then the structural fact XORed in |
+| Escapes | the 128-byte simple-escape map, and why its zero is the validity test |
+| One compare, then out of line | the branch, plus the 64-bit whitespace bitmap |
+| The structural run | container bits |
+| Eight bytes, backwards | the SWAR digit fold |
+
+A lookup table is *recovered* from the kernel, not copied into the recorder: the number-class and
+UTF-8 tables are `package` symbols read directly, and the whitespace table is reconstructed by
+probing the shipped predicate over all 256 bytes. `viz` names in `pipeline.json` are validated
+against the set the site knows, so a typo fails the build rather than rendering nothing.
+
 ## Where things come from
 
 | What | Lives in | Written by |

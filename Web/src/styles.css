@@ -584,3 +584,202 @@ input[type="range"] { accent-color: var(--series-1); }
   background: var(--surface-2);
   color: var(--text-secondary);
 }
+
+/* MARK: - SIMD register rendering
+   A vector operation is sixteen lanes wide and the visuals say so literally: one row per register,
+   lanes aligned in columns so a value only ever moves straight down. Sized so sixteen lanes plus
+   the operation gutter fit the detail panel without scrolling. */
+
+.vec-stack {
+  margin: 12px 0;
+  padding: 12px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.vec-row { display: flex; align-items: center; gap: 8px; }
+.vec-gutter {
+  flex: none;
+  width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+.vec-op {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.vec-note { font-size: 9.5px; color: var(--text-muted); line-height: 1.3; }
+
+.vec-lanes { display: flex; gap: 2px; }
+.vec-lane {
+  /* 16 lanes + gaps + the 82px gutter has to fit the detail panel's ~580px of stack width. */
+  width: 28px;
+  padding: 3px 0 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  line-height: 1.15;
+}
+.vec-lane .v { font-size: 10.5px; color: var(--text-secondary); }
+.vec-lane .s { font-size: 8.5px; color: var(--text-muted); }
+.vec-lane.on { background: color-mix(in srgb, var(--series-1) 26%, var(--surface-1)); border-color: var(--series-1); }
+.vec-lane.on .v { color: var(--text-primary); font-weight: 600; }
+.vec-lane.dim { opacity: 0.34; }
+/* The lane the operation resolves to: a ring, never colour alone. */
+.vec-lane.marked { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+/* A mask holds only 0xFF or 0x00, so its zeros recede and its ones read as a bar. */
+.vec-lanes.mask .vec-lane:not(.on) .v { color: var(--text-muted); opacity: 0.5; }
+
+.vec-op-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.vec-op-mark { display: flex; align-items: baseline; gap: 8px; }
+.vec-op-mark .sym {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--series-2);
+  min-width: 22px;
+}
+.vec-op-mark .lbl { font-size: 10.5px; color: var(--text-muted); }
+
+/* MARK: - Lookup tables */
+
+.bits { display: inline-flex; gap: 1px; vertical-align: middle; }
+.bits i {
+  width: 5px;
+  height: 9px;
+  border-radius: 1px;
+  background: var(--grid);
+  border: 1px solid var(--grid);
+}
+.bits i.on { background: var(--series-3); border-color: var(--series-3); }
+
+.table-strip {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.table-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+.table-head strong { font-size: 12.5px; }
+.table-head code { font-size: 11px; color: var(--text-muted); }
+.table-cells { display: flex; gap: 2px; }
+.table-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 0 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.table-cell .i { font-family: var(--font-mono); font-size: 8.5px; color: var(--text-muted); }
+.table-cell .e { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-primary); }
+/* An entry of zero is the sentinel, and reads as absence rather than as a value. */
+.table-cell.empty .e { color: var(--text-muted); opacity: 0.45; }
+.table-cell.active {
+  border-color: var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 20%, var(--surface-2));
+}
+.table-note { margin: 8px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--text-muted); }
+
+.replaces { display: flex; align-items: center; gap: 9px; margin: 10px 0; flex-wrap: wrap; }
+.replaces .tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.replaces code {
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--critical);
+}
+
+/* MARK: - Movemask */
+
+.movemask { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+@media (max-width: 620px) { .movemask { grid-template-columns: 1fr; } }
+.mm-branch {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.mm-branch h5 { margin: 0 0 6px; font-size: 11.5px; color: var(--text-primary); }
+.mm-branch p { margin: 0 0 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.mm-branch dl { margin: 0; display: grid; gap: 4px; }
+.mm-branch dl > div { display: flex; gap: 8px; align-items: baseline; }
+.mm-branch dt { font-size: 10.5px; color: var(--text-muted); min-width: 66px; }
+.mm-branch dd { margin: 0; font-size: 11px; }
+.mm-branch code { font-size: 10.5px; word-break: break-all; }
+
+.mm-arith {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 11.5px;
+}
+.mm-arith code { font-size: 11px; }
+
+/* MARK: - The whitespace bitmap: a lookup with no table */
+
+.bitmap {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.bitmap-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.bitmap-head strong { font-size: 12.5px; font-family: var(--font-mono); }
+.bitmap-head code { font-size: 11px; color: var(--text-muted); }
+.bitmap-bits { display: flex; gap: 1px; }
+.bitmap-bits i {
+  flex: 1;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--grid);
+}
+.bitmap-bits i.on { background: var(--series-7); }
+.bitmap-bits i.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+/* MARK: - Escape table */
+
+.escape-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+.escape-table th {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--grid);
+  font-weight: 500;
+}
+.escape-table td { padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+.escape-table td.mono, .escape-table .mono { font-family: var(--font-mono); }
+.escape-table tr.miss td { color: var(--text-muted); }
+.escape-table .sentinel { color: var(--text-muted); opacity: 0.55; }
+.escape-table .meaning { color: var(--text-muted); font-size: 11.5px; }

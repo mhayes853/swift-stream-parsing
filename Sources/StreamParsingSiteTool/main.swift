@@ -146,7 +146,13 @@ if only == "all" || only == "traces" {
     containers: try ParserTraces.containers(
       sample: #"{"id":4,"tags":["a",{"k":[true]}],"ok":null}"#
     ),
-    number: KernelTraces.numbers(["582", "12345678", "7", "-3.1415", "1e10", "99999999999"])
+    number: KernelTraces.numbers(["582", "12345678", "7", "-3.1415", "1e10", "99999999999"]),
+    whitespaceTable: KernelTraces.whitespaceTable(),
+    numberTable: KernelTraces.numberTable(),
+    // Two, three and four byte sequences in one block, so all three lookups have something to say
+    // and the must-continue fact fires where no pair of adjacent bytes could see it.
+    utf8: KernelTraces.utf8(sample: "aé\u{20AC}b\u{1F600}cd"),
+    escapes: KernelTraces.escapes()
   )
 
   let out = path("Web", "generated", "traces.json")
@@ -154,12 +160,16 @@ if only == "all" || only == "traces" {
 
   let unverified =
     (traces.stringRun.verified ? 0 : 1) + traces.number.cases.filter { !$0.verified }.count
+    + (traces.whitespaceTable.verified ? 0 : 1) + (traces.numberTable.verified ? 0 : 1)
+    + (traces.utf8.verified ? 0 : 1) + (traces.escapes.verified ? 0 : 1)
   print(
     """
     traces.json: \(arch); stringRun \(traces.stringRun.blocks.count) blocks, \
     whitespace \(traces.whitespace.calls.count) calls, \
     containers \(traces.containers.steps.count) steps (depth ceiling \(traces.containers.maximumDepth)), \
-    numbers \(traces.number.cases.count) cases
+    numbers \(traces.number.cases.count) cases, \
+    tables \(traces.whitespaceTable.tables.count + traces.numberTable.tables.count + traces.utf8.tables.count) \
+    across whitespace/number/UTF-8, escapes \(traces.escapes.entries.count) entries
     """
   )
   if unverified > 0 {

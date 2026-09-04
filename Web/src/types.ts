@@ -86,7 +86,16 @@ export interface PipelineStage {
   blurb: string;
 }
 
-export type VizKind = "stringRun" | "whitespace" | "containers" | "number";
+export type VizKind =
+  | "stringRun"
+  | "whitespace"
+  | "containers"
+  | "number"
+  | "movemask"
+  | "whitespaceTable"
+  | "numberTable"
+  | "utf8"
+  | "escapes";
 
 /**
  * How to read an arrow. `step` runs unconditionally and is numbered by its position in `next`;
@@ -194,6 +203,64 @@ export interface NumberCase {
   verified: boolean;
 }
 
+/** A table-driven membership test: index with part of the byte, combine what comes back. */
+export interface LookupTable {
+  name: string;
+  indexedBy: string;
+  entries: number[];
+  format: "byte" | "bits";
+  bitLabels: string[];
+  note: string;
+}
+
+export interface TableLane {
+  lane: number;
+  byte: number;
+  indices: number[];
+  values: number[];
+  hit: boolean;
+}
+
+export interface TableTrace {
+  kernel: string;
+  summary: string;
+  replaces: string;
+  sample: string;
+  tables: LookupTable[];
+  lanes: TableLane[];
+  combine: "equal" | "and";
+  verified: boolean;
+}
+
+export interface UTF8Lane {
+  lane: number;
+  byte: number;
+  previous1: number;
+  previous2: number;
+  previous3: number;
+  indices: number[];
+  values: number[];
+  special: number;
+  mustContinue: number;
+  error: number;
+  classes: string[];
+  role: "ascii" | "continuation" | "lead2" | "lead3" | "lead4" | "invalid";
+}
+
+export interface UTF8Trace {
+  sample: string;
+  bytes: number[];
+  tables: LookupTable[];
+  lanes: UTF8Lane[];
+  valid: boolean;
+  verified: boolean;
+}
+
+export interface EscapeTrace {
+  entries: { byte: number; source: string; decoded?: number; meaning: string }[];
+  verified: boolean;
+}
+
 export interface TraceBundle {
   generatedAt: string;
   arch: string;
@@ -201,4 +268,8 @@ export interface TraceBundle {
   whitespace: WhitespaceTrace;
   containers: ContainerTrace;
   number: { cases: NumberCase[] };
+  whitespaceTable: TableTrace;
+  numberTable: TableTrace;
+  utf8: UTF8Trace;
+  escapes: EscapeTrace;
 }

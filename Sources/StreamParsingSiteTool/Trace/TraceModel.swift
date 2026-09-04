@@ -16,6 +16,98 @@ struct TraceBundle: Encodable {
   var whitespace: WhitespaceTrace
   var containers: ContainerTrace
   var number: NumberTrace
+  /// `streamWhitespaceMissMask`: one `tbl` and a compare where the portable path ORs four.
+  var whitespaceTable: TableTrace
+  /// `streamNumberRunEndShimmed`: two nibble lookups and `vtstq_u8`, not six compares.
+  var numberTable: TableTrace
+  /// The Keiser-Lemire validator: three lookups ANDed, then the structural fact XORed in.
+  var utf8: UTF8Trace
+  /// `streamSimpleEscapeTable`: a direct 128-byte map whose zero doubles as "not an escape".
+  var escapes: EscapeTrace
+}
+
+/// A kernel that answers a per-lane membership question by indexing a table with part of the byte.
+///
+/// The same shape covers the whitespace scan (one table, indexed by the low nibble) and the number
+/// scan (two, indexed by each nibble, ANDed). Both are recorded by running the shipped kernel over
+/// a real block; the table contents are recovered from the kernel itself rather than copied, so a
+/// table edited in the parser shows up here without anyone remembering to mirror it.
+struct TableTrace: Encodable {
+  var kernel: String
+  var summary: String
+  /// The portable spelling this replaces, for the "why a table" caption.
+  var replaces: String
+  var sample: String
+  var tables: [Table]
+  var lanes: [Lane]
+  /// How the per-table values are combined into the answer: `equal` or `and`.
+  var combine: String
+  var verified: Bool
+
+  struct Table: Encodable {
+    var name: String
+    /// The expression that produces the index, e.g. `byte & 0x0F`.
+    var indexedBy: String
+    var entries: [UInt8]
+    /// `byte` renders entries as hex bytes; `bits` renders them as a bit field.
+    var format: String
+    /// Bit meanings, low bit first, when `format` is `bits`.
+    var bitLabels: [String]
+    var note: String
+  }
+
+  struct Lane: Encodable {
+    var lane: Int
+    var byte: UInt8
+    var indices: [Int]
+    var values: [UInt8]
+    /// Whether this lane is in the class the kernel is testing for.
+    var hit: Bool
+  }
+}
+
+/// One 16-byte block through the UTF-8 validator, with all three lookups and the structural fact.
+struct UTF8Trace: Encodable {
+  var sample: String
+  var bytes: [UInt8]
+  var tables: [TableTrace.Table]
+  var lanes: [Lane]
+  var valid: Bool
+  var verified: Bool
+
+  struct Lane: Encodable {
+    var lane: Int
+    var byte: UInt8
+    /// The three bytes before this lane, which arrive as lane-shifted views of the block.
+    var previous1: UInt8
+    var previous2: UInt8
+    var previous3: UInt8
+    var indices: [Int]
+    var values: [UInt8]
+    /// The three lookups ANDed together.
+    var special: UInt8
+    /// `(saturating(prev2 - 0x60) | saturating(prev3 - 0x70)) & 0x80`: a continuation is required
+    /// after a three or four byte lead, which no pair of adjacent bytes can express.
+    var mustContinue: UInt8
+    var error: UInt8
+    /// Names of the error bits set, so a lane is never explained by colour alone.
+    var classes: [String]
+    /// What this byte is: `ascii`, `continuation`, `lead2`, `lead3`, `lead4` or `invalid`.
+    var role: String
+  }
+}
+
+/// The simple-escape table: a byte in, a byte out, zero meaning "not a simple escape".
+struct EscapeTrace: Encodable {
+  var entries: [Entry]
+  var verified: Bool
+
+  struct Entry: Encodable {
+    var byte: UInt8
+    var source: String
+    var decoded: UInt8?
+    var meaning: String
+  }
 }
 
 struct StringRunTrace: Encodable {

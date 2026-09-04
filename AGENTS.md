@@ -75,3 +75,16 @@ without updating `pipeline.json` breaks the build rather than silently rotting t
 Traces are recorded by running the *shipped* kernels (`Sources/StreamParsingSiteTool/Trace`), not by
 reimplementing them, so the animations cannot drift from the parser. A kernel whose signature
 changes needs its recorder updated alongside it.
+
+Where a kernel's intermediates are not observable from outside it, the recorder mirrors the body
+using the same `package` primitives and asserts its answer against the real function's; `verified`
+carries that into the bundle, and `./Web/generate traces` fails if any mirror disagrees. **A lookup
+table is recovered, never copied.** The number-class and UTF-8 tables are already `package` symbols
+and are read directly; the whitespace table is a literal inside `streamWhitespaceMissMask`, so the
+recorder probes the shipped predicate over all 256 bytes and reconstructs it — a table edited in the
+parser then shows up in the explorer with nobody having to remember it.
+
+Vector kernels are drawn as registers, not as coloured text: one `VectorRow` per 128-bit value,
+lanes aligned in columns so a value only moves down, and the operation between rows named for the
+instruction it is (`cmeq`, `tbl`, `orr`, `eor`). If a step in a kernel is a real instruction, it
+should be a row.

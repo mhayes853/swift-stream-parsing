@@ -364,7 +364,7 @@
       "stage": "whitespace",
       "title": "The run scan",
       "kicker": "SIMD16",
-      "viz": null,
+      "viz": "whitespaceTable",
       "prose": [
         "What survives the compare is an actual run, and runs are scanned sixteen bytes at a time like every other token class. The vector body lives behind its own call precisely so the parse loop does not carry it.",
         "There is a width test in front, and it is not a tail guard: fed one byte at a time, `to - from` is 1 at every call, and routing that through the vector body splats four constants to scan a single byte — which cost byte-by-byte Twitter 20%."
@@ -448,7 +448,7 @@
       "stage": "strings",
       "title": "Finding the lane",
       "kicker": "movemask",
-      "viz": null,
+      "viz": "movemask",
       "prose": [
         "Once a block hits, the scan needs to know *which* lane. The obvious spelling — loop over sixteen lanes and take the first set one — unrolls into sixteen test/branch pairs plus sixteen constant-materialising exit blocks: over a hundred bytes of branch ladder, walked once per string token and once per key, to produce an integer the machine was already holding.",
         "On arm64 the answer is `vshrn`, which Swift cannot express because its shift is an immediate, so it lives in a C shim. The form that landed fuses the bound check into the lane: an all-ones complement has 64 trailing zeros, which divides to lane 16, one past the block, so the bound check is the terminator test and nothing depends on the branch.",
@@ -477,7 +477,7 @@
       "stage": "strings",
       "title": "Escapes, decoded in place",
       "kicker": "no Unicode.Scalar",
-      "viz": null,
+      "viz": "escapes",
       "prose": [
         "An escape terminates the run, gets decoded, and the scan resumes. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
         "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift."
@@ -506,7 +506,7 @@
       "stage": "strings",
       "title": "UTF-8 validation",
       "kicker": "3 table lookups",
-      "viz": null,
+      "viz": "utf8",
       "prose": [
         "Non-ASCII content is validated in vectors, using Keiser and Lemire's three-nibble-table construction: three table lookups ANDed together, XORed with a continuation requirement derived from leads two and three bytes back. Nonzero lanes are errors.",
         "The one operation Swift cannot express is the byte table lookup itself — on arm64 that is `tbl`, and it lives in a C shim as a leaf returning a vector. Composing the same kernel from Swift's SIMD primitives instead ran 2.6× slower, because Swift's SIMD operators are lane loops that LLVM re-vectorizes, and a compare feeding a fifteen-lane shift came out half vectorized with the last lanes patched one at a time.",
@@ -523,7 +523,10 @@
           "StreamUTF8Validation.swift:streamValidateUTF8",
           "StreamScanners.swift:streamUTF8BlockIsInvalidPortable",
           "StreamParsingShims.h:stream_parsing_utf8_block_errors",
-          "StreamParsingShims.h:stream_parsing_tbl1q_u8"
+          "StreamParsingShims.h:stream_parsing_tbl1q_u8",
+          "StreamScanners.swift:streamUTF8PreviousHighTable",
+          "StreamScanners.swift:streamUTF8PreviousLowTable",
+          "StreamScanners.swift:streamUTF8CurrentHighTable"
         ],
         "asm": [
           "streamValidateUTF8"
@@ -536,7 +539,7 @@
       "stage": "numbers",
       "title": "The greedy scan",
       "kicker": "one pass",
-      "viz": null,
+      "viz": "numberTable",
       "prose": [
         "A number is the one token whose first byte belongs to the token itself, so the structural run hands the byte back rather than consuming it. From there the scan is greedy: take everything that could be part of a number, then decide what shape it was.",
         "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most — floats gained 17.6%. It is also the row that pins the limit: one-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there."
@@ -553,7 +556,9 @@
           "StreamScanners.swift:streamNumberRunEnd",
           "StreamScanners.swift:streamNumberRunEndTail",
           "JSONParser.swift:consumeNumber",
-          "StreamParseSink.swift:NumberInfo"
+          "StreamParseSink.swift:NumberInfo",
+          "StreamScanners.swift:streamNumberClassHighTable",
+          "StreamScanners.swift:streamNumberClassLowTable"
         ],
         "asm": [
           "JSONParser.consumeNumber",

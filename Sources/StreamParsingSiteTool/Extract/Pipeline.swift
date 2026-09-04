@@ -23,8 +23,7 @@ struct Pipeline: Decodable {
     var title: String
     var kicker: String
     var prose: [String]
-    /// The animation this node drives, when it has one: `stringRun`, `whitespace`, `containers`,
-    /// `number`. Absent for nodes that are evidence only.
+    /// The animation this node drives, when it has one. Absent for nodes that are evidence only.
     var viz: String?
     var evidence: Evidence
     /// One sentence on *how* this node reaches the things it calls -- the switch it dispatches
@@ -91,6 +90,14 @@ struct Pipeline: Decodable {
   }
 }
 
+extension Pipeline {
+  /// Mirrors the `VizKind` union in `Web/src/types.ts` and the switch in `Web/src/viz/index.tsx`.
+  static let vizKinds: Set<String> = [
+    "stringRun", "whitespace", "containers", "number",
+    "movemask", "whitespaceTable", "numberTable", "utf8", "escapes"
+  ]
+}
+
 struct ReferenceReport {
   var errors: [String] = []
   var warnings: [String] = []
@@ -114,6 +121,13 @@ struct ReferenceReport {
       let at = "node '\(node.id)'"
       if !stageIDs.contains(node.stage) {
         report.errors.append("\(at): unknown stage '\(node.stage)'")
+      }
+      // A typo here would silently render nothing, since the switch in `viz/index.tsx` is
+      // exhaustive over the kinds it knows and returns undefined for anything else.
+      if let viz = node.viz, !Pipeline.vizKinds.contains(viz) {
+        report.errors.append(
+          "\(at): unknown viz '\(viz)' (known: \(Pipeline.vizKinds.sorted().joined(separator: ", ")))"
+        )
       }
       for edge in node.next {
         if !nodeIDs.contains(edge.to) {
