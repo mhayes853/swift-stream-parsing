@@ -2615,7 +2615,7 @@
       "stage": "sink",
       "title": "StreamParseSink",
       "kicker": "borrowed spans",
-      "viz": null,
+      "viz": "sinkCalls",
       "prose": [
         "The parser's whole output surface: one method per token class, each carrying a borrowed `Span<UInt8>` that is invalid the moment the call returns. It is format-agnostic rather than JSON-specific, so another parser could drive the same sinks.",
         "No method throws. A check after every call sits on the hottest path — measured at 2–5% — so a sink records its failure and the parser polls it at token boundaries instead, reporting the failure at the token that provoked it. Sinks record a bool from their apply members rather than throwing, which is what distinguishes a key the destination doesn't have (ignored) from a field that cannot hold this kind of value (a type mismatch).",
@@ -2772,7 +2772,7 @@
       "stage": "sink",
       "title": "Skipping a subtree",
       "kicker": "+41% on misses",
-      "viz": null,
+      "viz": "dispositions",
       "prose": [
         "Both container opens return a disposition. A sink with no use for a subtree's interior answers `.skip`, and the parser scans past it at structural speed — no keys resolved, no strings emitted, no values built.",
         "The answer is advisory on purpose: a `.skip` may still be followed by the interior, but the matching close *always* arrives, so a sink can never be left with an unbalanced frame. A skipped interior is still validated as JSON — skipping is not the same as trusting.",
@@ -2865,7 +2865,7 @@
       "stage": "sink",
       "title": "Keys, in place",
       "kicker": "no Dictionary",
-      "viz": null,
+      "viz": "keyMatch",
       "prose": [
         "A key is always delivered whole — unescaped, validated UTF-8 — and matching it against a schema's members does not use a `Dictionary`. Keys are compared as precomputed 64-bit words, which for the overwhelming majority of real keys means one or two compares.",
         "The read happens in place, out of the parser's buffer, using padding the buffer already had and nobody was reading. Where that read lives turned out to be the entire result: the same code in a different function could not hold the branch.",
@@ -3023,7 +3023,7 @@
       "stage": "sink",
       "title": "consumeSkipRun",
       "kicker": "structural speed",
-      "viz": null,
+      "viz": "skipRun",
       "prose": [
         "The skip walk is its own state machine — three states, one of which exists only to carry a skipped string across a chunk boundary. They sit past `done` in the state enum on purpose, so that \"is this state structural\" stays a single unsigned compare for everyone else."
       ],
@@ -3189,7 +3189,7 @@
       "stage": "routing",
       "title": "Schemas, borrowed",
       "kicker": "unowned",
-      "viz": null,
+      "viz": "schemaRouting",
       "prose": [
         "A schema describes how a type's members map onto tokens. It is a reference rather than a value, and frames borrow it `unowned(unsafe)` — a retain and release per container open was showing up in the profile.",
         "Two rewrites were measured and rejected: replacing the closures with a witness metatype, and a family of alternative unowned spellings. What did work was narrower — a borrowed frame type, plus a tripwire to catch the lifetime assumption if it stops holding.",
@@ -3319,7 +3319,7 @@
       "stage": "routing",
       "title": "The field table",
       "kicker": "routes as data",
-      "viz": null,
+      "viz": "fieldTable",
       "prose": [
         "An object's routes used to be closures. Now the macro emits them as a table, and the sink resolves a key into an entry rather than calling through a closure per member.",
         "The measurement that mattered was not the table itself but a retain it exposed, which was not the closure's and would have been mis-attributed without the disassembly."
@@ -3440,7 +3440,7 @@
       "stage": "routing",
       "title": "PartialSink",
       "kicker": "frames",
-      "viz": null,
+      "viz": "frames",
       "prose": [
         "The typed layer's sink: it keeps a spine of frames, each pointing into the partially built value, and turns tokens into stores. A container entry is now the frame itself — bits rather than references — and scalars whose kind is known at schema-build time are stored directly instead of going through a general applier.",
         "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy; `init(rawValue:)` on a decoded enum is not free; and a `count <= 8` branch causes the scan behind it to unroll."
@@ -3611,7 +3611,7 @@
       "stage": "storage",
       "title": "StreamString",
       "kicker": "blocks double",
-      "viz": null,
+      "viz": "streamString",
       "prose": [
         "Bytes accumulate; producing a `String` is a read, not a side effect. Storage grows in blocks whose size doubles, so a long streamed string does not pay a reallocation per chunk.",
         "In the allocation census the block ramp was the smaller half of the cost. The larger sources were the bookkeeping array tracking the blocks and a tail reserve on the fragment-fed path. Fixing those measured +11.2% on the LLM message and +5.5% on GSoC."
@@ -3776,7 +3776,7 @@
       "stage": "storage",
       "title": "Arrays and dictionaries",
       "kicker": "one table",
-      "viz": null,
+      "viz": "collections",
       "prose": [
         "Streaming collections with their own storage. The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright.",
         "Both structural guesses made when designing that table turned out to be wrong; the measurements are recorded alongside them."
@@ -3885,7 +3885,7 @@
       "stage": "storage",
       "title": "Views and snapshots",
       "kicker": "zero-copy",
-      "viz": null,
+      "viz": "views",
       "prose": [
         "Reading a partially parsed value costs what is read. Every parseable type has a `~Copyable`, `~Escapable` view — in practice a typed pointer into the value — that cannot outlive the call that lent it, so reading a field does not copy the document.",
         "Snapshots are the alternative: the async sequence conveniences take a full one per element, because an escaping value has to own its storage. The freeze-the-completed-prefix work is what reduced their cost."

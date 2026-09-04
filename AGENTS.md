@@ -89,6 +89,29 @@ The whitespace table is recovered this way because it is a literal inside
 all 128 indices, so the eight non-zero cells the site draws are the table rather than a claim about
 it.
 
+Past the vector kernels the subject changes, and so does the technique. `sink-protocol` onwards is
+not a kernel with intermediates to mirror but a protocol boundary, a frame stack and storage that
+grows — all of which are *stored state on shipped types*. Those recorders therefore
+`@testable import StreamParsingCore` and read the real fields: `PartialSink.frames` after every
+call the parser makes, `StreamString.blocks` after every append, the `StreamFieldTable` a real
+`StreamSchema` built. That is stronger than a mirror, not weaker, and it costs the parser nothing:
+`@testable` needs only the `-enable-testing` that SwiftPM already passes in debug, which is what
+`./Web/generate` builds, and no library source changes to allow it.
+
+The same rule about copied constants applies and is easier to keep here: the inline capacity, the
+block schedule, `StreamFieldTable.indexThreshold`, `StreamDictionary.indexThreshold` and the field
+offsets are all read off the shipped types, so editing one in the parser moves the animation with
+it. Where a walk *is* mirrored — `consumeSkipRun`, whose cursor is not observable — it calls the
+same `package` scanners the shipped loop calls and is then checked against `consumeSkipRun` itself
+run over the same bytes from the same state.
+
+These traces carry their own verification into the bundle on the same footing as a kernel mirror,
+and `./Web/generate traces` fails without it: every span the parser handed over covers the bytes
+its call reports; the skipping run is a subsequence of the streaming one and its container opens
+and closes still balance; the mirrored skip walk and `consumeSkipRun` end on the same cursor; every
+key match agrees with `streamMatchField` / `streamMatchFieldIndexed`; the frame recording's parse
+produced the value the document described; and each container handed back what it was given.
+
 Vector kernels are drawn as registers, not as coloured text: one `VectorRow` per 128-bit value,
 lanes aligned in columns so a value only moves down, and the operation between rows named for the
 instruction it is (`cmeq`, `tbl`, `orr`, `eor`). If a step in a kernel is a real instruction, it
@@ -111,6 +134,15 @@ container trace records `offset`/`length` per token — those come from the span
 the sink, cross-checked against a cursor that skips whitespace with the shipped `streamWhitespaceEnd`
 and steps over one separator. `offsetsVerified` carries that agreement into the bundle and
 `./Web/generate traces` fails without it, on the same footing as a drifted kernel mirror.
+
+A call log, a frame stack and a block schedule are not registers, so they are not drawn as ones —
+but they take the same three phases, for the same reason: a list drawn all at once shows the answer
+and not the work. `phaseOf` gives a row `past`, `now` or `future`, and a `future` row keeps its box
+and shows nothing so nothing reflows mid-animation. Two places extend that rather than repeat it. A
+call the skipping sink never received stays in place, struck through at low opacity, because "it
+did not happen" is the thing being shown and removing the row would only misalign the columns. And
+blocked storage is drawn *to scale*: a doubling schedule drawn with equal boxes is a schedule you
+cannot see, so the bars are sized against the largest allocation on screen.
 
 Motion degrades under `prefers-reduced-motion` to an instant state change rather than being removed:
 the phases still differ, they simply stop animating between them.

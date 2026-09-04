@@ -130,6 +130,33 @@ if only == "all" || only == "traces" {
     let arch = "portable"
   #endif
 
+  // The sink boundary onwards. Built ahead of the bundle because the skip walk takes its subtree
+  // from the disposition run rather than being told where it is, and because a single literal of
+  // this many recorders is more than the type checker will sit through.
+  let dispositions = try SinkTraces.dispositions(
+    sample: #"{"id":7,"name":"Ada","extra":[12345,-6.5e2,{"k":"a\"b"}],"score":1.5}"#,
+    skipping: "extra"
+  )
+  let skipRun = try SinkTraces.skipRun(for: dispositions)
+  let (frames, views) = try RoutingTraces.frames(
+    sample: #"{"id":7,"active":true,"name":"Ada","address":{"city":"Cairo","zip":11511},"score":1.5}"#
+  )
+  // Chunk sizes chosen to cross each boundary once: the inline buffer, then the first sealed
+  // block, then the doubled one. What the boundaries *are* comes off the type.
+  let filler = "streaming bytes arrive a chunk at a time, and the string grows to hold them; "
+  let streamString = StorageTraces.streamString(
+    chunks: [24, 24, 24, 200, 300, 400, 500, 200].map { count in
+      String(String(repeating: filler, count: count / filler.count + 1).prefix(count))
+    }
+  )
+  let collections = StorageTraces.collections(
+    elements: 36,
+    keys: [
+      "id", "text", "user", "lang", "source", "truncated", "favorited", "retweeted", "entities",
+      "metadata"
+    ]
+  )
+
   let traces = TraceBundle(
     generatedAt: timestamp,
     arch: arch,
@@ -154,7 +181,19 @@ if only == "all" || only == "traces" {
     // Two, three and four byte sequences in one block, so all three lookups have something to say
     // and the must-continue fact fires where no pair of adjacent bytes could see it.
     utf8: KernelTraces.utf8(sample: "aé\u{20AC}b\u{1F600}cd"),
-    escapes: KernelTraces.escapes()
+    escapes: KernelTraces.escapes(),
+    // A document with a container, both string forms, both literals and a number, so the call log
+    // shows every group the protocol declares.
+    sinkCalls: try SinkTraces.sinkCalls(
+      sample: #"{"id":7,"tag":"a\"b","ok":true,"none":null,"xs":[1,2]}"#
+    ),
+    dispositions: dispositions,
+    skipRun: skipRun,
+    fieldMatch: RoutingTraces.fieldMatch(),
+    frames: frames,
+    streamString: streamString,
+    collections: collections,
+    views: views
   )
 
   let out = path("Web", "generated", "traces.json")
@@ -168,6 +207,14 @@ if only == "all" || only == "traces" {
     // to the same standard as a kernel mirror: the walk has to agree with the spans the parser
     // handed over, everywhere it handed one over.
     + (traces.containers.offsetsVerified ? 0 : 1)
+    // The sink-boundary traces are held to the same standard: a real parse whose spans cover the
+    // bytes they claim, a skip that is a subsequence of the stream it replaces, a mirrored skip
+    // walk that lands where `consumeSkipRun` lands, a key match that agrees with the shipped
+    // matcher, and storage that hands back what it was given.
+    + (traces.sinkCalls.verified ? 0 : 1) + (traces.dispositions.verified ? 0 : 1)
+    + (traces.skipRun.verified ? 0 : 1) + (traces.fieldMatch.verified ? 0 : 1)
+    + (traces.frames.verified ? 0 : 1) + (traces.streamString.verified ? 0 : 1)
+    + (traces.collections.verified ? 0 : 1) + (traces.views.verified ? 0 : 1)
   print(
     """
     traces.json: \(arch); stringRun \(traces.stringRun.blocks.count) blocks, \
@@ -176,6 +223,18 @@ if only == "all" || only == "traces" {
     numbers \(traces.number.cases.count) cases, \
     tables \(traces.whitespaceTable.tables.count + traces.numberTable.tables.count + traces.utf8.tables.count) \
     across whitespace/number/UTF-8, escapes \(traces.escapes.entries.count) entries
+    """
+  )
+  print(
+    """
+    sink boundary: \(traces.sinkCalls.calls.count) sink calls, \
+    dispositions \(traces.dispositions.streamed.count) streamed vs \(traces.dispositions.skipped.count) skipped, \
+    skip walk \(traces.skipRun.steps.count) steps, \
+    field match \(traces.fieldMatch.tables.count) tables \
+    (\(traces.fieldMatch.tables.map { "\($0.entries.count) \($0.strategy)" }.joined(separator: ", "))), \
+    frames \(traces.frames.steps.count) steps over \(traces.frames.schemas.count) schemas, \
+    StreamString \(traces.streamString.steps.count) appends to \(traces.streamString.steps.last?.utf8Count ?? 0) bytes, \
+    collections \(traces.collections.array.steps.count) array steps and \(traces.collections.dictionary.steps.count) keys
     """
   )
   if unverified > 0 {

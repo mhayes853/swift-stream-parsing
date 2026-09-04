@@ -1,8 +1,13 @@
 import type { TraceBundle, VizKind } from "../types";
+import { CollectionsViz, StreamStringViz, ViewsViz } from "./StorageViz";
 import { ContainersViz } from "./ContainersViz";
+import { DispositionsViz, SinkCallsViz } from "./SinkViz";
 import { EscapeViz } from "./EscapeViz";
+import { FieldTableViz, KeyMatchViz } from "./FieldMatchViz";
+import { FramesViz, SchemaRoutingViz } from "./FramesViz";
 import { MovemaskViz } from "./MovemaskViz";
 import { NumberViz } from "./NumberViz";
+import { SkipRunViz } from "./SkipRunViz";
 import { StringRunViz } from "./StringRunViz";
 import { TableViz } from "./TableViz";
 import { UTF8Viz } from "./UTF8Viz";
@@ -29,5 +34,25 @@ export function Visualization({ kind, traces }: { kind: VizKind; traces: TraceBu
       return <UTF8Viz trace={traces.utf8} />;
     case "escapes":
       return <EscapeViz trace={traces.escapes} />;
+    case "sinkCalls":
+      return <SinkCallsViz trace={traces.sinkCalls} />;
+    case "dispositions":
+      return <DispositionsViz trace={traces.dispositions} />;
+    case "skipRun":
+      return <SkipRunViz trace={traces.skipRun} />;
+    case "keyMatch":
+      return <KeyMatchViz trace={traces.fieldMatch} />;
+    case "fieldTable":
+      return <FieldTableViz trace={traces.fieldMatch} />;
+    case "frames":
+      return <FramesViz trace={traces.frames} />;
+    case "schemaRouting":
+      return <SchemaRoutingViz trace={traces.frames} />;
+    case "streamString":
+      return <StreamStringViz trace={traces.streamString} />;
+    case "collections":
+      return <CollectionsViz trace={traces.collections} />;
+    case "views":
+      return <ViewsViz trace={traces.views} />;
   }
 }

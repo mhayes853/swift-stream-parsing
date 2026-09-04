@@ -408,3 +408,30 @@ export function TableStrip({
     </div>
   );
 }
+
+// MARK: - Past, now, future for things that are not registers
+//
+// From the sink boundary on, the subject is a sequence of *calls* rather than a stack of
+// registers, but the reading problem is the same one the vector rows solve: a list drawn all at
+// once shows the answer and not the work. So the same three phases apply, and the same rule —
+// a future row keeps its space and shows nothing, so nothing reflows as the animation runs.
+
+export function phaseOf(index: number, current: number): RowPhase {
+  if (index < current) return "past";
+  if (index === current) return "now";
+  return "future";
+}
+
+/** A labelled key/value pair for the small fact rows these visuals all need. */
+export function Facts({ items }: { items: [string, ReactNode][] }) {
+  return (
+    <dl className="facts">
+      {items.map(([term, value]) => (
+        <div key={term}>
+          <dt>{term}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}

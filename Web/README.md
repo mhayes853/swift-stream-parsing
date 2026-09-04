@@ -16,8 +16,8 @@ cd Web && npm install && npm run dev
 
 ## The animations
 
-Nine nodes carry one. They are drawn from `Web/generated/traces.json`, which is produced by running
-the shipped kernels — never by reimplementing them — and every mirrored intermediate is asserted
+Nineteen nodes carry one. They are drawn from `Web/generated/traces.json`, which is produced by
+running the shipped code — never by reimplementing it — and every mirrored intermediate is asserted
 against the real function's answer before it is written.
 
 | Node | Shows |
@@ -31,6 +31,16 @@ against the real function's answer before it is written.
 | One compare, then out of line | the branch, plus the 64-bit whitespace bitmap |
 | The structural run | container bits |
 | Eight bytes, backwards | the SWAR digit fold |
+| `StreamParseSink` | the call log of a real parse, with each borrowed span marked on the input |
+| Skipping a subtree | the same document to two sinks, `.stream` and `.skip`, side by side |
+| `consumeSkipRun` | the cursor walking a refused subtree, and the two registers it keeps |
+| Keys, in place | a key's eight bytes as one padded word, then the compare and the tail |
+| The field table | a five-entry scan against a twenty-entry probe, over real tables |
+| `PartialSink` | the frame stack and the member each call writes, read off the sink |
+| Schemas, borrowed | the schema objects, and how many frames borrow each as the parse runs |
+| `StreamString` | inline bytes, the promotion, and the blocks doubling |
+| Arrays and dictionaries | the array's blocks and open element; the dictionary's slot table |
+| Views and snapshots | one member out of the storage, against the whole value |
 
 A lookup table is *recovered* from the kernel, not copied into the recorder: the number-class and
 UTF-8 tables are `package` symbols read directly, the whitespace table is reconstructed by probing
@@ -62,6 +72,13 @@ visible without counting. The container trace therefore records a byte range per
 the spans the parser hands the sink, cross-checked against a cursor that skips whitespace with the
 shipped `streamWhitespaceEnd` and steps over one separator. `offsetsVerified` carries that agreement
 into the bundle and generation fails without it.
+
+The ten animations from `sink-protocol` on are not registers — they are call logs, frame stacks and
+block schedules — but they take the same three phases through `phaseOf`, for the same reason. Two
+places extend that. A call the skipping sink never received stays in its row, struck through at low
+opacity, because "it did not happen" is the thing being shown and removing the row would misalign
+the two columns. And blocked storage is drawn **to scale** against the largest allocation on
+screen: a doubling schedule drawn with equal boxes is a schedule you cannot see.
 
 Under `prefers-reduced-motion` the phases still differ; they simply stop animating between them.
 
@@ -173,9 +190,28 @@ does not cross a SwiftPM package boundary, which is the same reason nothing in t
 `Benchmarks` package touches those kernels either.
 
 Where a kernel's intermediate values are not observable from outside it — per-block masks, the SWAR
-words — the recorder mirrors the body using the same primitives and then **asserts the mirror
-against the real function's answer**. A disagreement fails generation rather than quietly animating
-something the parser does not do.
+words, the skip scanner's cursor — the recorder mirrors the body using the same primitives and then
+**asserts the mirror against the real function's answer**. A disagreement fails generation rather
+than quietly animating something the parser does not do.
+
+From the sink boundary on there is usually nothing to mirror, because the subject is *stored state
+on a shipped type*: a frame stack, a block list, a field table. Those recorders
+`@testable import StreamParsingCore` and read the real fields — `PartialSink.frames` after each
+call, `StreamString.blocks` after each append, the `StreamFieldTable` a real `StreamSchema` built —
+which is stronger than a mirror. It costs the library nothing: `@testable` needs only the
+`-enable-testing` SwiftPM already passes in debug, and `./Web/generate` builds debug.
+
+Each of those carries its own check into the bundle, and generation fails without it:
+
+| Trace | What has to hold |
+| --- | --- |
+| `sinkCalls` | every span the parser passed covers the bytes its call reports |
+| `dispositions` | the skipping run is a subsequence of the streaming one, and its opens and closes balance |
+| `skipRun` | the mirrored walk and `consumeSkipRun` end on the same cursor, and exactly one close was delivered |
+| `fieldMatch` | every probe agrees with `streamMatchField` / `streamMatchFieldIndexed` |
+| `frames` | the recorded parse produced the value the document describes |
+| `streamString` | the reader hands back the bytes it was given, and each locate names the right block |
+| `collections` | both containers hand back what they were given, and the probe chains end where the shipped lookup ended |
 
 ## Assembly
 

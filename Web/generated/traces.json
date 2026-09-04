@@ -1,5 +1,615 @@
 {
   "arch" : "arm64",
+  "collections" : {
+    "array" : {
+      "blockCapacity" : 32,
+      "initialTailCapacity" : 8,
+      "steps" : [
+        {
+          "blocks" : [
+
+          ],
+          "count" : 1,
+          "event" : "open",
+          "index" : 0,
+          "pending" : 0,
+          "tailCapacity" : 0,
+          "tailCount" : 0,
+          "value" : 0
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 2,
+          "event" : "open",
+          "index" : 1,
+          "pending" : 1,
+          "tailCapacity" : 8,
+          "tailCount" : 1,
+          "value" : 1
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 3,
+          "event" : "open",
+          "index" : 2,
+          "pending" : 2,
+          "tailCapacity" : 8,
+          "tailCount" : 2,
+          "value" : 2
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 4,
+          "event" : "open",
+          "index" : 3,
+          "pending" : 3,
+          "tailCapacity" : 8,
+          "tailCount" : 3,
+          "value" : 3
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 5,
+          "event" : "open",
+          "index" : 4,
+          "pending" : 4,
+          "tailCapacity" : 8,
+          "tailCount" : 4,
+          "value" : 4
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 6,
+          "event" : "open",
+          "index" : 5,
+          "pending" : 5,
+          "tailCapacity" : 8,
+          "tailCount" : 5,
+          "value" : 5
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 7,
+          "event" : "open",
+          "index" : 6,
+          "pending" : 6,
+          "tailCapacity" : 8,
+          "tailCount" : 6,
+          "value" : 6
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 8,
+          "event" : "open",
+          "index" : 7,
+          "pending" : 7,
+          "tailCapacity" : 8,
+          "tailCount" : 7,
+          "value" : 7
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 9,
+          "event" : "open",
+          "index" : 8,
+          "pending" : 8,
+          "tailCapacity" : 8,
+          "tailCount" : 8,
+          "value" : 8
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 10,
+          "event" : "open",
+          "index" : 9,
+          "pending" : 9,
+          "tailCapacity" : 32,
+          "tailCount" : 9,
+          "value" : 9
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 11,
+          "event" : "open",
+          "index" : 10,
+          "pending" : 10,
+          "tailCapacity" : 32,
+          "tailCount" : 10,
+          "value" : 10
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 12,
+          "event" : "open",
+          "index" : 11,
+          "pending" : 11,
+          "tailCapacity" : 32,
+          "tailCount" : 11,
+          "value" : 11
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 13,
+          "event" : "open",
+          "index" : 12,
+          "pending" : 12,
+          "tailCapacity" : 32,
+          "tailCount" : 12,
+          "value" : 12
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 14,
+          "event" : "open",
+          "index" : 13,
+          "pending" : 13,
+          "tailCapacity" : 32,
+          "tailCount" : 13,
+          "value" : 13
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 15,
+          "event" : "open",
+          "index" : 14,
+          "pending" : 14,
+          "tailCapacity" : 32,
+          "tailCount" : 14,
+          "value" : 14
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 16,
+          "event" : "open",
+          "index" : 15,
+          "pending" : 15,
+          "tailCapacity" : 32,
+          "tailCount" : 15,
+          "value" : 15
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 17,
+          "event" : "open",
+          "index" : 16,
+          "pending" : 16,
+          "tailCapacity" : 32,
+          "tailCount" : 16,
+          "value" : 16
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 18,
+          "event" : "open",
+          "index" : 17,
+          "pending" : 17,
+          "tailCapacity" : 32,
+          "tailCount" : 17,
+          "value" : 17
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 19,
+          "event" : "open",
+          "index" : 18,
+          "pending" : 18,
+          "tailCapacity" : 32,
+          "tailCount" : 18,
+          "value" : 18
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 20,
+          "event" : "open",
+          "index" : 19,
+          "pending" : 19,
+          "tailCapacity" : 32,
+          "tailCount" : 19,
+          "value" : 19
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 21,
+          "event" : "open",
+          "index" : 20,
+          "pending" : 20,
+          "tailCapacity" : 32,
+          "tailCount" : 20,
+          "value" : 20
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 22,
+          "event" : "open",
+          "index" : 21,
+          "pending" : 21,
+          "tailCapacity" : 32,
+          "tailCount" : 21,
+          "value" : 21
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 23,
+          "event" : "open",
+          "index" : 22,
+          "pending" : 22,
+          "tailCapacity" : 32,
+          "tailCount" : 22,
+          "value" : 22
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 24,
+          "event" : "open",
+          "index" : 23,
+          "pending" : 23,
+          "tailCapacity" : 32,
+          "tailCount" : 23,
+          "value" : 23
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 25,
+          "event" : "open",
+          "index" : 24,
+          "pending" : 24,
+          "tailCapacity" : 32,
+          "tailCount" : 24,
+          "value" : 24
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 26,
+          "event" : "open",
+          "index" : 25,
+          "pending" : 25,
+          "tailCapacity" : 32,
+          "tailCount" : 25,
+          "value" : 25
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 27,
+          "event" : "open",
+          "index" : 26,
+          "pending" : 26,
+          "tailCapacity" : 32,
+          "tailCount" : 26,
+          "value" : 26
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 28,
+          "event" : "open",
+          "index" : 27,
+          "pending" : 27,
+          "tailCapacity" : 32,
+          "tailCount" : 27,
+          "value" : 27
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 29,
+          "event" : "open",
+          "index" : 28,
+          "pending" : 28,
+          "tailCapacity" : 32,
+          "tailCount" : 28,
+          "value" : 28
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 30,
+          "event" : "open",
+          "index" : 29,
+          "pending" : 29,
+          "tailCapacity" : 32,
+          "tailCount" : 29,
+          "value" : 29
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 31,
+          "event" : "open",
+          "index" : 30,
+          "pending" : 30,
+          "tailCapacity" : 32,
+          "tailCount" : 30,
+          "value" : 30
+        },
+        {
+          "blocks" : [
+
+          ],
+          "count" : 32,
+          "event" : "open",
+          "index" : 31,
+          "pending" : 31,
+          "tailCapacity" : 32,
+          "tailCount" : 31,
+          "value" : 31
+        },
+        {
+          "blocks" : [
+            32
+          ],
+          "count" : 33,
+          "event" : "seal",
+          "index" : 32,
+          "pending" : 32,
+          "tailCapacity" : 0,
+          "tailCount" : 0,
+          "value" : 32
+        },
+        {
+          "blocks" : [
+            32
+          ],
+          "count" : 34,
+          "event" : "open",
+          "index" : 33,
+          "pending" : 33,
+          "tailCapacity" : 32,
+          "tailCount" : 1,
+          "value" : 33
+        },
+        {
+          "blocks" : [
+            32
+          ],
+          "count" : 35,
+          "event" : "open",
+          "index" : 34,
+          "pending" : 34,
+          "tailCapacity" : 32,
+          "tailCount" : 2,
+          "value" : 34
+        },
+        {
+          "blocks" : [
+            32
+          ],
+          "count" : 36,
+          "event" : "open",
+          "index" : 35,
+          "pending" : 35,
+          "tailCapacity" : 32,
+          "tailCount" : 3,
+          "value" : 35
+        },
+        {
+          "blocks" : [
+            32
+          ],
+          "count" : 36,
+          "event" : "commit",
+          "index" : 35,
+          "tailCapacity" : 32,
+          "tailCount" : 4,
+          "value" : 35
+        }
+      ]
+    },
+    "dictionary" : {
+      "indexThreshold" : 8,
+      "lookups" : [
+        {
+          "buckets" : [
+            22
+          ],
+          "found" : true,
+          "hash" : "0xA2723AA8C588B5B6",
+          "key" : "id",
+          "slot" : 0
+        },
+        {
+          "buckets" : [
+            4
+          ],
+          "found" : true,
+          "hash" : "0x55700E3F0B2449C4",
+          "key" : "text",
+          "slot" : 1
+        },
+        {
+          "buckets" : [
+            16
+          ],
+          "found" : false,
+          "hash" : "0xDD7C09E795E3DD30",
+          "key" : "absent",
+          "slot" : -1
+        }
+      ],
+      "slots" : [
+        3,
+        -1,
+        -1,
+        -1,
+        1,
+        4,
+        8,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        5,
+        0,
+        -1,
+        -1,
+        -1,
+        2,
+        6,
+        7,
+        -1,
+        9,
+        -1
+      ],
+      "steps" : [
+        {
+          "entryCount" : 1,
+          "event" : "open",
+          "hash" : "0xA2723AA8C588B5B6",
+          "key" : "id",
+          "pendingSlot" : 0,
+          "storedValueCount" : 0,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 2,
+          "event" : "open",
+          "hash" : "0x55700E3F0B2449C4",
+          "key" : "text",
+          "pendingSlot" : 1,
+          "storedValueCount" : 1,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 3,
+          "event" : "open",
+          "hash" : "0x3E86E6239D3D745A",
+          "key" : "user",
+          "pendingSlot" : 2,
+          "storedValueCount" : 2,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 4,
+          "event" : "open",
+          "hash" : "0x7F7EB52118086540",
+          "key" : "lang",
+          "pendingSlot" : 3,
+          "storedValueCount" : 3,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 5,
+          "event" : "open",
+          "hash" : "0x47557E7C5D4BD8E4",
+          "key" : "source",
+          "pendingSlot" : 4,
+          "storedValueCount" : 4,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 6,
+          "event" : "open",
+          "hash" : "0x5FC5C930758D9F55",
+          "key" : "truncated",
+          "pendingSlot" : 5,
+          "storedValueCount" : 5,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 7,
+          "event" : "open",
+          "hash" : "0x518E578F8042ADDA",
+          "key" : "favorited",
+          "pendingSlot" : 6,
+          "storedValueCount" : 6,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 8,
+          "event" : "open",
+          "hash" : "0xF056E34CE7F405FA",
+          "key" : "retweeted",
+          "pendingSlot" : 7,
+          "storedValueCount" : 7,
+          "tableCount" : 0
+        },
+        {
+          "entryCount" : 9,
+          "event" : "index",
+          "hash" : "0x9B718D6186BCB826",
+          "key" : "entities",
+          "pendingSlot" : 8,
+          "storedValueCount" : 8,
+          "tableCount" : 32
+        },
+        {
+          "entryCount" : 10,
+          "event" : "open",
+          "hash" : "0x43AF27835A16C7FE",
+          "key" : "metadata",
+          "pendingSlot" : 9,
+          "storedValueCount" : 9,
+          "tableCount" : 32
+        }
+      ]
+    },
+    "verified" : true
+  },
   "containers" : {
     "maximumDepth" : 64,
     "offsetsVerified" : true,
@@ -222,6 +832,426 @@
       }
     ]
   },
+  "dispositions" : {
+    "bytes" : [
+      123,
+      34,
+      105,
+      100,
+      34,
+      58,
+      55,
+      44,
+      34,
+      110,
+      97,
+      109,
+      101,
+      34,
+      58,
+      34,
+      65,
+      100,
+      97,
+      34,
+      44,
+      34,
+      101,
+      120,
+      116,
+      114,
+      97,
+      34,
+      58,
+      91,
+      49,
+      50,
+      51,
+      52,
+      53,
+      44,
+      45,
+      54,
+      46,
+      53,
+      101,
+      50,
+      44,
+      123,
+      34,
+      107,
+      34,
+      58,
+      34,
+      97,
+      92,
+      34,
+      98,
+      34,
+      125,
+      93,
+      44,
+      34,
+      115,
+      99,
+      111,
+      114,
+      101,
+      34,
+      58,
+      49,
+      46,
+      53,
+      125
+    ],
+    "delivered" : [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "sample" : "{\"id\":7,\"name\":\"Ada\",\"extra\":[12345,-6.5e2,{\"k\":\"a\\\"b\"}],\"score\":1.5}",
+    "skipFrom" : 29,
+    "skipTo" : 55,
+    "skipped" : [
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 0,
+        "method" : "beginObject",
+        "signature" : "beginObject() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 1,
+        "length" : 2,
+        "method" : "key",
+        "offset" : 2,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "id"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 2,
+        "length" : 1,
+        "method" : "number",
+        "offset" : 6,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "7"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 3,
+        "length" : 4,
+        "method" : "key",
+        "offset" : 9,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "name"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 4,
+        "length" : 3,
+        "method" : "string",
+        "offset" : 16,
+        "signature" : "string(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "Ada"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 5,
+        "length" : 5,
+        "method" : "key",
+        "offset" : 22,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "extra"
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "structure",
+        "index" : 6,
+        "method" : "beginArray",
+        "signature" : "beginArray() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 7,
+        "method" : "endArray",
+        "signature" : "endArray()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 8,
+        "length" : 5,
+        "method" : "key",
+        "offset" : 58,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "score"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 9,
+        "length" : 3,
+        "method" : "number",
+        "offset" : 65,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "1.5"
+      },
+      {
+        "depthAfter" : 0,
+        "group" : "structure",
+        "index" : 10,
+        "method" : "endObject",
+        "signature" : "endObject()",
+        "takesSpan" : false
+      }
+    ],
+    "skippedKey" : "extra",
+    "streamed" : [
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 0,
+        "method" : "beginObject",
+        "signature" : "beginObject() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 1,
+        "length" : 2,
+        "method" : "key",
+        "offset" : 2,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "id"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 2,
+        "length" : 1,
+        "method" : "number",
+        "offset" : 6,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "7"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 3,
+        "length" : 4,
+        "method" : "key",
+        "offset" : 9,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "name"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 4,
+        "length" : 3,
+        "method" : "string",
+        "offset" : 16,
+        "signature" : "string(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "Ada"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 5,
+        "length" : 5,
+        "method" : "key",
+        "offset" : 22,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "extra"
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "structure",
+        "index" : 6,
+        "method" : "beginArray",
+        "signature" : "beginArray() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "whole",
+        "index" : 7,
+        "length" : 5,
+        "method" : "number",
+        "offset" : 30,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "12345"
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "whole",
+        "index" : 8,
+        "length" : 6,
+        "method" : "number",
+        "offset" : 36,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "-6.5e2"
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "structure",
+        "index" : 9,
+        "method" : "beginObject",
+        "signature" : "beginObject() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "key",
+        "index" : 10,
+        "length" : 1,
+        "method" : "key",
+        "offset" : 45,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "k"
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "chunked",
+        "index" : 11,
+        "method" : "stringBegin",
+        "signature" : "stringBegin()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "chunked",
+        "index" : 12,
+        "length" : 1,
+        "method" : "stringChunk",
+        "offset" : 49,
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "a"
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "chunked",
+        "index" : 13,
+        "length" : 1,
+        "method" : "stringChunk",
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "\""
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "chunked",
+        "index" : 14,
+        "length" : 1,
+        "method" : "stringChunk",
+        "offset" : 52,
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "b"
+      },
+      {
+        "depthAfter" : 3,
+        "group" : "chunked",
+        "index" : 15,
+        "method" : "stringEnd",
+        "signature" : "stringEnd()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "structure",
+        "index" : 16,
+        "method" : "endObject",
+        "signature" : "endObject()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 17,
+        "method" : "endArray",
+        "signature" : "endArray()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 18,
+        "length" : 5,
+        "method" : "key",
+        "offset" : 58,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "score"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 19,
+        "length" : 3,
+        "method" : "number",
+        "offset" : 65,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "1.5"
+      },
+      {
+        "depthAfter" : 0,
+        "group" : "structure",
+        "index" : 20,
+        "method" : "endObject",
+        "signature" : "endObject()",
+        "takesSpan" : false
+      }
+    ],
+    "verified" : true
+  },
   "escapes" : {
     "entries" : [
       {
@@ -420,7 +1450,1578 @@
     ],
     "verified" : true
   },
-  "generatedAt" : "2026-09-04T19:29:49Z",
+  "fieldMatch" : {
+    "tables" : [
+      {
+        "entries" : [
+          {
+            "bucket" : -1,
+            "hash" : "0x5A5DFBF13FEFAA4C",
+            "index" : 0,
+            "key" : "id",
+            "keyLength" : 2,
+            "keyWord" : "0x0000000000006469",
+            "kind" : "int",
+            "offset" : 0,
+            "wordBytes" : [
+              105,
+              100,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : -1,
+            "hash" : "0xB2CC6653F1E8A8EA",
+            "index" : 1,
+            "key" : "active",
+            "keyLength" : 6,
+            "keyWord" : "0x0000657669746361",
+            "kind" : "bool",
+            "offset" : 8,
+            "wordBytes" : [
+              97,
+              99,
+              116,
+              105,
+              118,
+              101,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : -1,
+            "hash" : "0x5C5769A8B2247B22",
+            "index" : 2,
+            "key" : "name",
+            "keyLength" : 4,
+            "keyWord" : "0x00000000656D616E",
+            "kind" : "streamString",
+            "offset" : 16,
+            "wordBytes" : [
+              110,
+              97,
+              109,
+              101,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : -1,
+            "hash" : "0xC3B1B5F1C8EACB33",
+            "index" : 3,
+            "key" : "address",
+            "keyLength" : 7,
+            "keyWord" : "0x0073736572646461",
+            "kind" : "container",
+            "offset" : 104,
+            "wordBytes" : [
+              97,
+              100,
+              100,
+              114,
+              101,
+              115,
+              115,
+              0
+            ]
+          },
+          {
+            "bucket" : -1,
+            "hash" : "0x2B48401CF3AF5E1B",
+            "index" : 4,
+            "key" : "score",
+            "keyLength" : 5,
+            "keyWord" : "0x00000065726F6373",
+            "kind" : "double",
+            "offset" : 200,
+            "wordBytes" : [
+              115,
+              99,
+              111,
+              114,
+              101,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "name" : "TracePerson",
+        "probes" : [
+          {
+            "bytes" : [
+              110,
+              97,
+              109,
+              101
+            ],
+            "bytesHash" : "0xF9E234562A029945",
+            "hash" : "0x5C5769A8B2247B22",
+            "key" : "name",
+            "length" : 4,
+            "mirrored" : 2,
+            "shipped" : 2,
+            "steps" : [
+              {
+                "bucket" : -1,
+                "entry" : 0,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 2,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x00000000656D616E",
+            "wordBytes" : [
+              110,
+              97,
+              109,
+              101,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bytes" : [
+              115,
+              99,
+              111,
+              114,
+              101
+            ],
+            "bytesHash" : "0x015EE1BFE409C91C",
+            "hash" : "0x2B48401CF3AF5E1B",
+            "key" : "score",
+            "length" : 5,
+            "mirrored" : 4,
+            "shipped" : 4,
+            "steps" : [
+              {
+                "bucket" : -1,
+                "entry" : 0,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 2,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 3,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 4,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x00000065726F6373",
+            "wordBytes" : [
+              115,
+              99,
+              111,
+              114,
+              101,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bytes" : [
+              97,
+              100,
+              100,
+              114,
+              101,
+              115,
+              115
+            ],
+            "bytesHash" : "0x2E9197AC43CF44E4",
+            "hash" : "0xC3B1B5F1C8EACB33",
+            "key" : "address",
+            "length" : 7,
+            "mirrored" : 3,
+            "shipped" : 3,
+            "steps" : [
+              {
+                "bucket" : -1,
+                "entry" : 0,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 2,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 3,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x0073736572646461",
+            "wordBytes" : [
+              97,
+              100,
+              100,
+              114,
+              101,
+              115,
+              115,
+              0
+            ]
+          },
+          {
+            "bytes" : [
+              109,
+              105,
+              115,
+              115,
+              105,
+              110,
+              103
+            ],
+            "bytesHash" : "0xA9C7C9AFC29E5808",
+            "hash" : "0x747CD38D149B075D",
+            "key" : "missing",
+            "length" : 7,
+            "mirrored" : -1,
+            "shipped" : -1,
+            "steps" : [
+              {
+                "bucket" : -1,
+                "entry" : 0,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 2,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 3,
+                "hit" : false,
+                "lengthEqual" : true,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : -1,
+                "entry" : 4,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              }
+            ],
+            "verified" : true,
+            "word" : "0x00676E697373696D",
+            "wordBytes" : [
+              109,
+              105,
+              115,
+              115,
+              105,
+              110,
+              103,
+              0
+            ]
+          }
+        ],
+        "slots" : [
+
+        ],
+        "strategy" : "scan",
+        "threshold" : 16
+      },
+      {
+        "entries" : [
+          {
+            "bucket" : 12,
+            "hash" : "0x5A5DFBF13FEFAA4C",
+            "index" : 0,
+            "key" : "id",
+            "keyLength" : 2,
+            "keyWord" : "0x0000000000006469",
+            "kind" : "int",
+            "offset" : 0,
+            "wordBytes" : [
+              105,
+              100,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : 34,
+            "hash" : "0x5C5769A8B2247B22",
+            "index" : 1,
+            "key" : "name",
+            "keyLength" : 4,
+            "keyWord" : "0x00000000656D616E",
+            "kind" : "int",
+            "offset" : 8,
+            "wordBytes" : [
+              110,
+              97,
+              109,
+              101,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : 62,
+            "hash" : "0x5BDF32C4676117FE",
+            "index" : 2,
+            "key" : "screen_name",
+            "keyLength" : 11,
+            "keyWord" : "0x6E5F6E6565726373",
+            "kind" : "int",
+            "offset" : 16,
+            "wordBytes" : [
+              115,
+              99,
+              114,
+              101,
+              101,
+              110,
+              95,
+              110
+            ]
+          },
+          {
+            "bucket" : 26,
+            "hash" : "0x0BE12A18BCD4DB5A",
+            "index" : 3,
+            "key" : "location",
+            "keyLength" : 8,
+            "keyWord" : "0x6E6F697461636F6C",
+            "kind" : "int",
+            "offset" : 24,
+            "wordBytes" : [
+              108,
+              111,
+              99,
+              97,
+              116,
+              105,
+              111,
+              110
+            ]
+          },
+          {
+            "bucket" : 45,
+            "hash" : "0xEFFCA202C00FBE6D",
+            "index" : 4,
+            "key" : "description",
+            "keyLength" : 11,
+            "keyWord" : "0x7470697263736564",
+            "kind" : "int",
+            "offset" : 32,
+            "wordBytes" : [
+              100,
+              101,
+              115,
+              99,
+              114,
+              105,
+              112,
+              116
+            ]
+          },
+          {
+            "bucket" : 20,
+            "hash" : "0x12AF5DD1775080D4",
+            "index" : 5,
+            "key" : "url",
+            "keyLength" : 3,
+            "keyWord" : "0x00000000006C7275",
+            "kind" : "int",
+            "offset" : 40,
+            "wordBytes" : [
+              117,
+              114,
+              108,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : 56,
+            "hash" : "0x762630D029C99C38",
+            "index" : 6,
+            "key" : "protected",
+            "keyLength" : 9,
+            "keyWord" : "0x65746365746F7270",
+            "kind" : "int",
+            "offset" : 48,
+            "wordBytes" : [
+              112,
+              114,
+              111,
+              116,
+              101,
+              99,
+              116,
+              101
+            ]
+          },
+          {
+            "bucket" : 1,
+            "hash" : "0xCC3F1A4D1D2FCE81",
+            "index" : 7,
+            "key" : "followers_count",
+            "keyLength" : 15,
+            "keyWord" : "0x7265776F6C6C6F66",
+            "kind" : "int",
+            "offset" : 56,
+            "wordBytes" : [
+              102,
+              111,
+              108,
+              108,
+              111,
+              119,
+              101,
+              114
+            ]
+          },
+          {
+            "bucket" : 1,
+            "hash" : "0x1D1F197DE5D85B41",
+            "index" : 8,
+            "key" : "friends_count",
+            "keyLength" : 13,
+            "keyWord" : "0x5F73646E65697266",
+            "kind" : "int",
+            "offset" : 64,
+            "wordBytes" : [
+              102,
+              114,
+              105,
+              101,
+              110,
+              100,
+              115,
+              95
+            ]
+          },
+          {
+            "bucket" : 55,
+            "hash" : "0x3D35B67A682EC437",
+            "index" : 9,
+            "key" : "listed_count",
+            "keyLength" : 12,
+            "keyWord" : "0x635F64657473696C",
+            "kind" : "int",
+            "offset" : 72,
+            "wordBytes" : [
+              108,
+              105,
+              115,
+              116,
+              101,
+              100,
+              95,
+              99
+            ]
+          },
+          {
+            "bucket" : 1,
+            "hash" : "0xE7BBE6F3CE935441",
+            "index" : 10,
+            "key" : "created_at",
+            "keyLength" : 10,
+            "keyWord" : "0x5F64657461657263",
+            "kind" : "int",
+            "offset" : 80,
+            "wordBytes" : [
+              99,
+              114,
+              101,
+              97,
+              116,
+              101,
+              100,
+              95
+            ]
+          },
+          {
+            "bucket" : 55,
+            "hash" : "0xFD83347DBF2C4277",
+            "index" : 11,
+            "key" : "favourites_count",
+            "keyLength" : 16,
+            "keyWord" : "0x746972756F766166",
+            "kind" : "int",
+            "offset" : 88,
+            "wordBytes" : [
+              102,
+              97,
+              118,
+              111,
+              117,
+              114,
+              105,
+              116
+            ]
+          },
+          {
+            "bucket" : 8,
+            "hash" : "0xBBC964D76D556048",
+            "index" : 12,
+            "key" : "utc_offset",
+            "keyLength" : 10,
+            "keyWord" : "0x7366666F5F637475",
+            "kind" : "int",
+            "offset" : 96,
+            "wordBytes" : [
+              117,
+              116,
+              99,
+              95,
+              111,
+              102,
+              102,
+              115
+            ]
+          },
+          {
+            "bucket" : 63,
+            "hash" : "0xD5A5ED3002CB9E7F",
+            "index" : 13,
+            "key" : "time_zone",
+            "keyLength" : 9,
+            "keyWord" : "0x6E6F7A5F656D6974",
+            "kind" : "int",
+            "offset" : 104,
+            "wordBytes" : [
+              116,
+              105,
+              109,
+              101,
+              95,
+              122,
+              111,
+              110
+            ]
+          },
+          {
+            "bucket" : 38,
+            "hash" : "0xA7D1754D94475CE6",
+            "index" : 14,
+            "key" : "geo_enabled",
+            "keyLength" : 11,
+            "keyWord" : "0x62616E655F6F6567",
+            "kind" : "int",
+            "offset" : 112,
+            "wordBytes" : [
+              103,
+              101,
+              111,
+              95,
+              101,
+              110,
+              97,
+              98
+            ]
+          },
+          {
+            "bucket" : 5,
+            "hash" : "0x173C1590CB56B005",
+            "index" : 15,
+            "key" : "verified",
+            "keyLength" : 8,
+            "keyWord" : "0x6465696669726576",
+            "kind" : "int",
+            "offset" : 120,
+            "wordBytes" : [
+              118,
+              101,
+              114,
+              105,
+              102,
+              105,
+              101,
+              100
+            ]
+          },
+          {
+            "bucket" : 54,
+            "hash" : "0x5D351B90061DB8B6",
+            "index" : 16,
+            "key" : "statuses_count",
+            "keyLength" : 14,
+            "keyWord" : "0x7365737574617473",
+            "kind" : "int",
+            "offset" : 128,
+            "wordBytes" : [
+              115,
+              116,
+              97,
+              116,
+              117,
+              115,
+              101,
+              115
+            ]
+          },
+          {
+            "bucket" : 27,
+            "hash" : "0xBF70CC73A59B315B",
+            "index" : 17,
+            "key" : "lang",
+            "keyLength" : 4,
+            "keyWord" : "0x00000000676E616C",
+            "kind" : "int",
+            "offset" : 136,
+            "wordBytes" : [
+              108,
+              97,
+              110,
+              103,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "bucket" : 31,
+            "hash" : "0xD559D15DC04021DF",
+            "index" : 18,
+            "key" : "contributors_enabled",
+            "keyLength" : 20,
+            "keyWord" : "0x75626972746E6F63",
+            "kind" : "int",
+            "offset" : 144,
+            "wordBytes" : [
+              99,
+              111,
+              110,
+              116,
+              114,
+              105,
+              98,
+              117
+            ]
+          },
+          {
+            "bucket" : 51,
+            "hash" : "0x5978518FD5F409F3",
+            "index" : 19,
+            "key" : "is_translator",
+            "keyLength" : 13,
+            "keyWord" : "0x736E6172745F7369",
+            "kind" : "int",
+            "offset" : 152,
+            "wordBytes" : [
+              105,
+              115,
+              95,
+              116,
+              114,
+              97,
+              110,
+              115
+            ]
+          }
+        ],
+        "name" : "TwitterUser",
+        "probes" : [
+          {
+            "bytes" : [
+              115,
+              99,
+              114,
+              101,
+              101,
+              110,
+              95,
+              110,
+              97,
+              109,
+              101
+            ],
+            "bytesHash" : "0x713BFEB3AEB2B225",
+            "hash" : "0x5BDF32C4676117FE",
+            "key" : "screen_name",
+            "length" : 11,
+            "mirrored" : 2,
+            "shipped" : 2,
+            "steps" : [
+              {
+                "bucket" : 62,
+                "entry" : 2,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : true,
+                "tailEqual" : true,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x6E5F6E6565726373",
+            "wordBytes" : [
+              115,
+              99,
+              114,
+              101,
+              101,
+              110,
+              95,
+              110
+            ]
+          },
+          {
+            "bytes" : [
+              99,
+              114,
+              101,
+              97,
+              116,
+              101,
+              100,
+              95,
+              97,
+              116
+            ],
+            "bytesHash" : "0x30EBA5DEB56E602C",
+            "hash" : "0xE7BBE6F3CE935441",
+            "key" : "created_at",
+            "length" : 10,
+            "mirrored" : 10,
+            "shipped" : 10,
+            "steps" : [
+              {
+                "bucket" : 1,
+                "entry" : 7,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : 2,
+                "entry" : 8,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : 3,
+                "entry" : 10,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : true,
+                "tailEqual" : true,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x5F64657461657263",
+            "wordBytes" : [
+              99,
+              114,
+              101,
+              97,
+              116,
+              101,
+              100,
+              95
+            ]
+          },
+          {
+            "bytes" : [
+              102,
+              97,
+              118,
+              111,
+              117,
+              114,
+              105,
+              116,
+              101,
+              115,
+              95,
+              99,
+              111,
+              117,
+              110,
+              116
+            ],
+            "bytesHash" : "0xFB6107925556AB64",
+            "hash" : "0xFD83347DBF2C4277",
+            "key" : "favourites_count",
+            "length" : 16,
+            "mirrored" : 11,
+            "shipped" : 11,
+            "steps" : [
+              {
+                "bucket" : 55,
+                "entry" : 9,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : 56,
+                "entry" : 6,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : 57,
+                "entry" : 11,
+                "hit" : true,
+                "lengthEqual" : true,
+                "tailChecked" : true,
+                "tailEqual" : true,
+                "wordEqual" : true
+              }
+            ],
+            "verified" : true,
+            "word" : "0x746972756F766166",
+            "wordBytes" : [
+              102,
+              97,
+              118,
+              111,
+              117,
+              114,
+              105,
+              116
+            ]
+          },
+          {
+            "bytes" : [
+              115,
+              99,
+              114,
+              101,
+              101,
+              110,
+              95,
+              110,
+              111,
+              109,
+              101
+            ],
+            "bytesHash" : "0x578F4DF7F9369BA8",
+            "hash" : "0x5BDF32C4676117FE",
+            "key" : "screen_nome",
+            "length" : 11,
+            "mirrored" : -1,
+            "shipped" : -1,
+            "steps" : [
+              {
+                "bucket" : 62,
+                "entry" : 2,
+                "hit" : false,
+                "lengthEqual" : true,
+                "tailChecked" : true,
+                "tailEqual" : false,
+                "wordEqual" : true
+              },
+              {
+                "bucket" : 63,
+                "entry" : 13,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              },
+              {
+                "bucket" : 0,
+                "entry" : -1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              }
+            ],
+            "verified" : true,
+            "word" : "0x6E5F6E6565726373",
+            "wordBytes" : [
+              115,
+              99,
+              114,
+              101,
+              101,
+              110,
+              95,
+              110
+            ]
+          },
+          {
+            "bytes" : [
+              109,
+              105,
+              115,
+              115,
+              105,
+              110,
+              103
+            ],
+            "bytesHash" : "0xA9C7C9AFC29E5808",
+            "hash" : "0x747CD38D149B075D",
+            "key" : "missing",
+            "length" : 7,
+            "mirrored" : -1,
+            "shipped" : -1,
+            "steps" : [
+              {
+                "bucket" : 29,
+                "entry" : -1,
+                "hit" : false,
+                "lengthEqual" : false,
+                "tailChecked" : false,
+                "tailEqual" : false,
+                "wordEqual" : false
+              }
+            ],
+            "verified" : true,
+            "word" : "0x00676E697373696D",
+            "wordBytes" : [
+              109,
+              105,
+              115,
+              115,
+              105,
+              110,
+              103,
+              0
+            ]
+          }
+        ],
+        "slots" : [
+          -1,
+          7,
+          8,
+          10,
+          -1,
+          15,
+          -1,
+          -1,
+          12,
+          -1,
+          -1,
+          -1,
+          0,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          5,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          3,
+          17,
+          -1,
+          -1,
+          -1,
+          18,
+          -1,
+          -1,
+          1,
+          -1,
+          -1,
+          -1,
+          14,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          4,
+          -1,
+          -1,
+          -1,
+          -1,
+          -1,
+          19,
+          -1,
+          -1,
+          16,
+          9,
+          6,
+          11,
+          -1,
+          -1,
+          -1,
+          -1,
+          2,
+          13
+        ],
+        "strategy" : "indexed",
+        "threshold" : 16
+      }
+    ],
+    "verified" : true
+  },
+  "frames" : {
+    "bytes" : [
+      123,
+      34,
+      105,
+      100,
+      34,
+      58,
+      55,
+      44,
+      34,
+      97,
+      99,
+      116,
+      105,
+      118,
+      101,
+      34,
+      58,
+      116,
+      114,
+      117,
+      101,
+      44,
+      34,
+      110,
+      97,
+      109,
+      101,
+      34,
+      58,
+      34,
+      65,
+      100,
+      97,
+      34,
+      44,
+      34,
+      97,
+      100,
+      100,
+      114,
+      101,
+      115,
+      115,
+      34,
+      58,
+      123,
+      34,
+      99,
+      105,
+      116,
+      121,
+      34,
+      58,
+      34,
+      67,
+      97,
+      105,
+      114,
+      111,
+      34,
+      44,
+      34,
+      122,
+      105,
+      112,
+      34,
+      58,
+      49,
+      49,
+      53,
+      49,
+      49,
+      125,
+      44,
+      34,
+      115,
+      99,
+      111,
+      114,
+      101,
+      34,
+      58,
+      49,
+      46,
+      53,
+      125
+    ],
+    "members" : [
+      {
+        "kind" : "int",
+        "name" : "id",
+        "offset" : 0,
+        "schema" : 0,
+        "size" : 8
+      },
+      {
+        "kind" : "bool",
+        "name" : "active",
+        "offset" : 8,
+        "schema" : 0,
+        "size" : 1
+      },
+      {
+        "kind" : "streamString",
+        "name" : "name",
+        "offset" : 16,
+        "schema" : 0,
+        "size" : 88
+      },
+      {
+        "kind" : "container",
+        "name" : "address",
+        "offset" : 104,
+        "schema" : 0,
+        "size" : 96
+      },
+      {
+        "kind" : "double",
+        "name" : "score",
+        "offset" : 200,
+        "schema" : 0,
+        "size" : 8
+      },
+      {
+        "kind" : "streamString",
+        "name" : "city",
+        "offset" : 0,
+        "schema" : 1,
+        "size" : 88
+      },
+      {
+        "kind" : "int",
+        "name" : "zip",
+        "offset" : 88,
+        "schema" : 1,
+        "size" : 8
+      }
+    ],
+    "result" : "TracePerson(id: 7, active: true, name: \"Ada\", address: TraceAddress(city: \"Cairo\", zip: 11511), score: 1.5)",
+    "rootSize" : 208,
+    "sample" : "{\"id\":7,\"active\":true,\"name\":\"Ada\",\"address\":{\"city\":\"Cairo\",\"zip\":11511},\"score\":1.5}",
+    "schemas" : [
+      {
+        "fieldCount" : 5,
+        "id" : 0,
+        "keyRouting" : "table",
+        "name" : "TracePerson",
+        "shape" : "object"
+      },
+      {
+        "fieldCount" : 2,
+        "id" : 1,
+        "keyRouting" : "table",
+        "name" : "TraceAddress",
+        "shape" : "object"
+      }
+    ],
+    "steps" : [
+      {
+        "call" : "beginObject",
+        "frames" : [
+          {
+            "pendingField" : -1,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 0
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "id",
+            "pendingField" : 0,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 1,
+        "length" : 2,
+        "offset" : 2,
+        "text" : "id"
+      },
+      {
+        "call" : "number",
+        "frames" : [
+          {
+            "field" : "id",
+            "pendingField" : 0,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 2,
+        "length" : 1,
+        "offset" : 6,
+        "text" : "7",
+        "wrote" : "id"
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "active",
+            "pendingField" : 1,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 3,
+        "length" : 6,
+        "offset" : 9,
+        "text" : "active"
+      },
+      {
+        "call" : "boolean",
+        "frames" : [
+          {
+            "field" : "active",
+            "pendingField" : 1,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 4,
+        "text" : "true",
+        "wrote" : "active"
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "name",
+            "pendingField" : 2,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 5,
+        "length" : 4,
+        "offset" : 23,
+        "text" : "name"
+      },
+      {
+        "call" : "string",
+        "frames" : [
+          {
+            "field" : "name",
+            "pendingField" : 2,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 6,
+        "length" : 3,
+        "offset" : 30,
+        "text" : "Ada",
+        "wrote" : "name"
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 7,
+        "length" : 7,
+        "offset" : 36,
+        "text" : "address"
+      },
+      {
+        "call" : "beginObject",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          },
+          {
+            "pendingField" : -1,
+            "schema" : 1,
+            "storageOffset" : 104
+          }
+        ],
+        "index" : 8
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          },
+          {
+            "field" : "city",
+            "pendingField" : 0,
+            "schema" : 1,
+            "storageOffset" : 104
+          }
+        ],
+        "index" : 9,
+        "length" : 4,
+        "offset" : 47,
+        "text" : "city"
+      },
+      {
+        "call" : "string",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          },
+          {
+            "field" : "city",
+            "pendingField" : 0,
+            "schema" : 1,
+            "storageOffset" : 104
+          }
+        ],
+        "index" : 10,
+        "length" : 5,
+        "offset" : 54,
+        "text" : "Cairo",
+        "wrote" : "city"
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          },
+          {
+            "field" : "zip",
+            "pendingField" : 1,
+            "schema" : 1,
+            "storageOffset" : 104
+          }
+        ],
+        "index" : 11,
+        "length" : 3,
+        "offset" : 62,
+        "text" : "zip"
+      },
+      {
+        "call" : "number",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          },
+          {
+            "field" : "zip",
+            "pendingField" : 1,
+            "schema" : 1,
+            "storageOffset" : 104
+          }
+        ],
+        "index" : 12,
+        "length" : 5,
+        "offset" : 67,
+        "text" : "11511",
+        "wrote" : "zip"
+      },
+      {
+        "call" : "endObject",
+        "frames" : [
+          {
+            "field" : "address",
+            "pendingField" : 3,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 13
+      },
+      {
+        "call" : "key",
+        "frames" : [
+          {
+            "field" : "score",
+            "pendingField" : 4,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 14,
+        "length" : 5,
+        "offset" : 75,
+        "text" : "score"
+      },
+      {
+        "call" : "number",
+        "frames" : [
+          {
+            "field" : "score",
+            "pendingField" : 4,
+            "schema" : 0,
+            "storageOffset" : 0
+          }
+        ],
+        "index" : 15,
+        "length" : 3,
+        "offset" : 82,
+        "text" : "1.5",
+        "wrote" : "score"
+      },
+      {
+        "call" : "endObject",
+        "frames" : [
+
+        ],
+        "index" : 16
+      }
+    ],
+    "verified" : true
+  },
+  "generatedAt" : "2026-09-04T20:21:23Z",
   "number" : {
     "cases" : [
       {
@@ -1390,6 +3991,600 @@
     ],
     "verified" : true
   },
+  "sinkCalls" : {
+    "bytes" : [
+      123,
+      34,
+      105,
+      100,
+      34,
+      58,
+      55,
+      44,
+      34,
+      116,
+      97,
+      103,
+      34,
+      58,
+      34,
+      97,
+      92,
+      34,
+      98,
+      34,
+      44,
+      34,
+      111,
+      107,
+      34,
+      58,
+      116,
+      114,
+      117,
+      101,
+      44,
+      34,
+      110,
+      111,
+      110,
+      101,
+      34,
+      58,
+      110,
+      117,
+      108,
+      108,
+      44,
+      34,
+      120,
+      115,
+      34,
+      58,
+      91,
+      49,
+      44,
+      50,
+      93,
+      125
+    ],
+    "calls" : [
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 0,
+        "method" : "beginObject",
+        "signature" : "beginObject() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 1,
+        "length" : 2,
+        "method" : "key",
+        "offset" : 2,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "id"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 2,
+        "length" : 1,
+        "method" : "number",
+        "offset" : 6,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "7"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 3,
+        "length" : 3,
+        "method" : "key",
+        "offset" : 9,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "tag"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "chunked",
+        "index" : 4,
+        "method" : "stringBegin",
+        "signature" : "stringBegin()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "chunked",
+        "index" : 5,
+        "length" : 1,
+        "method" : "stringChunk",
+        "offset" : 15,
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "a"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "chunked",
+        "index" : 6,
+        "length" : 1,
+        "method" : "stringChunk",
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "\""
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "chunked",
+        "index" : 7,
+        "length" : 1,
+        "method" : "stringChunk",
+        "offset" : 18,
+        "signature" : "stringChunk(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "b"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "chunked",
+        "index" : 8,
+        "method" : "stringEnd",
+        "signature" : "stringEnd()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 9,
+        "length" : 2,
+        "method" : "key",
+        "offset" : 22,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "ok"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 10,
+        "method" : "boolean",
+        "signature" : "boolean(_ value: Bool)",
+        "takesSpan" : false,
+        "text" : "true"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 11,
+        "length" : 4,
+        "method" : "key",
+        "offset" : 32,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "none"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "whole",
+        "index" : 12,
+        "method" : "null",
+        "signature" : "null()",
+        "takesSpan" : false,
+        "text" : "null"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "key",
+        "index" : 13,
+        "length" : 2,
+        "method" : "key",
+        "offset" : 44,
+        "signature" : "key(_ bytes: Span<UInt8>)",
+        "takesSpan" : true,
+        "text" : "xs"
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "structure",
+        "index" : 14,
+        "method" : "beginArray",
+        "signature" : "beginArray() -> StreamContainerDisposition",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "whole",
+        "index" : 15,
+        "length" : 1,
+        "method" : "number",
+        "offset" : 49,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "1"
+      },
+      {
+        "depthAfter" : 2,
+        "group" : "whole",
+        "index" : 16,
+        "length" : 1,
+        "method" : "number",
+        "offset" : 51,
+        "signature" : "number(_ bytes: Span<UInt8>, info: NumberInfo)",
+        "takesSpan" : true,
+        "text" : "2"
+      },
+      {
+        "depthAfter" : 1,
+        "group" : "structure",
+        "index" : 17,
+        "method" : "endArray",
+        "signature" : "endArray()",
+        "takesSpan" : false
+      },
+      {
+        "depthAfter" : 0,
+        "group" : "structure",
+        "index" : 18,
+        "method" : "endObject",
+        "signature" : "endObject()",
+        "takesSpan" : false
+      }
+    ],
+    "sample" : "{\"id\":7,\"tag\":\"a\\\"b\",\"ok\":true,\"none\":null,\"xs\":[1,2]}",
+    "verified" : true
+  },
+  "skipRun" : {
+    "bytes" : [
+      123,
+      34,
+      105,
+      100,
+      34,
+      58,
+      55,
+      44,
+      34,
+      110,
+      97,
+      109,
+      101,
+      34,
+      58,
+      34,
+      65,
+      100,
+      97,
+      34,
+      44,
+      34,
+      101,
+      120,
+      116,
+      114,
+      97,
+      34,
+      58,
+      91,
+      49,
+      50,
+      51,
+      52,
+      53,
+      44,
+      45,
+      54,
+      46,
+      53,
+      101,
+      50,
+      44,
+      123,
+      34,
+      107,
+      34,
+      58,
+      34,
+      97,
+      92,
+      34,
+      98,
+      34,
+      125,
+      93,
+      44,
+      34,
+      115,
+      99,
+      111,
+      114,
+      101,
+      34,
+      58,
+      49,
+      46,
+      53,
+      125
+    ],
+    "end" : 56,
+    "from" : 30,
+    "sample" : "{\"id\":7,\"name\":\"Ada\",\"extra\":[12345,-6.5e2,{\"k\":\"a\\\"b\"}],\"score\":1.5}",
+    "shippedEnd" : 56,
+    "startDepth" : 2,
+    "steps" : [
+      {
+        "action" : "number",
+        "byte" : 49,
+        "containers" : "10",
+        "depthAfter" : 2,
+        "depthBefore" : 2,
+        "emits" : false,
+        "next" : 35,
+        "offset" : 30,
+        "scanner" : "streamNumberRunEnd"
+      },
+      {
+        "action" : "separator",
+        "byte" : 44,
+        "containers" : "10",
+        "depthAfter" : 2,
+        "depthBefore" : 2,
+        "emits" : false,
+        "next" : 36,
+        "offset" : 35
+      },
+      {
+        "action" : "number",
+        "byte" : 45,
+        "containers" : "10",
+        "depthAfter" : 2,
+        "depthBefore" : 2,
+        "emits" : false,
+        "next" : 42,
+        "offset" : 36,
+        "scanner" : "streamNumberRunEnd"
+      },
+      {
+        "action" : "separator",
+        "byte" : 44,
+        "containers" : "10",
+        "depthAfter" : 2,
+        "depthBefore" : 2,
+        "emits" : false,
+        "next" : 43,
+        "offset" : 42
+      },
+      {
+        "action" : "open",
+        "byte" : 123,
+        "containers" : "101",
+        "depthAfter" : 3,
+        "depthBefore" : 2,
+        "emits" : false,
+        "next" : 44,
+        "offset" : 43
+      },
+      {
+        "action" : "string",
+        "byte" : 34,
+        "containers" : "101",
+        "depthAfter" : 3,
+        "depthBefore" : 3,
+        "emits" : false,
+        "next" : 47,
+        "offset" : 44,
+        "scanner" : "streamStringRun"
+      },
+      {
+        "action" : "separator",
+        "byte" : 58,
+        "containers" : "101",
+        "depthAfter" : 3,
+        "depthBefore" : 3,
+        "emits" : false,
+        "next" : 48,
+        "offset" : 47
+      },
+      {
+        "action" : "string",
+        "byte" : 34,
+        "containers" : "101",
+        "depthAfter" : 3,
+        "depthBefore" : 3,
+        "emits" : false,
+        "next" : 54,
+        "offset" : 48,
+        "scanner" : "streamStringRun"
+      },
+      {
+        "action" : "close",
+        "byte" : 125,
+        "containers" : "10",
+        "depthAfter" : 2,
+        "depthBefore" : 3,
+        "emits" : false,
+        "next" : 55,
+        "offset" : 54
+      },
+      {
+        "action" : "done",
+        "byte" : 93,
+        "containers" : "1",
+        "depthAfter" : 1,
+        "depthBefore" : 2,
+        "emits" : true,
+        "next" : 56,
+        "offset" : 55
+      }
+    ],
+    "verified" : true
+  },
+  "streamString" : {
+    "firstBlockCapacity" : 512,
+    "inlineCapacity" : 64,
+    "locate" : [
+      {
+        "block" : 0,
+        "byte" : 115,
+        "offset" : 0,
+        "position" : 0,
+        "region" : "sealed"
+      },
+      {
+        "block" : 0,
+        "byte" : 116,
+        "offset" : 1,
+        "position" : 1,
+        "region" : "sealed"
+      },
+      {
+        "block" : 0,
+        "byte" : 32,
+        "offset" : 384,
+        "position" : 384,
+        "region" : "sealed"
+      },
+      {
+        "block" : 1,
+        "byte" : 116,
+        "offset" : 1023,
+        "position" : 1535,
+        "region" : "sealed"
+      },
+      {
+        "block" : 2,
+        "byte" : 111,
+        "offset" : 0,
+        "position" : 1536,
+        "region" : "tail"
+      },
+      {
+        "block" : 2,
+        "byte" : 32,
+        "offset" : 135,
+        "position" : 1671,
+        "region" : "tail"
+      }
+    ],
+    "maximumBlockCapacity" : 8192,
+    "steps" : [
+      {
+        "blocks" : [
+
+        ],
+        "chunk" : "",
+        "chunkBytes" : 0,
+        "event" : "inline",
+        "inlineCount" : 0,
+        "tailCapacity" : 512,
+        "tailCount" : 0,
+        "utf8Count" : 0
+      },
+      {
+        "blocks" : [
+
+        ],
+        "chunk" : "streaming bytes arrive a",
+        "chunkBytes" : 24,
+        "event" : "inline",
+        "inlineCount" : 24,
+        "tailCapacity" : 512,
+        "tailCount" : 0,
+        "utf8Count" : 24
+      },
+      {
+        "blocks" : [
+
+        ],
+        "chunk" : "streaming bytes arrive a",
+        "chunkBytes" : 24,
+        "event" : "inline",
+        "inlineCount" : 48,
+        "tailCapacity" : 512,
+        "tailCount" : 0,
+        "utf8Count" : 48
+      },
+      {
+        "blocks" : [
+
+        ],
+        "chunk" : "streaming bytes arrive a",
+        "chunkBytes" : 24,
+        "event" : "promote",
+        "inlineCount" : 0,
+        "tailCapacity" : 512,
+        "tailCount" : 72,
+        "utf8Count" : 72
+      },
+      {
+        "blocks" : [
+
+        ],
+        "chunk" : "streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and ",
+        "chunkBytes" : 200,
+        "event" : "append",
+        "inlineCount" : 0,
+        "tailCapacity" : 512,
+        "tailCount" : 272,
+        "utf8Count" : 272
+      },
+      {
+        "blocks" : [
+          512
+        ],
+        "chunk" : "streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hol",
+        "chunkBytes" : 300,
+        "event" : "seal",
+        "inlineCount" : 0,
+        "tailCapacity" : 1024,
+        "tailCount" : 60,
+        "utf8Count" : 572
+      },
+      {
+        "blocks" : [
+          512
+        ],
+        "chunk" : "streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes",
+        "chunkBytes" : 400,
+        "event" : "append",
+        "inlineCount" : 0,
+        "tailCapacity" : 1024,
+        "tailCount" : 460,
+        "utf8Count" : 972
+      },
+      {
+        "blocks" : [
+          512
+        ],
+        "chunk" : "streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a ti",
+        "chunkBytes" : 500,
+        "event" : "append",
+        "inlineCount" : 0,
+        "tailCapacity" : 1024,
+        "tailCount" : 960,
+        "utf8Count" : 1472
+      },
+      {
+        "blocks" : [
+          512,
+          1024
+        ],
+        "chunk" : "streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and the string grows to hold them; streaming bytes arrive a chunk at a time, and ",
+        "chunkBytes" : 200,
+        "event" : "seal",
+        "inlineCount" : 0,
+        "tailCapacity" : 2048,
+        "tailCount" : 136,
+        "utf8Count" : 1672
+      }
+    ],
+    "verified" : true
+  },
   "stringRun" : {
     "blocks" : [
       {
@@ -2189,6 +5384,54 @@
       }
     ],
     "valid" : true,
+    "verified" : true
+  },
+  "views" : {
+    "members" : [
+      {
+        "indirect" : false,
+        "kind" : "int",
+        "name" : "id",
+        "offset" : 0,
+        "size" : 8,
+        "value" : "7"
+      },
+      {
+        "indirect" : false,
+        "kind" : "bool",
+        "name" : "active",
+        "offset" : 8,
+        "size" : 1,
+        "value" : "true"
+      },
+      {
+        "indirect" : true,
+        "kind" : "streamString",
+        "name" : "name",
+        "offset" : 16,
+        "size" : 88,
+        "value" : "\"Ada\""
+      },
+      {
+        "indirect" : false,
+        "kind" : "container",
+        "name" : "address",
+        "offset" : 104,
+        "size" : 96,
+        "value" : "TraceAddress(city: \"Cairo\", zip: 11511)"
+      },
+      {
+        "indirect" : false,
+        "kind" : "double",
+        "name" : "score",
+        "offset" : 200,
+        "size" : 8,
+        "value" : "1.5"
+      }
+    ],
+    "size" : 208,
+    "stride" : 208,
+    "typeName" : "TracePerson",
     "verified" : true
   },
   "whitespace" : {

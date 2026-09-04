@@ -95,7 +95,17 @@ export type VizKind =
   | "whitespaceTable"
   | "numberTable"
   | "utf8"
-  | "escapes";
+  | "escapes"
+  | "sinkCalls"
+  | "dispositions"
+  | "skipRun"
+  | "keyMatch"
+  | "fieldTable"
+  | "frames"
+  | "schemaRouting"
+  | "streamString"
+  | "collections"
+  | "views";
 
 /**
  * How to read an arrow. `step` runs unconditionally and is numbered by its position in `next`;
@@ -291,6 +301,222 @@ export interface EscapeTrace {
   verified: boolean;
 }
 
+// MARK: - The sink boundary onwards
+//
+// These are not kernels, so they are not registers: a call log, two frame stacks, storage growing
+// a block at a time. Each is recorded by running the shipped thing and reading its own state back
+// out — see the note above `SinkCallTrace` in `Trace/TraceModel.swift`.
+
+export interface SinkCall {
+  index: number;
+  method: string;
+  signature: string;
+  text?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  takesSpan: boolean;
+  depthAfter: number;
+  group: "structure" | "key" | "whole" | "chunked";
+}
+
+export interface SinkCallTrace {
+  sample: string;
+  bytes: number[];
+  calls: SinkCall[];
+  verified: boolean;
+}
+
+export interface DispositionTrace {
+  sample: string;
+  bytes: number[];
+  skippedKey: string;
+  streamed: SinkCall[];
+  skipped: SinkCall[];
+  /** Parallel to `streamed`: whether the skipping run received that call too. */
+  delivered: boolean[];
+  skipFrom: number;
+  skipTo: number;
+  verified: boolean;
+}
+
+export interface SkipRunStep {
+  offset: number;
+  byte: number;
+  action: "open" | "close" | "string" | "separator" | "number" | "literal" | "done";
+  scanner?: string | null;
+  next: number;
+  depthBefore: number;
+  depthAfter: number;
+  containers: string;
+  emits: boolean;
+}
+
+export interface SkipRunTrace {
+  sample: string;
+  bytes: number[];
+  from: number;
+  startDepth: number;
+  steps: SkipRunStep[];
+  end: number;
+  shippedEnd: number;
+  verified: boolean;
+}
+
+export interface FieldEntry {
+  index: number;
+  key: string;
+  keyWord: string;
+  wordBytes: number[];
+  keyLength: number;
+  kind: string;
+  offset: number;
+  hash: string;
+  bucket: number;
+}
+
+export interface FieldProbeStep {
+  bucket: number;
+  entry: number;
+  wordEqual: boolean;
+  lengthEqual: boolean;
+  tailChecked: boolean;
+  tailEqual: boolean;
+  hit: boolean;
+}
+
+export interface FieldProbe {
+  key: string;
+  bytes: number[];
+  word: string;
+  wordBytes: number[];
+  length: number;
+  hash: string;
+  bytesHash: string;
+  steps: FieldProbeStep[];
+  shipped: number;
+  mirrored: number;
+  verified: boolean;
+}
+
+export interface FieldTable {
+  name: string;
+  strategy: "scan" | "indexed" | "none";
+  threshold: number;
+  entries: FieldEntry[];
+  slots: number[];
+  probes: FieldProbe[];
+}
+
+export interface FieldMatchTrace {
+  tables: FieldTable[];
+  verified: boolean;
+}
+
+export interface Frame {
+  schema: number;
+  storageOffset?: number | null;
+  pendingField: number;
+  field?: string | null;
+}
+
+export interface FrameStep {
+  index: number;
+  call: string;
+  text?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  frames: Frame[];
+  wrote?: string | null;
+}
+
+export interface FrameTrace {
+  sample: string;
+  bytes: number[];
+  rootSize: number;
+  schemas: {
+    id: number;
+    name: string;
+    shape: string;
+    keyRouting: string;
+    fieldCount: number;
+  }[];
+  members: { name: string; offset: number; size: number; kind: string; schema: number }[];
+  steps: FrameStep[];
+  verified: boolean;
+  result: string;
+}
+
+export interface StreamStringTrace {
+  inlineCapacity: number;
+  firstBlockCapacity: number;
+  maximumBlockCapacity: number;
+  steps: {
+    chunk: string;
+    chunkBytes: number;
+    inlineCount: number;
+    blocks: number[];
+    tailCount: number;
+    tailCapacity: number;
+    utf8Count: number;
+    event: "inline" | "promote" | "append" | "seal";
+  }[];
+  locate: {
+    position: number;
+    block: number;
+    offset: number;
+    byte: number;
+    region: "inline" | "sealed" | "tail";
+  }[];
+  verified: boolean;
+}
+
+export interface CollectionTrace {
+  array: {
+    blockCapacity: number;
+    initialTailCapacity: number;
+    steps: {
+      index: number;
+      value: number;
+      blocks: number[];
+      tailCount: number;
+      tailCapacity: number;
+      pending?: number | null;
+      count: number;
+      event: "open" | "commit" | "seal";
+    }[];
+  };
+  dictionary: {
+    indexThreshold: number;
+    steps: {
+      key: string;
+      hash: string;
+      entryCount: number;
+      storedValueCount: number;
+      tableCount: number;
+      pendingSlot: number;
+      event: "open" | "commit" | "index";
+    }[];
+    slots: number[];
+    lookups: { key: string; hash: string; buckets: number[]; slot: number; found: boolean }[];
+  };
+  verified: boolean;
+}
+
+export interface ViewTrace {
+  typeName: string;
+  size: number;
+  stride: number;
+  members: {
+    name: string;
+    offset: number;
+    size: number;
+    kind: string;
+    value: string;
+    indirect: boolean;
+  }[];
+  verified: boolean;
+}
+
 export interface TraceBundle {
   generatedAt: string;
   arch: string;
@@ -302,4 +528,12 @@ export interface TraceBundle {
   numberTable: TableTrace;
   utf8: UTF8Trace;
   escapes: EscapeTrace;
+  sinkCalls: SinkCallTrace;
+  dispositions: DispositionTrace;
+  skipRun: SkipRunTrace;
+  fieldMatch: FieldMatchTrace;
+  frames: FrameTrace;
+  streamString: StreamStringTrace;
+  collections: CollectionTrace;
+  views: ViewTrace;
 }

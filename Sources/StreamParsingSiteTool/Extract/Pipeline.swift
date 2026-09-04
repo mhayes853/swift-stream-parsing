@@ -129,7 +129,9 @@ extension Pipeline {
   /// Mirrors the `VizKind` union in `Web/src/types.ts` and the switch in `Web/src/viz/index.tsx`.
   static let vizKinds: Set<String> = [
     "stringRun", "whitespace", "containers", "number",
-    "movemask", "whitespaceTable", "numberTable", "utf8", "escapes"
+    "movemask", "whitespaceTable", "numberTable", "utf8", "escapes",
+    "sinkCalls", "dispositions", "skipRun", "keyMatch", "fieldTable",
+    "frames", "schemaRouting", "streamString", "collections", "views"
   ]
 }
 
