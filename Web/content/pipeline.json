@@ -1,0 +1,3979 @@
+{
+  "version": 2,
+  "stages": [
+    {
+      "id": "entry",
+      "title": "A chunk arrives",
+      "blurb": "Bytes enter through one of three entry points. The parser picks a walk and keeps whatever state is needed to resume mid-token."
+    },
+    {
+      "id": "dispatch",
+      "title": "The dispatcher",
+      "blurb": "A switch over thirteen states. Each token class is a separate function it calls out to."
+    },
+    {
+      "id": "whitespace",
+      "title": "Whitespace",
+      "blurb": "One compare in front of the run scan. How much whitespace there is to find is a property of the document, not of JSON."
+    },
+    {
+      "id": "strings",
+      "title": "Strings and escapes",
+      "blurb": "Sixteen bytes per compare, three terminators tested at once. The non-ASCII answer leaves with the end index."
+    },
+    {
+      "id": "numbers",
+      "title": "Numbers",
+      "blurb": "A greedy scan finds the token; the narrowest kernel that fits its shape parses it."
+    },
+    {
+      "id": "sink",
+      "title": "The sink boundary",
+      "blurb": "Token-granular, non-throwing, borrowed spans. The boundary between the format-agnostic parser and a destination."
+    },
+    {
+      "id": "routing",
+      "title": "Typed routing",
+      "blurb": "Turning a key into a store. Most of this layer is now data rather than closures."
+    },
+    {
+      "id": "storage",
+      "title": "Storage and reading",
+      "blurb": "Where bytes accumulate, and what reading them before the document ends costs."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "chunk-in",
+      "stage": "entry",
+      "title": "parse(_:into:)",
+      "kicker": "entry",
+      "viz": null,
+      "prose": [
+        "Everything starts here. A chunk of bytes goes in, tokens come out the other side into a sink, and the parser keeps whatever state is needed to resume mid-token when the chunk ends somewhere awkward — inside a string, halfway through a number, between the two halves of a surrogate pair.",
+        "The entry point itself does almost nothing: it records where the chunk starts, picks a walk, and wraps the loop in the handler that flushes to the sink before an error propagates. That ordering matters — everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/buffering",
+          "known-gaps"
+        ],
+        "source": [
+          "JSONParser.swift:parse",
+          "JSONParser.swift:JSONParser",
+          "JSONParser.swift:finish"
+        ],
+        "asm": [
+          "JSONParser.parse"
+        ]
+      },
+      "next": [
+        {
+          "to": "window-gate",
+          "kind": "branch",
+          "label": "n ≥ windowThreshold",
+          "when": "The chunk is large enough to index ahead of the walk. `parseWindowed` takes it and `parse` returns without touching the byte loop."
+        },
+        {
+          "to": "dispatcher",
+          "kind": "branch",
+          "label": "otherwise",
+          "when": "The ordinary path: the bytes are walked directly by `parseDispatching`, which is force-inlined so the loop's layout is what it was when it lived here."
+        },
+        {
+          "to": "buffering",
+          "kind": "step",
+          "label": "on the way out",
+          "when": "Both walks end the same way — `settlePendingStringBegin`, then `commitSink`, then the consumed-byte count advances. This also runs on the error path, which is the point: what was emitted before a grammar error still belongs to the sink."
+        }
+      ],
+      "invokes": "One length test picks the walk, and the whole call is wrapped in a handler that commits to the sink before any error propagates.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "entry",
+          "title": "A call arrives",
+          "kicker": "chunk or byte",
+          "detail": "Two entry points share one state machine: `parse(_:into:)` takes a buffer and `parse(byte:into:)` takes a single byte. Neither reads anything before recording where the bytes are.",
+          "source": "JSONParser.swift:parse",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "bytefast",
+              "kind": "branch",
+              "label": "one byte, inside a string",
+              "when": "The shape byte-fed input is mostly made of: an ordinary ASCII byte in a string value. Six tests deep — state, the byte's own range, then three parser fields — and it produces one record without the dispatcher, the scan or the scratch."
+            },
+            {
+              "to": "base",
+              "kind": "branch",
+              "label": "a buffer",
+              "when": "`parse(_:into:)`. An empty buffer returns having touched nothing."
+            }
+          ]
+        },
+        {
+          "id": "bytefast",
+          "title": "deliverStringByte",
+          "kicker": "one record",
+          "detail": "One `stringChunk` carrying the byte itself, so there is no pointer to take and no `chunkBase` to store. Anything that fails one of the six tests falls through to the dispatcher unchanged.",
+          "source": "JSONParser.swift:parse",
+          "next": []
+        },
+        {
+          "id": "base",
+          "title": "chunkBase = base",
+          "kicker": "one store",
+          "detail": "The chunk's base address is stored on the parser, so every record emitted from here on names a span inside the caller's memory rather than copying bytes out of it.",
+          "source": "JSONParser.swift:parse",
+          "next": [
+            {
+              "to": "gate",
+              "kind": "step",
+              "label": "pick a walk"
+            }
+          ]
+        },
+        {
+          "id": "gate",
+          "title": "n vs windowThreshold",
+          "kicker": "one compare",
+          "detail": "One compare picks the walk. The threshold defaults to `Int.max`, so the windowed path is off unless a caller asks for it.",
+          "source": "JSONParser.swift:parse",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "windowed",
+              "kind": "branch",
+              "label": "n ≥ threshold",
+              "when": "Long enough to be worth indexing 32 KB ahead of the walk."
+            },
+            {
+              "to": "dispatching",
+              "kind": "branch",
+              "label": "n < threshold",
+              "when": "The ordinary path: the dispatcher walks the bytes itself."
+            }
+          ]
+        },
+        {
+          "id": "windowed",
+          "title": "parseWindowed",
+          "kicker": "32 KB windows",
+          "detail": "The indexed walk. Its own node covers what it does and why it is gated.",
+          "source": "JSONParser.swift:parse",
+          "next": [
+            {
+              "to": "commit",
+              "kind": "return",
+              "label": "the walk finished, or threw"
+            }
+          ]
+        },
+        {
+          "id": "dispatching",
+          "title": "parseDispatching",
+          "kicker": "13 states",
+          "detail": "The switch-per-state loop that owns every token class.",
+          "source": "JSONParser.swift:parse",
+          "next": [
+            {
+              "to": "commit",
+              "kind": "return",
+              "label": "the walk finished, or threw"
+            }
+          ]
+        },
+        {
+          "id": "commit",
+          "title": "settle, then commit",
+          "kicker": "before the error",
+          "detail": "A pending `stringBegin` is settled and `commit()` reaches the sink *before* a grammar error propagates. Everything emitted ahead of the error is still the sink's, so a destination that rejected something earlier reports its own failure rather than having the parser's take precedence.",
+          "source": "JSONParser.swift:parse",
+          "next": [
+            {
+              "to": "finish",
+              "kind": "branch",
+              "label": "the caller has no more bytes",
+              "when": "`finish()` is a separate call, and the only one that can report a document that ended mid-token."
+            }
+          ]
+        },
+        {
+          "id": "finish",
+          "title": "finish()",
+          "kicker": "the last call",
+          "detail": "The state the parser stopped in becomes the verdict: `.number` emits the buffered token, a string state is unterminated, `.literal` is invalid. The lifetime signal goes out before the structural checks, which deliver nothing new.",
+          "source": "JSONParser.swift:finish",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "buffering",
+      "stage": "entry",
+      "title": "Chunk boundaries",
+      "kicker": "resume",
+      "viz": null,
+      "prose": [
+        "A chunk boundary can land anywhere, including inside a UTF-8 sequence. The parser holds the incomplete tail rather than guessing, and completes it against the next chunk's first bytes before the main loop starts.",
+        "This is the cost of streaming rather than batching, and it is kept to the edges: the resume path runs once per chunk, not once per byte, so the bulk loop never tests for it."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/buffering",
+          "numbers-whole-greedy-scan-structured-parse/error-offsets-absolute-and-independent-of-chunking"
+        ],
+        "source": [
+          "JSONParser.swift:completePendingUTF8",
+          "JSONParser.swift:holdPendingUTF8",
+          "JSONParser.swift:trimmingIncompleteUTF8"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "dispatcher",
+          "kind": "step",
+          "label": "resume, then walk",
+          "when": "`completePendingUTF8` finishes the held sequence against the new chunk's first bytes and returns the index the main loop starts from. With nothing held the loop starts at 0 and the test is one compare."
+        }
+      ],
+      "invokes": "Runs once at the top of the next chunk's walk, before the loop starts — never per byte.",
+      "steps": [
+        {
+          "id": "trim",
+          "title": "trimmingIncompleteUTF8",
+          "kicker": "at the chunk end",
+          "detail": "Before a string run that reaches the end of the buffer is emitted, the last four bytes are walked backwards looking for a lead whose sequence the chunk cut. Nothing further back is examined, because no sequence is longer than four bytes.",
+          "source": "JSONParser.swift:trimmingIncompleteUTF8",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "hold",
+              "kind": "branch",
+              "label": "a lead is short of its bytes",
+              "when": "The run's last bytes are the head of a sequence this chunk cut, so they are held back instead of emitted."
+            },
+            {
+              "to": "whole",
+              "kind": "branch",
+              "label": "the run ends on a whole sequence",
+              "when": "Nothing is pending and the run is emitted as it stands."
+            }
+          ]
+        },
+        {
+          "id": "whole",
+          "title": "emit the run",
+          "kicker": "no hold",
+          "detail": "The common case, and the reason this test is where it is: it costs one backwards walk over at most four bytes per run, not per byte.",
+          "next": []
+        },
+        {
+          "id": "hold",
+          "title": "holdPendingUTF8",
+          "kicker": "≤ 4 bytes",
+          "detail": "At most four bytes copied into eight the parser's buffer already reserves. An invalid lead is rejected here rather than held, which leaves completion with only the second-byte constraints left to check.",
+          "source": "JSONParser.swift:holdPendingUTF8",
+          "next": [
+            {
+              "to": "complete",
+              "kind": "step",
+              "label": "carry it into the next chunk"
+            }
+          ]
+        },
+        {
+          "id": "complete",
+          "title": "completePendingUTF8",
+          "kicker": "once per chunk",
+          "detail": "Runs once per chunk, ahead of the dispatch loop, so the bulk loop never tests for it. Continuation bytes are taken off the front of the new chunk until the sequence is as long as its lead says.",
+          "source": "JSONParser.swift:completePendingUTF8",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "second",
+              "kind": "branch",
+              "label": "the sequence is whole",
+              "when": "Every byte taken was a continuation and the count reached `sequenceLength(lead)`."
+            },
+            {
+              "to": "truncated",
+              "kind": "branch",
+              "label": "a non-continuation arrived",
+              "when": "The sequence is truncated: `invalidUTF8`, reported at the lead's offset in the *previous* chunk."
+            },
+            {
+              "to": "again",
+              "kind": "branch",
+              "label": "this chunk ran out first",
+              "when": "A sequence can be cut twice by sufficiently small chunks."
+            }
+          ]
+        },
+        {
+          "id": "again",
+          "title": "hold what arrived",
+          "kicker": "still pending",
+          "detail": "The count advances and the rest waits. Byte-fed input takes this arm three times for a four-byte sequence.",
+          "source": "JSONParser.swift:completePendingUTF8",
+          "next": [
+            {
+              "to": "complete",
+              "kind": "return",
+              "label": "the chunk after this one"
+            }
+          ]
+        },
+        {
+          "id": "truncated",
+          "title": "invalidUTF8",
+          "kicker": "negative offset",
+          "detail": "Reported at the lead, which is a negative offset into this chunk: the parser counts consumed bytes, so an error in a sequence the boundary split still names where the sequence began.",
+          "source": "JSONParser.swift:completePendingUTF8",
+          "next": []
+        },
+        {
+          "id": "second",
+          "title": "the second-byte constraints",
+          "kicker": "4 compares",
+          "detail": "The fill loop admitted only continuation bytes and the hold rejected invalid leads, so only overlongs, encoded surrogates and scalars past U+10FFFF remain — the same four tests the contiguous validator applies, without its ASCII prescan, which measured 32% of byte-fed non-ASCII throughput.",
+          "source": "JSONParser.swift:completePendingUTF8",
+          "next": [
+            {
+              "to": "rejoin",
+              "kind": "step",
+              "label": "the sequence is valid"
+            }
+          ]
+        },
+        {
+          "id": "rejoin",
+          "title": "one stringChunk, from the buffer",
+          "kicker": "not from the input",
+          "detail": "The rejoined bytes are emitted out of the parser's own buffer rather than the input, because half of them are in a chunk that no longer exists. A sequence rejoined inside a *skipped* string is validated and dropped.",
+          "source": "JSONParser.swift:completePendingUTF8",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "window-gate",
+      "stage": "entry",
+      "title": "The windowed walk",
+      "kicker": "gated",
+      "viz": null,
+      "prose": [
+        "A large enough chunk can be indexed ahead of the walk, simdjson style: find every structural byte in a 32 KB window first, then walk the index instead of the bytes. The parser will do this, but only above a threshold, and only while the windows stay dense enough to be worth it.",
+        "Measured across the full corpus, the windowed walk loses 4–36% on string-heavy and sub-window payloads: the index costs more to build than the walk saves whenever the document is not structurally dense. It is off by default and probes as it goes."
+      ],
+      "evidence": {
+        "doc": [
+          "the-windowed-walk-first-pass",
+          "stage-1-extraction-the-census-and-the-budget",
+          "index-cost-three-moves-and-what-each-one-bought",
+          "shape-loops-the-walk-stops-being-a-state-machine"
+        ],
+        "source": [
+          "JSONParserWindow.swift:parseWindowed",
+          "StreamParsingShims.h:stream_parsing_index_window"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "dispatcher",
+          "kind": "branch",
+          "label": "window not dense enough",
+          "when": "Density is probed per window. When the index stops paying for itself the remaining bytes go through the ordinary dispatch loop, which is also what happens for the whole chunk when the gate is off."
+        }
+      ],
+      "invokes": "Indexes a 32 KB window, walks the index rather than the bytes, and measures density as it goes.",
+      "steps": [
+        {
+          "id": "scratch",
+          "title": "one scratch allocation",
+          "kicker": "reused",
+          "detail": "Held on the parser and reused across calls: 32 KB of `UInt32` positions plus two bitmap planes, one for the blocks that need a scan and one for the blocks holding non-ASCII.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "next": [
+            {
+              "to": "boundary",
+              "kind": "step",
+              "label": "walk the chunk"
+            }
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "is the cursor at a token boundary?",
+          "kicker": "state test",
+          "detail": "A window may start only outside a string with nothing buffered, because the indexer carries no state across windows. Anything else is the dispatcher's.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "the chunk is consumed",
+              "when": "The walk ends where a bulk parse would, with the same events already delivered."
+            },
+            {
+              "to": "dispatchOnce",
+              "kind": "branch",
+              "label": "mid-token",
+              "when": "Inside a string, a buffered number, an escape in flight: one dispatcher step at a time until the cursor is back at a boundary."
+            },
+            {
+              "to": "density",
+              "kind": "branch",
+              "label": "structural, nothing buffered",
+              "when": "The cursor is at a token boundary outside any string, which is the only state the indexer can be started from."
+            }
+          ]
+        },
+        {
+          "id": "dispatchOnce",
+          "title": "one dispatcher step",
+          "kicker": "one token",
+          "detail": "The same handler the bulk path would have run, so the sink cannot tell which walk produced the events.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "next": [
+            {
+              "to": "boundary",
+              "kind": "return",
+              "label": "look again"
+            }
+          ]
+        },
+        {
+          "id": "density",
+          "title": "windowDensity vs 3",
+          "kicker": "entries per 64B",
+          "detail": "Entries per 64 bytes, measured on the last window that was indexed. Census: llm_message 0.7 and gsoc-2018 2.1 against citm 6.0, github 6.4, twitter 7.4 and canada 9.5.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "sparse",
+              "kind": "branch",
+              "label": "below 3, probed recently",
+              "when": "String interior with little structure: the index costs more to build than the walk saves, so the span is the dispatcher's."
+            },
+            {
+              "to": "index",
+              "kind": "branch",
+              "label": "dense, or every eighth window",
+              "when": "Every eighth window is indexed regardless, so a document that turns dense again is noticed within one window."
+            }
+          ]
+        },
+        {
+          "id": "sparse",
+          "title": "hand the span to the dispatcher",
+          "kicker": "32 KB, unindexed",
+          "detail": "Bounded by where the steps stop, not by what they scan — a handler may overrun the span, as a string longer than it would — so the sink sees exactly the chunks a bulk parse produces.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "next": [
+            {
+              "to": "boundary",
+              "kind": "return",
+              "label": "the cursor left the span"
+            }
+          ]
+        },
+        {
+          "id": "index",
+          "title": "stream_parsing_index_window",
+          "kicker": "C, 32 KB",
+          "detail": "Stage one, in C: every position the walk must visit, written eight slots at a time. The whole loop is across the boundary because the shuffle it needs takes a target attribute Swift cannot spell.",
+          "source": "StreamParsingShims.h:stream_parsing_index_window",
+          "next": [
+            {
+              "to": "walk",
+              "kind": "step",
+              "label": "walk the index, not the bytes"
+            }
+          ]
+        },
+        {
+          "id": "walk",
+          "title": "consumeWindow",
+          "kicker": "extents known",
+          "detail": "The dispatcher's structural arms restated over known token extents. It still hands back every token a window cuts and every key with an escape in it — both cold — and the cursor comes back short of the window end when it does.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "next": [
+            {
+              "to": "boundary",
+              "kind": "return",
+              "label": "a token was handed back"
+            }
+          ]
+        },
+        {
+          "id": "done",
+          "title": "the chunk is consumed",
+          "kicker": "same events",
+          "detail": "Same events, same spans, same error reasons and offsets, same rejection points as the unwindowed walk. That contract is why the arms are restated rather than rewritten.",
+          "source": "JSONParserWindow.swift:parseWindowed",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "dispatcher",
+      "stage": "dispatch",
+      "title": "parseDispatching",
+      "kicker": "13 states",
+      "viz": null,
+      "prose": [
+        "The main loop is a switch over the parser's state that calls out to a handler per token class, and then re-enters. Read on the release binary it is 1284 bytes, 322 instructions, 18 calls and no SIMD at all — a pure dispatcher. Every token class is a separate function: `consumeStructural` at 1044 bytes, `consumeStringRun` at 1204, `consumeNumber` at 928.",
+        "Keeping it that way takes explicit attributes, because of register pressure: anything inlined here is paid for by every document, including ones that never execute it. The same state-ladder transformation that made the structural step faster was applied to this loop and measured worse."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/the-parse-loop-is-a-dispatcher-and-a-structural-byte-costs-a-call",
+          "two-dispatchers-one-transformation-opposite-signs/rejected-the-same-ladder-in-parse",
+          "outlined-throws-and-the-whitespace-inline-they-were-blocking"
+        ],
+        "source": [
+          "JSONParser.swift:parseDispatching",
+          "JSONParser.swift:State"
+        ],
+        "asm": [
+          "JSONParser.parse"
+        ]
+      },
+      "next": [
+        {
+          "to": "structural-run",
+          "kind": "branch",
+          "label": "structural states",
+          "when": "`.value`, `.firstValue`, `.afterValue`, `.key`, `.firstKey`, `.afterKey`, `.done` — the states with no token open. They are numbered below the rest so `state.isStructural` is a single unsigned compare."
+        },
+        {
+          "to": "string-run",
+          "kind": "branch",
+          "label": ".inString / .inKey",
+          "when": "A string body is open. `.inString` streams its bytes; `.inKey` goes to `consumeKeyRun`, which buffers so the key can be delivered whole. `.escape` and `.unicode` are separate arms handled one byte at a time."
+        },
+        {
+          "to": "number-scan",
+          "kind": "branch",
+          "label": ".number",
+          "when": "A number is open. This state is entered when the structural run hands back the byte it stopped on — a number is the one token whose first byte belongs to the token itself."
+        },
+        {
+          "to": "skip-run",
+          "kind": "branch",
+          "label": ".skipping …",
+          "when": "The sink declined this subtree. Three states, all placed past `.done` in the enum so that adding them did not cost everyone else the single-compare structural test."
+        }
+      ],
+      "invokes": "A `switch` on `self.state` at the top of `while i < n`. Exactly one arm runs per iteration; each returns the index it stopped at and the switch runs again, so control comes back here after every run until the chunk is consumed.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "resume",
+          "title": "pending UTF-8 first",
+          "kicker": "once per chunk",
+          "detail": "Once per chunk, before the loop: a sequence the previous chunk cut is rejoined here so the loop below never has to test for one.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "loop",
+              "kind": "step",
+              "label": "enter the loop"
+            }
+          ]
+        },
+        {
+          "id": "loop",
+          "title": "switch self.state",
+          "kicker": "a jump table",
+          "detail": "Thirteen cases over one `UInt8`, lowered as a jump table. Exactly one arm runs per iteration and each returns the new cursor. Read on the release binary the whole function is 1284 bytes, 322 instructions, 18 calls and no SIMD at all.",
+          "source": "JSONParser.swift:parseDispatching",
+          "ordering": "unordered",
+          "next": [
+            {
+              "to": "structural",
+              "kind": "branch",
+              "label": "the seven structural states",
+              "when": "`value`, `firstValue`, `afterValue`, `key`, `firstKey`, `afterKey`, `done` share one arm."
+            },
+            {
+              "to": "strings",
+              "kind": "branch",
+              "label": "inString / inKey",
+              "when": "A string value and a key take different arms because one is delivered as a borrowed span and the other is buffered."
+            },
+            {
+              "to": "perbyte",
+              "kind": "branch",
+              "label": "escape / unicode",
+              "when": "One byte per call: an escape selector, or one of the four hex digits."
+            },
+            {
+              "to": "scalars",
+              "kind": "branch",
+              "label": "number / literal",
+              "when": "A token the run handed back, or one a chunk cut."
+            },
+            {
+              "to": "skip",
+              "kind": "branch",
+              "label": "the three skipping states",
+              "when": "Past `done` in the enum on purpose, so `isStructural` stays one unsigned compare."
+            }
+          ]
+        },
+        {
+          "id": "structural",
+          "title": "consumeStructuralRun",
+          "kicker": "1044 B",
+          "detail": "1044 bytes of `consumeStructural` folded into a run loop.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "advance",
+              "kind": "step",
+              "label": "returns the new cursor"
+            }
+          ]
+        },
+        {
+          "id": "strings",
+          "title": "consumeStringRun / consumeKeyRun",
+          "kicker": "1204 B",
+          "detail": "1204 bytes. Every token class is its own function precisely so this loop is not.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "advance",
+              "kind": "step",
+              "label": "returns the new cursor"
+            }
+          ]
+        },
+        {
+          "id": "perbyte",
+          "title": "escape, then hex digits",
+          "kicker": "one byte",
+          "detail": "`consumeEscape` and `consumeUnicodeDigit`: the cold spellings, kept for the escape a chunk boundary cuts and for the ones carrying diagnostics.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "advance",
+              "kind": "step",
+              "label": "cursor already stepped"
+            }
+          ]
+        },
+        {
+          "id": "scalars",
+          "title": "consumeNumber / consumeLiteral",
+          "kicker": "928 B",
+          "detail": "928 bytes for the number arm.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "advance",
+              "kind": "step",
+              "label": "returns the new cursor"
+            }
+          ]
+        },
+        {
+          "id": "skip",
+          "title": "consumeSkipRun",
+          "kicker": "no events",
+          "detail": "Structural-speed scanning with no events but the matching close.",
+          "source": "JSONParser.swift:parseDispatching",
+          "next": [
+            {
+              "to": "advance",
+              "kind": "step",
+              "label": "returns the new cursor"
+            }
+          ]
+        },
+        {
+          "id": "advance",
+          "title": "test i < n",
+          "kicker": "nothing inlined",
+          "detail": "The register pressure argument lives here: anything inlined into this loop is paid for by every document, including the ones that never execute it. The same state-ladder transformation that made the structural step faster was applied to this loop and measured worse.",
+          "source": "JSONParser.swift:parseDispatching",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "loop",
+              "kind": "return",
+              "label": "more bytes in the chunk"
+            },
+            {
+              "to": "exit",
+              "kind": "branch",
+              "label": "the cursor reached n",
+              "when": "The chunk is spent; whatever state the parser is in is what the next call resumes from."
+            }
+          ]
+        },
+        {
+          "id": "exit",
+          "title": "return to the caller",
+          "kicker": "resumable",
+          "detail": "No state is reset. The parser resuming mid-token is the whole point of the thing.",
+          "source": "JSONParser.swift:State",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "structural-run",
+      "stage": "dispatch",
+      "title": "The structural run",
+      "kicker": "containers: UInt64",
+      "viz": "containers",
+      "prose": [
+        "Structural bytes arrive in runs — `},{\"`, `\":`, `,\"`, `[[` — and paying a call, a return and a re-entry into the dispatch switch for each one was measurably the cost of a structural byte, not the byte's own work. So the loop stays inside one function while the state stays structural, turning a run into a single call.",
+        "The register trick is the part worth watching. Nesting is held in two values: `depth`, and a single `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. Sixty-four levels of JSON nesting, one register. Depth beyond that is rejected rather than spilled, which is why the ceiling exists at all.",
+        "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory — the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency."
+      ],
+      "evidence": {
+        "doc": [
+          "structural-dispatch-the-state-machine-was-living-in-memory/register-resident-state",
+          "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count",
+          "design-decisions/the-run-loop-subsumes-the-transition-it-would-have-been-fused-with"
+        ],
+        "source": [
+          "JSONParser.swift:consumeStructuralRun",
+          "JSONParser.swift:State"
+        ],
+        "asm": [
+          "JSONParser.consumeStructuralRun"
+        ]
+      },
+      "next": [
+        {
+          "to": "whitespace-compare",
+          "kind": "step",
+          "label": "skip whitespace",
+          "when": "`streamWhitespaceEndByte` runs before every structural byte. It hands back the byte it stopped on as well as the index, so the ladder below reads a register instead of re-loading the address the scan just tested — two L1 accesses per structural byte became one."
+        },
+        {
+          "to": "state-ladder",
+          "kind": "step",
+          "label": "then one byte",
+          "when": "`consumeStructural`, folded in `@_transparent`, advances `state`, `depth` and `containers`. All three are locals for the duration of the run and are written back on every exit, the throwing ones included."
+        }
+      ],
+      "invokes": "A loop over one function for as long as the state stays structural. Per byte it calls the whitespace scan, then the state ladder. It returns to the dispatcher only when the state stops being structural, or when a number's first byte has to be handed back.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "hoist",
+          "title": "copy state, depth and containers into locals",
+          "kicker": "3 registers",
+          "detail": "Written back by a `defer` on every exit. Left as fields the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip — not the switch — was the loop-carried dependency.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "next": [
+            {
+              "to": "scan",
+              "kind": "step",
+              "label": "enter the run loop"
+            }
+          ]
+        },
+        {
+          "id": "scan",
+          "title": "streamWhitespaceEndByte",
+          "kicker": "end and byte",
+          "detail": "The scan hands back the byte it stopped on as well as the index, so the ladder below reads a register instead of loading the address the scan's one-compare path just tested. Two L1 accesses per structural byte became one.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "exhausted",
+              "kind": "branch",
+              "label": "i reached the chunk end",
+              "when": "Only whitespace was left; the run returns and the next chunk resumes at the same state."
+            },
+            {
+              "to": "ladder",
+              "kind": "branch",
+              "label": "a byte",
+              "when": "There is a structural byte at the cursor, and the scan has already handed it over in a register."
+            }
+          ]
+        },
+        {
+          "id": "ladder",
+          "title": "consumeStructural",
+          "kicker": "@_transparent",
+          "detail": "One byte, folded in by force. Its own node covers the ladder; what matters here is the three ways it can end a run.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "nesting",
+              "kind": "detail",
+              "label": "how nesting is held"
+            },
+            {
+              "to": "handback",
+              "kind": "branch",
+              "label": "the byte starts a number",
+              "when": "A number is the one token whose first byte belongs to the token itself, so the ladder returns true, the cursor steps back onto the byte and the run ends."
+            },
+            {
+              "to": "leave",
+              "kind": "branch",
+              "label": "the state stopped being structural",
+              "when": "`isStructural` is one unsigned compare on the raw value. A string, key, literal or skip state ends the run and the dispatcher picks the handler."
+            },
+            {
+              "to": "scan",
+              "kind": "return",
+              "label": "still structural"
+            }
+          ]
+        },
+        {
+          "id": "nesting",
+          "title": "containers |= 1 << depth",
+          "kicker": "64 levels, 1 register",
+          "detail": "Nesting is two values: `depth`, and one `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. Sixty-four levels in one register — which is why depth beyond that is rejected rather than spilled.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "next": []
+        },
+        {
+          "id": "exhausted",
+          "title": "return the cursor",
+          "kicker": "run ended",
+          "detail": "Nothing is written back but the three locals, and the parser resumes at the same state on the next chunk.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "next": []
+        },
+        {
+          "id": "handback",
+          "title": "i -= 1, break",
+          "kicker": "cursor back one",
+          "detail": "The one place the run deliberately un-consumes a byte.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "next": []
+        },
+        {
+          "id": "leave",
+          "title": "break, and re-dispatch",
+          "kicker": "the exception",
+          "detail": "Paying a call, a return and a re-entry into the dispatch switch per structural byte was measurably the cost of a structural byte, not the byte's own work — which is why this is the *exit* rather than the normal case.",
+          "source": "JSONParser.swift:State",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "state-ladder",
+      "stage": "dispatch",
+      "title": "The state ladder",
+      "kicker": "@_transparent",
+      "viz": null,
+      "prose": [
+        "One structural byte, folded into the run loop by force. The states are ordered so that \"is this still structural\" is a single unsigned compare, which is the only reason their numeric values matter.",
+        "Two variants of this same code were measured and rejected: reordering the ladder by what the run actually sees, and peeling the colon out of it. A third — the byte ladder — removes strictly more work and is slower. What the four say together is that this function is limited by its size, not by how many times it iterates."
+      ],
+      "evidence": {
+        "doc": [
+          "two-dispatchers-one-transformation-opposite-signs/landed-the-structural-step-s-state-ladder",
+          "two-dispatchers-one-transformation-opposite-signs/rejected-the-structural-step-s-byte-ladder",
+          "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count/peeling-the-colon-two-ways",
+          "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count/what-the-four-say-together",
+          "structural-dispatch-the-state-machine-was-living-in-memory/fusing-the-colon-after-a-key-measured-across-seven-variants-and-rejected"
+        ],
+        "source": [
+          "JSONParser.swift:consumeStructural",
+          "JSONParser.swift:fuseAfterValue"
+        ],
+        "asm": [
+          "JSONParser.consumeStructural"
+        ]
+      },
+      "next": [
+        {
+          "to": "in-run-values",
+          "kind": "branch",
+          "label": "byte opens a value",
+          "when": "A `\"`, a digit, or a literal's first byte. Rather than return to the dispatcher, the run tries to finish the token where it stands."
+        }
+      ],
+      "invokes": "Advances one byte, then answers whether the run continues.",
+      "steps": [
+        {
+          "id": "quote",
+          "title": "a quote, ahead of the ladder",
+          "kicker": "one test",
+          "detail": "A `\"` in a value or key state is scanned here, once, before the ladder. The string scanner is the largest thing inlined into this function, so keys and string values share one copy of it rather than one per arm.",
+          "source": "JSONParser.swift:consumeStructural",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "inplace",
+              "kind": "branch",
+              "label": "the closing quote is in this chunk",
+              "when": "No escape before it either: a value becomes one whole `string` record and a key a borrowed span, and the run carries on to the colon or comma."
+            },
+            {
+              "to": "cut",
+              "kind": "branch",
+              "label": "the token is cut, or has an escape",
+              "when": "The per-byte path takes the token whole, rescanning from the opening quote. Handing the scanned prefix on instead was built and measured: it returned gsoc-2018's escape-bearing descriptions their 2.5% and cost twitter 2% and Pretty printed users 3–7%."
+            },
+            {
+              "to": "rungs",
+              "kind": "branch",
+              "label": "not a quote",
+              "when": "Every other structural byte, resolved by which state the parser is in rather than by which byte it is."
+            }
+          ]
+        },
+        {
+          "id": "inplace",
+          "title": "one record, no state change",
+          "kicker": "+11.8% Twitter",
+          "detail": "Before string values were read here, every value ended the run: `parse` re-dispatched, `consumeStringRun` paid a ten-register prologue, and `fuseAfterValue` handed the comma back — which measured ~25% of the instructions on twitter as transitions rather than token work.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "cut",
+          "title": "leave the run",
+          "kicker": "per-byte state",
+          "detail": "`stringBeginPending` marks that the opening quote was seen, so the handler records it at the right offset even though the byte is behind the cursor.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "rungs",
+          "title": "raw = state.rawValue",
+          "kicker": "one compare a rung",
+          "detail": "A ladder over the raw value rather than a `switch`, which lowers to a jump table: a `leaq`, a `movslq` out of it and an indirect branch per structural byte, with the table's base pinned in a register for the whole run loop. The `State` case order was chosen so the structural pairs are adjacent, which makes each rung one unsigned compare.",
+          "source": "JSONParser.swift:consumeStructural",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "value",
+              "kind": "branch",
+              "label": "raw ≤ firstValue",
+              "when": "A value is expected."
+            },
+            {
+              "to": "after",
+              "kind": "branch",
+              "label": "raw == afterValue",
+              "when": "`,`, `]` or `}`."
+            },
+            {
+              "to": "key",
+              "kind": "branch",
+              "label": "raw ≤ firstKey",
+              "when": "Only `}` — closing an object whose keys are done. The quote was taken above."
+            },
+            {
+              "to": "colon",
+              "kind": "branch",
+              "label": "raw == afterKey",
+              "when": "The one legal byte is `:`."
+            },
+            {
+              "to": "fail",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "`done` is trailing content; the rest is an unexpected token."
+            }
+          ]
+        },
+        {
+          "id": "value",
+          "title": "open, close, literal or number",
+          "kicker": "5 arms",
+          "detail": "The widest rung, and the only one that changes depth.",
+          "source": "JSONParser.swift:consumeStructural",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "nest",
+              "kind": "branch",
+              "label": "`{` or `[`",
+              "when": "The disposition the sink answers decides whether the interior is streamed or skipped."
+            },
+            {
+              "to": "whole",
+              "kind": "branch",
+              "label": "a literal whole in the chunk",
+              "when": "One 32-bit word compare and an event, finished here so the run carries on to the comma."
+            },
+            {
+              "to": "number",
+              "kind": "branch",
+              "label": "a digit or `-`",
+              "when": "Returns true. The run steps the cursor back and lets `.number` re-read the first byte."
+            }
+          ]
+        },
+        {
+          "id": "nest",
+          "title": "depth += 1, containers bit set",
+          "kicker": "≤ 64",
+          "detail": "The depth cap is checked *after* the sink is told the container opened, so the events stay in the order a streaming sink sees them.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "whole",
+          "title": "one word compare",
+          "kicker": "4 bytes",
+          "detail": "`true` and `null` are one aligned `UInt32`; `false` compares its last four bytes, which is the same single load. The per-byte `.literal` state remains for a literal a chunk cuts, which is every literal under byte-fed input.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "number",
+          "title": "return true",
+          "kicker": "hands the byte back",
+          "detail": "The one rung that ends the run without an error.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "after",
+          "title": "a comma, or a close",
+          "kicker": "1 bit test",
+          "detail": "A comma consults the `containers` bit to decide whether a key or a value comes next — one shift and one test, no branch on the container's kind.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": [
+            {
+              "to": "fuse",
+              "kind": "detail",
+              "label": "the same rung, reached from a handler"
+            }
+          ]
+        },
+        {
+          "id": "fuse",
+          "title": "fuseAfterValue",
+          "kicker": "@inline(__always)",
+          "detail": "A token that finished *outside* the run — a buffered string, a number — would otherwise return to the dispatcher just to read the comma. This applies the `afterValue` rung directly: comma, whitespace, then the next token's first byte, with the quote deliberately left for the structural run so a key is read in place rather than through the buffered path.",
+          "source": "JSONParser.swift:fuseAfterValue",
+          "next": []
+        },
+        {
+          "id": "key",
+          "title": "`}` closing an object",
+          "kicker": "1 arm",
+          "detail": "Reached only from `key`/`firstKey`, and `firstKey` is what distinguishes `{}` from `{,}`.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "colon",
+          "title": "`:` and nothing else",
+          "kicker": "1 compare",
+          "detail": "The narrowest rung. Peeling it out of the ladder was measured and rejected.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        },
+        {
+          "id": "fail",
+          "title": "unexpectedToken",
+          "kicker": "static, -> Never",
+          "detail": "Reported at the byte, with the parser's consumed-byte count added so the offset names the document rather than the chunk.",
+          "source": "JSONParser.swift:consumeStructural",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "in-run-values",
+      "stage": "dispatch",
+      "title": "Values finish in the run",
+      "kicker": "+11.8% Twitter",
+      "viz": null,
+      "prose": [
+        "A short string value or a literal used to leave the structural run, get handled, and come back. Now they finish in place: the run recognises a complete string or literal and emits it without ever returning to the dispatcher.",
+        "Twitter gained 11.8%; GSoC lost 2.5%. The obvious fix for that loss was built, measured, and not kept, because it cost Twitter and the pretty-printed payload more than it recovered."
+      ],
+      "evidence": {
+        "doc": [
+          "string-values-and-literals-finish-inside-the-structural-run",
+          "string-values-and-literals-finish-inside-the-structural-run/the-change",
+          "string-values-and-literals-finish-inside-the-structural-run/the-gsoc-loss-and-the-fix-that-was-measured-and-not-kept",
+          "string-values-and-literals-finish-inside-the-structural-run/the-cliff-named",
+          "design-decisions/literals-are-already-fast-enough-to-be-unmeasurable"
+        ],
+        "source": [
+          "JSONParser.swift:consumeLiteral",
+          "JSONParser.swift:startLiteral"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "sink-protocol",
+          "kind": "step",
+          "label": "emit, then keep going",
+          "when": "A string that is complete and escape-free within this chunk, or a literal. One sink call, then the structural loop continues — no return, no re-entry into the dispatch switch. Twitter gained 11.8% from exactly this."
+        }
+      ],
+      "invokes": "Emits the finished token itself and keeps the loop.",
+      "steps": [
+        {
+          "id": "word",
+          "title": "four bytes, one compare",
+          "kicker": "in the run",
+          "detail": "A literal whole in the chunk is a single 32-bit load against a constant, emitted inside the structural run so the run carries straight on to the comma. This is what the +11.8% on twitter is: transitions that stopped happening.",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "emitted",
+              "kind": "branch",
+              "label": "the word matched",
+              "when": "One `boolean` or `null` record and the cursor steps over the whole literal."
+            },
+            {
+              "to": "start",
+              "kind": "branch",
+              "label": "the chunk cut it",
+              "when": "Fewer than four or five bytes remain, so the literal cannot be settled here."
+            }
+          ]
+        },
+        {
+          "id": "emitted",
+          "title": "state = .afterValue",
+          "kicker": "no re-dispatch",
+          "detail": "The run never returns to the dispatcher, which is the entire saving. GSoC lost 2.5% to this change; the obvious fix was built, measured, and not kept, because it cost twitter and the pretty-printed payload more than it recovered.",
+          "next": []
+        },
+        {
+          "id": "start",
+          "title": "startLiteral(kind:)",
+          "kicker": "index = 1",
+          "detail": "The kind and an index of 1 — the first byte was already read and matched by the ladder's arm, so only the tail is re-checked.",
+          "source": "JSONParser.swift:startLiteral",
+          "next": [
+            {
+              "to": "perbyte",
+              "kind": "step",
+              "label": "state = .literal"
+            }
+          ]
+        },
+        {
+          "id": "perbyte",
+          "title": "consumeLiteral",
+          "kicker": "byte at a time",
+          "detail": "One byte per iteration against the expected word. Every literal under byte-fed input takes this path.",
+          "source": "JSONParser.swift:consumeLiteral",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "mismatch",
+              "kind": "branch",
+              "label": "a byte differs",
+              "when": "`invalidLiteral`, reported at that byte."
+            },
+            {
+              "to": "finished",
+              "kind": "branch",
+              "label": "the whole word matched",
+              "when": "One record, whose span names only the part of the literal in *this* chunk."
+            },
+            {
+              "to": "wait",
+              "kind": "branch",
+              "label": "the chunk ran out first",
+              "when": "`literalIndex` carries how far it got."
+            }
+          ]
+        },
+        {
+          "id": "wait",
+          "title": "carry literalIndex",
+          "kicker": "across chunks",
+          "detail": "The state survives the chunk boundary; the bytes do not, which is why the record below names a partial span rather than the whole token.",
+          "source": "JSONParser.swift:consumeLiteral",
+          "next": [
+            {
+              "to": "perbyte",
+              "kind": "return",
+              "label": "the next chunk"
+            }
+          ]
+        },
+        {
+          "id": "mismatch",
+          "title": "invalidLiteral",
+          "kicker": "at the byte",
+          "detail": "Reported at the offending byte, not at the start of the literal.",
+          "source": "JSONParser.swift:consumeLiteral",
+          "next": []
+        },
+        {
+          "id": "finished",
+          "title": "one boolean or null record",
+          "kicker": "partial span",
+          "detail": "A literal a chunk began was never read from here, so the record's span covers only what this chunk holds. `extra` carries the boolean's value, so `true` and `false` are one event kind.",
+          "source": "JSONParser.swift:consumeLiteral",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "whitespace-compare",
+      "stage": "whitespace",
+      "title": "One compare, then out of line",
+      "kicker": "≤ 0x20",
+      "viz": "whitespace",
+      "prose": [
+        "This runs before *every* structural byte, and how much whitespace there is to find is a property of the document rather than of JSON: canada has 0%, citm_catalog has 71%, and llm_message has 17% — none of it anywhere this scan can see it, because it is all inside string values.",
+        "Every JSON whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20. So a single compare settles the no-whitespace case without touching a vector, and only what survives is scanned SIMD16 like every other class.",
+        "What the *inlined body* costs is the whole design constraint here, and it is not the scan. This is forced inline into the parse loop, so anything spelled in it is paid in register pressure by every document. Inlining the vector body gains citm 22% and costs twitterescaped 18% and the unicode-escape payload 35% — for code those documents never execute. Moving it out of line recovers both and keeps the wins."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/whitespace-one-compare-in-front-of-the-run-scan",
+          "design-decisions/discovering-whitespace-instead-of-scanning-for-it",
+          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/landed-two-bytes-of-bitmap-test-in-front-of-the-whitespace-vector-body",
+          "the-byte-the-whitespace-scan-already-loaded",
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/rejected-the-whitespace-run-end-in-two-forms"
+        ],
+        "source": [
+          "StreamScanners.swift:streamWhitespaceEnd",
+          "StreamScanners.swift:streamWhitespaceEndByte",
+          "StreamScanners.swift:streamIsWhitespace",
+          "StreamScanners.swift:streamWhitespaceBitmap"
+        ],
+        "asm": [
+          "streamWhitespaceEnd"
+        ]
+      },
+      "next": [
+        {
+          "to": "whitespace-vector",
+          "kind": "branch",
+          "label": "byte ≤ 0x20",
+          "when": "The inline compare did not settle it, so there is a real run to scan. Every JSON whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20, so canada (0% whitespace) never reaches here and citm (71%) always does."
+        }
+      ],
+      "invokes": "One compare is spelled inline in the parse loop; everything else stays behind a call, because what the inlined body costs is paid by every document whether or not it has whitespace.",
+      "steps": [
+        {
+          "id": "peek",
+          "title": "load one byte, compare to 0x20",
+          "kicker": "inline",
+          "detail": "The whole inlined body. Every JSON whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20, so one compare settles the no-whitespace case without touching a vector.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "settled",
+              "kind": "branch",
+              "label": "byte > 0x20",
+              "when": "canada has 0% whitespace and never gets past here. Nothing else is spelled inline, because what the inlined body costs is paid in register pressure by every document — inlining the vector body gained citm 22% and cost twitterescaped 18% and the unicode-escape payload 35%."
+            },
+            {
+              "to": "width",
+              "kind": "branch",
+              "label": "byte ≤ 0x20",
+              "when": "There is a real run to scan, and everything past this point is behind a call."
+            },
+            {
+              "to": "byteform",
+              "kind": "detail",
+              "label": "the form the structural run calls"
+            }
+          ]
+        },
+        {
+          "id": "settled",
+          "title": "return `from`",
+          "kicker": "0 whitespace",
+          "detail": "No run, no call, no vector: the cursor is already at the byte the caller wanted.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "next": []
+        },
+        {
+          "id": "byteform",
+          "title": "streamWhitespaceEndByte",
+          "kicker": "@_transparent",
+          "detail": "The same decision, returning the byte it stopped on as well as the index. The reload is spelled out here rather than delegating, so it stays on the cold side of the early return instead of becoming a second exit from a shared tail.",
+          "source": "StreamScanners.swift:streamWhitespaceEndByte",
+          "next": []
+        },
+        {
+          "id": "width",
+          "title": "to − from < 16",
+          "kicker": "one compare",
+          "detail": "Not a tail guard. Fed one byte at a time, `to - from` is 1 at every call, and routing that through the vector body splats four constants to scan a single byte — which cost byte-by-byte twitter 20%.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "scalar",
+              "kind": "branch",
+              "label": "fewer than sixteen bytes left",
+              "when": "The scalar walk: four compares per byte."
+            },
+            {
+              "to": "vector",
+              "kind": "branch",
+              "label": "sixteen or more",
+              "when": "Enough bytes left in the chunk for a full block, so the out-of-line vector body is worth its call."
+            }
+          ]
+        },
+        {
+          "id": "scalar",
+          "title": "streamWhitespaceScalarEnd",
+          "kicker": "@inline(__always)",
+          "detail": "Also the tail of the vector path, so there is one spelling of the scalar answer rather than two.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "next": []
+        },
+        {
+          "id": "vector",
+          "title": "streamWhitespaceRunEnd",
+          "kicker": "out of line",
+          "detail": "Behind `@inline(never)` on purpose. Its own node covers the peel and the vector body.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "next": [
+            {
+              "to": "bitmap",
+              "kind": "detail",
+              "label": "the membership test it peels with"
+            }
+          ]
+        },
+        {
+          "id": "bitmap",
+          "title": "streamIsWhitespace",
+          "kicker": "0x100002600",
+          "detail": "A 64-bit constant shifted by the byte and masked to one bit. No table load, no compare chain — the whole whitespace class is an immediate.",
+          "source": "StreamScanners.swift:streamIsWhitespace",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "whitespace-vector",
+      "stage": "whitespace",
+      "title": "The run scan",
+      "kicker": "SIMD16",
+      "viz": "whitespaceTable",
+      "prose": [
+        "What survives the compare is an actual run, and runs are scanned sixteen bytes at a time like every other token class. The vector body lives behind its own call precisely so the parse loop does not carry it.",
+        "There is a width test in front, and it is not a tail guard: fed one byte at a time, `to - from` is 1 at every call, and routing that through the vector body splats four constants to scan a single byte — which cost byte-by-byte Twitter 20%."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/runs-not-bytes",
+          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which"
+        ],
+        "source": [
+          "StreamScanners.swift:streamWhitespaceRunEnd",
+          "StreamScanners.swift:streamWhitespaceScalarEnd",
+          "StreamScanners.swift:streamWhitespaceMissMask"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "structural-run",
+          "kind": "return",
+          "label": "run end + stop byte",
+          "when": "Control returns to the loop that called it, which handles the structural byte and calls back here before the next one. A width test sits in front: fed one byte at a time `to - from` is 1, and routing that through the vector body splats four constants to scan a single byte, which cost byte-by-byte Twitter 20%."
+        }
+      ],
+      "invokes": "Scans the run and returns its end — the parse loop calls it and immediately continues.",
+      "steps": [
+        {
+          "id": "peel",
+          "title": "two bytes of bitmap test",
+          "kicker": "not a loop",
+          "detail": "Exactly two, and written as two rather than as a bounded loop: what this resolves is the one-byte run, which is the median in mesh and canada. Spelled as a loop it did not unroll — eight instructions an iteration plus the bound and the constant, against twelve straight-line for both bytes.",
+          "source": "StreamScanners.swift:streamWhitespaceRunEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "out",
+              "kind": "branch",
+              "label": "either byte is not whitespace",
+              "when": "The run was one or two bytes and never reaches the vector body. Widening the peel to four cost citm 3.3% and to eight 10.0%, because citm's runs are long enough that every peeled byte is tax."
+            },
+            {
+              "to": "loop",
+              "kind": "branch",
+              "label": "both were whitespace",
+              "when": "The run is at least three bytes, which is the length at which the vector body starts paying: runs of exactly two do not occur, since a separator is one byte and an indent is a newline plus its depth."
+            }
+          ]
+        },
+        {
+          "id": "out",
+          "title": "return i",
+          "kicker": "+1.1…10.9%",
+          "detail": "gsoc +10.9%, Pretty printed users +9.7%, github_events +8.2%, mesh +7.9%, twitter +6.3%, with no row regressing.",
+          "source": "StreamScanners.swift:streamWhitespaceRunEnd",
+          "next": []
+        },
+        {
+          "id": "loop",
+          "title": "while i + 16 <= to",
+          "kicker": "the bound",
+          "detail": "The width test in the caller cannot filter these: the bound it reads is the chunk end, not the run end — a scanner cannot know the run end without scanning — so under bulk input every run arrives here.",
+          "source": "StreamScanners.swift:streamWhitespaceRunEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "block",
+              "kind": "branch",
+              "label": "a full block remains",
+              "when": "Sixteen bytes are available to load, which is the only condition the loop tests."
+            },
+            {
+              "to": "tail",
+              "kind": "branch",
+              "label": "fewer than sixteen bytes left",
+              "when": "The same scalar walk the caller's narrow path uses."
+            }
+          ]
+        },
+        {
+          "id": "block",
+          "title": "load 16, streamWhitespaceMissMask",
+          "kicker": "tbl + cmeq",
+          "detail": "On arm64 the class test is a `tbl` through a sixteen-entry table indexed by the low nibble, compared against the byte itself: one lookup and one compare where the portable form is four splats, four compares and three ORs.",
+          "source": "StreamScanners.swift:streamWhitespaceMissMask",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "lane",
+              "kind": "branch",
+              "label": "a lane missed",
+              "when": "The first lane whose byte is not whitespace is where the run ends."
+            },
+            {
+              "to": "loop",
+              "kind": "return",
+              "label": "every lane was whitespace"
+            }
+          ]
+        },
+        {
+          "id": "lane",
+          "title": "first set lane",
+          "kicker": "i + lane",
+          "detail": "The same movemask the string scan uses, so there is one spelling of \"which lane\" in the whole scanner file.",
+          "source": "StreamScanners.swift:streamWhitespaceRunEnd",
+          "next": []
+        },
+        {
+          "id": "tail",
+          "title": "streamWhitespaceScalarEnd",
+          "kicker": "≤ 15 bytes",
+          "detail": "Reached with at most fifteen bytes left, or immediately when the caller's width test routed here.",
+          "source": "StreamScanners.swift:streamWhitespaceScalarEnd",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "string-run",
+      "stage": "strings",
+      "title": "streamStringRun",
+      "kicker": "3 compares, 16 bytes",
+      "viz": "stringRun",
+      "prose": [
+        "Sixteen bytes are loaded, compared against a quote, a backslash and the control-byte floor, and the three results are ORed into one mask. A string run ends at the first lane that hits any of the three; if none do, the block is clean and the scan moves on.",
+        "SIMD16 was measured against the alternatives at four run lengths and is fastest at all of them. SWAR is worse than scalar below about 12 bytes and never beats SIMD16; SIMD32 loses on arm64 because NEON registers are 128 bits, so a 32-byte vector lowers to two operations plus a recombine.",
+        "The scan also answers a second question. It has already loaded every byte, so it carries out whether any had the high bit set, letting a validated ASCII-only string skip a second pass. The flag is exact rather than conservative: bytes after the terminating lane are masked out before the question is asked."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/runs-not-bytes",
+          "porting-streamstringrun-to-c-the-kernel-got-better-and-the-parse-got-slower",
+          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/rejected-a-swar-first-word-in-front-of-the-string-scanner",
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/rejected-the-string-run-hit-path-where-the-chain-was-real-and-the-cost-was-not"
+        ],
+        "source": [
+          "StreamScanners.swift:streamStringRun",
+          "StreamScanners.swift:StreamStringRun",
+          "StreamScanners.swift:streamVectorContainsNonASCII",
+          "JSONParser.swift:consumeStringRun"
+        ],
+        "asm": [
+          "JSONParser.consumeStringRun",
+          "streamStringRun"
+        ]
+      },
+      "next": [
+        {
+          "to": "first-hit-lane",
+          "kind": "detail",
+          "label": "how the end is found",
+          "when": "The mask is non-zero, so the run ends at its lowest set lane. Extracting that lane index is the movemask, and its arm64 spelling is what the assembly tab pins."
+        },
+        {
+          "to": "escapes",
+          "kind": "branch",
+          "label": "the hit was a backslash",
+          "when": "A backslash ends the run and hands control to the escape states, which decode into the destination in place rather than building an intermediate."
+        },
+        {
+          "to": "utf8",
+          "kind": "branch",
+          "label": "block held a non-ASCII byte",
+          "when": "The scan already loaded every byte, so it carries out whether any had the high bit set. The flag is exact rather than conservative — lanes past the terminating one are masked off before the question is asked — so a clean ASCII run skips validation entirely."
+        }
+      ],
+      "invokes": "Loads sixteen bytes, ORs three compares into one mask, and answers two questions from that single load: where the run ends, and whether any byte was non-ASCII.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "peel",
+          "title": "first byte against the three terminators",
+          "kicker": "scalar",
+          "detail": "Before any vector setup: a run of length zero is common — an empty string, or the byte right after an escape — and answering it costs one load and three compares against the four splats the body below needs.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "empty",
+              "kind": "branch",
+              "label": "it is one of the three",
+              "when": "The scan returns `from` and the caller reads the terminator itself."
+            },
+            {
+              "to": "loop",
+              "kind": "branch",
+              "label": "an ordinary byte",
+              "when": "Not a quote, a backslash or a control byte, so there is a run of at least one byte to scan."
+            }
+          ]
+        },
+        {
+          "id": "empty",
+          "title": "return end == from",
+          "kicker": "run of 0",
+          "detail": "A SWAR first word was measured in front of this and rejected; so was a 2× unroll of the block loop below.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "next": []
+        },
+        {
+          "id": "loop",
+          "title": "while i + 16 <= narrowLimit",
+          "kicker": "one min at entry",
+          "detail": "The escalation bound, computed once at entry rather than counted per iteration. A counter incremented and tested inside the loop cost citm 2.6% and the 564-byte Qwen payload 5.0% — documents made of short keys that never reach the wide tier at all. Off x86 the bound is `to` and the whole thing folds away.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "block",
+              "kind": "branch",
+              "label": "a full block remains",
+              "when": "Sixteen bytes are available below the escalation bound."
+            },
+            {
+              "to": "tail",
+              "kind": "branch",
+              "label": "fewer than sixteen bytes left",
+              "when": "The chunk end, or on x86 the escalation bound with no full block behind it."
+            }
+          ]
+        },
+        {
+          "id": "block",
+          "title": "3 compares, ORed into one mask",
+          "kicker": "cmeq/cmeq/cmlo/orr",
+          "detail": "`cmeq` against a quote, `cmeq` against a backslash, `cmlo` against the control-byte floor, then two `orr`. SIMD16 was measured against the alternatives at four run lengths and is fastest at all of them: SWAR is worse than scalar below about twelve bytes, and SIMD32 loses on arm64 because NEON registers are 128 bits.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "hit",
+              "kind": "branch",
+              "label": "any lane set",
+              "when": "`any(hit)` is spelled through the shim on arm64: once this body reaches `consumeStructuralRun` the standard library's `any` on a composed mask lost its specialisation and became a call to the generic `SIMD.min`, one `bl` per sixteen string bytes."
+            },
+            {
+              "to": "accumulate",
+              "kind": "branch",
+              "label": "the block is clean",
+              "when": "Sixteen bytes of string content, and the scan moves on."
+            }
+          ]
+        },
+        {
+          "id": "accumulate",
+          "title": "scanned |= chunk",
+          "kicker": "for the ASCII flag",
+          "detail": "The second question, answered from a load already paid for: whether any byte had the high bit set. A validated ASCII-only string skips UTF-8 validation entirely.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "next": [
+            {
+              "to": "loop",
+              "kind": "return",
+              "label": "advance sixteen"
+            }
+          ]
+        },
+        {
+          "id": "hit",
+          "title": "mask off the lanes past the hit",
+          "kicker": "replacing(where:)",
+          "detail": "`lanes .< lane` selects the bytes *before* the terminator, and only those are ORed into the accumulator. That is what makes the non-ASCII flag exact rather than conservative — a `\"` followed by high bytes in the same block does not poison the run that ended before them.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "next": [
+            {
+              "to": "ascii",
+              "kind": "step",
+              "label": "ask the accumulator one question"
+            }
+          ]
+        },
+        {
+          "id": "ascii",
+          "title": "streamVectorContainsNonASCII",
+          "kicker": "any high bit",
+          "detail": "One `orr`-reduce and a test for any high bit. On arm64 through the shim; elsewhere the vector is reinterpreted as two `UInt64`s, since the high bit of each byte is invariant under that and it avoids the out-of-line `SIMD.min` some `any(mask)` forms produce.",
+          "source": "StreamScanners.swift:streamVectorContainsNonASCII",
+          "next": [
+            {
+              "to": "result",
+              "kind": "step",
+              "label": "build the answer"
+            }
+          ]
+        },
+        {
+          "id": "tail",
+          "title": "byte at a time",
+          "kicker": "≤ 15 bytes",
+          "detail": "At most fifteen bytes, each tested against the same three terminators and contributing to the same flag.",
+          "source": "StreamScanners.swift:streamStringRun",
+          "next": [
+            {
+              "to": "result",
+              "kind": "step",
+              "label": "build the answer"
+            }
+          ]
+        },
+        {
+          "id": "result",
+          "title": "StreamStringRun",
+          "kicker": "2 answers, 1 pass",
+          "detail": "Two fields out of one pass over the bytes.",
+          "source": "StreamScanners.swift:StreamStringRun",
+          "next": [
+            {
+              "to": "caller",
+              "kind": "detail",
+              "label": "what the caller does with it"
+            }
+          ]
+        },
+        {
+          "id": "caller",
+          "title": "consumeStringRun",
+          "kicker": "per-span latency",
+          "detail": "The run is emitted as a `stringChunk` unless it ends the string cleanly, in which case one whole `string` record goes out instead. The hit-path latency chain here was measured — nine dependent operations and a stack spill, both removed — and the parser did not move: +0.07%.",
+          "source": "JSONParser.swift:consumeStringRun",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "first-hit-lane",
+      "stage": "strings",
+      "title": "Finding the lane",
+      "kicker": "movemask",
+      "viz": "movemask",
+      "prose": [
+        "Once a block hits, the scan needs to know *which* lane. The obvious spelling — loop over sixteen lanes and take the first set one — unrolls into sixteen test/branch pairs plus sixteen constant-materialising exit blocks: over a hundred bytes of branch ladder, walked once per string token and once per key, to produce an integer the machine was already holding.",
+        "On arm64 the answer is `vshrn`, which Swift cannot express because its shift is an immediate, so it lives in a C shim. The form that landed fuses the bound check into the lane: an all-ones complement has 64 trailing zeros, which divides to lane 16, one past the block, so the bound check is the terminator test and nothing depends on the branch.",
+        "The portable spelling reaches the same answer arithmetically rather than with a select, and the reason is a specific compiler behaviour: written as a ternary, LLVM's x86 cmov-converter turns the intended conditional move back into two branches whenever it judges the condition predictable. On a terminator lane, which is unpredictable by nature, that is exactly wrong."
+      ],
+      "evidence": {
+        "doc": [
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/landed-the-arm64-movemask-and-the-lane-the-mask-already-held",
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/two-methodology-notes",
+          "inter-block-ilp-in-the-avx2-scanners"
+        ],
+        "source": [
+          "StreamScanners.swift:streamFirstHitLane",
+          "StreamScanners.swift:streamFirstHitLaneNEON",
+          "StreamScanners.swift:streamMaskBytes",
+          "StreamParsingShims.h:stream_parsing_movemask_u8"
+        ],
+        "asm": [
+          "streamFirstHitLane"
+        ]
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "mask",
+          "title": "streamMaskBytes",
+          "kicker": "free bitcast",
+          "detail": "The mask is already sixteen bytes of 0x00 or 0xFF, so the bitcast costs nothing. It exists so both spellings below take the same input and the tests can hold them to one oracle.",
+          "source": "StreamScanners.swift:streamMaskBytes",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "neon",
+              "kind": "branch",
+              "label": "arm64",
+              "when": "The instruction exists, and Swift cannot spell it."
+            },
+            {
+              "to": "portable",
+              "kind": "branch",
+              "label": "everywhere else",
+              "when": "No `vshrn`, and no horizontal reduction worth using either."
+            }
+          ]
+        },
+        {
+          "id": "neon",
+          "title": "vshrn_n_u16(·, 4)",
+          "kicker": "one instruction",
+          "detail": "Sixteen bytes narrowed to eight, four bits per lane, in one instruction. It lives in a C shim because its shift is an immediate, which Swift's SIMD surface has no way to express.",
+          "source": "StreamParsingShims.h:stream_parsing_movemask_u8",
+          "next": [
+            {
+              "to": "tz",
+              "kind": "step",
+              "label": "trailing zeros, divided by four"
+            }
+          ]
+        },
+        {
+          "id": "tz",
+          "title": "trailingZeroBitCount >> 2",
+          "kicker": "rbit + clz",
+          "detail": "The form that landed fuses the bound check into the lane: an all-ones complement has 64 trailing zeros, which divides to lane 16 — one past the block. So `lane` and the branch condition become ready in the same cycle, where testing the mask first leaves `mvn`/`rbit`/`clz` strictly after the branch and a short token pays that chain in full before it can exit.",
+          "source": "StreamScanners.swift:streamFirstHitLaneNEON",
+          "next": []
+        },
+        {
+          "id": "portable",
+          "title": "two 64-bit words",
+          "kicker": "no shuffle",
+          "detail": "The mask reinterpreted as `SIMD2<UInt64>`; each word's trailing zero count is eight lanes' worth of answer.",
+          "source": "StreamScanners.swift:streamFirstHitLane",
+          "next": [
+            {
+              "to": "arith",
+              "kind": "step",
+              "label": "combine them without a select"
+            }
+          ]
+        },
+        {
+          "id": "arith",
+          "title": "(low >> 3) + ((high >> 3) & lowEmpty)",
+          "kicker": "branchless by construction",
+          "detail": "Arithmetic rather than a conditional move, for a specific compiler reason: written as a ternary, LLVM's x86 cmov-converter turns the intended `cmov` back into two branches whenever it judges the condition predictable. On a terminator lane, which is unpredictable by nature, that is exactly wrong.",
+          "source": "StreamScanners.swift:streamFirstHitLane",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "escapes",
+      "stage": "strings",
+      "title": "Escapes, decoded in place",
+      "kicker": "no Unicode.Scalar",
+      "viz": "escapes",
+      "prose": [
+        "An escape terminates the run, gets decoded, and the scan resumes. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
+        "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/escapes-decoded-in-the-string-run",
+          "design-decisions/fast-interface-a-token-granular-sink",
+          "adversarial-round-string-shapes-whitespace-and-two-blind-spots"
+        ],
+        "source": [
+          "JSONParser.swift:consumeEscape",
+          "JSONParser.swift:consumeUnicodeDigit",
+          "JSONParser.swift:fusedUnicodeEscapeEnd",
+          "StreamScanners.swift:streamHexQuad",
+          "StreamScanners.swift:streamDecodeSimpleEscape"
+        ],
+        "asm": [
+          "JSONParser.consumeUnicodeDigit"
+        ]
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "backslash",
+          "title": "the run stopped on a backslash",
+          "kicker": "one byte ahead",
+          "detail": "The string scan ends at the backslash and the selector is the next byte. Everything below decides which of two paths reads it.",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "fused",
+              "kind": "branch",
+              "label": "`\\u` with six bytes left",
+              "when": "Decoded here, in place, so the scan keeps going instead of handing the token to the per-byte states."
+            },
+            {
+              "to": "simple",
+              "kind": "branch",
+              "label": "any other selector",
+              "when": "One of the eight one-byte escapes, or an error."
+            }
+          ]
+        },
+        {
+          "id": "simple",
+          "title": "consumeEscape",
+          "kicker": "one byte",
+          "detail": "A high surrogate pending here is severed by any escape but a low surrogate, and severing it first is also what keeps the emitted content in order around the error.",
+          "source": "JSONParser.swift:consumeEscape",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "table",
+              "kind": "detail",
+              "label": "how the selector is decoded"
+            },
+            {
+              "to": "emit",
+              "kind": "branch",
+              "label": "the table has a byte for it",
+              "when": "Written straight into the destination."
+            },
+            {
+              "to": "invalid",
+              "kind": "branch",
+              "label": "the cell is zero",
+              "when": "`invalidEscape`, reported at the backslash rather than at the selector."
+            }
+          ]
+        },
+        {
+          "id": "table",
+          "title": "streamDecodeSimpleEscape",
+          "kicker": "128 entries, 8 set",
+          "detail": "A byte index into a 128-entry table where zero means \"no escape\". Exactly eight cells are non-zero, which is the whole of JSON's simple-escape grammar as data rather than as a compare chain.",
+          "source": "StreamScanners.swift:streamDecodeSimpleEscape",
+          "next": []
+        },
+        {
+          "id": "invalid",
+          "title": "invalidEscape",
+          "kicker": "at the backslash",
+          "detail": "At `offset - 1`: the backslash, which is where a reader looking at the document would say the escape began.",
+          "source": "JSONParser.swift:consumeEscape",
+          "next": []
+        },
+        {
+          "id": "fused",
+          "title": "fusedUnicodeEscapeEnd",
+          "kicker": "@inline(never)",
+          "detail": "Outlined, because it is cold relative to the scan it interrupts. The bounds test comes first so the halfword load that follows stays inside the chunk.",
+          "source": "JSONParser.swift:fusedUnicodeEscapeEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "quad",
+              "kind": "branch",
+              "label": "four hex digits",
+              "when": "Six bytes are in the chunk and all four digits parse, so the scalar is known here rather than across four per-byte calls."
+            },
+            {
+              "to": "perbyte",
+              "kind": "branch",
+              "label": "the chunk cut it, or it needs a diagnostic",
+              "when": "A lone low surrogate, or a high surrogate followed by anything but a low one: both are diagnostics, so they go to the per-byte path where the offsets are exact."
+            }
+          ]
+        },
+        {
+          "id": "quad",
+          "title": "streamHexQuad",
+          "kicker": "SIMD4",
+          "detail": "Four bytes at once: the digit range and the letter range tested in parallel, the nibbles selected by mask, then weighted by 0x1000/0x100/0x10/1 and summed. One rejection test covers all four digits.",
+          "source": "StreamScanners.swift:streamHexQuad",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "pair",
+              "kind": "branch",
+              "label": "a high surrogate",
+              "when": "A pair is twelve bytes and has to be complete and well formed to be fused."
+            },
+            {
+              "to": "emit",
+              "kind": "branch",
+              "label": "an ordinary scalar",
+              "when": "Outside both surrogate ranges, so it stands alone."
+            }
+          ]
+        },
+        {
+          "id": "pair",
+          "title": "the second escape, in the same call",
+          "kicker": "12 bytes",
+          "detail": "The `\\u` prefix is one halfword compare, then a second `streamHexQuad` and a range test. Only then are the halves combined.",
+          "source": "JSONParser.swift:fusedUnicodeEscapeEnd",
+          "next": [
+            {
+              "to": "emit",
+              "kind": "step",
+              "label": "combine the halves"
+            }
+          ]
+        },
+        {
+          "id": "perbyte",
+          "title": "consumeUnicodeDigit",
+          "kicker": "state = .unicode",
+          "detail": "One hex digit per call, shifted into `unicodeValue`. A high surrogate is held on the parser across the gap, which is what lets a pair be cut anywhere — including between its two halves.",
+          "source": "JSONParser.swift:consumeUnicodeDigit",
+          "next": [
+            {
+              "to": "emit",
+              "kind": "return",
+              "label": "when the fourth digit lands"
+            }
+          ]
+        },
+        {
+          "id": "emit",
+          "title": "UTF-8 bytes, written in place",
+          "kicker": "no Unicode.Scalar",
+          "detail": "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift.",
+          "source": "JSONParser.swift:consumeUnicodeDigit",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "utf8",
+      "stage": "strings",
+      "title": "UTF-8 validation",
+      "kicker": "3 table lookups",
+      "viz": "utf8",
+      "prose": [
+        "Non-ASCII content is validated in vectors, using Keiser and Lemire's three-nibble-table construction: three table lookups ANDed together, XORed with a continuation requirement derived from leads two and three bytes back. Nonzero lanes are errors.",
+        "The one operation Swift cannot express is the byte table lookup itself — on arm64 that is `tbl`, and it lives in a C shim as a leaf returning a vector. Composing the same kernel from Swift's SIMD primitives instead ran 2.6× slower, because Swift's SIMD operators are lane loops that LLVM re-vectorizes, and a compare feeding a fifteen-lane shift came out half vectorized with the last lanes patched one at a time.",
+        "What landed here was not a better kernel but a deferred reduction: hoisting the per-block reduction out of the loop measured +5.7%, while a 2× unroll of the same loop measured no change."
+      ],
+      "evidence": {
+        "doc": [
+          "utf-8-validation-in-vectors-the-three-table-lookups-and-the-one-instruction-swift-cannot-say/the-algorithm",
+          "utf-8-validation-in-vectors-the-three-table-lookups-and-the-one-instruction-swift-cannot-say/where-the-kernel-lives-and-the-two-shapes-that-lost",
+          "utf-8-validation-in-vectors-the-three-table-lookups-and-the-one-instruction-swift-cannot-say/measured",
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/landed-defer-the-utf-8-validator-s-per-block-reduction"
+        ],
+        "source": [
+          "StreamUTF8Validation.swift:streamValidateUTF8",
+          "StreamScanners.swift:streamUTF8BlockIsInvalidPortable",
+          "StreamParsingShims.h:stream_parsing_utf8_block_errors",
+          "StreamParsingShims.h:stream_parsing_tbl1q_u8",
+          "StreamScanners.swift:streamUTF8PreviousHighTable",
+          "StreamScanners.swift:streamUTF8PreviousLowTable",
+          "StreamScanners.swift:streamUTF8CurrentHighTable"
+        ],
+        "asm": [
+          "streamValidateUTF8"
+        ]
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "gate",
+          "title": "streamValidateUTF8",
+          "kicker": "@inline(never)",
+          "detail": "Called once per non-ASCII run — a run the string scan already flagged from a load it had already paid for — so an ASCII-only document never reaches this function at all.",
+          "source": "StreamUTF8Validation.swift:streamValidateUTF8",
+          "next": [
+            {
+              "to": "cut",
+              "kind": "step",
+              "label": "check the run's own end first"
+            }
+          ]
+        },
+        {
+          "id": "cut",
+          "title": "the last three bytes",
+          "kicker": "3 loads",
+          "detail": "The block test sees a lead and never the continuation that is missing past the end of the run, so the last three bytes are checked against what may legally sit there before any block runs.",
+          "source": "StreamUTF8Validation.swift:streamValidateUTF8",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "shim",
+              "kind": "branch",
+              "label": "arm64",
+              "when": "The table lookup exists."
+            },
+            {
+              "to": "portable",
+              "kind": "branch",
+              "label": "no byte-table lookup",
+              "when": "Compares instead."
+            }
+          ]
+        },
+        {
+          "id": "shim",
+          "title": "stream_parsing_utf8_block_errors",
+          "kicker": "C shim",
+          "detail": "The whole block kernel in one C leaf returning a vector. Composing the same kernel from Swift's SIMD primitives ran 2.6× slower, because Swift's SIMD operators are lane loops that LLVM re-vectorizes — a compare feeding a fifteen-lane shift came out half vectorized with the last lanes patched one at a time.",
+          "source": "StreamParsingShims.h:stream_parsing_utf8_block_errors",
+          "next": [
+            {
+              "to": "lookups",
+              "kind": "detail",
+              "label": "the three lookups"
+            }
+          ]
+        },
+        {
+          "id": "lookups",
+          "title": "3 × tbl, ANDed",
+          "kicker": "vqtbl1q_u8",
+          "detail": "Keiser and Lemire's construction: the previous byte's high nibble and low nibble into two tables, this byte's high nibble into a third, and the three results ANDed. An error class survives only where all three tables agree it can.",
+          "source": "StreamParsingShims.h:stream_parsing_tbl1q_u8",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "tables",
+              "kind": "detail",
+              "label": "what the tables hold"
+            },
+            {
+              "to": "must",
+              "kind": "step",
+              "label": "the other half of the answer"
+            }
+          ]
+        },
+        {
+          "id": "tables",
+          "title": "the three nibble tables",
+          "kicker": "8 classes",
+          "detail": "Error classes as bit positions: too-long, two-continuations, too-short, overlong 2/3/4, surrogate, too-large. Each table says which classes its nibble *permits*; the AND leaves the ones all three agree on.",
+          "source": "StreamScanners.swift:streamUTF8PreviousHighTable",
+          "next": []
+        },
+        {
+          "id": "must",
+          "title": "qsub, orr, eor",
+          "kicker": "leads 2 and 3 back",
+          "detail": "Saturating subtraction leaves a high bit exactly where a lead two or three bytes back still owes a continuation. XORing that against the lookup cancels the lanes that have one, so a lane is an error only when the two disagree.",
+          "source": "StreamParsingShims.h:stream_parsing_utf8_block_errors",
+          "next": [
+            {
+              "to": "accumulate",
+              "kind": "step",
+              "label": "errors |= block"
+            }
+          ]
+        },
+        {
+          "id": "accumulate",
+          "title": "one reduction for the whole run",
+          "kicker": "+5.7%",
+          "detail": "Hoisting the per-block reduction out of the loop measured +5.7%; a 2× unroll of the same loop measured no change. The validator answers only valid-or-not — the parser's scalar walk locates the byte afterwards — so combining the error vectors loses nothing.",
+          "source": "StreamUTF8Validation.swift:streamValidateUTF8",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "shim",
+              "kind": "return",
+              "label": "another full block"
+            },
+            {
+              "to": "verdict",
+              "kind": "branch",
+              "label": "the run is done",
+              "when": "One test, after the loop rather than inside it."
+            }
+          ]
+        },
+        {
+          "id": "portable",
+          "title": "streamUTF8BlockIsInvalidPortable",
+          "kicker": "no tbl",
+          "detail": "The same classes as compares and ORs: a continuation test XORed against a needs-continuation test, then the impossible leads and the four second-byte constraints. Reachable by name so the tests can hold both paths to one oracle on a machine that has the lookup.",
+          "source": "StreamScanners.swift:streamUTF8BlockIsInvalidPortable",
+          "next": []
+        },
+        {
+          "id": "verdict",
+          "title": "any lane non-zero?",
+          "kicker": "one test",
+          "detail": "Valid or not. Where it is not, the parser walks the run scalar-wise to name the byte.",
+          "source": "StreamUTF8Validation.swift:streamValidateUTF8",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "number-scan",
+      "stage": "numbers",
+      "title": "The greedy scan",
+      "kicker": "one pass",
+      "viz": "numberTable",
+      "prose": [
+        "A number is the one token whose first byte belongs to the token itself, so the structural run hands the byte back rather than consuming it. From there the scan is greedy: take everything that could be part of a number, then decide what shape it was.",
+        "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most — floats gained 17.6%. It is also the row that pins the limit: one-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/numbers-fused-scan-two-words",
+          "numbers-whole-greedy-scan-structured-parse",
+          "numbers-whole-greedy-scan-structured-parse/digit-block-width",
+          "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/landed-the-arm64-movemask-and-the-lane-the-mask-already-held",
+          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/rejected-a-bitmap-peel-in-front-of-the-number-scanner"
+        ],
+        "source": [
+          "StreamScanners.swift:streamNumberRunEnd",
+          "StreamScanners.swift:streamNumberRunEndTail",
+          "JSONParser.swift:consumeNumber",
+          "StreamParseSink.swift:NumberInfo",
+          "StreamScanners.swift:streamNumberClassHighTable",
+          "StreamScanners.swift:streamNumberClassLowTable"
+        ],
+        "asm": [
+          "JSONParser.consumeNumber",
+          "streamNumberRunEnd"
+        ]
+      },
+      "next": [
+        {
+          "to": "short-integer",
+          "kind": "branch",
+          "label": "≤ 8 digits, no `.` or `e`",
+          "when": "The entire token fits in one 64-bit word, which is loaded and converted with no loop at all."
+        },
+        {
+          "to": "eisel-lemire",
+          "kind": "branch",
+          "label": "otherwise",
+          "when": "A float, or an integer too long for the word path. Eisel-Lemire produces the `Double` directly; 91% of canada used to build a `String` per number to get here."
+        }
+      ],
+      "invokes": "Scans greedily to the terminator first and classifies afterwards, so the decision reads a length and a digit count instead of walking the bytes a second time.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "handback",
+          "title": "the run hands the byte back",
+          "kicker": "state = .number",
+          "detail": "A number is the one token whose first byte belongs to the token itself, so `consumeStructural` returns true, the run steps the cursor back and `.number` re-reads it.",
+          "source": "JSONParser.swift:consumeNumber",
+          "next": [
+            {
+              "to": "block",
+              "kind": "step",
+              "label": "scan the run greedily"
+            }
+          ]
+        },
+        {
+          "id": "block",
+          "title": "streamNumberRunEnd",
+          "kicker": "16 bytes",
+          "detail": "Greedy: take every byte that could be part of a number, then decide what shape it was. One pass, sixteen bytes at a time.",
+          "source": "StreamScanners.swift:streamNumberRunEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "tables",
+              "kind": "detail",
+              "label": "how a lane is classified"
+            },
+            {
+              "to": "lane",
+              "kind": "step",
+              "label": "find the first byte that is not in the class"
+            }
+          ]
+        },
+        {
+          "id": "tables",
+          "title": "two nibble tables, vtstq_u8",
+          "kicker": "5 class bits",
+          "detail": "The high nibble into one table and the low nibble into the other; a lane belongs to the class where the two share a bit. Low nibble 5 carries both the digit and the E/e bits — `'5'` is 0x35, `'E'` is 0x45 — and the high nibble resolves which applies, or neither: `'%'` is 0x25, whose high nibble offers none of them.",
+          "source": "StreamScanners.swift:streamNumberClassHighTable",
+          "next": []
+        },
+        {
+          "id": "lane",
+          "title": "(~movemask).trailingZeroBitCount >> 2",
+          "kicker": "fused bound",
+          "detail": "The bound check *is* the terminator test: a mask of all ones has no terminator, its complement is zero, and `trailingZeroBitCount` of zero is 64 — lane 16, one past the block. Floats gained 17.6% from this form. It is also where the limit sits: one-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three variants confirmed no formulation beats the ladder there.",
+          "source": "StreamScanners.swift:streamNumberRunEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "end",
+              "kind": "branch",
+              "label": "a lane terminated the run",
+              "when": "The lane index is below sixteen, which is the same test the fused form makes for free."
+            },
+            {
+              "to": "tail",
+              "kind": "branch",
+              "label": "fewer than sixteen bytes left",
+              "when": "The loop bound failed: the token runs into the last fifteen bytes of the chunk."
+            },
+            {
+              "to": "block",
+              "kind": "return",
+              "label": "no terminator in this block"
+            }
+          ]
+        },
+        {
+          "id": "tail",
+          "title": "streamNumberRunEndTail",
+          "kicker": "byte at a time",
+          "detail": "The same five tests per byte, scalar: digit, dot, dash, plus, or E with the case bit forced.",
+          "source": "StreamScanners.swift:streamNumberRunEndTail",
+          "next": [
+            {
+              "to": "end",
+              "kind": "step",
+              "label": "the run ends here too"
+            }
+          ]
+        },
+        {
+          "id": "end",
+          "title": "the run's extent",
+          "kicker": "one pass",
+          "detail": "One pass has produced the token's bounds; nothing has yet decided whether it is well formed.",
+          "source": "JSONParser.swift:consumeNumber",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "carry",
+              "kind": "branch",
+              "label": "the run reached the chunk end",
+              "when": "The token may continue in the next chunk."
+            },
+            {
+              "to": "shape",
+              "kind": "branch",
+              "label": "the run ends inside the chunk",
+              "when": "A byte outside the number class follows, so the token is complete and can be parsed now."
+            }
+          ]
+        },
+        {
+          "id": "carry",
+          "title": "copy the bytes into the buffer",
+          "kicker": "across chunks",
+          "detail": "A number is the one token the parser copies rather than borrows, because its bytes have to be joined across the boundary before they can be parsed. A document that ends inside a number is settled by `finish()`.",
+          "source": "JSONParser.swift:consumeNumber",
+          "next": []
+        },
+        {
+          "id": "shape",
+          "title": "decide what shape it was",
+          "kicker": "NumberInfo",
+          "detail": "Sign, integer digits, fraction, exponent — walked once, in order, over bytes already known to be in the class. The result is a `NumberInfo`: the digits with the dot removed, the power of ten they are scaled by, and the flags a destination needs to reject a value its type cannot hold.",
+          "source": "StreamParseSink.swift:NumberInfo",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "short-integer",
+      "stage": "numbers",
+      "title": "Eight bytes, backwards",
+      "kicker": "SWAR",
+      "viz": "number",
+      "prose": [
+        "An unsigned integer of one to eight digits is parsed whole, with no loop and no data-dependent branch. The digit test doubles as the shape test, so this *replaces* the structured walk's sign, dot and exponent checks for the tokens it accepts rather than adding to them.",
+        "The load is the eight bytes *ending* at the token, not starting at it. Those bytes are behind the cursor — already-consumed input in the same buffer — so a single `end >= 8` test makes the read safe, where reading forward would need a bound the parser does not carry. Right alignment also removes the scaling step: the masked-off bytes below the token become leading zeros, so the digit tree's answer is already the value.",
+        "The mask must come before the bias. Subtracting `0x30` from the whole word borrows out of any byte below `'0'` — newline, comma and quote all qualify — and into the token's leading digit, so `582` preceded by a newline reads as `482`. A differential test over random junk prefixes found this; reasoning about the kernel did not, which is why the tests pad with hostile bytes rather than spaces."
+      ],
+      "evidence": {
+        "doc": [
+          "the-short-integer-kernel-eight-bytes-backwards/the-kernel",
+          "the-short-integer-kernel-eight-bytes-backwards/swar-against-simd-and-where-each-one-belongs",
+          "the-short-integer-kernel-eight-bytes-backwards/what-it-costs-where-it-does-not-apply",
+          "the-short-integer-kernel-eight-bytes-backwards/b-the-nine-to-sixteen-digit-integer-built-measured-rejected",
+          "the-short-integer-kernel-eight-bytes-backwards/c-the-decimal-kernel-built-measured-rejected-and-the-size-ceiling-this-exposes",
+          "the-short-integer-kernel-eight-bytes-backwards/a-backward-read-is-invisible-to-assertions-about-values"
+        ],
+        "source": [
+          "StreamScanners.swift:streamShortInteger",
+          "StreamScanners.swift:streamParseEightDigits",
+          "StreamScanners.swift:streamAccumulateDigits"
+        ],
+        "asm": [
+          "streamShortInteger"
+        ]
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "gate",
+          "title": "length ≤ 8, and end ≥ 8",
+          "kicker": "two compares",
+          "detail": "The second test is what makes the backwards load safe: the eight bytes *ending* at the token are already-consumed input in the same buffer, where reading forward would need a bound the parser does not carry. Spelling the first as an unsigned range test in the caller was measured and reverted — it cost one `lea` on the entry guard that every number pays, including the fractional ones that never reach here.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "load",
+              "kind": "branch",
+              "label": "both hold",
+              "when": "One to eight bytes long, and at least eight bytes of the buffer sit behind the token's end."
+            },
+            {
+              "to": "walk",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "A sign, a dot, an exponent, or more than eight digits: the structured walk."
+            }
+          ]
+        },
+        {
+          "id": "load",
+          "title": "load 8 bytes ending at `end`",
+          "kicker": "backwards",
+          "detail": "One unaligned `UInt64`. The token is right-aligned inside it and whatever preceded it in the document fills the rest.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "next": [
+            {
+              "to": "mask",
+              "kind": "step",
+              "label": "shift the junk out"
+            }
+          ]
+        },
+        {
+          "id": "mask",
+          "title": "keep = ~0 << shift",
+          "kicker": "5 instructions saved",
+          "detail": "A masking shift, not the smart one. A token is one to eight bytes so `shift` is 0…56 and the over-shift case cannot arise — but the compiler cannot see that range from here and emitted the defence: `xor`, `cmp rax,0x40` and a `cmovb` in front of the `and` that every other operation waits on. Removing it also let the shift amount fall to eight bits, so five instructions left the critical path.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "next": [
+            {
+              "to": "bias",
+              "kind": "step",
+              "label": "then, and only then, subtract 0x30"
+            }
+          ]
+        },
+        {
+          "id": "bias",
+          "title": "(word & keep) − (0x3030… & keep)",
+          "kicker": "order matters",
+          "detail": "The mask must come before the bias. Subtracting `0x30` from the whole word borrows out of any byte below `'0'` — newline, comma and quote all qualify — and into the token's leading digit, so `582` preceded by a newline reads as `482`. A differential test over random junk prefixes found this; reasoning about the kernel did not, which is why the tests pad with hostile bytes rather than with spaces.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "next": [
+            {
+              "to": "valid",
+              "kind": "step",
+              "label": "test all eight at once"
+            }
+          ]
+        },
+        {
+          "id": "valid",
+          "title": "((biased + 0x7676…) | biased) & 0x8080…",
+          "kicker": "digit test = shape test",
+          "detail": "One test for all eight bytes: any byte outside `0…9` leaves a high bit set. The digit test doubles as the shape test, so this *replaces* the sign, leading-zero, dot and exponent checks rather than adding to them.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "tree",
+              "kind": "branch",
+              "label": "all eight were digits",
+              "when": "Every masked byte was in `0…9`, which also settles that the token has no sign, dot or exponent."
+            },
+            {
+              "to": "walk",
+              "kind": "branch",
+              "label": "any byte was not",
+              "when": "Whatever it was — a sign, a dot, an `e` — the structured walk names it."
+            }
+          ]
+        },
+        {
+          "id": "tree",
+          "title": "three multiplies",
+          "kicker": "no loop, no branch",
+          "detail": "Pairs, then quads, then the whole word: `2561`, `6553601`, `42949672960001`. Right alignment also removes the scaling step, because the masked-off bytes below the token became leading zeros — so the tree's answer is already the value, with no loop and no data-dependent branch anywhere in the kernel.",
+          "source": "StreamScanners.swift:streamShortInteger",
+          "next": []
+        },
+        {
+          "id": "walk",
+          "title": "streamAccumulateDigits",
+          "kicker": "SIMD8, then scalar",
+          "detail": "Eight digits at a time while they last, then one at a time. Used for the integer part and again for the fraction, accumulating into the same magnitude — which is what makes `exponent` a subtraction rather than a second pass.",
+          "source": "StreamScanners.swift:streamAccumulateDigits",
+          "next": [
+            {
+              "to": "eight",
+              "kind": "detail",
+              "label": "the eight-digit step"
+            }
+          ]
+        },
+        {
+          "id": "eight",
+          "title": "streamParseEightDigits",
+          "kicker": "SIMD8",
+          "detail": "The same pair/quad/word tree as above, over a `SIMD8<UInt8>` biased by subtracting `'0'` from every lane at once.",
+          "source": "StreamScanners.swift:streamParseEightDigits",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "eisel-lemire",
+      "stage": "numbers",
+      "title": "Floats without a String",
+      "kicker": "3.15×",
+      "viz": null,
+      "prose": [
+        "A census of canada.json found 91% of its numbers were building a Swift `String` per `Double` to parse them. Replacing that with Eisel-Lemire measured 3.15× on the path. The same census found the corpus contains zero exponents, which bounds what further work here can be worth.",
+        "The power-of-ten table lives in C, not Swift. A Swift array global is not a constant expression, so every read routes through a lazy-initialisation accessor — a call, on a path that is otherwise branch-free. Moving the table into a C translation unit is what removed it."
+      ],
+      "evidence": {
+        "doc": [
+          "where-canada-json-s-number-budget-actually-goes",
+          "the-power-of-ten-table-what-a-swift-array-global-actually-cost",
+          "the-power-of-ten-table-what-a-swift-array-global-actually-cost/follow-up-the-eisel-lemire-table-covers-all-of-double",
+          "the-number-kernel-lab-interleaving-single-pass-validation-and-where-the-cycles-are/the-third-number-path-landed"
+        ],
+        "source": [
+          "StreamParsingShims.h:stream_parsing_pow10_128",
+          "StreamParsingShims.h:stream_parsing_pow10_double",
+          "JSONParser.swift:emitNumber"
+        ],
+        "asm": []
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "info",
+          "title": "emitNumber already holds the inputs",
+          "kicker": "no re-walk",
+          "detail": "`NumberInfo` carries the digits with the dot removed and the power of ten they are scaled by, which is exactly the form the kernel wants — so nothing re-walks the token.",
+          "source": "JSONParser.swift:emitNumber",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "exact",
+              "kind": "branch",
+              "label": "magnitude ≤ 2^53 and |exponent| ≤ 22",
+              "when": "One multiply or divide by a power of ten that `Double` represents exactly. 10^22 is the last power whose factor of five fits the 53-bit significand."
+            },
+            {
+              "to": "lemire",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "91.2% of canada.json's numbers, each of which was building a Swift `String` and calling the standard library's parser. Replacing that measured 3.15× on the path."
+            }
+          ]
+        },
+        {
+          "id": "exact",
+          "title": "scale by a representable power of ten",
+          "kicker": "1 multiply",
+          "detail": "Kept ahead of the kernel because it is shorter, and because it is the path every small integer and short decimal takes.",
+          "source": "JSONParser.swift:emitNumber",
+          "next": [
+            {
+              "to": "pow10d",
+              "kind": "detail",
+              "label": "the scale table"
+            }
+          ]
+        },
+        {
+          "id": "pow10d",
+          "title": "stream_parsing_pow10_double",
+          "kicker": "C, .rodata",
+          "detail": "The exact-path scales, in C for the same reason as the 128-bit table below.",
+          "source": "StreamParsingShims.h:stream_parsing_pow10_double",
+          "next": []
+        },
+        {
+          "id": "lemire",
+          "title": "normalize, then one 64×64 multiply",
+          "kicker": "Double only",
+          "detail": "The significand is shifted up by its leading zeros so the product's top bits carry the mantissa. `Double`'s alone, deliberately: the kernel computes in `Double`, so a narrower type would round twice — once into `Double`, once into itself — which is worse than the fallback those cases take today.",
+          "source": "JSONParser.swift:emitNumber",
+          "next": [
+            {
+              "to": "table",
+              "kind": "step",
+              "label": "index the power of ten"
+            }
+          ]
+        },
+        {
+          "id": "table",
+          "title": "stream_parsing_pow10_128",
+          "kicker": "C, .rodata",
+          "detail": "A Swift array global is not a constant expression, so every read routes through a lazy-initialisation accessor — a call, on a path that is otherwise branch-free. In a C translation unit the accessor returns the address of static `.rodata`, and unsafe unwrapping keeps even the null check out.",
+          "source": "StreamParsingShims.h:stream_parsing_pow10_128",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "second",
+              "kind": "branch",
+              "label": "the product's top bits are all ones",
+              "when": "The low bits cannot decide the rounding on their own."
+            },
+            {
+              "to": "round",
+              "kind": "branch",
+              "label": "the first product decides",
+              "when": "The high word's low nine bits are not all ones, so the approximation already separates the two candidates."
+            }
+          ]
+        },
+        {
+          "id": "second",
+          "title": "a second 64×64 multiply",
+          "kicker": "the rare half",
+          "detail": "Against the table's next word, added into the low half with its carry. This is the only case that costs two multiplies.",
+          "source": "StreamParsingShims.h:stream_parsing_pow10_128",
+          "next": [
+            {
+              "to": "round",
+              "kind": "step",
+              "label": "carry into the high word"
+            }
+          ]
+        },
+        {
+          "id": "round",
+          "title": "round to 53 bits, assemble the exponent",
+          "kicker": "no division",
+          "detail": "`((152170 + 65536) * q) >> 16` is floor(q·log₂10) over the table's range. The subnormal branch is kept inside an `exponent <= -308` guard so ordinary exponents keep the short dependency chain.",
+          "source": "JSONParser.swift:emitNumber",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "answer",
+              "kind": "branch",
+              "label": "bit-exact",
+              "when": "Every case the kernel answers is exact. Measured over the whole corpus plus ~500K generated cases against a correctly rounded oracle."
+            },
+            {
+              "to": "decline",
+              "kind": "branch",
+              "label": "the halfway case, or a low word of all ones",
+              "when": "The two cases a 55-bit approximation genuinely cannot separate: 0.146% of canada.json and ~0.2% of uniformly random input."
+            }
+          ]
+        },
+        {
+          "id": "answer",
+          "title": "the Double",
+          "kicker": "3.15× on the path",
+          "detail": "The census that motivated all of this also found the corpus contains zero exponents, which bounds what further work here can be worth.",
+          "source": "JSONParser.swift:emitNumber",
+          "next": []
+        },
+        {
+          "id": "decline",
+          "title": "return nil",
+          "kicker": "never a guess",
+          "detail": "The function declines rather than guesses, and the caller's existing `String` fallback settles what it declined.",
+          "source": "JSONParser.swift:emitNumber",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "sink-protocol",
+      "stage": "sink",
+      "title": "StreamParseSink",
+      "kicker": "borrowed spans",
+      "viz": "sinkCalls",
+      "prose": [
+        "The parser's whole output surface: one method per token class, each carrying a borrowed `Span<UInt8>` that is invalid the moment the call returns. It is format-agnostic rather than JSON-specific, so another parser could drive the same sinks.",
+        "No method throws. A check after every call sits on the hottest path — measured at 2–5% — so a sink records its failure and the parser polls it at token boundaries instead, reporting the failure at the token that provoked it. Sinks record a bool from their apply members rather than throwing, which is what distinguishes a key the destination doesn't have (ignored) from a field that cannot hold this kind of value (a type mismatch).",
+        "There is exactly one form per token. A key is always whole; a string always arrives as begin/chunks/end, or as one call when it is complete and escape-free in the chunk. The collapsed forms both protocols once declared are gone — one because no parser could keep the promise, the other because in two rounds of parser work nothing ever called it."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/fast-interface-a-token-granular-sink",
+          "one-requirement-the-legacy-sink-methods-removed",
+          "the-fusion-series-per-token-emission-lands-the-recorder-is-deleted",
+          "event-batching-step-2-the-sink-takes-the-run",
+          "the-dead-code-pass-what-nothing-was-calling"
+        ],
+        "source": [
+          "StreamParseSink.swift:StreamParseSink",
+          "StreamParseSink.swift:StreamSinkFailure",
+          "StreamParseSink.swift:NumberInfo"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "dispositions",
+          "kind": "branch",
+          "label": "a container opens",
+          "when": "The sink is asked whether it wants this subtree. Declining is advisory — the parser may walk it anyway — but the matching close is always delivered, which is what makes the contract safe to ignore."
+        },
+        {
+          "to": "keys",
+          "kind": "branch",
+          "label": "the token is an object key",
+          "when": "Keys are the one token guaranteed to arrive whole: unescaped, UTF-8 validated, in a single call."
+        },
+        {
+          "to": "partial-sink",
+          "kind": "detail",
+          "label": "the typed implementation",
+          "when": "`PartialSink` is the conformance the typed layer ships. A hand-written sink implements this same protocol instead and never sees the frames."
+        }
+      ],
+      "invokes": "One method per token class, each carrying a borrowed `Span<UInt8>` that is invalid the moment the call returns. Nothing throws — a sink records its failure and the parser polls it at token boundaries, because a check after every call measured 2–5% on the hot path.",
+      "ordering": "unordered",
+      "steps": [
+        {
+          "id": "token",
+          "title": "one method per token class",
+          "kicker": "borrowed spans",
+          "detail": "The parser's whole output surface, and it is format-agnostic rather than JSON-specific: another parser could drive the same sinks. Every span is valid only for the duration of its call, which is what makes the surface zero-copy.",
+          "source": "StreamParseSink.swift:StreamParseSink",
+          "ordering": "unordered",
+          "next": [
+            {
+              "to": "structure",
+              "kind": "branch",
+              "label": "a container opened or closed",
+              "when": "The four structural calls."
+            },
+            {
+              "to": "whole",
+              "kind": "branch",
+              "label": "a key, a complete string, a number, a literal",
+              "when": "One call, one borrow."
+            },
+            {
+              "to": "chunked",
+              "kind": "branch",
+              "label": "a string a chunk cut, or one with an escape",
+              "when": "The fallback form."
+            }
+          ]
+        },
+        {
+          "id": "structure",
+          "title": "beginObject / beginArray",
+          "kicker": "returns a disposition",
+          "detail": "The return is deliberately not defaulted: a defaulted returning requirement silently shadows a conformer's `Void` implementation — the classic near-miss — and a sink author should decide, per container, whether the interior matters.",
+          "source": "StreamParseSink.swift:StreamParseSink",
+          "next": [
+            {
+              "to": "poll",
+              "kind": "step",
+              "label": "the call returns"
+            }
+          ]
+        },
+        {
+          "id": "whole",
+          "title": "key / string / number / boolean / null",
+          "kicker": "one call",
+          "detail": "A key is *always* whole: unescaped, validated UTF-8. A string arrives as one call when it is complete and escape-free in the chunk, which is the common case.",
+          "source": "StreamParseSink.swift:StreamParseSink",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "info",
+              "kind": "detail",
+              "label": "what a number carries"
+            },
+            {
+              "to": "poll",
+              "kind": "step",
+              "label": "the call returns"
+            }
+          ]
+        },
+        {
+          "id": "info",
+          "title": "NumberInfo",
+          "kicker": "parsed, not just spanned",
+          "detail": "The magnitude, the exponent, the digit count and the flags — enough for a destination to reject a value its type cannot hold without re-reading the token.",
+          "source": "StreamParseSink.swift:NumberInfo",
+          "next": []
+        },
+        {
+          "id": "chunked",
+          "title": "stringBegin, chunks, stringEnd",
+          "kicker": "the fallback",
+          "detail": "Rare per document, mandatory for correctness — a sink that ignores these is wrong on chunked input. `string(_:)` is defaulted through the triple, so a minimal sink implements nothing extra and an optimized one overrides exactly the hot form.",
+          "source": "StreamParseSink.swift:StreamParseSink",
+          "next": [
+            {
+              "to": "poll",
+              "kind": "step",
+              "label": "the calls return"
+            }
+          ]
+        },
+        {
+          "id": "poll",
+          "title": "streamFailure, read at token boundaries",
+          "kicker": "no throws",
+          "detail": "No method throws. A check after every call sits on the hottest path — measured at 2–5% — so a sink records its failure and the parser reads it at token boundaries instead, reporting at the token that provoked it.",
+          "source": "StreamParseSink.swift:StreamSinkFailure",
+          "next": [
+            {
+              "to": "commit",
+              "kind": "step",
+              "label": "at the end of the parse call"
+            }
+          ]
+        },
+        {
+          "id": "commit",
+          "title": "commit()",
+          "kicker": "the lifetime signal",
+          "detail": "Called when memory the sink's spans borrowed is about to become invalid: at the end of each parse call and at finish. A sink that deferred work referencing borrowed bytes must complete it now. The parser signals lifetimes only; when and how much to buffer stays the sink's business.",
+          "source": "StreamParseSink.swift:StreamParseSink",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "dispositions",
+      "stage": "sink",
+      "title": "Skipping a subtree",
+      "kicker": "+41% on misses",
+      "viz": "dispositions",
+      "prose": [
+        "Both container opens return a disposition. A sink with no use for a subtree's interior answers `.skip`, and the parser scans past it at structural speed — no keys resolved, no strings emitted, no values built.",
+        "The answer is advisory on purpose: a `.skip` may still be followed by the interior, but the matching close *always* arrives, so a sink can never be left with an unbalanced frame. A skipped interior is still validated as JSON — skipping is not the same as trusting.",
+        "On payloads whose subtrees the destination does not want, this measured +41% on nested misses."
+      ],
+      "evidence": {
+        "doc": [
+          "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed/the-contract-and-why-it-is-advisory",
+          "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed/what-a-skipped-interior-still-validates",
+          "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed/measured-3-clean-interleaved-rounds-vs-3d13c11-best-of-3-p0-median-p50"
+        ],
+        "source": [
+          "StreamParseSink.swift:StreamContainerDisposition",
+          "JSONParserSkip.swift:consumeSkipRun"
+        ],
+        "asm": []
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "open",
+          "title": "the open call returns a disposition",
+          "kicker": "per container",
+          "detail": "Both container opens ask. A sink with no use for a subtree's interior says so at the opening bracket, which is the only point where saying so is free.",
+          "source": "StreamParseSink.swift:StreamContainerDisposition",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "stream",
+              "kind": "branch",
+              "label": "`.stream`",
+              "when": "The normal path: the subtree is parsed and delivered token by token."
+            },
+            {
+              "to": "skip",
+              "kind": "branch",
+              "label": "`.skip`",
+              "when": "The sink has no use for the subtree's interior — a key it does not declare, or a member it already filled."
+            }
+          ]
+        },
+        {
+          "id": "stream",
+          "title": "keep going",
+          "kicker": "branch folds away",
+          "detail": "For a sink whose answer is the constant `.stream` the branch below folds away entirely in its specialization, so a streaming sink pays nothing for the feature.",
+          "source": "StreamParseSink.swift:StreamContainerDisposition",
+          "next": []
+        },
+        {
+          "id": "skip",
+          "title": "skipEndDepth = depth; state = .skipping",
+          "kicker": "leaves the run",
+          "detail": "A skip ends the structural run — the loop's `isStructural` test breaks — and the dispatcher re-enters through the skip scanner.",
+          "source": "StreamParseSink.swift:StreamContainerDisposition",
+          "next": [
+            {
+              "to": "scan",
+              "kind": "step",
+              "label": "scan to the matching close"
+            }
+          ]
+        },
+        {
+          "id": "scan",
+          "title": "consumeSkipRun",
+          "kicker": "structural speed",
+          "detail": "No keys resolved, no strings emitted, no values built. It is still validated as JSON: brackets must match by kind, strings must terminate, control bytes are rejected and UTF-8 is validated. Skipping is not the same as trusting — though number grammar, escape selectors and comma placement inside are not checked, so a malformed interior a streaming sink would have rejected can pass under a skipping one.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "next": [
+            {
+              "to": "close",
+              "kind": "step",
+              "label": "depth − 1 reaches skipEndDepth"
+            }
+          ]
+        },
+        {
+          "id": "close",
+          "title": "the matching end always arrives",
+          "kicker": "advisory",
+          "detail": "The answer is advisory: a `.skip` may still be followed by the interior — a batching adapter replays it — but the matching `endObject` or `endArray` always arrives, so a sink can never be left with an unbalanced frame. Measured +41% on nested misses.",
+          "source": "StreamParseSink.swift:StreamContainerDisposition",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "keys",
+      "stage": "sink",
+      "title": "Keys, in place",
+      "kicker": "no Dictionary",
+      "viz": "keyMatch",
+      "prose": [
+        "A key is always delivered whole — unescaped, validated UTF-8 — and matching it against a schema's members does not use a `Dictionary`. Keys are compared as precomputed 64-bit words, which for the overwhelming majority of real keys means one or two compares.",
+        "The read happens in place, out of the parser's buffer, using padding the buffer already had and nobody was reading. Where that read lives turned out to be the entire result: the same code in a different function could not hold the branch.",
+        "A block key match was built and measured against this, and lost: a predicted scan over eight or fewer entries beats a latency chain. The object-heavy bottleneck is not the key match — it is what happens after the key resolves."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/keys-precomputed-words-no-dictionary",
+          "keys-in-place-the-padding-nobody-read-and-the-function-that-could-not-hold-the-branch/where-the-in-place-read-lives-is-the-whole-result",
+          "keys-in-place-the-padding-nobody-read-and-the-function-that-could-not-hold-the-branch/three-cheap-fixes-from-the-disassembly-one-kept",
+          "the-block-key-match-measured-and-not-kept",
+          "the-fused-slice-retired-and-where-the-object-heavy-gap-actually-is/the-key-match-is-not-the-object-heavy-bottleneck"
+        ],
+        "source": [
+          "StreamScanners.swift:streamPaddedWord",
+          "StreamScanners.swift:streamBytesEqual",
+          "StreamScanners.swift:streamHashBytes",
+          "JSONParser.swift:emitKeyInPlace",
+          "JSONParser.swift:consumeKeyRun"
+        ],
+        "asm": [
+          "JSONParser.emitKeyInPlace"
+        ]
+      },
+      "next": [
+        {
+          "to": "field-table",
+          "kind": "step",
+          "label": "resolve to a member",
+          "when": "For the overwhelming majority of real keys this is one or two compares against precomputed words. Where the read lives turned out to be the whole result: the same code in another function could not hold the branch."
+        }
+      ],
+      "invokes": "Reads the key in place out of the parser's buffer, using padding the buffer already had, and compares it as 64-bit words.",
+      "steps": [
+        {
+          "id": "scan",
+          "title": "the key's run",
+          "kicker": "streamStringRun",
+          "detail": "The same `streamStringRun` a string value uses, which is why keys and values share one inlined copy of the scanner rather than one per arm.",
+          "source": "JSONParser.swift:consumeKeyRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "inplace",
+              "kind": "branch",
+              "label": "closed in this chunk, no escape",
+              "when": "The overwhelming majority of keys."
+            },
+            {
+              "to": "buffered",
+              "kind": "branch",
+              "label": "cut by the chunk, or carrying an escape",
+              "when": "`consumeKeyRun` copies into the parser's buffer and emits at the closing quote, so the key is still delivered whole."
+            }
+          ]
+        },
+        {
+          "id": "inplace",
+          "title": "emitKeyInPlace",
+          "kicker": "a borrowed span",
+          "detail": "One `key` record borrowing the input directly. UTF-8 is validated only when the scan's non-ASCII flag says there is anything to validate.",
+          "source": "JSONParser.swift:emitKeyInPlace",
+          "next": [
+            {
+              "to": "word",
+              "kind": "step",
+              "label": "match it"
+            }
+          ]
+        },
+        {
+          "id": "buffered",
+          "title": "consumeKeyRun",
+          "kicker": "@inline(never)",
+          "detail": "The cold path, and the reason `key` can promise a whole key at all.",
+          "source": "JSONParser.swift:consumeKeyRun",
+          "next": [
+            {
+              "to": "word",
+              "kind": "step",
+              "label": "match it"
+            }
+          ]
+        },
+        {
+          "id": "word",
+          "title": "streamPaddedWord",
+          "kicker": "8 bytes, padded",
+          "detail": "The leading eight bytes as one `UInt64`, read out of padding the buffer already had and nobody was reading. Where that read lives turned out to be the entire result — the same code in a different function could not hold the branch.",
+          "source": "StreamScanners.swift:streamPaddedWord",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "compare",
+              "kind": "step",
+              "label": "one compare against each entry"
+            },
+            {
+              "to": "hash",
+              "kind": "detail",
+              "label": "when a key is stored rather than matched"
+            }
+          ]
+        },
+        {
+          "id": "compare",
+          "title": "keyWord and keyLength",
+          "kicker": "1–2 compares",
+          "detail": "Which for the overwhelming majority of real keys is the whole match: one or two compares against forty-byte strides the prefetcher already has. A block key match was built against this and lost — a predicted scan over eight or fewer entries beats a latency chain.",
+          "source": "StreamScanners.swift:streamBytesEqual",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "hit",
+              "kind": "branch",
+              "label": "eight bytes or fewer",
+              "when": "The word *is* the key; there is nothing left to check."
+            },
+            {
+              "to": "tail",
+              "kind": "branch",
+              "label": "longer than eight bytes",
+              "when": "Only on a first-word hit, and only for the bytes past the word."
+            }
+          ]
+        },
+        {
+          "id": "tail",
+          "title": "streamBytesEqual",
+          "kicker": "> 8 bytes only",
+          "detail": "Sixteen bytes at a time, then padded words. Never reached by a key whose first word already differs.",
+          "source": "StreamScanners.swift:streamBytesEqual",
+          "next": []
+        },
+        {
+          "id": "hit",
+          "title": "the entry index",
+          "kicker": "the match is not the cost",
+          "detail": "The object-heavy bottleneck is not the key match — it is what happens after the key resolves.",
+          "source": "StreamScanners.swift:streamPaddedWord",
+          "next": []
+        },
+        {
+          "id": "hash",
+          "title": "streamHashBytes",
+          "kicker": "avalanche",
+          "detail": "For a key that is *stored* rather than matched — a `StreamDictionary` entry. Sixteen bytes a round into two lanes, then an avalanche, so keys differing in one byte land in different buckets rather than adjacent ones: the table masks the low bits and linear probing punishes clustering.",
+          "source": "StreamScanners.swift:streamHashBytes",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "skip-run",
+      "stage": "sink",
+      "title": "consumeSkipRun",
+      "kicker": "structural speed",
+      "viz": "skipRun",
+      "prose": [
+        "The skip walk is its own state machine — three states, one of which exists only to carry a skipped string across a chunk boundary. They sit past `done` in the state enum on purpose, so that \"is this state structural\" stays a single unsigned compare for everyone else."
+      ],
+      "evidence": {
+        "doc": [
+          "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed"
+        ],
+        "source": [
+          "JSONParserSkip.swift:consumeSkipRun",
+          "JSONParser.swift:State"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "dispositions",
+          "kind": "detail",
+          "label": "entered by a disposition",
+          "when": "This walk exists only because a sink declined a subtree. One of its three states exists purely to carry a skipped string across a chunk boundary."
+        }
+      ],
+      "invokes": "Its own three-state machine, driven from the dispatcher like any other run.",
+      "steps": [
+        {
+          "id": "resume",
+          "title": "which skipping state?",
+          "kicker": "past `done`",
+          "detail": "Three states, and two of them exist only to carry a skipped string across a chunk boundary. They sit past `done` in the enum on purpose, so `isStructural` stays a single unsigned compare for everyone else.",
+          "source": "JSONParser.swift:State",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "escape",
+              "kind": "branch",
+              "label": "`.skippingEscape`",
+              "when": "A chunk cut an escape inside a skipped string."
+            },
+            {
+              "to": "instring",
+              "kind": "branch",
+              "label": "`.skippingString`",
+              "when": "A chunk cut the string itself."
+            },
+            {
+              "to": "loop",
+              "kind": "branch",
+              "label": "`.skipping`",
+              "when": "The ordinary case: between tokens."
+            }
+          ]
+        },
+        {
+          "id": "escape",
+          "title": "consume one byte, blind",
+          "kicker": "not validated",
+          "detail": "The selector is not validated in a skipped interior. `\\\"` and `\\\\` are the two that matter structurally, and both are one byte.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "next": [
+            {
+              "to": "instring",
+              "kind": "step",
+              "label": "back inside the string"
+            }
+          ]
+        },
+        {
+          "id": "instring",
+          "title": "skipStringBody",
+          "kicker": "validated, not emitted",
+          "detail": "Control bytes are still rejected and UTF-8 is still validated; nothing is emitted.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "next": [
+            {
+              "to": "loop",
+              "kind": "step",
+              "label": "the string closed"
+            }
+          ]
+        },
+        {
+          "id": "loop",
+          "title": "whitespace, then one byte",
+          "kicker": "the same scan",
+          "detail": "The same `streamWhitespaceEndByte` the structural run uses, returning the byte as well as the index.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "nest",
+              "kind": "branch",
+              "label": "`{`, `[`, `}` or `]`",
+              "when": "Depth and the `containers` word are maintained exactly as the structural run maintains them, so bracket kinds still have to match and the depth cap still holds."
+            },
+            {
+              "to": "tokens",
+              "kind": "branch",
+              "label": "a quote, a number byte, or a letter",
+              "when": "A value of some kind. Which kind only matters enough to know how far to step over it."
+            },
+            {
+              "to": "end",
+              "kind": "branch",
+              "label": "the chunk ran out",
+              "when": "The skip resumes on the next chunk from whichever of the three states it was in."
+            }
+          ]
+        },
+        {
+          "id": "tokens",
+          "title": "one scan per class",
+          "kicker": "3 arms",
+          "detail": "A quote runs the string body. `.`, `+` and `E` are in the number arm because a number the chunk cut resumes at any byte of its class — the scanner keeps no cross-chunk number state, it just scans the class again. A lowercase letter is stepped over one at a time: `true` is four cheap iterations, and a skipped interior does not validate the words.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "next": [
+            {
+              "to": "loop",
+              "kind": "return",
+              "label": "back to the byte loop"
+            }
+          ]
+        },
+        {
+          "id": "nest",
+          "title": "depth ± 1",
+          "kicker": "containers: UInt64",
+          "detail": "The only bookkeeping the skip does, and the only thing that can end it.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "depth − 1 == skipEndDepth",
+              "when": "The one event a skip delivers."
+            },
+            {
+              "to": "loop",
+              "kind": "return",
+              "label": "any other bracket"
+            }
+          ]
+        },
+        {
+          "id": "done",
+          "title": "the matching close",
+          "kicker": "ordered like the run",
+          "detail": "The event precedes the depth and state updates, exactly as the structural run orders them, so a failure the sink surfaces leaves the same parser state behind either way.",
+          "source": "JSONParserSkip.swift:consumeSkipRun",
+          "next": []
+        },
+        {
+          "id": "end",
+          "title": "return the cursor",
+          "kicker": "resumable",
+          "detail": "The three states are what makes the skip resumable at all.",
+          "source": "JSONParser.swift:State",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "schema",
+      "stage": "routing",
+      "title": "Schemas, borrowed",
+      "kicker": "unowned",
+      "viz": "schemaRouting",
+      "prose": [
+        "A schema describes how a type's members map onto tokens. It is a reference rather than a value, and frames borrow it `unowned(unsafe)` — a retain and release per container open was showing up in the profile.",
+        "Two rewrites were measured and rejected: replacing the closures with a witness metatype, and a family of alternative unowned spellings. What did work was narrower — a borrowed frame type, plus a tripwire to catch the lifetime assumption if it stops holding.",
+        "Two codegen traps are recorded here: taking a strong parameter from an `unowned(unsafe)` source reintroduces the retain, and `if let` on an `unowned(unsafe)` optional does the same."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/schemas-a-reference-not-a-value",
+          "routing-frames-borrow-their-schema-and-two-rewrites-that-measurement-rejected/durability-before-borrowing",
+          "routing-frames-borrow-their-schema-and-two-rewrites-that-measurement-rejected/the-witness-rewrite-measured-and-rejected",
+          "routing-frames-borrow-their-schema-and-two-rewrites-that-measurement-rejected/what-did-work-borrowedframe",
+          "routing-frames-borrow-their-schema-and-two-rewrites-that-measurement-rejected/the-tripwire"
+        ],
+        "source": [
+          "StreamSchema.swift:StreamSchema"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "field-table",
+          "kind": "detail",
+          "label": "compiled into",
+          "when": "The macro emits the members as a table rather than as a closure per member, so resolving a key yields an entry instead of a call through a closure."
+        }
+      ],
+      "invokes": "Describes how a type's members map onto tokens. Frames borrow it `unowned(unsafe)`, since a retain and release per container open showed up in the profile.",
+      "steps": [
+        {
+          "id": "build",
+          "title": "one schema, built once",
+          "kicker": "final class",
+          "detail": "The macro emits it as a `private static let`, so a type's schema is created once for the process and describes how its members map onto tokens.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "next": [
+            {
+              "to": "borrow",
+              "kind": "step",
+              "label": "a container opens"
+            }
+          ]
+        },
+        {
+          "id": "borrow",
+          "title": "the frame borrows it unowned(unsafe)",
+          "kicker": "no retain",
+          "detail": "A retain and release per container open was showing up in the profile. Sound only while every schema a frame can carry outlives the parse — which already holds: an object field's schema is the parent's `static let`, an element or value schema is captured by the container schema that produced it, and the root's is the sink's own.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "audit",
+              "kind": "detail",
+              "label": "how the assumption is kept honest"
+            },
+            {
+              "to": "routing",
+              "kind": "step",
+              "label": "a key arrives"
+            }
+          ]
+        },
+        {
+          "id": "audit",
+          "title": "StreamSchemaBorrowAudit",
+          "kicker": "debug only",
+          "detail": "The lifetime assumption is checked in debug builds rather than trusted. Two codegen traps are recorded against this path: taking a strong parameter from an `unowned(unsafe)` source reintroduces the retain, and `if let` on an `unowned(unsafe)` optional does the same.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "next": []
+        },
+        {
+          "id": "routing",
+          "title": "keyRouting, one byte",
+          "kicker": "load and switch",
+          "detail": "Where a key arriving at this schema has to go, precomputed into a single load and a single switch. A schema call costs a closure load, a retain, an indirect call and a release — 17 ns against 4.6 ns for a bare function pointer — and a schema with no matcher spent all of it to reach `{ _ in -1 }`.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "ignore",
+              "kind": "branch",
+              "label": "`.ignore`",
+              "when": "No matcher at all. Not a rare case: 52% of twitter.json's 13,345 keys are inside a subtree the destination has no field for, which is what a model that declares part of an API normally produces."
+            },
+            {
+              "to": "table",
+              "kind": "branch",
+              "label": "`.table`",
+              "when": "Every macro-generated object schema carries a field table."
+            },
+            {
+              "to": "closure",
+              "kind": "branch",
+              "label": "`.match` or `.dictionary`",
+              "when": "A hand-written matcher, or a dictionary whose value slot is opened at the key rather than remembered."
+            }
+          ]
+        },
+        {
+          "id": "ignore",
+          "title": "pendingField = -1",
+          "kicker": "no call",
+          "detail": "Reached without a call. Making that byte carry the dictionary question too — rather than testing `shape == .dictionary` and then testing for a matcher — is what keeps the schemas that *do* match from paying for the ones that do not.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "next": []
+        },
+        {
+          "id": "table",
+          "title": "an index into the entries",
+          "kicker": "routes as data",
+          "detail": "Its own node covers the table. A witness-metatype rewrite of all of this was measured and rejected, and so was a family of alternative unowned spellings; what worked was narrower — a borrowed frame type, plus the tripwire above.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "next": []
+        },
+        {
+          "id": "closure",
+          "title": "one indirect call",
+          "kicker": "17 ns",
+          "detail": "What the table replaced, kept for the cases a table cannot express.",
+          "source": "StreamSchema.swift:StreamSchema",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "field-table",
+      "stage": "routing",
+      "title": "The field table",
+      "kicker": "routes as data",
+      "viz": "fieldTable",
+      "prose": [
+        "An object's routes used to be closures. Now the macro emits them as a table, and the sink resolves a key into an entry rather than calling through a closure per member.",
+        "The measurement that mattered was not the table itself but a retain it exposed, which was not the closure's and would have been mis-attributed without the disassembly."
+      ],
+      "evidence": {
+        "doc": [
+          "the-field-table-the-sink-s-object-routes-as-data/what-the-macro-emits-and-what-resolves-it",
+          "the-field-table-the-sink-s-object-routes-as-data/what-the-sink-does-with-it",
+          "the-field-table-the-sink-s-object-routes-as-data/the-retain-that-was-not-the-closure-s",
+          "the-field-table-the-sink-s-object-routes-as-data/measured",
+          "design-decisions/macro-generated-code"
+        ],
+        "source": [
+          "StreamFieldTable.swift:StreamFieldTable"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "partial-sink",
+          "kind": "step",
+          "label": "entry drives the store",
+          "when": "The sink stores through the entry directly. Scalars whose kind is known at build time skip the general applier entirely."
+        }
+      ],
+      "invokes": "Turns a resolved key into an entry: an offset and a kind, both known at schema-build time.",
+      "steps": [
+        {
+          "id": "emit",
+          "title": "the macro emits a table, not closures",
+          "kicker": "one allocation",
+          "detail": "One object schema's entries in one allocation, with their keys packed behind them. A class, so the schema can hand the sink a pointer to the entries that outlives every frame the schema outlives.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "next": [
+            {
+              "to": "size",
+              "kind": "step",
+              "label": "choose how a key is found"
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "title": "count vs 16",
+          "kicker": "built once",
+          "detail": "A field table never grows — unlike a dictionary, whose entries arrive at parse time — so the choice is made once, at construction.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "scan",
+              "kind": "branch",
+              "label": "16 fields or fewer",
+              "when": "A scan over a handful of entries measures the same as a probe and costs no table at all."
+            },
+            {
+              "to": "index",
+              "kind": "branch",
+              "label": "more than 16",
+              "when": "A struct like a 40-field API object pays for a hash instead of a scan whose length no longer fits in what the prefetcher hides."
+            }
+          ]
+        },
+        {
+          "id": "scan",
+          "title": "compare keyWord and keyLength",
+          "kicker": "40-byte stride",
+          "detail": "Forty-byte strides, walked linearly. The generated `switch` this replaced was the same compares as a chain.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "next": [
+            {
+              "to": "verify",
+              "kind": "step",
+              "label": "a candidate"
+            }
+          ]
+        },
+        {
+          "id": "index",
+          "title": "fmix64, then probe",
+          "kicker": "open addressed",
+          "detail": "Murmur3's finalizer: two multiplies and three xor-shifts, chosen because the input is already a dense 64-bit word — the key's leading bytes — rather than a byte stream. There is nothing here for a wider mix to fold in, only avalanche to add. Half load, same as the dictionary's table, since linear probing degrades sharply past it.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "next": [
+            {
+              "to": "verify",
+              "kind": "step",
+              "label": "a candidate"
+            }
+          ]
+        },
+        {
+          "id": "verify",
+          "title": "the tail, on a first-word hit",
+          "kicker": "> 8 bytes only",
+          "detail": "Identical for both: the difference is how the candidate was found, not how it is confirmed. Keys of eight bytes or fewer skip this entirely.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "next": [
+            {
+              "to": "route",
+              "kind": "step",
+              "label": "the entry"
+            }
+          ]
+        },
+        {
+          "id": "route",
+          "title": "kind, offset, prepare",
+          "kicker": "a store, not a call",
+          "detail": "A resolved entry names the member's offset and its kind, so the scalar that follows is a typed store rather than a call. `prepares` lives parallel to the entries rather than inside them, so the match's stride stays forty bytes and a container open reads its slot only when the entry's flag says so. The measurement that mattered was not the table itself but a retain it exposed — not the closure's, and it would have been mis-attributed without the disassembly.",
+          "source": "StreamFieldTable.swift:StreamFieldTable",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "partial-sink",
+      "stage": "routing",
+      "title": "PartialSink",
+      "kicker": "frames",
+      "viz": "frames",
+      "prose": [
+        "The typed layer's sink: it keeps a spine of frames, each pointing into the partially built value, and turns tokens into stores. A container entry is now the frame itself — bits rather than references — and scalars whose kind is known at schema-build time are stored directly instead of going through a general applier.",
+        "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy; `init(rawValue:)` on a decoded enum is not free; and a `count <= 8` branch causes the scan behind it to unroll."
+      ],
+      "evidence": {
+        "doc": [
+          "container-entry-as-data-the-frame-is-the-entry/bits-not-references",
+          "container-entry-as-data-the-frame-is-the-entry/measured-3-rounds-interleaved-p50-vs-113ae98",
+          "known-scalar-kinds-elements-values-lanes-and-slots-as-typed-stores/the-contract",
+          "known-scalar-kinds-elements-values-lanes-and-slots-as-typed-stores/three-things-the-measurements-caught",
+          "the-sink-in-isolation-recorded-batches-replayed",
+          "the-small-payload-fixed-cost-three-arc-leaks-leave-the-typed-layer"
+        ],
+        "source": [
+          "PartialSink.swift:PartialSink",
+          "StreamFrameEntry.swift:_streamMemberAddress",
+          "StreamParseable.swift:StreamParseable"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "stream-string",
+          "kind": "branch",
+          "label": "member is a string",
+          "when": "Bytes go to a `StreamString`, appended as they arrive rather than assembled at the end."
+        },
+        {
+          "to": "collections",
+          "kind": "branch",
+          "label": "member is an array or object",
+          "when": "A new frame is pushed, hoisted from a template when the element type makes that pay for the closure context it creates."
+        }
+      ],
+      "invokes": "Keeps a spine of frames, each pointing into the partially built value, and turns tokens into stores. A container entry is the frame itself — bits rather than references.",
+      "ordering": "unordered",
+      "steps": [
+        {
+          "id": "push",
+          "title": "a container opens: push a frame",
+          "kicker": "24 bytes",
+          "detail": "A `BorrowedFrame` is storage, an `unowned(unsafe)` schema, the pending field and a packed route word — 24 bytes. It is trivial, so pushing and popping is a store and a decrement rather than an ARC pair, and deinitializing the stack is a no-op.",
+          "source": "PartialSink.swift:PartialSink",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "key",
+              "kind": "branch",
+              "label": "a key arrives",
+              "when": "The frame is an object frame and the parser delivered a key, so the field it names is resolved before the value that follows."
+            },
+            {
+              "to": "pop",
+              "kind": "branch",
+              "label": "the container closes",
+              "when": "Popped exactly once, including for a subtree the sink asked to skip — the ignored frame is pushed anyway, because the disposition is advisory."
+            }
+          ]
+        },
+        {
+          "id": "pop",
+          "title": "popFrame",
+          "kicker": "a decrement",
+          "detail": "A fixed array or SIMD vector that closes short of its arity is a type mismatch, recorded here rather than thrown.",
+          "source": "PartialSink.swift:PartialSink",
+          "next": []
+        },
+        {
+          "id": "key",
+          "title": "key(_:)",
+          "kicker": "one load, one switch",
+          "detail": "Read through the frame each time rather than bound to a local: a local outlives the call it is passed to, so the optimizer has to keep the schema alive across it — a retain, and it cost one per entry on the dictionary path. Read in place it is a borrow and the loads fold.",
+          "source": "PartialSink.swift:PartialSink",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "pending",
+              "kind": "branch",
+              "label": "the key resolved",
+              "when": "`pendingField` is a table index or a matched field, so there is a destination for the value that follows."
+            },
+            {
+              "to": "ignored",
+              "kind": "branch",
+              "label": "the schema has no field for it",
+              "when": "`pendingField` is -1 and the value that follows is dropped without being built."
+            }
+          ]
+        },
+        {
+          "id": "ignored",
+          "title": "pendingField = -1",
+          "kicker": "dropped",
+          "detail": "The frames standing over subtrees the destination has no field for are exactly the schemas with no matcher, and they see most of the keys in a document a model only partly declares.",
+          "source": "PartialSink.swift:PartialSink",
+          "next": []
+        },
+        {
+          "id": "pending",
+          "title": "the scalar that follows",
+          "kicker": "the grammar pairs them",
+          "detail": "A scalar under an object frame always immediately follows its key — the grammar guarantees it — so the field the key matched is still fresh. No frame resolution, no `ScalarTarget` copy of the schema.",
+          "source": "PartialSink.swift:PartialSink",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "known",
+              "kind": "branch",
+              "label": "the kind is known at schema-build time",
+              "when": "The frame's packed route word carries it, so ordinary object scalars test a word on the frame rather than chasing cold leaf metadata to reject a fast route."
+            },
+            {
+              "to": "apply",
+              "kind": "branch",
+              "label": "a custom type",
+              "when": "Through the schema's apply closure, which reports applied, ignored or unsupported rather than throwing."
+            }
+          ]
+        },
+        {
+          "id": "known",
+          "title": "a typed store at the member's offset",
+          "kicker": "routeBits",
+          "detail": "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy, `init(rawValue:)` on a decoded enum is not free, and a `count <= 8` branch causes the scan behind it to unroll.",
+          "source": "PartialSink.swift:PartialSink",
+          "next": [
+            {
+              "to": "address",
+              "kind": "detail",
+              "label": "how a member's address is taken"
+            }
+          ]
+        },
+        {
+          "id": "address",
+          "title": "_streamMemberAddress",
+          "kicker": "public, macro-facing",
+          "detail": "The macro's hook for a member that may not exist yet: an optional member yields `nil` until something has written it, and a non-optional one is always addressable.",
+          "source": "StreamFrameEntry.swift:_streamMemberAddress",
+          "next": []
+        },
+        {
+          "id": "apply",
+          "title": "the schema's closure",
+          "kicker": "one indirect call",
+          "detail": "Which is where a custom type's own conversion runs.",
+          "source": "PartialSink.swift:PartialSink",
+          "next": [
+            {
+              "to": "convert",
+              "kind": "step",
+              "label": "when the parse ends"
+            }
+          ]
+        },
+        {
+          "id": "convert",
+          "title": "StreamParseable",
+          "kicker": "strict and total",
+          "detail": "The two inverses. `init?(streamPartial:)` is strict — a member the stream never produced fails the conversion — while `streamValueOrInitial(from:)` is total and defaults only the absent members, which is why a type with members implements it member-wise rather than discarding the whole value when any part is missing.",
+          "source": "StreamParseable.swift:StreamParseable",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "stream-string",
+      "stage": "storage",
+      "title": "StreamString",
+      "kicker": "blocks double",
+      "viz": "streamString",
+      "prose": [
+        "Bytes accumulate; producing a `String` is a read, not a side effect. Storage grows in blocks whose size doubles, so a long streamed string does not pay a reallocation per chunk.",
+        "In the allocation census the block ramp was the smaller half of the cost. The larger sources were the bookkeeping array tracking the blocks and a tail reserve on the fragment-fed path. Fixing those measured +11.2% on the LLM message and +5.5% on GSoC."
+      ],
+      "evidence": {
+        "doc": [
+          "streamstring-bytes-accumulate-string-is-a-read",
+          "streamstring-adaptive-block-growth-the-allocator-leaves-the-string-heavy-typed-path",
+          "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/the-census",
+          "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/the-change",
+          "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/measured-3-clean-interleaved-rounds-best-of-3-p0-median-p50"
+        ],
+        "source": [
+          "StreamString.swift:StreamString",
+          "StreamInlineString.swift:StreamInlineString"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "views",
+          "kind": "detail",
+          "label": "read as a view",
+          "when": "Producing a `String` is a read, not a side effect — nothing is materialised until something asks."
+        }
+      ],
+      "invokes": "Accumulates bytes into blocks whose size doubles, so a long streamed string does not pay a reallocation per chunk.",
+      "steps": [
+        {
+          "id": "inline",
+          "title": "up to 64 bytes live in the value",
+          "kicker": "no allocation",
+          "detail": "Eight `UInt64`s held directly, so a copied short string copies bytes and needs no reference counting. That covers the short keys and values which previously fit `String`'s small representation, without charging every non-empty partial string a tail allocation.",
+          "source": "StreamString.swift:StreamString",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "fits",
+              "kind": "branch",
+              "label": "the chunk still fits",
+              "when": "A memcpy into the buffer and a count update."
+            },
+            {
+              "to": "promote",
+              "kind": "branch",
+              "label": "it overflows",
+              "when": "The value passed 64 bytes, which is where inline storage stops and the block schedule begins."
+            },
+            {
+              "to": "inlinestr",
+              "kind": "detail",
+              "label": "the fixed-capacity variant"
+            }
+          ]
+        },
+        {
+          "id": "fits",
+          "title": "inlineCount = needed",
+          "kicker": "~7× under append",
+          "detail": "`String.streamAppend` is `self += String(decoding:)` — a whole intermediate `String` built and destroyed per chunk, re-validating UTF-8 the parser already validated, ~61 ns per content byte under byte-fed input.",
+          "source": "StreamString.swift:StreamString",
+          "next": []
+        },
+        {
+          "id": "inlinestr",
+          "title": "StreamInlineString",
+          "kicker": "declared capacity",
+          "detail": "A fixed-capacity string whose storage the parser appends into directly, for a member that declares its own ceiling.",
+          "source": "StreamInlineString.swift:StreamInlineString",
+          "next": []
+        },
+        {
+          "id": "promote",
+          "title": "promoteSizedInlineStorage",
+          "kicker": "@inline(never)",
+          "detail": "The first overflow sizes the schedule's start: a value that arrives as one big span starts on a block matched to half its size instead of walking the whole doubling ramp, while a fragment-fed value keeps the 512-byte start and lets the ramp absorb growth. Outlined, because promotion happens once per value and its body inlined into every `stringChunk` call site is exactly the growth that flips the parse loop's inlining.",
+          "source": "StreamString.swift:StreamString",
+          "next": [
+            {
+              "to": "blocked",
+              "kind": "step",
+              "label": "from here on, blocks"
+            }
+          ]
+        },
+        {
+          "id": "blocked",
+          "title": "appendBlocked",
+          "kicker": "fill the tail",
+          "detail": "Fill the tail, seal it, start the next. The physical layout can differ between hinted, unhinted and differently-fed values, so every physical boundary is a multiple of 512 and reads, equality, ordering and hashing use canonical 512-byte logical windows.",
+          "source": "StreamString.swift:StreamString",
+          "next": [
+            {
+              "to": "reserve",
+              "kind": "step",
+              "label": "size the tail"
+            }
+          ]
+        },
+        {
+          "id": "reserve",
+          "title": "reserve the block, not the fragment",
+          "kicker": "the larger half",
+          "detail": "An empty tail reserving only what the fragment needs is right for the *first* block and wrong for every one after it: a seal empties the tail, so a fragment-fed value re-entered that arm at every block and grew in 512-byte steps, paying a reallocation per block. Escape-split values are exactly the ones that hit it. LLM message +11.2%, GSoC +5.5%.",
+          "source": "StreamString.swift:StreamString",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "seal",
+              "kind": "branch",
+              "label": "the tail reached its capacity",
+              "when": "The block is full, and a full block is never written again."
+            },
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "the fragment fit",
+              "when": "Nothing sealed; the tail keeps growing."
+            }
+          ]
+        },
+        {
+          "id": "seal",
+          "title": "blocks.append(tail); capacity <<= 1",
+          "kicker": "≤ 8 KiB",
+          "detail": "Doubling, capped at 8 KiB. `blocks` reserves four up front, because it grew by doubling from its first append and a three-block value paid two array reallocations for a spine that was the *other* larger half of the census.",
+          "source": "StreamString.swift:StreamString",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "locate",
+              "kind": "detail",
+              "label": "how a byte is found afterwards"
+            },
+            {
+              "to": "blocked",
+              "kind": "return",
+              "label": "keep filling"
+            }
+          ]
+        },
+        {
+          "id": "locate",
+          "title": "one clz, not a search",
+          "kicker": "closed form",
+          "detail": "The schedule is a pure function of the first block's shift and the block index, so locating a byte stays closed form rather than a search over prefix sums.",
+          "source": "StreamString.swift:StreamString",
+          "next": []
+        },
+        {
+          "id": "done",
+          "title": "producing a String is a read",
+          "kicker": "not a side effect",
+          "detail": "Bytes accumulate; decoding happens once, when someone asks. Accumulating raw bytes and decoding at read was the floor the append benchmarks found, ~7× under the append path at small chunks.",
+          "source": "StreamString.swift:StreamString",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "collections",
+      "stage": "storage",
+      "title": "Arrays and dictionaries",
+      "kicker": "one table",
+      "viz": "collections",
+      "prose": [
+        "Streaming collections with their own storage. The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright.",
+        "Both structural guesses made when designing that table turned out to be wrong; the measurements are recorded alongside them."
+      ],
+      "evidence": {
+        "doc": [
+          "next-streamdictionary/the-index-measured-and-dictionary-loses-outright",
+          "next-streamdictionary/the-index-one-table-one-entry-buffer",
+          "next-streamdictionary/the-index-one-table-one-entry-buffer/built-and-both-structural-guesses-were-wrong",
+          "next-streamdictionary/duplicate-keys-resume",
+          "next-streamdictionary/order",
+          "native-fixed-width-arrays-inlinearray"
+        ],
+        "source": [
+          "StreamArray.swift:StreamArray",
+          "StreamDictionary.swift:StreamDictionary"
+        ],
+        "asm": []
+      },
+      "next": [
+        {
+          "to": "views",
+          "kind": "detail",
+          "label": "read as a view",
+          "when": "The same rule as strings: a snapshot is taken on demand, down to the individual field."
+        }
+      ],
+      "invokes": "Streaming storage with its own index: a single table with one entry buffer, measured against `Dictionary` and faster.",
+      "steps": [
+        {
+          "id": "open",
+          "title": "the open element lives outside the storage",
+          "kicker": "pending",
+          "detail": "`pending` is held inline, so the parser's frame points at a slot no other value can see and its address survives every append. A write through it is an ordinary mutation that respects the slot contents' own copy-on-write, rather than the raw pointer bypass into a shared buffer that made kept values change after the fact.",
+          "source": "StreamArray.swift:StreamArray",
+          "ordering": "unordered",
+          "next": [
+            {
+              "to": "array",
+              "kind": "branch",
+              "label": "an array element closed",
+              "when": "The frame's destination is a `StreamArray`, so the pending element is committed into the filling block."
+            },
+            {
+              "to": "dict",
+              "kind": "branch",
+              "label": "a dictionary value closed",
+              "when": "The frame's destination is a `StreamDictionary`, whose slot was opened when the key arrived rather than now."
+            }
+          ]
+        },
+        {
+          "id": "array",
+          "title": "commit into the filling block",
+          "kicker": "1 << 5 elements",
+          "detail": "Sealed elements live in uniform power-of-two blocks, so committing touches only the filling block and the first commit after a snapshot copies at most one block instead of all the elements. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
+          "source": "StreamArray.swift:StreamArray",
+          "next": [
+            {
+              "to": "snapshot",
+              "kind": "step",
+              "label": "and that is already a snapshot"
+            }
+          ]
+        },
+        {
+          "id": "dict",
+          "title": "one entry buffer, one slot table",
+          "kicker": "12–17 ns per hit",
+          "detail": "Byte-keyed slots rather than a `[String: Int]`: 12 to 17 ns per hit against 34 to 42, flat in key count, and no allocation on a lookup where a `Dictionary` materialises a `String` for one. `pendingSlot` is an existing slot when the key repeats, which is what keeps `{\"a\":1,\"b\":2,\"a\":3}` in its original order.",
+          "source": "StreamDictionary.swift:StreamDictionary",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "measured",
+              "kind": "detail",
+              "label": "the two guesses that were wrong"
+            },
+            {
+              "to": "snapshot",
+              "kind": "step",
+              "label": "and that is already a snapshot"
+            }
+          ]
+        },
+        {
+          "id": "measured",
+          "title": "blocking cost 2×; one buffer beat two",
+          "kicker": "both wrong",
+          "detail": "Both structural guesses made when designing that table were wrong. Blocking the storage the way the array does cost 2× on the discarding path, because a dictionary reads its storage back on every lookup where an array never reads at all. And a retained state's cost tracks the *number* of buffers it shares, not their size, so the key and its hash travel together and the table is one array rather than a heads-and-next pair.",
+          "source": "StreamDictionary.swift:StreamDictionary",
+          "next": []
+        },
+        {
+          "id": "snapshot",
+          "title": "a plain value copy",
+          "kicker": "no streamSnapshot()",
+          "detail": "Everything left of the parse cursor is immutable, so copying the value shares only sealed storage that is never written again — which is why nothing here has a `streamSnapshot()`. Blocks are `ContiguousArray` rather than a class wrapping one: one refcounted pointer each, copy-on-write for the shared tail for free, and every stored property stays a value type, which is what lets `Sendable` be checked rather than asserted.",
+          "source": "StreamArray.swift:StreamArray",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "views",
+      "stage": "storage",
+      "title": "Views and snapshots",
+      "kicker": "zero-copy",
+      "viz": "views",
+      "prose": [
+        "Reading a partially parsed value costs what is read. Every parseable type has a `~Copyable`, `~Escapable` view — in practice a typed pointer into the value — that cannot outlive the call that lent it, so reading a field does not copy the document.",
+        "Snapshots are the alternative: the async sequence conveniences take a full one per element, because an escaping value has to own its storage. The freeze-the-completed-prefix work is what reduced their cost."
+      ],
+      "evidence": {
+        "doc": [
+          "design-decisions/views-paying-for-what-you-read",
+          "design-decisions/storage-frames-pointing-into-the-value",
+          "freezing-the-completed-prefix/what-the-snapshot-saves",
+          "freezing-the-completed-prefix/what-the-commit-costs",
+          "freezing-the-completed-prefix/measured-end-to-end",
+          "design-decisions/optional-payload-access"
+        ],
+        "source": [
+          "StreamPointerView.swift:StreamPointerView",
+          "PartialsStream.swift:PartialsStream"
+        ],
+        "asm": []
+      },
+      "next": [],
+      "steps": [
+        {
+          "id": "read",
+          "title": "reading a partially parsed value",
+          "kicker": "two ways",
+          "detail": "Two ways, and the difference is who owns the bytes afterwards.",
+          "source": "PartialsStream.swift:PartialsStream",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "view",
+              "kind": "branch",
+              "label": "withView { … }",
+              "when": "Reads in place."
+            },
+            {
+              "to": "current",
+              "kind": "branch",
+              "label": "current",
+              "when": "Takes a whole snapshot."
+            }
+          ]
+        },
+        {
+          "id": "view",
+          "title": "StreamPointerView",
+          "kicker": "~Copyable, ~Escapable",
+          "detail": "In practice a typed pointer into the value. It is `~Copyable` and `~Escapable` and arrives borrowed, so the compiler ties it to the call that produced it and there is no way to store it — where the old `View == Self` default trusted a caller not to move it elsewhere.",
+          "source": "StreamPointerView.swift:StreamPointerView",
+          "next": [
+            {
+              "to": "field",
+              "kind": "step",
+              "label": "read one member"
+            }
+          ]
+        },
+        {
+          "id": "field",
+          "title": "one member, one copy",
+          "kicker": "costs what is read",
+          "detail": "The dereference is deferred to the read rather than happening when the view is built, so pulling one field out of a large value costs one field and the document is never copied.",
+          "source": "StreamPointerView.swift:StreamPointerView",
+          "next": []
+        },
+        {
+          "id": "current",
+          "title": "a full snapshot",
+          "kicker": "per element",
+          "detail": "The async sequence conveniences take one per element, because an escaping value has to own its storage. Reading it still copies the open element at each depth — the freeze-the-completed-prefix work is what reduced the rest.",
+          "source": "PartialsStream.swift:PartialsStream",
+          "next": [
+            {
+              "to": "storage",
+              "kind": "detail",
+              "label": "why the value is not stored inline"
+            }
+          ]
+        },
+        {
+          "id": "storage",
+          "title": "the value lives in its own allocation",
+          "kicker": "not a stored property",
+          "detail": "Frames inside the sink hold pointers into it so partials update at every depth as bytes arrive, and those pointers have to survive the stream being moved — which a stored property would not.",
+          "source": "PartialsStream.swift:PartialsStream",
+          "next": []
+        }
+      ]
+    }
+  ]
+}

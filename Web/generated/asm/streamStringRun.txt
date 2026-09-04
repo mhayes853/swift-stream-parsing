@@ -1,0 +1,84 @@
+; StreamParsingCore.streamStringRun(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int) -> StreamParsingCore.StreamStringRun
+; _$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF
+; 79 instructions
+; llvm-objdump -d, release benchmark binary
+
+10023bde8:     	mov	x8, x1
+10023bdec:     	cmp	x1, x2
+10023bdf0:     	b.ge	0x10023be1c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+10023bdf4:     	mov	w9, #0x0                ; =0
+10023bdf8:     	ldrb	w10, [x0, x8]
+10023bdfc:     	cmp	w10, #0x22
+10023be00:     	b.eq	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023be04:     	cmp	w10, #0x5c
+10023be08:     	b.eq	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023be0c:     	cmp	w10, #0x20
+10023be10:     	b.hs	0x10023be1c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+10023be14:     	mov	w9, #0x0                ; =0
+10023be18:     	b	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023be1c:     	add	x9, x8, #0x10
+10023be20:     	movi.2d	v0, #0000000000000000
+10023be24:     	cmp	x2, x9
+10023be28:     	b.ge	0x10023be34 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x4c>
+10023be2c:     	mov	x10, x8
+10023be30:     	b	0x10023be7c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x94>
+10023be34:     	movi.16b	v1, #0x22
+10023be38:     	movi.16b	v2, #0x5c
+10023be3c:     	movi.16b	v3, #0x20
+10023be40:     	ldr	q4, [x0, x8]
+10023be44:     	cmeq.16b	v5, v4, v1
+10023be48:     	cmeq.16b	v6, v4, v2
+10023be4c:     	orr.16b	v5, v5, v6
+10023be50:     	cmhi.16b	v6, v3, v4
+10023be54:     	orr.16b	v5, v6, v5
+10023be58:     	umaxv.16b	b6, v5
+10023be5c:     	fmov	w9, s6
+10023be60:     	tbnz	w9, #0x0, 0x10023bed8 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xf0>
+10023be64:     	orr.16b	v0, v4, v0
+10023be68:     	add	x10, x8, #0x10
+10023be6c:     	add	x9, x8, #0x20
+10023be70:     	mov	x8, x10
+10023be74:     	cmp	x2, x9
+10023be78:     	b.ge	0x10023be40 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x58>
+10023be7c:     	umaxv.16b	b0, v0
+10023be80:     	smov.b	w8, v0[0]
+10023be84:     	cmp	w8, #0x0
+10023be88:     	cset	w9, lt
+10023be8c:     	cmp	x10, x2
+10023be90:     	b.ge	0x10023bed0 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xe8>
+10023be94:     	mov	x8, x10
+10023be98:     	ldrb	w10, [x0, x8]
+10023be9c:     	cmp	w10, #0x22
+10023bea0:     	b.eq	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023bea4:     	cmp	w10, #0x5c
+10023bea8:     	b.eq	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023beac:     	cmp	w10, #0x20
+10023beb0:     	b.lo	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023beb4:     	sxtb	w10, w10
+10023beb8:     	cmp	w10, #0x0
+10023bebc:     	cset	w10, lt
+10023bec0:     	orr	w9, w9, w10
+10023bec4:     	add	x8, x8, #0x1
+10023bec8:     	cmp	x2, x8
+10023becc:     	b.ne	0x10023be98 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xb0>
+10023bed0:     	mov	x8, x2
+10023bed4:     	b	0x10023bf18 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+10023bed8:     	shrn.8b	v1, v5, #0x4
+10023bedc:     	fmov	x9, d1
+10023bee0:     	rbit	x9, x9
+10023bee4:     	clz	x9, x9
+10023bee8:     	lsr	x9, x9, #2
+10023beec:     	dup.16b	v1, w9
+10023bef0:     	adrp	x10, 0x1003c3000 <_$s23StreamParsingBenchmarks25BenchmarkGSoCOrganizationV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOSYAAMc+0x2c>
+10023bef4:     	ldr	q2, [x10, #0x560]
+10023bef8:     	cmhi.16b	v1, v1, v2
+10023befc:     	add	x8, x9, x8
+10023bf00:     	and.16b	v1, v1, v4
+10023bf04:     	orr.16b	v0, v1, v0
+10023bf08:     	umaxv.16b	b0, v0
+10023bf0c:     	smov.b	w9, v0[0]
+10023bf10:     	cmp	w9, #0x0
+10023bf14:     	cset	w9, lt
+10023bf18:     	and	w1, w9, #0x1
+10023bf1c:     	mov	x0, x8
+10023bf20:     	ret

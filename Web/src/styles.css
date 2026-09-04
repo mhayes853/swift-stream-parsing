@@ -1,0 +1,1413 @@
+/* Palette: the validated reference instance. Categorical slots 1-3 (blue/orange/aqua) carry the
+   three string-run terminator classes; they clear the all-pairs CVD and normal-vision floors in
+   both modes. Light-mode aqua sits at 2.74:1 against the surface, below the 3:1 gate, so the
+   relief rule applies and every lane that uses it also carries a visible label. Verdicts use the
+   fixed status palette and are always paired with a written word, never hue alone. */
+
+:root {
+  color-scheme: dark;
+
+  --surface-1: #1a1a19;
+  --plane: #0d0d0d;
+  --surface-2: #201f1e;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-7: #9085e9;
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+
+  --diverge-pos: #3987e5;
+  --diverge-neg: #e66767;
+  --diverge-mid: #383835;
+
+  /* Syntax colours. Ratios against --surface-2 (#201f1e): comment 4.58, keyword 6.89,
+     string 7.10, number 6.18, type 6.26, attribute 8.97, register 6.26, symbol 7.10. Nothing
+     here carries meaning on its own -- a keyword is still spelled out -- so the bar is text
+     contrast rather than the pairwise separation the chart lanes are held to. */
+  --hl-com: #898781;
+  --hl-kw: #a79ef0;
+  --hl-str: #3fbf90;
+  --hl-num: #e8845c;
+  --hl-type: #5fa3f0;
+  --hl-attr: #fab219;
+  --hl-addr: #898781;
+  --hl-mn: #a79ef0;
+  --hl-reg: #5fa3f0;
+  --hl-sym: #3fbf90;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --radius: 10px;
+  --panel-width: min(680px, 92vw);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;
+  --plane: #f9f9f7;
+  --surface-2: #f3f2ef;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-7: #4a3aa7;
+
+  --diverge-pos: #2a78d6;
+  --diverge-neg: #e34948;
+  --diverge-mid: #f0efec;
+
+  /* Ratios against light --surface-2 (#f3f2ef): comment 4.62, keyword 7.64, string 4.77,
+     number 4.74, type 5.32, attribute 4.95. The dark values do not carry over -- the aqua and
+     amber that clear 7:1 on the dark surface sit under 2:1 on this one. */
+  --hl-com: #6f6d67;
+  --hl-kw: #4a3aa7;
+  --hl-str: #0f7a55;
+  --hl-num: #b8471c;
+  --hl-type: #1c63b8;
+  --hl-attr: #8a6100;
+  --hl-addr: #6f6d67;
+  --hl-mn: #4a3aa7;
+  --hl-reg: #1c63b8;
+  --hl-sym: #0f7a55;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--series-1); }
+
+code, pre, .mono { font-family: var(--font-mono); }
+
+/* MARK: - Chrome */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: color-mix(in srgb, var(--plane) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin-right: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.topbar .brand small { color: var(--text-muted); font-weight: 400; font-size: 13px; }
+
+.tabs { display: flex; gap: 4px; }
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 12px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+button:hover { background: var(--surface-2); }
+button[aria-pressed="true"], button.active {
+  background: var(--surface-2);
+  border-color: var(--border);
+  font-weight: 600;
+}
+button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+.page { max-width: 1180px; margin: 0 auto; padding: 0 24px 120px; }
+
+/* MARK: - Hero */
+
+.hero { padding: 72px 0 40px; border-bottom: 1px solid var(--grid); }
+.hero h1 {
+  font-size: clamp(32px, 5vw, 54px);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin: 0 0 20px;
+  max-width: 20ch;
+}
+.hero p { font-size: 18px; color: var(--text-secondary); max-width: 68ch; margin: 0 0 16px; }
+
+.stat-row { display: flex; flex-wrap: wrap; gap: 40px; margin-top: 36px; }
+.stat .value { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.stat .label { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+/* MARK: - Walkthrough */
+
+.stage { padding: 56px 0 8px; }
+.stage-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+.stage-index {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--grid);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.stage h2 { font-size: 26px; letter-spacing: -0.02em; margin: 0; }
+.stage .blurb { color: var(--text-secondary); margin: 0 0 24px; max-width: 74ch; }
+
+.node-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+.node {
+  text-align: left;
+  width: 100%;
+  display: block;
+  background: var(--surface-1);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+.node:hover { border-color: var(--series-1); background: var(--surface-1); transform: translateY(-1px); }
+.node.wide { grid-column: 1 / -1; }
+.node.selected { border-color: var(--series-1); box-shadow: 0 0 0 1px var(--series-1); }
+
+.node-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.node-title { font-family: var(--font-mono); font-size: 15px; font-weight: 600; }
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--grid);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.node p { margin: 0 0 10px; color: var(--text-secondary); font-size: 14.5px; }
+.node .counts { display: flex; gap: 12px; font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+
+.viz-slot { margin-top: 16px; border-top: 1px solid var(--grid); padding-top: 16px; }
+
+/* MARK: - Verdict chips (status palette + written word; never hue alone) */
+
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--grid);
+  white-space: nowrap;
+}
+.verdict::before { content: ""; width: 7px; height: 7px; border-radius: 2px; }
+.verdict.landed { color: var(--good); }
+.verdict.landed::before { background: var(--good); }
+.verdict.rejected { color: var(--critical); }
+.verdict.rejected::before { background: var(--critical); }
+.verdict.mixed { color: var(--warning); }
+.verdict.mixed::before { background: var(--warning); }
+.verdict.neutral { color: var(--text-muted); }
+.verdict.neutral::before { background: var(--text-muted); }
+
+/* MARK: - Detail panel */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+  animation: fade 140ms ease;
+}
+@keyframes fade { from { opacity: 0; } }
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  width: var(--panel-width);
+  background: var(--surface-1);
+  border-left: 1px solid var(--grid);
+  display: flex;
+  flex-direction: column;
+  animation: slide 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@keyframes slide { from { transform: translateX(24px); opacity: 0; } }
+
+.panel-head { padding: 20px 24px 0; border-bottom: 1px solid var(--grid); }
+.panel-head h2 { font-family: var(--font-mono); font-size: 19px; margin: 0 0 4px; }
+.panel-head .sub { color: var(--text-muted); font-size: 13px; margin-bottom: 14px; }
+.panel-tabs { display: flex; gap: 2px; }
+.panel-tabs button {
+  border-radius: 8px 8px 0 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.panel-tabs button[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--series-1);
+  font-weight: 600;
+}
+.panel-tabs .count { color: var(--text-muted); font-size: 12px; margin-left: 5px; }
+.panel-body { overflow-y: auto; padding: 22px 24px 60px; flex: 1; }
+.panel .close { position: absolute; top: 14px; right: 18px; font-size: 20px; line-height: 1; padding: 4px 9px; }
+
+/* MARK: - Markdown */
+
+.md { font-size: 15px; }
+.md p { margin: 0 0 14px; color: var(--text-secondary); }
+.md strong { color: var(--text-primary); font-weight: 620; }
+.md ul { margin: 0 0 14px; padding-left: 20px; color: var(--text-secondary); }
+.md li { margin-bottom: 6px; }
+.md blockquote {
+  margin: 0 0 14px;
+  padding-left: 14px;
+  border-left: 2px solid var(--axis);
+  color: var(--text-muted);
+}
+.md code {
+  background: var(--surface-2);
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 0.5px 4px;
+  font-size: 0.88em;
+  color: var(--text-primary);
+}
+pre {
+  background: var(--surface-2);
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  padding: 13px 15px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+pre code { background: none; border: none; padding: 0; font-size: inherit; }
+
+/* MARK: - Syntax highlighting */
+
+.hl .t-com { color: var(--hl-com); font-style: italic; }
+.hl .t-kw { color: var(--hl-kw); }
+.hl .t-str { color: var(--hl-str); }
+.hl .t-num { color: var(--hl-num); }
+.hl .t-type { color: var(--hl-type); }
+.hl .t-attr { color: var(--hl-attr); }
+/* An address is scaffolding, so it takes the muted hue -- but not opacity on top of it: matching a
+   branch's `<symbol+0x90>` to the address it lands on is a thing a reader does, and 0.75 alpha put
+   it at 2.9:1 in light mode. */
+.hl-asm .t-addr { color: var(--hl-addr); }
+.hl-asm .t-mn { color: var(--hl-mn); font-weight: 600; }
+.hl-asm .t-reg { color: var(--hl-reg); }
+.hl-asm .t-sym { color: var(--hl-sym); }
+
+/* MARK: - Tables */
+
+table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 13.5px; }
+th, td {
+  text-align: left;
+  padding: 7px 12px 7px 0;
+  border-bottom: 1px solid var(--grid);
+  vertical-align: baseline;
+}
+th { color: var(--text-muted); font-weight: 500; font-size: 12px; letter-spacing: 0.02em; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+td.strong, th.strong { color: var(--text-primary); font-weight: 650; }
+
+/* Diverging delta cue: sign carries polarity, the arrow carries it again for CVD. */
+.delta { font-variant-numeric: tabular-nums; font-family: var(--font-mono); white-space: nowrap; }
+.delta.pos { color: var(--diverge-pos); }
+.delta.neg { color: var(--diverge-neg); }
+.delta.zero { color: var(--text-muted); }
+
+.bar-cell { width: 120px; padding-right: 0; }
+.bar-track { position: relative; height: 9px; background: var(--diverge-mid); border-radius: 2px; }
+.bar-fill { position: absolute; top: 0; height: 9px; border-radius: 2px; }
+.bar-zero { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--axis); }
+
+/* MARK: - Byte lanes */
+
+.lanes { display: flex; gap: 2px; flex-wrap: wrap; margin: 10px 0; }
+.lane {
+  width: 30px;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  background: var(--surface-2);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 0 2px;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.lane .glyph { display: block; height: 15px; color: var(--text-primary); }
+.lane .idx { display: block; font-size: 9px; color: var(--text-muted); }
+.lane.dim { opacity: 0.32; }
+.lane.q { background: color-mix(in srgb, var(--series-1) 26%, var(--surface-2)); border-color: var(--series-1); }
+.lane.b { background: color-mix(in srgb, var(--series-2) 26%, var(--surface-2)); border-color: var(--series-2); }
+.lane.c { background: color-mix(in srgb, var(--series-3) 26%, var(--surface-2)); border-color: var(--series-3); }
+.lane.ws { background: color-mix(in srgb, var(--series-7) 26%, var(--surface-2)); border-color: var(--series-7); }
+.lane.terminator { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--text-primary); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--text-secondary); margin: 12px 0; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.viz { background: var(--surface-2); border: 1px solid var(--grid); border-radius: 8px; padding: 16px; }
+.viz-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.viz-controls .spacer { flex: 1; }
+.viz-caption { font-size: 13px; color: var(--text-secondary); margin: 10px 0 0; min-height: 42px; }
+.viz-note { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+
+input[type="range"] { accent-color: var(--series-1); }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px solid var(--grid);
+  border-radius: 999px;
+  background: var(--surface-1);
+}
+.chip.active { border-color: var(--series-1); color: var(--text-primary); font-weight: 600; }
+
+/* MARK: - Evidence lists */
+
+.evidence-item {
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+}
+.evidence-item > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14.5px;
+}
+.evidence-item > summary::-webkit-details-marker { display: none; }
+.evidence-item > summary::before { content: "▸"; color: var(--text-muted); font-size: 11px; }
+.evidence-item[open] > summary::before { content: "▾"; }
+.evidence-item .where { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
+.evidence-item .summary-line { font-size: 13.5px; color: var(--text-secondary); margin: 8px 0 0 21px; }
+.evidence-body { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--grid); }
+
+.empty { color: var(--text-muted); font-size: 14px; padding: 24px 0; }
+
+/* MARK: - Dates */
+
+.dated {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.dated-sep { opacity: 0.5; }
+.dated-revised { color: var(--text-muted); }
+.provenance {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 14px 0 10px;
+}
+.provenance .dated { white-space: normal; display: inline; font-size: 12.5px; font-family: inherit; }
+.provenance code { font-size: 11.5px; }
+/* The day a run of experiments happened on. A rule rather than a card: it is a separator in a
+   list, not another thing in it. */
+.day-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 26px 0 12px;
+}
+.day-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--grid);
+}
+.filters button.sort { border-color: var(--grid); font-size: 13.5px; color: var(--text-secondary); }
+
+@media (max-width: 720px) {
+  /* The clock is the first thing to go: on a narrow summary row the title needs the width. */
+  .evidence-item > summary .dated { display: none; }
+}
+
+/* MARK: - Graveyard & payloads */
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 24px; }
+.section-lead { color: var(--text-secondary); max-width: 74ch; margin: 0 0 20px; }
+.payload-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.callout {
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--series-1);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 14px 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+}
+.callout.warn { border-left-color: var(--warning); }
+
+@media (max-width: 720px) {
+  .page { padding: 0 16px 80px; }
+  .panel { width: 100vw; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  html { scroll-behavior: auto; }
+}
+
+/* MARK: - Flow chart */
+
+.intro { padding: 40px 0 22px; }
+.intro h1 {
+  font-size: clamp(26px, 3.4vw, 36px);
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  margin: 0 0 14px;
+}
+.intro p { color: var(--text-secondary); max-width: 76ch; margin: 0 0 18px; }
+
+.flow-legend { margin: 18px 0 0; gap: 20px; }
+.flow-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.flow-key.viz { color: var(--series-1); }
+.flow-key.landed { color: var(--good); }
+.flow-key.rejected { color: var(--critical); }
+
+/* Horizontal scroll rather than reflow: the layout encodes the graph, so squeezing it would
+   change what it says. */
+.flow-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 8px -24px 0;
+  padding: 0 24px 8px;
+}
+.flow { display: block; }
+.flow-stage { position: relative; }
+
+/* Halo behind the glyphs rather than a rect behind the run: an edge label sits on top of whatever
+   lines cross it without anything having to measure the text. */
+.flow-edge-label text {
+  font-size: 10.5px;
+  fill: var(--text-secondary);
+  pointer-events: none;
+}
+.flow-edge-label text.halo {
+  stroke: var(--plane);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  fill: var(--plane);
+}
+.flow-edge-label.lit text { fill: var(--text-primary); font-weight: 600; }
+.flow-edge-label .ord { fill: var(--series-1); font-weight: 700; font-family: var(--font-mono); }
+.flow-edge-label.lit .ord { fill: var(--series-1); }
+
+/* The call card: what the node does with the arrows leaving it. */
+/* Sized to the reserved rail (RAIL_W - RAIL_GAP - margin in FlowChart.tsx). It is not interactive:
+   it follows the cursor between nodes, so catching pointer events would make it fight the node
+   underneath. */
+.flow-card {
+  position: absolute;
+  padding: 13px 15px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+  z-index: 3;
+}
+.flow-card h4 {
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.flow-card-invokes {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.flow-card-rule {
+  margin: 0 0 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--grid);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.flow-card-edges { list-style: none; margin: 0; padding: 0; }
+.flow-card-edges li {
+  display: flex;
+  gap: 9px;
+  padding: 7px 0;
+  border-top: 1px solid var(--grid);
+}
+.flow-card-edges li:first-child { border-top: none; padding-top: 0; }
+.flow-card-edges li > div { flex: 1; min-width: 0; }
+.flow-card-edges p {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.flow-card-marker {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--grid);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.flow-card-marker.kind-branch { border-color: var(--series-2); color: var(--series-2); }
+.flow-card-marker.kind-return { border-color: var(--series-7); color: var(--series-7); }
+.flow-card-head { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.flow-card-label { font-weight: 600; color: var(--text-primary); }
+.flow-card-arrow { color: var(--text-muted); }
+.flow-card-target { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); }
+/* The kind is written next to the arrow, never carried by colour alone. */
+.flow-card-kind {
+  margin-right: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.flow-card-kind.kind-branch { color: var(--series-2); }
+.flow-card-kind.kind-return { color: var(--series-7); }
+
+.flow-lane-index {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.flow-lane-title {
+  fill: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.flow-node { cursor: pointer; }
+.flow-node:focus { outline: none; }
+.flow-node:focus-visible rect { stroke: var(--series-1); stroke-width: 2; }
+.flow-node rect { transition: stroke 120ms ease, fill 120ms ease; }
+.flow-node:hover rect { stroke: var(--series-1); }
+
+.flow-node-title { fill: var(--text-primary); font-size: 13px; font-weight: 600; }
+.flow-node-kicker {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.flow-node-viz { fill: var(--series-1); font-size: 11px; text-anchor: end; }
+.flow-node-counts { font-family: var(--font-mono); font-size: 10.5px; text-anchor: end; }
+.flow-node-counts .landed { fill: var(--good); }
+.flow-node-counts .rejected { fill: var(--critical); }
+
+/* Inline code inside the card, sized to sit in 11.5px prose rather than the 15px the panel uses. */
+.flow-card code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+/* MARK: - SIMD register rendering
+   A vector operation is sixteen lanes wide and the visuals say so literally: one row per register,
+   lanes aligned in columns so a value only ever moves straight down. Sized so sixteen lanes plus
+   the operation gutter fit the detail panel without scrolling. */
+
+.vec-stack {
+  margin: 12px 0;
+  padding: 12px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.vec-row { display: flex; align-items: center; gap: 8px; }
+.vec-gutter {
+  flex: none;
+  width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+.vec-op {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.vec-note { font-size: 9.5px; color: var(--text-muted); line-height: 1.3; }
+
+.vec-lanes { display: flex; gap: 2px; }
+.vec-lane {
+  /* 16 lanes + gaps + the 82px gutter has to fit the detail panel's ~580px of stack width. */
+  width: 28px;
+  padding: 3px 0 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  line-height: 1.15;
+}
+.vec-lane .v { font-size: 10.5px; color: var(--text-secondary); }
+.vec-lane .s { font-size: 8.5px; color: var(--text-muted); }
+.vec-lane.on { background: color-mix(in srgb, var(--series-1) 26%, var(--surface-1)); border-color: var(--series-1); }
+.vec-lane.on .v { color: var(--text-primary); font-weight: 600; }
+.vec-lane.dim { opacity: 0.34; }
+/* The lane the operation resolves to: a ring, never colour alone. */
+.vec-lane.marked { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+/* A mask holds only 0xFF or 0x00, so its zeros recede and its ones read as a bar. */
+.vec-lanes.mask .vec-lane:not(.on) .v { color: var(--text-muted); opacity: 0.5; }
+
+.vec-op-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.vec-op-mark { display: flex; align-items: baseline; gap: 8px; }
+.vec-op-mark .sym {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--series-2);
+  min-width: 22px;
+}
+.vec-op-mark .lbl { font-size: 10.5px; color: var(--text-muted); }
+
+/* MARK: - Lookup tables */
+
+.bits { display: inline-flex; gap: 1px; vertical-align: middle; }
+.bits i {
+  width: 5px;
+  height: 9px;
+  border-radius: 1px;
+  background: var(--grid);
+  border: 1px solid var(--grid);
+}
+.bits i.on { background: var(--series-3); border-color: var(--series-3); }
+
+.table-strip {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.table-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+.table-head strong { font-size: 12.5px; }
+.table-head code { font-size: 11px; color: var(--text-muted); }
+.table-cells { display: flex; gap: 2px; }
+.table-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 0 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.table-cell .i { font-family: var(--font-mono); font-size: 8.5px; color: var(--text-muted); }
+.table-cell .e { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-primary); }
+/* An entry of zero is the sentinel, and reads as absence rather than as a value. */
+.table-cell.empty .e { color: var(--text-muted); opacity: 0.45; }
+.table-cell.active {
+  border-color: var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 20%, var(--surface-2));
+}
+.table-note { margin: 8px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--text-muted); }
+
+.replaces { display: flex; align-items: center; gap: 9px; margin: 10px 0; flex-wrap: wrap; }
+.replaces .tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.replaces code {
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--critical);
+}
+
+/* MARK: - Movemask */
+
+.movemask { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+@media (max-width: 620px) { .movemask { grid-template-columns: 1fr; } }
+.mm-branch {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.mm-branch h5 { margin: 0 0 6px; font-size: 11.5px; color: var(--text-primary); }
+.mm-branch p { margin: 0 0 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.mm-branch dl { margin: 0; display: grid; gap: 4px; }
+.mm-branch dl > div { display: flex; gap: 8px; align-items: baseline; }
+.mm-branch dt { font-size: 10.5px; color: var(--text-muted); min-width: 66px; }
+.mm-branch dd { margin: 0; font-size: 11px; }
+.mm-branch code { font-size: 10.5px; word-break: break-all; }
+
+.mm-arith {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 11.5px;
+}
+.mm-arith code { font-size: 11px; }
+
+/* MARK: - The whitespace bitmap: a lookup with no table */
+
+.bitmap {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.bitmap-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.bitmap-head strong { font-size: 12.5px; font-family: var(--font-mono); }
+.bitmap-head code { font-size: 11px; color: var(--text-muted); }
+.bitmap-bits { display: flex; gap: 1px; }
+.bitmap-bits i {
+  flex: 1;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--grid);
+}
+.bitmap-bits i.on { background: var(--series-7); }
+.bitmap-bits i.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+/* MARK: - Escape table */
+
+.escape-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+.escape-table th {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--grid);
+  font-weight: 500;
+}
+.escape-table td { padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+.escape-table td.mono, .escape-table .mono { font-family: var(--font-mono); }
+.escape-table tr.miss td { color: var(--text-muted); }
+.escape-table .sentinel { color: var(--text-muted); opacity: 0.55; }
+.escape-table .meaning { color: var(--text-muted); font-size: 11.5px; }
+
+/* MARK: - The input tape
+   Every kernel reads bytes out of the caller's buffer, and each step of an animation touches a
+   specific part of it. The tape is the input in its own coordinates: the whole sample once, with
+   the current vector load, the resolved lane and the consumed prefix marked. A rule every sixteen
+   bytes makes the block boundary visible without counting. */
+
+.tape {
+  margin: 10px 0 12px;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.tape-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.tape-head span:first-child { font-family: var(--font-mono); color: var(--text-secondary); }
+.tape-count { font-variant-numeric: tabular-nums; }
+.tape-bytes { display: flex; flex-wrap: wrap; gap: 1px; }
+.tape-byte {
+  width: 13px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+/* The 16-byte boundary a vector load falls on. */
+.tape-byte.tick { box-shadow: inset 1px 0 0 var(--axis); }
+/* Behind the cursor: read and finished with. */
+.tape-byte.done { color: var(--text-muted); opacity: 0.4; }
+/* The bytes this step's load or call covers. */
+.tape-byte.window {
+  background: color-mix(in srgb, var(--series-1) 18%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--series-1) 45%, transparent);
+  color: var(--text-secondary);
+}
+/* The byte the step resolves to — the terminator lane, the hovered lane, the token. */
+.tape-byte.cursor {
+  background: var(--series-1);
+  border-color: var(--series-1);
+  color: var(--surface-0);
+  font-weight: 700;
+}
+/* Where the parser will resume. */
+.tape-byte.next {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+.tape-caption { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+
+/* MARK: - The step timeline
+   A stack of registers is stepped through, so a row is not-yet-computed, computed-by-this-step or
+   already-computed. A future row keeps its box and shows nothing, which is what stops the stack
+   reflowing as the animation runs; the row a step produces is the only thing that moves. */
+
+.vec-row.future .vec-gutter { opacity: 0.3; }
+.vec-row.now .vec-op { color: var(--series-1); }
+.vec-lane.ghost {
+  background: var(--surface-2);
+  border-style: dashed;
+  border-color: var(--axis);
+}
+.vec-lane.ghost .v { color: var(--axis); }
+/* Lanes of the row this step produced, dealt left to right so the sixteen-wide operation reads as
+   one action rather than sixteen. */
+.vec-row.now .vec-lane {
+  animation: lane-in 260ms ease-out backwards;
+  animation-delay: var(--lane-delay, 0ms);
+}
+/* A lane whose value differs from the previous step, for rows that are updated rather than
+   produced: the accumulator, the SWAR word as the mask and the bias run over it. */
+.vec-lane.chg { animation: lane-chg 620ms ease-out; }
+.vec-op-row.future { opacity: 0.28; }
+.vec-op-row.now .sym { color: var(--series-1); transform: scale(1.14); }
+.vec-op-row .sym { transition: transform 160ms ease, color 160ms ease; display: inline-block; }
+
+@keyframes lane-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lane-chg {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--series-2) 80%, transparent); }
+  30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-2) 55%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* The entries a whole block reads at once — sixteen simultaneous lookups, spread across the
+   table, which is the reason indexing beats comparing. */
+.table-cell.touched { border-color: var(--series-3); background: color-mix(in srgb, var(--series-3) 14%, var(--surface-2)); }
+.table-strip.dim { opacity: 0.42; }
+.table-strip { transition: opacity 180ms ease; }
+
+/* What the step just did, under the controls, so "what changed" is readable and not only visible. */
+.step-note {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 4px 0 2px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  min-height: 34px;
+}
+.step-note code {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding: 2px 7px;
+  border: 1px solid var(--series-1);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--series-1) 14%, var(--surface-1));
+}
+
+/* Motion is the carrier of meaning here, so it degrades to an instant state change rather than
+   being removed: the phases still differ, they simply stop animating between them. */
+@media (prefers-reduced-motion: reduce) {
+  .vec-row.now .vec-lane,
+  .vec-lane.chg { animation: none; }
+  .tape-byte { transition: none; }
+  .vec-op-row .sym { transition: none; }
+}
+
+/* A branch of the movemask that the timeline has not reached, or is on right now. */
+.mm-branch.future, .mm-arith.future { opacity: 0.34; }
+.mm-branch.now { border-color: var(--series-1); }
+.mm-branch, .mm-arith { transition: opacity 180ms ease, border-color 180ms ease; }
+.mm-branch dl > div.pending dt, .pending-value { color: var(--axis); }
+.mm-branch dl > div.lit dd strong { color: var(--series-1); }
+
+/* The nesting register's bits reuse the generic lane, so the change pulse has to reach them too. */
+.lane.chg { animation: lane-chg 620ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .lane.chg { animation: none; } }
+
+/* MARK: - The simple-escape map
+   All 128 entries, four rows of thirty-two. Eight of them are non-zero and that is the whole
+   table, which is only convincing if the other 120 are on screen next to them. */
+
+.escape-map-wrap {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.escape-map { display: grid; grid-template-columns: repeat(32, 1fr); gap: 2px; }
+.escape-map.dim { opacity: 0.45; }
+.escape-map { transition: opacity 180ms ease; }
+.escape-map .emap {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+.escape-map .emap.on {
+  background: color-mix(in srgb, var(--series-3) 30%, var(--surface-1));
+  border-color: var(--series-3);
+  color: var(--text-primary);
+}
+.escape-map .emap.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.escape-result {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--grid);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.escape-result.pending { color: var(--axis); }
+.escape-result.good { border-color: var(--good); }
+.escape-result.bad { border-color: var(--critical); }
+
+.escape-table tr { cursor: pointer; }
+.escape-table tr.here td { background: color-mix(in srgb, var(--series-1) 12%, transparent); }
+
+/* MARK: - The algorithm chart
+ *
+ * The same drawing language as the page's flow chart, one scale down and inside a 680px panel.
+ * It reuses `.flow-edge-label` and `.flow-card-*` deliberately: the two charts are the same claim
+ * at two scales, and giving them two visual dialects would make that harder to see, not easier. */
+
+.algo {
+  margin: 0 0 22px;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  background: var(--plane);
+  overflow: hidden;
+}
+.algo-head { padding: 13px 15px 0; }
+.algo-head h3 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.algo-head p { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+
+/* Horizontal scroll rather than reflow, same as the page chart: the layout encodes the graph, and
+   a five-armed ladder is the normal shape here rather than the exception. */
+.algo-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 13px 4px;
+}
+.algo-svg { display: block; }
+
+.algo-node { cursor: pointer; }
+.algo-node:focus { outline: none; }
+.algo-node:focus-visible rect:first-of-type {
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+.algo-node rect { transition: stroke 120ms ease; }
+.algo-node-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--text-primary);
+}
+.algo-node-kicker {
+  font-size: 9.5px;
+  fill: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.algo-edge-label text { font-size: 9.5px; }
+
+/* The card under the chart, not beside it: the panel has no rail to put one in. */
+.algo-card {
+  border-top: 1px solid var(--grid);
+  background: var(--surface-1);
+  padding: 12px 15px 14px;
+}
+.algo-card-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+.algo-card-head h4 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.algo-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-muted);
+}
+.algo-tag.entry { color: var(--series-1); border-color: var(--series-1); }
+.algo-tag.exit { color: var(--text-secondary); }
+.algo-card-detail {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.algo-card-source {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.algo-card-source code { font-size: 11.5px; color: var(--text-primary); }
+.algo-card .flow-card-rule { margin-top: 0; }
+.algo-card .flow-card-edges p { font-size: 11.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .algo-node rect { transition: none; }
+}
+
+/* MARK: - The sink boundary onwards
+ *
+ * From `sink-protocol` on, the subject stops being a register and becomes a call log, a frame
+ * stack, storage growing a block at a time. The three phases carry over unchanged — a future row
+ * keeps its box and shows nothing, so nothing reflows while the animation runs — because the
+ * reading problem is the same one the vector rows solve. */
+
+.facts { margin: 12px 0 0; display: grid; gap: 5px; }
+.facts > div { display: flex; gap: 10px; align-items: baseline; }
+.facts dt { font-size: 10.5px; color: var(--text-muted); min-width: 108px; flex: none; }
+.facts dd { margin: 0; font-size: 12px; color: var(--text-secondary); }
+.facts dd code { font-size: 11px; }
+
+/* The call log. */
+
+.call-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+}
+.call {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--axis);
+  border-radius: 4px;
+  background: var(--surface-1);
+  font-size: 11.5px;
+  min-height: 22px;
+  cursor: pointer;
+  transition: opacity 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.call.future { opacity: 0.3; }
+.call.now { border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, var(--surface-1)); }
+.call.past { opacity: 0.72; }
+.call.group-structure { border-left-color: var(--series-2); }
+.call.group-key { border-left-color: var(--series-7); }
+.call.group-whole { border-left-color: var(--series-1); }
+.call.group-chunked { border-left-color: var(--series-3); }
+/* A call the skipping run never received: kept in place so the two columns stay aligned, drawn
+   as an absence rather than removed, because "it did not happen" is the thing being shown. */
+.call.elided { opacity: 0.16; border-left-color: var(--axis); text-decoration: line-through; }
+.call.elided.now { background: var(--surface-1); border-color: transparent; }
+.call-method { font-size: 11.5px; color: var(--text-primary); }
+.call-arg { color: var(--series-1); font-family: var(--font-mono); font-size: 11px; }
+.call-span { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; }
+.call-depth { margin-left: auto; color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.call-log.compact { max-height: 220px; overflow-y: auto; margin-top: 14px; }
+
+.sink-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin: 14px 0 0; }
+.sink-detail { align-self: start; }
+.sink-signature {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--grid);
+  border-radius: 5px;
+  padding: 7px 9px;
+  word-break: break-all;
+}
+
+.disposition-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin: 14px 0 0; }
+.disposition-grid h5 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.disposition-grid h5 span { margin-left: auto; color: var(--text-muted); font-weight: 400; font-size: 11px; }
+
+/* The skip scanner's two registers. */
+
+.skip-regs { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 16px; align-items: start; margin: 14px 0 0; }
+.skip-reg-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+.skip-target {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 9px 11px;
+  background: var(--surface-1);
+}
+.skip-target strong { display: block; font-size: 22px; line-height: 1.1; margin: 2px 0 4px; }
+.skip-target p { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+
+/* The open-addressed slot table, drawn as buckets rather than as a list, because the empties are
+   half of what it is. */
+
+.slot-table { margin: 14px 0 0; border: 1px solid var(--grid); border-radius: 7px; padding: 10px 12px; background: var(--surface-1); }
+.slot-cells { display: flex; flex-wrap: wrap; gap: 2px; }
+.slot {
+  width: 20px;
+  height: 18px;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.slot.full { background: color-mix(in srgb, var(--series-1) 20%, var(--surface-2)); border-color: var(--series-1); color: var(--text-primary); }
+.slot.walked { border-color: var(--series-3); }
+.slot.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.entry-table { width: 100%; border-collapse: collapse; margin: 14px 0 0; font-size: 11.5px; }
+.entry-table th {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--grid);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 10.5px;
+}
+.entry-table td { padding: 4px 8px; border-bottom: 1px solid var(--grid); color: var(--text-secondary); }
+.entry-table td.mono, .entry-table .mono { font-family: var(--font-mono); }
+.entry-table tr { transition: background 160ms ease, opacity 160ms ease; }
+.entry-table tr.here td { background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--text-primary); }
+.entry-table tr.walked td { background: color-mix(in srgb, var(--series-3) 8%, transparent); }
+.entry-table tr.untouched { opacity: 0.42; }
+
+/* The frame stack and the storage it points into. */
+
+.frames-split { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; margin: 14px 0 0; align-items: start; }
+.frame-stack { display: grid; gap: 4px; align-content: start; }
+.frame-stack-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+.frame-stack-label em { color: var(--series-1); font-style: normal; }
+.frame {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--surface-1);
+  display: grid;
+  gap: 2px;
+}
+.frame.top { border-color: var(--series-1); }
+.frame code { font-size: 11.5px; color: var(--text-primary); }
+.frame-storage, .frame-pending { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); }
+.frame-pending.set { color: var(--series-1); }
+.frame.empty { color: var(--text-muted); font-size: 11.5px; border-style: dashed; }
+.frame.chg { animation: lane-chg 620ms ease-out; }
+
+.storage { border: 1px solid var(--grid); border-radius: 7px; padding: 10px 12px; background: var(--surface-1); }
+.storage-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: 11.5px; }
+.storage-head code { color: var(--text-primary); }
+.storage-head span { margin-left: auto; color: var(--text-muted); font-size: 10.5px; }
+/* Members are laid out proportionally to their byte size, so the 88-byte string and the 1-byte
+   bool are not the same box. That is the point of drawing storage at all. */
+.storage-row { display: flex; gap: 3px; align-items: stretch; }
+.storage-cell {
+  flex-basis: 0;
+  min-width: 44px;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 5px 6px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 1px;
+  align-content: start;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.storage-cell.framed { border-color: var(--series-2); }
+.storage-cell.writing { border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 16%, var(--surface-2)); }
+.storage-name { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
+.storage-meta { font-size: 9.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.storage-nest { display: flex; gap: 3px; margin-top: 4px; }
+.storage-nest span {
+  flex: 1;
+  border: 1px dashed var(--grid);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+.storage-nest span.writing { border-style: solid; border-color: var(--series-1); color: var(--text-primary); }
+
+.schema-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 14px 0 0; }
+.schema-card {
+  border: 1px solid var(--grid);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  transition: border-color 160ms ease, opacity 160ms ease;
+  opacity: 0.55;
+}
+.schema-card.live { border-color: var(--series-1); opacity: 1; }
+.schema-card > code { font-size: 12px; color: var(--text-primary); }
+.schema-card .facts { margin-top: 8px; }
+.schema-card .facts dt { min-width: 78px; }
+
+/* Blocked storage: a bar per allocation, drawn to scale so a doubling schedule looks like one. */
+
+.blocks { display: flex; gap: 5px; align-items: stretch; margin: 14px 0 0; }
+.block { flex-basis: 0; min-width: 46px; display: grid; gap: 3px; align-content: start; }
+.block-track { height: 26px; border: 1px solid var(--grid); border-radius: 4px; background: var(--surface-1); overflow: hidden; }
+.block-fill { height: 100%; background: var(--series-2); transition: width 220ms ease; }
+.block-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); }
+.block-meta { font-size: 9.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.block.spent { opacity: 0.34; }
+.block.pending { flex: none; width: 62px; }
+.block.chg .block-track { animation: lane-chg 620ms ease-out; }
+
+.locate { margin: 16px 0 0; border-top: 1px solid var(--grid); padding-top: 12px; }
+
+.dict-entries { display: flex; flex-wrap: wrap; gap: 4px; margin: 14px 0 0; }
+.dict-entry {
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  display: inline-flex;
+  gap: 6px;
+}
+.dict-entry em { font-style: normal; color: var(--text-muted); }
+.dict-entry.cur { border-color: var(--series-1); color: var(--text-primary); }
+
+@media (max-width: 720px) {
+  .sink-split, .disposition-grid, .frames-split, .skip-regs { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Reduced motion: the phases still differ, they simply stop animating between them. */
+@media (prefers-reduced-motion: reduce) {
+  .call, .slot, .entry-table tr, .schema-card, .storage-cell, .block-fill { transition: none; }
+  .frame.chg, .block.chg .block-track { animation: none; }
+}
