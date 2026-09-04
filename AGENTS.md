@@ -72,6 +72,21 @@ toolchain and evidence changes show up in diffs. The extractor **fails on a dang
 a doc slug that no longer resolves, or a symbol that was renamed or deleted — so renaming a kernel
 without updating `pipeline.json` breaks the build rather than silently rotting the site.
 
+**Dates are recovered, not written.** Every section carries the date and time it was recorded and
+the date it was last rewritten, and `HistoryExtractor` gets them by walking every revision of
+`NEW_ARCHITECTURE.md` and re-running the same heading walk the rest of the extractor uses. Nothing
+in the doc needs a date line, and adding one would only create a second thing to keep true. A
+retitled heading is a new path and dates from the retitle, which is why the site says "recorded"
+rather than "measured"; a revision that only moved a section down the file changes no body and does
+not count as one. The times are rendered in the offset they were written at rather than the
+reader's, because a log records when somebody was working.
+
+Code blocks are highlighted by `Web/src/components/highlight.tsx` — hand-written for Swift, the
+shim's C and disassembly, for the same reason the markdown renderer is hand-written. A fence with no
+language draws plain rather than being guessed at; several unlabelled ones in the doc are compiler
+errors and throughput tables. Syntax colour carries nothing the text does not, so the bar it is held
+to is 4.5:1 text contrast in both themes rather than the pairwise separation the chart lanes need.
+
 Traces are recorded by running the *shipped* kernels (`Sources/StreamParsingSiteTool/Trace`), not by
 reimplementing them, so the animations cannot drift from the parser. A kernel whose signature
 changes needs its recorder updated alongside it.

@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { Code, languageOf } from "./highlight";
 
 // A deliberately small block renderer for the subset NEW_ARCHITECTURE.md actually uses:
 // paragraphs, fenced code, tables, bullet lists, block quotes and inline emphasis. Pulling in a
@@ -166,9 +167,9 @@ export function Markdown({ children }: { children: string }) {
         switch (block.kind) {
           case "code":
             return (
-              <pre key={i}>
-                <code>{block.lines.join("\n")}</code>
-              </pre>
+              <Code key={i} language={languageOf(block.language)}>
+                {block.lines.join("\n")}
+              </Code>
             );
           case "table":
             return <MarkdownTable key={i} rows={block.lines} />;

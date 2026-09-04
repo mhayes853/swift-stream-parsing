@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import pipelineData from "../content/pipeline.json";
+import { span } from "./components/dates";
 import { DetailPanel } from "./components/DetailPanel";
 import { FlowChart } from "./components/FlowChart";
 import { Graveyard } from "./components/Graveyard";
@@ -86,6 +87,12 @@ export function App() {
                 <Stat value={String(verdictTotal(content))} label="experiments with a verdict" />
                 <Stat value={content ? String(content.stats.tableCount) : "—"} label="measurement tables" />
                 <Stat value={content ? String(content.stats.declCount) : "—"} label="declarations indexed" />
+                <Stat
+                  value={
+                    content ? span(content.stats.firstRecorded, content.stats.lastRecorded) || "—" : "—"
+                  }
+                  label="the log's span"
+                />
               </div>
               <FlowLegend />
             </section>
@@ -103,7 +110,8 @@ export function App() {
               {content ? ` on ${content.generatedAt.slice(0, 10)}` : ""}. The prose per step is in{" "}
               <code>Web/content/pipeline.json</code>; everything under it resolves out of the
               repository. Animations replay traces recorded from the shipped kernels
-              {traces ? ` on ${traces.arch}` : ""}.
+              {traces ? ` on ${traces.arch}` : ""}. Every section is dated by the commit that wrote
+              it, recovered from the log's git history rather than written into it.
             </p>
           </>
         )}

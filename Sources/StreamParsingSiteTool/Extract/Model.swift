@@ -17,6 +17,10 @@ struct ContentBundle: Encodable {
     var declCount: Int
     var fileCount: Int
     var verdictCounts: [String: Int]
+    /// Sections carrying a date, and the span the log covers. `nil` outside a git checkout.
+    var datedSections: Int
+    var firstRecorded: String?
+    var lastRecorded: String?
   }
 }
 
@@ -57,6 +61,22 @@ struct DocSection: Encodable {
   var tables: [DocTable]
   var codeBlocks: [DocCodeBlock]
   var measurements: [Measurement]
+  /// When this section was written and last rewritten, recovered from the document's git history
+  /// by `HistoryExtractor`. `nil` only when the generator ran outside a git checkout.
+  var history: DocHistory?
+}
+
+/// A section's dates. Author dates, kept as ISO 8601 with the offset they were written at, so the
+/// site can show the local time somebody was actually working rather than a reader's midnight.
+struct DocHistory: Encodable {
+  var recorded: String
+  var recordedCommit: String
+  var recordedSubject: String
+  var revised: String
+  var revisedCommit: String
+  var revisedSubject: String
+  /// Commits that changed this section's body, the one that introduced it included.
+  var revisions: Int
 }
 
 struct DocTable: Encodable {

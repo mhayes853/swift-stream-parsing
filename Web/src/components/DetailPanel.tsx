@@ -3,6 +3,8 @@ import { loadAssembly, loadSources } from "../data";
 import type { DocSection, PipelineNode, SourceDecl, TraceBundle } from "../types";
 import { Visualization } from "../viz";
 import { AlgorithmChart } from "./AlgorithmChart";
+import { Recorded, RecordedDetail, instant, span } from "./dates";
+import { Code } from "./highlight";
 import { Markdown, VerdictChip } from "./Markdown";
 
 type Tab = "explanation" | "experiments" | "source" | "assembly";
@@ -143,13 +145,21 @@ function Experiments({ sections }: { sections: DocSection[] }) {
   if (sections.length === 0) {
     return <p className="empty">No experiment with a recorded verdict is attached to this step.</p>;
   }
-  // Rejections first: they are the ones that stop a decision being re-litigated.
+  // Rejections first: they are the ones that stop a decision being re-litigated. Within a verdict,
+  // oldest first, so a step's experiments read in the order they were actually tried.
   const order = { rejected: 0, mixed: 1, landed: 2, neutral: 3 } as const;
-  const sorted = [...sections].sort((a, b) => order[a.verdict] - order[b.verdict]);
+  const sorted = [...sections].sort(
+    (a, b) =>
+      order[a.verdict] - order[b.verdict] ||
+      instant(a.history?.recorded) - instant(b.history?.recorded)
+  );
+  const dates = sorted.map((s) => s.history?.recorded).filter((d): d is string => !!d).sort();
   return (
     <>
       <p className="callout">
-        Measured on arm64 (M1 Pro), each against its own control. Rejected results are listed first.
+        Measured on arm64 (M1 Pro), each against its own control. Rejected results are listed first,
+        oldest first within each verdict.
+        {dates.length > 1 && ` Tried between ${span(dates[0], dates[dates.length - 1])}.`}
       </p>
       {sorted.map((section) => (
         <SectionCard key={section.path} section={section} defaultOpen={sorted.length <= 2} />
@@ -164,6 +174,7 @@ function SectionCard({ section, defaultOpen = false }: { section: DocSection; de
     <details className="evidence-item" open={defaultOpen}>
       <summary>
         <span style={{ flex: 1 }}>{section.title}</span>
+        <Recorded history={section.history} />
         <VerdictChip verdict={section.verdict} />
       </summary>
       <div className="summary-line">
@@ -175,6 +186,11 @@ function SectionCard({ section, defaultOpen = false }: { section: DocSection; de
       </div>
       <div className="evidence-body">
         <Markdown>{section.markdown}</Markdown>
+        {section.history && (
+          <p className="provenance">
+            <RecordedDetail history={section.history} />
+          </p>
+        )}
         <a
           href={`${REPO}/NEW_ARCHITECTURE.md#L${section.line}`}
           target="_blank"
@@ -229,9 +245,7 @@ function Source({
                   <Markdown>{decl.comment}</Markdown>
                 </>
               )}
-              <pre>
-                <code>{decl.code}</code>
-              </pre>
+              <Code language={decl.kind.startsWith("c-") ? "c" : "swift"}>{decl.code}</Code>
               {decl.members.length > 0 && (
                 <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
                   Body elided. {decl.members.length} members: <code>{decl.members.join(", ")}</code>
@@ -294,9 +308,9 @@ function Assembly({ symbols }: { symbols: string[] }) {
               </span>
             </summary>
             <div className="evidence-body">
-              <pre style={{ maxHeight: 420 }}>
-                <code>{text ?? "Loading…"}</code>
-              </pre>
+              <Code language="asm" style={{ maxHeight: 420 }}>
+                {text ?? "Loading…"}
+              </Code>
             </div>
           </details>
         );

@@ -31,7 +31,21 @@ if only == "all" || only == "content" {
   guard let docText = try? String(contentsOfFile: docPath, encoding: .utf8) else {
     fail("cannot read \(docPath)")
   }
-  let (doc, docWarnings) = DocumentExtractor(path: "NEW_ARCHITECTURE.md", text: docText).extract()
+  var (doc, docWarnings) = DocumentExtractor(path: "NEW_ARCHITECTURE.md", text: docText).extract()
+
+  // Dates come from the document's own history rather than from anything written in it, so an
+  // experiment is dated by the commit that recorded it and nobody has to maintain a date line.
+  let history = HistoryExtractor(root: root, file: "NEW_ARCHITECTURE.md").extract()
+  docWarnings += history.warnings
+  doc.sections = doc.sections.map { section in
+    var copy = section
+    copy.history = history.history[section.path]
+    return copy
+  }
+  let dated = doc.sections.filter { $0.history != nil }.count
+  if dated < doc.sections.count && !history.history.isEmpty {
+    docWarnings.append("\(doc.sections.count - dated) section(s) carry no date")
+  }
 
   let swift = try SourceExtractor(roots: [
     path("Sources", "StreamParsingCore"),
@@ -67,7 +81,10 @@ if only == "all" || only == "content" {
       codeBlockCount: doc.sections.reduce(0) { $0 + $1.codeBlocks.count },
       declCount: sources.values.reduce(0) { $0 + $1.count },
       fileCount: swift.fileCount + 1,
-      verdictCounts: verdictCounts
+      verdictCounts: verdictCounts,
+      datedSections: dated,
+      firstRecorded: doc.sections.compactMap(\.history?.recorded).min(),
+      lastRecorded: doc.sections.compactMap(\.history?.revised).max()
     )
   )
 
@@ -115,6 +132,8 @@ if only == "all" || only == "content" {
     content.json: \(bundle.stats.sectionCount) sections, \(bundle.stats.tableCount) tables, \
     \(bundle.stats.declCount) declarations from \(bundle.stats.fileCount) files
       verdicts: \(verdictCounts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+      dated: \(dated)/\(doc.sections.count) sections over \(history.revisions.count) revisions of the log, \
+    \((bundle.stats.firstRecorded ?? "?").prefix(10)) to \((bundle.stats.lastRecorded ?? "?").prefix(10))
     """
   )
 }

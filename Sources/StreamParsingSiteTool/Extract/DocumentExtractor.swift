@@ -11,12 +11,30 @@ struct DocumentExtractor {
   var text: String
 
   func extract() -> (DocBundle, [String]) {
-    var warnings: [String] = []
-    let lines = self.text.components(separatedBy: "\n")
+    let walk = Self.walk(lines: self.text.components(separatedBy: "\n"))
+    var sections = walk.entries.map { entry in
+      self.makeSection(entry.heading, markdown: entry.body)
+    }
+    sections = Self.propagateVerdicts(sections)
+    return (DocBundle(path: self.path, title: walk.title, sections: sections), walk.warnings)
+  }
 
+  /// One heading and the lines beneath it, before any of the per-section parsing.
+  ///
+  /// Split out because the history pass replays this over every past revision of the document and
+  /// has no use for the tables, the code blocks or the summary. It matters that both callers walk
+  /// the headings with *this* code: a second implementation of the path scoping would date a
+  /// section by a slug the rest of the site does not use.
+  struct Entry {
+    var heading: Heading
+    var body: String
+  }
+
+  static func walk(lines: [String]) -> (title: String, entries: [Entry], warnings: [String]) {
+    var warnings: [String] = []
     // (level, path) of the headings currently open, so a child can name its parent.
     var stack: [(level: Int, path: String, title: String)] = []
-    var sections: [DocSection] = []
+    var entries: [Entry] = []
     var pending: (heading: Heading, bodyStart: Int)?
     var seenPaths = Set<String>()
     var inFence = false
@@ -26,7 +44,7 @@ struct DocumentExtractor {
       guard let p = pending else { return }
       let body = lines[p.bodyStart..<endLine].joined(separator: "\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-      sections.append(self.makeSection(p.heading, markdown: body))
+      entries.append(Entry(heading: p.heading, body: body))
     }
 
     for (index, line) in lines.enumerated() {
@@ -71,9 +89,7 @@ struct DocumentExtractor {
       )
     }
     closePending(endLine: lines.count)
-
-    sections = Self.propagateVerdicts(sections)
-    return (DocBundle(path: self.path, title: title, sections: sections), warnings)
+    return (title, entries, warnings)
   }
 
   struct Heading {
@@ -101,7 +117,10 @@ struct DocumentExtractor {
       summary: Self.summarize(markdown),
       tables: tables,
       codeBlocks: Self.parseCodeBlocks(markdown),
-      measurements: Self.measurements(in: tables)
+      measurements: Self.measurements(in: tables),
+      // Filled in afterwards: dating a section means replaying every past revision of the
+      // document, which is one git walk for the whole file rather than one per heading.
+      history: nil
     )
   }
 

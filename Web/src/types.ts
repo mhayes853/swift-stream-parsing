@@ -31,6 +31,19 @@ export interface DocCodeBlock {
   code: string;
 }
 
+/** When a section was written and last rewritten, recovered from the log's git history. */
+export interface DocHistory {
+  /** ISO 8601 author date, kept with the offset it was written at. */
+  recorded: string;
+  recordedCommit: string;
+  recordedSubject: string;
+  revised: string;
+  revisedCommit: string;
+  revisedSubject: string;
+  /** Commits that changed this section's body, the one that introduced it included. */
+  revisions: number;
+}
+
 export interface DocSection {
   path: string;
   slug: string;
@@ -45,6 +58,7 @@ export interface DocSection {
   tables: DocTable[];
   codeBlocks: DocCodeBlock[];
   measurements: Measurement[];
+  history?: DocHistory;
 }
 
 export interface ContentBundle {
@@ -57,6 +71,9 @@ export interface ContentBundle {
     declCount: number;
     fileCount: number;
     verdictCounts: Record<string, number>;
+    datedSections: number;
+    firstRecorded?: string;
+    lastRecorded?: string;
   };
 }
 

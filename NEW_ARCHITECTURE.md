@@ -4038,7 +4038,7 @@ At the call site the exponent arrives as `abs(exponent)`, which is enough for th
 drop the low half of the bounds check and the entire negative half of the table. The whole lookup
 becomes two instructions:
 
-```
+```asm
 cmp  w8, #0x134                  ; 308
 ldr  d1, [x9, w8, uxth #3]       ; x9 = adrp/add of the .rodata table
 ```
@@ -4463,7 +4463,7 @@ no-whitespace case for the whole of `canada` and `llm_message` and half of every
 loads the byte, tests it against `0x20`, and throws it away. `consumeStructuralRun` then reloads
 the same address to switch on it. In the release build that is nine instructions apart:
 
-```
+```asm
 be3a0  cmpb   $0x20, (%rdi,%rsi)   ; whitespace early-out
 be3a4  jbe    ...                   ; not taken on a structural byte
 be452  movzbl (%rdi,%r14), %eax     ; the same address, again

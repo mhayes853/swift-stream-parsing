@@ -89,12 +89,39 @@ Under `prefers-reduced-motion` the phases still differ; they simply stop animati
 | Prose, measurements, verdicts | `NEW_ARCHITECTURE.md` | you, as you work |
 | Why a kernel is shaped that way | the source comments | you, as you work |
 | Node graph, teaching prose, evidence references | `Web/content/pipeline.json` | **hand-authored** |
+| When an experiment happened | the log's git history | nobody — `HistoryExtractor` recovers it |
 | `content.json`, `sources.json`, `traces.json`, `asm/*.txt` | `Web/generated/` | `./Web/generate` |
 
 `pipeline.json` is the only hand-authored file. It holds the architectural ordering the document
 does not have — the log is ordered by *when things were tried* — the `next` edges the chart draws,
 a paragraph or two per step, and the *references*: doc section paths, `File.swift:symbol` pairs,
 assembly symbols.
+
+## Dates
+
+Every section carries the date **and time** it was written, and the date it was last rewritten.
+None of it is typed into the document: an experiment's date is the commit that recorded the
+experiment, so `HistoryExtractor` walks every revision of `NEW_ARCHITECTURE.md` in order, re-runs
+`DocumentExtractor.walk` over each one, and records for each heading path the commit it first
+appeared in and the last commit whose body differed from the revision before. That is one git walk
+for the whole file rather than a `git log -L` per heading, and it costs about four seconds.
+
+Both callers walk the headings with the same code, which is the point of the split: a second
+implementation of the path scoping would date a section under a slug the rest of the site does not
+use. Two consequences are worth knowing rather than discovering:
+
+- A **retitled** heading is a new path, and therefore dates from the retitle. The site says
+  "recorded", not "measured", because the commit witnesses the writing down.
+- A revision that only moved a section down the file changes no body and **does not count**, which
+  is what makes "last rewritten" mean something in a document that grows at the bottom.
+
+Times are rendered from the ISO string as written, in the author's own offset. `new Date(...)`
+would re-render them in the reader's zone, and one commit made at 15:41 in Los Angeles would read
+as 23:41 in Berlin — an engineering log records when somebody was working, so that is the clock
+that means anything. Outside a git checkout the extractor warns and every date is simply absent.
+
+The Experiments view sorts on these, newest first by default, and rules the list by day: several of
+the results were tried in one sitting, which is a fact about them worth being able to see.
 
 ## Edges
 
@@ -213,6 +240,21 @@ Each of those carries its own check into the bundle, and generation fails withou
 | `streamString` | the reader hands back the bytes it was given, and each locate names the right block |
 | `collections` | both containers hand back what they were given, and the probe chains end where the shipped lookup ended |
 
+## Code, highlighted
+
+Swift, the C of `StreamParsingShims`, and the disassembly are tokenised by `highlight.tsx` —
+hand-written, for the same reason the markdown renderer is. A highlighter shipping grammars for two
+hundred languages is more surface area than a site with three, and it would not cover the one that
+benefits most: an `llvm-objdump` listing is not a language any of them has a grammar for, and
+picking a register out of six hundred lines of operands is the whole activity on that tab. The
+assembly tokeniser is line oriented because the format is — address, mnemonic, operands, and a
+`<symbol+0x…>` on anything that branches — and the mnemonic is marked apart from its operands so a
+scan down the left edge reads as the instruction sequence.
+
+A fence with **no language draws plain** rather than being guessed at: several of the unlabelled
+ones in the log are compiler errors and throughput tables, and a guess would colour them wrong. Two
+that were genuinely quoted disassembly are now tagged ```` ```asm ````.
+
 ## Assembly
 
 Pinned from the **release benchmark binary**, because that is the build where a concrete sink
@@ -248,3 +290,11 @@ in both modes; light-mode aqua sits at 2.74:1 against the surface, below the 3:1
 lane using it also carries a visible glyph and index. Verdicts use the fixed status palette and are
 always paired with a written word — hue never carries the meaning alone. Deltas are diverging
 (blue/red around a neutral midpoint) with the sign and an arrow printed beside every bar.
+
+Syntax colours carry nothing the text does not — a keyword is still spelled out — so what governs
+them is text contrast rather than the pairwise separation the chart lanes are held to. Every token
+colour clears 4.5:1 against `--surface-2` in both modes, and the values and their ratios sit in a
+comment next to the variables. The dark set does not carry over: the aqua and amber that clear 7:1
+on the dark surface sit under 2:1 on the light one. An address is muted rather than faded, because
+0.75 alpha on it measured 2.9:1 and matching a branch to the address it lands on is a thing a
+reader does.

@@ -30,6 +30,21 @@
   --diverge-neg: #e66767;
   --diverge-mid: #383835;
 
+  /* Syntax colours. Ratios against --surface-2 (#201f1e): comment 4.58, keyword 6.89,
+     string 7.10, number 6.18, type 6.26, attribute 8.97, register 6.26, symbol 7.10. Nothing
+     here carries meaning on its own -- a keyword is still spelled out -- so the bar is text
+     contrast rather than the pairwise separation the chart lanes are held to. */
+  --hl-com: #898781;
+  --hl-kw: #a79ef0;
+  --hl-str: #3fbf90;
+  --hl-num: #e8845c;
+  --hl-type: #5fa3f0;
+  --hl-attr: #fab219;
+  --hl-addr: #898781;
+  --hl-mn: #a79ef0;
+  --hl-reg: #5fa3f0;
+  --hl-sym: #3fbf90;
+
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --radius: 10px;
@@ -57,6 +72,20 @@
   --diverge-pos: #2a78d6;
   --diverge-neg: #e34948;
   --diverge-mid: #f0efec;
+
+  /* Ratios against light --surface-2 (#f3f2ef): comment 4.62, keyword 7.64, string 4.77,
+     number 4.74, type 5.32, attribute 4.95. The dark values do not carry over -- the aqua and
+     amber that clear 7:1 on the dark surface sit under 2:1 on this one. */
+  --hl-com: #6f6d67;
+  --hl-kw: #4a3aa7;
+  --hl-str: #0f7a55;
+  --hl-num: #b8471c;
+  --hl-type: #1c63b8;
+  --hl-attr: #8a6100;
+  --hl-addr: #6f6d67;
+  --hl-mn: #4a3aa7;
+  --hl-reg: #1c63b8;
+  --hl-sym: #0f7a55;
 }
 
 * { box-sizing: border-box; }
@@ -291,6 +320,22 @@ pre {
 }
 pre code { background: none; border: none; padding: 0; font-size: inherit; }
 
+/* MARK: - Syntax highlighting */
+
+.hl .t-com { color: var(--hl-com); font-style: italic; }
+.hl .t-kw { color: var(--hl-kw); }
+.hl .t-str { color: var(--hl-str); }
+.hl .t-num { color: var(--hl-num); }
+.hl .t-type { color: var(--hl-type); }
+.hl .t-attr { color: var(--hl-attr); }
+/* An address is scaffolding, so it takes the muted hue -- but not opacity on top of it: matching a
+   branch's `<symbol+0x90>` to the address it lands on is a thing a reader does, and 0.75 alpha put
+   it at 2.9:1 in light mode. */
+.hl-asm .t-addr { color: var(--hl-addr); }
+.hl-asm .t-mn { color: var(--hl-mn); font-weight: 600; }
+.hl-asm .t-reg { color: var(--hl-reg); }
+.hl-asm .t-sym { color: var(--hl-sym); }
+
 /* MARK: - Tables */
 
 table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 13.5px; }
@@ -387,6 +432,53 @@ input[type="range"] { accent-color: var(--series-1); }
 .evidence-body { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--grid); }
 
 .empty { color: var(--text-muted); font-size: 14px; padding: 24px 0; }
+
+/* MARK: - Dates */
+
+.dated {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.dated-sep { opacity: 0.5; }
+.dated-revised { color: var(--text-muted); }
+.provenance {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 14px 0 10px;
+}
+.provenance .dated { white-space: normal; display: inline; font-size: 12.5px; font-family: inherit; }
+.provenance code { font-size: 11.5px; }
+/* The day a run of experiments happened on. A rule rather than a card: it is a separator in a
+   list, not another thing in it. */
+.day-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 26px 0 12px;
+}
+.day-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--grid);
+}
+.filters button.sort { border-color: var(--grid); font-size: 13.5px; color: var(--text-secondary); }
+
+@media (max-width: 720px) {
+  /* The clock is the first thing to go: on a narrow summary row the title needs the width. */
+  .evidence-item > summary .dated { display: none; }
+}
 
 /* MARK: - Graveyard & payloads */
 
