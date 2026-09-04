@@ -13,18 +13,47 @@ import { inline } from "./Markdown";
 // a `return` is dashed, a `detail` is dotted. Where the order is real (a switch's arms are tested
 // in the order they are written) `ordering` is `ordered` and the arrows are numbered.
 
-const NODE_W = 168;
+// Only the vertical measurements are fixed. Everything horizontal is derived from the width the
+// container actually has (see `layout`), because a hard-coded width is a promise the page cannot
+// keep: at 202px per node the chart overflowed and scrolled sideways, and narrowing the constants
+// until it fit at one viewport just moved the overflow to the next one.
 const NODE_H = 66;
-const COL_GAP = 20;
 const ROW_GAP = 104; // Deep enough that a vertical edge has room for its label at the midpoint.
-const LANE_W = 104;
 const PAD = 16;
-// A column to the right of the graph that nothing is ever drawn into, so the call card has
-// somewhere to sit that is not on top of the thing it is describing. The nodes were narrowed to
-// pay for it: a card floating over the graph hid the node it was opened from, which is the one
-// node the reader is looking at.
-const RAIL_W = 300;
+const COL_GAP = 20;
 const RAIL_GAP = 18;
+
+/** Floors below which shrinking stops being legible and the chart scrolls sideways instead. */
+const MIN_NODE_W = 146;
+const MAX_NODE_W = 210;
+const MIN_RAIL_W = 250;
+const MAX_RAIL_W = 320;
+// Wide enough for the longest single word in a stage title -- `dispatcher` and `Whitespace` are ten
+// characters at 12.5px and cannot be wrapped, so anything narrower paints them under the first node.
+const MIN_LANE_W = 112;
+const MAX_LANE_W = 132;
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(Math.max(value, low), high);
+}
+
+/**
+ * Horizontal geometry for a given amount of room.
+ *
+ * The rail is taken off the top, since the card has to go somewhere that is not on top of the node
+ * it describes; what is left pays for the lane gutter and then splits between the columns. The
+ * node width is the only slack in the system, so it absorbs the difference and the chart fits.
+ */
+function layoutFor(available: number, columns: number) {
+  // Rounded: a fractional node width puts every rect edge and centred label on a half pixel.
+  const railW = Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W));
+  const laneW = Math.round(clamp((available - railW) * 0.13, MIN_LANE_W, MAX_LANE_W));
+  const forColumns = available - railW - laneW - PAD * 2;
+  const nodeW = Math.floor(clamp((forColumns + COL_GAP) / columns - COL_GAP, MIN_NODE_W, MAX_NODE_W));
+  const content = columns * (nodeW + COL_GAP) - COL_GAP;
+  const graphWidth = laneW + content + PAD * 2;
+  return { nodeW, laneW, railW, content, graphWidth, width: graphWidth + railW };
+}
 // Row 0's same-row arcs rise above their nodes like every other row's, so the first row needs
 // headroom the others get for free from the row above.
 const TOP = 52;
@@ -69,13 +98,19 @@ function at([p0, p1, p2, p3]: Curve, t: number): Point {
   ];
 }
 
-/** Greedy two-line wrap; node titles are short enough that a third line never comes up. */
-function wrap(text: string, perLine = 26): string[] {
+/**
+ * Greedy wrap to at most `maxLines`.
+ *
+ * Anything past the last line is appended to it rather than dropped: a silently truncated label is
+ * worse than one that runs a little wide, and `Strings and escapes` losing its third word looked
+ * exactly like a rendering bug.
+ */
+function wrap(text: string, perLine = 26, maxLines = 2): string[] {
   const words = text.split(" ");
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
-    if (line && (line + " " + word).length > perLine) {
+    if (line && (line + " " + word).length > perLine && lines.length < maxLines - 1) {
       lines.push(line);
       line = word;
     } else {
@@ -83,7 +118,7 @@ function wrap(text: string, perLine = 26): string[] {
     }
   }
   if (line) lines.push(line);
-  return lines.slice(0, 2);
+  return lines;
 }
 
 /** SVG `<text>` has nowhere to put a `<code>` span, so the drawn form just drops the marks. */
@@ -113,16 +148,34 @@ export function FlowChart({
   // The card's height is content-dependent and only known after layout; it is measured back up to
   // here because the leader line has to start at an edge of the real box.
   const [cardHeight, setCardHeight] = useState(0);
+  // The usable width inside `.flow-scroll`, padding excluded. Read from the element rather than
+  // assumed: the container carries 24px of padding each side, which is exactly the overflow the
+  // fixed layout used to produce.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState(1100);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => {
+      const style = getComputedStyle(el);
+      const inner =
+        el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      if (inner > 0) setAvailable(inner);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
-  const { placed, byId, width, height, graphWidth, rows } = useMemo(() => {
+  const { placed, byId, width, height, graphWidth, geo, rows } = useMemo(() => {
     const rows = pipeline.stages.map((stage) => ({
       stage,
       nodes: pipeline.nodes.filter((n) => n.stage === stage.id)
     }));
     const widest = Math.max(...rows.map((r) => r.nodes.length));
-    const content = widest * (NODE_W + COL_GAP) - COL_GAP;
-    const graphWidth = LANE_W + content + PAD * 2;
-    const width = graphWidth + RAIL_W;
+    const geo = layoutFor(available, widest);
+    const { nodeW: NODE_W, laneW: LANE_W, content, graphWidth, width } = geo;
     const height = rows.length * (NODE_H + ROW_GAP) + TOP + PAD;
 
     const placed: Placed[] = [];
@@ -145,8 +198,8 @@ export function FlowChart({
     });
 
     const byId = new Map(placed.map((p) => [p.node.id, p]));
-    return { placed, byId, width, height, graphWidth, rows };
-  }, [pipeline, sections]);
+    return { placed, byId, width, height, graphWidth, geo, rows };
+  }, [pipeline, sections, available]);
 
   const edges = useMemo(() => {
     const out: Edge[] = [];
@@ -155,7 +208,7 @@ export function FlowChart({
       p.node.next.forEach((spec, i) => {
         const to = byId.get(spec.to);
         if (!to) return;
-        const cp = route(p, to);
+        const cp = route(p, to, geo.nodeW);
         const [mx, my] = at(cp, 0.5);
         out.push({
           id: `${p.node.id}->${spec.to}`,
@@ -171,9 +224,16 @@ export function FlowChart({
         });
       });
     }
-    placeLabels(out, placed);
+    placeLabels(out, placed, geo.nodeW);
     return out;
-  }, [placed, byId]);
+  }, [placed, byId, geo]);
+
+  // Widths the render body reads directly. Wrap points are derived from the box they have to fit
+  // in rather than fixed: at a narrow layout `The dispatcher` used to run out under the first node
+  // and get painted over by it, which reads as a truncated label.
+  const NODE_W = geo.nodeW;
+  const titleChars = Math.max(12, Math.floor((geo.nodeW - 26) / 6.7));
+  const laneChars = Math.max(8, Math.floor((geo.laneW - 34) / 7.2));
 
   // An edge is lit when either end is the node under the cursor or the open one.
   const active = hovered ?? selected?.id ?? null;
@@ -185,10 +245,11 @@ export function FlowChart({
   const card = useMemo(() => {
     if (!activeNode || activeNode.node.next.length === 0) return null;
     const left = graphWidth + RAIL_GAP;
+    const cardWidth = geo.railW - RAIL_GAP * 2;
     const h = cardHeight || NODE_H;
     const top = Math.min(Math.max(8, activeNode.cy - h / 2), Math.max(8, height - h - 8));
-    return { left, top, height: h };
-  }, [activeNode, cardHeight, graphWidth, height]);
+    return { left, top, width: cardWidth, height: h };
+  }, [activeNode, cardHeight, graphWidth, geo, height]);
   const neighbours = useMemo(() => {
     if (!active) return new Set<string>();
     const set = new Set<string>([active]);
@@ -200,7 +261,7 @@ export function FlowChart({
   }, [active, edges]);
 
   return (
-    <div className="flow-scroll">
+    <div className="flow-scroll" ref={scrollRef}>
       <div className="flow-stage" style={{ width, height }}>
         <svg
           className="flow"
@@ -227,7 +288,7 @@ export function FlowChart({
             return (
               <g key={row.stage.id}>
                 <line
-                  x1={LANE_W + PAD - 12}
+                  x1={geo.laneW + PAD - 12}
                   y1={y - ROW_GAP / 2 + NODE_H / 2}
                   x2={graphWidth - PAD}
                   y2={y - ROW_GAP / 2 + NODE_H / 2}
@@ -237,7 +298,7 @@ export function FlowChart({
                 <text x={PAD} y={y + 18} className="flow-lane-index">
                   {String(i + 1).padStart(2, "0")}
                 </text>
-                {wrap(row.stage.title, 15).map((line, j) => (
+                {wrap(row.stage.title, laneChars, 3).map((line, j) => (
                   <text key={j} x={PAD + 26} y={y + 18 + j * 15} className="flow-lane-title">
                     {line}
                   </text>
@@ -294,7 +355,7 @@ export function FlowChart({
           {placed.map((p) => {
             const isSelected = selected?.id === p.node.id;
             const dimmed = !!active && !neighbours.has(p.node.id);
-            const titleLines = wrap(p.node.title, 21);
+            const titleLines = wrap(p.node.title, titleChars);
             return (
               <g
                 key={p.node.id}
@@ -359,7 +420,7 @@ export function FlowChart({
           {card && activeNode && (
             <g className="flow-leader" aria-hidden="true">
               <path
-                d={leader(activeNode, card.left, card.top + 26)}
+                d={leader(activeNode, card.left, card.top + 26, geo.nodeW)}
                 fill="none"
                 stroke="var(--series-1)"
                 strokeWidth={1.5}
@@ -377,6 +438,7 @@ export function FlowChart({
             byId={byId}
             left={card.left}
             top={card.top}
+            width={card.width}
             onMeasure={setCardHeight}
           />
         )}
@@ -394,12 +456,14 @@ function CallCard({
   byId,
   left,
   top,
+  width,
   onMeasure
 }: {
   placed: Placed;
   byId: Map<string, Placed>;
   left: number;
   top: number;
+  width: number;
   onMeasure: (height: number) => void;
 }) {
   const node = placed.node;
@@ -413,7 +477,7 @@ function CallCard({
   });
 
   return (
-    <div ref={ref} className="flow-card" style={{ left, top }}>
+    <div ref={ref} className="flow-card" style={{ left, top, width }}>
       <h4>{node.title}</h4>
       {node.invokes && <p className="flow-card-invokes">{inline(node.invokes, "inv")}</p>}
       <p className="flow-card-rule">
@@ -458,7 +522,7 @@ function CallCard({
  * It leaves the card's left edge and enters the node on whichever side faces the rail, bowing
  * horizontally so it reads as an annotation crossing the chart rather than as another edge in it.
  */
-function leader(node: Placed, cardLeft: number, cardY: number): string {
+function leader(node: Placed, cardLeft: number, cardY: number, NODE_W: number): string {
   const x1 = cardLeft;
   const y1 = cardY;
   const x2 = node.cx + NODE_W / 2;
@@ -488,7 +552,7 @@ const KIND_GLYPH: Record<EdgeKind, string> = {
  * near sides. Back up a row: out to the left and around so a return path is never mistaken for
  * forward progress.
  */
-function route(a: Placed, b: Placed): Curve {
+function route(a: Placed, b: Placed, NODE_W: number): Curve {
   const ax = a.cx;
   const bx = b.cx;
 
@@ -545,7 +609,7 @@ function route(a: Placed, b: Placed): Curve {
  * nothing in the DOM yet. 5.4px per character at 10.5px is an over-estimate for this font, which is
  * the safe direction to be wrong in.
  */
-function placeLabels(edges: Edge[], nodes: Placed[]): void {
+function placeLabels(edges: Edge[], nodes: Placed[], NODE_W: number): void {
   const H = 13;
   // Seeded with the node boxes: a label over a node title is worse than a label off its midpoint.
   const taken = nodes.map((n) => ({ x: n.cx, y: n.cy, w: NODE_W, h: NODE_H }));

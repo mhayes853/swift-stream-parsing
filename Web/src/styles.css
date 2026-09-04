@@ -473,7 +473,6 @@ input[type="range"] { accent-color: var(--series-1); }
    underneath. */
 .flow-card {
   position: absolute;
-  width: 274px;
   padding: 13px 15px 14px;
   background: var(--surface-1);
   border: 1px solid var(--border);

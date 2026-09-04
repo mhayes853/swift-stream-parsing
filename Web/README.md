@@ -51,9 +51,15 @@ vertically, and the node boxes are seeded into the same occupancy map, so a labe
 another label nor on a node.
 
 The hover card lives in a reserved rail to the right of the graph — a column nothing is ever drawn
-into — and a dashed leader connects it back to its node. The nodes were narrowed to pay for that
-rail: a card floating over the graph hid the node it was opened from, which is the one node the
-reader is looking at.
+into — and a dashed leader connects it back to its node. A card floating over the graph hid the node
+it was opened from, which is the one node the reader is looking at.
+
+**The horizontal geometry is computed, not fixed.** `layoutFor` reads the width `.flow-scroll`
+actually has (padding excluded, via a `ResizeObserver`), takes the rail off the top, then the lane
+gutter, and lets the node width absorb what is left. A hard-coded width is a promise the page cannot
+keep — narrowing the constants until the chart fit at one viewport just moved the overflow to the
+next one. Below roughly 1050px the node width hits its floor and the chart scrolls sideways, which
+is the intended degradation rather than an unreadable squeeze.
 
 **The extractor fails the build on a dangling reference.** Rename a kernel or retitle a chapter
 without updating `pipeline.json` and `./Web/generate content` exits non-zero with the closest
