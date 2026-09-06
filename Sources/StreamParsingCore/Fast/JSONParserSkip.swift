@@ -78,7 +78,7 @@ extension JSONParser {
         if depth &- 1 == self.skipEndDepth {
           // The event precedes the depth/state updates, exactly as the structural run orders
           // them, so a failure the check surfaces leaves the same parser state behind.
-          try self.record(.endObject, start: at, length: 1, end: i, into: &sink)
+          try self.record(.endObject, start: at, length: 1, end: i, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           return i
@@ -89,7 +89,7 @@ extension JSONParser {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         if depth &- 1 == self.skipEndDepth {
-          try self.record(.endArray, start: at, length: 1, end: i, into: &sink)
+          try self.record(.endArray, start: at, length: 1, end: i, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           return i

@@ -45,22 +45,17 @@ public struct JSONParser: ~Copyable {
     var isStructural: Bool { self.rawValue <= State.done.rawValue }
   }
 
-  // 1 = object, 0 = array. Depth beyond `maximumDepth` is rejected rather than spilled, which
-  // keeps container tracking to a single register.
   @usableFromInline static let maximumDepth = 64
 
+  // Field order is a cache-line decision, not a taste one. Everything the parse reads or writes
+  // lives in the first 64 bytes; the tail holds `ownsBuffer` (a deinit-only flag) and the window
+  // telemetry, which is dead for any parser that never crosses `windowThreshold` — the default.
+  // The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free
+  // on arm64 (`ldrb`/`ldrh` zero-extend), while packing per-byte state into shared words would
+  // turn plain stores into read-modify-writes on the string and unicode paths, and would break
+  // the store fusion the compiler already performs on the adjacent flags below (it emits one
+  // `strh` for `isKeyToken`/`keyContainsNonASCII`).
   @usableFromInline var state = State.value
-  @usableFromInline var containers: UInt64 = 0
-  @usableFromInline var depth = 0
-
-  @usableFromInline var buffer: UnsafeMutableBufferPointer<UInt8>
-  @usableFromInline var bufferCount = 0
-  @usableFromInline var ownsBuffer: Bool
-
-  @usableFromInline var unicodeValue: UInt32 = 0
-  @usableFromInline var unicodeRemaining = 0
-  @usableFromInline var highSurrogate: UInt32 = 0
-
   // Whether the string token being read is a key. The escape and unicode states are shared
   // between keys and string values, so this has to be remembered rather than derived:
   // `bufferCount > 0` cannot stand in for it, because a key whose first character is an escape
@@ -71,17 +66,45 @@ public struct JSONParser: ~Copyable {
   // the string loop records one whole `string` event if the string completes cleanly in the
   // chunk, and `stringBegin` followed by chunks otherwise.
   @usableFromInline var stringBeginPending = false
-
   @usableFromInline var literalKind: UInt8 = 0
-  @usableFromInline var literalIndex = 0
-
+  @usableFromInline var literalIndex: UInt8 = 0
+  @usableFromInline var pendingUTF8Count: UInt8 = 0
+  @usableFromInline var unicodeRemaining: UInt8 = 0
   // The depth the current skip ends at: a close that brings `depth` back to this emits the
   // matching end call and leaves skip mode. Valid only while `state` is one of the skipping
-  // states.
-  @usableFromInline var skipEndDepth = 0
+  // states. Bounded by `maximumDepth`, so a byte.
+  @usableFromInline var skipEndDepth: UInt8 = 0
+  // Four hex digits and a surrogate half: sixteen bits each, exactly.
+  @usableFromInline var unicodeValue: UInt16 = 0
+  @usableFromInline var highSurrogate: UInt16 = 0
 
-  @usableFromInline var pendingUTF8Count = 0
+  // The buffer, split out of `UnsafeMutableBufferPointer` so its capacity can sit next to the
+  // count the append guard compares it against: one 8-byte load answers both. Capacity is a
+  // `UInt32` because a parse scratch buffer is kilobytes, and `init(buffer:)` rejects anything
+  // that would not fit.
+  @usableFromInline var bufferCount: UInt32 = 0
+  @usableFromInline var bufferCapacity: UInt32
+
+  // 1 = object, 0 = array, indexed by depth. Kept adjacent to `depth` so the run loop's
+  // write-back is one `stp` and its entry one `ldp`. Depth beyond `maximumDepth` is rejected
+  // rather than spilled, which keeps container tracking to a single register.
+  @usableFromInline var containers: UInt64 = 0
+  @usableFromInline var depth = 0
+
+  @usableFromInline var bufferBase: UnsafeMutablePointer<UInt8>
+
+  // A UTF-8 sequence straddling a chunk boundary, held little-endian a byte per lane. It used to
+  // live in the last eight bytes of the buffer, a full page away from everything else the parse
+  // touched and one `buffer.count` subtraction per access; the escape scratch that shared that
+  // reservation is now a local in the function that decodes it, because it never outlives the
+  // call that writes it. Nothing is reserved in the buffer any more.
+  @usableFromInline var pendingUTF8: UInt64 = 0
+
   @usableFromInline var consumedByteCount = 0
+
+  // ---- Past the first cache line: nothing below is read by a parse.
+
+  @usableFromInline var ownsBuffer: Bool
 
   // A chunk at least this long is parsed by the windowed path (JSONParserWindow.swift); shorter
   // ones, and every byte fed one, go through the dispatcher below. The window scratch is
@@ -91,33 +114,34 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var windowScratch: UnsafeMutableRawPointer? = nil
   // Entries per 64-byte block in the last indexed window, and how many windows since. Sparse
   // windows are routed to the dispatcher; see `parseWindowed`.
-  @usableFromInline var windowDensity: Int = .max
-  @usableFromInline var windowsSinceProbe = 0
-
-  // The event recorder (JSONParserEvents.swift): records and, for number records, their infos,
-  // and the chunk the input-sourced records point into, set at every entry point.
-  @usableFromInline var chunkBase: UnsafeRawPointer
+  @usableFromInline var windowDensity: UInt32 = .max
+  @usableFromInline var windowsSinceProbe: UInt32 = 0
 
   public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
-    self.buffer = .allocate(capacity: Swift.max(bufferCapacity, 64))
+    let capacity = Swift.max(bufferCapacity, 64)
+    self.bufferBase = .allocate(capacity: capacity &+ Self.scratchByteCount)
+    self.bufferCapacity = UInt32(capacity)
     self.ownsBuffer = true
     self.windowThreshold = windowThreshold
-    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   public init(buffer: UnsafeMutableBufferPointer<UInt8>, windowThreshold: Int = .max) {
     precondition(
-      buffer.count >= Self.reservedTailByteCount,
-      "JSONParser requires a caller-supplied buffer of at least \(Self.reservedTailByteCount) bytes."
+      buffer.count >= Self.minimumBufferByteCount,
+      "JSONParser requires a caller-supplied buffer of at least \(Self.minimumBufferByteCount) bytes."
     )
-    self.buffer = buffer
+    precondition(
+      buffer.count <= Int(UInt32.max),
+      "JSONParser requires a caller-supplied buffer smaller than 4 GB."
+    )
+    self.bufferBase = buffer.baseAddress.unsafelyUnwrapped
+    self.bufferCapacity = UInt32(buffer.count &- Self.scratchByteCount)
     self.ownsBuffer = false
     self.windowThreshold = windowThreshold
-    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   deinit {
-    if self.ownsBuffer { self.buffer.deallocate() }
+    if self.ownsBuffer { self.bufferBase.deallocate() }
     self.windowScratch?.deallocate()
   }
 
@@ -136,6 +160,7 @@ public struct JSONParser: ~Copyable {
     self.unicodeValue = 0
     self.unicodeRemaining = 0
     self.highSurrogate = 0
+    self.pendingUTF8 = 0
     self.isKeyToken = false
     self.keyContainsNonASCII = false
     self.stringBeginPending = false
@@ -148,7 +173,6 @@ public struct JSONParser: ~Copyable {
     // the next document may not share it.
     self.windowDensity = .max
     self.windowsSinceProbe = 0
-    self.chunkBase = UnsafeRawPointer(self.buffer.baseAddress!)
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -179,8 +203,7 @@ public struct JSONParser: ~Copyable {
     // value. It produces exactly one `stringChunk` and nothing else, so it does not need the
     // dispatcher, the scan, the scratch or `deliverEvents`' frame — it needs one `events` call
     // with one record, which is the narrowest the single requirement allows. The record carries
-    // the byte itself (`source: .inline`), so there is no pointer to take and no `chunkBase` to
-    // store either.
+    // the byte itself, so there is no pointer to take and nothing to store either.
     //
     // Every condition here is one the general path would otherwise have to settle: a pending
     // begin would have to be recorded first, a pending UTF-8 tail or a high surrogate would have
@@ -204,7 +227,6 @@ public struct JSONParser: ~Copyable {
     var scalar = byte
     try withUnsafePointer(to: &scalar) { pointer throws(JSONParsingError) in
       let base = UnsafeRawPointer(pointer)
-      self.chunkBase = base
       var i = 0
       do throws(JSONParsingError) {
         if self.pendingUTF8Count > 0 {
@@ -214,11 +236,11 @@ public struct JSONParser: ~Copyable {
           i = try self.dispatchOnce(base: base, from: i, to: 1, into: &sink)
         }
       } catch {
-        try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
+        try self.settlePendingStringBegin(base: base, chunkEnd: 1, into: &sink)
         try self.commitSink(chunkEnd: 1, replacing: error, into: &sink)
       }
       // The byte's pointer does not outlive this closure, so the commit lands before it dies.
-      try self.settlePendingStringBegin(chunkEnd: 1, into: &sink)
+      try self.settlePendingStringBegin(base: base, chunkEnd: 1, into: &sink)
       try self.commitSink(chunkEnd: 1, into: &sink)
       self.consumedByteCount &+= 1
     }
@@ -232,7 +254,6 @@ public struct JSONParser: ~Copyable {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
     let n = input.count
-    self.chunkBase = base
     if n >= self.windowThreshold {
       try self.parseWindowed(base: base, count: n, into: &sink)
       return
@@ -243,10 +264,10 @@ public struct JSONParser: ~Copyable {
       // The commit lands before the error propagates: everything emitted ahead of the error is
       // the sink's, exactly as delivered events were, and a deferring sink's late rejection is
       // earlier in the document than the grammar error and is what gets reported.
-      try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+      try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
       try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
-    try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+    try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
     try self.commitSink(chunkEnd: n, into: &sink)
     self.consumedByteCount &+= n
   }
@@ -440,10 +461,10 @@ public struct JSONParser: ~Copyable {
           )
         } catch {
           // `stringBegin` precedes the error on the call-per-event path; keep that order.
-          try self.record(.stringBegin, start: at, length: 1, end: cursor, into: &sink)
+          try self.record(.stringBegin, start: at, length: 1, end: cursor, base: base, into: &sink)
           try Self.fail(error)
         }
-        try self.record(.string, start: cursor, length: run.end &- cursor, end: run.end &+ 1, into: &sink)
+        try self.record(.string, start: cursor, length: run.end &- cursor, end: run.end &+ 1, base: base, into: &sink)
         cursor = run.end &+ 1
         state = .afterValue
         return false
@@ -473,7 +494,7 @@ public struct JSONParser: ~Copyable {
         // re-enters through the skip scanner. For a sink whose answer is the constant `.stream`
         // the branch folds away in its specialization.
         if disposition != .stream {
-          self.skipEndDepth = depth &- 1
+          self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
           state = .skipping
         } else {
           state = .firstKey
@@ -484,7 +505,7 @@ public struct JSONParser: ~Copyable {
         containers &= ~(1 &<< Self.shiftAmount(depth))
         depth &+= 1
         if disposition != .stream {
-          self.skipEndDepth = depth &- 1
+          self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
           state = .skipping
         } else {
           state = .firstValue
@@ -493,7 +514,7 @@ public struct JSONParser: ~Copyable {
         guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
-        try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
+        try self.record(.endArray, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       // `"` was taken ahead of the ladder.
@@ -505,7 +526,7 @@ public struct JSONParser: ~Copyable {
           UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))
             == 0x6575_7274
         {
-          try self.record(.boolean, start: at, length: 4, end: at &+ 4, extra: 1, into: &sink)
+          try self.record(.boolean, start: at, length: 4, end: at &+ 4, extra: 1, base: base, into: &sink)
           cursor = at &+ 4
           state = .afterValue
           return false
@@ -517,7 +538,7 @@ public struct JSONParser: ~Copyable {
           UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at &+ 1, as: UInt32.self))
             == 0x6573_6c61
         {
-          try self.record(.boolean, start: at, length: 5, end: at &+ 5, into: &sink)
+          try self.record(.boolean, start: at, length: 5, end: at &+ 5, base: base, into: &sink)
           cursor = at &+ 5
           state = .afterValue
           return false
@@ -529,7 +550,7 @@ public struct JSONParser: ~Copyable {
           UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))
             == 0x6c6c_756e
         {
-          try self.record(.null, start: at, length: 4, end: at &+ 4, into: &sink)
+          try self.record(.null, start: at, length: 4, end: at &+ 4, base: base, into: &sink)
           cursor = at &+ 4
           state = .afterValue
           return false
@@ -553,14 +574,14 @@ public struct JSONParser: ~Copyable {
         guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
-        try self.record(.endArray, start: at, length: 1, end: cursor, into: &sink)
+        try self.record(.endArray, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       case .asciiObjectEnd:
         guard Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
-        try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
+        try self.record(.endObject, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
@@ -574,7 +595,7 @@ public struct JSONParser: ~Copyable {
         guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
-        try self.record(.endObject, start: at, length: 1, end: cursor, into: &sink)
+        try self.record(.endObject, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
@@ -688,15 +709,15 @@ public struct JSONParser: ~Copyable {
           )
         } catch {
           // `stringBegin` precedes the error on the call-per-event path; keep that order.
-          try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, into: &sink)
+          try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, base: base, into: &sink)
           throw error
         }
-        try self.record(.string, start: i, length: run.end &- i, end: run.end &+ 1, into: &sink)
+        try self.record(.string, start: i, length: run.end &- i, end: run.end &+ 1, base: base, into: &sink)
         self.state = .afterValue
         return try self.fuseAfterValue(base: base, from: run.end &+ 1, to: to, into: &sink)
       }
       // The quote may be in the previous chunk; `i` is where its `stringBegin` was read.
-      try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, into: &sink)
+      try self.record(.stringBegin, start: Swift.max(i &- 1, 0), length: 1, end: i, base: base, into: &sink)
     }
     while true {
       let end = run.end
@@ -712,7 +733,7 @@ public struct JSONParser: ~Copyable {
             containsNonASCII: run.containsNonASCII,
             reportAt: nil
           )
-          try self.record(.stringChunk, start: i, length: emitEnd &- i, end: emitEnd, into: &sink)
+          try self.record(.stringChunk, start: i, length: emitEnd &- i, end: emitEnd, base: base, into: &sink)
         }
         if emitEnd < end {
           try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
@@ -727,7 +748,7 @@ public struct JSONParser: ~Copyable {
       i &+= 1
       if byte == .asciiQuote {
         if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
-        try self.record(.stringEnd, start: byteAt, length: 1, end: i, into: &sink)
+        try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
         self.state = .afterValue
         return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
       } else if byte == .asciiBackslash {
@@ -891,32 +912,35 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) {
     guard let value = Self.hexValue(byte) else { throw self.error(.invalidEscape, at: offset &- 1) }
-    self.unicodeValue = (self.unicodeValue << 4) | value
+    // Four hex digits is sixteen bits, so the accumulator and the pending surrogate are stored
+    // narrow; the arithmetic below is the scalar's, which is 21 bits, so it widens once here.
+    self.unicodeValue = (self.unicodeValue &<< 4) | UInt16(truncatingIfNeeded: value)
     self.unicodeRemaining &-= 1
     guard self.unicodeRemaining == 0 else { return }
 
-    let scalar = self.unicodeValue
+    let scalar = UInt32(self.unicodeValue)
+    let pending = UInt32(self.highSurrogate)
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       // A second high surrogate would silently replace the pending one, leaving the first lone.
-      if self.highSurrogate != 0 {
+      if pending != 0 {
         throw self.loneHighSurrogateError(reportAt: offset &- 1)
       }
-      self.highSurrogate = scalar
+      self.highSurrogate = UInt16(truncatingIfNeeded: scalar)
       self.state = self.stateAfterEscape
       return
     }
-    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate == 0 {
+    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, pending == 0 {
       throw self.error(.invalidEscape, at: offset &- 1)
     }
-    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, self.highSurrogate != 0 {
+    if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling, pending != 0 {
       let combined =
-        .utf8ThreeByteCeiling &+ ((self.highSurrogate &- .highSurrogateFloor) << 10)
+        UInt32.utf8ThreeByteCeiling &+ ((pending &- .highSurrogateFloor) &<< 10)
         &+ (scalar &- .lowSurrogateFloor)
       self.highSurrogate = 0
       try self.emitScalar(combined, into: &sink, reportAt: offset &- 1)
     } else {
       // A pending high surrogate followed by any scalar but a low surrogate is lone.
-      if self.highSurrogate != 0 {
+      if pending != 0 {
         throw self.loneHighSurrogateError(reportAt: offset &- 1)
       }
       try self.emitScalar(scalar, into: &sink, reportAt: offset &- 1)
@@ -979,10 +1003,10 @@ public struct JSONParser: ~Copyable {
   mutating func emitBufferedNumber<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    let count = self.bufferCount
+    let count = Int(self.bufferCount)
     try self.emitNumber(
-      base: UnsafeRawPointer(self.buffer.baseAddress!), from: 0, to: count, into: &sink,
-      reportAt: reportAt, source: .parserBuffer
+      base: UnsafeRawPointer(self.bufferBase), from: 0, to: count, into: &sink,
+      reportAt: reportAt
     )
     self.bufferCount = 0
   }
@@ -999,8 +1023,7 @@ public struct JSONParser: ~Copyable {
     from: Int,
     to: Int,
     into sink: inout Sink,
-    reportAt: Int,
-    source: StreamEventRecord.Source = .input
+    reportAt: Int
   ) throws(JSONParsingError) {
     // The shape four of the seven corpus payloads are mostly made of: an unsigned integer of one
     // to eight digits, no sign, no dot, no exponent. The kernel's digit test doubles as the shape
@@ -1011,7 +1034,8 @@ public struct JSONParser: ~Copyable {
       let magnitude = streamShortInteger(base: base, from: from, end: to)
     {
       try self.recordNumber(
-        start: from, length: to &- from, end: reportAt, source: source,
+        start: from, length: to &- from, end: reportAt,
+        base: base,
         info: NumberInfo(
           magnitude: magnitude,
           exponent: 0,
@@ -1089,7 +1113,7 @@ public struct JSONParser: ~Copyable {
       flags: flags
     )
     try self.recordNumber(
-      start: from, length: to &- from, end: reportAt, source: source, info: info, into: &sink
+      start: from, length: to &- from, end: reportAt, base: base, info: info, into: &sink
     )
   }
 
@@ -1117,21 +1141,21 @@ public struct JSONParser: ~Copyable {
   ) throws(JSONParsingError) -> Int {
     let expected = Self.literalBytes[Int(self.literalKind)]
     var i = from
-    while i < to && self.literalIndex < expected.count {
+    while i < to && Int(self.literalIndex) < expected.count {
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
-      if byte != expected[self.literalIndex] {
+      if byte != expected[Int(self.literalIndex)] {
         throw self.error(.invalidLiteral, at: i)
       }
       self.literalIndex &+= 1
       i &+= 1
     }
-    if self.literalIndex == expected.count {
+    if Int(self.literalIndex) == expected.count {
       // A literal cut by a chunk began in the previous one; its bytes are never read, so the
       // record names the part of it in this chunk.
       let start = Swift.max(i &- expected.count, 0)
       try self.record(
         self.literalKind == 2 ? .null : .boolean, start: start, length: i &- start, end: i,
-        extra: self.literalKind == 0 ? 1 : 0, into: &sink
+        extra: self.literalKind == 0 ? 1 : 0, base: base, into: &sink
       )
       self.state = .afterValue
     }
@@ -1145,12 +1169,12 @@ public struct JSONParser: ~Copyable {
     base: UnsafeRawPointer, from: Int, count: Int, reportAt: Int
   ) throws(JSONParsingError) {
     guard count > 0 else { return }
-    guard self.bufferCount &+ count &+ Self.reservedTailByteCount <= self.buffer.count else {
+    guard Int(self.bufferCount) &+ count <= Int(self.bufferCapacity) else {
       throw self.error(.bufferExhausted, at: reportAt)
     }
-    UnsafeMutableRawPointer(self.buffer.baseAddress! + self.bufferCount)
+    UnsafeMutableRawPointer(self.bufferBase + Int(self.bufferCount))
       .copyMemory(from: base.advanced(by: from), byteCount: count)
-    self.bufferCount &+= count
+    self.bufferCount &+= UInt32(count)
   }
 
   // A key read whole out of the input: validated in place and handed to the sink as a borrow,
@@ -1165,15 +1189,15 @@ public struct JSONParser: ~Copyable {
     try self.validateUTF8IfNeeded(
       base: base, from: from, to: to, containsNonASCII: containsNonASCII, reportAt: to
     )
-    try self.record(.key, start: from, length: to &- from, end: to &+ 1, into: &sink)
+    try self.record(.key, start: from, length: to &- from, end: to &+ 1, base: base, into: &sink)
   }
 
   @inlinable
   mutating func emitBufferedKey<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    let count = self.bufferCount
-    let base = UnsafeRawPointer(self.buffer.baseAddress!)
+    let count = Int(self.bufferCount)
+    let base = UnsafeRawPointer(self.bufferBase)
     try self.validateUTF8IfNeeded(
       base: base,
       from: 0,
@@ -1182,7 +1206,7 @@ public struct JSONParser: ~Copyable {
       reportAt: reportAt
     )
     try self.record(
-      .key, start: 0, length: count, end: reportAt &+ 1, source: .parserBuffer, into: &sink
+      .key, start: 0, length: count, end: reportAt &+ 1, base: base, into: &sink
     )
     self.bufferCount = 0
     self.keyContainsNonASCII = false
@@ -1221,11 +1245,14 @@ public struct JSONParser: ~Copyable {
     guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else {
       throw self.error(.invalidUTF8, at: from)
     }
+    // Little-endian, a byte per lane: `completePendingUTF8` appends at lane `have` with a shift
+    // rather than a store to a far page.
+    var held: UInt64 = 0
     for offset in 0..<count {
-      self.buffer[self.buffer.count &- 8 &+ offset] =
-        base.load(fromByteOffset: from &+ offset, as: UInt8.self)
+      held |= UInt64(base.load(fromByteOffset: from &+ offset, as: UInt8.self)) &<< (8 &* offset)
     }
-    self.pendingUTF8Count = count
+    self.pendingUTF8 = held
+    self.pendingUTF8Count = UInt8(count)
   }
 
   // Only continuation bytes are taken, and the reassembled sequence goes through the same
@@ -1237,22 +1264,23 @@ public struct JSONParser: ~Copyable {
   mutating func completePendingUTF8<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, count n: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
-    let tailStart = self.buffer.count &- 8
-    let leadAt = -self.pendingUTF8Count
-    let lead = self.buffer[tailStart]
+    var held = self.pendingUTF8
+    let leadAt = -Int(self.pendingUTF8Count)
+    let lead = UInt8(truncatingIfNeeded: held)
     let needed = Self.sequenceLength(lead)
-    var have = self.pendingUTF8Count
+    var have = Int(self.pendingUTF8Count)
     var i = 0
     while have < needed && i < n {
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
       guard byte >= .utf8ContinuationFloor, byte < .utf8TwoByteFloor else { break }
-      self.buffer[tailStart &+ have] = byte
+      held |= UInt64(byte) &<< (8 &* have)
       have &+= 1
       i &+= 1
     }
+    self.pendingUTF8 = held
     if have < needed {
       if i == n {
-        self.pendingUTF8Count = have
+        self.pendingUTF8Count = UInt8(have)
         return n
       }
       // The next byte is not a continuation, so the sequence is truncated.
@@ -1264,7 +1292,7 @@ public struct JSONParser: ~Copyable {
     // U+10FFFF — the same second byte constraints the contiguous validator applies, without its
     // ASCII prescan, which measured 32% of byte fed non-ASCII throughput.
     if needed > 1 {
-      let second = self.buffer[tailStart &+ 1]
+      let second = UInt8(truncatingIfNeeded: held &>> 8)
       switch lead {
       case .utf8ThreeByteFloor:
         guard second >= .utf8ThreeByteLowerBound else { throw self.error(.invalidUTF8, at: leadAt) }
@@ -1282,9 +1310,7 @@ public struct JSONParser: ~Copyable {
     // delivers nothing, and this is the one emission its string scanner shares with the
     // normal path.
     if self.state == .skippingString { return i }
-    try self.recordInlineChunk(
-      UnsafeRawPointer(self.buffer.baseAddress! + tailStart), count: needed, end: i, into: &sink
-    )
+    try self.recordInlineChunk(held, count: needed, end: i, into: &sink)
     return i
   }
 
@@ -1375,67 +1401,97 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Emission helpers
 
-  // The last sixteen bytes of the buffer are reserved: eight for a UTF-8 sequence straddling a
-  // chunk boundary and four for an escape being decoded. Neither can be live at once, and
-  // `appendToBuffer` keeps a buffered key or number below them.
-  @usableFromInline static let reservedTailByteCount = 16
+  // Eight bytes past `bufferCapacity`, reserved so a decoded escape has an address that is
+  // stable and *already in memory*. Giving the scratch word its address from a local instead --
+  // `withUnsafeBytes(of: &word)` -- measured -10.1% on Twitter escaped bulk, -10.6% on its 16KB
+  // rows and -14.2% on LLM message byte by byte against this shape, because the closure both
+  // materialises the word to a fresh stack slot on every escaped byte and captures the sink
+  // `inout` across a call boundary. Four bytes is the most any escape or rejoined UTF-8 sequence
+  // needs; eight keeps the region a single aligned word.
+  @usableFromInline static let scratchByteCount = 8
 
+  // A caller-supplied buffer donates its tail to the scratch above, so this floor is the scratch
+  // plus enough left over for a buffered key or number to be worth having.
+  @usableFromInline static let minimumBufferByteCount = 16
+
+  // The scratch's address. It sits in the parser's own allocation rather than in the struct, so
+  // reading it costs one `ldr` of an already-hot field and, unlike a stack local, it never lands
+  // in the caller's frame -- which is what kept `consumeStringRun`'s register budget intact.
   @inlinable
-  var escapeScratchOffset: Int { self.buffer.count &- 4 }
+  @inline(__always)
+  var scratchBase: UnsafeMutablePointer<UInt8> {
+    self.bufferBase + Int(self.bufferCapacity)
+  }
 
   @inlinable
   mutating func emitScalar<Sink: StreamParseSink & ~Copyable>(
     _ value: UInt32, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    let at = self.escapeScratchOffset
+    // Assembled little-endian in a register instead of stored to the buffer's tail page.
+    let word: UInt64
     let count: Int
     if value < .utf8OneByteCeiling {
-      self.buffer[at] = UInt8(value)
+      word = UInt64(value)
       count = 1
     } else if value < .utf8TwoByteCeiling {
-      self.buffer[at] = UInt8(0xC0 | (value >> 6))
-      self.buffer[at &+ 1] = UInt8(0x80 | (value & .utf8ContinuationMask))
+      word =
+        UInt64(0xC0 | (value >> 6))
+        | (UInt64(0x80 | (value & .utf8ContinuationMask)) &<< 8)
       count = 2
     } else if value < .utf8ThreeByteCeiling {
-      self.buffer[at] = UInt8(0xE0 | (value >> 12))
-      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 6) & .utf8ContinuationMask))
-      self.buffer[at &+ 2] = UInt8(0x80 | (value & .utf8ContinuationMask))
+      word =
+        UInt64(0xE0 | (value >> 12))
+        | (UInt64(0x80 | ((value >> 6) & .utf8ContinuationMask)) &<< 8)
+        | (UInt64(0x80 | (value & .utf8ContinuationMask)) &<< 16)
       count = 3
     } else {
-      self.buffer[at] = UInt8(0xF0 | (value >> 18))
-      self.buffer[at &+ 1] = UInt8(0x80 | ((value >> 12) & .utf8ContinuationMask))
-      self.buffer[at &+ 2] = UInt8(0x80 | ((value >> 6) & .utf8ContinuationMask))
-      self.buffer[at &+ 3] = UInt8(0x80 | (value & .utf8ContinuationMask))
+      word =
+        UInt64(0xF0 | (value >> 18))
+        | (UInt64(0x80 | ((value >> 12) & .utf8ContinuationMask)) &<< 8)
+        | (UInt64(0x80 | ((value >> 6) & .utf8ContinuationMask)) &<< 16)
+        | (UInt64(0x80 | (value & .utf8ContinuationMask)) &<< 24)
       count = 4
     }
-    try self.emitScratch(count: count, into: &sink, reportAt: reportAt)
+    try self.emitScratch(word, count: count, into: &sink, reportAt: reportAt)
   }
 
   @inlinable
   mutating func emitDecoded<Sink: StreamParseSink & ~Copyable>(
     byte: UInt8, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    self.buffer[self.escapeScratchOffset] = byte
-    try self.emitScratch(count: 1, into: &sink, reportAt: reportAt)
+    try self.emitScratch(UInt64(byte), count: 1, into: &sink, reportAt: reportAt)
   }
 
   @inlinable
   @inline(__always)
   mutating func emitScratch<Sink: StreamParseSink & ~Copyable>(
-    count: Int, into sink: inout Sink, reportAt: Int
+    _ word: UInt64, count: Int, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    let at = self.escapeScratchOffset
     if self.isKeyToken {
-      try self.appendToBuffer(
-        base: UnsafeRawPointer(self.buffer.baseAddress! + at), from: 0, count: count,
-        reportAt: reportAt
-      )
+      try self.appendScratchToBuffer(word, count: count, reportAt: reportAt)
       return
     }
-    try self.recordInlineChunk(
-      UnsafeRawPointer(self.buffer.baseAddress! + at), count: count, end: reportAt &+ 1,
-      into: &sink
-    )
+    try self.recordInlineChunk(word, count: count, end: reportAt &+ 1, into: &sink)
+  }
+
+  // The scratch word's low `count` bytes, appended to a key being reassembled. Spelled as byte
+  // stores rather than a `copyMemory` from a stack slot: `count` is one to four, and the word is
+  // already in a register.
+  @inlinable
+  mutating func appendScratchToBuffer(
+    _ word: UInt64, count: Int, reportAt: Int
+  ) throws(JSONParsingError) {
+    guard Int(self.bufferCount) &+ count <= Int(self.bufferCapacity) else {
+      throw self.error(.bufferExhausted, at: reportAt)
+    }
+    var remaining = word
+    var at = Int(self.bufferCount)
+    for _ in 0..<count {
+      self.bufferBase[at] = UInt8(truncatingIfNeeded: remaining)
+      remaining &>>= 8
+      at &+= 1
+    }
+    self.bufferCount &+= UInt32(count)
   }
 
   // MARK: Container stack

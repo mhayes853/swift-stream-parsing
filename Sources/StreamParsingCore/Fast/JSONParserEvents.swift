@@ -13,26 +13,29 @@
 // `@inline(__always)` with a constant `kind`, so the switch below folds to exactly one
 // primitive call per site.
 extension JSONParser {
-  // A span over the token's bytes: the chunk's own for `.input`, the parser's buffer for
-  // `.parserBuffer` — exactly what `StreamEventBatch.bytes(of:)` handed the sink. Valid for the
-  // duration of the primitive call it is passed to, which is the whole contract.
+  // A span over the token's bytes. The base is the caller's, not a field: every emission site
+  // is inside a run loop that already holds the chunk pointer in a register (or, for a token
+  // reassembled in the parser's buffer, the buffer's own base), so reading it back out of the
+  // parser was a load from a cache line the loop otherwise never touched. The field it replaced
+  // (`chunkBase`) had exactly one reader, which was this function.
+  // Static, and tied to the base rather than to `self`: with the pointer arriving as an
+  // argument there is nothing of the parser left in the result, and keeping the old
+  // `@_lifetime(borrow self)` shape on a body that no longer reads `self` tripped a SIL
+  // ownership verifier crash in the `PartialSink` specialization of `consumeStructuralRun`.
+  // This is `scratchSpan`'s shape, which the escape path has always used.
   @inlinable
   @inline(__always)
-  @_lifetime(borrow self)
-  func emissionSpan(
-    _ source: StreamEventRecord.Source, _ start: Int, _ length: Int
+  @_lifetime(borrow base)
+  static func emissionSpan(
+    _ base: UnsafeRawPointer, _ start: Int, _ length: Int
   ) -> Span<UInt8> {
-    let base =
-      source == .input
-      ? self.chunkBase
-      : UnsafeRawPointer(self.buffer.baseAddress.unsafelyUnwrapped)
-    return _overrideLifetime(
+    _overrideLifetime(
       Span(
         _unsafeElements: UnsafeBufferPointer(
           start: (base + start).assumingMemoryBound(to: UInt8.self), count: length
         )
       ),
-      borrowing: self
+      borrowing: base
     )
   }
 
@@ -95,7 +98,7 @@ extension JSONParser {
     length: Int,
     end: Int,
     extra: UInt32 = 0,
-    source: StreamEventRecord.Source = .input,
+    base: UnsafeRawPointer,
     into sink: inout Sink
   ) throws(JSONParsingError) {
     switch kind {
@@ -107,15 +110,15 @@ extension JSONParser {
     case .endObject: sink.endObject()
     case .beginArray: _ = sink.beginArray()
     case .endArray: sink.endArray()
-    case .key: sink.key(self.emissionSpan(source, start, length))
+    case .key: sink.key(Self.emissionSpan(base, start, length))
     case .stringBegin: sink.stringBegin()
-    case .stringChunk: sink.stringChunk(self.emissionSpan(source, start, length))
+    case .stringChunk: sink.stringChunk(Self.emissionSpan(base, start, length))
     case .stringEnd: sink.stringEnd()
-    case .string: sink.string(self.emissionSpan(source, start, length))
+    case .string: sink.string(Self.emissionSpan(base, start, length))
     case .boolean: sink.boolean(extra != 0)
     case .null: sink.null()
     // Numbers carry their parsed info and always come through `recordNumber`.
-    case .number: sink.number(self.emissionSpan(source, start, length), info: NumberInfo())
+    case .number: sink.number(Self.emissionSpan(base, start, length), info: NumberInfo())
     }
     // A rejected whole string reports at its content start — the byte after the opening quote —
     // and every other token at the byte after itself, exactly where batch delivery reported.
@@ -140,23 +143,43 @@ extension JSONParser {
     start: Int,
     length: Int,
     end: Int,
-    source: StreamEventRecord.Source = .input,
+    base: UnsafeRawPointer,
     info: NumberInfo,
     into sink: inout Sink
   ) throws(JSONParsingError) {
-    sink.number(self.emissionSpan(source, start, length), info: info)
+    sink.number(Self.emissionSpan(base, start, length), info: info)
     try self.checkEmission(&sink, at: end)
   }
 
-  // A string chunk of at most four bytes — a decoded escape, a UTF-8 sequence rejoined across
-  // chunks — handed over directly from the scratch it was decoded into, which is alive for the
-  // duration of the call. The word-packing the record needed is gone with the record.
+  // A string chunk of at most four bytes -- a decoded escape, a UTF-8 sequence rejoined across
+  // chunks -- carried here in a register and stored whole into the parser's reserved scratch,
+  // whose address is stable and already in memory. There is no closure: the earlier
+  // `withUnsafeBytes(of: &word)` form cost -10% on escape-heavy corpora and -14% on byte-fed
+  // ones, because it spilled the word to a fresh stack slot per escaped byte and captured the
+  // sink `inout` across the call.
+  //
+  // Back to `@inline(__always)`, which is what it always was. The reason it had to be forced out
+  // of line -- the spilled stack slot landing in `consumeStringRun`'s frame, taking it from 41
+  // stack accesses to 73 -- is gone with the local, so the callee no longer has to pay a call
+  // per escape to protect the parser's most brittle register budget.
   @inlinable
   @inline(__always)
   mutating func recordInlineChunk<Sink: StreamParseSink & ~Copyable>(
-    _ bytes: UnsafeRawPointer, count: Int, end: Int, into sink: inout Sink
+    _ word: UInt64, count: Int, end: Int, into sink: inout Sink
   ) throws(JSONParsingError) {
-    sink.stringChunk(Self.scratchSpan(bytes, count))
+    let scratch = self.scratchBase
+    // The whole word, unconditionally, in one unaligned `str`. The scratch is a reserved eight
+    // bytes, so writing the high bytes the sink will not look at is free.
+    //
+    // Storing only the low `count` bytes with a `while at < count` loop instead measured worse
+    // by a wide margin on escape-dense corpora: Twitter escaped bulk 1289 -> 1374 MB/s and its
+    // 16KB rows 1284 -> 1379, GSoC 2018 bulk 4225 -> 4338, i.e. a -2.2% regression against the
+    // pre-layout parser became a +4.3% win. Note the mechanism is *not* code size at the call
+    // site -- every `consumeStringRun` specialisation is byte-identical between the two forms
+    // (6679 instructions, 472 stack accesses either way); the only function that changes is this
+    // one, 46 -> 38 instructions. The loop is simply not worth its branches once per escape.
+    UnsafeMutableRawPointer(scratch).storeBytes(of: word, as: UInt64.self)
+    sink.stringChunk(Self.scratchSpan(UnsafeRawPointer(scratch), count))
     try self.checkEmission(&sink, at: end)
   }
 
@@ -180,30 +203,28 @@ extension JSONParser {
   @inlinable
   @inline(__always)
   mutating func settlePendingStringBegin<Sink: StreamParseSink & ~Copyable>(
-    chunkEnd n: Int, into sink: inout Sink
+    base: UnsafeRawPointer, chunkEnd n: Int, into sink: inout Sink
   ) throws(JSONParsingError) {
     if self.stringBeginPending {
       self.stringBeginPending = false
-      try self.record(.stringBegin, start: Swift.max(n &- 1, 0), length: 1, end: n, into: &sink)
+      try self.record(.stringBegin, start: Swift.max(n &- 1, 0), length: 1, end: n, base: base, into: &sink)
     }
   }
 
   // One string byte, the shape byte fed input is mostly made of. Out of line by force and for
   // the reason it always was: `parse(byte:)` is the dispatcher every byte fed document walks
   // once per byte, and its inlining is the least stable thing in this parser. The byte borrows
-  // the escape scratch for a stable address — dead on this path, since no escape is in progress
-  // inside a clean string byte — and the sink gets the same one-byte chunk the one-record batch
-  // used to carry.
+  // the reserved scratch for a stable address -- dead on this path, since no escape is in
+  // progress inside a clean string byte -- and the sink gets the same one-byte chunk the
+  // one-record batch used to carry.
   @inlinable
   @inline(never)
   mutating func deliverStringByte<Sink: StreamParseSink & ~Copyable>(
     _ byte: UInt8, into sink: inout Sink
   ) throws(JSONParsingError) {
-    let at = self.escapeScratchOffset
-    self.buffer[at] = byte
-    sink.stringChunk(
-      Self.scratchSpan(UnsafeRawPointer(self.buffer.baseAddress.unsafelyUnwrapped + at), 1)
-    )
+    let scratch = self.scratchBase
+    scratch[0] = byte
+    sink.stringChunk(Self.scratchSpan(UnsafeRawPointer(scratch), 1))
     try self.checkEmission(&sink, at: 1)
     self.consumedByteCount &+= 1
   }

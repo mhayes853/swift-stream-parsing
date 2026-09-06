@@ -72,11 +72,11 @@ extension JSONParser {
       // The commit lands before the error propagates: everything emitted ahead of the error is
       // the sink's, and a deferring sink's late rejection is earlier in the document than the
       // grammar error and is what gets reported.
-      try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+      try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
       try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
     _ = i
-    try self.settlePendingStringBegin(chunkEnd: n, into: &sink)
+    try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
     try self.commitSink(chunkEnd: n, into: &sink)
     self.consumedByteCount &+= n
   }
@@ -129,7 +129,7 @@ extension JSONParser {
           base.advanced(by: i).assumingMemoryBound(to: UInt8.self), length, UInt32(i),
           indices, needsScan, nonASCII
         )
-        self.windowDensity = count / ((length &+ 63) &>> 6)
+        self.windowDensity = UInt32(count / ((length &+ 63) &>> 6))
         windowStart = i
         windowEnd = i &+ length
         entry = 0
@@ -224,7 +224,7 @@ extension JSONParser {
       let end = streamNumberRunEnd(base: base, from: pos, to: n)
       guard end < n else { return nil }
       let info = try self.parseNumber(base: base, from: pos, to: end, reportAt: end)
-      try self.recordNumber(start: pos, length: end &- pos, end: end, info: info, into: &sink)
+      try self.recordNumber(start: pos, length: end &- pos, end: end, base: base, info: info, into: &sink)
       return end
     case .asciiLowerT, .asciiLowerF, .asciiLowerN:
       let kind: UInt8 = byte == .asciiLowerT ? 0 : byte == .asciiLowerF ? 1 : 2
@@ -239,7 +239,7 @@ extension JSONParser {
         j &+= 1
       }
       guard index == expected.count else { return nil }
-      try self.record(kind == 2 ? .null : .boolean, start: pos, length: j &- pos, end: j, extra: kind == 0 ? 1 : 0, into: &sink)
+      try self.record(kind == 2 ? .null : .boolean, start: pos, length: j &- pos, end: j, extra: kind == 0 ? 1 : 0, base: base, into: &sink)
       return j
     default:
       throw self.error(.unexpectedToken, at: pos)
@@ -320,7 +320,7 @@ extension JSONParser {
             // The walk hands the cursor back with the skip state set; `parseWindows` routes it
             // through `dispatchOnce` into the skip scanner, and the index resync picks the walk
             // up wherever the skip stops.
-            self.skipEndDepth = depth &- 1
+            self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
             state = .skipping
             return cursor
           }
@@ -338,7 +338,7 @@ extension JSONParser {
           cursor = pos &+ 1
           k &+= 1
           if disposition != .stream {
-            self.skipEndDepth = depth &- 1
+            self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
             state = .skipping
             return cursor
           }
@@ -354,7 +354,7 @@ extension JSONParser {
         case .asciiArrayEnd:
           guard state == .firstValue, !Self.topIsObject(depth: depth, containers: containers)
           else { throw self.error(.unexpectedToken, at: pos) }
-          try self.record(.endArray, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          try self.record(.endArray, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -367,14 +367,14 @@ extension JSONParser {
             let firstBlock = (pos &+ 1 &- windowStart) &>> 6
             let lastBlock = (close &- 1 &- windowStart) &>> 6
             if Self.windowFlag(needsScan, firstBlock: firstBlock, lastBlock: lastBlock) {
-              try self.record(.stringBegin, start: pos, length: 1, end: pos &+ 1, into: &sink)
+              try self.record(.stringBegin, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
               if let handedBack = try self.scanStringValue(
                 base: base, from: pos &+ 1, to: close, into: &sink
               ) {
                 state = .escape
                 return handedBack
               }
-              try self.record(.stringEnd, start: close, length: 1, end: close &+ 1, into: &sink)
+              try self.record(.stringEnd, start: close, length: 1, end: close &+ 1, base: base, into: &sink)
               state = .afterValue
               cursor = close &+ 1
               k &+= 2
@@ -391,11 +391,11 @@ extension JSONParser {
                 reportAt: nil
               )
             } catch {
-              try self.record(.stringBegin, start: pos, length: 1, end: pos &+ 1, into: &sink)
+              try self.record(.stringBegin, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
               throw error
             }
           }
-          try self.record(.string, start: pos &+ 1, length: close &- pos &- 1, end: close &+ 1, into: &sink)
+          try self.record(.string, start: pos &+ 1, length: close &- pos &- 1, end: close &+ 1, base: base, into: &sink)
           state = .afterValue
           cursor = close &+ 1
           k &+= 2
@@ -435,7 +435,7 @@ extension JSONParser {
           guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
           }
-          try self.record(.endArray, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          try self.record(.endArray, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -444,7 +444,7 @@ extension JSONParser {
           guard Self.topIsObject(depth: depth, containers: containers) else {
             throw self.error(.unexpectedToken, at: pos)
           }
-          try self.record(.endObject, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          try self.record(.endObject, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -474,14 +474,14 @@ extension JSONParser {
             base: base, from: pos &+ 1, to: close, containsNonASCII: containsNonASCII,
             reportAt: close
           )
-          try self.record(.key, start: pos &+ 1, length: close &- pos &- 1, end: close &+ 1, into: &sink)
+          try self.record(.key, start: pos &+ 1, length: close &- pos &- 1, end: close &+ 1, base: base, into: &sink)
           state = .afterKey
           cursor = close &+ 1
           k &+= 2
         case .asciiObjectEnd:
           guard state == .firstKey, Self.topIsObject(depth: depth, containers: containers)
           else { throw self.error(.unexpectedToken, at: pos) }
-          try self.record(.endObject, start: pos, length: 1, end: pos &+ 1, into: &sink)
+          try self.record(.endObject, start: pos, length: 1, end: pos &+ 1, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           cursor = pos &+ 1
@@ -526,7 +526,7 @@ extension JSONParser {
           base: base, from: i, to: run.end, containsNonASCII: run.containsNonASCII,
           reportAt: nil
         )
-        try self.record(.stringChunk, start: i, length: run.end &- i, end: run.end, into: &sink)
+        try self.record(.stringChunk, start: i, length: run.end &- i, end: run.end, base: base, into: &sink)
         i = run.end
       }
       guard i < close else { break }
