@@ -1,6 +1,6 @@
 // MARK: - Macros
 
-/// Generates a ``StreamParseable`` conformance and `Partial` helper for a struct.
+/// Generates a ``StreamParseable`` conformance and `Partial` helper for a struct or enum.
 ///
 /// ```swift
 /// @StreamParseable
@@ -9,6 +9,29 @@
 ///   var body: String
 /// }
 /// ```
+///
+/// ## Enums
+///
+/// An enum is lowered by how it is spelled, and each form parses what `Codable` produces for the
+/// same declaration:
+///
+/// | spelling | JSON | `Partial` |
+/// | --- | --- | --- |
+/// | `enum S: String` | `"live"` | `StreamString` |
+/// | `enum S: Int` | `5` | `Int` |
+/// | `enum S` (no raw type) | `{"live":{}}` | a generated struct |
+///
+/// Every enum must name the case a total conversion falls back to, with
+/// ``StreamParseableDefault()`` or by conforming to `StreamInitializable`.
+///
+/// Cases with associated values are not supported. Only `String` and the standard integer and
+/// floating point types are recognised as raw types; an enum with any other raw type is
+/// diagnosed rather than silently given the object form.
+///
+/// A `String`-raw case resolves from a *partial* value as the shortest case those bytes are still
+/// a prefix of, because a string arrives in pieces and carries no end signal. A case can
+/// therefore be superseded as more bytes land — `live` becoming `livestream` — where a number or
+/// an object key, both of which arrive whole, cannot.
 @attached(
   extension,
   conformances: StreamParseable,
@@ -52,6 +75,26 @@ public macro StreamParseableMember(keyNames: [String], initialCapacity: Int? = n
 @attached(peer)
 public macro StreamParseableMember(initialCapacity: Int) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
+/// Names the enum case a partial falls back to when the stream produced no value the enum can
+/// represent.
+///
+/// ```swift
+/// @StreamParseable
+/// enum Stage: String {
+///   @StreamParseableDefault
+///   case unknown
+///   case live
+/// }
+/// ```
+///
+/// This is what supplies ``StreamParseable/streamValueOrInitial(from:)`` — the total conversion —
+/// for an enum. Without it the enum must conform to ``StreamInitializable`` instead, which names
+/// the same fallback in longhand. The strict conversion still declines: only the total one
+/// substitutes the default.
+@attached(peer)
+public macro StreamParseableDefault() =
+  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableDefaultMacro")
 
 /// Marks a stored property as ignored when deriving the `Partial`.
 ///

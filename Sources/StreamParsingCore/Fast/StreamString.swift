@@ -402,6 +402,50 @@ extension StreamString {
   }
 }
 
+// MARK: - Key words
+
+// The read side of the same encoding `Span<UInt8>.paddedWord(at:)` produces, so a generated
+// matcher can compare an accumulated value against a compile-time literal with the identical
+// codegen it already uses for object keys — a switch on the leading word, then a count check and
+// any remaining words. That symmetry is the point: `@StreamParseable` on a `String`-raw enum
+// emits the same shape of matcher for a case name that it emits for a member key, rather than
+// materializing a `String` per conversion and running string equality.
+extension StreamString {
+  /// The accumulated UTF-8 bytes `start..<start + 8`, little-endian, zero-padded past
+  /// ``utf8Count``.
+  ///
+  /// The padding is why a matcher must still test ``utf8Count``: an accumulated value may hold a
+  /// decoded NUL, which is otherwise indistinguishable from the padding.
+  ///
+  /// `start` is expected to be a multiple of eight, which every generated matcher uses. Any
+  /// eight-byte window at such an offset lies inside one contiguous 512-byte block, so this
+  /// never has to stitch a word across a block seam.
+  @inlinable
+  public func paddedWord(at start: Int) -> UInt64 {
+    let count = self.utf8Count
+    guard start >= 0, start < count else { return 0 }
+    // Clamped rather than overread: unlike a key span, whose bytes are a borrow into the
+    // document with more document behind them, an accumulated value's last block ends where the
+    // value does and there is nothing legal past it.
+    let available = min(8, count &- start)
+    return self.withWindow(at: start, count: available) { buffer in
+      streamPaddedWord(
+        base: UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped),
+        from: 0,
+        to: available
+      )
+    }
+  }
+
+  /// The first eight accumulated UTF-8 bytes as one little-endian word.
+  ///
+  /// - SeeAlso: ``paddedWord(at:)``
+  @inlinable
+  public func paddedLeadingWord() -> UInt64 {
+    self.paddedWord(at: 0)
+  }
+}
+
 // MARK: - Scalar decoding
 
 extension StreamString {
@@ -804,6 +848,23 @@ extension StreamString {
     var copy = String(prefix)
     return copy.withUTF8 { buffer in
       self.utf8Matches(buffer, at: 0)
+    }
+  }
+
+  /// Whether the accumulated bytes are a prefix of `text`'s UTF-8, compared byte-wise —
+  /// including when they are all of it.
+  ///
+  /// The mirror of ``hasPrefix(_:)``, and the direction a *streaming* match needs: the question
+  /// is whether what has arrived so far is still consistent with `text`, not whether `text` has
+  /// already arrived. A generated enum matcher walks its cases shortest-first asking this, so the
+  /// first case still consistent with the bytes in hand is the shortest one — which is the
+  /// documented resolution rule when the value may yet grow.
+  public func isPrefix(of text: some StringProtocol) -> Bool {
+    var copy = String(text)
+    return copy.withUTF8 { buffer in
+      let count = self.utf8Count
+      guard count <= buffer.count else { return false }
+      return self.utf8Matches(UnsafeBufferPointer(start: buffer.baseAddress, count: count), at: 0)
     }
   }
 
