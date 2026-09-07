@@ -72,6 +72,32 @@ private struct Job: Equatable {
   var figure: Figure
 }
 
+// MARK: - Associated values
+
+@StreamParseable
+private struct TextBlock: Codable, Equatable {
+  var body: String
+}
+
+// A mix of no-payload, single-unlabeled-payload, and multi-labeled-payload cases, exactly the
+// three shapes `Codable`'s own synthesis distinguishes.
+@StreamParseable
+private enum Block: Codable, Equatable {
+  @StreamParseableDefault
+  case unknown
+  case text(TextBlock)
+  case image(url: String, width: Int)
+}
+
+// The default case itself carries a payload, so the total conversion has to fill it from its
+// own field's initial value rather than naming a bare case.
+@StreamParseable
+private enum Note: Codable, Equatable {
+  case text(String)
+  @StreamParseableDefault
+  case empty(reason: String)
+}
+
 // MARK: - Helpers
 
 private func parsePartial<T: StreamParseable>(
@@ -313,6 +339,156 @@ struct `Enum Parseable Tests` {
     expectNoDifference(Stage(streamPartial: Stage.live.streamPartialValue), .live)
     expectNoDifference(Priority(streamPartial: Priority.high.streamPartialValue), .high)
     expectNoDifference(Figure(streamPartial: Figure.square.streamPartialValue), .square)
+  }
+
+  // MARK: - Associated values
+
+  @Test
+  func `Reads a single unlabeled payload`() throws {
+    let partial = try parsePartial(#"{"text":{"_0":{"body":"hi"}}}"#, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), .text(TextBlock(body: "hi")))
+  }
+
+  @Test
+  func `Reads multiple labeled payloads`() throws {
+    let partial = try parsePartial(#"{"image":{"url":"u","width":3}}"#, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), .image(url: "u", width: 3))
+  }
+
+  @Test
+  func `Resolves a no-payload case alongside payload-bearing ones`() throws {
+    let partial = try parsePartial(#"{"unknown":{}}"#, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), .unknown)
+  }
+
+  @Test
+  func `Declines a payload that has not fully arrived`() throws {
+    let partial = try parsePartial(#"{"image":{"url":"u"}}"#, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), nil)
+  }
+
+  @Test
+  func `Declines two case keys naming associated-value cases`() throws {
+    let partial = try parsePartial(#"{"text":{"_0":{"body":"hi"}},"unknown":{}}"#, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), nil)
+  }
+
+  @Test
+  func `A payload-bearing default case fills from its own fields' initial values`() throws {
+    expectNoDifference(Note.streamValueOrInitial(from: Note.Partial()), .empty(reason: ""))
+    let partial = try parsePartial(#"{"empty":{}}"#, as: Note.self)
+    expectNoDifference(Note.streamValueOrInitial(from: partial), .empty(reason: ""))
+    expectNoDifference(Note(streamPartial: partial), nil)
+  }
+
+  @Test(arguments: [
+    #"{"unknown":{}}"#, #"{"text":{"_0":{"body":"hi"}}}"#, #"{"image":{"url":"u","width":3}}"#
+  ])
+  func `Agrees with JSONDecoder on associated-value shapes`(json: String) throws {
+    let decoded = try JSONDecoder().decode(Block.self, from: Data(json.utf8))
+    let partial = try parsePartial(json, as: Block.self)
+    expectNoDifference(Block(streamPartial: partial), decoded)
+  }
+
+  @Test
+  func `Agrees with JSONEncoder on associated-value shapes`() throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    expectNoDifference(
+      String(decoding: try encoder.encode(Block.text(TextBlock(body: "hi"))), as: UTF8.self),
+      #"{"text":{"_0":{"body":"hi"}}}"#
+    )
+    expectNoDifference(
+      String(decoding: try encoder.encode(Block.image(url: "u", width: 3)), as: UTF8.self),
+      #"{"image":{"url":"u","width":3}}"#
+    )
+  }
+
+  @Test
+  func `Round trips an associated-value case through the partial`() throws {
+    expectNoDifference(Block(streamPartial: Block.text(TextBlock(body: "hi")).streamPartialValue), .text(TextBlock(body: "hi")))
+    expectNoDifference(
+      Block(streamPartial: Block.image(url: "u", width: 3).streamPartialValue),
+      .image(url: "u", width: 3)
+    )
+  }
+
+  // Every lowering has to read the same however the bytes are split — associated values add a
+  // second frame (the payload's own object) that the sink has to route into correctly no matter
+  // where the split lands.
+  @Test(arguments: [
+    #"{"text":{"_0":{"body":"hi"}}}"#,
+    #"{"image":{"url":"u","width":3}}"#
+  ])
+  func `Reads an associated-value case the same at every chunk size`(json: String) throws {
+    let bytes = Array(json.utf8)
+    let whole = try parsePartial(json, as: Block.self)
+    let expected = Block(streamPartial: whole)
+    for size in 1...bytes.count {
+      var stream = PartialsStream(initialValue: Block.Partial(), from: .json())
+      var index = 0
+      while index < bytes.count {
+        let end = min(index + size, bytes.count)
+        try stream.next(bytes[index..<end])
+        index = end
+      }
+      expectNoDifference(Block(streamPartial: stream.current), expected)
+    }
+  }
+
+  // MARK: - Resolved view
+
+  private func blockStream(_ json: String) throws -> PartialsStream<Block.Partial> {
+    var stream = PartialsStream(initialValue: Block.Partial(), from: .json())
+    try stream.next(Array(json.utf8))
+    return stream
+  }
+
+  @Test
+  func `Reads a payload case's view mid-stream`() throws {
+    let stream = try self.blockStream(#"{"image":{"url":"u","width":3}}"#)
+    stream.withView { partial in
+      switch partial.resolved {
+      case .image(let view):
+        guard let urlView = view.url, let widthView = view.width else {
+          Issue.record("expected populated url/width views")
+          return
+        }
+        expectNoDifference(String(streamPartial: urlView.value), "u")
+        expectNoDifference(widthView.value, 3)
+      default:
+        Issue.record("expected .image")
+      }
+    }
+  }
+
+  @Test
+  func `Reads a no-payload case's view`() throws {
+    let stream = try self.blockStream(#"{"unknown":{}}"#)
+    stream.withView { partial in
+      switch partial.resolved {
+      case .unknown: break
+      default: Issue.record("expected .unknown")
+      }
+    }
+  }
+
+  @Test
+  func `The view is unresolved before any key arrives, and ambiguous after two`() throws {
+    let empty = PartialsStream(initialValue: Block.Partial(), from: .json())
+    empty.withView { partial in
+      switch partial.resolved {
+      case .unresolved: break
+      default: Issue.record("expected .unresolved")
+      }
+    }
+    let stream = try self.blockStream(#"{"text":{"_0":{"body":"hi"}},"unknown":{}}"#)
+    stream.withView { partial in
+      switch partial.resolved {
+      case .ambiguous: break
+      default: Issue.record("expected .ambiguous")
+      }
+    }
   }
 }
 

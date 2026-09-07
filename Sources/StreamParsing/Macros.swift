@@ -24,20 +24,27 @@
 /// Every enum must name the case a total conversion falls back to, with
 /// ``StreamParseableDefault()`` or by conforming to `StreamInitializable`.
 ///
-/// Cases with associated values are not supported. Only `String` and the standard integer and
-/// floating point types are recognised as raw types; an enum with any other raw type is
-/// diagnosed rather than silently given the object form.
+/// Only `String` and the standard integer and floating point types are recognised as raw types;
+/// an enum with any other raw type is diagnosed rather than silently given the object form. A
+/// raw-value enum cannot declare associated values — Swift itself forbids that combination.
 ///
 /// A `String`-raw case resolves from a *partial* value as the shortest case those bytes are still
 /// a prefix of, because a string arrives in pieces and carries no end signal. A case can
 /// therefore be superseded as more bytes land — `live` becoming `livestream` — where a number or
 /// an object key, both of which arrive whole, cannot.
+///
+/// A case with associated values gets a payload type of its own, generated from the labels it
+/// declares (or, unlabelled, a positional `_0`, `_1`, ... — the same key `Codable`'s own
+/// synthesis uses). `Partial.View` also gains a `resolved` property: a borrowed, mid-stream read
+/// of whichever case's key has arrived so far, for a case with associated values wrapping that
+/// case's own zero-copy view.
 @attached(
   extension,
   conformances: StreamParseable,
   names: named(Partial),
   named(init),
-  named(streamValueOrInitial)
+  named(streamValueOrInitial),
+  arbitrary
 )
 @attached(member, names: named(streamPartialValue))
 public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =

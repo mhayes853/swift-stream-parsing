@@ -161,6 +161,49 @@ The consequence worth planning for: a case can be **superseded**, not merely fil
 `.live` becomes `.livestream` as more bytes land. This only affects `String`-raw enums — a number
 and an object key both arrive whole, so those two resolve or they do not.
 
+#### Cases with associated values
+
+A raw-less enum's cases can carry associated values, still matching `Codable`'s own wire format
+for the same declaration:
+
+```swift
+@StreamParseable
+enum Block: Codable {
+  @StreamParseableDefault
+  case unknown
+  case text(TextBlock)                 // {"text":{"_0":{...}}}
+  case image(url: String, width: Int)  // {"image":{"url":"...","width":...}}
+}
+```
+
+Each associated value keys its field the same way `Codable`'s synthesis does: a written label
+(`url`, `width`), or a positional `_0`, `_1`, ... for an unlabeled one — counted over every
+parameter in that case, labeled ones included. Every associated value's type has to itself be
+`StreamParseable` (`String`/`Int`/etc. already are).
+
+`init?(streamPartial:)` and `streamValueOrInitial(from:)` work exactly as they do for a no-payload
+enum — declining unless exactly one case's key arrived, and requiring that case's payload to be
+complete. A payload-bearing `@StreamParseableDefault` case fills its associated values from their
+own initial values, recursively, the same way a struct's members do.
+
+`Partial.View` additionally gets a `resolved` property: a borrowed, mid-stream read of whichever
+case's key has arrived so far, without materializing an owned snapshot of it.
+
+```swift
+stream.withView { partial in
+  switch partial.resolved {
+  case .unresolved: break
+  case .ambiguous: break
+  case .unknown: break
+  case .text(let view):
+    if let body = view._0 {
+      print(body.body?.value)  // TextBlock's own `body: String` field
+    }
+  case .image(let view):
+    print(view.url?.value, view.width?.value)
+  }
+}
+```
 
 You can also parse partials from an AsyncSequence of bytes or byte chunks.
 

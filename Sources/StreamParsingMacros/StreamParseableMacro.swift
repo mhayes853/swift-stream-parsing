@@ -604,7 +604,7 @@ extension StreamParseableMacro {
       """
   }
 
-  private static func streamPartialValueProperty(
+  static func streamPartialValueProperty(
     from properties: [StoredProperty],
     modifierPrefix: String
   ) -> String {
@@ -655,7 +655,7 @@ extension StreamParseableMacro {
   // `_streamValueOrInitial`, whose first argument binds the destination type from the property
   // itself — so the type the macro derived for `Partial` is checked against the one the compiler
   // derives, instead of being derived a second time and trusted.
-  private static func conversionMembers(
+  static func conversionMembers(
     from properties: [StoredProperty],
     modifierPrefix: String,
     membersMode: PartialMembersMode

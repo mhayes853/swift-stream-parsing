@@ -2380,7 +2380,46 @@ extension BaseTestSuite {
                   return _overrideLifetime(StreamParsingCore.StreamEmptyObject.Partial.streamView(address), borrowing: self)
                 }
               }
+
+          /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+          /// than one case's key has arrived yet.
+          enum ResolvedView: ~Copyable, ~Escapable {
+            case unresolved
+            case ambiguous
+              case circle
+              case square
             }
+
+            var resolved: ResolvedView {
+              @_lifetime(borrow self)
+              get {
+                var streamMatched = -1
+                var streamMatches = 0
+              if self.storage.pointee.circle != nil {
+                  streamMatched = 0;
+                  streamMatches += 1
+                }
+              if self.storage.pointee.square != nil {
+                  streamMatched = 1;
+                  streamMatches += 1
+                }
+                guard streamMatches == 1 else {
+                  if streamMatches == 0 {
+                    return .unresolved
+                  }
+                  return .ambiguous
+                }
+                switch streamMatched {
+              case 0:
+                return .circle
+              case 1:
+                return .square
+                default:
+                  return .unresolved
+                }
+              }
+            }
+          }
 
             @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
@@ -2497,22 +2536,30 @@ extension BaseTestSuite {
           }
 
           /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
-          /// the same document.
+          /// the same document — and, for a case with associated values, unless that one case's own
+          /// payload has everything it needs yet.
           init?(streamPartial partial: Partial) {
-            var streamMatched: Self?
+            var streamMatched = -1
             var streamMatches = 0
             if partial.circle != nil {
-              streamMatched = .circle
+              streamMatched = 0
               streamMatches += 1
             }
             if partial.square != nil {
-              streamMatched = .square
+              streamMatched = 1
               streamMatches += 1
             }
-            guard streamMatches == 1, let streamMatched else {
+            guard streamMatches == 1 else {
               return nil
             }
-            self = streamMatched
+            switch streamMatched {
+            case 0:
+              self = .circle
+            case 1:
+              self = .square
+            default:
+              return nil
+            }
           }
 
           /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
@@ -2598,25 +2645,641 @@ extension BaseTestSuite {
       assertMacro {
         """
         @StreamParseable
-        enum Person {
-          case name(String)
-          case age(Int)
+        enum Note {
+          case text(String)
+          @StreamParseableDefault
+          case empty(reason: String)
         }
         """
-      } diagnostics: {
+      } expansion: {
         """
-        @StreamParseable
-        enum Person {
-             ┬─────
-             ╰─ 🛑 @StreamParseable requires an enum to name a fallback case, because 'streamValueOrInitial' has to produce one when the stream produced nothing this type can represent. Mark a case with @StreamParseableDefault, or declare 'StreamInitializable' conformance on 'Person' itself.
-          case name(String)
-               ┬───────────
-               ├─ 🛑 @StreamParseable does not support enum cases with associated values. Case 'name' declares one.
-               ╰─ 🛑 @StreamParseable does not support enum cases with associated values. Case 'name' declares one.
-          case age(Int)
-               ┬───────
-               ├─ 🛑 @StreamParseable does not support enum cases with associated values. Case 'age' declares one.
-               ╰─ 🛑 @StreamParseable does not support enum cases with associated values. Case 'age' declares one.
+        enum Note {
+          case text(String)
+          @StreamParseableDefault
+          case empty(reason: String)
+
+          var streamPartialValue: Partial {
+            switch self {
+            case .text(let _0):
+              return Partial(text: TextPayload.Partial(_0: _0.streamPartialValue))
+            case .empty(let reason):
+              return Partial(empty: EmptyPayload.Partial(reason: reason.streamPartialValue))
+            }
+          }
+        }
+
+        extension Note: StreamParsingCore.StreamParseable {
+          struct Partial: StreamParsingCore.StreamParseable,
+            StreamParsingCore.StreamParseableObject, Sendable {
+            typealias Partial = Self
+
+            var text: TextPayload.Partial?
+            var empty: EmptyPayload.Partial?
+
+            init(
+              text: TextPayload.Partial? = nil,
+              empty: EmptyPayload.Partial? = nil
+            ) {
+              self.text = text
+              self.empty = empty
+            }
+
+            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+            private static let _streamInitialValueTemplate: Self = Self()
+
+            static func streamInitialValue() -> Self {
+              Self._streamInitialValueTemplate
+            }
+
+            struct View: ~Copyable, ~Escapable {
+              let storage: UnsafeMutablePointer<Partial>
+
+              @_lifetime(borrow storage)
+              init(_ storage: UnsafeMutableRawPointer) {
+                self.storage = storage.assumingMemoryBound(to: Partial.self)
+              }
+
+            var text: TextPayload.Partial.View? {
+                @_lifetime(borrow self)
+                get {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.text) else {
+                    return nil
+                  }
+                  return _overrideLifetime(TextPayload.Partial.streamView(address), borrowing: self)
+                }
+              }
+
+            var empty: EmptyPayload.Partial.View? {
+                @_lifetime(borrow self)
+                get {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.empty) else {
+                    return nil
+                  }
+                  return _overrideLifetime(EmptyPayload.Partial.streamView(address), borrowing: self)
+                }
+              }
+
+          /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+          /// than one case's key has arrived yet.
+          enum ResolvedView: ~Copyable, ~Escapable {
+            case unresolved
+            case ambiguous
+              case text(TextPayload.Partial.View)
+              case empty(EmptyPayload.Partial.View)
+            }
+
+            var resolved: ResolvedView {
+              @_lifetime(borrow self)
+              get {
+                var streamMatched = -1
+                var streamMatches = 0
+              if self.storage.pointee.text != nil {
+                  streamMatched = 0;
+                  streamMatches += 1
+                }
+              if self.storage.pointee.empty != nil {
+                  streamMatched = 1;
+                  streamMatches += 1
+                }
+                guard streamMatches == 1 else {
+                  if streamMatches == 0 {
+                    return .unresolved
+                  }
+                  return .ambiguous
+                }
+                switch streamMatched {
+              case 0:
+                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self.storage.pointee.text)
+                else {
+                  return .unresolved
+                }
+                return _overrideLifetime(
+                  .text(TextPayload.Partial.streamView(streamAddress)),
+                  borrowing: self
+                )
+              case 1:
+                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self.storage.pointee.empty)
+                else {
+                  return .unresolved
+                }
+                return _overrideLifetime(
+                  .empty(EmptyPayload.Partial.streamView(streamAddress)),
+                  borrowing: self
+                )
+                default:
+                  return .unresolved
+                }
+              }
+            }
+          }
+
+            @_lifetime(borrow storage)
+            static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+              View(storage)
+            }
+
+            private enum StreamField {
+              static let text: Int32 = 0
+              static let empty: Int32 = 1
+            }
+
+            private static let streamContainerSchema_text = _streamContainerSchema(for: (TextPayload.Partial).self)
+            private static let streamContainerSchema_empty = _streamContainerSchema(for: (EmptyPayload.Partial).self)
+
+            static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+              switch key.paddedLeadingWord() {
+              case 0x0000_0000_7478_6574 where key.count == 4:
+                return Self.StreamField.text
+              case 0x0000_0079_7470_6D65 where key.count == 5:
+                return Self.StreamField.empty
+              default:
+                return -1
+              }
+            }
+
+            static func streamApplyString(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>
+            ) -> StreamParsingCore.StreamApplyResult {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case Self.StreamField.text:
+                return streamApply(&p.pointee.text, utf8: bytes)
+              case Self.StreamField.empty:
+                return streamApply(&p.pointee.empty, utf8: bytes)
+              default:
+                return .unsupported
+              }
+            }
+
+            static func streamApplyNumber(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32,
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+            ) -> StreamParsingCore.StreamApplyResult {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case Self.StreamField.text:
+                return streamApply(&p.pointee.text, bytes: bytes, info: info)
+              case Self.StreamField.empty:
+                return streamApply(&p.pointee.empty, bytes: bytes, info: info)
+              default:
+                return .unsupported
+              }
+            }
+
+            static func streamApplyBoolean(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+            ) -> StreamParsingCore.StreamApplyResult {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case Self.StreamField.text:
+                return streamApply(&p.pointee.text, boolean: value)
+              case Self.StreamField.empty:
+                return streamApply(&p.pointee.empty, boolean: value)
+              default:
+                return .unsupported
+              }
+            }
+
+            static func streamApplyNull(
+              _ storage: UnsafeMutableRawPointer, _ field: Int32
+            ) -> StreamParsingCore.StreamApplyResult {
+              let p = storage.assumingMemoryBound(to: Self.self)
+              switch field {
+              case Self.StreamField.text:
+                return StreamParsing.streamApplyNull(&p.pointee.text)
+              case Self.StreamField.empty:
+                return StreamParsing.streamApplyNull(&p.pointee.empty)
+              default:
+                return .unsupported
+              }
+            }
+
+            static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
+              of: Self.self, prototype: Self()
+            ) { p in
+              [
+                StreamParsingCore.StreamField(
+                  key: "text", index: Self.StreamField.text,
+                  route: _streamFieldRoute(&p.pointee.text, schema: Self.streamContainerSchema_text),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.text, in: p)
+                ),
+                StreamParsingCore.StreamField(
+                  key: "empty", index: Self.StreamField.empty,
+                  route: _streamFieldRoute(&p.pointee.empty, schema: Self.streamContainerSchema_empty),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.empty, in: p)
+                ),
+              ]
+            }
+
+            static let streamSchema = StreamParsingCore.StreamSchema(
+              shape: .object,
+              matchField: Self.streamMatchField,
+              applyString: Self.streamApplyString,
+              applyNumber: Self.streamApplyNumber,
+              applyBoolean: Self.streamApplyBoolean,
+              applyNull: Self.streamApplyNull,
+              fields: Self.streamFields
+            )
+          }
+
+          enum TextPayload {
+              struct Partial: StreamParsingCore.StreamParseable,
+                StreamParsingCore.StreamParseableObject, Sendable {
+                typealias Partial = Self
+
+                var _0: String.Partial?
+
+                init(
+                  _0: String.Partial? = nil
+                ) {
+                  self._0 = _0
+                }
+
+                // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+                // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+                // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+                // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+                private static let _streamInitialValueTemplate: Self = Self()
+
+                static func streamInitialValue() -> Self {
+                  Self._streamInitialValueTemplate
+                }
+
+                struct View: ~Copyable, ~Escapable {
+                  let storage: UnsafeMutablePointer<Partial>
+
+                  @_lifetime(borrow storage)
+                  init(_ storage: UnsafeMutableRawPointer) {
+                    self.storage = storage.assumingMemoryBound(to: Partial.self)
+                  }
+
+                var _0: String.Partial.View? {
+                    @_lifetime(borrow self)
+                    get {
+                      guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee._0) else {
+                        return nil
+                      }
+                      return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
+                    }
+                  }
+                }
+
+                @_lifetime(borrow storage)
+                static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+                  View(storage)
+                }
+
+                private enum StreamField {
+                  static let _0: Int32 = 0
+                }
+
+                private static let streamContainerSchema__0 = _streamContainerSchema(for: (String.Partial).self)
+
+                static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+                  switch key.paddedLeadingWord() {
+                  case 0x0000_0000_0000_305F where key.count == 2:
+                  return Self.StreamField._0
+                  default:
+                  return -1
+                  }
+                }
+
+                static func streamApplyString(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32,
+                  _ bytes: Span<UInt8>
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField._0:
+                  return streamApply(&p.pointee._0, utf8: bytes)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyNumber(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32,
+                  _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField._0:
+                  return streamApply(&p.pointee._0, bytes: bytes, info: info)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyBoolean(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField._0:
+                  return streamApply(&p.pointee._0, boolean: value)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyNull(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField._0:
+                  return StreamParsing.streamApplyNull(&p.pointee._0)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
+                  of: Self.self, prototype: Self()
+                ) { p in
+                  [
+                    StreamParsingCore.StreamField(
+                      key: "_0", index: Self.StreamField._0,
+                      route: _streamFieldRoute(&p.pointee._0, schema: Self.streamContainerSchema__0),
+                      offset: StreamParsingCore._streamFieldOffset(&p.pointee._0, in: p)
+                    ),
+                  ]
+                }
+
+                static let streamSchema = StreamParsingCore.StreamSchema(
+                  shape: .object,
+                  matchField: Self.streamMatchField,
+                  applyString: Self.streamApplyString,
+                  applyNumber: Self.streamApplyNumber,
+                  applyBoolean: Self.streamApplyBoolean,
+                  applyNull: Self.streamApplyNull,
+                  fields: Self.streamFields
+                )
+              }
+
+              struct Value: StreamParsingCore.StreamParseable {
+                var _0: String
+
+                typealias Partial = TextPayload.Partial
+
+                var streamPartialValue: Partial {
+                  Partial(
+                    _0: self._0.streamPartialValue
+                  )
+                }
+
+                init?(_ partial: Partial) {
+                    self.init(streamPartial: partial)
+                  }
+
+                  init?(streamPartial partial: Partial) {
+                    guard
+                      let _0 = Self._streamValue({ $0._0
+                    }, partial._0)
+                    else {
+                      return nil
+                    }
+                    self._0 = _0
+                  }
+
+                  init(orInitial partial: Partial) {
+                    self._0 = Self._streamValueOrInitial({
+                      $0._0
+                    }, partial._0)
+                  }
+
+                  static func streamValueOrInitial(from partial: Partial) -> Self {
+                    Self(orInitial: partial)
+                  }
+              }
+            }
+
+          enum EmptyPayload {
+              struct Partial: StreamParsingCore.StreamParseable,
+                StreamParsingCore.StreamParseableObject, Sendable {
+                typealias Partial = Self
+
+                var reason: String.Partial?
+
+                init(
+                  reason: String.Partial? = nil
+                ) {
+                  self.reason = reason
+                }
+
+                // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
+                // for a large nested struct is a long chain of small copies. Every member's own `Partial`
+                // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
+                // `Self` itself `Sendable` here and lets the template be a plain `static let`.
+                private static let _streamInitialValueTemplate: Self = Self()
+
+                static func streamInitialValue() -> Self {
+                  Self._streamInitialValueTemplate
+                }
+
+                struct View: ~Copyable, ~Escapable {
+                  let storage: UnsafeMutablePointer<Partial>
+
+                  @_lifetime(borrow storage)
+                  init(_ storage: UnsafeMutableRawPointer) {
+                    self.storage = storage.assumingMemoryBound(to: Partial.self)
+                  }
+
+                var reason: String.Partial.View? {
+                    @_lifetime(borrow self)
+                    get {
+                      guard let address = StreamParsingCore._streamMemberAddress(&self.storage.pointee.reason) else {
+                        return nil
+                      }
+                      return _overrideLifetime(String.Partial.streamView(address), borrowing: self)
+                    }
+                  }
+                }
+
+                @_lifetime(borrow storage)
+                static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+                  View(storage)
+                }
+
+                private enum StreamField {
+                  static let reason: Int32 = 0
+                }
+
+                private static let streamContainerSchema_reason = _streamContainerSchema(for: (String.Partial).self)
+
+                static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+                  switch key.paddedLeadingWord() {
+                  case 0x0000_6E6F_7361_6572 where key.count == 6:
+                  return Self.StreamField.reason
+                  default:
+                  return -1
+                  }
+                }
+
+                static func streamApplyString(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32,
+                  _ bytes: Span<UInt8>
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField.reason:
+                  return streamApply(&p.pointee.reason, utf8: bytes)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyNumber(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32,
+                  _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField.reason:
+                  return streamApply(&p.pointee.reason, bytes: bytes, info: info)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyBoolean(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField.reason:
+                  return streamApply(&p.pointee.reason, boolean: value)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static func streamApplyNull(
+                  _ storage: UnsafeMutableRawPointer, _ field: Int32
+                ) -> StreamParsingCore.StreamApplyResult {
+                  let p = storage.assumingMemoryBound(to: Self.self)
+                  switch field {
+                  case Self.StreamField.reason:
+                  return StreamParsing.streamApplyNull(&p.pointee.reason)
+                  default:
+                  return .unsupported
+                  }
+                }
+
+                static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
+                  of: Self.self, prototype: Self()
+                ) { p in
+                  [
+                    StreamParsingCore.StreamField(
+                      key: "reason", index: Self.StreamField.reason,
+                      route: _streamFieldRoute(&p.pointee.reason, schema: Self.streamContainerSchema_reason),
+                      offset: StreamParsingCore._streamFieldOffset(&p.pointee.reason, in: p)
+                    ),
+                  ]
+                }
+
+                static let streamSchema = StreamParsingCore.StreamSchema(
+                  shape: .object,
+                  matchField: Self.streamMatchField,
+                  applyString: Self.streamApplyString,
+                  applyNumber: Self.streamApplyNumber,
+                  applyBoolean: Self.streamApplyBoolean,
+                  applyNull: Self.streamApplyNull,
+                  fields: Self.streamFields
+                )
+              }
+
+              struct Value: StreamParsingCore.StreamParseable {
+                var reason: String
+
+                typealias Partial = EmptyPayload.Partial
+
+                var streamPartialValue: Partial {
+                  Partial(
+                    reason: self.reason.streamPartialValue
+                  )
+                }
+
+                init?(_ partial: Partial) {
+                    self.init(streamPartial: partial)
+                  }
+
+                  init?(streamPartial partial: Partial) {
+                    guard
+                      let reason = Self._streamValue({ $0.reason
+                    }, partial.reason)
+                    else {
+                      return nil
+                    }
+                    self.reason = reason
+                  }
+
+                  init(orInitial partial: Partial) {
+                    self.reason = Self._streamValueOrInitial({
+                      $0.reason
+                    }, partial.reason)
+                  }
+
+                  static func streamValueOrInitial(from partial: Partial) -> Self {
+                    Self(orInitial: partial)
+                  }
+              }
+            }
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
+          /// the same document — and, for a case with associated values, unless that one case's own
+          /// payload has everything it needs yet.
+          init?(streamPartial partial: Partial) {
+            var streamMatched = -1
+            var streamMatches = 0
+            if partial.text != nil {
+              streamMatched = 0
+              streamMatches += 1
+            }
+            if partial.empty != nil {
+              streamMatched = 1
+              streamMatches += 1
+            }
+            guard streamMatches == 1 else {
+              return nil
+            }
+            switch streamMatched {
+            case 0:
+              guard let streamValue = TextPayload.Value(streamPartial: partial.text!)
+              else {
+                return nil
+              }
+              self = .text(streamValue._0)
+            case 1:
+              guard let streamValue = EmptyPayload.Value(streamPartial: partial.empty!)
+              else {
+                return nil
+              }
+              self = .empty(reason: streamValue.reason)
+            default:
+              return nil
+            }
+          }
+
+          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
+          /// produce a value this type can represent.
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            if let streamMatched = Self(streamPartial: partial) {
+              return streamMatched
+            }
+            let streamDefaultValue = EmptyPayload.Value.streamValueOrInitial(
+              from: partial.empty ?? EmptyPayload.Partial.streamInitialValue()
+            )
+            return .empty(reason: streamDefaultValue.reason)
+          }
         }
         """
       }
