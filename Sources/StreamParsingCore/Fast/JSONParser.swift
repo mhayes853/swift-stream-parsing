@@ -130,8 +130,11 @@ public struct JSONParser: ~Copyable {
       buffer.count >= Self.minimumBufferByteCount,
       "JSONParser requires a caller-supplied buffer of at least \(Self.minimumBufferByteCount) bytes."
     )
+    // `Int(UInt32.max)` rather than a `UInt`-based comparison would overflow on any platform
+    // where `Int` is 32 bits (wasm32, and embedded 32-bit targets generally), since UInt32.max
+    // does not fit in a signed 32-bit `Int`.
     precondition(
-      buffer.count <= Int(UInt32.max),
+      UInt(buffer.count) <= UInt(UInt32.max),
       "JSONParser requires a caller-supplied buffer smaller than 4 GB."
     )
     self.bufferBase = buffer.baseAddress.unsafelyUnwrapped

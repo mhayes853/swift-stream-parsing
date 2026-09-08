@@ -107,7 +107,9 @@ public struct StreamField: Sendable {
   ) {
     let bytes = Array(key.utf8)
     precondition(bytes.count <= Int(UInt16.max), "stream field key exceeds 65535 bytes")
-    precondition(offset >= 0 && offset <= Int(UInt32.max), "stream field offset out of range")
+    // `Int(UInt32.max)` would overflow on a platform where `Int` is 32 bits (wasm32 and other
+    // embedded 32-bit targets), since UInt32.max does not fit in a signed 32-bit `Int`.
+    precondition(offset >= 0 && UInt(offset) <= UInt(UInt32.max), "stream field offset out of range")
     precondition(capacity <= Int(Int32.max), "stream field capacity exceeds Int32")
     self.key = bytes
     self.keyWord = bytes.withUnsafeBufferPointer { buffer in
