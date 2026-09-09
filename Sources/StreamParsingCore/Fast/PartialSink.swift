@@ -182,7 +182,9 @@ struct ScalarTarget {
 //
 // Frames point into the value being built. Only the innermost open container is ever mutated,
 // so an element pointer stays valid for that element's lifetime: appending to an outer array
-// cannot happen while an inner one is open.
+// cannot happen while an inner one is open. What can invalidate a pointer is a copy of the value
+// taken between parse calls, which shares the block the pointer targets; `reseat()` is the
+// answer to that, and the only time the sink touches a frame it did not just push.
 //
 // Deliberately not generic over the root. The sink's behavior is entirely schema-driven -- a
 // root type would type the pointer at init and nothing else -- and a phantom parameter is not
@@ -373,6 +375,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           ? BorrowedFrame(storage: self.root, schema: self.rootSchema)
           : self.ignoredFrame
       )
+      if canHoldContainer { self.prepareContainerWrites() }
       return .stream
     }
 
@@ -398,7 +401,25 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return .stream
     }
     self.pushFrame(target)
+    self.prepareContainerWrites()
     return .stream
+  }
+
+  // Once per container the sink enters: an array or dictionary makes the block its next value
+  // lands in safe to write, so every open inside it can write without asking (see
+  // `StreamArray.nextSlot`). What can be shared at this point is storage the value arrived
+  // with -- a caller's initial value, a template a conformer built with elements in it -- and
+  // a snapshot's share is settled by `reseat()` before the parse call gets here. Nothing for
+  // objects and fixed arrays: they write into storage the frame above already owns.
+  @inline(__always)
+  private mutating func prepareContainerWrites() {
+    guard let top = self.topFrame else { return }
+    switch top.pointee.schema.shape {
+    case .array, .dictionary:
+      top.pointee.withSchema { $0.prepareWrites(top.pointee.storage) }
+    case .object, .scalar:
+      break
+    }
   }
 
   private var hasKnownValueDestination: Bool {
@@ -1539,6 +1560,111 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   mutating func recordFailure(_ reason: StreamSinkFailure.Reason) {
     guard self.streamFailure == nil else { return }
     self.streamFailure = StreamSinkFailure(reason: reason)
+  }
+
+  // MARK: Reseating
+
+  /// Re-points every open frame after the value tree may have been copied.
+  ///
+  /// The open element of every container on the frame path lives inside that container's
+  /// storage, and the frames write into it through raw pointers. A copy of the value -- a
+  /// snapshot -- shares that storage, and a write through the old pointer would then change the
+  /// snapshot. Copies can only be made between parse calls, because the pointers are only used
+  /// inside one, so this runs once at the start of the next parse call after a copy: each open
+  /// container makes the block holding its open element unique (copying at most that block),
+  /// and every frame below it is re-derived from its parent. O(depth), nothing per token.
+  ///
+  /// `PartialsStream` calls this itself whenever ``PartialsStream/current`` or
+  /// ``PartialsStream/withView(_:)`` was used since the last parse. A caller driving
+  /// `PartialSink` directly must call it after copying any part of the root between parse calls.
+  public mutating func reseat() {
+    guard self.frameCount > 0 else { return }
+    let top = self.frames + (self.frameCount &- 1)
+    let oldTopStorage = top.pointee.storage
+    var index = 1
+    while index < self.frameCount {
+      let parent = self.frames + (index &- 1)
+      let frame = self.frames + index
+      index &+= 1
+      // An ignored subtree's frame writes nothing; its storage is the root and stays so.
+      if frame.pointee.storage == self.root { continue }
+      if let storage = self.reseatedStorage(of: frame, under: parent) {
+        frame.pointee.storage = storage
+      }
+    }
+    // The scalar the parser is in the middle of, and the dictionary slot a key opened, were
+    // both derived from the top frame and are re-derived the same way: an open element or value
+    // is the container's open slot; a member of an object is at the same offset from the
+    // object's new storage.
+    let topIsSlotHolder: Bool
+    switch top.pointee.schema.shape {
+    case .array: topIsSlotHolder = !top.pointee.leafRoute.usesFrameElementIndex
+    case .dictionary: topIsSlotHolder = true
+    case .object, .scalar: topIsSlotHolder = false
+    }
+    if topIsSlotHolder {
+      let slot = top.pointee.withSchema { $0.reopen(top.pointee.storage) }
+      if self.pendingDictionaryStorage != nil { self.pendingDictionaryStorage = slot }
+      if self.homogeneousStringStorage != nil { self.homogeneousStringStorage = slot }
+      if self.inlineStringStorage != nil { self.inlineStringStorage = slot }
+      if let target = self.scalarTarget, let slot {
+        self.scalarTarget = ScalarTarget(
+          storage: slot, schemaBits: target.schemaBits, field: target.field, entry: target.entry
+        )
+      }
+    } else {
+      let delta = top.pointee.storage - oldTopStorage
+      if delta != 0 {
+        if let storage = self.homogeneousStringStorage { self.homogeneousStringStorage = storage + delta }
+        if let storage = self.inlineStringStorage { self.inlineStringStorage = storage + delta }
+        if let target = self.scalarTarget {
+          self.scalarTarget = ScalarTarget(
+            storage: target.storage + delta, schemaBits: target.schemaBits, field: target.field,
+            entry: target.entry
+          )
+        }
+      }
+    }
+  }
+
+  // Where `frame` writes now, given where `parent` writes now: the parent's open element or
+  // value for a container parent, the member the parent's last key matched for an object.
+  private func reseatedStorage(
+    of frame: UnsafeMutablePointer<BorrowedFrame>, under parent: UnsafeMutablePointer<BorrowedFrame>
+  ) -> UnsafeMutableRawPointer? {
+    switch parent.pointee.schema.shape {
+    case .array:
+      if parent.pointee.leafRoute.usesFrameElementIndex {
+        // A fixed array addresses its elements from its own storage; the element the frame is
+        // in is the one before the cursor.
+        let index = Int(parent.pointee.pendingField) &- 1
+        guard index >= 0 else { return nil }
+        return parent.pointee.storage + index &* Int(parent.pointee.schema.elementStride)
+      }
+      return parent.pointee.withSchema { $0.reopen(parent.pointee.storage) }
+    case .dictionary:
+      return parent.pointee.withSchema { $0.reopen(parent.pointee.storage) }
+    case .object:
+      let field = parent.pointee.pendingField
+      guard field >= 0 else { return nil }
+      switch parent.pointee.schema.keyRouting {
+      case .table:
+        let entry = parent.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+        guard entry.pointee.kind == .container else { return nil }
+        if entry.pointee.schemaBits != nil {
+          return parent.pointee.storage + Int(entry.pointee.offset)
+        }
+        // A member entered through the closure: `enterField` resumes the container it built,
+        // so asking again yields the same member.
+        return parent.pointee.withSchema { $0.enterField(parent.pointee.storage, entry.pointee.index) }?.storage
+      case .match:
+        return parent.pointee.withSchema { $0.enterField(parent.pointee.storage, field) }?.storage
+      case .dictionary, .ignore:
+        return nil
+      }
+    case .scalar:
+      return nil
+    }
   }
 
   // A frame over a subtree the destination has no field for, with a schema that accepts and

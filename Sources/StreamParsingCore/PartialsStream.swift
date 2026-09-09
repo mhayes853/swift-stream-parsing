@@ -50,6 +50,29 @@ public struct JSONStreamFormat: Hashable, Sendable {
 public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 
+  // The copy epoch (see `_streamValueCopied`) as it stood at the last parse call, kept in a
+  // header ahead of the value in the same allocation. When the process-wide epoch has moved
+  // past it, a copy that may share the value's blocks was taken since, and the sink re-points its
+  // frames before writing again (`PartialSink.reseat()`). Nothing per parse call otherwise but
+  // one load and one compare.
+  @usableFromInline
+  static var headerSize: Int { Swift.max(MemoryLayout<Value>.alignment, MemoryLayout<UInt64>.size) }
+
+  @usableFromInline
+  var seenCopyEpoch: UnsafeMutablePointer<UInt64> {
+    (UnsafeMutableRawPointer(self.storage) - Self.headerSize).assumingMemoryBound(to: UInt64.self)
+  }
+
+  @usableFromInline
+  static func allocateStorage() -> UnsafeMutablePointer<Value> {
+    let raw = UnsafeMutableRawPointer.allocate(
+      byteCount: Self.headerSize + MemoryLayout<Value>.stride,
+      alignment: Self.headerSize
+    )
+    raw.initializeMemory(as: UInt64.self, to: _streamCopyEpoch())
+    return (raw + Self.headerSize).bindMemory(to: Value.self, capacity: 1)
+  }
+
   @usableFromInline var parser: JSONParser
   @usableFromInline var sink: PartialSink
 
@@ -64,7 +87,8 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// reads without copying when only part of the value is needed.
   @inlinable
   public var current: Value {
-    self.storage.pointee
+    _streamValueCopied()
+    return self.storage.pointee
   }
 
   /// Reads the value in place, without copying it.
@@ -82,6 +106,8 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   ///
   /// Use ``current`` instead to keep a whole state.
   public func withView<R>(_ body: (borrowing Value.View) throws -> R) rethrows -> R {
+    // A view copies nothing; a container value read out of one records itself (see
+    // `_streamValueCopied`), so nothing is recorded here.
     try body(Value.streamView(UnsafeMutableRawPointer(self.storage)))
   }
 
@@ -94,7 +120,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     initialValue: Value = Value.streamInitialValue(),
     from format: JSONStreamFormat
   ) {
-    let storage = UnsafeMutablePointer<Value>.allocate(capacity: 1)
+    let storage = Self.allocateStorage()
     storage.initialize(to: initialValue)
     self.storage = storage
     self.parser = JSONParser(
@@ -105,7 +131,18 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   deinit {
     self.storage.deinitialize(count: 1)
-    self.storage.deallocate()
+    (UnsafeMutableRawPointer(self.storage) - Self.headerSize).deallocate()
+  }
+
+  // Runs before any bytes reach the sink in a parse call.
+  @inlinable
+  @inline(__always)
+  mutating func prepareToParse() {
+    let epoch = _streamCopyEpoch()
+    if _slowPath(self.seenCopyEpoch.pointee != epoch) {
+      self.seenCopyEpoch.pointee = epoch
+      self.sink.reseat()
+    }
   }
 
   /// Sends a single byte into the parser.
@@ -127,6 +164,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.prepareToParse()
     do {
       try self.parser.parse(byte: byte, into: &self.sink)
     } catch {
@@ -142,6 +180,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public mutating func next(_ bytes: some Sequence<UInt8>) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.prepareToParse()
     do {
       try self.parse(bytes)
     } catch {
@@ -170,6 +209,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
+    self.prepareToParse()
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
@@ -195,6 +235,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public consuming func finishValue() throws -> Value {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.prepareToParse()
     try self.parser.finish(into: &self.sink)
     // Move rather than read: `storage.move()` transfers the tree bitwise, so no copy is made.
     // The slot is refilled with the empty initial value for the deinit to destroy — a tree of
@@ -225,6 +266,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   ) throws -> Value {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.prepareToParse()
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
@@ -233,6 +275,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     }
     let value = self.storage.move()
     self.storage.initialize(to: initialValue)
+    self.seenCopyEpoch.pointee = _streamCopyEpoch()
     self.parser.reset()
     self.sink.reset()
     return value
@@ -248,6 +291,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   public mutating func reset(to initialValue: Value = Value.streamInitialValue()) {
     self.storage.pointee = initialValue
+    self.seenCopyEpoch.pointee = _streamCopyEpoch()
     self.parser.reset()
     self.sink.reset()
     self.hasFinished = false

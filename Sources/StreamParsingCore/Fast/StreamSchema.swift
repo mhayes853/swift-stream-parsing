@@ -318,6 +318,19 @@ public final class StreamSchema: @unchecked Sendable {
   // ``elementSchema``. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
 
+  // Returns the slot of the element or value that is currently open, with the storage holding it
+  // made unique first: the address `appendElement` or `enterKey` last returned, or its copy if a
+  // snapshot has shared the block since. Arrays and dictionaries only; nil for a schema with no
+  // open slot. What ``PartialSink/reseat()`` walks the open frames with.
+  public let reopen: @Sendable (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
+
+  // Makes the container safe to write into before its first element or value opens: what the
+  // sink calls once on entering an array or dictionary, so nothing has to be asked per element
+  // (see `StreamArray.nextSlot`). Storage the value arrived with may be shared -- a caller's
+  // initial value, a template a conformer built with elements in it -- and this freezes it in
+  // place rather than copying anything. No-op for every other shape.
+  public let prepareWrites: @Sendable (UnsafeMutableRawPointer) -> Void
+
   // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
   // appends the `number` records in `from..<to` and returns how many it took. Arrays of
   // number-convertible elements only; nil means the batch is unrolled through `appendElement` and
@@ -366,6 +379,8 @@ public final class StreamSchema: @unchecked Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
+    reopen: @escaping @Sendable (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? = { _ in nil },
+    prepareWrites: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil,
     elementSchema: StreamSchema? = nil,
     fields: [StreamField] = []
@@ -381,6 +396,8 @@ public final class StreamSchema: @unchecked Sendable {
       enterField: enterField,
       appendElement: appendElement,
       enterKey: enterKey,
+      reopen: reopen,
+      prepareWrites: prepareWrites,
       appendNumbers: appendNumbers,
       elementSchema: elementSchema,
       leafRoute: .generic,
@@ -414,6 +431,8 @@ public final class StreamSchema: @unchecked Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
+    reopen: @escaping @Sendable (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? = { _ in nil },
+    prepareWrites: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     appendNumbers: (
       @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
     )? = nil,
@@ -468,6 +487,8 @@ public final class StreamSchema: @unchecked Sendable {
     self.appendElement = appendElement
     self.appendNumbers = appendNumbers
     self.enterKey = enterKey
+    self.reopen = reopen
+    self.prepareWrites = prepareWrites
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
     self.inlineCapacity = inlineCapacity
@@ -514,6 +535,13 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// - SeeAlso: ``streamElementSchema``
   static func streamElementInitialValue() -> Self
 
+  /// Whether a copy of a value of this type can share storage the parser writes into in place:
+  /// a `StreamArray` or `StreamDictionary` member, at any depth. Read by ``StreamPointerView``
+  /// to decide whether reading a value out of a view has to be recorded (see
+  /// `_streamValueCopied`). Defaults to `true`, which is always safe; the library's scalars
+  /// answer `false` so a scalar read off a view costs nothing extra.
+  static var _streamValueMayShareStorage: Bool { get }
+
   /// Whether building ``streamElementInitialValue()`` is worth hoisting out of a container's
   /// per-element closure into a captured template.
   ///
@@ -554,6 +582,9 @@ public protocol StreamParseableRoot: StreamInitializable {
 }
 
 extension StreamParseableRoot {
+  @inlinable
+  public static var _streamValueMayShareStorage: Bool { true }
+
   @inlinable
   public static var streamElementSchema: StreamSchema { Self.streamSchema }
 
@@ -822,34 +853,39 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   _ type: Element.Type,
   element: StreamSchema
 ) -> StreamSchema {
-  // Two forms of the same closure, chosen once per schema — see
-  // ``StreamParseableRoot/_streamInitialValueIsExpensive``. The default captures nothing: the
-  // element schema is data on this schema, and the initial value is the element type's, so the
-  // closure is a call and nothing else. The hoisted form is for a generic element that would
-  // otherwise re-enter the runtime's metadata caches on every open, and pays one closure-context
-  // load to avoid it. Both keep the maker form, so the copy still forwards into `pending`'s
-  // return slot rather than materialising an element in the caller.
-  let append: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
-  if Element._streamInitialValueIsExpensive {
-    nonisolated(unsafe) let template = Element.streamElementInitialValue()
-    append = { storage, _ in
-      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
-        ._openElement(initializedBy: { template })
-    }
-  } else {
-    append = { storage, _ in
-      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
-        ._openElement(initializedBy: Element.streamElementInitialValue)
-    }
-  }
+  // One template per schema, allocated once and never freed: the element is copy-initialised
+  // from this address straight into its slot. A schema is a `static let` on its owner, so this is
+  // one allocation per element type per process, and the closure's only capture is the pointer.
+  // Building the value inside the closure instead -- a generic element's `Self()` re-enters the
+  // runtime's locking metadata cache per open, and any element's return by value is a second
+  // whole-element copy -- is what this replaces.
+  nonisolated(unsafe) let template = _streamLeakedTemplate(Element.streamElementInitialValue())
   return StreamSchema(
     shape: .array,
-    appendElement: append,
+    appendElement: { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
+        ._openElement(copying: template)
+    },
+    reopen: { storage in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee._reopenElement()
+    },
+    prepareWrites: { storage in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee._prepareForWrites()
+    },
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
     leafRoute: .array(element.leafRoute),
     inlineCapacity: element.inlineCapacity
   )
+}
+
+/// A value the schema builders copy elements and dictionary values from, at a stable address for
+/// the rest of the process. Leaked on purpose: the schema that captures it is itself immortal.
+@inlinable
+public func _streamLeakedTemplate<T>(_ value: T) -> UnsafePointer<T> {
+  let template = UnsafeMutablePointer<T>.allocate(capacity: 1)
+  template.initialize(to: value)
+  return UnsafePointer(template)
 }
 
 extension StreamParseableRoot {
@@ -863,9 +899,9 @@ extension StreamParseableRoot {
 // swap — convert and commit in a loop. A plain loop, deliberately: unrolling it two, four and
 // eight wide with the conversions hoisted ahead of the commits measured monotonically worse
 // (Mesh 323 → 316 → 312 → 311 MB/s), because the core already overlaps the independent
-// conversions and the unrolled bodies only add code. The last number is left as the array's open element,
-// which is where the one-at-a-time path leaves it, so a snapshot taken between a batch and the
-// array's close sees the same array either way.
+// conversions and the unrolled bodies only add code. Every number lands in place, which is
+// where the one-at-a-time path puts it too, so a snapshot taken between a batch and the array's
+// close sees the same array either way.
 extension StreamParseableRoot where Self: StreamNumberConvertible {
   @inlinable
   public static var _streamArrayNumberAppender:
@@ -873,19 +909,13 @@ extension StreamParseableRoot where Self: StreamNumberConvertible {
   {
     { storage, batch, from, to in
       let array = storage.assumingMemoryBound(to: StreamArray<Self>.self)
-      guard to > from else { return 0 }
-      array.pointee.drainPending()
       var index = from
-      let last = to &- 1
-      while index < last {
+      while index < to {
         guard let value = Self(streamParsing: batch.bytes(of: index), info: batch.info(of: index))
         else { return index &- from }
         array.pointee.commit(value)
         index &+= 1
       }
-      guard let value = Self(streamParsing: batch.bytes(of: last), info: batch.info(of: last))
-      else { return last &- from }
-      array.pointee.pending = value
       return to &- from
     }
   }
@@ -930,6 +960,8 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     enterField: base.enterField,
     appendElement: base.appendElement,
     enterKey: base.enterKey,
+    reopen: base.reopen,
+    prepareWrites: base.prepareWrites,
     elementSchema: base.elementSchema,
     elementStride: base.elementStride,
     scalarKind: base.scalarKind,
@@ -957,22 +989,19 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   element base: StreamSchema
 ) -> StreamSchema {
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
-  let append: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
-  if Wrapped._streamInitialValueIsExpensive {
-    nonisolated(unsafe) let template = Wrapped?.some(Wrapped.streamInitialValue())
-    append = { storage, _ in
-      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
-        ._openElement(initializedBy: { template })
-    }
-  } else {
-    append = { storage, _ in
-      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
-        ._openElement(initializedBy: { .some(Wrapped.streamInitialValue()) })
-    }
-  }
+  nonisolated(unsafe) let template = _streamLeakedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
   return StreamSchema(
     shape: .array,
-    appendElement: append,
+    appendElement: { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
+        ._openElement(copying: template)
+    },
+    reopen: { storage in
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee._reopenElement()
+    },
+    prepareWrites: { storage in
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee._prepareForWrites()
+    },
     elementSchema: element,
     leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,
     inlineCapacity: element.inlineCapacity
@@ -985,22 +1014,19 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   value base: StreamSchema
 ) -> StreamSchema {
   let value = _streamOptionalElementSchema(Wrapped.self, base: base)
-  let enter: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
-  if Wrapped._streamInitialValueIsExpensive {
-    nonisolated(unsafe) let template = Wrapped?.some(Wrapped.streamInitialValue())
-    enter = { storage, key in
-      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
-        ._openValue(forKey: key, initial: template)
-    }
-  } else {
-    enter = { storage, key in
-      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
-        ._openValue(forKey: key, initial: .some(Wrapped.streamInitialValue()))
-    }
-  }
+  nonisolated(unsafe) let template = _streamLeakedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
   return StreamSchema(
     shape: .dictionary,
-    enterKey: enter,
+    enterKey: { storage, key in
+      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
+        ._openValue(forKey: key, copying: template)
+    },
+    reopen: { storage in
+      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee._reopenValue()
+    },
+    prepareWrites: { storage in
+      storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee._prepareForWrites()
+    },
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
     inlineCapacity: value.inlineCapacity
@@ -1012,25 +1038,21 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
   _ type: Value.Type,
   value valueSchema: StreamSchema
 ) -> StreamSchema {
-  // See `_streamArraySchema` for why this is two forms rather than one. `_openValue`'s `initial`
-  // is an autoclosure either way, so the template is only read for a key the dictionary has not
-  // seen before; a repeated key resumes its stored value and reads nothing.
-  let enter: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
-  if Value._streamInitialValueIsExpensive {
-    nonisolated(unsafe) let template = Value.streamElementInitialValue()
-    enter = { storage, key in
-      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
-        ._openValue(forKey: key, initial: template)
-    }
-  } else {
-    enter = { storage, key in
-      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
-        ._openValue(forKey: key, initial: Value.streamElementInitialValue())
-    }
-  }
+  // See `_streamArraySchema` for the template. A repeated key resumes its stored value and reads
+  // nothing from it.
+  nonisolated(unsafe) let template = _streamLeakedTemplate(Value.streamElementInitialValue())
   return StreamSchema(
     shape: .dictionary,
-    enterKey: enter,
+    enterKey: { storage, key in
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
+        ._openValue(forKey: key, copying: template)
+    },
+    reopen: { storage in
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee._reopenValue()
+    },
+    prepareWrites: { storage in
+      storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee._prepareForWrites()
+    },
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
     inlineCapacity: valueSchema.inlineCapacity
@@ -1040,13 +1062,22 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 // MARK: - Root conformances
 
 extension StreamParseableRoot where Self: StreamStringConvertible {
+  @inlinable
+  public static var _streamValueMayShareStorage: Bool { false }
+
   public static var streamSchema: StreamSchema { _streamStringSchema(Self.self) }
 }
 
 extension StreamParseableRoot where Self: StreamNumberConvertible {
+  @inlinable
+  public static var _streamValueMayShareStorage: Bool { false }
+
   public static var streamSchema: StreamSchema { _streamNumberSchema(Self.self) }
 }
 
 extension StreamParseableRoot where Self: StreamBooleanConvertible {
+  @inlinable
+  public static var _streamValueMayShareStorage: Bool { false }
+
   public static var streamSchema: StreamSchema { _streamBooleanSchema(Self.self) }
 }
