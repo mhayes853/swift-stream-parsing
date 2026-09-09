@@ -217,3 +217,90 @@ struct `Stream array tests` {
     expectNoDifference(array.pending == nil, true)
   }
 }
+
+// A class element, so that ownership transfers are observable. A `moveInitialize` out of a block
+// someone else still holds leaves that holder's bits intact, so an `Int` array cannot tell a move
+// from a copy by reading it -- only by watching what gets destroyed and when.
+private final class TrackedElement {
+  static nonisolated(unsafe) var deinitCount = 0
+  let value: Int
+  init(_ value: Int) { self.value = value }
+  deinit { TrackedElement.deinitCount += 1 }
+}
+
+// The two mechanisms design B rests on, each written so that it fails when the mechanism is
+// disabled -- checked by disabling it, not by assuming.
+//
+// They were both unguarded: making `View.tail` read the block's high-water mark, and making the
+// promotion of the small first tail move even when the block is shared, each left the whole suite
+// green. Ordinary parse-level tests cannot reach either, because both need a copy of an array to
+// outlive a write into the block it shares, at a specific point in the block's growth.
+@Suite
+struct `Stream array sharing tests` {
+  // `tailCount` is why the freeze chain could be deleted: the filling array appends into a block a
+  // copy holds without any uniqueness check, because a copy captured its own count and every
+  // slot written afterwards is above it. The block's own `count` is the filling array's
+  // high-water mark and is *not* what a reader may use.
+  @Test
+  func `A copy reads its own count, not the block's high-water mark`() {
+    var array = StreamArray<Int>()
+    for value in 0..<5 { array.append(value) }
+    array.drainPending()
+
+    let snapshot = array
+    for value in 5..<8 { array.append(value) }
+    array.drainPending()
+
+    // The premise: one block, shared, whose header has run ahead of the snapshot.
+    expectNoDifference(snapshot.tail === array.tail, true, "the two must share one block")
+    expectNoDifference(array.tail?.count, 8, "the filling array advanced the header")
+
+    var kept = snapshot
+    withUnsafeMutablePointer(to: &kept) { storage in
+      let view = StreamArray<Int>.View(UnsafeMutableRawPointer(storage))
+      expectNoDifference(view.tail.count, 5, "the span must stop at the snapshot's own count")
+      var read = [Int]()
+      for index in 0..<view.tail.count { read.append(view.tail[index]) }
+      expectNoDifference(read, [0, 1, 2, 3, 4])
+    }
+    expectNoDifference(kept.count, 5)
+  }
+
+  // The small first tail is promoted to a full block the first time it fills. When something else
+  // holds it that promotion has to copy: moving would hand the elements' ownership to the new
+  // block while the holder still points at the old one, which reads as correct right up until the
+  // filling array is released and takes the elements with it.
+  @Test
+  func `Promoting a shared first tail copies its elements rather than moving them`() {
+    TrackedElement.deinitCount = 0
+    do {
+      var array = StreamArray<TrackedElement>()
+      for value in 0..<8 { array.append(TrackedElement(value)) }
+      array.drainPending()
+      expectNoDifference(array.tail?.slotCapacity, 8, "still the small first tail")
+
+      let snapshot = array
+      // The ninth element fills the small tail, so the next slot promotes it.
+      array.append(TrackedElement(8))
+      array.drainPending()
+      expectNoDifference(
+        (array.tail?.slotCapacity ?? 0) > 8, true, "the tail was promoted to a full block"
+      )
+      expectNoDifference(snapshot.count, 8)
+      expectNoDifference(TrackedElement.deinitCount, 0, "nothing should have been destroyed yet")
+
+      // Releasing the filling array must not take the snapshot's elements with it: under a move
+      // the promoted block owns all eight and destroys them here, leaving `snapshot` pointing at
+      // objects that are gone.
+      array = StreamArray<TrackedElement>()
+      expectNoDifference(
+        TrackedElement.deinitCount, 1,
+        "only the ninth element, which the snapshot never held, should be gone"
+      )
+      var read = [Int]()
+      for index in 0..<snapshot.count { read.append(snapshot[index].value) }
+      expectNoDifference(read, [0, 1, 2, 3, 4, 5, 6, 7])
+    }
+    expectNoDifference(TrackedElement.deinitCount, 9, "everything goes when the snapshot does")
+  }
+}
