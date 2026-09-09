@@ -283,25 +283,5 @@ STREAM_PARSING_SIMD_SHIM const double *stream_parsing_pow10_double(void) {
 #define STREAM_PARSING_POW10_DOUBLE_MAX_EXPONENT (22)
 #define STREAM_PARSING_POW10_DOUBLE_COUNT (23)
 
-// MARK: - Copy epoch
-
-// Bumped whenever a value that may share the parser's storage blocks is copied out of a view
-// (`_streamValueCopied` on the Swift side). A `PartialsStream` compares it against the value it
-// saw at its last parse call and re-points the sink's frames when it moved, which is what keeps
-// such a copy a snapshot after the parser resumes writing in place. Relaxed: the copy and the
-// next parse call are ordered by whatever hands the stream between threads, and a spurious
-// re-point caused by another stream's copy is harmless. In C because the package's deployment
-// floor predates the `Synchronization` module.
-#include <stdatomic.h>
-
-extern _Atomic(uint64_t) stream_parsing_copy_epoch;
-
-STREAM_PARSING_SIMD_SHIM void stream_parsing_copy_epoch_bump(void) {
-  atomic_fetch_add_explicit(&stream_parsing_copy_epoch, 1, memory_order_relaxed);
-}
-
-STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_copy_epoch_load(void) {
-  return atomic_load_explicit(&stream_parsing_copy_epoch, memory_order_relaxed);
-}
 
 #endif

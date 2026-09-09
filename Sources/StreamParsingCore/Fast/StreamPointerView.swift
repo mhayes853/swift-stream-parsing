@@ -18,18 +18,6 @@ public struct StreamPointerView<Value>: ~Copyable, ~Escapable {
   public var value: Value { self.storage.pointee }
 }
 
-extension StreamPointerView where Value: StreamParseableRoot {
-  /// A copy of the value. For a type that may hold parser-owned storage -- a hand-written
-  /// conformer with `StreamArray` or `StreamDictionary` members -- the copy is recorded so the
-  /// parser stops writing into blocks the copy now holds (see `_streamValueCopied`); the
-  /// library's scalars say they hold none and skip that.
-  @inlinable
-  public var value: Value {
-    if Value._streamValueMayShareStorage { _streamValueCopied() }
-    return self.storage.pointee
-  }
-}
-
 #if compiler(>=6.4)
 extension StreamPointerView: Equatable where Value: Equatable {
   @inlinable

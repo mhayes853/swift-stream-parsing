@@ -33,6 +33,28 @@ struct `Number batch layer tests` {
     }
   }
 
+  // Order, not just contents: an array of numbers is the one shape where a commit can land on
+  // the wrong side of the open element, and a whole-payload comparison of two parses that make
+  // the same mistake would not show it. Chunk sizes across and around the number width put the
+  // resume in every position within a number.
+  @Test(arguments: [1, 2, 3, 5, 7, 8, 11, 13, 16, 23, 32, 64])
+  func `Chunked doubles keep their order`(chunk: Int) throws {
+    let json = "[" + (0..<200).map { "\($0).5" }.joined(separator: ",") + "]"
+    var stream = PartialsStream(
+      initialValue: StreamArray<Double>.streamInitialValue(), from: .json(windowThreshold: 1)
+    )
+    let bytes = Array(json.utf8)
+    var index = 0
+    while index < bytes.count {
+      let end = Swift.min(index + chunk, bytes.count)
+      try stream.next(Array(bytes[index..<end]))
+      index = end
+    }
+    let parsed = try stream.finish()
+
+    expectNoDifference(Array(parsed), (0..<200).map { Double($0) + 0.5 }, "chunk \(chunk)")
+  }
+
   @Test
   func `Arrays of doubles and integers match the unbatched values`() throws {
     let doubles = "[" + (0..<1000).map { "\($0).\(String(repeating: "7", count: $0 % 17 + 1))" }.joined(separator: ",") + "]"

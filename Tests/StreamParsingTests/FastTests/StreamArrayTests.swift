@@ -81,44 +81,46 @@ struct `Stream array tests` {
     expectNoDifference(Array(array), Array(0..<100))
   }
 
-  // Every element opens in place: the first tail holds eight, is promoted to a full block on the
-  // ninth, and a full tail seals when the element after it opens, so the open element is always
-  // in the tail.
+  // The open element is not in a block: it sits in the array's inline slot until the next one
+  // opens and moves it into place. So the first tail is allocated by the *second* open, holds
+  // eight, is promoted to a full block when a ninth closes into it, and seals when a
+  // thirty-third does.
   @Test
   func `Tail Grows From Eight To Block Capacity`() {
     var array = StreamArray<Int>()
 
     expectNoDifference(array.tail == nil, true)
     _ = array._openElement(0)
-    expectNoDifference(array.tailCount, 1)
-    expectNoDifference(array.tail?.slotCapacity, 8)
+    expectNoDifference(array.tail == nil, true, "the first element is still in the inline slot")
+    expectNoDifference(array.tailCount, 0)
+    expectNoDifference(array.count, 1)
 
-    for value in 1..<8 {
-      _ = array._openElement(value)
-    }
-    expectNoDifference(array.tailCount, 8)
+    for value in 1..<8 { _ = array._openElement(value) }
+    expectNoDifference(array.tailCount, 7)
     expectNoDifference(array.tail?.slotCapacity, 8)
 
     _ = array._openElement(8)
+    expectNoDifference(array.tailCount, 8)
+    expectNoDifference(array.tail?.slotCapacity, 8)
+
+    _ = array._openElement(9)
     expectNoDifference(array.tailCount, 9)
     expectNoDifference(array.tail?.slotCapacity, StreamArray<Int>.blockCapacity)
 
-    for value in 9..<32 {
-      _ = array._openElement(value)
-    }
+    for value in 10...32 { _ = array._openElement(value) }
     expectNoDifference(array.blocks.count, 0)
     expectNoDifference(array.tailCount, 32)
 
-    _ = array._openElement(32)
+    _ = array._openElement(33)
     expectNoDifference(array.blocks.count, 1)
     expectNoDifference(array.tailCount, 1)
     expectNoDifference(array.tail?.slotCapacity, StreamArray<Int>.blockCapacity)
-    expectNoDifference(Array(array), Array(0...32))
+    expectNoDifference(Array(array), Array(0...33))
   }
 
-  // The open element is written through a pointer into the tail's block. A copy taken while it
-  // is open shares that block; the parser's contract is to make the tail unique again before it
-  // opens anything else (`_reopenElement`), and the public `append` does so itself.
+  // The open element is the one piece of storage the parser writes that a copy taken mid-element
+  // also reads, and it is held inline for exactly that reason: copying the array copies it, so
+  // the two diverge with nothing asked of either side.
   @Test
   func `A Copy Taken While An Element Is Open Is Not Written Through`() {
     var array = StreamArray<Int>()
@@ -126,121 +128,92 @@ struct `Stream array tests` {
     let snapshot = array
     first.assumingMemoryBound(to: Int.self).pointee = 2
 
-    expectNoDifference(Array(snapshot), [2], "a write into the open element before any open is visible")
-    let reopened = array._reopenElement()
-    reopened?.assumingMemoryBound(to: Int.self).pointee = 3
-    _ = array._openElement(4)
+    expectNoDifference(Array(snapshot), [1], "the copy took the open element with it")
+    expectNoDifference(Array(array), [2])
 
-    expectNoDifference(Array(snapshot), [2])
-    expectNoDifference(Array(array), [3, 4])
+    _ = array._openElement(4)
+    expectNoDifference(Array(snapshot), [1])
+    expectNoDifference(Array(array), [2, 4])
 
     let second = array
     array.append(5)
-    expectNoDifference(Array(second), [3, 4])
-    expectNoDifference(Array(array), [3, 4, 5])
+    expectNoDifference(Array(second), [2, 4])
+    expectNoDifference(Array(array), [2, 4, 5])
   }
 
+  // Closed elements are never written again, so the parser keeps committing into the very block
+  // a copy holds: the slots it writes are above the count that copy captured, and so are not its
+  // elements. This is what removes the copy-on-write check from the commit path.
   @Test
-  func `Reopening The Element Copies A Shared Block`() {
+  func `Elements Committed After A Copy Are Not The Copy's`() {
     var array = StreamArray<Int>()
-    let first = array._openElement(1)
+    for value in 0..<10 { _ = array._openElement(value) }
     let snapshot = array
-    let reopened = array._reopenElement()
+    let sharedBlock = array.tail === snapshot.tail
+    for value in 10..<40 { _ = array._openElement(value) }
 
-    expectNoDifference(reopened != first, true)
-    reopened?.assumingMemoryBound(to: Int.self).pointee = 9
-    expectNoDifference(Array(snapshot), [1])
-    expectNoDifference(Array(array), [9])
+    expectNoDifference(sharedBlock, true, "the copy shares the block the parser is filling")
+    expectNoDifference(Array(snapshot), Array(0..<10))
+    expectNoDifference(Array(array), Array(0..<40))
   }
 
-  // A shared tail is frozen where it is: the open element alone is copied into a fresh tail, the
-  // frozen block is chained behind it, and indexing across the chain stays right.
+  // A snapshot per element, every one kept.
   @Test
-  func `Reopening Freezes The Shared Tail And Copies Only The Open Element`() {
-    var array = StreamArray<Int>()
-    for value in 0..<40 { _ = array._openElement(value) }
-    let snapshot = array
-    let reopened = array._reopenElement()
-    reopened?.assumingMemoryBound(to: Int.self).pointee = -39
-
-    expectNoDifference(array.blocks.count, 1, "the full block; the frozen seven hang off the tail")
-    expectNoDifference(array.tail?.previousTotal, 7)
-    expectNoDifference(array.tail?.count, 1)
-    expectNoDifference(array.tailCount, 8)
-    expectNoDifference(Array(snapshot), Array(0..<40))
-    expectNoDifference(Array(array), Array(0..<39) + [-39])
-    for position in 0..<40 {
-      expectNoDifference(array[position], position == 39 ? -39 : position, "position \(position)")
-    }
-
-    for value in 40..<100 { _ = array._openElement(value) }
-    expectNoDifference(array.blocks.count, 3, "the chain compacted into full blocks as the tail filled")
-    expectNoDifference(array.tail?.previous == nil, true)
-    expectNoDifference(Array(array), Array(0..<39) + [-39] + Array(40..<100))
-    expectNoDifference(Array(snapshot), Array(0..<40))
-
-    var mutated = array
-    mutated[3] = 300
-    mutated[98] = 980
-    expectNoDifference(mutated[3], 300)
-    expectNoDifference(mutated[98], 980)
-    expectNoDifference(array[3], 3)
-    expectNoDifference(array[98], 98)
-  }
-
-  // A snapshot per element, every one kept: the chain must stay bounded and the spine uniform.
-  @Test
-  func `Snapshots Kept Per Element Compact The Chain`() {
+  func `Every Snapshot Kept While Parsing Stays Right`() {
     var array = StreamArray<Int>()
     var kept: [StreamArray<Int>] = []
     for value in 0..<200 {
-      _ = array._reopenElement()
       _ = array._openElement(value)
       kept.append(array)
     }
     expectNoDifference(Array(array), Array(0..<200))
-    expectNoDifference(array.blocks.count, 200 / 32)
-    var links = 0
-    var link = array.tail?.previous
-    while let block = link {
-      links += 1
-      link = block.previous
-    }
-    expectNoDifference(links < 32, true)
+    expectNoDifference(
+      array.blocks.count * StreamArray<Int>.blockCapacity + array.tailCount + 1, 200
+    )
     for (index, snapshot) in kept.enumerated() {
       expectNoDifference(Array(snapshot), Array(0...index), "snapshot \(index)")
     }
   }
 
-  // A snapshot inside the first element of a tail, taken per byte, must not chain empty links.
+  // Writing into an element the array already holds is the one case that copies, and it copies
+  // the one block that element is in.
   @Test
-  func `Snapshots Inside The Open Element Do Not Grow The Chain`() {
+  func `Writing Into A Shared Element Copies One Block`() {
     var array = StreamArray<Int>()
-    var kept: [StreamArray<Int>] = []
-    _ = array._openElement(0)
-    for step in 1...100 {
-      kept.append(array)
-      let slot = array._reopenElement()
-      slot?.assumingMemoryBound(to: Int.self).pointee = step
-    }
-    expectNoDifference(array.tail?.previous == nil, true)
-    expectNoDifference(Array(array), [100])
-    for (index, snapshot) in kept.enumerated() {
-      expectNoDifference(Array(snapshot), [index], "snapshot \(index)")
-    }
+    for value in 0..<100 { _ = array._openElement(value) }
+    let snapshot = array
+    var mutated = array
+    mutated[3] = 300
+    mutated[98] = 980
+
+    expectNoDifference(mutated[3], 300)
+    expectNoDifference(mutated[98], 980)
+    expectNoDifference(array[3], 3)
+    expectNoDifference(array[98], 98)
+    expectNoDifference(Array(snapshot), Array(0..<100))
   }
 
+  // A repeated dictionary key resumes in the slot it already has, which may be the open one.
   @Test
-  func `Preparing For Writes Freezes A Shared Tail Without Copying`() {
+  func `The Open Element Is Addressed As The Last`() {
     var array = StreamArray<Int>()
-    for value in 0..<5 { _ = array._openElement(value) }
-    let snapshot = array
-    array._prepareForWrites()
-    _ = array._openElement(5)
+    _ = array._openElement(0)
+    _ = array._openElement(1)
+    array._uniqueSlotAddress(1).assumingMemoryBound(to: Int.self).pointee = 9
 
-    expectNoDifference(array.blocks.count, 0)
-    expectNoDifference(array.tail?.previousTotal, 5)
-    expectNoDifference(Array(array), Array(0..<6))
-    expectNoDifference(Array(snapshot), Array(0..<5))
+    expectNoDifference(Array(array), [0, 9])
+    array._uniqueSlotAddress(0).assumingMemoryBound(to: Int.self).pointee = 8
+    expectNoDifference(Array(array), [8, 9])
+  }
+
+  // `append` adds after the open element rather than replacing it, and closes it on the way.
+  @Test
+  func `Appending Adds After The Open Element`() {
+    var array = StreamArray<Int>()
+    _ = array._openElement(1)
+    array.append(2)
+
+    expectNoDifference(Array(array), [1, 2])
+    expectNoDifference(array.pending == nil, true)
   }
 }

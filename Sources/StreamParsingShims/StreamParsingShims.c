@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-_Atomic(uint64_t) stream_parsing_copy_epoch = 0;
 
 // The header's `static inline` functions are what the Swift side inlines; this file holds the
 // one out-of-line kernel, the stage-1 window indexer. Its three block algorithms are simdjson's

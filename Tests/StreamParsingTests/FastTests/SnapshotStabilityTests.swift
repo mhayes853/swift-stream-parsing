@@ -159,9 +159,8 @@ struct `Snapshot stability tests` {
 
   // MARK: - Copies taken through a view
 
-  // A container read out of a view as a value shares the parser's blocks the way `current` does,
-  // and the parser only learns of it through the copy epoch (`_streamValueCopied`). Every byte
-  // takes one such copy, so every byte is a chance for the next write to land in it.
+  // A container read out of a view as a value shares the parser's blocks the way `current` does.
+  // Every byte takes one such copy, so every byte is a chance for the next write to land in it.
   @Test
   func `Containers copied out of a view stay stable`() throws {
     let json = #"{"items":[{"id":1,"tags":["x"]},{"id":2,"tags":["yy","z"]}],"groups":{"a":[1,2],"b":[3]}}"#
@@ -215,9 +214,10 @@ struct `Snapshot stability tests` {
     expectNoDifference(suppliedNested, ["a": [7]])
   }
 
-  // Driving `PartialSink` directly, the copy is the caller's to report.
+  // Driving `PartialSink` directly, a copy taken mid-parse needs nothing reported to the sink:
+  // the open element of every container is inline, so the copy diverges on its own.
   @Test
-  func `A sink driven directly is reseated by its caller`() throws {
+  func `A sink driven directly keeps a copy taken mid-parse stable`() throws {
     let json = Array(#"[[1,2],[3,4]]"#.utf8)
     let storage = UnsafeMutablePointer<StreamArray<StreamArray<Int>>>.allocate(capacity: 1)
     storage.initialize(to: [])
@@ -230,7 +230,6 @@ struct `Snapshot stability tests` {
     try json[..<5].withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     let copy = storage.pointee
     let rendering = String(describing: copy)
-    sink.reseat()
     try json[5...].withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     try parser.finish(into: &sink)
 

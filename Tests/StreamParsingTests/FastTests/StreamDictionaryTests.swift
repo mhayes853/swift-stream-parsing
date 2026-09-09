@@ -141,7 +141,7 @@ struct `Stream dictionary tests` {
   }
 
   @Test
-  func `Indexes A New Key As Its Value Opens`() {
+  func `Indexes A New Key Before Its Value Is Drained`() {
     var dictionary = StreamDictionary<Int>()
     for value in 0..<8 {
       dictionary.updateValue(value, forKey: "key_\(value)")
@@ -157,7 +157,7 @@ struct `Stream dictionary tests` {
     }
 
     expectNoDifference(dictionary.entries.count, 9)
-    expectNoDifference(dictionary.storedValues.count, 9)
+    expectNoDifference(dictionary.storedValues.count, 8)
     expectNoDifference(dictionary.table?.count, 32)
     expectNoDifference(dictionary["key_8"], 80)
 
