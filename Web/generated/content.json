@@ -46890,6 +46890,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-09-09T20:06:41-07:00",
+          "recordedCommit" : "bf88dea51",
+          "recordedSubject" : "Update the explorer for the merged parser",
+          "revised" : "2026-09-09T20:06:41-07:00",
+          "revisedCommit" : "bf88dea51",
+          "revisedSubject" : "Update the explorer for the merged parser",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6948,
         "markdown" : "Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of\nraw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was\nwhere the two-thirds went. A profile of the Twitter full parse (standalone `-O` harness, 4,242\nsamples, top of stack) answered it, and the answer was not the sink:\n\n| where | share of wall |\n|---|---:|\n| `memmove` and struct copy/destroy witnesses | ~39% |\n| parser (structural run, numbers, strings, UTF-8) | ~32% |\n| every `PartialSink` method together | ~8% |\n| malloc/free | ~3.5% |\n| long-key tail compare | ~2.6% |\n\nEvery one of those `memmove`s sat under `_streamArraySchema`'s element open. `MemoryLayout` put\n`BenchmarkTweetFull.Partial` at **11,904 bytes** -- `retweeted_status?` 5,952, `user` 2,446,\n`entities` 2,180 -- against 289 for the three-field model, and the open-element protocol moved\nthat struct about six times per tweet: the `drainPending` swap (three moves), the move out, the\ncommit into the tail, the template copy into `pending`, and tail growth. Eight megabytes of\ntraffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,\nwhich is why that idea was set aside in favour of this one.",
@@ -46978,6 +46987,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-09-09T20:06:41-07:00",
+          "recordedCommit" : "bf88dea51",
+          "recordedSubject" : "Update the explorer for the merged parser",
+          "revised" : "2026-09-09T20:06:41-07:00",
+          "revisedCommit" : "bf88dea51",
+          "revisedSubject" : "Update the explorer for the merged parser",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6971,
         "markdown" : "The element is copy-initialised **in place**, from a template, at the end of the tail block, and\nthe sink is handed that slot's address. No `pending`, no move at close. Three things had to\nchange for that to be sound:\n\n- **Storage owns its capacity.** `ContiguousArray` never exposes spare capacity, so the tail is a\n  `StreamBlock`: a `ManagedBuffer` with the elements tail-allocated (one allocation per block;\n  the two-allocation form doubled the malloc count on every number corpus and cost Canada 10%\n  and Mesh 27%). Its header is read through the pointer, not the property -- a stored class\n  property read from outside its module is a dynamic `swift_beginAccess` per access, two per\n  open -- and it is not generic over the element, because a generic header made the element\n  offset a metadata lookup on the paths that reach the block unspecialised (GitHub and GSoC each\n  lost 8% of their gain to that alone).\n- **The template is a pointer, not a closure.** A maker returning the element by value stages it\n  in a temporary, a second whole-element copy. The schema builders allocate one template per\n  schema and leak it, and `_openElement(copying:)` copies from that address. The copy itself is\n  `initialize(to:)` below 1 KB and `initialize(from:count:)` above: the counted form is\n  `swift_arrayInitWithCopy`, a runtime detour worth 7% on CITM's thousands of small elements,\n  and the single-value form stages anything loadable on the stack, three 6.6 KB memcpys per\n  tweet.\n- **Uniqueness is settled per container, not per element.** A snapshot is a struct copy that\n  retains the blocks, so a write through the old pointer would reach it. The sink makes the\n  block it is about to write unique once when it enters a container (`prepareWrites`) and once\n  at the start of any parse call after a value may have been copied (`PartialSink.reseat()`,\n  O(depth)), and never in between, because nothing but the parser touches the value inside a\n  parse call. A per-element `isKnownUniquelyReferenced` cost the homogeneous double array 29%.\n  Copies are detected with a process-wide epoch (`_streamValueCopied`, a relaxed C atomic --\n  the deployment floor predates `Synchronization`) bumped by `current` and by the container\n  views' `value` accessors; scalars read off a view declare that they cannot share storage and\n  skip it, so a view read per byte costs nothing extra.\n\nThe dictionary's values took the same shape: `storedValues` is a `StreamArray`, a repeated key\nresumes in place through `_uniqueSlotAddress`, and the pending value and its round trip are gone.",
@@ -46999,6 +47017,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-09-09T20:06:41-07:00",
+          "recordedCommit" : "bf88dea51",
+          "recordedSubject" : "Update the explorer for the merged parser",
+          "revised" : "2026-09-09T20:06:41-07:00",
+          "revisedCommit" : "bf88dea51",
+          "revisedSubject" : "Update the explorer for the merged parser",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 7006,
         "markdown" : "With the open element inside a block, a snapshot taken mid-element shares the block the parser\nis writing. The first form copied the tail block on the next write; that made a retained\nsnapshot per byte pay a block copy per byte, and on `Retention 100 users` cost 90%. The second\nform froze the tail as a short sealed block in the spine and copied only the open element out --\nand the spine is shared with the snapshot too, so every freeze copy-on-wrote the whole spine:\n`Retention Mesh - window 16` went quadratic (793 K mallocs). The form that shipped:\n\n- A shared tail is **frozen in place and chained behind a fresh tail** through its header\n  (`previous`, `previousTotal`); the open element alone is copied into the fresh tail. Nothing\n  touches the spine.\n- Once the chain holds a block's worth of elements it is **compacted** into full sealed blocks,\n  so the spine stays uniform, indexing stays a shift and a mask, and a chain is never longer\n  than a block (which also bounds the recursion that releases it).\n- A snapshot taken repeatedly inside one open element -- a state kept per chunk, the streaming\n  shape -- interrupts a tail holding nothing but that element. That tail is kept as the fresh\n  tail's `spare` and reused the next time round once the snapshot that held it is gone, so with\n  the latest state retained the two blocks alternate and no allocation happens per snapshot.\n  The links are retained raw bits rather than `AnyObject` (which retains through the\n  Objective-C-aware slow path) and the stale element is destroyed by a specialised move rather\n  than `swift_arrayDestroy`.\n\nWhat remains per retained-snapshot cycle is the element copy (which the old design paid at\nsnapshot time instead), the freeze bookkeeping and the reseat walk. On the three-field Twitter\nmodel, feeding chunks with the latest state held (standalone harness):\n\n| chunk | before | after |\n|---|---:|---:|\n| 64 B | 319 MB/s | 268 MB/s |\n| 16 B | 132 MB/s | 98 MB/s |\n| 4 B | 41 MB/s | 28 MB/s |\n\nThat is the trade this design makes, and it is the one row family that lost: a retained\nsnapshot inside an open element costs a fixed ~40 ns per cycle that the inline pending slot did\nnot. Snapshots that are not retained, and every view read, gained -- see the table below.",
@@ -47097,6 +47124,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-09-09T20:06:41-07:00",
+          "recordedCommit" : "bf88dea51",
+          "recordedSubject" : "Update the explorer for the merged parser",
+          "revised" : "2026-09-09T20:06:41-07:00",
+          "revisedCommit" : "bf88dea51",
+          "revisedSubject" : "Update the explorer for the merged parser",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 7043,
         "markdown" : "Typed corpus rows, the raw `- bulk` controls all within ±2%:\n\n| row | base p0 | cand p0 | Δp0 | Δp50 | mallocs |\n|---|---:|---:|---:|---:|---|\n| Real Twitter full - bulk discarding | 576 | 791 | **+37.3%** | +37.1% | 1,078 → 1,266 |\n| Real GitHub events - bulk discarding | 844 | 1052 | **+24.6%** | +25.3% | 63 → 80 |\n| Real GSoC 2018 - bulk discarding | 943 | 1099 | **+16.5%** | +17.1% | 9,519 → 9,676 |\n| Real Qwen 3 structured response - bulk discarding | 400 | 437 | +9.3% | +10.4% | 81 → 81 |\n| Real Mesh - bulk discarding | 481 | 525 | +9.1% | +9.0% | 2,231 → 2,233 |\n| Typed shape synthetic double array - typed parse | 752 | 817 | +8.6% | +7.9% | 1,264 → 1,264 |\n| Real Qwen 3 workspace edit tool call - bulk discarding | 528 | 557 | +5.5% | +6.5% | 105 → 107 |\n| Real Canada - bulk discarding | 543 | 565 | +4.1% | +3.8% | 2,659 → 2,671 |\n| Real LLM message - bulk discarding | 1286 | 1306 | +1.6% | +1.5% | 2,069 → 2,069 |\n| Real Twitter - bulk discarding | 1584 | 1592 | +0.5% | +0.2% | 114 → 114 |\n| Real CITM catalog - bulk discarding | 943 | 927 | -1.7% | -0.8% | 2,281 → 2,403 |\n\nThe size of the win tracks the size of the partial: the three-field Twitter model, whose\nelement is 289 bytes, is flat; the full model, whose element was 11,904 bytes and is 6,608 now\n(the `pending` slot inside every nested `StreamArray` is gone, so the parent no longer carries an\nempty element per array field), gains a third. CITM's cost is the dictionary machinery, which\nthis did not touch.\n\nStreaming and snapshots:\n\n| row | Δp0 | Δp50 |\n|---|---:|---:|\n| Stream Array of structs - snapshot per byte | +331% | +332% |\n| Scaling 400 users - snapshot per byte | +333% | +331% |\n| Stream Array of structs - snapshot per 64B chunk | +30% | +30% |\n| API PartialsStream Qwen 3 structured response - snapshot per 64B chunk | +38% | +38% |\n| API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk | +23% | +23% |\n| Stream Array of structs - view read per byte | +4% | +4% |\n| Real * - byte by byte discarding | -2..+7% | |\n| Retention 100 users - window 4 / 16 / 64 | -59% | -59% |\n| Retention 100 users - keep all | -71% | -72% |\n| Dictionary 8..512 keys - snapshot per byte / window 16 | -58..-72% | |\n| Retention Mesh - window 16 | -21% | -21% |\n\nA snapshot is now a retain rather than a copy of the open element, which is the +330% on the\nper-byte snapshot rows and the +23..+38% on the per-chunk ones; those rows drop each snapshot\nbefore the next byte. The `Retention` and `Dictionary` rows keep them -- every one, or a window\nof four or more -- so the spare is never unique, every cycle allocates, and the fixed cost per\ncycle (an element copy the old design also paid, plus a block and the reseat) is charged per\nbyte. The realistic shape, the latest state held while chunks arrive, sits between the two: the\nharness table above, -16% at 64-byte chunks.",
@@ -48230,6 +48266,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-09-09T20:06:41-07:00",
+          "recordedCommit" : "bf88dea51",
+          "recordedSubject" : "Update the explorer for the merged parser",
+          "revised" : "2026-09-09T20:06:41-07:00",
+          "revisedCommit" : "bf88dea51",
+          "revisedSubject" : "Update the explorer for the merged parser",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 7091,
         "markdown" : "The bulk table above is real and so is the streaming one, and the streaming one decides it. A\nretained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does\nnot, and no form of the freeze/compact chain got that below a heap block per retained snapshot:\nthe first froze by copying the tail, the second by sealing into the spine, the third by chaining\nbehind a fresh tail with a spare kept for reuse -- and the spare is only reusable while nothing\nholds it, which is exactly the condition the `Retention` and `Dictionary` rows break by design.\nSo the open element went back to `pending`, held inline in the value, where a plain struct copy\ndiverges it for free: no allocation, no epoch, no reseat walk, and `PartialSink`'s frames go back\nto being valid because the address they hold is at a fixed offset in storage the stream owns.\n\nWhat the experiment leaves behind is the half of it that never depended on where the element\nlives:\n\n- **`StreamBlock`.** The blocks are a `ManagedBuffer` with the elements tail-allocated rather\n  than a `ContiguousArray`, and they keep every property the in-place design needed them for:\n  one allocation per block, a stored capacity, a header read through its pointer, and no\n  genericity in the header. What they buy now is different and larger than the open element ever\n  was. Because the block owns its capacity, each array can hold its *own* count of the elements\n  in the filling block, captured by value when the array is copied -- so a snapshot's elements\n  are a prefix of the filling block's, the parser appends above that prefix, and **there is no\n  copy-on-write check on the commit path at all**, at any block size. The old rule (\"the first\n  commit after a snapshot copies one block\") is gone; only a write *into* the prefix copies.\n- **The template pointer.** One leaked template per schema, copied straight into the element's\n  slot by `_streamCopyInitialize`, replacing the two-form initial-value closure the hoist\n  experiment left behind. The size threshold in it is the one the in-place work measured:\n  `initialize(to:)` below 1 KB, `initialize(from:count:)` above, because the counted form is\n  `swift_arrayInitWithCopy` and the single-value form stages a large loadable value on the stack.\n- **The dictionary's values, blocked.** `storedValues` is a `StreamArray` now, which reverses the\n  older finding that blocking a dictionary's storage cost 2x on the discarding path -- that\n  measurement had no snapshot row in front of it, and a flat `[Value]` makes a snapshot-per-byte\n  parse copy the whole value array per byte. The dictionary keeps its own open value rather than\n  borrowing the array's, because a repeated key's open value is an element the array already\n  holds, and unlike an append a write into one of those is a write a kept state can see.\n\nThe `memmove` profile that opened this chapter is therefore still unanswered for the largest\npartials: `BenchmarkTweetFull.Partial`'s eleven kilobytes still move once per open and once per\nclose. What this settles is that moving them is cheaper than the bookkeeping required to stop\nmoving them, for every shape that keeps a snapshot -- which is the shape the streaming API is\nfor.",
@@ -48249,17 +48294,17 @@
     ],
     "title" : "New Architecture"
   },
-  "generatedAt" : "2026-09-10T03:04:07Z",
+  "generatedAt" : "2026-09-10T03:06:46Z",
   "sources" : {
 
   },
   "stats" : {
     "codeBlockCount" : 18,
-    "datedSections" : 271,
+    "datedSections" : 276,
     "declCount" : 1448,
     "fileCount" : 43,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
-    "lastRecorded" : "2026-09-09T19:50:37-07:00",
+    "lastRecorded" : "2026-09-09T20:06:41-07:00",
     "sectionCount" : 276,
     "tableCount" : 146,
     "verdictCounts" : {
