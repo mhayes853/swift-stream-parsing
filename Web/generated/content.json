@@ -21069,10 +21069,10 @@
           "recorded" : "2026-08-27T00:43:40-07:00",
           "recordedCommit" : "310478bb5",
           "recordedSubject" : "Move Double power-of-ten table into C shims",
-          "revised" : "2026-08-27T00:43:40-07:00",
-          "revisedCommit" : "310478bb5",
-          "revisedSubject" : "Move Double power-of-ten table into C shims",
-          "revisions" : 1
+          "revised" : "2026-09-09T19:50:37-07:00",
+          "revisedCommit" : "428b83ec0",
+          "revisedSubject" : "Merge remote-tracking branch 'origin/new-architecture' into t3code/build-parser-architecture-explorer",
+          "revisions" : 4
         },
         "level" : 2,
         "line" : 4008,
@@ -23786,10 +23786,10 @@
           "recorded" : "2026-08-28T21:46:09-07:00",
           "recordedCommit" : "c5027137c",
           "recordedSubject" : "Fuse whitespace end-byte load",
-          "revised" : "2026-08-29T00:38:58-07:00",
-          "revisedCommit" : "7e8f50c85",
-          "revisedSubject" : "Replace structural state switch with branch ladder",
-          "revisions" : 2
+          "revised" : "2026-09-09T19:50:37-07:00",
+          "revisedCommit" : "428b83ec0",
+          "revisedSubject" : "Merge remote-tracking branch 'origin/new-architecture' into t3code/build-parser-architecture-explorer",
+          "revisions" : 5
         },
         "level" : 2,
         "line" : 4459,
@@ -46884,28 +46884,1389 @@
         ],
         "title" : "What this leaves",
         "verdict" : "neutral"
+      },
+      {
+        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "codeBlocks" : [
+
+        ],
+        "level" : 2,
+        "line" : 6948,
+        "markdown" : "Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of\nraw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was\nwhere the two-thirds went. A profile of the Twitter full parse (standalone `-O` harness, 4,242\nsamples, top of stack) answered it, and the answer was not the sink:\n\n| where | share of wall |\n|---|---:|\n| `memmove` and struct copy/destroy witnesses | ~39% |\n| parser (structural run, numbers, strings, UTF-8) | ~32% |\n| every `PartialSink` method together | ~8% |\n| malloc/free | ~3.5% |\n| long-key tail compare | ~2.6% |\n\nEvery one of those `memmove`s sat under `_streamArraySchema`'s element open. `MemoryLayout` put\n`BenchmarkTweetFull.Partial` at **11,904 bytes** -- `retweeted_status?` 5,952, `user` 2,446,\n`entities` 2,180 -- against 289 for the three-field model, and the open-element protocol moved\nthat struct about six times per tweet: the `drainPending` swap (three moves), the move out, the\ncommit into the tail, the template copy into `pending`, and tail growth. Eight megabytes of\ntraffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,\nwhich is why that idea was set aside in favour of this one.",
+        "measurements" : [
+
+        ],
+        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "slug" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "summary" : "Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of raw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was where the two-thirds went. A profile of the Twitter full parse…",
+        "tables" : [
+          {
+            "headers" : [
+              "where",
+              "share of wall"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "memmove and struct copy/destroy witnesses"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~39%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "parser (structural run, numbers, strings, UTF-8)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~32%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "every PartialSink method together"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~8%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "malloc/free"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~3.5%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "long-key tail compare"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "~2.6%"
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "verdict" : "mixed"
+      },
+      {
+        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 6971,
+        "markdown" : "The element is copy-initialised **in place**, from a template, at the end of the tail block, and\nthe sink is handed that slot's address. No `pending`, no move at close. Three things had to\nchange for that to be sound:\n\n- **Storage owns its capacity.** `ContiguousArray` never exposes spare capacity, so the tail is a\n  `StreamBlock`: a `ManagedBuffer` with the elements tail-allocated (one allocation per block;\n  the two-allocation form doubled the malloc count on every number corpus and cost Canada 10%\n  and Mesh 27%). Its header is read through the pointer, not the property -- a stored class\n  property read from outside its module is a dynamic `swift_beginAccess` per access, two per\n  open -- and it is not generic over the element, because a generic header made the element\n  offset a metadata lookup on the paths that reach the block unspecialised (GitHub and GSoC each\n  lost 8% of their gain to that alone).\n- **The template is a pointer, not a closure.** A maker returning the element by value stages it\n  in a temporary, a second whole-element copy. The schema builders allocate one template per\n  schema and leak it, and `_openElement(copying:)` copies from that address. The copy itself is\n  `initialize(to:)` below 1 KB and `initialize(from:count:)` above: the counted form is\n  `swift_arrayInitWithCopy`, a runtime detour worth 7% on CITM's thousands of small elements,\n  and the single-value form stages anything loadable on the stack, three 6.6 KB memcpys per\n  tweet.\n- **Uniqueness is settled per container, not per element.** A snapshot is a struct copy that\n  retains the blocks, so a write through the old pointer would reach it. The sink makes the\n  block it is about to write unique once when it enters a container (`prepareWrites`) and once\n  at the start of any parse call after a value may have been copied (`PartialSink.reseat()`,\n  O(depth)), and never in between, because nothing but the parser touches the value inside a\n  parse call. A per-element `isKnownUniquelyReferenced` cost the homogeneous double array 29%.\n  Copies are detected with a process-wide epoch (`_streamValueCopied`, a relaxed C atomic --\n  the deployment floor predates `Synchronization`) bumped by `current` and by the container\n  views' `value` accessors; scalars read off a view declare that they cannot share storage and\n  skip it, so a view read per byte costs nothing extra.\n\nThe dictionary's values took the same shape: `storedValues` is a `StreamArray`, a repeated key\nresumes in place through `_uniqueSlotAddress`, and the pending value and its round trip are gone.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/the-protocol-that-was-built",
+        "slug" : "the-protocol-that-was-built",
+        "summary" : "The element is copy-initialised in place, from a template, at the end of the tail block, and the sink is handed that slot's address. No pending, no move at close. Three things had to change for that to be sound:",
+        "tables" : [
+
+        ],
+        "title" : "The protocol that was built",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 7006,
+        "markdown" : "With the open element inside a block, a snapshot taken mid-element shares the block the parser\nis writing. The first form copied the tail block on the next write; that made a retained\nsnapshot per byte pay a block copy per byte, and on `Retention 100 users` cost 90%. The second\nform froze the tail as a short sealed block in the spine and copied only the open element out --\nand the spine is shared with the snapshot too, so every freeze copy-on-wrote the whole spine:\n`Retention Mesh - window 16` went quadratic (793 K mallocs). The form that shipped:\n\n- A shared tail is **frozen in place and chained behind a fresh tail** through its header\n  (`previous`, `previousTotal`); the open element alone is copied into the fresh tail. Nothing\n  touches the spine.\n- Once the chain holds a block's worth of elements it is **compacted** into full sealed blocks,\n  so the spine stays uniform, indexing stays a shift and a mask, and a chain is never longer\n  than a block (which also bounds the recursion that releases it).\n- A snapshot taken repeatedly inside one open element -- a state kept per chunk, the streaming\n  shape -- interrupts a tail holding nothing but that element. That tail is kept as the fresh\n  tail's `spare` and reused the next time round once the snapshot that held it is gone, so with\n  the latest state retained the two blocks alternate and no allocation happens per snapshot.\n  The links are retained raw bits rather than `AnyObject` (which retains through the\n  Objective-C-aware slow path) and the stale element is destroyed by a specialised move rather\n  than `swift_arrayDestroy`.\n\nWhat remains per retained-snapshot cycle is the element copy (which the old design paid at\nsnapshot time instead), the freeze bookkeeping and the reseat walk. On the three-field Twitter\nmodel, feeding chunks with the latest state held (standalone harness):\n\n| chunk | before | after |\n|---|---:|---:|\n| 64 B | 319 MB/s | 268 MB/s |\n| 16 B | 132 MB/s | 98 MB/s |\n| 4 B | 41 MB/s | 28 MB/s |\n\nThat is the trade this design makes, and it is the one row family that lost: a retained\nsnapshot inside an open element costs a fixed ~40 ns per cycle that the inline pending slot did\nnot. Snapshots that are not retained, and every view read, gained -- see the table below.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/snapshots-after-the-move",
+        "slug" : "snapshots-after-the-move",
+        "summary" : "With the open element inside a block, a snapshot taken mid-element shares the block the parser is writing. The first form copied the tail block on the next write; that made a retained snapshot per byte pay a block copy per byte, and on Retention 100 users…",
+        "tables" : [
+          {
+            "headers" : [
+              "chunk",
+              "before",
+              "after"
+            ],
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "64 B",
+                  "unit" : "B",
+                  "value" : 64
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "319 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 319
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "268 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 268
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "16 B",
+                  "unit" : "B",
+                  "value" : 16
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "132 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 132
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "98 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 98
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "4 B",
+                  "unit" : "B",
+                  "value" : 4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "41 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 41
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "28 MB/s",
+                  "unit" : "MB/s",
+                  "value" : 28
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Snapshots after the move",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 7043,
+        "markdown" : "Typed corpus rows, the raw `- bulk` controls all within ±2%:\n\n| row | base p0 | cand p0 | Δp0 | Δp50 | mallocs |\n|---|---:|---:|---:|---:|---|\n| Real Twitter full - bulk discarding | 576 | 791 | **+37.3%** | +37.1% | 1,078 → 1,266 |\n| Real GitHub events - bulk discarding | 844 | 1052 | **+24.6%** | +25.3% | 63 → 80 |\n| Real GSoC 2018 - bulk discarding | 943 | 1099 | **+16.5%** | +17.1% | 9,519 → 9,676 |\n| Real Qwen 3 structured response - bulk discarding | 400 | 437 | +9.3% | +10.4% | 81 → 81 |\n| Real Mesh - bulk discarding | 481 | 525 | +9.1% | +9.0% | 2,231 → 2,233 |\n| Typed shape synthetic double array - typed parse | 752 | 817 | +8.6% | +7.9% | 1,264 → 1,264 |\n| Real Qwen 3 workspace edit tool call - bulk discarding | 528 | 557 | +5.5% | +6.5% | 105 → 107 |\n| Real Canada - bulk discarding | 543 | 565 | +4.1% | +3.8% | 2,659 → 2,671 |\n| Real LLM message - bulk discarding | 1286 | 1306 | +1.6% | +1.5% | 2,069 → 2,069 |\n| Real Twitter - bulk discarding | 1584 | 1592 | +0.5% | +0.2% | 114 → 114 |\n| Real CITM catalog - bulk discarding | 943 | 927 | -1.7% | -0.8% | 2,281 → 2,403 |\n\nThe size of the win tracks the size of the partial: the three-field Twitter model, whose\nelement is 289 bytes, is flat; the full model, whose element was 11,904 bytes and is 6,608 now\n(the `pending` slot inside every nested `StreamArray` is gone, so the parent no longer carries an\nempty element per array field), gains a third. CITM's cost is the dictionary machinery, which\nthis did not touch.\n\nStreaming and snapshots:\n\n| row | Δp0 | Δp50 |\n|---|---:|---:|\n| Stream Array of structs - snapshot per byte | +331% | +332% |\n| Scaling 400 users - snapshot per byte | +333% | +331% |\n| Stream Array of structs - snapshot per 64B chunk | +30% | +30% |\n| API PartialsStream Qwen 3 structured response - snapshot per 64B chunk | +38% | +38% |\n| API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk | +23% | +23% |\n| Stream Array of structs - view read per byte | +4% | +4% |\n| Real * - byte by byte discarding | -2..+7% | |\n| Retention 100 users - window 4 / 16 / 64 | -59% | -59% |\n| Retention 100 users - keep all | -71% | -72% |\n| Dictionary 8..512 keys - snapshot per byte / window 16 | -58..-72% | |\n| Retention Mesh - window 16 | -21% | -21% |\n\nA snapshot is now a retain rather than a copy of the open element, which is the +330% on the\nper-byte snapshot rows and the +23..+38% on the per-chunk ones; those rows drop each snapshot\nbefore the next byte. The `Retention` and `Dictionary` rows keep them -- every one, or a window\nof four or more -- so the spare is never unique, every cycle allocates, and the fixed cost per\ncycle (an element copy the old design also paid, plus a block and the reseat) is charged per\nbyte. The realistic shape, the latest state held while chunks arrive, sits between the two: the\nharness table above, -16% at 64-byte chunks.",
+        "measurements" : [
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "value" : 576
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "value" : 791
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "unit" : "%",
+            "value" : 37.3
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "unit" : "%",
+            "value" : 37.1
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter full - bulk discarding",
+            "unit" : "→ 1,266",
+            "value" : 1078
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "value" : 844
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "value" : 1052
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "unit" : "%",
+            "value" : 24.6
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "unit" : "%",
+            "value" : 25.3
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events - bulk discarding",
+            "unit" : "→ 80",
+            "value" : 63
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "value" : 943
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "value" : 1099
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "unit" : "%",
+            "value" : 16.5
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "unit" : "%",
+            "value" : 17.1
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "Real GSoC 2018 - bulk discarding",
+            "unit" : "→ 9,676",
+            "value" : 9519
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "value" : 400
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "value" : 437
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "unit" : "%",
+            "value" : 9.3
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "unit" : "%",
+            "value" : 10.4
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 structured response - bulk discarding",
+            "unit" : "→ 81",
+            "value" : 81
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "value" : 481
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "value" : 525
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "%",
+            "value" : 9.1
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "%",
+            "value" : 9
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh - bulk discarding",
+            "unit" : "→ 2,233",
+            "value" : 2231
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "value" : 528
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "value" : 557
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "unit" : "%",
+            "value" : 5.5
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "unit" : "%",
+            "value" : 6.5
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Real Qwen 3 workspace edit tool call - bulk discarding",
+            "unit" : "→ 107",
+            "value" : 105
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "value" : 543
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "value" : 565
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "%",
+            "value" : 4.1
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "%",
+            "value" : 3.8
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada - bulk discarding",
+            "unit" : "→ 2,671",
+            "value" : 2659
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "value" : 1286
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "value" : 1306
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "unit" : "%",
+            "value" : 1.6
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "unit" : "%",
+            "value" : 1.5
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "Real LLM message - bulk discarding",
+            "unit" : "→ 2,069",
+            "value" : 2069
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "value" : 1584
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "value" : 1592
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "unit" : "%",
+            "value" : 0.5
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "unit" : "%",
+            "value" : 0.2
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter - bulk discarding",
+            "unit" : "→ 114",
+            "value" : 114
+          },
+          {
+            "column" : "base p0",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "value" : 943
+          },
+          {
+            "column" : "cand p0",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "value" : 927
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "unit" : "%",
+            "value" : -1.7
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "unit" : "%",
+            "value" : -0.8
+          },
+          {
+            "column" : "mallocs",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "Real CITM catalog - bulk discarding",
+            "unit" : "→ 2,403",
+            "value" : 2281
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "API PartialsStream Qwen 3 structured response - snapshot per 64B chunk",
+            "unit" : "%",
+            "value" : 38
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "API PartialsStream Qwen 3 structured response - snapshot per 64B chunk",
+            "unit" : "%",
+            "value" : 38
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk",
+            "unit" : "%",
+            "value" : 23
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "qwen",
+            "rowLabel" : "API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk",
+            "unit" : "%",
+            "value" : 23
+          },
+          {
+            "column" : "Δp0",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh - window 16",
+            "unit" : "%",
+            "value" : -21
+          },
+          {
+            "column" : "Δp50",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh - window 16",
+            "unit" : "%",
+            "value" : -21
+          }
+        ],
+        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/measured-3-interleaved-rounds-against-7229235-best-of-3-p0-median-p50",
+        "slug" : "measured-3-interleaved-rounds-against-7229235-best-of-3-p0-median-p50",
+        "summary" : "Typed corpus rows, the raw - bulk controls all within ±2%:",
+        "tables" : [
+          {
+            "headers" : [
+              "row",
+              "base p0",
+              "cand p0",
+              "Δp0",
+              "Δp50",
+              "mallocs"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter full - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "576",
+                  "value" : 576
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "791",
+                  "value" : 791
+                },
+                {
+                  "bold" : true,
+                  "isDelta" : true,
+                  "text" : "+37.3%",
+                  "unit" : "%",
+                  "value" : 37.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+37.1%",
+                  "unit" : "%",
+                  "value" : 37.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1,078 → 1,266",
+                  "unit" : "→ 1,266",
+                  "value" : 1078
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GitHub events - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "844",
+                  "value" : 844
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1052",
+                  "value" : 1052
+                },
+                {
+                  "bold" : true,
+                  "isDelta" : true,
+                  "text" : "+24.6%",
+                  "unit" : "%",
+                  "value" : 24.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+25.3%",
+                  "unit" : "%",
+                  "value" : 25.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "63 → 80",
+                  "unit" : "→ 80",
+                  "value" : 63
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GSoC 2018 - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "943",
+                  "value" : 943
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1099",
+                  "value" : 1099
+                },
+                {
+                  "bold" : true,
+                  "isDelta" : true,
+                  "text" : "+16.5%",
+                  "unit" : "%",
+                  "value" : 16.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+17.1%",
+                  "unit" : "%",
+                  "value" : 17.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9,519 → 9,676",
+                  "unit" : "→ 9,676",
+                  "value" : 9519
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 structured response - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "400",
+                  "value" : 400
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "437",
+                  "value" : 437
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.3%",
+                  "unit" : "%",
+                  "value" : 9.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+10.4%",
+                  "unit" : "%",
+                  "value" : 10.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "81 → 81",
+                  "unit" : "→ 81",
+                  "value" : 81
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "481",
+                  "value" : 481
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "525",
+                  "value" : 525
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.1%",
+                  "unit" : "%",
+                  "value" : 9.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+9.0%",
+                  "unit" : "%",
+                  "value" : 9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,231 → 2,233",
+                  "unit" : "→ 2,233",
+                  "value" : 2231
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Typed shape synthetic double array - typed parse"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "752",
+                  "value" : 752
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "817",
+                  "value" : 817
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+8.6%",
+                  "unit" : "%",
+                  "value" : 8.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+7.9%",
+                  "unit" : "%",
+                  "value" : 7.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1,264 → 1,264",
+                  "unit" : "→ 1,264",
+                  "value" : 1264
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Qwen 3 workspace edit tool call - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "528",
+                  "value" : 528
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "557",
+                  "value" : 557
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+5.5%",
+                  "unit" : "%",
+                  "value" : 5.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+6.5%",
+                  "unit" : "%",
+                  "value" : 6.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "105 → 107",
+                  "unit" : "→ 107",
+                  "value" : 105
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "543",
+                  "value" : 543
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "565",
+                  "value" : 565
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4.1%",
+                  "unit" : "%",
+                  "value" : 4.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+3.8%",
+                  "unit" : "%",
+                  "value" : 3.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,659 → 2,671",
+                  "unit" : "→ 2,671",
+                  "value" : 2659
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real LLM message - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1286",
+                  "value" : 1286
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1306",
+                  "value" : 1306
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.6%",
+                  "unit" : "%",
+                  "value" : 1.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.5%",
+                  "unit" : "%",
+                  "value" : 1.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,069 → 2,069",
+                  "unit" : "→ 2,069",
+                  "value" : 2069
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1584",
+                  "value" : 1584
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1592",
+                  "value" : 1592
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.5%",
+                  "unit" : "%",
+                  "value" : 0.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+0.2%",
+                  "unit" : "%",
+                  "value" : 0.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "114 → 114",
+                  "unit" : "→ 114",
+                  "value" : 114
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real CITM catalog - bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "943",
+                  "value" : 943
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "927",
+                  "value" : 927
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-1.7%",
+                  "unit" : "%",
+                  "value" : -1.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.8%",
+                  "unit" : "%",
+                  "value" : -0.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,281 → 2,403",
+                  "unit" : "→ 2,403",
+                  "value" : 2281
+                }
+              ]
+            ]
+          },
+          {
+            "headers" : [
+              "row",
+              "Δp0",
+              "Δp50"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Stream Array of structs - snapshot per byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+331%",
+                  "unit" : "%",
+                  "value" : 331
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+332%",
+                  "unit" : "%",
+                  "value" : 332
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Scaling 400 users - snapshot per byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+333%",
+                  "unit" : "%",
+                  "value" : 333
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+331%",
+                  "unit" : "%",
+                  "value" : 331
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Stream Array of structs - snapshot per 64B chunk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+30%",
+                  "unit" : "%",
+                  "value" : 30
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+30%",
+                  "unit" : "%",
+                  "value" : 30
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "API PartialsStream Qwen 3 structured response - snapshot per 64B chunk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+38%",
+                  "unit" : "%",
+                  "value" : 38
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+38%",
+                  "unit" : "%",
+                  "value" : 38
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+23%",
+                  "unit" : "%",
+                  "value" : 23
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+23%",
+                  "unit" : "%",
+                  "value" : 23
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Stream Array of structs - view read per byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4%",
+                  "unit" : "%",
+                  "value" : 4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+4%",
+                  "unit" : "%",
+                  "value" : 4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real * - byte by byte discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "-2..+7%"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Retention 100 users - window 4 / 16 / 64"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-59%",
+                  "unit" : "%",
+                  "value" : -59
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-59%",
+                  "unit" : "%",
+                  "value" : -59
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Retention 100 users - keep all"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-71%",
+                  "unit" : "%",
+                  "value" : -71
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-72%",
+                  "unit" : "%",
+                  "value" : -72
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Dictionary 8..512 keys - snapshot per byte / window 16"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "-58..-72%"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : ""
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Retention Mesh - window 16"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-21%",
+                  "unit" : "%",
+                  "value" : -21
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-21%",
+                  "unit" : "%",
+                  "value" : -21
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Measured (3 interleaved rounds against 7229235, best-of-3 p0 / median p50)",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "codeBlocks" : [
+
+        ],
+        "level" : 3,
+        "line" : 7091,
+        "markdown" : "The bulk table above is real and so is the streaming one, and the streaming one decides it. A\nretained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does\nnot, and no form of the freeze/compact chain got that below a heap block per retained snapshot:\nthe first froze by copying the tail, the second by sealing into the spine, the third by chaining\nbehind a fresh tail with a spare kept for reuse -- and the spare is only reusable while nothing\nholds it, which is exactly the condition the `Retention` and `Dictionary` rows break by design.\nSo the open element went back to `pending`, held inline in the value, where a plain struct copy\ndiverges it for free: no allocation, no epoch, no reseat walk, and `PartialSink`'s frames go back\nto being valid because the address they hold is at a fixed offset in storage the stream owns.\n\nWhat the experiment leaves behind is the half of it that never depended on where the element\nlives:\n\n- **`StreamBlock`.** The blocks are a `ManagedBuffer` with the elements tail-allocated rather\n  than a `ContiguousArray`, and they keep every property the in-place design needed them for:\n  one allocation per block, a stored capacity, a header read through its pointer, and no\n  genericity in the header. What they buy now is different and larger than the open element ever\n  was. Because the block owns its capacity, each array can hold its *own* count of the elements\n  in the filling block, captured by value when the array is copied -- so a snapshot's elements\n  are a prefix of the filling block's, the parser appends above that prefix, and **there is no\n  copy-on-write check on the commit path at all**, at any block size. The old rule (\"the first\n  commit after a snapshot copies one block\") is gone; only a write *into* the prefix copies.\n- **The template pointer.** One leaked template per schema, copied straight into the element's\n  slot by `_streamCopyInitialize`, replacing the two-form initial-value closure the hoist\n  experiment left behind. The size threshold in it is the one the in-place work measured:\n  `initialize(to:)` below 1 KB, `initialize(from:count:)` above, because the counted form is\n  `swift_arrayInitWithCopy` and the single-value form stages a large loadable value on the stack.\n- **The dictionary's values, blocked.** `storedValues` is a `StreamArray` now, which reverses the\n  older finding that blocking a dictionary's storage cost 2x on the discarding path -- that\n  measurement had no snapshot row in front of it, and a flat `[Value]` makes a snapshot-per-byte\n  parse copy the whole value array per byte. The dictionary keeps its own open value rather than\n  borrowing the array's, because a repeated key's open value is an element the array already\n  holds, and unlike an append a write into one of those is a write a kept state can see.\n\nThe `memmove` profile that opened this chapter is therefore still unanswered for the largest\npartials: `BenchmarkTweetFull.Partial`'s eleven kilobytes still move once per open and once per\nclose. What this settles is that moving them is cheaper than the bookkeeping required to stop\nmoving them, for every shape that keeps a snapshot -- which is the shape the streaming API is\nfor.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/rejected-the-revert-and-the-two-thirds-of-it-that-stayed",
+        "slug" : "rejected-the-revert-and-the-two-thirds-of-it-that-stayed",
+        "summary" : "The bulk table above is real and so is the streaming one, and the streaming one decides it. A retained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does not, and no form of the freeze/compact chain got that below a heap…",
+        "tables" : [
+
+        ],
+        "title" : "Rejected: the revert, and the two thirds of it that stayed",
+        "verdict" : "rejected"
       }
     ],
     "title" : "New Architecture"
   },
-  "generatedAt" : "2026-09-04T20:51:00Z",
+  "generatedAt" : "2026-09-10T03:04:07Z",
   "sources" : {
 
   },
   "stats" : {
     "codeBlockCount" : 18,
     "datedSections" : 271,
-    "declCount" : 1410,
-    "fileCount" : 40,
+    "declCount" : 1448,
+    "fileCount" : 43,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
-    "lastRecorded" : "2026-09-01T19:16:50-07:00",
-    "sectionCount" : 271,
-    "tableCount" : 142,
+    "lastRecorded" : "2026-09-09T19:50:37-07:00",
+    "sectionCount" : 276,
+    "tableCount" : 146,
     "verdictCounts" : {
       "landed" : 22,
-      "mixed" : 4,
-      "neutral" : 217,
-      "rejected" : 28
+      "mixed" : 5,
+      "neutral" : 220,
+      "rejected" : 29
     }
   }
 }

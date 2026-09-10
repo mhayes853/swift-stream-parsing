@@ -51,7 +51,8 @@
       "viz": null,
       "prose": [
         "Everything starts here. A chunk of bytes goes in, tokens come out the other side into a sink, and the parser keeps whatever state is needed to resume mid-token when the chunk ends somewhere awkward — inside a string, halfway through a number, between the two halves of a surrogate pair.",
-        "The entry point itself does almost nothing: it records where the chunk starts, picks a walk, and wraps the loop in the handler that flushes to the sink before an error propagates. That ordering matters — everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence."
+        "The entry point itself does almost nothing: it picks a walk and wraps the loop in the handler that flushes to the sink before an error propagates. That ordering matters — everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence.",
+        "The chunk's address is never stored. It is threaded down into the walk and on into every emission, because the run loop already holds it in a register — and what the parser *does* store is laid out to a cache line, with everything a parse reads or writes in the first sixty-four bytes."
       ],
       "evidence": {
         "doc": [
@@ -61,7 +62,8 @@
         "source": [
           "JSONParser.swift:parse",
           "JSONParser.swift:JSONParser",
-          "JSONParser.swift:finish"
+          "JSONParser.swift:finish",
+          "JSONParserEvents.swift:emissionSpan"
         ],
         "asm": [
           "JSONParser.parse"
@@ -116,23 +118,37 @@
           "id": "bytefast",
           "title": "deliverStringByte",
           "kicker": "one record",
-          "detail": "One `stringChunk` carrying the byte itself, so there is no pointer to take and no `chunkBase` to store. Anything that fails one of the six tests falls through to the dispatcher unchanged.",
+          "detail": "One `stringChunk` carrying the byte itself, so there is no pointer to take and nothing to store either. Anything that fails one of the six tests falls through to the dispatcher unchanged.",
           "source": "JSONParser.swift:parse",
           "next": []
         },
         {
           "id": "base",
-          "title": "chunkBase = base",
-          "kicker": "one store",
-          "detail": "The chunk's base address is stored on the parser, so every record emitted from here on names a span inside the caller's memory rather than copying bytes out of it.",
-          "source": "JSONParser.swift:parse",
+          "title": "the base is a parameter",
+          "kicker": "nothing stored",
+          "detail": "The chunk's address is handed down into the walk and on into every emission rather than written to a field. `chunkBase` was that field, and it had exactly one reader — the function that builds a token's span — so reading it back there was a load from a cache line the run loop otherwise never touches, while the loop already held the pointer in a register. With the pointer arriving as an argument the span builder is `static`: nothing of the parser is left in the result, and keeping the old `@_lifetime(borrow self)` shape on a body that no longer reads `self` tripped a SIL ownership verifier crash in the `PartialSink` specialisation of the structural run.",
+          "source": "JSONParserEvents.swift:emissionSpan",
           "next": [
+            {
+              "to": "layout",
+              "kind": "detail",
+              "label": "what the parser does hold"
+            },
             {
               "to": "gate",
               "kind": "step",
               "label": "pick a walk"
             }
-          ]
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "layout",
+          "title": "one cache line of state",
+          "kicker": "64 bytes",
+          "detail": "Field order here is a cache-line decision, not a taste one. Everything a parse reads or writes lives in the first sixty-four bytes; past them sit `ownsBuffer`, which only the deinit reads, and the window telemetry, which is dead for any parser that never crosses `windowThreshold` — the default. The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free on arm64, where `ldrb`/`ldrh` zero-extend, while packing per-byte state into shared words would turn plain stores into read-modify-writes on the string and unicode paths and break the store fusion the compiler already performs on the adjacent flags — it emits one `strh` for `isKeyToken` and `keyContainsNonASCII`. The buffer is split out of its `UnsafeMutableBufferPointer` so its capacity sits next to the count the append guard compares against: one eight-byte load answers both.",
+          "source": "JSONParser.swift:JSONParser",
+          "next": []
         },
         {
           "id": "gate",
@@ -216,7 +232,7 @@
       "kicker": "resume",
       "viz": null,
       "prose": [
-        "A chunk boundary can land anywhere, including inside a UTF-8 sequence. The parser holds the incomplete tail rather than guessing, and completes it against the next chunk's first bytes before the main loop starts.",
+        "A chunk boundary can land anywhere, including inside a UTF-8 sequence. The parser holds the incomplete tail in a single 64-bit field — little-endian, a byte per lane — rather than guessing, and completes it against the next chunk's first bytes before the main loop starts.",
         "This is the cost of streaming rather than batching, and it is kept to the edges: the resume path runs once per chunk, not once per byte, so the bulk loop never tests for it."
       ],
       "evidence": {
@@ -227,7 +243,8 @@
         "source": [
           "JSONParser.swift:completePendingUTF8",
           "JSONParser.swift:holdPendingUTF8",
-          "JSONParser.swift:trimmingIncompleteUTF8"
+          "JSONParser.swift:trimmingIncompleteUTF8",
+          "JSONParserEvents.swift:recordInlineChunk"
         ],
         "asm": []
       },
@@ -273,8 +290,8 @@
         {
           "id": "hold",
           "title": "holdPendingUTF8",
-          "kicker": "≤ 4 bytes",
-          "detail": "At most four bytes copied into eight the parser's buffer already reserves. An invalid lead is rejected here rather than held, which leaves completion with only the second-byte constraints left to check.",
+          "kicker": "one UInt64",
+          "detail": "At most four bytes packed little-endian into one field, a byte per lane, so completion appends at lane `have` with a shift rather than a store. It used to live in the last eight bytes of the parser's buffer — a full page away from everything else the parse touched, and one `buffer.count` subtraction per access. An invalid lead is rejected here rather than held, which leaves completion with only the second-byte constraints left to check.",
           "source": "JSONParser.swift:holdPendingUTF8",
           "next": [
             {
@@ -350,10 +367,10 @@
         },
         {
           "id": "rejoin",
-          "title": "one stringChunk, from the buffer",
+          "title": "one stringChunk, from the scratch",
           "kicker": "not from the input",
-          "detail": "The rejoined bytes are emitted out of the parser's own buffer rather than the input, because half of them are in a chunk that no longer exists. A sequence rejoined inside a *skipped* string is validated and dropped.",
-          "source": "JSONParser.swift:completePendingUTF8",
+          "detail": "The rejoined bytes are emitted from an eight-byte scratch the parser reserves past its buffer's capacity rather than from the input, because half of them are in a chunk that no longer exists. The whole word goes out in one unaligned store and the sink is handed a span of the front of it; the high bytes it will not look at are free to write. A sequence rejoined inside a *skipped* string is validated and dropped.",
+          "source": "JSONParserEvents.swift:recordInlineChunk",
           "next": []
         }
       ]
@@ -377,7 +394,8 @@
         ],
         "source": [
           "JSONParserWindow.swift:parseWindowed",
-          "StreamParsingShims.h:stream_parsing_index_window"
+          "StreamParsingShims.h:stream_parsing_index_window",
+          "JSONParserShapes.swift:consumeObjectMembers"
         ],
         "asm": []
       },
@@ -505,11 +523,25 @@
           "source": "JSONParserWindow.swift:parseWindowed",
           "next": [
             {
+              "to": "members",
+              "kind": "detail",
+              "label": "what an object arm reads"
+            },
+            {
               "to": "boundary",
               "kind": "return",
               "label": "a token was handed back"
             }
-          ]
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "members",
+          "title": "consumeObjectMembers",
+          "kicker": "entries, not bytes",
+          "detail": "The object arm of the indexed walk: key, colon and value come out of the index rather than from a scan. The index does not promise a scalar directly after a quote an entry of its own, so the gap between a key's closing quote and its colon is checked before either the key is emitted or the colon consumed — compact JSON takes the adjacent-colon compare and never scans whitespace at all. A complete key and colon can also be the last bytes of an incomplete chunk, so the value is left pending before its first byte is inspected; it belongs to the next parse call. Either check failing hands the cursor back to the dispatcher with the state set, rather than guessing.",
+          "source": "JSONParserShapes.swift:consumeObjectMembers",
+          "next": []
         },
         {
           "id": "done",
@@ -1812,7 +1844,8 @@
           "JSONParser.swift:consumeUnicodeDigit",
           "JSONParser.swift:fusedUnicodeEscapeEnd",
           "StreamScanners.swift:streamHexQuad",
-          "StreamScanners.swift:streamDecodeSimpleEscape"
+          "StreamScanners.swift:streamDecodeSimpleEscape",
+          "JSONParserEvents.swift:recordInlineChunk"
         ],
         "asm": [
           "JSONParser.consumeUnicodeDigit"
@@ -1958,10 +1991,10 @@
         },
         {
           "id": "emit",
-          "title": "UTF-8 bytes, written in place",
+          "title": "UTF-8 bytes, one store",
           "kicker": "no Unicode.Scalar",
-          "detail": "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift.",
-          "source": "JSONParser.swift:consumeUnicodeDigit",
+          "detail": "Nothing here produces a `Unicode.Scalar` or a `String`, which keeps the Unicode data tables out of the binary and is what lets the core build under Embedded Swift. The bytes are assembled little-endian in a register and stored whole — one unaligned eight-byte write into a scratch region the parser reserves past its buffer — and the sink gets a span of the front of it. Storing only the bytes that count, with a loop, measured worse on escape-dense corpora: Twitter escaped bulk 1,289 → 1,374 MB/s for the whole-word form, with every `consumeStringRun` specialisation byte-identical between the two, so the loop is simply not worth its branches. Giving the word its address from a stack local instead cost 10–14%, because the closure materialises it to a fresh slot per escaped byte and captures the sink `inout` across the call.",
+          "source": "JSONParserEvents.swift:recordInlineChunk",
           "next": []
         }
       ]
@@ -2840,7 +2873,7 @@
           "id": "scan",
           "title": "consumeSkipRun",
           "kicker": "structural speed",
-          "detail": "No keys resolved, no strings emitted, no values built. It is still validated as JSON: brackets must match by kind, strings must terminate, control bytes are rejected and UTF-8 is validated. Skipping is not the same as trusting — though number grammar, escape selectors and comma placement inside are not checked, so a malformed interior a streaming sink would have rejected can pass under a skipping one.",
+          "detail": "No keys resolved, no strings emitted, no values built. It is still validated as JSON: brackets must match by kind, strings must terminate, control bytes are rejected — including one behind a backslash — and UTF-8 is validated, across a skipped escape and across a chunk boundary alike. Skipping is not the same as trusting, but it is looser: number grammar, escape selectors and comma placement inside are not checked, so a malformed interior a streaming sink would have rejected can pass under a skipping one.",
           "source": "JSONParserSkip.swift:consumeSkipRun",
           "next": [
             {
@@ -3077,9 +3110,9 @@
         },
         {
           "id": "escape",
-          "title": "consume one byte, blind",
-          "kicker": "not validated",
-          "detail": "The selector is not validated in a skipped interior. `\\\"` and `\\\\` are the two that matter structurally, and both are one byte.",
+          "title": "the escaped byte, loosely",
+          "kicker": "not decoded",
+          "detail": "The selector is not decoded and not checked against the escape grammar — `\\\"` and `\\\\` are the two that matter structurally. Two things are still checked, because a backslash must not be able to hide them: a raw control byte behind one is `unterminatedString`, and a non-ASCII selector is left where it is rather than stepped over, so the string scanner validates it as UTF-8 and can carry an incomplete sequence across the next chunk boundary.",
           "source": "JSONParserSkip.swift:consumeSkipRun",
           "next": [
             {
@@ -3193,7 +3226,8 @@
       "prose": [
         "A schema describes how a type's members map onto tokens. It is a reference rather than a value, and frames borrow it `unowned(unsafe)` — a retain and release per container open was showing up in the profile.",
         "Two rewrites were measured and rejected: replacing the closures with a witness metatype, and a family of alternative unowned spellings. What did work was narrower — a borrowed frame type, plus a tripwire to catch the lifetime assumption if it stops holding.",
-        "Two codegen traps are recorded here: taking a strong parameter from an `unowned(unsafe)` source reintroduces the retain, and `if let` on an `unowned(unsafe)` optional does the same."
+        "Two codegen traps are recorded here: taking a strong parameter from an `unowned(unsafe)` source reintroduces the retain, and `if let` on an `unowned(unsafe)` optional does the same.",
+        "An element's initial value is a pointer, not a closure: one template per schema, allocated once and leaked, copied straight into the element's slot. That replaced a pair of initial-value closures chosen per element type, which is itself a landed experiment the closures were the result of."
       ],
       "evidence": {
         "doc": [
@@ -3204,7 +3238,9 @@
           "routing-frames-borrow-their-schema-and-two-rewrites-that-measurement-rejected/the-tripwire"
         ],
         "source": [
-          "StreamSchema.swift:StreamSchema"
+          "StreamSchema.swift:StreamSchema",
+          "StreamCopyInitialize.swift:_streamCopyInitialize",
+          "StreamEmptyObject.swift:StreamEmptyObject"
         ],
         "asm": []
       },
@@ -3226,11 +3262,25 @@
           "source": "StreamSchema.swift:StreamSchema",
           "next": [
             {
+              "to": "template",
+              "kind": "detail",
+              "label": "and one template with it"
+            },
+            {
               "to": "borrow",
               "kind": "step",
               "label": "a container opens"
             }
-          ]
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "template",
+          "title": "one template per schema",
+          "kicker": "a pointer, not a closure",
+          "detail": "An element's initial value is allocated once per schema at a stable address and leaked on purpose — the schema that captures it is immortal — so opening an element is a copy from that address straight into its slot, and the closure's only capture is the pointer. Building the value inside the closure instead re-entered the runtime's locking metadata cache per open for a generic element, and returning it by value staged it in a temporary: a second whole-element copy, which for a partial of a few kilobytes is worth measuring. The copy is spelled two ways because neither is right for every size — `initialize(to:)` below 1 KB, since the counted form is `swift_arrayInitWithCopy`, a runtime detour worth 7% on a document of thousands of small elements; `initialize(from:count:)` above it, since the single-value form stages anything loadable on the stack, three 6.6 KB memcpys per tweet. The threshold folds per type.",
+          "source": "StreamCopyInitialize.swift:_streamCopyInitialize",
+          "next": []
         },
         {
           "id": "borrow",
@@ -3292,8 +3342,8 @@
           "id": "ignore",
           "title": "pendingField = -1",
           "kicker": "no call",
-          "detail": "Reached without a call. Making that byte carry the dictionary question too — rather than testing `shape == .dictionary` and then testing for a matcher — is what keeps the schemas that *do* match from paying for the ones that do not.",
-          "source": "StreamSchema.swift:StreamSchema",
+          "detail": "Reached without a call. Making that byte carry the dictionary question too — rather than testing `shape == .dictionary` and then testing for a matcher — is what keeps the schemas that *do* match from paying for the ones that do not. It is also what an enum's empty cases route through: `StreamEmptyObject` is an object shape with no fields, so every key inside one is skipped whole rather than reaching a closure that would answer -1 for it.",
+          "source": "StreamEmptyObject.swift:StreamEmptyObject",
           "next": []
         },
         {
@@ -3351,7 +3401,7 @@
           "id": "emit",
           "title": "the macro emits a table, not closures",
           "kicker": "one allocation",
-          "detail": "One object schema's entries in one allocation, with their keys packed behind them. A class, so the schema can hand the sink a pointer to the entries that outlives every frame the schema outlives.",
+          "detail": "One object schema's entries in one allocation, with their keys packed behind them. A class, so the schema can hand the sink a pointer to the entries that outlives every frame the schema outlives. The key encoding it compares against is shared rather than special: an enum case name is matched with the same `switch` on a leading word, count check and trailing words, read off an accumulated `StreamString` instead of a borrowed span.",
           "source": "StreamFieldTable.swift:StreamFieldTable",
           "next": [
             {
@@ -3482,7 +3532,7 @@
           "id": "push",
           "title": "a container opens: push a frame",
           "kicker": "24 bytes",
-          "detail": "A `BorrowedFrame` is storage, an `unowned(unsafe)` schema, the pending field and a packed route word — 24 bytes. It is trivial, so pushing and popping is a store and a decrement rather than an ARC pair, and deinitializing the stack is a no-op.",
+          "detail": "A `BorrowedFrame` is storage, an `unowned(unsafe)` schema, the pending field and a packed route word — 24 bytes. It is trivial, so pushing and popping is a store and a decrement rather than an ARC pair, and deinitializing the stack is a no-op. The storage pointer is the load-bearing part: only the innermost open container is ever mutated, so an element pointer stays valid for that element's lifetime — appending to an outer array cannot happen while an inner one is open — and a copy of the value taken *between* parse calls cannot invalidate one either, because every container holds its open element inline at a fixed offset in storage the stream owns, so the copy diverges and the address the frame holds still names the parser's own element.",
           "source": "PartialSink.swift:PartialSink",
           "ordering": "ordered",
           "next": [
@@ -3614,7 +3664,8 @@
       "viz": "streamString",
       "prose": [
         "Bytes accumulate; producing a `String` is a read, not a side effect. Storage grows in blocks whose size doubles, so a long streamed string does not pay a reallocation per chunk.",
-        "In the allocation census the block ramp was the smaller half of the cost. The larger sources were the bookkeeping array tracking the blocks and a tail reserve on the fragment-fed path. Fixing those measured +11.2% on the LLM message and +5.5% on GSoC."
+        "In the allocation census the block ramp was the smaller half of the cost. The larger sources were the bookkeeping array tracking the blocks and a tail reserve on the fragment-fed path. Fixing those measured +11.2% on the LLM message and +5.5% on GSoC.",
+        "The accumulated bytes are also readable as the words a generated matcher compares, which is what lets `@StreamParseable` on a raw-`String` enum emit the same shape of matcher for a case name that it emits for an object key."
       ],
       "evidence": {
         "doc": [
@@ -3626,7 +3677,9 @@
         ],
         "source": [
           "StreamString.swift:StreamString",
-          "StreamInlineString.swift:StreamInlineString"
+          "StreamInlineString.swift:StreamInlineString",
+          "StreamString.swift:paddedWord",
+          "StreamString.swift:isPrefix"
         ],
         "asm": []
       },
@@ -3767,6 +3820,21 @@
           "kicker": "not a side effect",
           "detail": "Bytes accumulate; decoding happens once, when someone asks. Accumulating raw bytes and decoding at read was the floor the append benchmarks found, ~7× under the append path at small chunks.",
           "source": "StreamString.swift:StreamString",
+          "next": [
+            {
+              "to": "match",
+              "kind": "detail",
+              "label": "unless something is matching it"
+            }
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "match",
+          "title": "paddedWord, then isPrefix",
+          "kicker": "the read side of the key encoding",
+          "detail": "The same little-endian, zero-padded eight-byte encoding a key span produces, read back out of the accumulated bytes — so a generated matcher compares an accumulated value against a compile-time literal with the identical codegen it already uses for object keys: a `switch` on the leading word, a count check, then any remaining words. The count check is not optional, because an accumulated value may hold a decoded NUL and the padding is otherwise indistinguishable from one. Unlike a key span, whose bytes are a borrow into the document with more document behind them, an accumulated value's last block ends where the value does, so the window is clamped rather than overread. `isPrefix(of:)` is the direction a *streaming* match needs and the mirror of `hasPrefix`: whether what has arrived so far is still consistent with a case name, not whether the name has already arrived. A matcher walks its cases shortest-first asking it, and declines outright on zero bytes — an empty accumulation is a prefix of every case, so answering would be a definite answer on no evidence that then changes as the real bytes land.",
+          "source": "StreamString.swift:paddedWord",
           "next": []
         }
       ]
@@ -3778,8 +3846,9 @@
       "kicker": "one table",
       "viz": "collections",
       "prose": [
-        "Streaming collections with their own storage. The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright.",
-        "Both structural guesses made when designing that table turned out to be wrong; the measurements are recorded alongside them."
+        "Streaming collections with their own storage. Closed elements live in uniform power-of-two blocks the value shares by retaining rather than copying, and the one element the parser is still writing lives inline, outside them.",
+        "The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright. Both structural guesses made when designing that table turned out to be wrong, and one of them has since been reversed again — the values are blocked now.",
+        "Moving the open element into the blocks was built, measured and reverted. What stayed is the block type it needed, which turned out to buy something larger: a shared block is written past rather than copied, so the commit path has no copy-on-write check on it at all."
       ],
       "evidence": {
         "doc": [
@@ -3788,11 +3857,13 @@
           "next-streamdictionary/the-index-one-table-one-entry-buffer/built-and-both-structural-guesses-were-wrong",
           "next-streamdictionary/duplicate-keys-resume",
           "next-streamdictionary/order",
-          "native-fixed-width-arrays-inlinearray"
+          "native-fixed-width-arrays-inlinearray",
+          "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/rejected-the-revert-and-the-two-thirds-of-it-that-stayed"
         ],
         "source": [
           "StreamArray.swift:StreamArray",
-          "StreamDictionary.swift:StreamDictionary"
+          "StreamDictionary.swift:StreamDictionary",
+          "StreamBlock.swift:StreamBlock"
         ],
         "asm": []
       },
@@ -3810,7 +3881,7 @@
           "id": "open",
           "title": "the open element lives outside the storage",
           "kicker": "pending",
-          "detail": "`pending` is held inline, so the parser's frame points at a slot no other value can see and its address survives every append. A write through it is an ordinary mutation that respects the slot contents' own copy-on-write, rather than the raw pointer bypass into a shared buffer that made kept values change after the fact.",
+          "detail": "`pending` is held inline, so the parser's frame points at a slot no other value can see and its address survives every append — and a plain copy of the value diverges it for free, with no allocation and no bookkeeping, which is the whole reason a snapshot is a struct copy. Opening the element in the storage instead was built and measured: it bought a third on the largest partials and cost 59–72% on every row that *keeps* a snapshot, because the divergence then has to be bought back with a heap block per retained snapshot.",
           "source": "StreamArray.swift:StreamArray",
           "ordering": "unordered",
           "next": [
@@ -3831,16 +3902,30 @@
         {
           "id": "array",
           "title": "commit into the filling block",
-          "kicker": "1 << 5 elements",
-          "detail": "Sealed elements live in uniform power-of-two blocks, so committing touches only the filling block and the first commit after a snapshot copies at most one block instead of all the elements. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
+          "kicker": "written past, not copied",
+          "detail": "Closed elements live in uniform power-of-two blocks, and each array holds its *own* count of the ones in the filling block, captured by value when the array is copied. A snapshot's elements are therefore a prefix of the filling block's, and the parser appends above that prefix — memory no snapshot reads — so there is no copy-on-write check on the commit path at all, at any block size. Only a write *into* the prefix copies, and copies one block: the checked subscript, or a repeated dictionary key landing in a sealed one. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
           "source": "StreamArray.swift:StreamArray",
           "next": [
+            {
+              "to": "block",
+              "kind": "detail",
+              "label": "what a block is"
+            },
             {
               "to": "snapshot",
               "kind": "step",
               "label": "and that is already a snapshot"
             }
-          ]
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "block",
+          "title": "StreamBlock",
+          "kicker": "one allocation",
+          "detail": "A `ManagedBuffer` with the elements tail-allocated, not a `ContiguousArray`. An array never exposes its spare capacity, so committing meant handing the element to `append` and letting the array copy it in — and a shared array copies *all* of its elements before the first of those writes. Owning the capacity outright is what lets the parser write the element into the slot it will live in, and what lets a shared block be written past. One object rather than two: the two-allocation form doubled the malloc count of every number-heavy corpus (Canada 2,659 → 5,109) and cost them 10–28%. The header is read through its pointer rather than as a stored class property, which from outside its module is a dynamic `swift_beginAccess` even in release, and it is deliberately not generic over the element, because a generic header makes the elements' offset a metadata question wherever the block is reached unspecialised — 7–8% on GitHub and GSoC.",
+          "source": "StreamBlock.swift:StreamBlock",
+          "next": []
         },
         {
           "id": "dict",
@@ -3854,6 +3939,11 @@
               "to": "measured",
               "kind": "detail",
               "label": "the two guesses that were wrong"
+            },
+            {
+              "to": "dictvalues",
+              "kind": "detail",
+              "label": "where the values live"
             },
             {
               "to": "snapshot",
@@ -3871,10 +3961,18 @@
           "next": []
         },
         {
+          "id": "dictvalues",
+          "title": "the values are blocked too",
+          "kicker": "a StreamArray",
+          "detail": "`storedValues` is a `StreamArray`, for the reason the elements are: a snapshot shares the blocks instead of copying them. That reverses one of the two guesses above — a flat `[Value]` makes a snapshot-per-byte parse copy the whole value array per byte, measured at 58% off the dictionary snapshot rows, and the 2× finding had no snapshot row in front of it. The dictionary still keeps its *own* open value rather than borrowing the array's, because a repeated key's open value is an element the array already holds, and unlike an append a write into one of those is a write a kept state can see. That write happens inside the drain, with the block it lands in made unique first, so no state can be taken between the check and the write.",
+          "source": "StreamDictionary.swift:StreamDictionary",
+          "next": []
+        },
+        {
           "id": "snapshot",
           "title": "a plain value copy",
           "kicker": "no streamSnapshot()",
-          "detail": "Everything left of the parse cursor is immutable, so copying the value shares only sealed storage that is never written again — which is why nothing here has a `streamSnapshot()`. Blocks are `ContiguousArray` rather than a class wrapping one: one refcounted pointer each, copy-on-write for the shared tail for free, and every stored property stays a value type, which is what lets `Sendable` be checked rather than asserted.",
+          "detail": "Everything left of the parse cursor is immutable, so copying the value retains the blocks rather than copying them — which is why nothing here has a `streamSnapshot()`. The one thing the copy has to diverge is the element the parser is still inside, and holding that inline diverges it for free. `Sendable` is asserted rather than checked here, because the blocks are objects: what makes sharing one safe is the rule that it is only ever written above the count every sharer captured, not the type system.",
           "source": "StreamArray.swift:StreamArray",
           "next": []
         }

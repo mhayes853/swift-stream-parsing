@@ -349,7 +349,7 @@ enum SinkTraces {
     parser.state = .skipping
     parser.depth = startDepth
     parser.containers = seed
-    parser.skipEndDepth = startDepth - 1
+    parser.skipEndDepth = UInt8(startDepth - 1)
     var sink = RecordingSink()
     let shippedEnd = try bytes.withUnsafeBytes { raw -> Int in
       try parser.consumeSkipRun(

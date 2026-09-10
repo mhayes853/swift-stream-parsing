@@ -122,33 +122,84 @@ enum StorageTraces {
 
     // The array, filled through `_openElement`: the parser's own entry point, which is what puts
     // the element being parsed outside the blocked storage until it commits.
+    //
+    // A snapshot -- a plain value copy -- is taken partway through and held for the rest of the
+    // fill, because the thing worth showing about the blocks is what does *not* happen: the
+    // filling block is written past rather than diverged from, so its object identity survives
+    // every append made while the copy is alive. `sharedTail` is that identity compared against
+    // the snapshot's, read off the shipped values rather than asserted here.
     var array = StreamArray<Int>()
     var arraySteps: [CollectionTrace.ArrayStep] = []
+    let snapshotAt = elements / 2
+    var snapshot: StreamArray<Int>?
+    var snapshotBlock: ObjectIdentifier?
+    var blockCopiedWhileShared = false
+
+    func tailIdentity(_ value: StreamArray<Int>) -> ObjectIdentifier? {
+      value.tail.map(ObjectIdentifier.init)
+    }
+
     for index in 0..<elements {
-      // Opening an element is what commits the previous one, and a commit that fills the tail is
-      // what seals a block -- so the event is decided by what the open did, not by counting.
+      // Opening an element is what commits the previous one; a commit that fills the tail seals a
+      // block, and one that fills the small first tail promotes it to a full-sized one. The event
+      // is decided by what the open did to the storage, not by counting.
       let sealedBefore = array.blocks.count
+      let capacityBefore = array.tail?.slotCapacity ?? 0
       _ = array._openElement(index)
+      let capacity = array.tail?.slotCapacity ?? 0
+      let event: String
+      if array.blocks.count > sealedBefore {
+        event = "seal"
+      } else if capacityBefore != 0 && capacity != capacityBefore {
+        event = "grow"
+      } else {
+        event = "open"
+      }
+      let shared = snapshotBlock != nil && tailIdentity(array) == snapshotBlock
+      // A block copy while the snapshot holds it would show up here as the identity changing under
+      // a plain append. A seal or a promotion changes it too, and legitimately -- the filling block
+      // has moved on and the snapshot's is behind it -- so those stop the check rather than fail it.
+      if snapshotBlock != nil {
+        if event == "open" {
+          if !shared { blockCopiedWhileShared = true }
+        } else {
+          snapshotBlock = nil
+        }
+      }
       arraySteps.append(
         CollectionTrace.ArrayStep(
           index: index, value: index, blocks: array.blocks.map(\.count),
-          tailCount: array.tail.count, tailCapacity: array.tail.capacity,
+          tailCount: array.tailCount, tailCapacity: capacity,
           pending: array.pending, count: array.count,
-          event: array.blocks.count > sealedBefore ? "seal" : "open"
+          sharedTail: shared,
+          event: event
         )
       )
+      if index == snapshotAt {
+        snapshot = array
+        snapshotBlock = tailIdentity(array)
+      }
     }
     // Nothing follows the last element, so its commit is the drain the parser does at the close.
     array.drainPending()
     arraySteps.append(
       CollectionTrace.ArrayStep(
         index: elements - 1, value: elements - 1, blocks: array.blocks.map(\.count),
-        tailCount: array.tail.count, tailCapacity: array.tail.capacity,
-        pending: array.pending, count: array.count, event: "commit"
+        tailCount: array.tailCount, tailCapacity: array.tail?.slotCapacity ?? 0,
+        pending: array.pending, count: array.count,
+        sharedTail: snapshotBlock != nil && tailIdentity(array) == snapshotBlock,
+        event: "commit"
       )
     )
     if array.count != elements { verified = false }
     for index in 0..<elements where array[index] != index { verified = false }
+
+    // The snapshot has to have stayed exactly what it was when it was taken -- the open element
+    // it captured included -- while every append above went into the block it shares.
+    let held = snapshot ?? StreamArray<Int>()
+    if held.count != snapshotAt + 1 { verified = false }
+    for index in 0..<held.count where held[index] != index { verified = false }
+    if blockCopiedWhileShared { verified = false }
 
     // The dictionary, filled through `_openValue`: the same call the sink makes for a dynamic key.
     var dictionary = StreamDictionary<Int>()
@@ -216,6 +267,7 @@ enum StorageTraces {
       array: CollectionTrace.ArrayTrace(
         blockCapacity: StreamArray<Int>.blockCapacity,
         initialTailCapacity: StreamArray<Int>.initialTailCapacity,
+        snapshotAfter: snapshotAt,
         steps: arraySteps
       ),
       dictionary: CollectionTrace.DictionaryTrace(

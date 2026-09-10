@@ -4,6 +4,7 @@
     "array" : {
       "blockCapacity" : 32,
       "initialTailCapacity" : 8,
+      "snapshotAfter" : 18,
       "steps" : [
         {
           "blocks" : [
@@ -13,6 +14,7 @@
           "event" : "open",
           "index" : 0,
           "pending" : 0,
+          "sharedTail" : false,
           "tailCapacity" : 0,
           "tailCount" : 0,
           "value" : 0
@@ -25,6 +27,7 @@
           "event" : "open",
           "index" : 1,
           "pending" : 1,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 1,
           "value" : 1
@@ -37,6 +40,7 @@
           "event" : "open",
           "index" : 2,
           "pending" : 2,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 2,
           "value" : 2
@@ -49,6 +53,7 @@
           "event" : "open",
           "index" : 3,
           "pending" : 3,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 3,
           "value" : 3
@@ -61,6 +66,7 @@
           "event" : "open",
           "index" : 4,
           "pending" : 4,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 4,
           "value" : 4
@@ -73,6 +79,7 @@
           "event" : "open",
           "index" : 5,
           "pending" : 5,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 5,
           "value" : 5
@@ -85,6 +92,7 @@
           "event" : "open",
           "index" : 6,
           "pending" : 6,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 6,
           "value" : 6
@@ -97,6 +105,7 @@
           "event" : "open",
           "index" : 7,
           "pending" : 7,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 7,
           "value" : 7
@@ -109,6 +118,7 @@
           "event" : "open",
           "index" : 8,
           "pending" : 8,
+          "sharedTail" : false,
           "tailCapacity" : 8,
           "tailCount" : 8,
           "value" : 8
@@ -118,9 +128,10 @@
 
           ],
           "count" : 10,
-          "event" : "open",
+          "event" : "grow",
           "index" : 9,
           "pending" : 9,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 9,
           "value" : 9
@@ -133,6 +144,7 @@
           "event" : "open",
           "index" : 10,
           "pending" : 10,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 10,
           "value" : 10
@@ -145,6 +157,7 @@
           "event" : "open",
           "index" : 11,
           "pending" : 11,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 11,
           "value" : 11
@@ -157,6 +170,7 @@
           "event" : "open",
           "index" : 12,
           "pending" : 12,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 12,
           "value" : 12
@@ -169,6 +183,7 @@
           "event" : "open",
           "index" : 13,
           "pending" : 13,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 13,
           "value" : 13
@@ -181,6 +196,7 @@
           "event" : "open",
           "index" : 14,
           "pending" : 14,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 14,
           "value" : 14
@@ -193,6 +209,7 @@
           "event" : "open",
           "index" : 15,
           "pending" : 15,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 15,
           "value" : 15
@@ -205,6 +222,7 @@
           "event" : "open",
           "index" : 16,
           "pending" : 16,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 16,
           "value" : 16
@@ -217,6 +235,7 @@
           "event" : "open",
           "index" : 17,
           "pending" : 17,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 17,
           "value" : 17
@@ -229,6 +248,7 @@
           "event" : "open",
           "index" : 18,
           "pending" : 18,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 18,
           "value" : 18
@@ -241,6 +261,7 @@
           "event" : "open",
           "index" : 19,
           "pending" : 19,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 19,
           "value" : 19
@@ -253,6 +274,7 @@
           "event" : "open",
           "index" : 20,
           "pending" : 20,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 20,
           "value" : 20
@@ -265,6 +287,7 @@
           "event" : "open",
           "index" : 21,
           "pending" : 21,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 21,
           "value" : 21
@@ -277,6 +300,7 @@
           "event" : "open",
           "index" : 22,
           "pending" : 22,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 22,
           "value" : 22
@@ -289,6 +313,7 @@
           "event" : "open",
           "index" : 23,
           "pending" : 23,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 23,
           "value" : 23
@@ -301,6 +326,7 @@
           "event" : "open",
           "index" : 24,
           "pending" : 24,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 24,
           "value" : 24
@@ -313,6 +339,7 @@
           "event" : "open",
           "index" : 25,
           "pending" : 25,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 25,
           "value" : 25
@@ -325,6 +352,7 @@
           "event" : "open",
           "index" : 26,
           "pending" : 26,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 26,
           "value" : 26
@@ -337,6 +365,7 @@
           "event" : "open",
           "index" : 27,
           "pending" : 27,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 27,
           "value" : 27
@@ -349,6 +378,7 @@
           "event" : "open",
           "index" : 28,
           "pending" : 28,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 28,
           "value" : 28
@@ -361,6 +391,7 @@
           "event" : "open",
           "index" : 29,
           "pending" : 29,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 29,
           "value" : 29
@@ -373,6 +404,7 @@
           "event" : "open",
           "index" : 30,
           "pending" : 30,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 30,
           "value" : 30
@@ -385,20 +417,22 @@
           "event" : "open",
           "index" : 31,
           "pending" : 31,
+          "sharedTail" : true,
           "tailCapacity" : 32,
           "tailCount" : 31,
           "value" : 31
         },
         {
           "blocks" : [
-            32
+
           ],
           "count" : 33,
-          "event" : "seal",
+          "event" : "open",
           "index" : 32,
           "pending" : 32,
-          "tailCapacity" : 0,
-          "tailCount" : 0,
+          "sharedTail" : true,
+          "tailCapacity" : 32,
+          "tailCount" : 32,
           "value" : 32
         },
         {
@@ -406,9 +440,10 @@
             32
           ],
           "count" : 34,
-          "event" : "open",
+          "event" : "seal",
           "index" : 33,
           "pending" : 33,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 1,
           "value" : 33
@@ -421,6 +456,7 @@
           "event" : "open",
           "index" : 34,
           "pending" : 34,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 2,
           "value" : 34
@@ -433,6 +469,7 @@
           "event" : "open",
           "index" : 35,
           "pending" : 35,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 3,
           "value" : 35
@@ -444,6 +481,7 @@
           "count" : 36,
           "event" : "commit",
           "index" : 35,
+          "sharedTail" : false,
           "tailCapacity" : 32,
           "tailCount" : 4,
           "value" : 35
@@ -3021,7 +3059,7 @@
     ],
     "verified" : true
   },
-  "generatedAt" : "2026-09-04T20:51:00Z",
+  "generatedAt" : "2026-09-10T03:02:14Z",
   "number" : {
     "cases" : [
       {

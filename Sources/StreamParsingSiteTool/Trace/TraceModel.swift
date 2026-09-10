@@ -503,6 +503,8 @@ struct CollectionTrace: Encodable {
   struct ArrayTrace: Encodable {
     var blockCapacity: Int
     var initialTailCapacity: Int
+    /// The element after which a snapshot was taken and held for the rest of the fill.
+    var snapshotAfter: Int
     var steps: [ArrayStep]
   }
 
@@ -510,12 +512,18 @@ struct CollectionTrace: Encodable {
     var index: Int
     var value: Int
     var blocks: [Int]
+    /// This array's own elements in the filling block, which is not the block's high-water mark:
+    /// the snapshot below keeps a smaller one over the same block.
     var tailCount: Int
     var tailCapacity: Int
     /// The open element, which lives outside the storage until it commits.
     var pending: Int?
     var count: Int
-    /// `open`, `commit` or `seal`.
+    /// Whether the filling block is the same object the held snapshot captured. It stays true
+    /// across every append made while the snapshot is alive, which is the claim: a shared block
+    /// is written past, not copied.
+    var sharedTail: Bool
+    /// `open`, `grow`, `seal` or `commit`.
     var event: String
   }
 

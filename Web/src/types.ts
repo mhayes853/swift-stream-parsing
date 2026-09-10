@@ -491,15 +491,20 @@ export interface CollectionTrace {
   array: {
     blockCapacity: number;
     initialTailCapacity: number;
+    /** The element after which a snapshot was taken and held for the rest of the fill. */
+    snapshotAfter: number;
     steps: {
       index: number;
       value: number;
       blocks: number[];
+      /** This array's own elements in the filling block, not the block's high-water mark. */
       tailCount: number;
       tailCapacity: number;
       pending?: number | null;
       count: number;
-      event: "open" | "commit" | "seal";
+      /** Whether the filling block is still the object the held snapshot captured. */
+      sharedTail: boolean;
+      event: "open" | "commit" | "seal" | "grow";
     }[];
   };
   dictionary: {

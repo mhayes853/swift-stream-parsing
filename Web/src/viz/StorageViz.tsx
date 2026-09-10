@@ -266,22 +266,39 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
   const previous = steps[index - 1];
   if (!step) return null;
   const scale = Math.max(trace.array.blockCapacity, step.tailCapacity, 1);
+  // The step the held snapshot was taken at: its own `tailCount` is the prefix of the filling
+  // block that belongs to it, and every append above that one is what `sharedTail` is about.
+  const held = steps[trace.array.snapshotAfter];
 
   return (
     <>
       <StepNote op={step.event === "commit" ? "drainPending" : "_openElement"}>
         {step.event === "seal" ? (
           <>
-            Committing element {step.index - 1} filled the tail: it seals as a block of{" "}
-            {trace.array.blockCapacity} and is never written again.
+            Committing element {step.index - 1} filled the tail: the block object moves into the
+            spine as a sealed block of {trace.array.blockCapacity}, and the elements do not move.
+          </>
+        ) : step.event === "grow" ? (
+          <>
+            The small first tail is full at {trace.array.initialTailCapacity}, so it is promoted to
+            a full block of {step.tailCapacity} — moved when nothing else holds it, copied when
+            something does. Every tail after the first sealed block starts at full size.
           </>
         ) : step.event === "commit" ? (
           <>The last element commits at the close. Nothing is open any more.</>
+        ) : step.sharedTail ? (
+          <>
+            Element {step.index} opens, and the snapshot taken after element{" "}
+            {trace.array.snapshotAfter} still holds this very block. The commit writes slot{" "}
+            {step.tailCount - 1} of it, above the {held?.tailCount ?? 0} the snapshot counted —
+            memory the snapshot does not read — so the block is written past rather than copied.
+            There is no uniqueness check on this path at all.
+          </>
         ) : (
           <>
             Element {step.index} opens. Opening it is what committed the previous one — the open
-            element lives outside the blocked storage, so a write through the parser's pointer is
-            an ordinary mutation rather than a raw write into a buffer a kept snapshot is sharing.
+            element lives outside the blocked storage, in `pending`, so a plain copy of the value
+            diverges it for free and the parser's pointer keeps naming the parser's own element.
           </>
         )}
       </StepNote>
@@ -300,8 +317,14 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
             <span className="block-meta">{capacity} elements</span>
           </div>
         ))}
-        <div className="block tail live" style={{ flexGrow: Math.max(step.tailCapacity, 8) / scale }}>
+        <div
+          className={`block tail live ${step.event === "grow" ? "chg" : ""}`}
+          style={{ flexGrow: Math.max(step.tailCapacity, 8) / scale }}
+        >
           <div className="block-track">
+            {/* Two fills, not one: the prefix a held snapshot counted, and this array's own
+                elements above it. They are the same block object — that is the point — so the
+                second is drawn over the first rather than beside it. */}
             <div
               className="block-fill"
               style={{
@@ -309,12 +332,25 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
                 background: "var(--series-1)"
               }}
             />
+            {step.sharedTail && held && (
+              <div
+                className="block-fill shared"
+                style={{
+                  width: `${(held.tailCount / Math.max(step.tailCapacity, 1)) * 100}%`,
+                  background: "var(--series-3)"
+                }}
+              />
+            )}
           </div>
-          <span className="block-label">tail</span>
+          <span className="block-label">{step.sharedTail ? "tail — shared" : "tail"}</span>
           {/* A tail that has just sealed holds a fresh, unreserved buffer: its capacity really is
               zero until the next commit reserves the block. Say that rather than print `0/0`. */}
           <span className="block-meta">
-            {step.tailCapacity === 0 ? "unreserved" : `${step.tailCount}/${step.tailCapacity}`}
+            {step.tailCapacity === 0
+              ? "unreserved"
+              : step.sharedTail && held
+                ? `${step.tailCount}/${step.tailCapacity} — snapshot counts ${held.tailCount}`
+                : `${step.tailCount}/${step.tailCapacity}`}
           </span>
         </div>
         <div className={`block pending ${step.pending === null || step.pending === undefined ? "spent" : "live"}`}>
@@ -339,15 +375,23 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
           ["count", String(step.count)],
           ["block capacity", `${trace.array.blockCapacity} elements`],
           ["first tail reservation", `${trace.array.initialTailCapacity} — it promotes once`],
-          ["allocations", String(step.blocks.length + (step.tailCapacity > 0 ? 1 : 0))]
+          ["allocations", String(step.blocks.length + (step.tailCapacity > 0 ? 1 : 0))],
+          [
+            "copies while shared",
+            step.sharedTail ? "0 — written past" : held ? "0 across the whole run" : "—"
+          ]
         ]}
       />
 
       <p className="viz-caption">
         Reads see the pending element as the last one, which is what keeps an incomplete element
         visible while it streams. The sealed count is <code>blocks.count &lt;&lt; shift</code> and
-        needs no stored field, because every block is the same power of two — the array's storage
-        is never read during a parse, so it has no reason to be anything else.
+        needs no stored field, because every block is the same power of two. A block is a{" "}
+        <code>StreamBlock</code> — a <code>ManagedBuffer</code> whose elements are tail-allocated
+        with it — rather than a <code>ContiguousArray</code>, because an array never exposes its
+        spare capacity: committing would mean handing the element to <code>append</code>, and a
+        shared array copies all of its elements before the first of those writes. Owning the
+        capacity is what makes the run above copy nothing.
       </p>
     </>
   );
