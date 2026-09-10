@@ -10,11 +10,14 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
+    if let enumDecl = declaration.as(EnumDeclSyntax.self) {
+      return try Self.enumMemberExpansion(of: node, declaration: enumDecl, in: context)
+    }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
 
     let properties = Self.storedProperties(in: structDecl, context: context)
-    let accessModifier = Self.accessModifier(for: structDecl)
-    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl)
+    let accessModifier = Self.accessModifier(for: structDecl.modifiers)
+    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members)
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
     let streamPartialValuePropertySection =
       !hasStreamPartialValue
@@ -30,12 +33,15 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
+    if let enumDecl = declaration.as(EnumDeclSyntax.self) {
+      return try Self.enumExtensionExpansion(of: node, declaration: enumDecl, in: context)
+    }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
 
     let typeName = structDecl.name.text
     let properties = Self.storedProperties(in: structDecl, context: context)
-    let hasExistingPartial = Self.hasExistingPartial(in: structDecl)
-    let accessModifier = Self.accessModifier(for: structDecl)
+    let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
+    let accessModifier = Self.accessModifier(for: structDecl.modifiers)
     let membersMode = Self.partialMembersMode(from: node)
     let conversionMembers = Self.conversionMembers(
       from: properties,
@@ -84,7 +90,7 @@ extension StreamParseableMacro {
   ) throws -> StructDeclSyntax {
     guard let structDecl = declaration.as(StructDeclSyntax.self) else {
       throw MacroExpansionErrorMessage(
-        "@StreamParseable can only be applied to struct declarations."
+        "@StreamParseable can only be applied to struct or enum declarations."
       )
     }
     return structDecl
@@ -94,20 +100,24 @@ extension StreamParseableMacro {
     variableDecl.modifiers.contains { $0.name.tokenKind == .keyword(.static) }
   }
 
-  private static func hasExistingPartial(in declaration: StructDeclSyntax) -> Bool {
-    declaration.memberBlock.members.contains { member in
-      guard let structDecl = member.decl.as(StructDeclSyntax.self) else {
-        return false
+  static func hasExistingPartial(in members: MemberBlockItemListSyntax) -> Bool {
+    members.contains { member in
+      if let structDecl = member.decl.as(StructDeclSyntax.self) {
+        return structDecl.name.text == "Partial"
       }
-
-      return structDecl.name.text == "Partial"
+      // An enum's `Partial` is a typealias in two of the three lowerings, so a hand written one
+      // is too, and it has to suppress the generated one the same way a hand written struct does.
+      if let aliasDecl = member.decl.as(TypeAliasDeclSyntax.self) {
+        return aliasDecl.name.text == "Partial"
+      }
+      return false
     }
   }
 
-  private static func hasExistingStreamPartialValue(
-    in declaration: StructDeclSyntax
+  static func hasExistingStreamPartialValue(
+    in members: MemberBlockItemListSyntax
   ) -> Bool {
-    for member in declaration.memberBlock.members {
+    for member in members {
       guard let variableDecl = member.decl.as(VariableDeclSyntax.self),
         !self.isStatic(variableDecl)
       else {
@@ -129,7 +139,7 @@ extension StreamParseableMacro {
     return false
   }
 
-  private static func partialStructDecl(
+  static func partialStructDecl(
     for properties: [StoredProperty],
     accessModifier: String?,
     membersMode: PartialMembersMode,
@@ -228,7 +238,7 @@ extension StreamParseableMacro {
     return word
   }
 
-  private static func keyWordLiteral(for key: String, at start: Int = 0) -> String {
+  static func keyWordLiteral(for key: String, at start: Int = 0) -> String {
     let word = Self.paddedWord(for: key, at: start)
     let digits = Array("0123456789ABCDEF")
     var hex = ""
@@ -245,7 +255,7 @@ extension StreamParseableMacro {
     return "0x" + grouped.joined(separator: "_")
   }
 
-  private static func stringLiteral(_ key: String) -> String {
+  static func stringLiteral(_ key: String) -> String {
     var escaped = ""
     for scalar in key.unicodeScalars {
       switch scalar {
@@ -594,7 +604,7 @@ extension StreamParseableMacro {
       """
   }
 
-  private static func streamPartialValueProperty(
+  static func streamPartialValueProperty(
     from properties: [StoredProperty],
     modifierPrefix: String
   ) -> String {
@@ -645,7 +655,7 @@ extension StreamParseableMacro {
   // `_streamValueOrInitial`, whose first argument binds the destination type from the property
   // itself — so the type the macro derived for `Partial` is checked against the one the compiler
   // derives, instead of being derived a second time and trusted.
-  private static func conversionMembers(
+  static func conversionMembers(
     from properties: [StoredProperty],
     modifierPrefix: String,
     membersMode: PartialMembersMode
@@ -721,8 +731,8 @@ extension StreamParseableMacro {
       """
   }
 
-  private static func accessModifier(for declaration: StructDeclSyntax) -> String? {
-    for modifier in declaration.modifiers {
+  static func accessModifier(for modifiers: DeclModifierListSyntax) -> String? {
+    for modifier in modifiers {
       switch modifier.name.tokenKind {
       case .keyword(.public):
         return "public"
@@ -737,11 +747,16 @@ extension StreamParseableMacro {
     return nil
   }
 
-  private static func modifierPrefix(for accessModifier: String?) -> String {
+  static func modifierPrefix(for accessModifier: String?) -> String {
     accessModifier.map { "\($0) " } ?? ""
   }
 
-  private static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {
+  static func hasExplicitPartialMembersArgument(_ node: AttributeSyntax) -> Bool {
+    guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else { return false }
+    return arguments.contains { $0.label?.text == "partialMembers" || $0.label == nil }
+  }
+
+  static func partialMembersMode(from node: AttributeSyntax) -> PartialMembersMode {
     guard let arguments = node.arguments?.as(LabeledExprListSyntax.self) else { return .optional }
     let modeArgument = arguments.first { $0.label?.text == "partialMembers" } ?? arguments.first
     guard let expression = modeArgument?.expression else { return .optional }
@@ -752,7 +767,7 @@ extension StreamParseableMacro {
 // MARK: - StoredProperty
 
 extension StreamParseableMacro {
-  private struct StoredProperty {
+  struct StoredProperty {
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
@@ -763,12 +778,12 @@ extension StreamParseableMacro {
     let hasDefaultValue: Bool
   }
 
-  private struct KeyNamesResult {
+  struct KeyNamesResult {
     let names: [String]
     let diagnostics: [Diagnostic]
   }
 
-  private struct InitialCapacityResult {
+  struct InitialCapacityResult {
     let value: Int?
     let diagnostics: [Diagnostic]
   }
@@ -832,8 +847,9 @@ extension StreamParseableMacro {
     hasDefaultValue: Bool,
     context: some MacroExpansionContext
   ) -> StoredProperty {
-    let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl) != nil
-    let hasStreamParseableMember = self.streamParseableMemberAttribute(in: variableDecl) != nil
+    let isIgnored = self.streamParseableIgnoredAttribute(in: variableDecl.attributes) != nil
+    let hasStreamParseableMember =
+      self.streamParseableMemberAttribute(in: variableDecl.attributes) != nil
     if isIgnored, hasStreamParseableMember {
       Self.diagnoseConflictingStreamParseableMemberAndIgnored(
         in: variableDecl,
@@ -844,7 +860,7 @@ extension StreamParseableMacro {
     let keyInfo =
       isIgnored
       ? KeyNamesResult(names: [propertyName], diagnostics: [])
-      : Self.keyNames(for: variableDecl, defaultName: propertyName)
+      : Self.keyNames(for: variableDecl.attributes, defaultName: propertyName)
     for diagnostic in keyInfo.diagnostics {
       context.diagnose(diagnostic)
     }
@@ -908,7 +924,7 @@ extension StreamParseableMacro {
     in variableDecl: VariableDeclSyntax,
     context: some MacroExpansionContext
   ) {
-    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl) else { return }
+    guard let attribute = self.streamParseableMemberAttribute(in: variableDecl.attributes) else { return }
     context.diagnose(
       Diagnostic(
         node: attribute,
@@ -923,7 +939,7 @@ extension StreamParseableMacro {
     in variableDecl: VariableDeclSyntax,
     context: some MacroExpansionContext
   ) {
-    guard let attribute = Self.streamParseableMemberAttribute(in: variableDecl) else { return }
+    guard let attribute = Self.streamParseableMemberAttribute(in: variableDecl.attributes) else { return }
     context.diagnose(
       Diagnostic(
         node: attribute,
@@ -952,11 +968,11 @@ extension StreamParseableMacro {
     }
   }
 
-  private static func keyNames(
-    for variableDecl: VariableDeclSyntax,
+  static func keyNames(
+    for declAttributes: AttributeListSyntax,
     defaultName: String
   ) -> KeyNamesResult {
-    let attributes = self.streamParseableMemberAttributes(in: variableDecl)
+    let attributes = self.streamParseableMemberAttributes(in: declAttributes)
     guard !attributes.isEmpty else {
       return KeyNamesResult(names: [defaultName], diagnostics: [])
     }
@@ -1009,14 +1025,14 @@ extension StreamParseableMacro {
     )
   }
 
-  private static func initialCapacity(
+  static func initialCapacity(
     for variableDecl: VariableDeclSyntax
   ) -> InitialCapacityResult {
     var value: Int?
     var sawCapacity = false
     var diagnostics = [Diagnostic]()
 
-    for attribute in self.streamParseableMemberAttributes(in: variableDecl) {
+    for attribute in self.streamParseableMemberAttributes(in: variableDecl.attributes) {
       guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self),
         let expression = self.argumentExpression(in: arguments, named: "initialCapacity")
       else { continue }
@@ -1071,26 +1087,37 @@ extension StreamParseableMacro {
     return Int(text, radix: 10)
   }
 
-  private static func streamParseableMemberAttribute(
-    in variableDecl: VariableDeclSyntax
+  static func streamParseableMemberAttribute(
+    in attributes: AttributeListSyntax
   ) -> AttributeSyntax? {
-    self.streamParseableMemberAttributes(in: variableDecl).first
+    self.streamParseableMemberAttributes(in: attributes).first
   }
 
-  private static func streamParseableMemberAttributes(
-    in variableDecl: VariableDeclSyntax
+  // Keyed off an attribute list rather than a `VariableDeclSyntax`, because an enum case carries
+  // the same attributes in the same place: `@StreamParseableMember(key:)` names the JSON key for
+  // a stored property and for a case alike, and one reader serves both.
+  static func streamParseableMemberAttributes(
+    in attributes: AttributeListSyntax
   ) -> [AttributeSyntax] {
-    variableDecl.attributes
+    attributes
       .compactMap { $0.as(AttributeSyntax.self) }
       .filter { $0.attributeName.trimmedDescription == "StreamParseableMember" }
   }
 
   private static func streamParseableIgnoredAttribute(
-    in variableDecl: VariableDeclSyntax
+    in attributes: AttributeListSyntax
   ) -> AttributeSyntax? {
-    variableDecl.attributes
+    attributes
       .compactMap { $0.as(AttributeSyntax.self) }
       .first { $0.attributeName.trimmedDescription == "StreamParseableIgnored" }
+  }
+
+  static func streamParseableDefaultAttribute(
+    in attributes: AttributeListSyntax
+  ) -> AttributeSyntax? {
+    attributes
+      .compactMap { $0.as(AttributeSyntax.self) }
+      .first { $0.attributeName.trimmedDescription == "StreamParseableDefault" }
   }
 
   private static func argumentExpression(
@@ -1100,7 +1127,7 @@ extension StreamParseableMacro {
     arguments.first { $0.label?.text == name }?.expression
   }
 
-  private static func stringLiteralValue(from expression: ExprSyntax) -> String? {
+  static func stringLiteralValue(from expression: ExprSyntax) -> String? {
     guard let literal = expression.as(StringLiteralExprSyntax.self) else { return nil }
     let segments = literal.segments.compactMap {
       $0.as(StringSegmentSyntax.self)?.content.text
@@ -1121,7 +1148,7 @@ extension StreamParseableMacro {
 // MARK: - PartialMembersMode
 
 extension StreamParseableMacro {
-  private enum PartialMembersMode: Hashable {
+  enum PartialMembersMode: Hashable {
     case optional
     case streamInitialValue
 

@@ -283,4 +283,5 @@ STREAM_PARSING_SIMD_SHIM const double *stream_parsing_pow10_double(void) {
 #define STREAM_PARSING_POW10_DOUBLE_MAX_EXPONENT (22)
 #define STREAM_PARSING_POW10_DOUBLE_COUNT (23)
 
+
 #endif

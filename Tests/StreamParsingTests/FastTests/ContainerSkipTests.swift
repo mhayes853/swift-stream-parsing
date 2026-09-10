@@ -102,7 +102,66 @@ struct ContainerSkipTests {
     self.expectAllChunks(#"{"unknown":["\q"],"id":7,"name":"row","after":true}"#, Self.populated)
   }
 
+  @Test(arguments: [
+    [0xFF], [0x80], [0xC0, 0x80], [0xC2], [0xC2, 0x41],
+    [0xE0, 0x80, 0x80], [0xED, 0xA0, 0x80], [0xF4, 0x90, 0x80, 0x80],
+  ] as [[UInt8]])
+  func `A skipped escape does not hide invalid UTF-8`(sequence: [UInt8]) {
+    let bytes: [UInt8] = [0x5B, 0x22, 0x5C] + sequence + [0x22, 0x5D]
+    for threshold in [Int.max, 1] {
+      for split in (0...bytes.count).map(Optional.some) + [nil] {
+        let error = #expect(throws: JSONParsingError.self) {
+          try self.parseSkipping(bytes, splitAt: split, windowThreshold: threshold)
+        }
+        expectNoDifference(error, JSONParsingError(reason: .invalidUTF8, byteOffset: 3))
+      }
+    }
+  }
+
+  // Skip mode does not validate escape selectors, but their bytes must still be valid UTF-8.
+  // In particular, it must validate the entire scalar rather than discard only its lead byte.
+  @Test(arguments: [
+    [0xC2, 0x80], [0xDF, 0xBF], [0xE0, 0xA0, 0x80], [0xED, 0x9F, 0xBF],
+    [0xF0, 0x90, 0x80, 0x80], [0xF4, 0x8F, 0xBF, 0xBF],
+  ] as [[UInt8]])
+  func `A skipped non-ASCII escape is validated without emitting its interior`(sequence: [UInt8]) throws {
+    let bytes: [UInt8] = [0x5B, 0x22, 0x5C] + sequence + [0x5C, 0x22, 0x22, 0x5D]
+    for threshold in [Int.max, 1] {
+      for split in (0...bytes.count).map(Optional.some) + [nil] {
+        let calls = try self.parseSkipping(bytes, splitAt: split, windowThreshold: threshold)
+        expectNoDifference(calls, ["beginArray", "endArray"])
+      }
+    }
+  }
+
+  // nil selects the dedicated byte-fed entry point; otherwise split the buffer in two.
+  private func parseSkipping(
+    _ bytes: [UInt8], splitAt: Int?, windowThreshold: Int
+  ) throws -> [String] {
+    var parser = JSONParser(windowThreshold: windowThreshold)
+    var sink = RootSkippingSink()
+    if let splitAt {
+      try bytes.withUnsafeBufferPointer { input in
+        try parser.parse(UnsafeBufferPointer(rebasing: input[..<splitAt]), into: &sink)
+        try parser.parse(UnsafeBufferPointer(rebasing: input[splitAt...]), into: &sink)
+      }
+    } else {
+      for byte in bytes { try parser.parse(byte: byte, into: &sink) }
+    }
+    try parser.finish(into: &sink)
+    return sink.calls
+  }
+
   // What the skip still rejects, at every chunk cut.
+  @Test(arguments: UInt8(0)..<UInt8(32))
+  func `A backslash does not hide a raw control byte in a skipped string`(control: UInt8) {
+    let json = "{\"unknown\":[\"a\\" + String(UnicodeScalar(control))
+      + "b\"],\"id\":7}"
+    self.expectAllChunks(
+      json, .parserError(.unterminatedString), sizes: Array(1...json.utf8.count)
+    )
+  }
+
   @Test
   func `A skipped subtree still validates structure`() {
     // A `[` closed by `}`: the containers bitmap tracks kinds through the skip.

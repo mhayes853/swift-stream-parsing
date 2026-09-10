@@ -128,6 +128,7 @@ let benchmarks: @Sendable () -> Void = {
   layerOverheadBenchmarks()
   partialSinkReplayBenchmarks()
   typedShapeBenchmarks()
+  enumBenchmarks()
   parserShapeBenchmarks()
   realWorldBenchmarks()
   streamingAPIBenchmarks()

@@ -231,18 +231,25 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 // generic-metadata caches on every occurrence — `StreamArray<Element>()` cannot cache its own
 // template (generic types have no stored statics), so the template lives in this closure's
 // context instead, in a leaked one-slot allocation because the schema owning the closure is
-// itself immortal. Copying the template out is a plain specialized copy: its buffers are the
-// empty singletons, so the retains it takes are immortal-object fast paths.
+// itself immortal.
+//
+// The template is the optional already `.some`, and the member is copy-initialised from its
+// address in one step rather than assigned: an assignment would destroy the `nil` first (a
+// no-op the optimiser cannot always see) and, spelled `pointer.pointee = template.pointee`,
+// read the payload into a temporary before writing it. Initialising over a `nil` is sound
+// because a `nil` optional owns nothing.
 @inlinable
 public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
   _ type: T.Type
 ) -> StreamFieldPrepare {
-  nonisolated(unsafe) let template = UnsafeMutablePointer<T>.allocate(capacity: 1)
-  template.initialize(to: T.streamInitialValue())
+  nonisolated(unsafe) let template = UnsafeMutablePointer<T?>.allocate(capacity: 1)
+  template.initialize(to: .some(T.streamInitialValue()))
   let inner = T._streamContainerPrepare
   return { storage, _ in
     let pointer = storage.assumingMemoryBound(to: T?.self)
-    if pointer.pointee == nil { pointer.pointee = template.pointee }
+    if pointer.pointee == nil {
+      _streamCopyInitialize(pointer, from: UnsafePointer(template))
+    }
     inner?(storage, 0)
   }
 }

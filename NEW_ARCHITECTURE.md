@@ -6944,3 +6944,146 @@ so size knowledge is still worth something, but it is now worth roughly half wha
 remaining gap is block buffers the census says a perfect hint would only cut by 582 and 402. The
 larger remaining term on these rows is not allocation at all: it is the per-fragment append
 itself, which is where the earlier `StreamString` census left it.
+
+## The open element moves into the storage
+
+Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of
+raw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was
+where the two-thirds went. A profile of the Twitter full parse (standalone `-O` harness, 4,242
+samples, top of stack) answered it, and the answer was not the sink:
+
+| where | share of wall |
+|---|---:|
+| `memmove` and struct copy/destroy witnesses | ~39% |
+| parser (structural run, numbers, strings, UTF-8) | ~32% |
+| every `PartialSink` method together | ~8% |
+| malloc/free | ~3.5% |
+| long-key tail compare | ~2.6% |
+
+Every one of those `memmove`s sat under `_streamArraySchema`'s element open. `MemoryLayout` put
+`BenchmarkTweetFull.Partial` at **11,904 bytes** -- `retweeted_status?` 5,952, `user` 2,446,
+`entities` 2,180 -- against 289 for the three-field model, and the open-element protocol moved
+that struct about six times per tweet: the `drainPending` swap (three moves), the move out, the
+commit into the tail, the template copy into `pending`, and tail growth. Eight megabytes of
+traffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,
+which is why that idea was set aside in favour of this one.
+
+### The protocol
+
+The element is copy-initialised **in place**, from a template, at the end of the tail block, and
+the sink is handed that slot's address. No `pending`, no move at close. Three things had to
+change for that to be sound:
+
+- **Storage owns its capacity.** `ContiguousArray` never exposes spare capacity, so the tail is a
+  `StreamBlock`: a `ManagedBuffer` with the elements tail-allocated (one allocation per block;
+  the two-allocation form doubled the malloc count on every number corpus and cost Canada 10%
+  and Mesh 27%). Its header is read through the pointer, not the property -- a stored class
+  property read from outside its module is a dynamic `swift_beginAccess` per access, two per
+  open -- and it is not generic over the element, because a generic header made the element
+  offset a metadata lookup on the paths that reach the block unspecialised (GitHub and GSoC each
+  lost 8% of their gain to that alone).
+- **The template is a pointer, not a closure.** A maker returning the element by value stages it
+  in a temporary, a second whole-element copy. The schema builders allocate one template per
+  schema and leak it, and `_openElement(copying:)` copies from that address. The copy itself is
+  `initialize(to:)` below 1 KB and `initialize(from:count:)` above: the counted form is
+  `swift_arrayInitWithCopy`, a runtime detour worth 7% on CITM's thousands of small elements,
+  and the single-value form stages anything loadable on the stack, three 6.6 KB memcpys per
+  tweet.
+- **Uniqueness is settled per container, not per element.** A snapshot is a struct copy that
+  retains the blocks, so a write through the old pointer would reach it. The sink makes the
+  block it is about to write unique once when it enters a container (`prepareWrites`) and once
+  at the start of any parse call after a value may have been copied (`PartialSink.reseat()`,
+  O(depth)), and never in between, because nothing but the parser touches the value inside a
+  parse call. A per-element `isKnownUniquelyReferenced` cost the homogeneous double array 29%.
+  Copies are detected with a process-wide epoch (`_streamValueCopied`, a relaxed C atomic --
+  the deployment floor predates `Synchronization`) bumped by `current` and by the container
+  views' `value` accessors; scalars read off a view declare that they cannot share storage and
+  skip it, so a view read per byte costs nothing extra.
+
+The dictionary's values took the same shape: `storedValues` is a `StreamArray`, a repeated key
+resumes in place through `_uniqueSlotAddress`, and the pending value and its round trip are gone.
+
+### Snapshots after the move
+
+With the open element inside a block, a snapshot taken mid-element shares the block the parser
+is writing. The first form copied the tail block on the next write; that made a retained
+snapshot per byte pay a block copy per byte, and on `Retention 100 users` cost 90%. The second
+form froze the tail as a short sealed block in the spine and copied only the open element out --
+and the spine is shared with the snapshot too, so every freeze copy-on-wrote the whole spine:
+`Retention Mesh - window 16` went quadratic (793 K mallocs). The form that shipped:
+
+- A shared tail is **frozen in place and chained behind a fresh tail** through its header
+  (`previous`, `previousTotal`); the open element alone is copied into the fresh tail. Nothing
+  touches the spine.
+- Once the chain holds a block's worth of elements it is **compacted** into full sealed blocks,
+  so the spine stays uniform, indexing stays a shift and a mask, and a chain is never longer
+  than a block (which also bounds the recursion that releases it).
+- A snapshot taken repeatedly inside one open element -- a state kept per chunk, the streaming
+  shape -- interrupts a tail holding nothing but that element. That tail is kept as the fresh
+  tail's `spare` and reused the next time round once the snapshot that held it is gone, so with
+  the latest state retained the two blocks alternate and no allocation happens per snapshot.
+  The links are retained raw bits rather than `AnyObject` (which retains through the
+  Objective-C-aware slow path) and the stale element is destroyed by a specialised move rather
+  than `swift_arrayDestroy`.
+
+What remains per retained-snapshot cycle is the element copy (which the old design paid at
+snapshot time instead), the freeze bookkeeping and the reseat walk. On the three-field Twitter
+model, feeding chunks with the latest state held (standalone harness):
+
+| chunk | before | after |
+|---|---:|---:|
+| 64 B | 319 MB/s | 268 MB/s |
+| 16 B | 132 MB/s | 98 MB/s |
+| 4 B | 41 MB/s | 28 MB/s |
+
+That is the trade this design makes, and it is the one row family that lost: a retained
+snapshot inside an open element costs a fixed ~40 ns per cycle that the inline pending slot did
+not. Snapshots that are not retained, and every view read, gained -- see the table below.
+
+### Measured (3 interleaved rounds against 7229235, best-of-3 p0 / median p50)
+
+Typed corpus rows, the raw `- bulk` controls all within ±2%:
+
+| row | base p0 | cand p0 | Δp0 | Δp50 | mallocs |
+|---|---:|---:|---:|---:|---|
+| Real Twitter full - bulk discarding | 576 | 791 | **+37.3%** | +37.1% | 1,078 → 1,266 |
+| Real GitHub events - bulk discarding | 844 | 1052 | **+24.6%** | +25.3% | 63 → 80 |
+| Real GSoC 2018 - bulk discarding | 943 | 1099 | **+16.5%** | +17.1% | 9,519 → 9,676 |
+| Real Qwen 3 structured response - bulk discarding | 400 | 437 | +9.3% | +10.4% | 81 → 81 |
+| Real Mesh - bulk discarding | 481 | 525 | +9.1% | +9.0% | 2,231 → 2,233 |
+| Typed shape synthetic double array - typed parse | 752 | 817 | +8.6% | +7.9% | 1,264 → 1,264 |
+| Real Qwen 3 workspace edit tool call - bulk discarding | 528 | 557 | +5.5% | +6.5% | 105 → 107 |
+| Real Canada - bulk discarding | 543 | 565 | +4.1% | +3.8% | 2,659 → 2,671 |
+| Real LLM message - bulk discarding | 1286 | 1306 | +1.6% | +1.5% | 2,069 → 2,069 |
+| Real Twitter - bulk discarding | 1584 | 1592 | +0.5% | +0.2% | 114 → 114 |
+| Real CITM catalog - bulk discarding | 943 | 927 | -1.7% | -0.8% | 2,281 → 2,403 |
+
+The size of the win tracks the size of the partial: the three-field Twitter model, whose
+element is 289 bytes, is flat; the full model, whose element was 11,904 bytes and is 6,608 now
+(the `pending` slot inside every nested `StreamArray` is gone, so the parent no longer carries an
+empty element per array field), gains a third. CITM's cost is the dictionary machinery, which
+this did not touch.
+
+Streaming and snapshots:
+
+| row | Δp0 | Δp50 |
+|---|---:|---:|
+| Stream Array of structs - snapshot per byte | +331% | +332% |
+| Scaling 400 users - snapshot per byte | +333% | +331% |
+| Stream Array of structs - snapshot per 64B chunk | +30% | +30% |
+| API PartialsStream Qwen 3 structured response - snapshot per 64B chunk | +38% | +38% |
+| API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk | +23% | +23% |
+| Stream Array of structs - view read per byte | +4% | +4% |
+| Real * - byte by byte discarding | -2..+7% | |
+| Retention 100 users - window 4 / 16 / 64 | -59% | -59% |
+| Retention 100 users - keep all | -71% | -72% |
+| Dictionary 8..512 keys - snapshot per byte / window 16 | -58..-72% | |
+| Retention Mesh - window 16 | -21% | -21% |
+
+A snapshot is now a retain rather than a copy of the open element, which is the +330% on the
+per-byte snapshot rows and the +23..+38% on the per-chunk ones; those rows drop each snapshot
+before the next byte. The `Retention` and `Dictionary` rows keep them -- every one, or a window
+of four or more -- so the spare is never unique, every cycle allocates, and the fixed cost per
+cycle (an element copy the old design also paid, plus a block and the reseat) is charged per
+byte. The realistic shape, the latest state held while chunks arrive, sits between the two: the
+harness table above, -16% at 64-byte chunks.

@@ -3,7 +3,7 @@
 // `depth`/`containers` registers the structural run uses (so a `[` closed by `}` is still
 // rejected, and the depth cap still holds), strings skipped with control bytes still rejected
 // and UTF-8 still validated — but token interiors are not re-checked: numbers are their byte
-// class, escape selectors are consumed blind, literals are loose letters, and commas and
+// class, escape selectors are not decoded, literals are loose letters, and commas and
 // colons are not positionally validated. That trade is the entire point: no key matching, no
 // number parse, no escape decode, no sink call per token — and it is documented on
 // `StreamContainerDisposition.skip`. simdjson's On Demand makes the same one for skipped
@@ -39,9 +39,14 @@ extension JSONParser {
     // structural loop below.
     if state == .skippingEscape {
       guard i < to else { return i }
-      // The escaped character, consumed blind — the selector is not validated in a skipped
-      // interior. `\"` and `\\` are the two that matter structurally, and both are one byte.
-      i &+= 1
+      // Escape selectors remain unchecked, but a backslash cannot hide a raw control byte.
+      let selector = base.load(fromByteOffset: i, as: UInt8.self)
+      guard selector >= .asciiSpace else {
+        try Self.fail(.unterminatedString, byteOffset: self.consumedByteCount &+ i)
+      }
+      // Only ASCII selectors can be consumed as one byte. Let the string scanner validate
+      // a non-ASCII selector and carry any incomplete sequence across the next boundary.
+      if selector < .utf8ContinuationFloor { i &+= 1 }
       state = .skippingString
     }
     if state == .skippingString {
@@ -78,7 +83,7 @@ extension JSONParser {
         if depth &- 1 == self.skipEndDepth {
           // The event precedes the depth/state updates, exactly as the structural run orders
           // them, so a failure the check surfaces leaves the same parser state behind.
-          try self.record(.endObject, start: at, length: 1, end: i, into: &sink)
+          try self.record(.endObject, start: at, length: 1, end: i, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           return i
@@ -89,7 +94,7 @@ extension JSONParser {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
         }
         if depth &- 1 == self.skipEndDepth {
-          try self.record(.endArray, start: at, length: 1, end: i, into: &sink)
+          try self.record(.endArray, start: at, length: 1, end: i, base: base, into: &sink)
           depth &-= 1
           state = depth == 0 ? .done : .afterValue
           return i
@@ -158,8 +163,14 @@ extension JSONParser {
           state = .skippingEscape
           return nil
         }
-        // Consumed blind, as above.
-        i &+= 1
+        // Match the cross-chunk escape path: selectors are loose, raw controls are not.
+        let selector = base.load(fromByteOffset: i, as: UInt8.self)
+        guard selector >= .asciiSpace else {
+          throw self.error(.unterminatedString, at: i)
+        }
+        // Leave non-ASCII bytes for the next run's UTF-8 validation instead of hiding
+        // a lead or continuation byte behind the backslash.
+        if selector < .utf8ContinuationFloor { i &+= 1 }
       } else {
         throw self.error(.unterminatedString, at: byteAt)
       }

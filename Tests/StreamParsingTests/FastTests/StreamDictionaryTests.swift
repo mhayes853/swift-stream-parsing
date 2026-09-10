@@ -10,7 +10,8 @@ struct `Stream dictionary tests` {
     var dictionary = StreamDictionary<Int>(initialCapacity: 100)
 
     expectNoDifference(dictionary.entries.capacity >= 100, true)
-    expectNoDifference(dictionary.storedValues.capacity >= 100, true)
+    expectNoDifference(dictionary.storedValues.blocks.capacity >= 3, true)
+    expectNoDifference(dictionary.storedValues.tail?.slotCapacity, 32)
     expectNoDifference(dictionary.table?.count, 256)
     for value in 0..<100 { dictionary.updateValue(value, forKey: "key\(value)") }
     expectNoDifference(dictionary.count, 100)

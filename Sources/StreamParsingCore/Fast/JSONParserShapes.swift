@@ -75,7 +75,7 @@ extension JSONParser {
             }
           }
           try self.recordNumber(
-            start: start, length: separator &- start, end: separator, info: info, into: &sink
+            start: start, length: separator &- start, end: separator, base: base, info: info, into: &sink
           )
           cursor = separator
           k = separatorEntry
@@ -83,8 +83,8 @@ extension JSONParser {
           continue
         case .asciiArrayStart:
           guard depth < Self.maximumDepth else { break }
-          try self.record(.beginArray, start: start, length: 1, end: start &+ 1, into: &sink)
-          containers &= ~(1 &<< UInt64(depth))
+          try self.record(.beginArray, start: start, length: 1, end: start &+ 1, base: base, into: &sink)
+          containers &= ~(1 &<< Self.shiftAmount(depth))
           depth &+= 1
           cursor = start &+ 1
           k = k &+ 1
@@ -92,7 +92,7 @@ extension JSONParser {
           continue
         case .asciiArrayEnd:
           guard first else { break }
-          try self.record(.endArray, start: start, length: 1, end: start &+ 1, into: &sink)
+          try self.record(.endArray, start: start, length: 1, end: start &+ 1, base: base, into: &sink)
           depth &-= 1
           cursor = start &+ 1
           k = k &+ 1
@@ -117,7 +117,7 @@ extension JSONParser {
           first = false
           continue
         case .asciiArrayEnd:
-          try self.record(.endArray, start: position, length: 1, end: position &+ 1, into: &sink)
+          try self.record(.endArray, start: position, length: 1, end: position &+ 1, base: base, into: &sink)
           depth &-= 1
           cursor = position &+ 1
           k &+= 1
@@ -279,6 +279,12 @@ extension JSONParser {
         base.load(fromByteOffset: colon, as: UInt8.self) == .asciiColon,
         open == cursor || streamIsWhitespace(base.load(fromByteOffset: cursor, as: UInt8.self))
       else { state = first ? .firstKey : .key; return .fellBack }
+      // The index does not necessarily give a scalar directly after a quote its own
+      // entry. Check the key-to-colon gap before emitting the key or consuming the colon.
+      // Compact JSON takes the adjacent-colon comparison without scanning whitespace.
+      guard colon == close &+ 1
+        || streamWhitespaceEnd(base: base, from: close &+ 1, to: colon) == colon
+      else { state = first ? .firstKey : .key; return .fellBack }
       var keyNonASCII = false
       if close > open &+ 1 {
         let firstBlock = (open &+ 1 &- windowStart) &>> 6
@@ -292,7 +298,7 @@ extension JSONParser {
       try self.validateUTF8IfNeeded(
         base: base, from: open &+ 1, to: close, containsNonASCII: keyNonASCII, reportAt: close
       )
-      try self.record(.key, start: open &+ 1, length: close &- open &- 1, end: close &+ 1, into: &sink)
+      try self.record(.key, start: open &+ 1, length: close &- open &- 1, end: close &+ 1, base: base, into: &sink)
       cursor = colon &+ 1
       k &+= 3
       first = false
@@ -300,6 +306,9 @@ extension JSONParser {
       // Value: at the cursor, or at the next entry when the cursor is on whitespace.
       var start = cursor
       var afterValueEntry = k
+      // A complete key/colon can be the last bytes of an incomplete chunk. Leave the
+      // value pending before inspecting its first byte; it belongs to the next parse call.
+      guard start < n else { state = .value; return .fellBack }
       if streamIsWhitespace(base.load(fromByteOffset: start, as: UInt8.self)) {
         guard k < count else { state = .value; return .fellBack }
         start = Int(indices[k])
@@ -328,11 +337,11 @@ extension JSONParser {
               reportAt: nil
             )
           } catch {
-            try self.record(.stringBegin, start: start, length: 1, end: start &+ 1, into: &sink)
+            try self.record(.stringBegin, start: start, length: 1, end: start &+ 1, base: base, into: &sink)
             throw error
           }
         }
-        try self.record(.string, start: start &+ 1, length: closeQuote &- start &- 1, end: closeQuote &+ 1, into: &sink)
+        try self.record(.string, start: start &+ 1, length: closeQuote &- start &- 1, end: closeQuote &+ 1, base: base, into: &sink)
         cursor = closeQuote &+ 1
         k &+= 2
       case .asciiDash, .asciiZero ... .asciiNine:
@@ -351,7 +360,7 @@ extension JSONParser {
           return .fellBack
         }
         try self.recordNumber(
-          start: start, length: separator &- start, end: separator, info: info, into: &sink
+          start: start, length: separator &- start, end: separator, base: base, info: info, into: &sink
         )
         cursor = separator
         k = afterValueEntry
@@ -368,7 +377,7 @@ extension JSONParser {
           j &+= 1
         }
         guard index == expected.count else { state = .value; return .fellBack }
-        try self.record(kind == 2 ? .null : .boolean, start: start, length: j &- start, end: j, extra: kind == 0 ? 1 : 0, into: &sink)
+        try self.record(kind == 2 ? .null : .boolean, start: start, length: j &- start, end: j, extra: kind == 0 ? 1 : 0, base: base, into: &sink)
         cursor = j
         k = afterValueEntry
       default:
@@ -386,7 +395,7 @@ extension JSONParser {
         cursor = position &+ 1
         k &+= 1
       case .asciiObjectEnd:
-        try self.record(.endObject, start: position, length: 1, end: position &+ 1, into: &sink)
+        try self.record(.endObject, start: position, length: 1, end: position &+ 1, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
         cursor = position &+ 1

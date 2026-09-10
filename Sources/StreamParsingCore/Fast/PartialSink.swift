@@ -182,7 +182,10 @@ struct ScalarTarget {
 //
 // Frames point into the value being built. Only the innermost open container is ever mutated,
 // so an element pointer stays valid for that element's lifetime: appending to an outer array
-// cannot happen while an inner one is open.
+// cannot happen while an inner one is open. A copy of the value taken between parse calls cannot
+// invalidate one either: every container holds its open element inline, at a fixed offset in
+// storage the stream owns, so the copy diverges and the address the frame holds still names the
+// parser's own element.
 //
 // Deliberately not generic over the root. The sink's behavior is entirely schema-driven -- a
 // root type would type the pointer at init and nothing else -- and a phantom parameter is not

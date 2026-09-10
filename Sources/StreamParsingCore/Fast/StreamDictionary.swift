@@ -31,7 +31,12 @@ public struct StreamDictionary<Value> {
   // The key and the hash that guards it, kept in one buffer so a probe reads one cache line and a
   // retained state copies one thing.
   @usableFromInline var entries: ContiguousArray<StreamDictionaryEntry>
-  @usableFromInline var storedValues: [Value]
+  // Blocked, like an array's elements, and for the same reason: a snapshot shares the blocks
+  // instead of copying them, and the open value is the array's own inline `pending` slot, so a
+  // repeated key resumes in the slot it already has and `{"a":1,"b":2,"a":3}` keeps its original
+  // order. A flat `[Value]` here made a snapshot-per-byte parse copy the whole value array per
+  // byte (-58% on the dictionary snapshot rows).
+  @usableFromInline var storedValues: StreamArray<Value>
 
   // Open addressed slot table, -1 where empty, held at half load since linear probing degrades
   // sharply past that. Nil below the threshold, where a scan over `entries` measures the same and
@@ -39,12 +44,15 @@ public struct StreamDictionary<Value> {
   @usableFromInline var table: ContiguousArray<Int32>?
 
   // The entry being parsed, held inline for the same reason `StreamArray` holds its open element
-  // there: the parser's frame points at a slot no other value can see, so a write through it is an
-  // ordinary mutation rather than a raw write into a buffer a kept state is sharing.
+  // there: the parser's frame points at a slot no other value can see, so a write through it is
+  // an ordinary mutation rather than a raw write into storage a kept state is sharing. The
+  // dictionary needs its own rather than borrowing the values array's, because a repeated key's
+  // open value is an element the array already holds -- and unlike an append, a write into one
+  // of those is a write a kept state can see.
   //
-  // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats, which is what
-  // keeps `{"a":1,"b":2,"a":3}` in its original order, and `storedValues.count` when it is new.
-  // A new key is inserted into `entries` and the table immediately, so those can lead
+  // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats, which is
+  // what keeps `{"a":1,"b":2,"a":3}` in its original order, and `storedValues.count` when it is
+  // new. A new key is inserted into `entries` and the table immediately, so those can lead
   // `storedValues` by one while its value remains in the stable pending slot.
   @usableFromInline var pendingValue: Value?
   @usableFromInline var pendingSlot: Int32
@@ -53,7 +61,7 @@ public struct StreamDictionary<Value> {
 
   public init() {
     self.entries = ContiguousArray<StreamDictionaryEntry>()
-    self.storedValues = [Value]()
+    self.storedValues = StreamArray<Value>()
     self.table = nil
     self.pendingValue = nil
     self.pendingSlot = -1
@@ -122,32 +130,39 @@ public struct StreamDictionary<Value> {
     return nil
   }
 
-  // Writes the open entry into storage. Both paths are ordinary mutations, so a state that shares
-  // the buffers copies them here rather than seeing them change.
+  // Writes the open entry into storage. An appended value moves into the slot it will live in;
+  // a repeated key's value is assigned into the element it already occupies, with that block made
+  // unique first. Both happen inside this call, so no state can be taken between the uniqueness
+  // check and the write -- which is the whole reason the open value is held here rather than
+  // written where it will end up.
   @inlinable
   mutating func drainPending() {
     guard self.pendingSlot >= 0 else { return }
-    var taken = Value?.none
-    swap(&taken, &self.pendingValue)
     let slot = Int(self.pendingSlot)
     self.pendingSlot = -1
-    // The payload is moved out of the optional bitwise rather than unwrapped, for the same reason
-    // `StreamArray.drainPending` does: `unsafelyUnwrapped` is a read accessor, so unwrapping copies
-    // the value — a retain for every reference field and a matching release when `taken` is
-    // destroyed, once per committed key. A single-payload enum keeps its payload at offset zero, so
-    // `.some`'s bits are the value's bits; after the move the slot is re-marked nil so nothing is
-    // destroyed twice. `pendingSlot >= 0` guarantees the case is `.some` — `_openValue` and
-    // `updateValue` set both together.
-    let value = withUnsafeMutablePointer(to: &taken) { box -> Value in
-      let value = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Value.self).move()
+    let isAppend = slot >= self.storedValues.closedCount
+    // Resolved before the payload is projected: both of these mutate `storedValues`.
+    let destination =
+      isAppend
+      ? self.storedValues._slotForAppend()
+      : self.storedValues._uniqueSlotAddress(slot)
+    withUnsafeMutablePointer(to: &self.pendingValue) { box in
+      // The payload is moved out of the optional bitwise rather than unwrapped:
+      // `unsafelyUnwrapped` is a read accessor, so unwrapping copies the value -- a retain for
+      // every reference field and a matching release when the optional is destroyed, once per
+      // committed key. A single-payload enum keeps its payload at offset zero, so `.some`'s bits
+      // are the value's bits; after the move the slot is re-marked nil so nothing is destroyed
+      // twice. `pendingSlot >= 0` guarantees the case is `.some`.
+      let payload = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Value.self)
+      let typed = destination.assumingMemoryBound(to: Value.self)
+      if isAppend {
+        typed.moveInitialize(from: payload, count: 1)
+      } else {
+        typed.pointee = payload.move()
+      }
       box.initialize(to: nil)
-      return value
     }
-    if slot < self.storedValues.count {
-      self.storedValues[slot] = value
-    } else {
-      self.storedValues.append(value)
-    }
+    if isAppend { self.storedValues._commitAppend() }
   }
 
   @inlinable
@@ -329,7 +344,8 @@ extension StreamDictionary where Value: StreamParseableRoot {
     public var count: Int { self.storage.pointee.count }
 
     /// A copy of the whole dictionary, for callers that want an escaping snapshot rather than a
-    /// single value read by key.
+    /// single value read by key. The blocks are retained, not copied; the open value is copied,
+    /// which is what makes the copy stable while parsing continues.
     @inlinable
     public var value: StreamDictionary<Value> { self.storage.pointee }
 
@@ -351,9 +367,7 @@ extension StreamDictionary where Value: StreamParseableRoot {
               UnsafeMutableRawPointer($0)
             }
         } else if let slot = self.storage.pointee.slot(forKey: key) {
-          let base = self.storage.pointee.storedValues
-            .withUnsafeBufferPointer { $0.baseAddress! }
-          address = UnsafeMutableRawPointer(mutating: base + Int(slot))
+          address = self.storage.pointee.storedValues._elementAddress(Int(slot))
         } else {
           address = nil
         }
@@ -372,11 +386,55 @@ extension StreamDictionary where Value: StreamParseableRoot {
 // MARK: - Parsing support
 
 extension StreamDictionary {
-  /// Commits the open entry and opens one for `key`, returning the address of its slot.
+  /// Opens the entry for `key`, returning the address of its value slot.
   ///
-  /// A repeated key resumes from the value already stored under it rather than resetting, and never
-  /// materialises a `String`, since the span is matched against the stored keys directly.
+  /// A repeated key resumes from the value already stored under it rather than resetting, and
+  /// never materialises a `String`, since the span is matched against the stored keys directly.
   /// Underscored because only the frame entry helpers call it.
+  ///
+  /// `drainPending()` stays a separate call rather than being fused into the open the way
+  /// `StreamArray._openElement(copying:)` fuses its pair. Fusing was measured and is 32% slower on
+  /// the dictionary discarding rows: two `withUnsafeMutablePointer(to: &self.pendingValue)`
+  /// projections in one body, with real work in the second, stop the compiler addressing the box
+  /// in place, so it stages a copy of `Value?` and destroys it -- an outlined init-with-copy and
+  /// an outlined destroy, twice each, or four retain/release pairs per key (16 retains for a
+  /// 128-key parse became 528). A projection whose closure is trivial, or one that is alone in its
+  /// own function, folds to direct addressing instead; that is what the separate call buys, and it
+  /// is worth more than the two tag writes it costs. Unnesting the projections out of
+  /// `withUnsafeBufferPointer` restored this function's own specialisations and changed nothing.
+  ///
+  /// Deliberately two near-identical bodies rather than one with the difference in a closure.
+  /// Folding them into a shared helper that reported back what the caller still had to write
+  /// -- an `inout Bool` and an optional payload pointer -- stopped the specialiser cold: the
+  /// `Swift.Int`, `StreamString` and CITM-partial specialisations of this function disappeared
+  /// from the binary and every `Value` operation went through its value witness, which cost the
+  /// dictionary rows two thirds of their throughput and GSoC 20%. Checked with `nm | swift
+  /// demangle | grep "generic specialization"`, which is faster than measuring it.
+  @inlinable
+  public mutating func _openValue(
+    forKey key: Span<UInt8>,
+    copying template: UnsafePointer<Value>
+  ) -> UnsafeMutableRawPointer {
+    self.drainPending()
+    key.withUnsafeBufferPointer { buffer in
+      let hash = Self.hash(buffer)
+      var vacantBucket = -1
+      if let existing = self.slot(forKey: buffer, hash: hash, vacantBucket: &vacantBucket) {
+        self.pendingSlot = existing
+        self.pendingValue = self.storedValues[Int(existing)]
+      } else {
+        self.pendingSlot = self.appendEntry(
+          forKey: String(decoding: buffer, as: UTF8.self),
+          hash: hash,
+          vacantBucket: vacantBucket
+        )
+        self.pendingValue = template.pointee
+      }
+    }
+    return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
+  }
+
+  /// The same, for a value passed in by value: the scalar kinds the sink opens directly.
   @inlinable
   public mutating func _openValue(
     forKey key: Span<UInt8>,
@@ -386,9 +444,7 @@ extension StreamDictionary {
     key.withUnsafeBufferPointer { buffer in
       let hash = Self.hash(buffer)
       var vacantBucket = -1
-      if let existing = self.slot(
-        forKey: buffer, hash: hash, vacantBucket: &vacantBucket
-      ) {
+      if let existing = self.slot(forKey: buffer, hash: hash, vacantBucket: &vacantBucket) {
         self.pendingSlot = existing
         self.pendingValue = self.storedValues[Int(existing)]
       } else {
@@ -425,9 +481,7 @@ extension StreamDictionary: Sequence, Collection {
 }
 
 extension StreamDictionary: Equatable where Value: Equatable {
-  // Order sensitive, because the whole point of this type is that it has one. Element wise rather
-  // than storage wise, since two dictionaries holding the same entries can differ in whether the
-  // last one has been committed out of the pending slot yet.
+  // Order sensitive, because the whole point of this type is that it has one.
   public static func == (lhs: Self, rhs: Self) -> Bool {
     guard lhs.count == rhs.count else { return false }
     for position in lhs.startIndex..<lhs.endIndex where lhs[position] != rhs[position] {
@@ -492,11 +546,6 @@ extension StreamDictionary {
   @_spi(Benchmarking)
   public func _benchmarkSlot(_ key: Span<UInt8>, hash: UInt64) -> Int32 {
     key.withUnsafeBufferPointer { self.slot(forKey: $0, hash: hash) ?? -1 }
-  }
-
-  @_spi(Benchmarking)
-  public mutating func _benchmarkDrain() {
-    self.drainPending()
   }
 
   @_spi(Benchmarking)

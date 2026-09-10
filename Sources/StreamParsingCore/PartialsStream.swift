@@ -50,6 +50,11 @@ public struct JSONStreamFormat: Hashable, Sendable {
 public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 
+  @usableFromInline
+  static func allocateStorage() -> UnsafeMutablePointer<Value> {
+    UnsafeMutablePointer<Value>.allocate(capacity: 1)
+  }
+
   @usableFromInline var parser: JSONParser
   @usableFromInline var sink: PartialSink
 
@@ -63,9 +68,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// written again. Reading it still copies the open element at each depth; ``withView(_:)``
   /// reads without copying when only part of the value is needed.
   @inlinable
-  public var current: Value {
-    self.storage.pointee
-  }
+  public var current: Value { self.storage.pointee }
 
   /// Reads the value in place, without copying it.
   ///
@@ -94,7 +97,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     initialValue: Value = Value.streamInitialValue(),
     from format: JSONStreamFormat
   ) {
-    let storage = UnsafeMutablePointer<Value>.allocate(capacity: 1)
+    let storage = Self.allocateStorage()
     storage.initialize(to: initialValue)
     self.storage = storage
     self.parser = JSONParser(

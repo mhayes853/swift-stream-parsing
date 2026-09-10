@@ -470,5 +470,6 @@ func realWorldBenchmarks() {
   addRealWorldFastRows()
   addAllRealWorldConvenienceRows()
   addRealWorldCodableRows()
+  foundationRealWorldBenchmarks()
   addRealWorldViewRows()
 }

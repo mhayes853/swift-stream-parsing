@@ -157,6 +157,86 @@ struct `Snapshot stability tests` {
     try self.expectStable(#"{"groups":{"a":[1,2],"b":[3]}}"#, as: StabilityModel.Partial.self)
   }
 
+  // MARK: - Copies taken through a view
+
+  // A container read out of a view as a value shares the parser's blocks the way `current` does.
+  // Every byte takes one such copy, so every byte is a chance for the next write to land in it.
+  @Test
+  func `Containers copied out of a view stay stable`() throws {
+    let json = #"{"items":[{"id":1,"tags":["x"]},{"id":2,"tags":["yy","z"]}],"groups":{"a":[1,2],"b":[3]}}"#
+    var stream = PartialsStream(initialValue: StabilityModel.Partial(), from: .json())
+    var keptItems = [(rendering: String, value: StreamArray<StabilityItem.Partial>)]()
+    var keptGroups = [(rendering: String, value: StreamDictionary<StreamArray<Int>>)]()
+    for byte in Array(json.utf8) {
+      try stream.next(byte)
+      stream.withView { model in
+        if let items = itemsValue(model) { keptItems.append((String(describing: items), items)) }
+        if let groups = groupsValue(model) { keptGroups.append((String(describing: groups), groups)) }
+      }
+    }
+    let final = try stream.finish()
+    expectNoDifference(final.items?.count, 2)
+    expectNoDifference(final.groups?.count, 2)
+
+    for (offset, state) in keptItems.enumerated() {
+      expectNoDifference(
+        String(describing: state.value), state.rendering, "items copied at state \(offset) changed"
+      )
+    }
+    for (offset, state) in keptGroups.enumerated() {
+      expectNoDifference(
+        String(describing: state.value), state.rendering, "groups copied at state \(offset) changed"
+      )
+    }
+  }
+
+  // The value a stream starts from may share its blocks with whoever supplied it. The parser
+  // writes into those blocks in place, so it has to notice the share when it enters the
+  // container, not merely when a snapshot is taken.
+  @Test
+  func `An initial value's storage is not written into`() throws {
+    let supplied: StreamArray<Int> = [1, 2]
+    var stream = PartialsStream(initialValue: supplied, from: .json())
+    try stream.next(Array("[3,4]".utf8))
+    let parsed = try stream.finishValue()
+
+    expectNoDifference(Array(parsed), [1, 2, 3, 4])
+    expectNoDifference(Array(supplied), [1, 2])
+
+    var nested = StreamDictionary<StreamArray<Int>>()
+    nested.updateValue([7], forKey: "a")
+    let suppliedNested = nested
+    var nestedStream = PartialsStream(initialValue: suppliedNested, from: .json())
+    try nestedStream.next(Array(#"{"a":[8],"b":[9]}"#.utf8))
+    let parsedNested = try nestedStream.finishValue()
+
+    expectNoDifference(parsedNested, ["a": [7, 8], "b": [9]])
+    expectNoDifference(suppliedNested, ["a": [7]])
+  }
+
+  // Driving `PartialSink` directly, a copy taken mid-parse needs nothing reported to the sink:
+  // the open element of every container is inline, so the copy diverges on its own.
+  @Test
+  func `A sink driven directly keeps a copy taken mid-parse stable`() throws {
+    let json = Array(#"[[1,2],[3,4]]"#.utf8)
+    let storage = UnsafeMutablePointer<StreamArray<StreamArray<Int>>>.allocate(capacity: 1)
+    storage.initialize(to: [])
+    defer {
+      storage.deinitialize(count: 1)
+      storage.deallocate()
+    }
+    var sink = PartialSink(root: storage)
+    var parser = JSONParser()
+    try json[..<5].withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    let copy = storage.pointee
+    let rendering = String(describing: copy)
+    try json[5...].withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    try parser.finish(into: &sink)
+
+    expectNoDifference(storage.pointee, [[1, 2], [3, 4]])
+    expectNoDifference(String(describing: copy), rendering)
+  }
+
   // MARK: - The value actually parsed
 
   // Stability is worthless if the states are all wrong in the same way, so the shapes above are
@@ -174,5 +254,25 @@ struct `Snapshot stability tests` {
     var model = StabilityModel.Partial()
     try parsePartial(#"{"groups":{"a":[1,2],"b":[3]}}"#, into: &model)
     expectNoDifference(model.groups, ["a": [1, 2], "b": [3]])
+  }
+}
+
+// File scope, one switch each, returning plain values: the shape that reliably compiles for
+// generic `~Escapable` container views (see `StreamViewTests`).
+private func itemsValue(
+  _ model: borrowing StabilityModel.Partial.View
+) -> StreamArray<StabilityItem.Partial>? {
+  switch model.items {
+  case .some(let items): return items.value
+  case .none: return nil
+  }
+}
+
+private func groupsValue(
+  _ model: borrowing StabilityModel.Partial.View
+) -> StreamDictionary<StreamArray<Int>>? {
+  switch model.groups {
+  case .some(let groups): return groups.value
+  case .none: return nil
   }
 }
