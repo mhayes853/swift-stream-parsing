@@ -4,6 +4,10 @@ import Testing
 
 import StreamParsingCore
 
+#if canImport(Darwin)
+import Darwin
+#endif
+
 // The windowed path's one contract: a sink cannot tell which path parsed a document. Every
 // document here is parsed byte by byte through the dispatcher, then in bulk and in several
 // chunkings with the window threshold forced to one byte, and the recorded event streams —
@@ -400,4 +404,59 @@ struct `Windowed parser tests` {
       #expect(batched == dispatcher, "\(kind) in \(document.prefix(40))")
     }
   }
+
+  @Test(arguments: [
+    #"{"a"x:1}"#, #"{"a"true:1}"#, #"{"a"x :1}"#, #"{"a" x:1}"#,
+    "{\"a\"\u{0B}:1}", "{\"a\"\u{0C}:1}",
+    #"{"a":0,"b"x:1}"#, #"{"a":{},"b"x:1}"#,
+    "{\"a\"" + String(repeating: " ", count: 32) + "x:1}",
+  ])
+  func `Object members reject content between the key and colon`(json: String) {
+    let bytes = Array(json.utf8)
+    let reference = Self.run(bytes, chunk: .max, windowThreshold: .max)
+    expectNoDifference(reference.error?.reason, .unexpectedToken)
+    for chunk in 1...bytes.count {
+      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max)
+      let windowed = Self.run(bytes, chunk: chunk, windowThreshold: 1)
+      expectNoDifference(windowed, dispatcher, "chunk \(chunk)")
+    }
+  }
+
+  @Test(arguments: ["", " ", "\t\r\n ", String(repeating: " ", count: 64)])
+  func `Object members accept only whitespace between the key and colon`(gap: String) {
+    let bytes = Array(("{\"a\"" + gap + ":0,\"b\"" + gap + ":{},\"c\"" + gap + ":true}").utf8)
+    for chunk in 1...bytes.count {
+      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max)
+      let windowed = Self.run(bytes, chunk: chunk, windowThreshold: 1)
+      expectNoDifference(windowed.error, nil, "chunk \(chunk)")
+      expectNoDifference(windowed, dispatcher, "chunk \(chunk)")
+    }
+  }
+
+  #if canImport(Darwin)
+  // A guard page detects an overread even when ordinary Array storage would mask it.
+  // Exercise the first member, the next scalar member, and reentry after a container.
+  @Test(arguments: [#"{"a":"#, #"{"a":0,"b":"#, #"{"a":{},"b":"#])
+  func `A chunk ending after a colon does not read past its input`(prefix: String) throws {
+    let pageSize = Int(getpagesize())
+    let mapping = try #require(
+      mmap(nil, pageSize * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)
+    )
+    #expect(mapping != MAP_FAILED)
+    guard mapping != MAP_FAILED else { return }
+    defer { munmap(mapping, pageSize * 2) }
+    try #require(mprotect(mapping + pageSize, pageSize, PROT_NONE) == 0)
+    let bytes = Array(prefix.utf8)
+    let start = (mapping + pageSize - bytes.count).assumingMemoryBound(to: UInt8.self)
+    for i in bytes.indices { start[i] = bytes[i] }
+    var parser = JSONParser(windowThreshold: 1)
+    var sink = RecordingSink()
+    // An incomplete chunk is valid input to parse(); the next chunk supplies the value.
+    try parser.parse(UnsafeBufferPointer(start: start, count: bytes.count), into: &sink)
+    try Array("1}".utf8).withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    try parser.finish(into: &sink)
+    let reference = Self.run(Array((prefix + "1}").utf8), chunk: .max, windowThreshold: .max)
+    expectNoDifference(sink.events, reference.events)
+  }
+  #endif
 }

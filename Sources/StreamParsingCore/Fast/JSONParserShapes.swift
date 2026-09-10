@@ -279,6 +279,12 @@ extension JSONParser {
         base.load(fromByteOffset: colon, as: UInt8.self) == .asciiColon,
         open == cursor || streamIsWhitespace(base.load(fromByteOffset: cursor, as: UInt8.self))
       else { state = first ? .firstKey : .key; return .fellBack }
+      // The index does not necessarily give a scalar directly after a quote its own
+      // entry. Check the key-to-colon gap before emitting the key or consuming the colon.
+      // Compact JSON takes the adjacent-colon comparison without scanning whitespace.
+      guard colon == close &+ 1
+        || streamWhitespaceEnd(base: base, from: close &+ 1, to: colon) == colon
+      else { state = first ? .firstKey : .key; return .fellBack }
       var keyNonASCII = false
       if close > open &+ 1 {
         let firstBlock = (open &+ 1 &- windowStart) &>> 6
@@ -300,6 +306,9 @@ extension JSONParser {
       // Value: at the cursor, or at the next entry when the cursor is on whitespace.
       var start = cursor
       var afterValueEntry = k
+      // A complete key/colon can be the last bytes of an incomplete chunk. Leave the
+      // value pending before inspecting its first byte; it belongs to the next parse call.
+      guard start < n else { state = .value; return .fellBack }
       if streamIsWhitespace(base.load(fromByteOffset: start, as: UInt8.self)) {
         guard k < count else { state = .value; return .fellBack }
         start = Int(indices[k])
