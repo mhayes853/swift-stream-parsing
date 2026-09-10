@@ -297,8 +297,9 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
         ) : (
           <>
             Element {step.index} opens. Opening it is what committed the previous one — the open
-            element lives outside the blocked storage, in `pending`, so a plain copy of the value
-            diverges it for free and the parser's pointer keeps naming the parser's own element.
+            element lives outside the blocked storage, in <code>pending</code>, so a plain copy of
+            the value diverges it for free and the parser's pointer keeps naming the parser's own
+            element.
           </>
         )}
       </StepNote>
