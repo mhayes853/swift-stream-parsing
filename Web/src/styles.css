@@ -415,18 +415,18 @@ input[type="range"] { accent-color: var(--series-1); }
   margin-bottom: 12px;
   background: var(--surface-2);
 }
+/* A block rather than the flex row it used to be, because a search hit puts a snippet under the
+   title and a closed row is the state a search result is read in. The row itself is the flex. */
 .evidence-item > summary {
   cursor: pointer;
   list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
   font-weight: 600;
   font-size: 14.5px;
 }
 .evidence-item > summary::-webkit-details-marker { display: none; }
-.evidence-item > summary::before { content: "▸"; color: var(--text-muted); font-size: 11px; }
-.evidence-item[open] > summary::before { content: "▾"; }
+.evidence-item .summary-head { display: flex; align-items: center; gap: 10px; }
+.evidence-item .summary-head::before { content: "▸"; color: var(--text-muted); font-size: 11px; }
+.evidence-item[open] .summary-head::before { content: "▾"; }
 .evidence-item .where { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
 .evidence-item .summary-line { font-size: 13.5px; color: var(--text-secondary); margin: 8px 0 0 21px; }
 .evidence-body { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--grid); }
@@ -481,6 +481,105 @@ input[type="range"] { accent-color: var(--series-1); }
 }
 
 /* MARK: - Graveyard & payloads */
+
+/* The search is the first control rather than the last, because the question a reader arrives
+   with is a symptom or a number -- "movemask", "swift_beginAccess", "29%" -- and almost none of
+   those are in a title. The verdict chips narrow what it finds; they are no longer the way in. */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.search-icon {
+  position: absolute;
+  left: 14px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.search input {
+  width: 100%;
+  background: var(--surface-1);
+  border: 1px solid var(--grid);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  padding: 12px 40px;
+}
+.search input::placeholder { color: var(--text-muted); }
+.search input:focus-visible {
+  outline: none;
+  border-color: var(--series-1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-1) 22%, transparent);
+}
+/* The type=search clear affordance is a UA control with no styling hooks worth using, and it is
+   absent entirely outside WebKit. */
+.search input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  position: absolute;
+  right: 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+.search-clear:hover { color: var(--text-primary); background: var(--surface-2); }
+.search-status { color: var(--text-secondary); font-size: 13.5px; margin: 0 0 14px; }
+/* A link that is a button because it changes state rather than navigating. */
+.linky {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--series-1);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A hit, marked in both the title and the body. The tint carries no meaning on its own -- it is
+   paired with the underline, so the mark survives greyscale and every CVD form -- and the text
+   stays at the primary colour, which is what keeps it past 4.5:1 in both modes. */
+mark {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  color: var(--text-primary);
+  border-radius: 2px;
+  padding: 0 1px;
+  text-decoration: underline;
+  text-decoration-color: var(--warning);
+  text-underline-offset: 2px;
+}
+:root[data-theme="light"] mark { background: color-mix(in srgb, var(--warning) 42%, transparent); }
+
+/* One line of the write-up around the hit, so a body match says what it matched rather than only
+   that it did. Clamped: the point is orientation, not reading the section here. */
+.snippet {
+  display: block;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 8px 0 0 21px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--grid);
+  background: var(--surface-1);
+  border-radius: 0 6px 6px 0;
+}
+.snippet-count {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
 
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 24px; }
 .section-lead { color: var(--text-secondary); max-width: 74ch; margin: 0 0 20px; }
