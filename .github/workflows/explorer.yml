@@ -18,9 +18,17 @@ jobs:
   # extractor's reference validation fails or the committed bundle no longer matches its inputs.
   freshness:
     name: Generated content is current
-    runs-on: macos-15
+    # Xcode 26.5 is only installed on the macOS 26 image, and the traces record arm64 kernels.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+        with:
+          # HistoryExtractor dates every section by walking each revision of NEW_ARCHITECTURE.md,
+          # so a shallow clone would date nothing. And on a pull request the default ref is the
+          # synthetic merge with the base branch, whose history is not the one the bundle was
+          # generated from -- check out the branch head instead.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Select Xcode 26.5
         run: sudo xcode-select -s /Applications/Xcode_26.5.app
       - name: Regenerate content and traces
@@ -46,8 +54,10 @@ jobs:
           done
           exit $status
 
-  build:
-    name: Build the site
+  # The unit tests (lib/) and the React Testing Library tests (components/, viz/). Both read the
+  # committed bundles in Web/generated/, so a bundle change that breaks a view fails here.
+  test:
+    name: Test the site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +70,19 @@ jobs:
         working-directory: Web
       - run: npm test
         working-directory: Web
+
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - run: npm ci
+        working-directory: Web
       - run: npm run build
         working-directory: Web
       - uses: actions/upload-pages-artifact@v3
@@ -69,7 +92,7 @@ jobs:
   deploy:
     name: Deploy to Pages
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [build, freshness]
+    needs: [build, test, freshness]
     runs-on: ubuntu-latest
     permissions:
       pages: write
