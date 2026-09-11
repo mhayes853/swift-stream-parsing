@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { cx } from "../lib/cx";
+import type { TapeMark } from "../lib/viz";
+import { glyph, hex } from "../lib/viz";
 import type { EscapeTrace } from "../types";
-import type { TapeMark } from "./common";
-import { glyph, hex, InputTape, StepBar, StepNote, useSteps, VerifiedNote } from "./common";
+import { Choices, InputTape, StepBar, StepNote, useSteps, VerifiedNote } from "./common";
 
 /**
  * `streamSimpleEscapeTable` — the smallest lookup in the parser, and the one whose *sentinel* is
@@ -24,41 +26,29 @@ const OPS = [
 
 export function EscapeViz({ trace }: { trace: EscapeTrace }) {
   const [which, setWhich] = useState(0);
-  const { index, setIndex, playing, play } = useSteps(OPS.length, 1200);
+  const player = useSteps(OPS.length, 1200, which);
+  const { index } = player;
   const entry = trace.entries[which];
   if (!entry) return null;
 
   const decoded = entry.decoded;
   const bytes = [0x5c, entry.byte];
-  const marks: TapeMark[] = [{ from: 0, to: 1, kind: "done" }];
-  if (index >= 1) marks.push({ from: 1, to: 2, kind: "cursor" });
-  else marks.push({ from: 1, to: 2, kind: "window" });
+  const marks: TapeMark[] = [
+    { from: 0, to: 1, kind: "done" },
+    { from: 1, to: 2, kind: index >= 1 ? "cursor" : "window" }
+  ];
 
   return (
     <div className="viz">
-      <div className="chip-row">
-        {trace.entries.map((e, i) => (
-          <button
-            key={e.byte}
-            className={`chip ${i === which ? "active" : ""}`}
-            onClick={() => {
-              setWhich(i);
-              setIndex(0);
-            }}
-          >
-            {e.source}
-          </button>
-        ))}
-      </div>
-
-      <StepBar
-        index={index}
-        count={OPS.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Instruction"
+      <Choices
+        items={trace.entries}
+        selected={which}
+        onSelect={setWhich}
+        itemKey={(e) => e.byte}
+        label={(e) => e.source}
       />
+
+      <StepBar player={player} label="Instruction" />
 
       <StepNote op={OPS[index].op}>
         {OPS[index].label}
@@ -117,7 +107,7 @@ export function EscapeViz({ trace }: { trace: EscapeTrace }) {
           {trace.map.map((value, i) => (
             <i
               key={i}
-              className={`emap ${value !== 0 ? "on" : ""} ${index >= 1 && i === entry.byte ? "cur" : ""}`}
+              className={cx("emap", value !== 0 && "on", index >= 1 && i === entry.byte && "cur")}
               title={`index 0x${hex(i)} (${glyph(i)}) → ${value === 0 ? "sentinel 0x00" : `0x${hex(value)}`}`}
             >
               {value !== 0 ? glyph(value) : ""}
@@ -160,11 +150,8 @@ export function EscapeViz({ trace }: { trace: EscapeTrace }) {
           {trace.entries.map((e, i) => (
             <tr
               key={e.byte}
-              className={`${e.decoded === undefined ? "miss" : ""} ${i === which ? "here" : ""}`}
-              onClick={() => {
-                setWhich(i);
-                setIndex(0);
-              }}
+              className={cx(e.decoded === undefined && "miss", i === which && "here")}
+              onClick={() => setWhich(i)}
             >
               <td>
                 <code>{e.source}</code>

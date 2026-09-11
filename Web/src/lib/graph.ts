@@ -56,6 +56,11 @@ export function plain(text: string): string {
   return text.replace(/`/g, "");
 }
 
+/** The SVG path for a routed cubic. */
+export function pathOf([p0, p1, p2, p3]: Curve): string {
+  return `M ${p0[0]} ${p0[1]} C ${p1[0]} ${p1[1]}, ${p2[0]} ${p2[1]}, ${p3[0]} ${p3[1]}`;
+}
+
 export const DASH: Record<EdgeKind, string | undefined> = {
   step: undefined,
   branch: undefined,
@@ -252,4 +257,19 @@ export function rankGraph(
     if (!moved) break;
   }
   return rank;
+}
+
+/**
+ * The active node and everything one edge away from it, in either direction. A chart dims the
+ * rest, so what the active node touches reads without anything having to be selected first.
+ */
+export function neighbours(active: string | null, edges: [from: string, to: string][]): Set<string> {
+  const set = new Set<string>();
+  if (active === null) return set;
+  set.add(active);
+  for (const [from, to] of edges) {
+    if (from === active) set.add(to);
+    if (to === active) set.add(from);
+  }
+  return set;
 }

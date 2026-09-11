@@ -1,6 +1,8 @@
+import { cx } from "../lib/cx";
+import type { TapeMark } from "../lib/viz";
+import { phaseOf, readUpTo } from "../lib/viz";
 import type { FrameTrace } from "../types";
-import type { TapeMark } from "./common";
-import { Facts, InputTape, StepBar, StepNote, phaseOf, useSteps } from "./common";
+import { DriftedInline, Facts, InputTape, StepBar, StepNote, useSteps } from "./common";
 
 // The frame stack, and what borrows what.
 //
@@ -51,9 +53,7 @@ function Storage({
           return (
             <div
               key={member.name}
-              className={`storage-cell ${writing === member.name ? "writing" : ""} ${
-                framed ? "framed" : ""
-              }`}
+              className={cx("storage-cell", writing === member.name && "writing", framed && "framed")}
               style={{ flexGrow: member.size }}
               title={`${member.name}: ${member.kind}, ${member.size} bytes at +${member.offset}`}
             >
@@ -94,19 +94,16 @@ function Storage({
  */
 export function FramesViz({ trace }: { trace: FrameTrace }) {
   const steps = trace.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 950);
+  const player = useSteps(steps.length, 950);
+  const { index } = player;
   const step = steps[index];
   if (!step) return null;
 
   const previous = steps[index - 1];
   const marks: TapeMark[] = [];
-  const lastOffset = steps
-    .slice(0, index)
-    .map((s) => (s.offset ?? null) !== null ? s.offset! + (s.length ?? 0) : null)
-    .filter((n): n is number => n !== null)
-    .pop();
-  if (lastOffset !== undefined) marks.push({ from: 0, to: lastOffset, kind: "done" });
-  if (step.offset !== null && step.offset !== undefined) {
+  const read = readUpTo(steps, index);
+  if (read !== undefined) marks.push({ from: 0, to: read, kind: "done" });
+  if (step.offset != null) {
     marks.push({ from: step.offset, to: step.offset + (step.length ?? 1), kind: "cursor" });
   }
 
@@ -115,14 +112,7 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Sink call"
-      />
+      <StepBar player={player} label="Sink call" />
 
       <StepNote op={step.call}>
         {CALL_NOTE[step.call] ?? "—"}
@@ -145,15 +135,13 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
             return (
               <div
                 key={`${index}-${depth}`}
-                className={`frame ${position === 0 ? "top" : ""} ${
-                  pushed && position === 0 ? "chg" : ""
-                }`}
+                className={cx("frame", position === 0 && "top", pushed && position === 0 && "chg")}
               >
                 <code>{schema?.name ?? "?"}</code>
                 <span className="frame-storage">
                   storage +{frame.storageOffset ?? "?"}
                 </span>
-                <span className={`frame-pending ${frame.field ? "set" : ""}`}>
+                <span className={cx("frame-pending", frame.field && "set")}>
                   pendingField {frame.pendingField}
                   {frame.field ? ` · ${frame.field}` : " · none"}
                 </span>
@@ -176,11 +164,7 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
               ["call", <code key="c">{step.call}</code>],
               [
                 "argument",
-                step.text !== null && step.text !== undefined ? (
-                  <code key="a">{JSON.stringify(step.text)}</code>
-                ) : (
-                  "—"
-                )
+                step.text != null ? <code key="a">{JSON.stringify(step.text)}</code> : "—"
               ],
               ["depth", String(step.frames.length)],
               ["wrote", step.wrote ? <code key="w">{step.wrote}</code> : "nothing"]
@@ -199,12 +183,7 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
 
       <p className="viz-note">
         The parse produced <code>{trace.result}</code>.
-        {!trace.verified && (
-          <strong style={{ color: "var(--warning)" }}>
-            {" "}
-            ⚠ The destination did not hold what the document said.
-          </strong>
-        )}
+        {!trace.verified && <DriftedInline>The destination did not hold what the document said.</DriftedInline>}
       </p>
     </div>
   );
@@ -220,7 +199,8 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
  */
 export function SchemaRoutingViz({ trace }: { trace: FrameTrace }) {
   const steps = trace.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 900);
+  const player = useSteps(steps.length, 900);
+  const { index } = player;
   const step = steps[index];
   if (!step) return null;
 
@@ -232,14 +212,7 @@ export function SchemaRoutingViz({ trace }: { trace: FrameTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Sink call"
-      />
+      <StepBar player={player} label="Sink call" />
 
       <StepNote op={step.call}>
         {step.call === "key" ? (
@@ -261,7 +234,7 @@ export function SchemaRoutingViz({ trace }: { trace: FrameTrace }) {
         {trace.schemas.map((schema) => {
           const borrows = live.get(schema.id) ?? 0;
           return (
-            <div key={schema.id} className={`schema-card ${borrows > 0 ? "live" : ""}`}>
+            <div key={schema.id} className={cx("schema-card", borrows > 0 && "live")}>
               <code>{schema.name}</code>
               <Facts
                 items={[
@@ -287,7 +260,7 @@ export function SchemaRoutingViz({ trace }: { trace: FrameTrace }) {
           <li
             key={entry.index}
             className={`call ${phaseOf(position, index)}`}
-            onClick={() => setIndex(position)}
+            onClick={() => player.seek(position)}
             role="button"
           >
             <code className="call-method">{entry.call}</code>

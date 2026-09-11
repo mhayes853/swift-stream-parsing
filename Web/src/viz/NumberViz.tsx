@@ -1,17 +1,8 @@
 import { useState } from "react";
+import type { Cell, TapeMark } from "../lib/viz";
+import { diff, glyph, hex } from "../lib/viz";
 import type { NumberCase } from "../types";
-import type { Cell, TapeMark } from "./common";
-import {
-  diff,
-  glyph,
-  hex,
-  InputTape,
-  StepBar,
-  StepNote,
-  useSteps,
-  VerifiedNote,
-  VectorRow
-} from "./common";
+import { Choices, InputTape, StepBar, StepNote, useSteps, VectorRow, VerifiedNote } from "./common";
 
 /**
  * `streamShortInteger` — eight bytes, backwards.
@@ -28,7 +19,8 @@ export function NumberViz({ cases }: { cases: NumberCase[] }) {
   const [which, setWhich] = useState(0);
   const active = cases[which];
   const steps = active?.steps ?? [];
-  const { index, setIndex, playing, play } = useSteps(steps.length, 1300);
+  const player = useSteps(steps.length, 1300, which);
+  const { index } = player;
 
   if (!active) return null;
   const step = steps[index];
@@ -67,20 +59,13 @@ export function NumberViz({ cases }: { cases: NumberCase[] }) {
 
   return (
     <div className="viz">
-      <div className="chip-row">
-        {cases.map((c, i) => (
-          <button
-            key={c.text}
-            className={`chip ${i === which ? "active" : ""}`}
-            onClick={() => {
-              setWhich(i);
-              setIndex(0);
-            }}
-          >
-            {c.text}
-          </button>
-        ))}
-      </div>
+      <Choices
+        items={cases}
+        selected={which}
+        onSelect={setWhich}
+        itemKey={(c) => c.text}
+        label={(c) => c.text}
+      />
 
       {steps.length === 0 ? (
         <>
@@ -96,14 +81,7 @@ export function NumberViz({ cases }: { cases: NumberCase[] }) {
         </>
       ) : (
         <>
-          <StepBar
-            index={index}
-            count={steps.length}
-            playing={playing}
-            onPlay={play}
-            onSeek={setIndex}
-            label="Kernel stage"
-          />
+          <StepBar player={player} label="Kernel stage" />
 
           <StepNote op={step.label}>{step.detail}</StepNote>
 

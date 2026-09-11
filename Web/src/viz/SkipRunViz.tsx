@@ -1,6 +1,7 @@
+import type { TapeMark } from "../lib/viz";
+import { glyph } from "../lib/viz";
 import type { SkipRunTrace } from "../types";
-import type { TapeMark } from "./common";
-import { InputTape, StepBar, StepNote, glyph, useSteps } from "./common";
+import { InputTape, NestingRegister, StepBar, StepNote, useSteps } from "./common";
 
 const ACTION: Record<string, { word: string; note: string }> = {
   open: { word: "a bracket opens", note: "Depth up one, and a bit shifted into the register." },
@@ -29,7 +30,8 @@ const ACTION: Record<string, { word: string; note: string }> = {
  */
 export function SkipRunViz({ trace }: { trace: SkipRunTrace }) {
   const steps = trace.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 850);
+  const player = useSteps(steps.length, 850);
+  const { index } = player;
   const step = steps[index];
   if (!step) return null;
 
@@ -45,14 +47,7 @@ export function SkipRunViz({ trace }: { trace: SkipRunTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Skip step"
-      />
+      <StepBar player={player} label="Skip step" />
 
       <StepNote op={step.scanner ?? "switch byte"}>
         <code>{glyph(step.byte)}</code> at {step.offset}: {action.word}. {action.note}
@@ -78,31 +73,15 @@ export function SkipRunViz({ trace }: { trace: SkipRunTrace }) {
       <div className="skip-regs">
         <div>
           <span className="skip-reg-label">depth</span>
-          <div className="lanes" style={{ gap: 3, margin: "6px 0 0" }}>
-            {Array.from({ length: 6 }, (_, bit) => {
-              const live = bit < step.depthAfter;
-              const isObject = step.containers[bit] === "1";
-              const moved = step.depthBefore !== step.depthAfter
-                && bit === Math.min(step.depthBefore, step.depthAfter);
-              return (
-                <div
-                  key={`${index}-${bit}`}
-                  className={`lane ${live ? (isObject ? "q" : "b") : "dim"} ${
-                    bit === trace.startDepth - 1 ? "terminator" : ""
-                  } ${moved ? "chg" : ""}`}
-                  style={{ width: 26 }}
-                  title={
-                    live
-                      ? `depth ${bit + 1}: ${isObject ? "object" : "array"}`
-                      : `depth ${bit + 1}: unused`
-                  }
-                >
-                  <span className="glyph">{live ? (isObject ? "1" : "0") : "·"}</span>
-                  <span className="idx">{bit + 1}</span>
-                </div>
-              );
-            })}
-          </div>
+          <NestingRegister
+            bits={6}
+            depthBefore={step.depthBefore}
+            depthAfter={step.depthAfter}
+            isObject={(bit) => step.containers[bit] === "1"}
+            ringed={trace.startDepth - 1}
+            epoch={index}
+            style={{ margin: "6px 0 0" }}
+          />
         </div>
         <div className="skip-target">
           <span className="skip-reg-label">skipEndDepth</span>

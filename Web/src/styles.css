@@ -600,6 +600,8 @@ mark {
 }
 
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 24px; }
+.filter-count { color: var(--text-muted); margin-left: 6px; }
+.view-title { font-size: 28px; letter-spacing: -0.02em; margin: 40px 0 10px; }
 .section-lead { color: var(--text-secondary); max-width: 74ch; margin: 0 0 20px; }
 .payload-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .callout {
@@ -1531,6 +1533,16 @@ mark {
 }
 
 /* MARK: - Panel additions */
+
+/* The node's one-sentence summary, above the rest of its prose. */
+.md p.lede { color: var(--text-primary); font-size: 16px; }
+.source-why {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
 
 .panel-rule {
   font-size: 13px;

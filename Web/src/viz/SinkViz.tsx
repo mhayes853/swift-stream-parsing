@@ -1,6 +1,8 @@
+import { cx } from "../lib/cx";
+import type { RowPhase, TapeMark } from "../lib/viz";
+import { phaseOf, readUpTo } from "../lib/viz";
 import type { DispositionTrace, SinkCall, SinkCallTrace } from "../types";
-import type { TapeMark } from "./common";
-import { Facts, InputTape, StepBar, StepNote, phaseOf, useSteps } from "./common";
+import { Drifted, Facts, InputTape, StepBar, StepNote, useSteps } from "./common";
 
 // The two animations of the boundary itself: what the parser calls, and what it stops calling
 // when the sink says it does not want a subtree.
@@ -25,27 +27,23 @@ function CallRow({
   onSeek
 }: {
   call: SinkCall;
-  phase: "past" | "now" | "future";
+  phase: RowPhase;
   elided?: boolean;
   onSeek?: () => void;
 }) {
   return (
     <li
-      className={`call ${phase} ${elided ? "elided" : ""} group-${call.group}`}
+      className={cx("call", phase, elided && "elided", `group-${call.group}`)}
       onClick={onSeek}
       role={onSeek ? "button" : undefined}
     >
       <code className="call-method">{call.method}</code>
       {phase === "future" ? null : (
         <>
-          {call.text !== null && call.text !== undefined && (
-            <span className="call-arg">{JSON.stringify(call.text)}</span>
-          )}
+          {call.text != null && <span className="call-arg">{JSON.stringify(call.text)}</span>}
           {call.takesSpan && (
             <span className="call-span">
-              {call.offset === null || call.offset === undefined
-                ? "span → scratch"
-                : `span @ ${call.offset}+${call.length}`}
+              {call.offset == null ? "span → scratch" : `span @ ${call.offset}+${call.length}`}
             </span>
           )}
           <span className="call-depth">d{call.depthAfter}</span>
@@ -66,34 +64,23 @@ function CallRow({
  */
 export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
   const calls = trace.calls;
-  const { index, setIndex, playing, play } = useSteps(calls.length, 850);
+  const player = useSteps(calls.length, 850);
+  const { index } = player;
   const call = calls[index];
   if (!call) return null;
 
   const start = call.offset ?? null;
   const marks: TapeMark[] = [];
-  const previous = calls
-    .slice(0, index)
-    .filter((c) => c.offset !== null && c.offset !== undefined)
-    .pop();
-  if (previous?.offset !== undefined && previous?.offset !== null) {
-    marks.push({ from: 0, to: previous.offset + (previous.length ?? 0), kind: "done" });
-  }
+  const read = readUpTo(calls, index);
+  if (read !== undefined) marks.push({ from: 0, to: read, kind: "done" });
   if (start !== null) marks.push({ from: start, to: start + (call.length ?? 0), kind: "cursor" });
 
-  const scratch = call.takesSpan && (call.offset === null || call.offset === undefined);
+  const scratch = call.takesSpan && call.offset == null;
   const spanCalls = calls.filter((c) => c.takesSpan).length;
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={calls.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Sink call"
-      />
+      <StepBar player={player} label="Sink call" />
 
       <StepNote op={call.method}>
         {call.takesSpan
@@ -125,7 +112,7 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
               key={entry.index}
               call={entry}
               phase={phaseOf(position, index)}
-              onSeek={() => setIndex(position)}
+              onSeek={() => player.seek(position)}
             />
           ))}
         </ol>
@@ -138,11 +125,7 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
               ["carries", call.takesSpan ? <code>Span&lt;UInt8&gt;</code> : "no span"],
               [
                 "argument",
-                call.text !== null && call.text !== undefined ? (
-                  <code>{JSON.stringify(call.text)}</code>
-                ) : (
-                  "—"
-                )
+                call.text != null ? <code>{JSON.stringify(call.text)}</code> : "—"
               ],
               ["depth after", String(call.depthAfter)],
               ["throws", "no — the sink records a failure and the parser polls it"]
@@ -177,11 +160,7 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
         )}
       </p>
 
-      {!trace.verified && (
-        <p className="viz-note" style={{ color: "var(--warning)" }}>
-          ⚠ A span did not cover the bytes its call reported.
-        </p>
-      )}
+      {!trace.verified && <Drifted>A span did not cover the bytes its call reported.</Drifted>}
     </div>
   );
 }
@@ -196,7 +175,8 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
  */
 export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
   const steps = trace.streamed;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 800);
+  const player = useSteps(steps.length, 800);
+  const { index } = player;
   const call = steps[index];
   if (!call) return null;
 
@@ -205,21 +185,14 @@ export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
 
   const marks: TapeMark[] = [
     { from: trace.skipFrom, to: trace.skipTo, kind: "window" },
-    ...(call.offset !== null && call.offset !== undefined
+    ...(call.offset != null
       ? [{ from: call.offset, to: call.offset + (call.length ?? 1), kind: "cursor" as const }]
       : [])
   ];
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Token"
-      />
+      <StepBar player={player} label="Token" />
 
       <StepNote op={call.method}>
         {delivered
@@ -253,7 +226,7 @@ export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
                 key={entry.index}
                 call={entry}
                 phase={phaseOf(position, index)}
-                onSeek={() => setIndex(position)}
+                onSeek={() => player.seek(position)}
               />
             ))}
           </ol>
@@ -270,7 +243,7 @@ export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
                 call={entry}
                 phase={phaseOf(position, index)}
                 elided={!trace.delivered[position]}
-                onSeek={() => setIndex(position)}
+                onSeek={() => player.seek(position)}
               />
             ))}
           </ol>
@@ -285,11 +258,7 @@ export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
         correct receiving it.
       </p>
 
-      {!trace.verified && (
-        <p className="viz-note" style={{ color: "var(--warning)" }}>
-          ⚠ The skipping run was not a subsequence of the streaming one.
-        </p>
-      )}
+      {!trace.verified && <Drifted>The skipping run was not a subsequence of the streaming one.</Drifted>}
     </div>
   );
 }

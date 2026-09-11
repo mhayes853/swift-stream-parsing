@@ -1,7 +1,7 @@
 import { useState } from "react";
-
+import { cx } from "../lib/cx";
 import type { CollectionTrace, StreamStringTrace, ViewTrace } from "../types";
-import { Facts, StepBar, StepNote, useSteps } from "./common";
+import { Choices, Drifted, Facts, StepBar, StepNote, useSteps } from "./common";
 
 // Storage: what these values look like while they fill.
 //
@@ -17,6 +17,19 @@ const EVENT: Record<string, string> = {
   seal: "The tail filled: it is sealed as a block and never written again, and the next one is twice the size."
 };
 
+/** A block that sealed, drawn full and to scale; `fresh` pulses the one that sealed this step. */
+function SealedBlock({ position, grow, fresh, meta }: { position: number; grow: number; fresh: boolean; meta: string }) {
+  return (
+    <div className={cx("block sealed", fresh && "chg")} style={{ flexGrow: grow }}>
+      <div className="block-track">
+        <div className="block-fill" style={{ width: "100%" }} />
+      </div>
+      <span className="block-label">block {position}</span>
+      <span className="block-meta">{meta}</span>
+    </div>
+  );
+}
+
 /**
  * `StreamString` filling.
  *
@@ -27,7 +40,8 @@ const EVENT: Record<string, string> = {
  */
 export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
   const steps = trace.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 1000);
+  const player = useSteps(steps.length, 1000);
+  const { index } = player;
   const step = steps[index];
   const previous = steps[index - 1];
   if (!step) return null;
@@ -42,14 +56,7 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Append"
-      />
+      <StepBar player={player} label="Append" />
 
       <StepNote op={step.event === "inline" ? "inline bytes" : `streamAppend(utf8:)`}>
         {index === 0 ? (
@@ -62,7 +69,7 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
       </StepNote>
 
       <div className="blocks">
-        <div className={`block inline ${inline ? "live" : "spent"}`} style={{ flexGrow: trace.inlineCapacity / scale }}>
+        <div className={cx("block inline", inline ? "live" : "spent")} style={{ flexGrow: trace.inlineCapacity / scale }}>
           <div className="block-track">
             <div
               className="block-fill"
@@ -79,19 +86,13 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
         </div>
 
         {step.blocks.map((capacity, position) => (
-          <div
+          <SealedBlock
             key={position}
-            className={`block sealed ${
-              (previous?.blocks.length ?? 0) <= position ? "chg" : ""
-            }`}
-            style={{ flexGrow: capacity / scale }}
-          >
-            <div className="block-track">
-              <div className="block-fill" style={{ width: "100%" }} />
-            </div>
-            <span className="block-label">block {position}</span>
-            <span className="block-meta">{capacity}B · sealed</span>
-          </div>
+            position={position}
+            grow={capacity / scale}
+            fresh={(previous?.blocks.length ?? 0) <= position}
+            meta={`${capacity}B · sealed`}
+          />
         ))}
 
         {!inline && (
@@ -192,11 +193,7 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
         </div>
       )}
 
-      {!trace.verified && (
-        <p className="viz-note" style={{ color: "var(--warning)" }}>
-          ⚠ The value did not hand back the bytes it was given.
-        </p>
-      )}
+      {!trace.verified && <Drifted>The value did not hand back the bytes it was given.</Drifted>}
     </div>
   );
 }
@@ -210,54 +207,29 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
  * dictionary reads its storage back on every lookup where an array never reads at all.
  */
 export function CollectionsViz({ trace }: { trace: CollectionTrace }) {
-  const [which, setWhich] = useState<"array" | "dictionary">("array");
-  const steps =
-    which === "array" ? trace.array.steps : trace.dictionary.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 260);
+  const [which, setWhich] = useState(0);
+  const array = which === 0;
+  const player = useSteps((array ? trace.array.steps : trace.dictionary.steps).length, 260, which);
 
   return (
     <div className="viz">
-      <div className="chip-row">
-        <button
-          className={`chip ${which === "array" ? "active" : ""}`}
-          onClick={() => {
-            setWhich("array");
-            setIndex(0);
-          }}
-        >
-          StreamArray
-        </button>
-        <button
-          className={`chip ${which === "dictionary" ? "active" : ""}`}
-          onClick={() => {
-            setWhich("dictionary");
-            setIndex(0);
-          }}
-        >
-          StreamDictionary
-        </button>
-      </div>
-
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label={which === "array" ? "Element" : "Key"}
+      <Choices
+        items={["StreamArray", "StreamDictionary"]}
+        selected={which}
+        onSelect={setWhich}
+        itemKey={(name) => name}
+        label={(name) => name}
       />
 
-      {which === "array" ? (
-        <ArrayPanel trace={trace} index={index} />
+      <StepBar player={player} label={array ? "Element" : "Key"} />
+
+      {array ? (
+        <ArrayPanel trace={trace} index={player.index} />
       ) : (
-        <DictionaryPanel trace={trace} index={index} />
+        <DictionaryPanel trace={trace} index={player.index} />
       )}
 
-      {!trace.verified && (
-        <p className="viz-note" style={{ color: "var(--warning)" }}>
-          ⚠ A container did not hand back what it was given.
-        </p>
-      )}
+      {!trace.verified && <Drifted>A container did not hand back what it was given.</Drifted>}
     </div>
   );
 }
@@ -308,20 +280,16 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
 
       <div className="blocks">
         {step.blocks.map((capacity, position) => (
-          <div
+          <SealedBlock
             key={position}
-            className={`block sealed ${(previous?.blocks.length ?? 0) <= position ? "chg" : ""}`}
-            style={{ flexGrow: capacity / scale }}
-          >
-            <div className="block-track">
-              <div className="block-fill" style={{ width: "100%" }} />
-            </div>
-            <span className="block-label">block {position}</span>
-            <span className="block-meta">{capacity} elements</span>
-          </div>
+            position={position}
+            grow={capacity / scale}
+            fresh={(previous?.blocks.length ?? 0) <= position}
+            meta={`${capacity} elements`}
+          />
         ))}
         <div
-          className={`block tail live ${step.event === "grow" ? "chg" : ""}`}
+          className={cx("block tail live", step.event === "grow" && "chg")}
           style={{ flexGrow: Math.max(step.tailCapacity, 8) / scale }}
         >
           <div className="block-track">
@@ -356,20 +324,15 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
                 : `${step.tailCount}/${step.tailCapacity}`}
           </span>
         </div>
-        <div className={`block pending ${step.pending === null || step.pending === undefined ? "spent" : "live"}`}>
+        <div className={cx("block pending", step.pending == null ? "spent" : "live")}>
           <div className="block-track">
             <div
               className="block-fill"
-              style={{
-                width: step.pending === null || step.pending === undefined ? "0%" : "100%",
-                background: "var(--series-3)"
-              }}
+              style={{ width: step.pending == null ? "0%" : "100%", background: "var(--series-3)" }}
             />
           </div>
           <span className="block-label">pending</span>
-          <span className="block-meta">
-            {step.pending === null || step.pending === undefined ? "none" : step.pending}
-          </span>
+          <span className="block-meta">{step.pending ?? "none"}</span>
         </div>
       </div>
 
@@ -426,7 +389,7 @@ function DictionaryPanel({ trace, index }: { trace: CollectionTrace; index: numb
 
       <div className="dict-entries">
         {steps.slice(0, index + 1).map((entry, position) => (
-          <span key={entry.key} className={`dict-entry ${position === index ? "cur" : ""}`}>
+          <span key={entry.key} className={cx("dict-entry", position === index && "cur")}>
             <em>{position}</em>
             {entry.key}
           </span>
@@ -443,7 +406,7 @@ function DictionaryPanel({ trace, index }: { trace: CollectionTrace; index: numb
             {trace.dictionary.slots.map((slot, bucket) => (
               <i
                 key={bucket}
-                className={`slot ${slot >= 0 && slot <= index ? "full" : ""}`}
+                className={cx("slot", slot >= 0 && slot <= index && "full")}
                 title={
                   slot >= 0
                     ? `bucket ${bucket} → entry ${slot}`
@@ -515,21 +478,15 @@ function DictionaryPanel({ trace, index }: { trace: CollectionTrace; index: numb
 export function ViewsViz({ trace }: { trace: ViewTrace }) {
   // One step per member, then the snapshot.
   const steps = trace.members.length + 1;
-  const { index, setIndex, playing, play } = useSteps(steps, 1000);
+  const player = useSteps(steps, 1000);
+  const { index } = player;
   const snapshot = index === trace.members.length;
   const member = snapshot ? null : trace.members[index];
   const copied = snapshot ? trace.size : (member?.size ?? 0);
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Read"
-      />
+      <StepBar player={player} label="Read" />
 
       <StepNote op={snapshot ? "view.value" : `view.${member?.name}`}>
         {snapshot ? (
@@ -558,11 +515,9 @@ export function ViewsViz({ trace }: { trace: ViewTrace }) {
           {trace.members.map((entry, position) => (
             <div
               key={entry.name}
-              className={`storage-cell ${
-                snapshot || position === index ? "writing" : ""
-              }`}
+              className={cx("storage-cell", (snapshot || position === index) && "writing")}
               style={{ flexGrow: entry.size }}
-              onClick={() => setIndex(position)}
+              onClick={() => player.seek(position)}
               role="button"
               title={`${entry.name}: ${entry.kind}, ${entry.size} bytes at +${entry.offset}`}
             >

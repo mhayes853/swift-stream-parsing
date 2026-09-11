@@ -1,11 +1,11 @@
 import { useState } from "react";
+import type { Cell, TapeMark } from "../lib/viz";
+import { glyph, hex, phaseOf } from "../lib/viz";
 import type { TableTrace } from "../types";
-import type { Cell, RowPhase, TapeMark } from "./common";
 import {
   Bits,
-  glyph,
-  hex,
   InputTape,
+  laneUnder,
   StepBar,
   StepNote,
   TableStrip,
@@ -33,10 +33,9 @@ export function TableViz({ trace }: { trace: TableTrace }) {
   const [hover, setHover] = useState<number | null>(null);
   // One step to load, two per table (index, then lookup), one to combine.
   const steps = 2 + trace.tables.length * 2;
-  const { index, setIndex, playing, play } = useSteps(steps, 1150);
-
-  const at = (stage: number): RowPhase =>
-    index === stage ? "now" : index > stage ? "past" : "future";
+  const player = useSteps(steps, 1150);
+  const { index } = player;
+  const at = (stage: number) => phaseOf(stage, index);
   /** Which table the current step is working on, or -1 outside the lookup steps. */
   const workingTable = index >= 1 && index <= trace.tables.length * 2 ? Math.floor((index - 1) / 2) : -1;
 
@@ -88,21 +87,13 @@ export function TableViz({ trace }: { trace: TableTrace }) {
   if (active) marks.push({ from: active.lane, to: active.lane + 1, kind: "cursor" });
 
   const onLane = (e: React.MouseEvent) => {
-    const el = (e.target as HTMLElement).closest(".vec-lane");
-    const parent = el?.parentElement;
-    if (el && parent) setHover(Array.prototype.indexOf.call(parent.children, el));
+    const lane = laneUnder(e);
+    if (lane !== null) setHover(lane);
   };
 
   return (
     <div className="viz" onMouseLeave={() => setHover(null)}>
-      <StepBar
-        index={index}
-        count={steps}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Instruction"
-      />
+      <StepBar player={player} label="Instruction" />
 
       <StepNote op={stepOp(trace, index, steps)}>{stepNote(trace, index, steps)}</StepNote>
 

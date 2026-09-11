@@ -12,7 +12,23 @@ animation, prose, experiments, source and assembly.
 ```sh
 ./Web/generate          # rebuild content.json, traces.json and the assembly snapshots
 cd Web && npm install && npm run dev
+npm test                # unit tests for src/lib, and React Testing Library tests for the views
 ```
+
+## How the code is split
+
+`src/lib/` holds everything that decides something, as plain functions with no React in them: the
+markdown grammar (`markdown.ts`), the experiments search (`search.ts`), both charts' layouts
+(`flowLayout.ts`, `algorithmLayout.ts`, over the shared `graph.ts`), the tokenizers
+(`highlight.ts`), how evidence is split, sorted and counted (`evidence.ts`), dates (`dates.ts`),
+the payload deltas (`payloads.ts`) and the arithmetic the animations draw (`viz.ts`). Each has a
+`*.test.ts` beside it. `src/components/` and `src/viz/` render what those return.
+
+The tests read the committed bundles in `generated/` through `src/test/fixtures.ts`, so they check
+the site against what the generator actually produced: every node's chart is laid out at a desktop
+and a phone width, every animation is stepped from its first frame to its last, the movemask lane
+is re-derived for every recorded block and has to match the kernel's, and the markdown parser has
+to find exactly as many code fences in every section as the extractor counted.
 
 ## The animations
 
@@ -170,7 +186,7 @@ pipeline graph's and the first entry is the entry point.
 It is deliberately the same drawing language as the page chart: the same four `kind`s, the same
 dashing, every arrow carrying its label, ordered fan-outs numbered. The pipeline graph says which
 functions reach which; this says what one of them does, and it is the only place a branch *inside*
-a kernel is written down. The geometry both charts share lives in `src/components/graph.ts` rather
+a kernel is written down. The geometry both charts share lives in `src/lib/graph.ts` rather
 than in either of them.
 
 What the extractor enforces, beyond the arrow rules above:
@@ -242,7 +258,7 @@ Each of those carries its own check into the bundle, and generation fails withou
 
 ## Code, highlighted
 
-Swift, the C of `StreamParsingShims`, and the disassembly are tokenised by `highlight.tsx` —
+Swift, the C of `StreamParsingShims`, and the disassembly are tokenised by `src/lib/highlight.ts` —
 hand-written, for the same reason the markdown renderer is. A highlighter shipping grammars for two
 hundred languages is more surface area than a site with three, and it would not cover the one that
 benefits most: an `llvm-objdump` listing is not a language any of them has a grammar for, and

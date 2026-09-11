@@ -1,6 +1,6 @@
+import type { TapeMark } from "../lib/viz";
 import type { ContainerTrace } from "../types";
-import type { TapeMark } from "./common";
-import { InputTape, StepBar, StepNote, useSteps } from "./common";
+import { InputTape, NestingRegister, StepBar, StepNote, useSteps } from "./common";
 
 const OPEN = new Set(["beginObject", "beginArray"]);
 const CLOSE = new Set(["endObject", "endArray"]);
@@ -20,7 +20,8 @@ const CLOSE = new Set(["endObject", "endArray"]);
  */
 export function ContainersViz({ trace }: { trace: ContainerTrace }) {
   const steps = trace.steps;
-  const { index, setIndex, playing, play } = useSteps(steps.length, 900);
+  const player = useSteps(steps.length, 900);
+  const { index } = player;
   const step = steps[index];
   if (!step) return null;
 
@@ -34,14 +35,7 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Token"
-      />
+      <StepBar player={player} label="Token" />
 
       <StepNote op={step.event}>
         Bytes {step.offset}–{step.offset + step.length - 1} of the document
@@ -89,31 +83,18 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
       </div>
 
       {/* The register. One cell per bit, low bit (depth 1) on the left. */}
-      <div className="lanes" style={{ gap: 3 }}>
-        {Array.from({ length: 16 }, (_, bit) => {
-          const live = bit < step.depthAfter;
-          const isObject = step.containersBits[bit] === 1;
-          // The one bit this token moved, so the change is visible rather than merely present.
-          const moved =
-            changes && bit === Math.min(step.depthBefore, step.depthAfter);
-          return (
-            <div
-              key={`${index}-${bit}`}
-              className={`lane ${live ? (isObject ? "q" : "b") : "dim"} ${
-                live && bit === step.depthAfter - 1 ? "terminator" : ""
-              } ${moved ? "chg" : ""}`}
-              style={{ width: 26 }}
-              title={live ? `depth ${bit + 1}: ${isObject ? "object" : "array"}` : `depth ${bit + 1}: unused`}
-            >
-              <span className="glyph">{live ? (isObject ? "1" : "0") : "·"}</span>
-              <span className="idx">{bit + 1}</span>
-            </div>
-          );
-        })}
+      <NestingRegister
+        bits={16}
+        depthBefore={step.depthBefore}
+        depthAfter={step.depthAfter}
+        isObject={(bit) => step.containersBits[bit] === 1}
+        ringed={step.depthAfter - 1}
+        epoch={index}
+      >
         <span style={{ alignSelf: "center", marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>
           … {trace.maximumDepth - 16} more bits
         </span>
-      </div>
+      </NestingRegister>
 
       <div className="legend">
         <span>

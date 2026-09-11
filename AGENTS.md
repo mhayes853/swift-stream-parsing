@@ -81,11 +81,20 @@ rather than "measured"; a revision that only moved a section down the file chang
 not count as one. The times are rendered in the offset they were written at rather than the
 reader's, because a log records when somebody was working.
 
-Code blocks are highlighted by `Web/src/components/highlight.tsx` — hand-written for Swift, the
+Code blocks are highlighted by `Web/src/lib/highlight.ts` — hand-written for Swift, the
 shim's C and disassembly, for the same reason the markdown renderer is hand-written. A fence with no
 language draws plain rather than being guessed at; several unlabelled ones in the doc are compiler
 errors and throughput tables. Syntax colour carries nothing the text does not, so the bar it is held
 to is 4.5:1 text contrast in both themes rather than the pairwise separation the chart lanes need.
+
+**Logic lives in `Web/src/lib/`, drawing in `components/` and `viz/`.** Everything that decides
+something — the markdown grammar, the search, both charts' layouts, the tokenizers, how evidence
+is sorted and counted, the movemask arithmetic an animation re-derives — is a plain function in
+`lib/` with no React in it, and is unit tested there. Components render what those functions
+return. `cd Web && npm test` runs the unit tests and the React Testing Library tests; both run
+against the committed bundles in `Web/generated/` rather than hand-written samples where they can,
+so a bundle change that breaks a view fails the tests rather than a browser. CI runs them with the
+build.
 
 Traces are recorded by running the *shipped* kernels (`Sources/StreamParsingSiteTool/Trace`), not by
 reimplementing them, so the animations cannot drift from the parser. A kernel whose signature
@@ -167,7 +176,7 @@ reach which; `steps` on a node says what the one function *does*, and it is the 
 *inside* a kernel is written down. `AlgorithmChart` draws it in the same language as the page chart
 — the same four `kind`s, the same dashing, every arrow carrying its label, ordered fan-outs
 numbered — because they are the same claim at two scales, and a second notation would make that
-harder to see rather than easier. The shared geometry lives in `Web/src/components/graph.ts`;
+harder to see rather than easier. The shared geometry lives in `Web/src/lib/graph.ts`;
 neither chart owns it.
 
 The extractor holds a step graph to the pipeline graph's standard and then some. A node without one

@@ -1,8 +1,9 @@
 import { useState } from "react";
-
+import { cx } from "../lib/cx";
+import type { Cell } from "../lib/viz";
+import { glyph, hex } from "../lib/viz";
 import type { FieldMatchTrace, FieldProbe, FieldTable } from "../types";
-import type { Cell } from "./common";
-import { Facts, StepBar, StepNote, VectorRow, glyph, hex, useSteps } from "./common";
+import { ChipNote, Choices, DriftedInline, Facts, StepBar, StepNote, VectorRow, useSteps } from "./common";
 
 // The key match, at two scales.
 //
@@ -49,8 +50,8 @@ export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
   const [choice, setChoice] = useState(0);
   const selected = probes[choice];
   // One step to build the word, then one per entry the matcher looked at.
-  const stepCount = (selected?.probe.steps.length ?? 0) + 1;
-  const { index, setIndex, playing, play } = useSteps(stepCount, 1000);
+  const player = useSteps((selected?.probe.steps.length ?? 0) + 1, 1000, choice);
+  const { index } = player;
   if (!selected) return null;
 
   const { probe, table } = selected;
@@ -59,34 +60,24 @@ export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
 
   return (
     <div className="viz">
-      <div className="chip-row">
-        {probes.map(({ probe: candidate, table: from }, position) => (
-          <button
-            key={`${from.name}-${candidate.key}`}
-            className={`chip ${position === choice ? "active" : ""}`}
-            onClick={() => {
-              setChoice(position);
-              setIndex(0);
-            }}
-          >
+      {/* The table is named on each chip too: both tables are probed with a key they do not
+          have, and two chips reading only `"missing"` would be the same chip twice. */}
+      <Choices
+        items={probes}
+        selected={choice}
+        onSelect={setChoice}
+        itemKey={({ probe: candidate, table: from }) => `${from.name}-${candidate.key}`}
+        label={({ probe: candidate, table: from }) => (
+          <>
             {JSON.stringify(candidate.key)}
-            {/* The table too: both tables are probed with a key they do not have, and two chips
-                reading only `"missing"` would be the same chip twice. */}
-            <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+            <ChipNote>
               {from.name} · {candidate.length}B
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <StepBar
-        index={index}
-        count={stepCount}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Compare"
+            </ChipNote>
+          </>
+        )}
       />
+
+      <StepBar player={player} label="Compare" />
 
       <StepNote op={index === 0 ? "streamPaddedWord" : "cmp"}>
         {index === 0 ? (
@@ -191,12 +182,7 @@ export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
         <code>{JSON.stringify(probe.key)}</code> is <code>{probe.bytesHash}</code>. Sixteen bytes
         per vector load into two accumulators, where the field table's{" "}
         <code>streamFieldHash</code> only has to avalanche the one word it already has.
-        {!probe.verified && (
-          <strong style={{ color: "var(--warning)" }}>
-            {" "}
-            ⚠ This walk disagreed with the shipped matcher.
-          </strong>
-        )}
+        {!probe.verified && <DriftedInline>This walk disagreed with the shipped matcher.</DriftedInline>}
       </p>
     </div>
   );
@@ -216,7 +202,8 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
   const [probeIndex, setProbeIndex] = useState(0);
   const table = trace.tables[which];
   const probe = table?.probes[probeIndex];
-  const { index, setIndex, playing, play } = useSteps(probe?.steps.length ?? 0, 900);
+  const player = useSteps(probe?.steps.length ?? 0, 900, `${which}-${probeIndex}`);
+  const { index } = player;
   if (!table || !probe) return null;
 
   const step = probe.steps[Math.min(index, probe.steps.length - 1)];
@@ -225,48 +212,33 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
 
   return (
     <div className="viz">
-      <div className="chip-row">
-        {trace.tables.map((candidate, position) => (
-          <button
-            key={candidate.name}
-            className={`chip ${position === which ? "active" : ""}`}
-            onClick={() => {
-              setWhich(position);
-              setProbeIndex(0);
-              setIndex(0);
-            }}
-          >
+      <Choices
+        items={trace.tables}
+        selected={which}
+        onSelect={(position) => {
+          setWhich(position);
+          setProbeIndex(0);
+        }}
+        itemKey={(candidate) => candidate.name}
+        label={(candidate) => (
+          <>
             {candidate.name}
-            <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+            <ChipNote>
               {candidate.entries.length} fields · {candidate.strategy}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <div className="chip-row">
-        {table.probes.map((candidate, position) => (
-          <button
-            key={candidate.key}
-            className={`chip ${position === probeIndex ? "active" : ""}`}
-            onClick={() => {
-              setProbeIndex(position);
-              setIndex(0);
-            }}
-          >
-            {JSON.stringify(candidate.key)}
-          </button>
-        ))}
-      </div>
-
-      <StepBar
-        index={index}
-        count={probe.steps.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Probe"
+            </ChipNote>
+          </>
+        )}
       />
+
+      <Choices
+        items={table.probes}
+        selected={probeIndex}
+        onSelect={setProbeIndex}
+        itemKey={(candidate) => candidate.key}
+        label={(candidate) => JSON.stringify(candidate.key)}
+      />
+
+      <StepBar player={player} label="Probe" />
 
       <StepNote op={table.strategy === "indexed" ? "probe" : "scan"}>
         {table.strategy === "indexed" ? (
@@ -303,9 +275,12 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
             {table.slots.map((slot, bucket) => (
               <i
                 key={bucket}
-                className={`slot ${slot >= 0 ? "full" : ""} ${
-                  buckets.has(bucket) ? "walked" : ""
-                } ${bucket === step.bucket ? "cur" : ""}`}
+                className={cx(
+                  "slot",
+                  slot >= 0 && "full",
+                  buckets.has(bucket) && "walked",
+                  bucket === step.bucket && "cur"
+                )}
                 title={
                   slot >= 0
                     ? `bucket ${bucket} → entry ${slot} (${table.entries[slot].key})`
@@ -343,9 +318,7 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
               return (
                 <tr
                   key={entry.index}
-                  className={`${here ? "here" : ""} ${
-                    visited.has(entry.index) && !here ? "walked" : ""
-                  } ${!visited.has(entry.index) && !here ? "untouched" : ""}`}
+                  className={cx(here ? "here" : visited.has(entry.index) ? "walked" : "untouched")}
                 >
                   <td className="mono">{entry.index}</td>
                   <td className="mono">{entry.key}</td>
@@ -383,12 +356,7 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
         word and its length — and touches <code>kind</code>, <code>offset</code> and{" "}
         <code>prepare</code> only on a hit. Result:{" "}
         <code>{probeOutcome(probe, table)}</code>.
-        {!trace.verified && (
-          <strong style={{ color: "var(--warning)" }}>
-            {" "}
-            ⚠ A recorded walk disagreed with the shipped matcher.
-          </strong>
-        )}
+        {!trace.verified && <DriftedInline>A recorded walk disagreed with the shipped matcher.</DriftedInline>}
       </p>
     </div>
   );

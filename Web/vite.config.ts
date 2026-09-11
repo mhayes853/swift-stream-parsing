@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -11,5 +12,12 @@ export default defineConfig({
   // asm/*.txt are copied to the site root verbatim rather than bundled into the JS. content.json
   // alone is 1.7 MB, and none of it should sit in a script tag.
   publicDir: "generated",
-  build: { outDir: "dist", emptyOutDir: true }
+  build: { outDir: "dist", emptyOutDir: true },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["src/test/setup.ts"],
+    // The UI tests render against the committed bundles, which are large; the first import parses
+    // content.json and that alone can take a couple of seconds on a cold CI runner.
+    testTimeout: 15000
+  }
 });

@@ -1,24 +1,7 @@
 import { useMemo, useState } from "react";
-import type { DocSection, Measurement } from "../types";
-
-const NAMES: Record<string, string> = {
-  canada: "canada.json",
-  twitter: "twitter.json",
-  twitterescaped: "twitterescaped.json",
-  citm_catalog: "citm_catalog.json",
-  "gsoc-2018": "gsoc-2018.json",
-  github_events: "github_events.json",
-  llm_message: "llm_message.json",
-  mesh: "mesh",
-  qwen: "Qwen 3 tool call",
-  pretty_printed: "pretty printed",
-  matrix: "Payloads.matrix",
-  unicode_escapes: "unicode escapes"
-};
-
-interface Row extends Measurement {
-  section: DocSection;
-}
+import { deltaRows, divergingBar, payloadCounts, payloadName, rowsFor } from "../lib/payloads";
+import type { DocSection } from "../types";
+import { FilterButton } from "./FilterButton";
 
 /**
  * Every delta ever recorded against one payload.
@@ -28,33 +11,18 @@ interface Row extends Measurement {
  * is printed beside every bar, so polarity never rests on hue alone.
  */
 export function Payloads({ sections }: { sections: DocSection[] }) {
-  const rows = useMemo(() => {
-    const out: Row[] = [];
-    for (const section of sections) {
-      for (const m of section.measurements) {
-        if (m.isDelta) out.push({ ...m, section });
-      }
-    }
-    return out;
-  }, [sections]);
-
-  const payloads = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of rows) counts.set(r.payload, (counts.get(r.payload) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [rows]);
-
-  const [selected, setSelected] = useState(payloads[0]?.[0] ?? "canada");
-  const mine = useMemo(
-    () => rows.filter((r) => r.payload === selected).sort((a, b) => b.value - a.value),
-    [rows, selected]
-  );
-
+  const rows = useMemo(() => deltaRows(sections), [sections]);
+  const payloads = useMemo(() => payloadCounts(rows), [rows]);
+  // Derived rather than initialised from the first render: the content arrives after the view
+  // mounts, and a default captured from an empty list would never be revisited.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const selected = chosen ?? payloads[0]?.[0] ?? "canada";
+  const mine = useMemo(() => rowsFor(rows, selected), [rows, selected]);
   const extent = Math.max(1, ...mine.map((r) => Math.abs(r.value)));
 
   return (
     <section>
-      <h2 style={{ fontSize: 28, letterSpacing: "-0.02em", margin: "40px 0 10px" }}>By payload</h2>
+      <h2 className="view-title">By payload</h2>
       <p className="section-lead">
         The same corpus runs under every experiment, so each payload accumulates a history. This is
         every signed delta the log records against one file, gains and regressions alike. Data shape
@@ -64,10 +32,9 @@ export function Payloads({ sections }: { sections: DocSection[] }) {
 
       <div className="filters">
         {payloads.map(([id, count]) => (
-          <button key={id} className={selected === id ? "active" : ""} aria-pressed={selected === id} onClick={() => setSelected(id)}>
-            {NAMES[id] ?? id}
-            <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>{count}</span>
-          </button>
+          <FilterButton key={id} active={selected === id} count={count} onClick={() => setChosen(id)}>
+            {payloadName(id)}
+          </FilterButton>
         ))}
       </div>
 
@@ -85,8 +52,7 @@ export function Payloads({ sections }: { sections: DocSection[] }) {
           </thead>
           <tbody>
             {mine.map((row, i) => {
-              const positive = row.value >= 0;
-              const width = (Math.abs(row.value) / extent) * 50;
+              const bar = divergingBar(row.value, extent);
               return (
                 <tr key={i}>
                   <td style={{ maxWidth: 300 }}>
@@ -104,15 +70,15 @@ export function Payloads({ sections }: { sections: DocSection[] }) {
                       <div
                         className="bar-fill"
                         style={{
-                          background: positive ? "var(--diverge-pos)" : "var(--diverge-neg)",
-                          left: positive ? "50%" : `${50 - width}%`,
-                          width: `${width}%`
+                          background: bar.positive ? "var(--diverge-pos)" : "var(--diverge-neg)",
+                          left: `${bar.left}%`,
+                          width: `${bar.width}%`
                         }}
                       />
                     </div>
                   </td>
-                  <td className={`delta ${positive ? "pos" : "neg"}`} style={{ textAlign: "right" }}>
-                    {positive ? "▲ +" : "▼ "}
+                  <td className={`delta ${bar.positive ? "pos" : "neg"}`} style={{ textAlign: "right" }}>
+                    {bar.positive ? "▲ +" : "▼ "}
                     {row.value.toFixed(1)}%
                   </td>
                 </tr>

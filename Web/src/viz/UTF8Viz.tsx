@@ -1,10 +1,11 @@
 import { useState } from "react";
+import type { Cell, TapeMark } from "../lib/viz";
+import { hex, phaseOf } from "../lib/viz";
 import type { UTF8Trace } from "../types";
-import type { Cell, RowPhase, TapeMark } from "./common";
 import {
   Bits,
-  hex,
   InputTape,
+  laneUnder,
   StepBar,
   StepNote,
   TableStrip,
@@ -60,11 +61,10 @@ const OPS = [
  */
 export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
   const [lane, setLane] = useState<number | null>(null);
-  const { index, setIndex, playing, play } = useSteps(OPS.length, 1250);
+  const player = useSteps(OPS.length, 1250);
+  const { index } = player;
   const active = lane === null ? null : trace.lanes[lane];
-
-  const at = (stage: number): RowPhase =>
-    index === stage ? "now" : index > stage ? "past" : "future";
+  const at = (stage: number) => phaseOf(stage, index);
 
   const cells = (pick: (l: UTF8Trace["lanes"][number]) => Cell): Cell[] =>
     trace.lanes.map((l) => ({ ...pick(l), marked: l.lane === lane }));
@@ -72,9 +72,8 @@ export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
   const roles = Array.from(new Set(trace.lanes.map((l) => l.role)));
 
   const onLane = (e: React.MouseEvent) => {
-    const el = (e.target as HTMLElement).closest(".vec-lane");
-    const parent = el?.parentElement;
-    if (el && parent) setLane(Array.prototype.indexOf.call(parent.children, el));
+    const hovered = laneUnder(e);
+    if (hovered !== null) setLane(hovered);
   };
 
   // The two-byte window the whole method rests on: the lane, and the byte before it.
@@ -86,14 +85,7 @@ export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
 
   return (
     <div className="viz" onMouseLeave={() => setLane(null)}>
-      <StepBar
-        index={index}
-        count={OPS.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Instruction"
-      />
+      <StepBar player={player} label="Instruction" />
 
       <StepNote op={OPS[index].op}>
         {OPS[index].label} — {stepNote(trace, index, active)}

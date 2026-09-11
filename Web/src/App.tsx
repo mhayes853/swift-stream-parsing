@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import pipelineData from "../content/pipeline.json";
-import { span } from "./components/dates";
 import { DetailPanel } from "./components/DetailPanel";
 import { FlowChart } from "./components/FlowChart";
 import { Graveyard } from "./components/Graveyard";
 import { Payloads } from "./components/Payloads";
 import { loadContent, loadTraces } from "./data";
-import type { ContentBundle, DocSection, Pipeline, PipelineNode, TraceBundle } from "./types";
+import { span } from "./lib/dates";
+import { experimentTotal, sectionsByPath } from "./lib/evidence";
+import type { ContentBundle, Pipeline, PipelineNode, TraceBundle } from "./types";
 
 const pipeline = pipelineData as Pipeline;
-type View = "flow" | "graveyard" | "payloads";
+
+const VIEWS = [
+  { id: "flow", label: "Parse path" },
+  { id: "graveyard", label: "Experiments" },
+  { id: "payloads", label: "Payloads" }
+] as const;
+type View = (typeof VIEWS)[number]["id"];
 
 export function App() {
   const [content, setContent] = useState<ContentBundle | null>(null);
@@ -32,11 +39,10 @@ export function App() {
   // at whatever depth the flow chart had been scrolled to -- on a phone, mid-list with no heading.
   useEffect(() => window.scrollTo({ top: 0, behavior: "instant" }), [view]);
 
-  const sections = useMemo(() => {
-    const map = new Map<string, DocSection>();
-    for (const s of content?.doc.sections ?? []) map.set(s.path, s);
-    return map;
-  }, [content]);
+  const sectionList = content?.doc.sections;
+  const sections = useMemo(() => sectionsByPath(sectionList ?? []), [sectionList]);
+  const titleOf = useCallback((id: string) => pipeline.nodes.find((n) => n.id === id)?.title, []);
+  const close = useCallback(() => setSelected(null), []);
 
   if (error) {
     return (
@@ -58,15 +64,11 @@ export function App() {
           <small>parser architecture explorer</small>
         </div>
         <nav className="tabs">
-          <button aria-pressed={view === "flow"} onClick={() => setView("flow")}>
-            Parse path
-          </button>
-          <button aria-pressed={view === "graveyard"} onClick={() => setView("graveyard")}>
-            Experiments
-          </button>
-          <button aria-pressed={view === "payloads"} onClick={() => setView("payloads")}>
-            Payloads
-          </button>
+          {VIEWS.map((v) => (
+            <button key={v.id} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
+              {v.label}
+            </button>
+          ))}
         </nav>
         <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle colour scheme">
           {theme === "dark" ? "☾" : "☀"}
@@ -95,25 +97,18 @@ export function App() {
               <div className="stat-row">
                 <Stat value={String(pipeline.nodes.length)} label="steps" />
                 <Stat value={content ? String(content.stats.sectionCount) : "—"} label="documented sections" />
-                <Stat value={String(verdictTotal(content))} label="experiments with a verdict" />
+                <Stat value={content ? String(experimentTotal(content)) : "—"} label="experiments with a verdict" />
                 <Stat value={content ? String(content.stats.tableCount) : "—"} label="measurement tables" />
                 <Stat value={content ? String(content.stats.declCount) : "—"} label="declarations indexed" />
                 <Stat
-                  value={
-                    content ? span(content.stats.firstRecorded, content.stats.lastRecorded) || "—" : "—"
-                  }
+                  value={(content && span(content.stats.firstRecorded, content.stats.lastRecorded)) || "—"}
                   label="the log's span"
                 />
               </div>
               <FlowLegend />
             </section>
 
-            <FlowChart
-              pipeline={pipeline}
-              sections={sections}
-              selected={selected}
-              onSelect={setSelected}
-            />
+            <FlowChart pipeline={pipeline} sections={sections} selected={selected} onSelect={setSelected} />
 
             <p className="viz-note">
               Generated from <code>NEW_ARCHITECTURE.md</code> and the source comments by{" "}
@@ -126,27 +121,22 @@ export function App() {
             </p>
           </>
         )}
-        {view === "graveyard" && <Graveyard sections={content?.doc.sections ?? []} />}
-        {view === "payloads" && <Payloads sections={content?.doc.sections ?? []} />}
+        {view === "graveyard" && <Graveyard sections={sectionList ?? []} />}
+        {view === "payloads" && <Payloads sections={sectionList ?? []} />}
       </main>
 
       {selected && (
         <DetailPanel
+          key={selected.id}
           node={selected}
           sections={sections}
           traces={traces}
-          titleOf={(id) => pipeline.nodes.find((n) => n.id === id)?.title}
-          onClose={() => setSelected(null)}
+          titleOf={titleOf}
+          onClose={close}
         />
       )}
     </>
   );
-}
-
-function verdictTotal(content: ContentBundle | null): number | string {
-  if (!content) return "—";
-  const v = content.stats.verdictCounts;
-  return (v.landed ?? 0) + (v.rejected ?? 0) + (v.mixed ?? 0);
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
@@ -162,21 +152,15 @@ function FlowLegend() {
   return (
     <div className="legend flow-legend">
       <span>
-        <svg width="30" height="8" aria-hidden="true">
-          <line x1="0" y1="4" x2="30" y2="4" stroke="var(--text-muted)" strokeWidth="1.5" />
-        </svg>
+        <LegendLine />
         always runs, or runs on the labelled condition
       </span>
       <span>
-        <svg width="30" height="8" aria-hidden="true">
-          <line x1="0" y1="4" x2="30" y2="4" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray="5 4" />
-        </svg>
+        <LegendLine dash="5 4" />
         returns
       </span>
       <span>
-        <svg width="30" height="8" aria-hidden="true">
-          <line x1="0" y1="4" x2="30" y2="4" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray="1.5 3.5" />
-        </svg>
+        <LegendLine dash="1.5 3.5" />
         detail of the same work
       </span>
       <span>
@@ -189,5 +173,13 @@ function FlowLegend() {
         <span className="flow-key rejected">n✕</span> rejected experiments
       </span>
     </div>
+  );
+}
+
+function LegendLine({ dash }: { dash?: string }) {
+  return (
+    <svg width="30" height="8" aria-hidden="true">
+      <line x1="0" y1="4" x2="30" y2="4" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray={dash} />
+    </svg>
   );
 }

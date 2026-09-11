@@ -1,15 +1,7 @@
+import type { TapeMark } from "../lib/viz";
+import { glyph, hex } from "../lib/viz";
 import type { TableTrace, WhitespaceTrace } from "../types";
-import type { TapeMark } from "./common";
-import {
-  glyph,
-  hex,
-  InputTape,
-  Legend,
-  StepBar,
-  StepNote,
-  TableStrip,
-  useSteps
-} from "./common";
+import { InputTape, Legend, StepBar, StepNote, TableStrip, useSteps } from "./common";
 
 /**
  * `streamWhitespaceEnd` at each of the call sites the parser makes it.
@@ -24,8 +16,8 @@ export function WhitespaceViz({ trace, table }: { trace: WhitespaceTrace; table:
   const script = trace.calls.flatMap((call, i) =>
     call.earlyOut ? [{ call: i, stage: 0 }] : [{ call: i, stage: 0 }, { call: i, stage: 1 }]
   );
-  const { index, setIndex, playing, play } = useSteps(script.length, 950);
-  const here = script[index];
+  const player = useSteps(script.length, 950);
+  const here = script[player.index];
   if (!here) return null;
   const call = trace.calls[here.call];
   const scanning = here.stage === 1;
@@ -45,14 +37,7 @@ export function WhitespaceViz({ trace, table }: { trace: WhitespaceTrace; table:
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={script.length}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Instruction"
-      />
+      <StepBar player={player} label="Instruction" />
 
       <StepNote op={scanning ? (call.path === "vector" ? "tbl" : "ldrb") : "cmp"}>
         {scanning ? (

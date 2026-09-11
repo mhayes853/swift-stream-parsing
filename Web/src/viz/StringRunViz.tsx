@@ -1,18 +1,7 @@
+import type { Cell, TapeMark } from "../lib/viz";
+import { blockStep, diff, glyph, hex, phaseOf, splat } from "../lib/viz";
 import type { StringRunTrace } from "../types";
-import type { Cell, RowPhase, TapeMark } from "./common";
-import {
-  diff,
-  glyph,
-  hex,
-  InputTape,
-  splat,
-  StepBar,
-  StepNote,
-  useSteps,
-  VectorOp,
-  VectorRow,
-  VerifiedNote
-} from "./common";
+import { InputTape, StepBar, StepNote, useSteps, VectorOp, VectorRow, VerifiedNote } from "./common";
 
 /**
  * `streamStringRun`, block by block, as the vector pipeline it is.
@@ -39,17 +28,12 @@ const OPS = [
 ] as const;
 
 export function StringRunViz({ trace }: { trace: StringRunTrace }) {
-  const perBlock = OPS.length;
-  const steps = trace.blocks.length * perBlock;
-  const { index, setIndex, playing, play } = useSteps(steps, 950);
-
-  const which = Math.floor(index / perBlock);
-  const op = index % perBlock;
+  const player = useSteps(trace.blocks.length * OPS.length, 950);
+  const { block: which, op } = blockStep(player.index, OPS.length);
   const block = trace.blocks[which];
   if (!block) return null;
-
   /** Where a row sits on the timeline: produced by this step, already produced, or not yet. */
-  const at = (stage: number): RowPhase => (op === stage ? "now" : op > stage ? "past" : "future");
+  const at = (stage: number) => phaseOf(stage, op);
 
   const bytes: Cell[] = block.bytes.map((byte, lane) => ({
     text: hex(byte),
@@ -98,14 +82,7 @@ export function StringRunViz({ trace }: { trace: StringRunTrace }) {
 
   return (
     <div className="viz">
-      <StepBar
-        index={index}
-        count={steps}
-        playing={playing}
-        onPlay={play}
-        onSeek={setIndex}
-        label="Instruction"
-      />
+      <StepBar player={player} label="Instruction" />
 
       <StepNote op={OPS[op].op}>
         Block {which + 1} of {trace.blocks.length}, bytes {block.offset}–{block.offset + 15} —{" "}
