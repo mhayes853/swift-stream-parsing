@@ -28,6 +28,10 @@ export function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // A view opens at its top. The page is one document, so without this the Experiments view opened
+  // at whatever depth the flow chart had been scrolled to -- on a phone, mid-list with no heading.
+  useEffect(() => window.scrollTo({ top: 0, behavior: "instant" }), [view]);
+
   const sections = useMemo(() => {
     const map = new Map<string, DocSection>();
     for (const s of content?.doc.sections ?? []) map.set(s.path, s);
@@ -77,9 +81,16 @@ export function App() {
               <p>
                 Each node is a step a chunk of bytes passes through; each arrow is labelled with
                 what it does, or with the condition under which it is taken. Numbers appear where
-                the order is real — a switch tests its arms in the order they are written. Hover a
-                node to read how it reaches the things it calls; select one to open the evidence
-                under it: the experiments that settled its shape, the source, and the assembly.
+                the order is real — a switch tests its arms in the order they are written.{" "}
+                <span className="hover-only">
+                  Hover a node to read how it reaches the things it calls; select one to open the
+                  evidence under it:
+                </span>
+                <span className="touch-only">
+                  The chart is wider than the screen, so drag it sideways. Tap a node to open the
+                  evidence under it:
+                </span>{" "}
+                the experiments that settled its shape, the source, and the assembly.
               </p>
               <div className="stat-row">
                 <Stat value={String(pipeline.nodes.length)} label="steps" />
@@ -124,6 +135,7 @@ export function App() {
           node={selected}
           sections={sections}
           traces={traces}
+          titleOf={(id) => pipeline.nodes.find((n) => n.id === id)?.title}
           onClose={() => setSelected(null)}
         />
       )}

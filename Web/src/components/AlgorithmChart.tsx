@@ -87,13 +87,45 @@ function fit(
   maxLines: number
 ): { lines: string[]; size: number } {
   const room = boxWidth - TEXT_INSET * 2;
-  const lines = wrap(plain(text), Math.max(6, Math.floor(room / perChar)), maxLines);
-  const widest = Math.max(...lines.map((l) => l.length), 1) * perChar;
+  const perLine = Math.max(6, Math.floor(room / perChar));
+  let lines = wrap(plain(text), perLine, maxLines);
+  // Greedy wrapping fills the first line and leaves everything else on the last, so a title too
+  // long for two lines came out as one short line and one very long one -- and it is the long one
+  // the size is scaled to. At the node-width floor a phone gets, `up to 64 / bytes live in the
+  // value` hit the 7.5px floor and still ran 20px out of its box, where `up to 64 bytes / live in
+  // the value` fits at 8.2px. Only taken when greedy has already failed, so a label that fits is
+  // unchanged.
+  if (maxLines === 2 && longest(lines) > perLine) lines = balanced(plain(text));
+  const widest = Math.max(longest(lines), 1) * perChar;
   // 7.5px is where mono stops being readable at this weight; below it the chart would be lying
   // about legibility rather than about width, so the label is allowed to sit a hair proud.
   return { lines, size: widest <= room ? size : Math.max(7.5, (size * room) / widest) };
   // Applied as an inline style rather than SVG's `font-size` attribute: `.algo-node-title` sets a
   // size in the stylesheet, and a presentation attribute loses to any rule that matches.
+}
+
+function longest(lines: string[]): number {
+  return Math.max(0, ...lines.map((l) => l.length));
+}
+
+/**
+ * The two-line split whose longer line is shortest: at a space where there is one, and otherwise at
+ * a camel-case hump. A lone identifier has no space to break at, and `promoteSizedInlineStorage`
+ * at the 7.5px floor still ran past its box; `promoteSized / InlineStorage` fits at 10.7px, and a
+ * break at a hump still reads as one name.
+ */
+function balanced(text: string): string[] {
+  const words = text.split(" ");
+  const cuts =
+    words.length > 1
+      ? words.slice(1).map((_, i) => words.slice(0, i + 1).join(" ").length)
+      : [...text.matchAll(/[a-z)](?=[A-Z(])/g)].map((m) => m.index + 1);
+  let best = [text];
+  for (const cut of cuts) {
+    const split = [text.slice(0, cut).trimEnd(), text.slice(cut).trimStart()];
+    if (longest(split) < longest(best)) best = split;
+  }
+  return best;
 }
 
 interface Placed extends Box {

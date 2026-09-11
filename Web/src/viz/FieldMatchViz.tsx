@@ -324,40 +324,42 @@ export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
         </div>
       )}
 
-      <table className="entry-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>key</th>
-            <th>first word</th>
-            <th>len</th>
-            <th>kind</th>
-            <th>offset</th>
-            {table.strategy === "indexed" && <th>bucket</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {table.entries.map((entry) => {
-            const here = step.entry === entry.index;
-            return (
-              <tr
-                key={entry.index}
-                className={`${here ? "here" : ""} ${
-                  visited.has(entry.index) && !here ? "walked" : ""
-                } ${!visited.has(entry.index) && !here ? "untouched" : ""}`}
-              >
-                <td className="mono">{entry.index}</td>
-                <td className="mono">{entry.key}</td>
-                <td className="mono">{entry.keyWord}</td>
-                <td className="mono">{entry.keyLength}</td>
-                <td>{entry.kind}</td>
-                <td className="mono">+{entry.offset}</td>
-                {table.strategy === "indexed" && <td className="mono">{entry.bucket}</td>}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="entry-scroll">
+        <table className="entry-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>key</th>
+              <th>first word</th>
+              <th>len</th>
+              <th>kind</th>
+              <th>offset</th>
+              {table.strategy === "indexed" && <th>bucket</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {table.entries.map((entry) => {
+              const here = step.entry === entry.index;
+              return (
+                <tr
+                  key={entry.index}
+                  className={`${here ? "here" : ""} ${
+                    visited.has(entry.index) && !here ? "walked" : ""
+                  } ${!visited.has(entry.index) && !here ? "untouched" : ""}`}
+                >
+                  <td className="mono">{entry.index}</td>
+                  <td className="mono">{entry.key}</td>
+                  <td className="mono">{entry.keyWord}</td>
+                  <td className="mono">{entry.keyLength}</td>
+                  <td>{entry.kind}</td>
+                  <td className="mono">+{entry.offset}</td>
+                  {table.strategy === "indexed" && <td className="mono">{entry.bucket}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       <p className="viz-caption">
         {table.strategy === "scan" ? (

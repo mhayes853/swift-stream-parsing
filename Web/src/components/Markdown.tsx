@@ -126,42 +126,46 @@ function MarkdownTable({ rows }: { rows: string[] }) {
   const headers = splitRow(rows[0]);
   const bodyRows = rows.slice(SEPARATOR.test(splitRow(rows[1])[0] ?? "") ? 2 : 1).map(splitRow);
 
+  // Wrapped so a wide table scrolls inside its own box. Reflowing a measurement table would break
+  // its columns apart, and letting it overflow widens the whole panel on a phone.
   return (
-    <table>
-      <thead>
-        <tr>
-          {headers.map((h, i) => (
-            <th key={i}>{inline(h, `h${i}`)}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {bodyRows.map((row, r) => (
-          <tr key={r}>
-            {row.map((cell, c) => {
-              const plain = cell.replace(/\*\*/g, "").replace(/`/g, "").trim();
-              const delta = /^[+−-]\d/.test(plain) && plain.includes("%");
-              const numeric = /^[+−-]?[\d.,]+/.test(plain) && c > 0;
-              const negative = plain.startsWith("-") || plain.startsWith("−");
-              return (
-                <td
-                  key={c}
-                  className={[
-                    numeric ? "num" : "",
-                    cell.includes("**") ? "strong" : "",
-                    delta ? `delta ${negative ? "neg" : "pos"}` : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  {inline(cell, `c${r}-${c}`)}
-                </td>
-              );
-            })}
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            {headers.map((h, i) => (
+              <th key={i}>{inline(h, `h${i}`)}</th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {bodyRows.map((row, r) => (
+            <tr key={r}>
+              {row.map((cell, c) => {
+                const plain = cell.replace(/\*\*/g, "").replace(/`/g, "").trim();
+                const delta = /^[+−-]\d/.test(plain) && plain.includes("%");
+                const numeric = /^[+−-]?[\d.,]+/.test(plain) && c > 0;
+                const negative = plain.startsWith("-") || plain.startsWith("−");
+                return (
+                  <td
+                    key={c}
+                    className={[
+                      numeric ? "num" : "",
+                      cell.includes("**") ? "strong" : "",
+                      delta ? `delta ${negative ? "neg" : "pos"}` : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    {inline(cell, `c${r}-${c}`)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

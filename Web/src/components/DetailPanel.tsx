@@ -4,6 +4,7 @@ import type { DocSection, PipelineNode, SourceDecl, TraceBundle } from "../types
 import { Visualization } from "../viz";
 import { AlgorithmChart } from "./AlgorithmChart";
 import { Recorded, RecordedDetail, instant, span } from "./dates";
+import { Reaches } from "./FlowChart";
 import { Code } from "./highlight";
 import { Markdown, VerdictChip } from "./Markdown";
 
@@ -15,11 +16,14 @@ export function DetailPanel({
   node,
   sections,
   traces,
+  titleOf,
   onClose
 }: {
   node: PipelineNode;
   sections: Map<string, DocSection>;
   traces: TraceBundle | null;
+  /** Another node's title by id, for the arrows leaving this one. */
+  titleOf: (id: string) => string | undefined;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("explanation");
@@ -68,7 +72,13 @@ export function DetailPanel({
         </div>
         <div className="panel-body">
           {tab === "explanation" && (
-            <Explanation node={node} sections={explanations} traces={traces} decls={decls} />
+            <Explanation
+              node={node}
+              sections={explanations}
+              traces={traces}
+              decls={decls}
+              titleOf={titleOf}
+            />
           )}
           {tab === "experiments" && <Experiments sections={experiments} />}
           {tab === "source" && <Source keys={node.evidence.source} decls={decls} error={declError} />}
@@ -104,12 +114,14 @@ function Explanation({
   node,
   sections,
   traces,
-  decls
+  decls,
+  titleOf
 }: {
   node: PipelineNode;
   sections: DocSection[];
   traces: TraceBundle | null;
   decls: Record<string, SourceDecl[]> | null;
+  titleOf: (id: string) => string | undefined;
 }) {
   return (
     <>
@@ -127,11 +139,16 @@ function Explanation({
           </p>
         ))}
       </div>
+      {/* The page chart's call card, for a screen that cannot hover to open it. */}
+      {node.next.length > 0 && (
+        <div className="reaches touch-only">
+          <h3 className="panel-rule">Where it goes next</h3>
+          <Reaches node={node} titleOf={titleOf} />
+        </div>
+      )}
       {sections.length > 0 && (
         <>
-          <h3 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginTop: 28 }}>
-            From the architecture log
-          </h3>
+          <h3 className="panel-rule">From the architecture log</h3>
           {sections.map((section) => (
             <SectionCard key={section.path} section={section} />
           ))}
@@ -173,9 +190,11 @@ function SectionCard({ section, defaultOpen = false }: { section: DocSection; de
   return (
     <details className="evidence-item" open={defaultOpen}>
       <summary>
-        <span style={{ flex: 1 }}>{section.title}</span>
-        <Recorded history={section.history} />
-        <VerdictChip verdict={section.verdict} />
+        <span className="summary-head">
+          <span style={{ flex: 1 }}>{section.title}</span>
+          <Recorded history={section.history} />
+          <VerdictChip verdict={section.verdict} />
+        </span>
       </summary>
       <div className="summary-line">
         <span className="where">
@@ -224,11 +243,13 @@ function Source({
         return matches.map((decl, i) => (
           <details className="evidence-item" key={`${key}-${i}`} open={matches.length === 1 && keys.length <= 2}>
             <summary>
-              <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 14 }}>
-                {decl.qualifiedName}
-                {matches.length > 1 ? ` (${i + 1}/${matches.length})` : ""}
+              <span className="summary-head">
+                <span className="summary-symbol">
+                  {decl.qualifiedName}
+                  {matches.length > 1 ? ` (${i + 1}/${matches.length})` : ""}
+                </span>
+                <span className="kicker">{decl.kind}</span>
               </span>
-              <span className="kicker">{decl.kind}</span>
             </summary>
             <div className="summary-line">
               <span className="where">
@@ -302,9 +323,11 @@ function Assembly({ symbols }: { symbols: string[] }) {
         return (
           <details className="evidence-item" key={symbol}>
             <summary>
-              <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 14 }}>{symbol}</span>
-              <span className="kicker">
-                {header.find((l) => l.includes("instructions"))?.replace("; ", "") ?? "…"}
+              <span className="summary-head">
+                <span className="summary-symbol">{symbol}</span>
+                <span className="kicker">
+                  {header.find((l) => l.includes("instructions"))?.replace("; ", "") ?? "…"}
+                </span>
               </span>
             </summary>
             <div className="evidence-body">

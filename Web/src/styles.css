@@ -90,7 +90,9 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+/* iOS inflates text it thinks a zoomed-out page cannot read, independently per block, so one
+   paragraph comes out at 1.4x its neighbour's size. The page is laid out for the width it gets. */
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 body {
   margin: 0;
@@ -105,6 +107,11 @@ body {
 a { color: var(--series-1); }
 
 code, pre, .mono { font-family: var(--font-mono); }
+/* Inline code is often one long token -- a file path, a mangled symbol, a chain of calls -- and
+   an unbreakable one sets the width of the page. `break-word` rather than `anywhere`, because
+   `anywhere` also lowers a table cell's minimum width and the table then splits `parse` in two. */
+code { overflow-wrap: break-word; }
+pre code { overflow-wrap: normal; }
 
 /* MARK: - Chrome */
 
@@ -117,6 +124,7 @@ code, pre, .mono { font-family: var(--font-mono); }
   gap: 16px;
   padding: 10px 24px;
   background: color-mix(in srgb, var(--plane) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -284,7 +292,7 @@ button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; 
   font-weight: 600;
 }
 .panel-tabs .count { color: var(--text-muted); font-size: 12px; margin-left: 5px; }
-.panel-body { overflow-y: auto; padding: 22px 24px 60px; flex: 1; }
+.panel-body { overflow-y: auto; padding: 22px 24px 60px; flex: 1; overscroll-behavior: contain; }
 .panel .close { position: absolute; top: 14px; right: 18px; font-size: 20px; line-height: 1; padding: 4px 9px; }
 
 /* MARK: - Markdown */
@@ -339,6 +347,8 @@ pre code { background: none; border: none; padding: 0; font-size: inherit; }
 /* MARK: - Tables */
 
 table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 13.5px; }
+.table-scroll { overflow-x: auto; margin: 0 0 18px; }
+.table-scroll > table { margin: 0; }
 th, td {
   text-align: left;
   padding: 7px 12px 7px 0;
@@ -425,9 +435,17 @@ input[type="range"] { accent-color: var(--series-1); }
 }
 .evidence-item > summary::-webkit-details-marker { display: none; }
 .evidence-item .summary-head { display: flex; align-items: center; gap: 10px; }
+.evidence-item .summary-symbol {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  /* A mangled assembly symbol is one sixty-character word. */
+  overflow-wrap: break-word;
+}
 .evidence-item .summary-head::before { content: "▸"; color: var(--text-muted); font-size: 11px; }
 .evidence-item[open] .summary-head::before { content: "▾"; }
-.evidence-item .where { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
+.evidence-item .where { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-weight: 400; overflow-wrap: break-word; }
 .evidence-item .summary-line { font-size: 13.5px; color: var(--text-secondary); margin: 8px 0 0 21px; }
 .evidence-body { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--grid); }
 
@@ -595,11 +613,6 @@ mark {
   margin: 0 0 24px;
 }
 .callout.warn { border-left-color: var(--warning); }
-
-@media (max-width: 720px) {
-  .page { padding: 0 16px 80px; }
-  .panel { width: 100vw; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -1387,6 +1400,8 @@ mark {
 .slot.cur { outline: 2px solid var(--text-primary); outline-offset: 1px; }
 
 .entry-table { width: 100%; border-collapse: collapse; margin: 14px 0 0; font-size: 11.5px; }
+.entry-scroll { overflow-x: auto; margin: 14px 0 0; }
+.entry-scroll > .entry-table { margin: 0; }
 .entry-table th {
   text-align: left;
   padding: 5px 8px;
@@ -1513,4 +1528,96 @@ mark {
 @media (prefers-reduced-motion: reduce) {
   .call, .slot, .entry-table tr, .schema-card, .storage-cell, .block-fill { transition: none; }
   .frame.chg, .block.chg .block-track { animation: none; }
+}
+
+/* MARK: - Panel additions */
+
+.panel-rule {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 28px 0 12px;
+}
+/* The call card's content at the panel's reading size rather than the card's. */
+.reaches .flow-card-invokes { font-size: 14px; }
+.reaches .flow-card-head { font-size: 13.5px; }
+.reaches .flow-card-target { font-size: 12.5px; }
+.reaches .flow-card-edges p { font-size: 12.5px; }
+.reaches code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+/* Copy that only applies to one kind of pointer: "hover a node" means nothing on a phone. */
+.touch-only { display: none; }
+@media (hover: none) {
+  .touch-only { display: revert; }
+  .hover-only { display: none; }
+}
+
+/* MARK: - Phones
+ *
+ * The rule everything here serves: nothing is allowed to make the page wider than the screen. iOS
+ * answers an overflowing page by zooming the whole layout out to fit it, so one 521px top bar made
+ * every screen 75% size -- the full-width panel included, which is why it left a quarter of the
+ * page showing beside it. Wide things (the charts, tables, code) scroll inside their own box. */
+
+@media (max-width: 720px) {
+  .page { padding: 0 16px 80px; }
+  .intro { padding: 26px 0 18px; }
+  /* Six stats in a free-wrapping row took a full phone screen before the chart began. The date
+     range is the one too long for a third of the width, so it takes the last row to itself. */
+  .stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px; margin-top: 22px; }
+  .stat:last-child { grid-column: 1 / -1; }
+  .stat .value { font-size: 22px; }
+  .stat .label { font-size: 12px; line-height: 1.35; }
+  .flow-scroll { margin: 8px -16px 0; padding: 0 16px 8px; }
+
+  /* A sheet over the page rather than a drawer beside it: there is no page left to see. */
+  .panel { width: 100%; left: 0; border-left: none; }
+  .panel-head { padding: 14px 16px 0; }
+  .panel-head h2 { font-size: 17px; padding-right: 44px; overflow-wrap: break-word; }
+  .panel-head .sub { margin-bottom: 10px; }
+  /* 44px, Apple's minimum touch target; the glyph stays the size it was. */
+  .panel .close { top: 4px; right: 4px; width: 44px; height: 44px; padding: 0; }
+  /* The tabs scroll rather than wrap: a second row of tabs reads as a second set. Bled to the panel
+     edges so a tab running off the side is visibly cut by the screen, not by a margin. */
+  .panel-tabs { overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 9px; }
+  .panel-tabs::-webkit-scrollbar { display: none; }
+  /* Sized so all four fit a 375px phone; the scroll is for anything narrower. */
+  .panel-tabs button { flex: none; white-space: nowrap; padding: 8px 6px; font-size: 13px; }
+  .panel-tabs .count { margin-left: 3px; }
+  .panel-body { padding: 16px 16px 48px; }
+
+  .evidence-item { padding: 12px 13px; }
+  .viz { padding: 12px; }
+  /* The algorithm chart gets the panel's width back from its own padding, which is the difference
+     between a three-wide graph fitting and scrolling. */
+  .algo-head { padding: 12px 12px 0; }
+  .algo-scroll { padding: 0 4px 4px; }
+  .algo-card { padding: 12px 12px 13px; }
+
+  .escape-map { grid-template-columns: repeat(16, 1fr); }
+}
+
+/* The top bar in two rows: brand and theme, then the three views sharing the width equally. */
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; gap: 2px 8px; padding: 6px 12px; }
+  .topbar .brand small { display: none; }
+  .tabs { order: 3; width: 100%; }
+  .tabs button { flex: 1; padding: 6px 4px; }
+
+  /* A register no longer fits beside its gutter, so the gutter goes above it. The lanes are sized
+     as sixteenths of the row whatever the row holds, which keeps an 8-lane SWAR word's lanes in the
+     same columns as the 16-lane registers around it -- a value still only moves straight down. */
+  .vec-row { flex-direction: column; align-items: stretch; gap: 2px; margin-bottom: 3px; }
+  .vec-gutter { width: auto; flex-direction: row; align-items: baseline; gap: 8px; text-align: left; }
+  .vec-lanes { width: 100%; }
+  .vec-lane { flex: none; width: calc((100% - 30px) / 16); }
+  .vec-op-row .vec-gutter { display: none; }
 }

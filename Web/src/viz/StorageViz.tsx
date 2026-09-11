@@ -159,28 +159,30 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
             <strong>sealedPosition(of:)</strong>
             <code>one clz, not a search</code>
           </div>
-          <table className="entry-table">
-            <thead>
-              <tr>
-                <th>position</th>
-                <th>block</th>
-                <th>offset in block</th>
-                <th>byte</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trace.locate.map((entry) => (
-                <tr key={entry.position}>
-                  <td className="mono">{entry.position}</td>
-                  <td className="mono">
-                    {entry.region === "tail" ? "tail" : entry.block}
-                  </td>
-                  <td className="mono">{entry.offset}</td>
-                  <td className="mono">{String.fromCharCode(entry.byte)}</td>
+          <div className="entry-scroll">
+            <table className="entry-table">
+              <thead>
+                <tr>
+                  <th>position</th>
+                  <th>block</th>
+                  <th>offset in block</th>
+                  <th>byte</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {trace.locate.map((entry) => (
+                  <tr key={entry.position}>
+                    <td className="mono">{entry.position}</td>
+                    <td className="mono">
+                      {entry.region === "tail" ? "tail" : entry.block}
+                    </td>
+                    <td className="mono">{entry.offset}</td>
+                    <td className="mono">{String.fromCharCode(entry.byte)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="table-note">
             The schedule is a pure function of the first block's shift and the block index, so
             locating a byte inverts it in closed form — inside the doubling ramp the block index is{" "}
@@ -469,26 +471,28 @@ function DictionaryPanel({ trace, index }: { trace: CollectionTrace; index: numb
         ]}
       />
 
-      <table className="entry-table">
-        <thead>
-          <tr>
-            <th>lookup</th>
-            <th>hash</th>
-            <th>probe chain</th>
-            <th>slot</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trace.dictionary.lookups.map((lookup) => (
-            <tr key={lookup.key} className={lookup.found ? "" : "untouched"}>
-              <td className="mono">{JSON.stringify(lookup.key)}</td>
-              <td className="mono">{lookup.hash}</td>
-              <td className="mono">{lookup.buckets.join(" → ")}</td>
-              <td className="mono">{lookup.found ? lookup.slot : "miss"}</td>
+      <div className="entry-scroll">
+        <table className="entry-table">
+          <thead>
+            <tr>
+              <th>lookup</th>
+              <th>hash</th>
+              <th>probe chain</th>
+              <th>slot</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {trace.dictionary.lookups.map((lookup) => (
+              <tr key={lookup.key} className={lookup.found ? "" : "untouched"}>
+                <td className="mono">{JSON.stringify(lookup.key)}</td>
+                <td className="mono">{lookup.hash}</td>
+                <td className="mono">{lookup.buckets.join(" → ")}</td>
+                <td className="mono">{lookup.found ? lookup.slot : "miss"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <p className="viz-caption">
         A byte-keyed slot table rather than a <code>[String: Int]</code>: 12–17 ns per hit against

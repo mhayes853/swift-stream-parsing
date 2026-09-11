@@ -215,7 +215,7 @@ export function Graveyard({ sections }: { sections: DocSection[] }) {
           type="search"
           value={query}
           aria-label="Search every experiment"
-          placeholder="Search titles, summaries and the whole of every write-up…"
+          placeholder="Search every write-up in full…"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") setQuery("");

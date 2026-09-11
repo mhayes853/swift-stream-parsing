@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DocSection, Pipeline, PipelineEdge, PipelineNode } from "../types";
 import type { Curve } from "./graph";
 import { DASH, KIND_GLYPH, KIND_WORD, at, clamp, placeLabels, plain, route, wrap } from "./graph";
@@ -42,9 +42,11 @@ const MAX_LANE_W = 132;
  * it describes; what is left pays for the lane gutter and then splits between the columns. The
  * node width is the only slack in the system, so it absorbs the difference and the chart fits.
  */
-function layoutFor(available: number, columns: number) {
-  // Rounded: a fractional node width puts every rect edge and centred label on a half pixel.
-  const railW = Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W));
+function layoutFor(available: number, columns: number, rail: boolean) {
+  // Rounded: a fractional node width puts every rect edge and centred label on a half pixel. With
+  // no hover there is no card to put in the rail, and on a phone its 250px were a third of the
+  // sideways scroll.
+  const railW = rail ? Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W)) : 0;
   const laneW = Math.round(clamp((available - railW) * 0.13, MIN_LANE_W, MAX_LANE_W));
   const forColumns = available - railW - laneW - PAD * 2;
   const nodeW = Math.floor(clamp((forColumns + COL_GAP) / columns - COL_GAP, MIN_NODE_W, MAX_NODE_W));
@@ -52,6 +54,23 @@ function layoutFor(available: number, columns: number) {
   const graphWidth = laneW + content + PAD * 2;
   return { nodeW, laneW, railW, content, graphWidth, width: graphWidth + railW };
 }
+/**
+ * Whether the primary pointer can hover. The call card opens on hover, and a touch screen has none
+ * to open it with: a tap fires the emulated `mouseenter` and then the click that opens the panel
+ * over it, so the card is only ever seen for a frame.
+ */
+function useCanHover() {
+  const query = "(hover: hover)";
+  const [canHover, setCanHover] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const media = matchMedia(query);
+    const update = () => setCanHover(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return canHover;
+}
+
 // Row 0's same-row arcs rise above their nodes like every other row's, so the first row needs
 // headroom the others get for free from the row above.
 const TOP = 52;
@@ -94,6 +113,7 @@ export function FlowChart({
   onSelect: (node: PipelineNode) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const canHover = useCanHover();
   // The card's height is content-dependent and only known after layout; it is measured back up to
   // here because the leader line has to start at an edge of the real box.
   const [cardHeight, setCardHeight] = useState(0);
@@ -123,7 +143,7 @@ export function FlowChart({
       nodes: pipeline.nodes.filter((n) => n.stage === stage.id)
     }));
     const widest = Math.max(...rows.map((r) => r.nodes.length));
-    const geo = layoutFor(available, widest);
+    const geo = layoutFor(available, widest, canHover);
     const { nodeW: NODE_W, laneW: LANE_W, content, graphWidth, width } = geo;
     const height = rows.length * (NODE_H + ROW_GAP) + TOP + PAD;
 
@@ -148,7 +168,7 @@ export function FlowChart({
 
     const byId = new Map(placed.map((p) => [p.node.id, p]));
     return { placed, byId, width, height, graphWidth, geo, rows };
-  }, [pipeline, sections, available]);
+  }, [pipeline, sections, available, canHover]);
 
   const edges = useMemo(() => {
     const out: Edge[] = [];
@@ -198,13 +218,13 @@ export function FlowChart({
   // the canvas. `.flow-scroll` clips vertically, so a card taller than the room below its node
   // would otherwise lose its last entries off the bottom.
   const card = useMemo(() => {
-    if (!activeNode || activeNode.node.next.length === 0) return null;
+    if (!canHover || !activeNode || activeNode.node.next.length === 0) return null;
     const left = graphWidth + RAIL_GAP;
     const cardWidth = geo.railW - RAIL_GAP * 2;
     const h = cardHeight || NODE_H;
     const top = Math.min(Math.max(8, activeNode.cy - h / 2), Math.max(8, height - h - 8));
     return { left, top, width: cardWidth, height: h };
-  }, [activeNode, cardHeight, graphWidth, geo, height]);
+  }, [canHover, activeNode, cardHeight, graphWidth, geo, height]);
   const neighbours = useMemo(() => {
     if (!active) return new Set<string>();
     const set = new Set<string>([active]);
@@ -421,8 +441,6 @@ function CallCard({
   width: number;
   onMeasure: (height: number) => void;
 }) {
-  const node = placed.node;
-  const numbered = node.ordering === "ordered" && node.next.length > 1;
   const ref = useRef<HTMLDivElement>(null);
 
   // Report the rendered height so the parent can face the card at its node and draw the leader to
@@ -433,7 +451,26 @@ function CallCard({
 
   return (
     <div ref={ref} className="flow-card" style={{ left, top, width }}>
-      <h4>{node.title}</h4>
+      <h4>{placed.node.title}</h4>
+      <Reaches node={placed.node} titleOf={(id) => byId.get(id)?.node.title} />
+    </div>
+  );
+}
+
+/**
+ * The body of the call card, without the card. The detail panel draws it too on a touch screen,
+ * where there is no hover to open the card with and no rail beside the chart to put it in.
+ */
+export function Reaches({
+  node,
+  titleOf
+}: {
+  node: PipelineNode;
+  titleOf: (id: string) => string | undefined;
+}) {
+  const numbered = node.ordering === "ordered" && node.next.length > 1;
+  return (
+    <>
       {node.invokes && <p className="flow-card-invokes">{inline(node.invokes, "inv")}</p>}
       <p className="flow-card-rule">
         {node.next.length === 1
@@ -443,31 +480,28 @@ function CallCard({
             : `${node.next.length} arrows, in no particular order:`}
       </p>
       <ol className="flow-card-edges">
-        {node.next.map((edge, i) => {
-          const target = byId.get(edge.to);
-          return (
-            <li key={edge.to}>
-              <span className={`flow-card-marker kind-${edge.kind}`}>
-                {numbered ? i + 1 : KIND_GLYPH[edge.kind]}
-              </span>
-              <div>
-                <p className="flow-card-head">
-                  <span className="flow-card-label">{inline(edge.label, `l-${i}`)}</span>
-                  <span className="flow-card-arrow"> → </span>
-                  <span className="flow-card-target">{target?.node.title ?? edge.to}</span>
+        {node.next.map((edge, i) => (
+          <li key={edge.to}>
+            <span className={`flow-card-marker kind-${edge.kind}`}>
+              {numbered ? i + 1 : KIND_GLYPH[edge.kind]}
+            </span>
+            <div>
+              <p className="flow-card-head">
+                <span className="flow-card-label">{inline(edge.label, `l-${i}`)}</span>
+                <span className="flow-card-arrow"> → </span>
+                <span className="flow-card-target">{titleOf(edge.to) ?? edge.to}</span>
+              </p>
+              {edge.when && (
+                <p>
+                  <span className={`flow-card-kind kind-${edge.kind}`}>{KIND_WORD[edge.kind]}</span>
+                  {inline(edge.when, `w-${i}`)}
                 </p>
-                {edge.when && (
-                  <p>
-                    <span className={`flow-card-kind kind-${edge.kind}`}>{KIND_WORD[edge.kind]}</span>
-                    {inline(edge.when, `w-${i}`)}
-                  </p>
-                )}
-              </div>
-            </li>
-          );
-        })}
+              )}
+            </div>
+          </li>
+        ))}
       </ol>
-    </div>
+    </>
   );
 }
 
