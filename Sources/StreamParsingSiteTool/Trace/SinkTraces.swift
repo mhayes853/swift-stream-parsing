@@ -12,7 +12,7 @@ import Foundation
 ///
 /// This is the disposition contract exercised rather than described: the sink answers `.skip`,
 /// the parser scans the subtree at structural speed, and the matching close still arrives.
-struct SkippingSink: StreamParseSink {
+struct SkippingSink: BufferRecordingSink {
   var events: [RecordingSink.Event] = []
   var streamFailure: StreamSinkFailure?
   var base: UnsafeRawPointer?
@@ -24,19 +24,15 @@ struct SkippingSink: StreamParseSink {
   private var armed = false
 
   mutating func beginObject() -> StreamContainerDisposition {
-    self.events.append(RecordingSink.Event(kind: "beginObject", text: nil))
+    self.events.append(RecordingSink.Event(kind: "beginObject"))
     return self.take()
   }
-  mutating func endObject() {
-    self.events.append(RecordingSink.Event(kind: "endObject", text: nil))
-  }
+  mutating func endObject() { self.events.append(RecordingSink.Event(kind: "endObject")) }
   mutating func beginArray() -> StreamContainerDisposition {
-    self.events.append(RecordingSink.Event(kind: "beginArray", text: nil))
+    self.events.append(RecordingSink.Event(kind: "beginArray"))
     return self.take()
   }
-  mutating func endArray() {
-    self.events.append(RecordingSink.Event(kind: "endArray", text: nil))
-  }
+  mutating func endArray() { self.events.append(RecordingSink.Event(kind: "endArray")) }
 
   mutating func key(_ bytes: Span<UInt8>) {
     var matches = self.skipKey.count == bytes.count
@@ -55,11 +51,9 @@ struct SkippingSink: StreamParseSink {
     self.append("key", bytes)
   }
   mutating func string(_ bytes: Span<UInt8>) { self.append("string", bytes) }
-  mutating func stringBegin() {
-    self.events.append(RecordingSink.Event(kind: "stringBegin", text: nil))
-  }
+  mutating func stringBegin() { self.events.append(RecordingSink.Event(kind: "stringBegin")) }
   mutating func stringChunk(_ bytes: Span<UInt8>) { self.append("stringChunk", bytes) }
-  mutating func stringEnd() { self.events.append(RecordingSink.Event(kind: "stringEnd", text: nil)) }
+  mutating func stringEnd() { self.events.append(RecordingSink.Event(kind: "stringEnd")) }
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) { self.append("number", bytes) }
   mutating func boolean(_ value: Bool) {
     self.events.append(RecordingSink.Event(kind: "boolean", text: value ? "true" : "false"))
@@ -72,22 +66,7 @@ struct SkippingSink: StreamParseSink {
   }
 
   private mutating func append(_ kind: String, _ bytes: Span<UInt8>) {
-    var offset: Int?
-    if let base = self.base {
-      bytes.withUnsafeBufferPointer { buffer in
-        guard let start = buffer.baseAddress else { return }
-        let delta = UnsafeRawPointer(start) - base
-        if delta >= 0 && delta + buffer.count <= self.count { offset = delta }
-      }
-    }
-    self.events.append(
-      RecordingSink.Event(
-        kind: kind,
-        text: RecordingSink.text(bytes),
-        spanOffset: offset,
-        spanLength: bytes.count
-      )
-    )
+    self.events.append(.spanning(kind, bytes, base: self.base, count: self.count))
   }
 }
 
@@ -100,12 +79,10 @@ enum SinkTraces {
     "beginObject": ("beginObject() -> StreamContainerDisposition", "structure"),
     "endObject": ("endObject()", "structure"),
     "beginArray": ("beginArray() -> StreamContainerDisposition", "structure"),
-    "endArray": ("endArray()", "structure"),
-    "key": ("key(_ bytes: Span<UInt8>)", "key"),
+    "endArray": ("endArray()", "structure"), "key": ("key(_ bytes: Span<UInt8>)", "key"),
     "string": ("string(_ bytes: Span<UInt8>)", "whole"),
     "number": ("number(_ bytes: Span<UInt8>, info: NumberInfo)", "whole"),
-    "boolean": ("boolean(_ value: Bool)", "whole"),
-    "null": ("null()", "whole"),
+    "boolean": ("boolean(_ value: Bool)", "whole"), "null": ("null()", "whole"),
     "stringBegin": ("stringBegin()", "chunked"),
     "stringChunk": ("stringChunk(_ bytes: Span<UInt8>)", "chunked"),
     "stringEnd": ("stringEnd()", "chunked")
@@ -113,9 +90,9 @@ enum SinkTraces {
 
   /// Turns a recorded event stream into the call log the animation steps through, and checks each
   /// span against the bytes it claims to cover.
-  private static func calls(
-    _ events: [RecordingSink.Event], bytes: [UInt8]
-  ) -> (calls: [SinkCallTrace.Call], verified: Bool) {
+  private static func calls(_ events: [RecordingSink.Event], bytes: [UInt8]) -> (
+    calls: [SinkCallTrace.Call], verified: Bool
+  ) {
     var out: [SinkCallTrace.Call] = []
     var depth = 0
     var verified = true
@@ -136,17 +113,9 @@ enum SinkTraces {
       let shape = Self.shape[event.kind] ?? (signature: event.kind, group: "structure")
       out.append(
         SinkCallTrace.Call(
-          index: index,
-          method: event.kind,
-          signature: shape.signature,
-          text: event.text,
-          offset: event.spanOffset,
-          length: event.spanLength,
-          takesSpan: event.spanLength != nil,
-          depthAfter: depth,
-          group: shape.group
-        )
-      )
+          index: index, method: event.kind, signature: shape.signature, text: event.text,
+          offset: event.spanOffset, length: event.spanLength, takesSpan: event.spanLength != nil,
+          depthAfter: depth, group: shape.group))
     }
     return (out, verified)
   }
@@ -156,13 +125,7 @@ enum SinkTraces {
   static func sinkCalls(sample: String) throws -> SinkCallTrace {
     let bytes = Array(sample.utf8)
     var sink = RecordingSink()
-    var parser = JSONParser()
-    try bytes.withUnsafeBufferPointer { buffer in
-      sink.base = UnsafeRawPointer(buffer.baseAddress!)
-      sink.count = buffer.count
-      try parser.parse(buffer, into: &sink)
-    }
-    try parser.finish(into: &sink)
+    try sink.record(bytes)
     let (calls, verified) = Self.calls(sink.events, bytes: bytes)
     return SinkCallTrace(sample: sample, bytes: bytes, calls: calls, verified: verified)
   }
@@ -173,23 +136,11 @@ enum SinkTraces {
     let bytes = Array(sample.utf8)
 
     var streaming = RecordingSink()
-    var streamingParser = JSONParser()
-    try bytes.withUnsafeBufferPointer { buffer in
-      streaming.base = UnsafeRawPointer(buffer.baseAddress!)
-      streaming.count = buffer.count
-      try streamingParser.parse(buffer, into: &streaming)
-    }
-    try streamingParser.finish(into: &streaming)
+    try streaming.record(bytes)
 
     var skipping = SkippingSink()
     skipping.skipKey = Array(key.utf8)
-    var skippingParser = JSONParser()
-    try bytes.withUnsafeBufferPointer { buffer in
-      skipping.base = UnsafeRawPointer(buffer.baseAddress!)
-      skipping.count = buffer.count
-      try skippingParser.parse(buffer, into: &skipping)
-    }
-    try skippingParser.finish(into: &skipping)
+    try skipping.record(bytes)
 
     let (streamed, streamedOK) = Self.calls(streaming.events, bytes: bytes)
     let (skipped, skippedOK) = Self.calls(skipping.events, bytes: bytes)
@@ -199,7 +150,6 @@ enum SinkTraces {
     // walk over both settles it, and a mismatch means it is not a subsequence, which is a failure.
     var delivered = [Bool](repeating: false, count: streamed.count)
     var cursor = 0
-    var subsequence = true
     for (index, call) in streamed.enumerated() {
       guard cursor < skipped.count else { break }
       if skipped[cursor].method == call.method && skipped[cursor].text == call.text {
@@ -207,7 +157,7 @@ enum SinkTraces {
         cursor += 1
       }
     }
-    if cursor != skipped.count { subsequence = false }
+    let subsequence = cursor == skipped.count
 
     // The subtree's byte range: from the open bracket the sink refused to the close it still got.
     let ranges = ParserTraces.tokenRanges(bytes: bytes, events: streaming.events)
@@ -228,17 +178,10 @@ enum SinkTraces {
     let opens = skipped.filter { $0.method == "beginObject" || $0.method == "beginArray" }.count
 
     return DispositionTrace(
-      sample: sample,
-      bytes: bytes,
-      skippedKey: key,
-      streamed: streamed,
-      skipped: skipped,
-      delivered: delivered,
-      skipFrom: from,
-      skipTo: to,
+      sample: sample, bytes: bytes, skippedKey: key, streamed: streamed, skipped: skipped,
+      delivered: delivered, skipFrom: from, skipTo: to,
       verified: streamedOK && skippedOK && subsequence && opens == closes
-        && skipped.count < streamed.count
-    )
+        && skipped.count < streamed.count)
   }
 
   // MARK: The skip scanner
@@ -277,7 +220,6 @@ enum SinkTraces {
         i &+= 1
         var action = "literal"
         var scanner: String?
-        var emits = false
 
         switch byte {
         case UInt8(ascii: "{"):
@@ -292,15 +234,11 @@ enum SinkTraces {
           action = "close"
           if depth &- 1 == endDepth {
             // The event precedes the depth update, exactly as the shipped run orders them.
-            emits = true
             depth &-= 1
             steps.append(
               SkipRunTrace.Step(
-                offset: at, byte: byte, action: "done", scanner: nil, next: i,
-                depthBefore: before, depthAfter: depth,
-                containers: containerString(depth, containers), emits: emits
-              )
-            )
+                offset: at, byte: byte, action: "done", scanner: nil, next: i, depthBefore: before,
+                depthAfter: depth, containers: containerString(depth, containers), emits: true))
             end = i
             return
           }
@@ -321,25 +259,20 @@ enum SinkTraces {
             if terminator == UInt8(ascii: "\\") { j &+= 1 }
           }
           i = j
-        case UInt8(ascii: ","), UInt8(ascii: ":"):
-          action = "separator"
+        case UInt8(ascii: ","), UInt8(ascii: ":"): action = "separator"
         case UInt8(ascii: "-"), UInt8(ascii: "."), UInt8(ascii: "+"), UInt8(ascii: "E"),
           UInt8(ascii: "0")...UInt8(ascii: "9"):
           action = "number"
           scanner = "streamNumberRunEnd"
           // The whole byte class in one scan; the grammar walk over it is what the skip omits.
           i = streamNumberRunEnd(base: base, from: at, to: to)
-        default:
-          action = "literal"
+        default: break
         }
 
         steps.append(
           SkipRunTrace.Step(
-            offset: at, byte: byte, action: action, scanner: scanner, next: i,
-            depthBefore: before, depthAfter: depth,
-            containers: containerString(depth, containers), emits: emits
-          )
-        )
+            offset: at, byte: byte, action: action, scanner: scanner, next: i, depthBefore: before,
+            depthAfter: depth, containers: containerString(depth, containers), emits: false))
       }
       end = i
     }
@@ -352,24 +285,16 @@ enum SinkTraces {
     parser.skipEndDepth = UInt8(startDepth - 1)
     var sink = RecordingSink()
     let shippedEnd = try bytes.withUnsafeBytes { raw -> Int in
-      try parser.consumeSkipRun(
-        base: raw.baseAddress!, from: from, to: bytes.count, into: &sink
-      )
+      try parser.consumeSkipRun(base: raw.baseAddress!, from: from, to: bytes.count, into: &sink)
     }
 
     return SkipRunTrace(
-      sample: sample,
-      bytes: bytes,
-      from: from,
-      startDepth: startDepth,
-      steps: steps,
-      end: end,
+      sample: sample, bytes: bytes, from: from, startDepth: startDepth, steps: steps, end: end,
       shippedEnd: shippedEnd,
       // The mirror has to agree with the shipped scanner on the cursor, and the shipped scanner
       // has to have delivered exactly the one close the contract promises.
       verified: end == shippedEnd && sink.events.count == 1
-        && (sink.events[0].kind == "endObject" || sink.events[0].kind == "endArray")
-    )
+        && (sink.events[0].kind == "endObject" || sink.events[0].kind == "endArray"))
   }
 }
 
@@ -391,17 +316,12 @@ extension SinkTraces {
       case "beginArray":
         containers &= ~(1 << UInt64(depth))
         depth += 1
-      case "endObject", "endArray":
-        depth -= 1
-      default:
-        break
+      case "endObject", "endArray": depth -= 1
+      default: break
       }
     }
     return try Self.skipRun(
-      sample: disposition.sample,
-      from: disposition.skipFrom + 1,
-      startDepth: open.depthAfter,
-      containers: containers
-    )
+      sample: disposition.sample, from: disposition.skipFrom + 1, startDepth: open.depthAfter,
+      containers: containers)
   }
 }

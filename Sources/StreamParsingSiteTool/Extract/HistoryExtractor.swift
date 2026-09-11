@@ -24,10 +24,15 @@ struct HistoryExtractor {
   }
 
   func extract() -> (history: [String: DocHistory], revisions: [Revision], warnings: [String]) {
-    var warnings: [String] = []
-    guard let log = self.git(["log", "--reverse", "--date-order", "--format=%H%x1f%aI%x1f%s", "--", self.file]) else {
-      warnings.append("git is unavailable, or \(self.file) has no history here; sections will carry no dates")
-      return ([:], [], warnings)
+    guard
+      let log = self.git([
+        "log", "--reverse", "--date-order", "--format=%H%x1f%aI%x1f%s", "--", self.file
+      ])
+    else {
+      return (
+        [:], [],
+        ["git is unavailable, or \(self.file) has no history here; sections will carry no dates"]
+      )
     }
 
     let revisions: [Revision] = log.components(separatedBy: "\n").compactMap { line in
@@ -36,8 +41,7 @@ struct HistoryExtractor {
       return Revision(sha: parts[0], date: parts[1], subject: parts[2])
     }
     guard !revisions.isEmpty else {
-      warnings.append("no commits touch \(self.file); sections will carry no dates")
-      return ([:], [], warnings)
+      return ([:], [], ["no commits touch \(self.file); sections will carry no dates"])
     }
 
     // Only the previous revision's bodies are held, because the only question asked of a revision
@@ -55,14 +59,10 @@ struct HistoryExtractor {
       for (path, body) in current {
         guard var existing = history[path] else {
           history[path] = DocHistory(
-            recorded: revision.date,
-            recordedCommit: String(revision.sha.prefix(9)),
-            recordedSubject: revision.subject,
-            revised: revision.date,
-            revisedCommit: String(revision.sha.prefix(9)),
-            revisedSubject: revision.subject,
-            revisions: 1
-          )
+            recorded: revision.date, recordedCommit: String(revision.sha.prefix(9)),
+            recordedSubject: revision.subject, revised: revision.date,
+            revisedCommit: String(revision.sha.prefix(9)), revisedSubject: revision.subject,
+            revisions: 1)
           continue
         }
         guard previous[path] != body else { continue }
@@ -75,7 +75,7 @@ struct HistoryExtractor {
       previous = current
     }
 
-    return (history, revisions, warnings)
+    return (history, revisions, [])
   }
 
   private func git(_ arguments: [String]) -> String? {

@@ -63,7 +63,7 @@ struct DocSection: Encodable {
   var measurements: [Measurement]
   /// When this section was written and last rewritten, recovered from the document's git history
   /// by `HistoryExtractor`. `nil` only when the generator ran outside a git checkout.
-  var history: DocHistory?
+  var history: DocHistory? = nil
 }
 
 /// A section's dates. Author dates, kept as ISO 8601 with the offset they were written at, so the
@@ -90,10 +90,10 @@ struct TableCell: Encodable {
   var text: String
   var bold: Bool
   /// Parsed leading number, when the cell is one. `783` for `**783 MB/s**`, `17.6` for `+17.6%`.
-  var value: Double?
-  var unit: String?
+  var value: Double? = nil
+  var unit: String? = nil
   /// True when the cell reads as a signed delta (`+17.6%`, `-0.2%`).
-  var isDelta: Bool
+  var isDelta = false
 }
 
 /// A single payload's number pulled out of a table, so the payload view can ask "everything ever

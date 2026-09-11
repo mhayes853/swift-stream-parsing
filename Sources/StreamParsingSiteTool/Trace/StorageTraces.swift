@@ -10,10 +10,6 @@ import Foundation
 // rather than out of this file.
 
 enum StorageTraces {
-  private static func hex(_ value: UInt64) -> String {
-    "0x" + String(value, radix: 16, uppercase: true)
-  }
-
   // MARK: - StreamString
 
   /// A real `StreamString` fed chunks the size the parser feeds them, read back after each one.
@@ -31,17 +27,13 @@ enum StorageTraces {
       StreamStringTrace.Step(
         chunk: "", chunkBytes: 0, inlineCount: value.inlineCount, blocks: [],
         tailCount: value.tail.count, tailCapacity: value.tailBlockCapacity,
-        utf8Count: value.utf8Count, event: "inline"
-      )
-    )
+        utf8Count: value.utf8Count, event: "inline"))
 
     for chunk in chunks {
       let bytes = Array(chunk.utf8)
       let blocksBefore = value.blocks.count
       let inlineBefore = value.usesInlineStorage
-      bytes.withUnsafeBufferPointer { buffer in
-        _ = value.streamAppend(utf8: buffer.span)
-      }
+      bytes.withUnsafeBufferPointer { buffer in _ = value.streamAppend(utf8: buffer.span) }
       written.append(contentsOf: bytes)
 
       // Which of the four things this append did, decided by what changed rather than by the size
@@ -59,16 +51,10 @@ enum StorageTraces {
 
       steps.append(
         StreamStringTrace.Step(
-          chunk: chunk,
-          chunkBytes: bytes.count,
+          chunk: chunk, chunkBytes: bytes.count,
           inlineCount: value.usesInlineStorage ? value.inlineCount : 0,
-          blocks: value.blocks.map(\.count),
-          tailCount: value.tail.count,
-          tailCapacity: value.tailBlockCapacity,
-          utf8Count: value.utf8Count,
-          event: event
-        )
-      )
+          blocks: value.blocks.map(\.count), tailCount: value.tail.count,
+          tailCapacity: value.tailBlockCapacity, utf8Count: value.utf8Count, event: event))
     }
 
     // The closed-form locate, called on the shipped value: one `clz` inside the doubling ramp and
@@ -81,38 +67,29 @@ enum StorageTraces {
         locate.append(
           StreamStringTrace.Locate(
             position: position, block: value.blocks.count, offset: position - sealed,
-            byte: value.utf8[position], region: "tail"
-          )
-        )
+            byte: value.utf8[position], region: "tail"))
       } else {
         let found = value.sealedPosition(of: position)
         locate.append(
           StreamStringTrace.Locate(
             position: position, block: found.block, offset: found.offset,
-            byte: value.utf8[position], region: "sealed"
-          )
-        )
+            byte: value.utf8[position], region: "sealed"))
       }
     }
 
     // The reader has to hand back what went in, and every locate has to name a byte that agrees
     // with the block it points into.
-    var verified = value.utf8Count == written.count
-    if verified {
-      for index in 0..<written.count where value.utf8[index] != written[index] { verified = false }
-    }
-    for entry in locate where entry.region == "sealed" {
-      if value.blocks[entry.block][entry.offset] != entry.byte { verified = false }
-    }
+    let verified =
+      value.utf8Count == written.count
+      && written.indices.allSatisfy { value.utf8[$0] == written[$0] }
+      && locate.filter { $0.region == "sealed" }.allSatisfy {
+        value.blocks[$0.block][$0.offset] == $0.byte
+      }
 
     return StreamStringTrace(
-      inlineCapacity: StreamString.inlineCapacity,
-      firstBlockCapacity: StreamString.blockCapacity,
-      maximumBlockCapacity: 1 << StreamString.maximumBlockShift,
-      steps: steps,
-      locate: locate,
-      verified: verified
-    )
+      inlineCapacity: StreamString.inlineCapacity, firstBlockCapacity: StreamString.blockCapacity,
+      maximumBlockCapacity: 1 << StreamString.maximumBlockShift, steps: steps, locate: locate,
+      verified: verified)
   }
 
   // MARK: - StreamArray and StreamDictionary
@@ -159,22 +136,13 @@ enum StorageTraces {
       // A block copy while the snapshot holds it would show up here as the identity changing under
       // a plain append. A seal or a promotion changes it too, and legitimately -- the filling block
       // has moved on and the snapshot's is behind it -- so those stop the check rather than fail it.
-      if snapshotBlock != nil {
-        if event == "open" {
-          if !shared { blockCopiedWhileShared = true }
-        } else {
-          snapshotBlock = nil
-        }
-      }
+      if snapshotBlock != nil, event == "open", !shared { blockCopiedWhileShared = true }
+      if event != "open" { snapshotBlock = nil }
       arraySteps.append(
         CollectionTrace.ArrayStep(
-          index: index, value: index, blocks: array.blocks.map(\.count),
-          tailCount: array.tailCount, tailCapacity: capacity,
-          pending: array.pending, count: array.count,
-          sharedTail: shared,
-          event: event
-        )
-      )
+          index: index, value: index, blocks: array.blocks.map(\.count), tailCount: array.tailCount,
+          tailCapacity: capacity, pending: array.pending, count: array.count, sharedTail: shared,
+          event: event))
       if index == snapshotAt {
         snapshot = array
         snapshotBlock = tailIdentity(array)
@@ -187,19 +155,15 @@ enum StorageTraces {
         index: elements - 1, value: elements - 1, blocks: array.blocks.map(\.count),
         tailCount: array.tailCount, tailCapacity: array.tail?.slotCapacity ?? 0,
         pending: array.pending, count: array.count,
-        sharedTail: snapshotBlock != nil && tailIdentity(array) == snapshotBlock,
-        event: "commit"
-      )
-    )
-    if array.count != elements { verified = false }
-    for index in 0..<elements where array[index] != index { verified = false }
+        sharedTail: snapshotBlock != nil && tailIdentity(array) == snapshotBlock, event: "commit"))
+    verified = verified && array.count == elements && (0..<elements).allSatisfy { array[$0] == $0 }
 
     // The snapshot has to have stayed exactly what it was when it was taken -- the open element
     // it captured included -- while every append above went into the block it shares.
     let held = snapshot ?? StreamArray<Int>()
-    if held.count != snapshotAt + 1 { verified = false }
-    for index in 0..<held.count where held[index] != index { verified = false }
-    if blockCopiedWhileShared { verified = false }
+    verified =
+      verified && held.count == snapshotAt + 1 && (0..<held.count).allSatisfy { held[$0] == $0 }
+      && !blockCopiedWhileShared
 
     // The dictionary, filled through `_openValue`: the same call the sink makes for a dynamic key.
     var dictionary = StreamDictionary<Int>()
@@ -212,12 +176,10 @@ enum StorageTraces {
       }
       dictSteps.append(
         CollectionTrace.DictStep(
-          key: key, hash: Self.hex(hash), entryCount: dictionary.entries.count,
-          storedValueCount: dictionary.storedValues.count,
-          tableCount: dictionary.table?.count ?? 0, pendingSlot: dictionary.pendingSlot,
-          event: dictionary.table != nil && dictSteps.last?.tableCount == 0 ? "index" : "open"
-        )
-      )
+          key: key, hash: traceHex(hash), entryCount: dictionary.entries.count,
+          storedValueCount: dictionary.storedValues.count, tableCount: dictionary.table?.count ?? 0,
+          pendingSlot: dictionary.pendingSlot,
+          event: dictionary.table != nil && dictSteps.last?.tableCount == 0 ? "index" : "open"))
     }
     dictionary.drainPending()
     let slots = dictionary.table.map { Array($0) } ?? []
@@ -249,34 +211,24 @@ enum StorageTraces {
       }
       lookups.append(
         CollectionTrace.Lookup(
-          key: key, hash: Self.hex(hash), buckets: buckets, slot: slot ?? -1, found: slot != nil
-        )
-      )
+          key: key, hash: traceHex(hash), buckets: buckets, slot: slot ?? -1, found: slot != nil))
       // The recorded chain has to end where the shipped lookup ended.
-      if let slot, dictionary.table != nil, buckets.last != nil,
-        dictionary.table![buckets.last!] != slot
-      {
+      if let slot, let table = dictionary.table, let bucket = buckets.last, table[bucket] != slot {
         verified = false
       }
       if (slot != nil) != keys.contains(key) { verified = false }
     }
-    if dictionary.count != keys.count { verified = false }
-    for (index, key) in keys.enumerated() where dictionary[key] != index { verified = false }
+    verified =
+      verified && dictionary.count == keys.count
+      && keys.enumerated().allSatisfy { dictionary[$0.element] == $0.offset }
 
     return CollectionTrace(
       array: CollectionTrace.ArrayTrace(
         blockCapacity: StreamArray<Int>.blockCapacity,
-        initialTailCapacity: StreamArray<Int>.initialTailCapacity,
-        snapshotAfter: snapshotAt,
-        steps: arraySteps
-      ),
+        initialTailCapacity: StreamArray<Int>.initialTailCapacity, snapshotAfter: snapshotAt,
+        steps: arraySteps),
       dictionary: CollectionTrace.DictionaryTrace(
-        indexThreshold: StreamDictionary<Int>.indexThreshold,
-        steps: dictSteps,
-        slots: slots,
-        lookups: lookups
-      ),
-      verified: verified
-    )
+        indexThreshold: StreamDictionary<Int>.indexThreshold, steps: dictSteps, slots: slots,
+        lookups: lookups), verified: verified)
   }
 }

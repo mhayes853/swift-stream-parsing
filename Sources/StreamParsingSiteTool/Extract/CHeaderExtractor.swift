@@ -12,7 +12,7 @@ struct CHeaderExtractor {
   func extract() throws -> [String: [SourceDecl]] {
     let text = try String(contentsOfFile: self.path, encoding: .utf8)
     let lines = text.components(separatedBy: "\n")
-    let basename = self.path.lastPathComponentSlice
+    let basename = URL(fileURLWithPath: self.path).lastPathComponent
     var out: [String: [SourceDecl]] = [:]
     var index = 0
 
@@ -33,37 +33,28 @@ struct CHeaderExtractor {
       }
 
       var commentStart = declStart
-      while commentStart > 0, lines[commentStart - 1].trimmingCharacters(in: .whitespaces).hasPrefix("//") {
-        commentStart -= 1
-      }
+      while commentStart > 0,
+        lines[commentStart - 1].trimmingCharacters(in: .whitespaces).hasPrefix("//")
+      { commentStart -= 1 }
       let comment =
         commentStart < declStart
-        ? lines[commentStart..<declStart]
-          .map { line -> String in
-            var s = Substring(line.trimmingCharacters(in: .whitespaces))
-            while s.hasPrefix("/") { s = s.dropFirst() }
-            if s.hasPrefix(" ") { s = s.dropFirst() }
-            return String(s)
-          }
-          .joined(separator: "\n")
-        : nil
+        ? lines[commentStart..<declStart].map { line -> String in
+          var s = Substring(line.trimmingCharacters(in: .whitespaces))
+          while s.hasPrefix("/") { s = s.dropFirst() }
+          if s.hasPrefix(" ") { s = s.dropFirst() }
+          return String(s)
+        }.joined(separator: "\n") : nil
 
       let end = Self.declarationEnd(lines, from: index)
       out["\(basename):\(name)", default: []].append(
         SourceDecl(
-          symbol: name,
-          qualifiedName: name,
+          symbol: name, qualifiedName: name,
           kind: lines[declStart...end].contains(where: { $0.contains("{") }) ? "c-func" : "c-decl",
-          file: self.path,
-          startLine: declStart + 1,
-          endLine: end + 1,
-          attributes: lines[declStart..<index].contains(where: { $0.contains("STREAM_PARSING_SIMD_SHIM") })
-            || lines[index].contains("STREAM_PARSING_SIMD_SHIM") ? ["static inline always_inline"] : [],
+          file: self.path, startLine: declStart + 1, endLine: end + 1,
+          attributes: lines[declStart...index].contains { $0.contains("STREAM_PARSING_SIMD_SHIM") }
+            ? ["static inline always_inline"] : [],
           comment: comment?.isEmpty == false ? comment : nil,
-          code: lines[declStart...end].joined(separator: "\n"),
-          members: []
-        )
-      )
+          code: lines[declStart...end].joined(separator: "\n"), members: []))
       index = end + 1
     }
     return out
@@ -74,11 +65,12 @@ struct CHeaderExtractor {
   static func functionName(in line: String) -> String? {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     guard !trimmed.hasPrefix("//"), !trimmed.hasPrefix("#"), !trimmed.hasPrefix("typedef"),
-      !trimmed.hasPrefix("return"), !trimmed.hasPrefix("extern")
+      !trimmed.hasPrefix("return")
     else { return nil }
     guard let open = trimmed.firstIndex(of: "(") else { return nil }
     let head = trimmed[..<open]
-    guard let last = head.split(whereSeparator: { !($0.isLetter || $0.isNumber || $0 == "_") }).last,
+    guard
+      let last = head.split(whereSeparator: { !($0.isLetter || $0.isNumber || $0 == "_") }).last,
       last.hasPrefix("stream_parsing_")
     else { return nil }
     return String(last)

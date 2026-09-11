@@ -12,10 +12,8 @@ struct DocumentExtractor {
 
   func extract() -> (DocBundle, [String]) {
     let walk = Self.walk(lines: self.text.components(separatedBy: "\n"))
-    var sections = walk.entries.map { entry in
-      self.makeSection(entry.heading, markdown: entry.body)
-    }
-    sections = Self.propagateVerdicts(sections)
+    let sections = Self.propagateVerdicts(
+      walk.entries.map { self.makeSection($0.heading, markdown: $0.body) })
     return (DocBundle(path: self.path, title: walk.title, sections: sections), walk.warnings)
   }
 
@@ -42,27 +40,28 @@ struct DocumentExtractor {
 
     func closePending(endLine: Int) {
       guard let p = pending else { return }
-      let body = lines[p.bodyStart..<endLine].joined(separator: "\n")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+      defer { pending = nil }
+      let body = lines[p.bodyStart..<endLine].joined(separator: "\n").trimmingCharacters(
+        in: .whitespacesAndNewlines)
       entries.append(Entry(heading: p.heading, body: body))
     }
 
     for (index, line) in lines.enumerated() {
       // Headings inside a fenced block are not headings. The doc quotes shell and markdown, so
       // this is not hypothetical.
-      if line.hasPrefix("```") {
+      if Self.fenceInfo(line) != nil {
         inFence.toggle()
         continue
       }
       if inFence { continue }
       guard let level = Self.headingLevel(line) else { continue }
       let raw = String(line.dropFirst(level + 1)).trimmingCharacters(in: .whitespaces)
+      closePending(endLine: index)
       if level == 1 {
         title = raw
+        stack.removeAll()
         continue
       }
-
-      closePending(endLine: index)
 
       while let last = stack.last, last.level >= level { stack.removeLast() }
       let parentPath = stack.last?.path
@@ -83,9 +82,7 @@ struct DocumentExtractor {
       pending = (
         Heading(
           path: candidate, slug: slug, title: raw, level: level, parent: parentPath,
-          chapter: chapter, line: index + 1
-        ),
-        index + 1
+          chapter: chapter, line: index + 1), index + 1
       )
     }
     closePending(endLine: lines.count)
@@ -105,22 +102,12 @@ struct DocumentExtractor {
   private func makeSection(_ h: Heading, markdown: String) -> DocSection {
     let tables = Self.parseTables(markdown)
     return DocSection(
-      path: h.path,
-      slug: h.slug,
-      title: h.title,
-      level: h.level,
-      parentPath: h.parent,
-      chapter: h.chapter,
-      line: h.line,
-      verdict: Self.verdict(title: h.title, body: markdown),
-      markdown: markdown,
-      summary: Self.summarize(markdown),
-      tables: tables,
-      codeBlocks: Self.parseCodeBlocks(markdown),
-      measurements: Self.measurements(in: tables),
+      path: h.path, slug: h.slug, title: h.title, level: h.level, parentPath: h.parent,
+      chapter: h.chapter, line: h.line, verdict: Self.verdict(title: h.title, body: markdown),
+      markdown: markdown, summary: Self.summarize(markdown), tables: tables,
+      codeBlocks: Self.parseCodeBlocks(markdown), measurements: Self.measurements(in: tables),
       // Filled in afterwards: dating a section means replaying every past revision of the
       // document, which is one git walk for the whole file rather than one per heading.
-      history: nil
     )
   }
 
@@ -133,11 +120,16 @@ struct DocumentExtractor {
     return hashes
   }
 
+  static func fenceInfo(_ line: String) -> Substring? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed.hasPrefix("```") ? trimmed.dropFirst(3) : nil
+  }
+
   static func slugify(_ raw: String) -> String {
     var out = ""
     var lastWasDash = true
     for scalar in raw.lowercased().unicodeScalars {
-      if ("a"..."z").contains(String(scalar)) || ("0"..."9").contains(String(scalar)) || scalar == "_" {
+      if (48...57).contains(scalar.value) || (97...122).contains(scalar.value) || scalar == "_" {
         out.unicodeScalars.append(scalar)
         lastWasDash = false
       } else if !lastWasDash {
@@ -157,8 +149,9 @@ struct DocumentExtractor {
     let t = title.lowercased()
     let rejectedInTitle = ["rejected", "not kept", "loses outright", "left alone", "closed door"]
       .contains { t.contains($0) }
-    let landedInTitle = ["landed", "retained", "and kept", "(done)", "shipped"]
-      .contains { t.contains($0) }
+    let landedInTitle = ["landed", "retained", "and kept", "(done)", "shipped"].contains {
+      t.contains($0)
+    }
     if rejectedInTitle && landedInTitle { return "mixed" }
     if rejectedInTitle { return "rejected" }
     if landedInTitle { return "landed" }
@@ -177,7 +170,9 @@ struct DocumentExtractor {
       childVerdicts[parent, default: []].insert(s.verdict)
     }
     return sections.map { section in
-      guard section.verdict == "neutral", let kinds = childVerdicts[section.path] else { return section }
+      guard section.verdict == "neutral", let kinds = childVerdicts[section.path] else {
+        return section
+      }
       var copy = section
       copy.verdict = kinds.count == 1 ? kinds.first! : "mixed"
       return copy
@@ -190,7 +185,10 @@ struct DocumentExtractor {
     var paragraph: [String] = []
     var inFence = false
     for line in markdown.components(separatedBy: "\n") {
-      if line.hasPrefix("```") { inFence.toggle(); continue }
+      if Self.fenceInfo(line) != nil {
+        inFence.toggle()
+        continue
+      }
       if inFence { continue }
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       if trimmed.isEmpty {
@@ -223,12 +221,14 @@ struct DocumentExtractor {
     var current: [String]?
     var language = ""
     for line in markdown.components(separatedBy: "\n") {
-      if line.hasPrefix("```") {
+      if let info = Self.fenceInfo(line) {
         if let body = current {
-          blocks.append(DocCodeBlock(language: language.isEmpty ? "text" : language, code: body.joined(separator: "\n")))
+          blocks.append(
+            DocCodeBlock(
+              language: language.isEmpty ? "text" : language, code: body.joined(separator: "\n")))
           current = nil
         } else {
-          language = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+          language = info.trimmingCharacters(in: .whitespaces)
           current = []
         }
         continue
@@ -253,11 +253,15 @@ struct DocumentExtractor {
       let rows = run[2...].map { splitRow($0).map(parseCell) }
       guard !headers.isEmpty else { return }
       let labelColumn = rows.allSatisfy { $0.first?.value == nil } ? 0 : nil
-      tables.append(DocTable(headers: headers, rows: Array(rows), labelColumn: labelColumn))
+      tables.append(DocTable(headers: headers, rows: rows, labelColumn: labelColumn))
     }
 
     for line in markdown.components(separatedBy: "\n") {
-      if line.hasPrefix("```") { inFence.toggle(); flush(); continue }
+      if Self.fenceInfo(line) != nil {
+        inFence.toggle()
+        flush()
+        continue
+      }
       if inFence { continue }
       if line.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
         run.append(line)
@@ -304,22 +308,15 @@ struct DocumentExtractor {
       scanner = scanner.dropFirst()
     }
     let digits = scanner.prefix { $0.isNumber || $0 == "." || $0 == "," }
-    guard !digits.isEmpty, digits.contains(where: { $0.isNumber }) else {
-      return TableCell(text: text, bold: bold, value: nil, unit: nil, isDelta: false)
-    }
     let numeric = digits.replacingOccurrences(of: ",", with: "")
-    guard var value = Double(numeric) else {
-      return TableCell(text: text, bold: bold, value: nil, unit: nil, isDelta: false)
+    guard !digits.isEmpty, digits.contains(where: \.isNumber), var value = Double(numeric) else {
+      return TableCell(text: text, bold: bold)
     }
     if signed, text.hasPrefix("-") || text.hasPrefix("−") { value = -value }
     let unit = scanner.dropFirst(digits.count).trimmingCharacters(in: .whitespaces)
     return TableCell(
-      text: text,
-      bold: bold,
-      value: value,
-      unit: unit.isEmpty ? nil : unit,
-      isDelta: signed && unit.hasPrefix("%")
-    )
+      text: text, bold: bold, value: value, unit: unit.isEmpty ? nil : unit,
+      isDelta: signed && unit.hasPrefix("%"))
   }
 
   // MARK: - Measurements
@@ -328,9 +325,9 @@ struct DocumentExtractor {
   static let payloadKeys: [(needle: String, payload: String)] = [
     ("twitterescaped", "twitterescaped"), ("twitter escaped", "twitterescaped"),
     ("citm", "citm_catalog"), ("canada", "canada"), ("gsoc", "gsoc-2018"),
-    ("github", "github_events"), ("llm", "llm_message"), ("twitter", "twitter"),
-    ("mesh", "mesh"), ("qwen", "qwen"), ("pretty", "pretty_printed"),
-    ("matrix", "matrix"), ("unicode", "unicode_escapes")
+    ("github", "github_events"), ("llm", "llm_message"), ("twitter", "twitter"), ("mesh", "mesh"),
+    ("qwen", "qwen"), ("pretty", "pretty_printed"), ("matrix", "matrix"),
+    ("unicode", "unicode_escapes")
   ]
 
   static func payload(for label: String) -> String? {
@@ -340,21 +337,19 @@ struct DocumentExtractor {
 
   static func measurements(in tables: [DocTable]) -> [Measurement] {
     var out: [Measurement] = []
+    func add(_ cell: TableCell, payload: String, label: String, column: String) {
+      guard let value = cell.value else { return }
+      out.append(
+        Measurement(
+          payload: payload, rowLabel: label, column: column, value: value, unit: cell.unit,
+          isDelta: cell.isDelta))
+    }
     for table in tables {
       for row in table.rows {
         guard let label = row.first?.text, let payload = payload(for: label) else { continue }
         for (column, cell) in row.enumerated().dropFirst() {
-          guard let value = cell.value, column < table.headers.count else { continue }
-          out.append(
-            Measurement(
-              payload: payload,
-              rowLabel: label,
-              column: table.headers[column],
-              value: value,
-              unit: cell.unit,
-              isDelta: cell.isDelta
-            )
-          )
+          guard column < table.headers.count else { continue }
+          add(cell, payload: payload, label: label, column: table.headers[column])
         }
       }
       // Some tables put the payloads across the header instead of down the label column
@@ -362,18 +357,8 @@ struct DocumentExtractor {
       for (column, header) in table.headers.enumerated().dropFirst() {
         guard let payload = payload(for: header) else { continue }
         for row in table.rows {
-          guard column < row.count, let value = row[column].value, let label = row.first?.text
-          else { continue }
-          out.append(
-            Measurement(
-              payload: payload,
-              rowLabel: label,
-              column: header,
-              value: value,
-              unit: row[column].unit,
-              isDelta: row[column].isDelta
-            )
-          )
+          guard column < row.count, let label = row.first?.text else { continue }
+          add(row[column], payload: payload, label: label, column: header)
         }
       }
     }

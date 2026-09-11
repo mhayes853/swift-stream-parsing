@@ -1,16 +1,50 @@
 import Foundation
 import StreamParsingCore
 
+func inputOffset(_ bytes: Span<UInt8>, base: UnsafeRawPointer?, count: Int) -> Int? {
+  guard let base else { return nil }
+  return bytes.withUnsafeBufferPointer { buffer in
+    guard let start = buffer.baseAddress else { return nil }
+    let offset = UnsafeRawPointer(start) - base
+    return offset >= 0 && offset + buffer.count <= count ? offset : nil
+  }
+}
+
+protocol BufferRecordingSink: ~Copyable, StreamParseSink {
+  var base: UnsafeRawPointer? { get set }
+  var count: Int { get set }
+}
+
+extension BufferRecordingSink where Self: ~Copyable {
+  mutating func record(_ bytes: [UInt8]) throws {
+    var parser = JSONParser()
+    try bytes.withUnsafeBufferPointer { buffer in
+      self.base = UnsafeRawPointer(buffer.baseAddress!)
+      self.count = buffer.count
+      try parser.parse(buffer, into: &self)
+    }
+    try parser.finish(into: &self)
+  }
+}
+
 /// A sink that keeps the token stream. Nothing here is a reimplementation: these are the calls the
 /// parser makes, in the order it makes them.
-struct RecordingSink: StreamParseSink {
+struct RecordingSink: BufferRecordingSink {
   struct Event {
     var kind: String
-    var text: String?
+    var text: String? = nil
     /// Where the span the parser passed sits in the buffer that was parsed, when it passed one.
     /// This is the parser's own answer to "which bytes is this token", not a rescan of the input.
-    var spanOffset: Int?
-    var spanLength: Int?
+    var spanOffset: Int? = nil
+    var spanLength: Int? = nil
+
+    static func spanning(_ kind: String, _ bytes: Span<UInt8>, base: UnsafeRawPointer?, count: Int)
+      -> Self
+    {
+      return Self(
+        kind: kind, text: RecordingSink.text(bytes),
+        spanOffset: inputOffset(bytes, base: base, count: count), spanLength: bytes.count)
+    }
   }
 
   var events: [Event] = []
@@ -20,32 +54,24 @@ struct RecordingSink: StreamParseSink {
   var count: Int = 0
 
   mutating func beginObject() -> StreamContainerDisposition {
-    self.events.append(Event(kind: "beginObject", text: nil))
+    self.events.append(Event(kind: "beginObject"))
     return .stream
   }
-  mutating func endObject() { self.events.append(Event(kind: "endObject", text: nil)) }
+  mutating func endObject() { self.events.append(Event(kind: "endObject")) }
   mutating func beginArray() -> StreamContainerDisposition {
-    self.events.append(Event(kind: "beginArray", text: nil))
+    self.events.append(Event(kind: "beginArray"))
     return .stream
   }
-  mutating func endArray() { self.events.append(Event(kind: "endArray", text: nil)) }
+  mutating func endArray() { self.events.append(Event(kind: "endArray")) }
 
-  mutating func key(_ bytes: Span<UInt8>) {
-    self.append("key", bytes)
-  }
+  mutating func key(_ bytes: Span<UInt8>) { self.append("key", bytes) }
   // Overridden rather than left to the default decomposition, so the trace shows which form the
   // parser actually chose: a whole `string` on the common path, the chunked triple otherwise.
-  mutating func string(_ bytes: Span<UInt8>) {
-    self.append("string", bytes)
-  }
-  mutating func stringBegin() { self.events.append(Event(kind: "stringBegin", text: nil)) }
-  mutating func stringChunk(_ bytes: Span<UInt8>) {
-    self.append("stringChunk", bytes)
-  }
-  mutating func stringEnd() { self.events.append(Event(kind: "stringEnd", text: nil)) }
-  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-    self.append("number", bytes)
-  }
+  mutating func string(_ bytes: Span<UInt8>) { self.append("string", bytes) }
+  mutating func stringBegin() { self.events.append(Event(kind: "stringBegin")) }
+  mutating func stringChunk(_ bytes: Span<UInt8>) { self.append("stringChunk", bytes) }
+  mutating func stringEnd() { self.events.append(Event(kind: "stringEnd")) }
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) { self.append("number", bytes) }
   mutating func boolean(_ value: Bool) {
     self.events.append(Event(kind: "boolean", text: value ? "true" : "false"))
   }
@@ -57,24 +83,11 @@ struct RecordingSink: StreamParseSink {
   /// unescape into scratch storage looks like -- resolves to `nil` rather than to a wrong offset,
   /// and the caller downgrades its verification instead of guessing.
   private mutating func append(_ kind: String, _ bytes: Span<UInt8>) {
-    var offset: Int?
-    if let base = self.base {
-      bytes.withUnsafeBufferPointer { buffer in
-        guard let start = buffer.baseAddress else { return }
-        let delta = UnsafeRawPointer(start) - base
-        if delta >= 0 && delta + buffer.count <= self.count { offset = delta }
-      }
-    }
-    self.events.append(
-      Event(kind: kind, text: Self.text(bytes), spanOffset: offset, spanLength: bytes.count)
-    )
+    self.events.append(.spanning(kind, bytes, base: self.base, count: self.count))
   }
 
   static func text(_ bytes: Span<UInt8>) -> String {
-    var out: [UInt8] = []
-    out.reserveCapacity(bytes.count)
-    for i in 0..<bytes.count { out.append(bytes[i]) }
-    return String(decoding: out, as: UTF8.self)
+    bytes.withUnsafeBufferPointer { String(decoding: $0, as: UTF8.self) }
   }
 }
 
@@ -87,14 +100,8 @@ enum ParserTraces {
   /// output.
   static func containers(sample: String) throws -> ContainerTrace {
     var sink = RecordingSink()
-    var parser = JSONParser()
     let bytes = Array(sample.utf8)
-    try bytes.withUnsafeBufferPointer { buffer in
-      sink.base = UnsafeRawPointer(buffer.baseAddress!)
-      sink.count = buffer.count
-      try parser.parse(buffer, into: &sink)
-    }
-    try parser.finish(into: &sink)
+    try sink.record(bytes)
 
     let ranges = self.tokenRanges(bytes: bytes, events: sink.events)
 
@@ -111,35 +118,22 @@ enum ParserTraces {
       case "beginArray":
         containers &= ~(1 << UInt64(depth))
         depth += 1
-      case "endObject", "endArray":
-        depth -= 1
-      default:
-        break
+      case "endObject", "endArray": depth -= 1
+      default: break
       }
       steps.append(
         ContainerTrace.Step(
-          index: index,
-          event: event.kind,
-          text: event.text,
-          offset: ranges.spans[index].lowerBound,
-          length: ranges.spans[index].count,
-          depthBefore: before,
-          depthAfter: depth,
+          index: index, event: event.kind, text: event.text, offset: ranges.spans[index].lowerBound,
+          length: ranges.spans[index].count, depthBefore: before, depthAfter: depth,
           containersAfter: (0..<64).map { bit -> String in
             guard bit < depth else { return "." }
             return containers & (1 << UInt64(bit)) != 0 ? "1" : "0"
-          }.joined(),
-          containersBits: (0..<depth).map { Int((containers >> UInt64($0)) & 1) }
-        )
-      )
+          }.joined(), containersBits: (0..<depth).map { Int((containers >> UInt64($0)) & 1) }))
     }
 
     return ContainerTrace(
-      sample: sample,
-      steps: steps,
-      maximumDepth: try self.measuredMaximumDepth(),
-      offsetsVerified: ranges.verified
-    )
+      sample: sample, steps: steps, maximumDepth: try self.measuredMaximumDepth(),
+      offsetsVerified: ranges.verified)
   }
 
   /// Where each token the parser reported sits in the bytes it was given.
@@ -161,10 +155,9 @@ enum ParserTraces {
   /// on exactly the offset the span reported for every one of them. A chunked string -- where the
   /// bytes are unescaped into scratch storage and the span no longer points into the input --
   /// resolves to no offset and fails that check rather than being papered over.
-  static func tokenRanges(
-    bytes: [UInt8],
-    events: [RecordingSink.Event]
-  ) -> (spans: [Range<Int>], verified: Bool) {
+  static func tokenRanges(bytes: [UInt8], events: [RecordingSink.Event]) -> (
+    spans: [Range<Int>], verified: Bool
+  ) {
     var spans: [Range<Int>] = []
     var verified = true
     var cursor = 0
@@ -182,15 +175,12 @@ enum ParserTraces {
         let start = cursor
         var length: Int
         switch event.kind {
-        case "beginObject", "beginArray", "endObject", "endArray":
-          length = 1
+        case "beginObject", "beginArray", "endObject", "endArray": length = 1
         case "key", "string":
           // The span is the content between the quotes, so the token is two bytes wider.
           length = (event.spanLength ?? 0) + 2
-        case "number":
-          length = streamNumberRunEnd(base: base, from: start, to: bytes.count) - start
-        case "boolean", "null":
-          length = event.text?.utf8.count ?? 0
+        case "number": length = streamNumberRunEnd(base: base, from: start, to: bytes.count) - start
+        case "boolean", "null": length = event.text?.utf8.count ?? 0
         default:
           // A chunked string has no single token range here; say so rather than invent one.
           length = 0
@@ -232,9 +222,7 @@ enum ParserTraces {
         try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
         try parser.finish(into: &sink)
         deepest = depth
-      } catch {
-        break
-      }
+      } catch { break }
     }
     return deepest
   }

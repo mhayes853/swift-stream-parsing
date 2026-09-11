@@ -13,21 +13,19 @@ struct SourceExtractor {
 
   func extract() throws -> (decls: [String: [SourceDecl]], fileCount: Int) {
     var out: [String: [SourceDecl]] = [:]
-    var files = 0
-    for root in self.roots {
-      for path in Self.swiftFiles(under: root) {
-        files += 1
-        let text = try String(contentsOfFile: path, encoding: .utf8)
-        let tree = Parser.parse(source: text)
-        let converter = SourceLocationConverter(fileName: path, tree: tree)
-        let visitor = DeclVisitor(file: path, converter: converter)
-        visitor.walk(tree)
-        for decl in visitor.decls {
-          out["\(decl.file.lastPathComponentSlice):\(decl.symbol)", default: []].append(decl)
-        }
+    let paths = self.roots.flatMap(Self.swiftFiles)
+    for path in paths {
+      let text = try String(contentsOfFile: path, encoding: .utf8)
+      let tree = Parser.parse(source: text)
+      let visitor = DeclVisitor(
+        file: path, converter: SourceLocationConverter(fileName: path, tree: tree))
+      visitor.walk(tree)
+      for decl in visitor.decls {
+        let file = URL(fileURLWithPath: decl.file).lastPathComponent
+        out["\(file):\(decl.symbol)", default: []].append(decl)
       }
     }
-    return (out, files)
+    return (out, paths.count)
   }
 
   static func swiftFiles(under root: String) -> [String] {
@@ -38,10 +36,6 @@ struct SourceExtractor {
     }
     return paths.sorted()
   }
-}
-
-extension String {
-  var lastPathComponentSlice: String { (self as NSString).lastPathComponent }
 }
 
 private final class DeclVisitor: SyntaxVisitor {
@@ -61,64 +55,67 @@ private final class DeclVisitor: SyntaxVisitor {
   // MARK: - Types
 
   override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: node.name.text, kind: "struct", header: node.memberBlock.leftBrace, members: node.memberBlock)
-    self.scope.append(node.name.text)
-    return .visitChildren
+    self.visitType(
+      node, name: node.name.text, kind: "struct", elidingAt: node.memberBlock.leftBrace)
   }
   override func visitPost(_ node: StructDeclSyntax) { self.scope.removeLast() }
 
   override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
     // Enums are small and their cases are the interesting part, so they keep their whole body.
-    self.record(node, name: node.name.text, kind: "enum", header: nil, members: node.memberBlock)
-    self.scope.append(node.name.text)
-    return .visitChildren
+    self.visitType(node, name: node.name.text, kind: "enum")
   }
   override func visitPost(_ node: EnumDeclSyntax) { self.scope.removeLast() }
 
   override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: node.name.text, kind: "protocol", header: nil, members: node.memberBlock)
-    self.scope.append(node.name.text)
-    return .visitChildren
+    self.visitType(node, name: node.name.text, kind: "protocol")
   }
   override func visitPost(_ node: ProtocolDeclSyntax) { self.scope.removeLast() }
 
   override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: node.name.text, kind: "class", header: node.memberBlock.leftBrace, members: node.memberBlock)
-    self.scope.append(node.name.text)
-    return .visitChildren
+    self.visitType(node, name: node.name.text, kind: "class", elidingAt: node.memberBlock.leftBrace)
   }
   override func visitPost(_ node: ClassDeclSyntax) { self.scope.removeLast() }
 
   override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
     let name = node.extendedType.trimmedDescription
-    self.record(node, name: name, kind: "extension", header: node.memberBlock.leftBrace, members: node.memberBlock)
+    return self.visitType(
+      node, name: name, kind: "extension", elidingAt: node.memberBlock.leftBrace)
+  }
+  override func visitPost(_ node: ExtensionDeclSyntax) { self.scope.removeLast() }
+
+  private func visitType(
+    _ node: some SyntaxProtocol & DeclGroupSyntax, name: String, kind: String,
+    elidingAt header: TokenSyntax? = nil
+  ) -> SyntaxVisitorContinueKind {
+    self.record(node, name: name, kind: kind, header: header, members: node.memberBlock)
     self.scope.append(name)
     return .visitChildren
   }
-  override func visitPost(_ node: ExtensionDeclSyntax) { self.scope.removeLast() }
 
   // MARK: - Members
 
   override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: node.name.text, kind: "func", header: nil, members: nil)
-    return .skipChildren
+    self.visitLeaf(node, name: node.name.text, kind: "func")
   }
 
   override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: "init", kind: "init", header: nil, members: nil)
-    return .skipChildren
+    self.visitLeaf(node, name: "init", kind: "init")
   }
 
   override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
-    guard
-      let name = node.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+    guard let name = node.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
     else { return .skipChildren }
-    self.record(node, name: name, kind: "var", header: nil, members: nil)
-    return .skipChildren
+    return self.visitLeaf(node, name: name, kind: "var")
   }
 
   override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind {
-    self.record(node, name: node.name.text, kind: "typealias", header: nil, members: nil)
+    self.visitLeaf(node, name: node.name.text, kind: "typealias")
+  }
+
+  private func visitLeaf(_ node: some SyntaxProtocol, name: String, kind: String)
+    -> SyntaxVisitorContinueKind
+  {
+    self.record(node, name: name, kind: kind)
     return .skipChildren
   }
 
@@ -128,8 +125,8 @@ private final class DeclVisitor: SyntaxVisitor {
   ///   65 KB struct; nobody clicking it wants the whole file back, they want its shape, and its
   ///   members are indexed individually anyway.
   private func record(
-    _ node: some SyntaxProtocol, name: String, kind: String,
-    header: TokenSyntax?, members: MemberBlockSyntax?
+    _ node: some SyntaxProtocol, name: String, kind: String, header: TokenSyntax? = nil,
+    members: MemberBlockSyntax? = nil
   ) {
     let start = self.converter.location(for: node.positionAfterSkippingLeadingTrivia)
     let end = self.converter.location(for: node.endPositionBeforeTrailingTrivia)
@@ -138,29 +135,19 @@ private final class DeclVisitor: SyntaxVisitor {
     if let header {
       let cut = self.converter.location(for: header.endPositionBeforeTrailingTrivia).offset
       let origin = self.converter.location(for: node.positionAfterSkippingLeadingTrivia).offset
-      let whole = node.trimmedDescription
       let length = cut - origin
-      if length > 0, length < whole.utf8.count {
-        code = String(decoding: Array(whole.utf8)[0..<length], as: UTF8.self) + "\n  …\n}"
+      if length > 0, length < code.utf8.count {
+        code = String(decoding: code.utf8.prefix(length), as: UTF8.self) + "\n  …\n}"
       }
     }
 
     self.decls.append(
       SourceDecl(
-        symbol: name,
-        qualifiedName: (self.scope + [name]).joined(separator: "."),
-        kind: kind,
-        file: self.file,
-        startLine: start.line,
-        endLine: end.line,
-        attributes: Self.attributes(of: node),
-        comment: Self.leadingComment(of: node),
-        code: code,
-        members: members.map { block in
-          block.members.compactMap { Self.memberName($0.decl) }
-        } ?? []
-      )
-    )
+        symbol: name, qualifiedName: (self.scope + [name]).joined(separator: "."), kind: kind,
+        file: self.file, startLine: start.line, endLine: end.line,
+        attributes: Self.attributes(of: node), comment: Self.leadingComment(of: node), code: code,
+        members: members.map { block in block.members.compactMap { Self.memberName($0.decl) } }
+          ?? []))
   }
 
   private static func memberName(_ decl: DeclSyntax) -> String? {
@@ -185,14 +172,14 @@ private final class DeclVisitor: SyntaxVisitor {
   /// whatever is above it, not to this. `//` on its own is a paragraph break inside a block and is
   /// kept, because the long kernel comments use it that way.
   private static func leadingComment(of node: some SyntaxProtocol) -> String? {
-    var groups: [[String]] = []
+    var block: [String] = []
     var current: [String] = []
-
-    func endGroup() {
-      if !current.isEmpty { groups.append(current) }
-      current = []
+    func separate() {
+      if !current.isEmpty {
+        block = current
+        current.removeAll()
+      }
     }
-
     for piece in node.leadingTrivia {
       switch piece {
       case .lineComment(let t), .docLineComment(let t):
@@ -200,19 +187,14 @@ private final class DeclVisitor: SyntaxVisitor {
         while line.hasPrefix("/") { line = line.dropFirst() }
         if line.hasPrefix(" ") { line = line.dropFirst() }
         current.append(String(line))
-      case .blockComment(let t), .docBlockComment(let t):
-        current.append(t)
-      case .newlines(let n), .carriageReturnLineFeeds(let n):
-        if n >= 2 { endGroup() }
-      case .spaces, .tabs, .carriageReturns:
-        continue
-      default:
-        endGroup()
+      case .blockComment(let t), .docBlockComment(let t): current.append(t)
+      case .newlines(let n), .carriageReturnLineFeeds(let n): if n >= 2 { separate() }
+      case .spaces, .tabs, .carriageReturns: continue
+      default: separate()
       }
     }
-    endGroup()
+    separate()
 
-    guard var block = groups.last else { return nil }
     // `// MARK: -` separators are navigation, not explanation.
     while let first = block.first, first.hasPrefix("MARK:") { block.removeFirst() }
     let text = block.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

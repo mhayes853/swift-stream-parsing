@@ -25,13 +25,6 @@ struct TracePerson {
   var score = 0.0
 }
 
-/// A schema and the names the animation needs for it, kept together because the schema itself has
-/// no name -- it is an object, and the frames borrow it by identity.
-struct NamedSchema {
-  var schema: StreamSchema
-  var name: String
-}
-
 enum RoutingModel {
   static let addressFields: [StreamField] = _streamFields(
     of: TraceAddress.self, prototype: TraceAddress()
@@ -39,12 +32,10 @@ enum RoutingModel {
     [
       StreamField(
         key: "city", index: 0, kind: .streamString, optional: false,
-        offset: _streamFieldOffset(&root.pointee.city, in: root)
-      ),
+        offset: _streamFieldOffset(&root.pointee.city, in: root)),
       StreamField(
         key: "zip", index: 1, kind: .int, optional: false,
-        offset: _streamFieldOffset(&root.pointee.zip, in: root)
-      )
+        offset: _streamFieldOffset(&root.pointee.zip, in: root))
     ]
   }
 
@@ -56,25 +47,20 @@ enum RoutingModel {
     [
       StreamField(
         key: "id", index: 0, kind: .int, optional: false,
-        offset: _streamFieldOffset(&root.pointee.id, in: root)
-      ),
+        offset: _streamFieldOffset(&root.pointee.id, in: root)),
       StreamField(
         key: "active", index: 1, kind: .bool, optional: false,
-        offset: _streamFieldOffset(&root.pointee.active, in: root)
-      ),
+        offset: _streamFieldOffset(&root.pointee.active, in: root)),
       StreamField(
         key: "name", index: 2, kind: .streamString, optional: false,
-        offset: _streamFieldOffset(&root.pointee.name, in: root)
-      ),
+        offset: _streamFieldOffset(&root.pointee.name, in: root)),
       StreamField(
         key: "address", index: 3,
         route: StreamFieldRoute(.container, optional: false, schema: RoutingModel.address),
-        offset: _streamFieldOffset(&root.pointee.address, in: root)
-      ),
+        offset: _streamFieldOffset(&root.pointee.address, in: root)),
       StreamField(
         key: "score", index: 4, kind: .double, optional: false,
-        offset: _streamFieldOffset(&root.pointee.score, in: root)
-      )
+        offset: _streamFieldOffset(&root.pointee.score, in: root))
     ]
   }
 
@@ -100,7 +86,7 @@ enum RoutingModel {
 ///
 /// Nothing is reconstructed here: `frames` and `frameCount` are the sink's stored properties, so
 /// what the animation draws is the stack the sink kept while the parse ran.
-struct FrameRecordingSink: ~Copyable, StreamParseSink {
+struct FrameRecordingSink: ~Copyable, BufferRecordingSink {
   var inner: PartialSink
   var steps: [FrameTrace.Step] = []
   var base: UnsafeRawPointer?
@@ -178,41 +164,25 @@ struct FrameRecordingSink: ~Copyable, StreamParseSink {
   }
 
   private func locate(_ bytes: Span<UInt8>) -> Int? {
-    guard let base = self.base else { return nil }
-    var offset: Int?
-    bytes.withUnsafeBufferPointer { buffer in
-      guard let start = buffer.baseAddress else { return }
-      let delta = UnsafeRawPointer(start) - base
-      if delta >= 0 && delta + buffer.count <= self.count { offset = delta }
-    }
-    return offset
+    inputOffset(bytes, base: self.base, count: self.count)
   }
 
   private mutating func snapshot(
     _ call: String, text: String? = nil, offset: Int? = nil, length: Int? = nil
   ) {
-    var frames: [FrameTrace.Frame] = []
-    frames.reserveCapacity(self.inner.frameCount)
-    for index in 0..<self.inner.frameCount {
+    let frames = (0..<self.inner.frameCount).map { index in
       let frame = self.inner.frames[index]
       let schema = frame.schema
       let delta = UnsafeRawPointer(frame.storage) - self.root
-      frames.append(
-        FrameTrace.Frame(
-          schema: self.names[ObjectIdentifier(schema)] ?? -1,
-          storageOffset: delta >= 0 && delta < self.rootSize ? delta : nil,
-          pendingField: frame.pendingField,
-          field: RoutingTraces.fieldName(schema, at: frame.pendingField)
-        )
-      )
+      return FrameTrace.Frame(
+        schema: self.names[ObjectIdentifier(schema)] ?? -1,
+        storageOffset: delta >= 0 && delta < self.rootSize ? delta : nil,
+        pendingField: frame.pendingField,
+        field: RoutingTraces.fieldName(schema, at: frame.pendingField))
     }
     self.steps.append(
       FrameTrace.Step(
-        index: self.steps.count,
-        call: call,
-        text: text,
-        offset: offset,
-        length: length,
+        index: self.steps.count, call: call, text: text, offset: offset, length: length,
         frames: frames,
         // Which member the call wrote. Only a scalar writes one: a key sets the pending field and
         // a container open or close moves the stack, so neither stores anything at an offset.
@@ -220,11 +190,7 @@ struct FrameRecordingSink: ~Copyable, StreamParseSink {
           && !frames.isEmpty
           ? RoutingTraces.fieldName(
             self.inner.frames[self.inner.frameCount - 1].schema,
-            at: self.inner.frames[self.inner.frameCount - 1].pendingField
-          )
-          : nil
-      )
-    )
+            at: self.inner.frames[self.inner.frameCount - 1].pendingField) : nil))
   }
 }
 
@@ -241,10 +207,7 @@ enum RoutingTraces {
   static func key(of entry: StreamFieldEntry, in table: StreamFieldTable) -> String {
     String(
       decoding: UnsafeBufferPointer(
-        start: table.keyBytes + Int(entry.keyStart), count: Int(entry.keyLength)
-      ),
-      as: UTF8.self
-    )
+        start: table.keyBytes + Int(entry.keyStart), count: Int(entry.keyLength)), as: UTF8.self)
   }
 
   static func name(_ kind: StreamFieldKind) -> String {
@@ -287,10 +250,6 @@ enum RoutingTraces {
     }
   }
 
-  private static func hex(_ value: UInt64) -> String {
-    "0x" + String(value, radix: 16, uppercase: true).leftPadded(to: 16)
-  }
-
   /// The eight bytes of a padded leading word, in load order.
   private static func wordBytes(_ word: UInt64) -> [UInt8] {
     (0..<8).map { UInt8(truncatingIfNeeded: word >> UInt64($0 * 8)) }
@@ -307,15 +266,12 @@ enum RoutingTraces {
     // field past it rather than at an arbitrary size. Offsets are never written -- only the match
     // runs here -- so they are the members' strides and nothing more.
     let wideKeys = [
-      "id", "name", "screen_name", "location", "description", "url", "protected",
-      "followers_count", "friends_count", "listed_count", "created_at", "favourites_count",
-      "utc_offset", "time_zone", "geo_enabled", "verified", "statuses_count", "lang",
-      "contributors_enabled", "is_translator"
+      "id", "name", "screen_name", "location", "description", "url", "protected", "followers_count",
+      "friends_count", "listed_count", "created_at", "favourites_count", "utc_offset", "time_zone",
+      "geo_enabled", "verified", "statuses_count", "lang", "contributors_enabled", "is_translator"
     ]
     let wideFields = wideKeys.enumerated().map { index, key in
-      StreamField(
-        key: key, index: Int32(index), kind: .int, optional: false, offset: index * 8
-      )
+      StreamField(key: key, index: Int32(index), kind: .int, optional: false, offset: index * 8)
     }
     let wide = StreamSchema(shape: .object, fields: wideFields)
 
@@ -325,9 +281,7 @@ enum RoutingTraces {
     tables.append(
       Self.table(
         name: "TracePerson", schema: RoutingModel.person,
-        probes: ["name", "score", "address", "missing"], threshold: threshold, verified: &verified
-      )
-    )
+        probes: ["name", "score", "address", "missing"], threshold: threshold, verified: &verified))
     tables.append(
       Self.table(
         name: "TwitterUser", schema: wide,
@@ -339,10 +293,7 @@ enum RoutingTraces {
         // shares its hash too, so it probes the same bucket, passes both cheap tests, and is
         // rejected by `streamFieldTailMatches` — the call the match almost never makes.
         probes: ["screen_name", "created_at", "favourites_count", "screen_nome", "missing"],
-        threshold: threshold,
-        verified: &verified
-      )
-    )
+        threshold: threshold, verified: &verified))
 
     return FieldMatchTrace(tables: tables, verified: verified)
   }
@@ -353,30 +304,21 @@ enum RoutingTraces {
     guard let table = schema.fields else {
       verified = false
       return FieldMatchTrace.Table(
-        name: name, strategy: "none", threshold: threshold, entries: [], slots: [], probes: []
-      )
+        name: name, strategy: "none", threshold: threshold, entries: [], slots: [], probes: [])
     }
     let indexed = table.index != nil
     let slotCount = indexed ? table.indexMask + 1 : 0
     let slots = (0..<slotCount).map { table.index![$0] }
 
-    var entries: [FieldMatchTrace.Entry] = []
-    for index in 0..<table.count {
+    let entries = (0..<table.count).map { index in
       let entry = table.entries[index]
       let hash = streamFieldHash(word: entry.keyWord, length: entry.keyLength)
-      entries.append(
-        FieldMatchTrace.Entry(
-          index: index,
-          key: Self.key(of: entry, in: table),
-          keyWord: Self.hex(entry.keyWord),
-          wordBytes: Self.wordBytes(entry.keyWord),
-          keyLength: Int(entry.keyLength),
-          kind: Self.name(entry.kind),
-          offset: Int(entry.offset),
-          hash: Self.hex(hash),
-          bucket: indexed ? Int(truncatingIfNeeded: hash) & table.indexMask : -1
-        )
-      )
+      return FieldMatchTrace.Entry(
+        index: index, key: Self.key(of: entry, in: table),
+        keyWord: traceHex(entry.keyWord, width: 16), wordBytes: Self.wordBytes(entry.keyWord),
+        keyLength: Int(entry.keyLength), kind: Self.name(entry.kind), offset: Int(entry.offset),
+        hash: traceHex(hash, width: 16),
+        bucket: indexed ? Int(truncatingIfNeeded: hash) & table.indexMask : -1)
     }
 
     var recorded: [FieldMatchTrace.Probe] = []
@@ -385,13 +327,8 @@ enum RoutingTraces {
     }
 
     return FieldMatchTrace.Table(
-      name: name,
-      strategy: indexed ? "indexed" : "scan",
-      threshold: threshold,
-      entries: entries,
-      slots: slots,
-      probes: recorded
-    )
+      name: name, strategy: indexed ? "indexed" : "scan", threshold: threshold, entries: entries,
+      slots: slots, probes: recorded)
   }
 
   /// One key resolved. The walk below is `streamMatchField` / `streamMatchFieldIndexed` stepped
@@ -439,9 +376,7 @@ enum RoutingTraces {
         steps.append(
           FieldMatchTrace.Step(
             bucket: bucket, entry: index, wordEqual: wordEqual, lengthEqual: lengthEqual,
-            tailChecked: tailChecked, tailEqual: tailEqual, hit: hit
-          )
-        )
+            tailChecked: tailChecked, tailEqual: tailEqual, hit: hit))
         return hit
       }
 
@@ -452,10 +387,8 @@ enum RoutingTraces {
           guard slot >= 0 else {
             steps.append(
               FieldMatchTrace.Step(
-                bucket: bucket, entry: -1, wordEqual: false, lengthEqual: false,
-                tailChecked: false, tailEqual: false, hit: false
-              )
-            )
+                bucket: bucket, entry: -1, wordEqual: false, lengthEqual: false, tailChecked: false,
+                tailEqual: false, hit: false))
             break
           }
           if compare(entry: Int(slot), bucket: bucket) {
@@ -465,8 +398,7 @@ enum RoutingTraces {
           bucket = (bucket &+ 1) & table.indexMask
         }
         shipped = streamMatchFieldIndexed(
-          table.entries, index: index, mask: table.indexMask, keyBytes: table.keyBytes, span
-        )
+          table.entries, index: index, mask: table.indexMask, keyBytes: table.keyBytes, span)
       } else {
         var index = 0
         while index < table.count {
@@ -477,25 +409,16 @@ enum RoutingTraces {
           index += 1
         }
         shipped = streamMatchField(
-          table.entries, count: table.count, keyBytes: table.keyBytes, span
-        )
+          table.entries, count: table.count, keyBytes: table.keyBytes, span)
       }
     }
 
     if mirrored != shipped { verified = false }
     return FieldMatchTrace.Probe(
-      key: key,
-      bytes: bytes,
-      word: Self.hex(word),
-      wordBytes: Self.wordBytes(word),
-      length: bytes.count,
-      hash: Self.hex(hash),
-      bytesHash: Self.hex(bytesHash),
-      steps: steps,
-      shipped: shipped,
-      mirrored: mirrored,
-      verified: mirrored == shipped
-    )
+      key: key, bytes: bytes, word: traceHex(word, width: 16), wordBytes: Self.wordBytes(word),
+      length: bytes.count, hash: traceHex(hash, width: 16),
+      bytesHash: traceHex(bytesHash, width: 16), steps: steps, shipped: shipped, mirrored: mirrored,
+      verified: mirrored == shipped)
   }
 
   // MARK: The frame stack
@@ -504,37 +427,26 @@ enum RoutingTraces {
     let bytes = Array(sample.utf8)
     var person = TracePerson()
 
-    var schemas: [FrameTrace.Schema] = []
-    var names: [ObjectIdentifier: Int] = [:]
-    for (index, named) in [
-      NamedSchema(schema: RoutingModel.person, name: "TracePerson"),
-      NamedSchema(schema: RoutingModel.address, name: "TraceAddress")
-    ].enumerated() {
-      names[ObjectIdentifier(named.schema)] = index
-      schemas.append(
-        FrameTrace.Schema(
-          id: index,
-          name: named.name,
-          shape: Self.shape(named.schema),
-          keyRouting: Self.routing(named.schema),
-          fieldCount: named.schema.fields?.count ?? 0
-        )
-      )
+    let namedSchemas = [
+      (RoutingModel.person, "TracePerson"), (RoutingModel.address, "TraceAddress")
+    ]
+    let names = Dictionary(
+      uniqueKeysWithValues: namedSchemas.enumerated().map {
+        (ObjectIdentifier($0.element.0), $0.offset)
+      })
+    let schemas = namedSchemas.enumerated().map { index, named in
+      FrameTrace.Schema(
+        id: index, name: named.1, shape: Self.shape(named.0), keyRouting: Self.routing(named.0),
+        fieldCount: named.0.fields?.count ?? 0)
     }
 
-    var members: [FrameTrace.Member] = []
-    for (schemaIndex, fields) in [RoutingModel.personFields, RoutingModel.addressFields].enumerated()
-    {
-      for field in fields {
-        members.append(
-          FrameTrace.Member(
-            name: field.key.isEmpty ? "" : String(decoding: field.key, as: UTF8.self),
-            offset: Int(field.offset),
-            size: RoutingModel.size(of: field.kind),
-            kind: Self.name(field.kind),
-            schema: schemaIndex
-          )
-        )
+    let members = [RoutingModel.personFields, RoutingModel.addressFields].enumerated().flatMap {
+      schemaIndex, fields in
+      fields.map { field in
+        FrameTrace.Member(
+          name: field.key.isEmpty ? "" : String(decoding: field.key, as: UTF8.self),
+          offset: Int(field.offset), size: RoutingModel.size(of: field.kind),
+          kind: Self.name(field.kind), schema: schemaIndex)
       }
     }
 
@@ -542,18 +454,10 @@ enum RoutingTraces {
     var failure: StreamSinkFailure?
     try withUnsafeMutablePointer(to: &person) { root in
       var sink = FrameRecordingSink(
-        inner: PartialSink(root: root, schema: RoutingModel.person),
-        root: UnsafeRawPointer(root),
-        rootSize: MemoryLayout<TracePerson>.size
-      )
+        inner: PartialSink(root: root, schema: RoutingModel.person), root: UnsafeRawPointer(root),
+        rootSize: MemoryLayout<TracePerson>.size)
       sink.names = names
-      var parser = JSONParser()
-      try bytes.withUnsafeBufferPointer { buffer in
-        sink.base = UnsafeRawPointer(buffer.baseAddress!)
-        sink.count = buffer.count
-        try parser.parse(buffer, into: &sink)
-      }
-      try parser.finish(into: &sink)
+      try sink.record(bytes)
       steps = sink.steps
       failure = sink.streamFailure
     }
@@ -561,8 +465,7 @@ enum RoutingTraces {
     // The whole thing is only worth drawing if the parse actually landed where it says it did.
     let expected = TracePerson(
       id: 7, active: true, name: StreamString("Ada"),
-      address: TraceAddress(city: StreamString("Cairo"), zip: 11511), score: 1.5
-    )
+      address: TraceAddress(city: StreamString("Cairo"), zip: 11511), score: 1.5)
     let verified =
       failure == nil && person.id == expected.id && person.active == expected.active
       && String(person.name) == String(expected.name)
@@ -576,15 +479,8 @@ enum RoutingTraces {
       + "score: \(person.score))"
 
     let frames = FrameTrace(
-      sample: sample,
-      bytes: bytes,
-      rootSize: MemoryLayout<TracePerson>.size,
-      schemas: schemas,
-      members: members,
-      steps: steps,
-      verified: verified,
-      result: result
-    )
+      sample: sample, bytes: bytes, rootSize: MemoryLayout<TracePerson>.size, schemas: schemas,
+      members: members, steps: steps, verified: verified, result: result)
 
     // The same parse, read two ways: one member at a time, or the whole value.
     let values: [String] = [
@@ -593,31 +489,18 @@ enum RoutingTraces {
       "\(person.score)"
     ]
     let views = ViewTrace(
-      typeName: "TracePerson",
-      size: MemoryLayout<TracePerson>.size,
+      typeName: "TracePerson", size: MemoryLayout<TracePerson>.size,
       stride: MemoryLayout<TracePerson>.stride,
       members: RoutingModel.personFields.enumerated().map { index, field in
         ViewTrace.Member(
-          name: String(decoding: field.key, as: UTF8.self),
-          offset: Int(field.offset),
-          size: RoutingModel.size(of: field.kind),
-          kind: Self.name(field.kind),
+          name: String(decoding: field.key, as: UTF8.self), offset: Int(field.offset),
+          size: RoutingModel.size(of: field.kind), kind: Self.name(field.kind),
           value: values[index],
           // A `StreamString` that outgrew its inline bytes points at blocks the value does not
           // contain, which is the one member a copy of the storage does not fully copy.
-          indirect: field.kind == .streamString
-        )
-      },
-      verified: verified
-    )
+          indirect: field.kind == .streamString)
+      }, verified: verified)
 
     return (frames, views)
-  }
-}
-
-extension String {
-  /// Zero-padded to a fixed width, for a hex word that has to line up with the one above it.
-  fileprivate func leftPadded(to width: Int) -> String {
-    self.count >= width ? self : String(repeating: "0", count: width - self.count) + self
   }
 }

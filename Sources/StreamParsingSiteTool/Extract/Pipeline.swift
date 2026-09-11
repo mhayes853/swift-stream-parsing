@@ -61,18 +61,6 @@ struct Pipeline: Decodable {
     var source: String?
     var ordering: Node.Ordering?
     var next: [Edge]
-
-    init(from decoder: Decoder) throws {
-      let c = try decoder.container(keyedBy: CodingKeys.self)
-      self.id = try c.decode(String.self, forKey: .id)
-      self.title = try c.decode(String.self, forKey: .title)
-      self.kicker = try c.decodeIfPresent(String.self, forKey: .kicker)
-      self.detail = try c.decode(String.self, forKey: .detail)
-      self.source = try c.decodeIfPresent(String.self, forKey: .source)
-      self.ordering = try c.decodeIfPresent(Node.Ordering.self, forKey: .ordering)
-      self.next = try c.decodeIfPresent([Edge].self, forKey: .next) ?? []
-    }
-    enum CodingKeys: String, CodingKey { case id, title, kicker, detail, source, ordering, next }
   }
 
   /// A labelled edge. The chart draws `next` as arrows, so an unlabelled arrow is a step nobody
@@ -91,47 +79,21 @@ struct Pipeline: Decodable {
     var when: String?
 
     enum Kind: String, Decodable { case step, branch, `return`, detail }
-
-    init(from decoder: Decoder) throws {
-      // A bare `"node-id"` still decodes, as an unconditional step. Cheap, and it keeps a
-      // hand-edit from failing the build before the author gets to the labels.
-      if let single = try? decoder.singleValueContainer(), let to = try? single.decode(String.self) {
-        self.to = to
-        self.kind = .step
-        self.label = ""
-        return
-      }
-      let c = try decoder.container(keyedBy: CodingKeys.self)
-      self.to = try c.decode(String.self, forKey: .to)
-      self.kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .step
-      self.label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
-      self.when = try c.decodeIfPresent(String.self, forKey: .when)
-    }
-    enum CodingKeys: String, CodingKey { case to, kind, label, when }
   }
 
   struct Evidence: Decodable {
     var doc: [String]
     var source: [String]
     var asm: [String]
-
-    init(from decoder: Decoder) throws {
-      let c = try decoder.container(keyedBy: CodingKeys.self)
-      self.doc = try c.decodeIfPresent([String].self, forKey: .doc) ?? []
-      self.source = try c.decodeIfPresent([String].self, forKey: .source) ?? []
-      self.asm = try c.decodeIfPresent([String].self, forKey: .asm) ?? []
-    }
-    enum CodingKeys: String, CodingKey { case doc, source, asm }
   }
 }
 
 extension Pipeline {
   /// Mirrors the `VizKind` union in `Web/src/types.ts` and the switch in `Web/src/viz/index.tsx`.
   static let vizKinds: Set<String> = [
-    "stringRun", "whitespace", "containers", "number",
-    "movemask", "whitespaceTable", "numberTable", "utf8", "escapes",
-    "sinkCalls", "dispositions", "skipRun", "keyMatch", "fieldTable",
-    "frames", "schemaRouting", "streamString", "collections", "views"
+    "stringRun", "whitespace", "containers", "number", "movemask", "whitespaceTable", "numberTable",
+    "utf8", "escapes", "sinkCalls", "dispositions", "skipRun", "keyMatch", "fieldTable", "frames",
+    "schemaRouting", "streamString", "collections", "views"
   ]
 }
 
@@ -144,15 +106,20 @@ struct ReferenceReport {
   /// This is what keeps the explorer honest: renaming a kernel or retitling a chapter breaks the
   /// build here rather than leaving a node in the UI pointing at nothing.
   static func validate(
-    _ pipeline: Pipeline,
-    sections: [DocSection],
-    sources: [String: [SourceDecl]],
+    _ pipeline: Pipeline, sections: [DocSection], sources: [String: [SourceDecl]],
     asmSymbols: Set<String>
   ) -> ReferenceReport {
     var report = ReferenceReport()
     let paths = Set(sections.map(\.path))
+    let sourceKeys = Set(sources.keys)
     let stageIDs = Set(pipeline.stages.map(\.id))
     let nodeIDs = Set(pipeline.nodes.map(\.id))
+
+    if pipeline.version != 2 {
+      report.errors.append("unsupported pipeline version \(pipeline.version); expected 2")
+    }
+    Self.reportDuplicates(pipeline.stages.map(\.id), kind: "stage", into: &report)
+    Self.reportDuplicates(pipeline.nodes.map(\.id), kind: "node", into: &report)
 
     for node in pipeline.nodes {
       let at = "node '\(node.id)'"
@@ -166,43 +133,25 @@ struct ReferenceReport {
           "\(at): unknown viz '\(viz)' (known: \(Pipeline.vizKinds.sorted().joined(separator: ", ")))"
         )
       }
-      for edge in node.next {
-        if !nodeIDs.contains(edge.to) {
-          report.errors.append("\(at): 'next' points at unknown node '\(edge.to)'")
-        }
-        // An arrow with no label is a claim the chart cannot make good on.
-        if edge.label.trimmingCharacters(in: .whitespaces).isEmpty {
-          report.errors.append("\(at): edge -> '\(edge.to)' has no 'label'")
-        }
-        if edge.kind == .branch, (edge.when ?? "").isEmpty {
-          report.warnings.append("\(at): branch -> '\(edge.to)' does not say when it is taken")
-        }
-      }
-      if node.next.count > 1, node.ordering == nil {
-        report.warnings.append("\(at): fans out to \(node.next.count) nodes without saying whether they are ordered")
-      }
+      Self.validateEdges(
+        node.next, at: at, targets: nodeIDs, targetKind: "node", ordering: node.ordering,
+        into: &report)
       if node.next.count > 1, (node.invokes ?? "").isEmpty {
         report.warnings.append("\(at): fans out to \(node.next.count) nodes with no 'invokes' note")
       }
       for slug in node.evidence.doc where !paths.contains(slug) {
-        let near = Self.nearest(slug, in: paths)
-        report.errors.append(
-          "\(at): doc section '\(slug)' does not resolve\(near.map { " (closest: '\($0)')" } ?? "")"
-        )
+        report.errors.append(Self.referenceError(slug, kind: "doc section", at: at, in: paths))
       }
-      for key in node.evidence.source where sources[key] == nil {
-        let near = Self.nearest(key, in: Set(sources.keys))
+      for key in node.evidence.source where !sourceKeys.contains(key) {
         report.errors.append(
-          "\(at): source symbol '\(key)' does not resolve\(near.map { " (closest: '\($0)')" } ?? "")"
-        )
+          Self.referenceError(key, kind: "source symbol", at: at, in: sourceKeys))
       }
       for symbol in node.evidence.asm where !asmSymbols.contains(symbol) {
-        report.warnings.append("\(at): no assembly snapshot for '\(symbol)'; run ./Web/generate asm")
+        report.warnings.append(
+          "\(at): no assembly snapshot for '\(symbol)'; run ./Web/generate asm")
       }
-      if node.prose.isEmpty {
-        report.warnings.append("\(at): no teaching prose")
-      }
-      Self.validateSteps(node, sources: sources, into: &report)
+      if node.prose.isEmpty { report.warnings.append("\(at): no teaching prose") }
+      Self.validateSteps(node, sourceKeys: sourceKeys, into: &report)
     }
 
     for node in pipeline.nodes where node.evidence.doc.isEmpty && node.evidence.source.isEmpty {
@@ -219,13 +168,12 @@ struct ReferenceReport {
   /// no way out. The last is the interesting one -- several of these kernels are loops, and a loop
   /// drawn with no exit is a claim about the code that is not true of any of them.
   static func validateSteps(
-    _ node: Pipeline.Node, sources: [String: [SourceDecl]], into report: inout ReferenceReport
+    _ node: Pipeline.Node, sourceKeys: Set<String>, into report: inout ReferenceReport
   ) {
     let at = "node '\(node.id)'"
     guard node.steps.count >= 2 else {
       report.errors.append(
-        "\(at): needs a 'steps' graph of at least two steps; every detail panel draws one"
-      )
+        "\(at): needs a 'steps' graph of at least two steps; every detail panel draws one")
       return
     }
     var ids = Set<String>()
@@ -238,40 +186,25 @@ struct ReferenceReport {
     for step in node.steps {
       let where_ = "\(at) step '\(step.id)'"
       if let symbol = step.source {
-        if sources[symbol] == nil {
-          let near = Self.nearest(symbol, in: Set(sources.keys))
+        if !sourceKeys.contains(symbol) {
           report.errors.append(
-            "\(where_): source '\(symbol)' does not resolve\(near.map { " (closest: '\($0)')" } ?? "")"
-          )
+            Self.referenceError(symbol, kind: "source", at: where_, in: sourceKeys))
         } else if !owned.contains(symbol) {
           report.errors.append(
-            "\(where_): source '\(symbol)' is not in the node's own evidence.source"
-          )
+            "\(where_): source '\(symbol)' is not in the node's own evidence.source")
         }
       }
       if step.detail.trimmingCharacters(in: .whitespaces).isEmpty {
         report.errors.append("\(where_): no 'detail'")
       }
-      for edge in step.next {
-        if !ids.contains(edge.to) {
-          report.errors.append("\(where_): points at unknown step '\(edge.to)'")
-        }
-        if edge.label.trimmingCharacters(in: .whitespaces).isEmpty {
-          report.errors.append("\(where_): edge -> '\(edge.to)' has no 'label'")
-        }
-        if edge.kind == .branch, (edge.when ?? "").isEmpty {
-          report.warnings.append("\(where_): branch -> '\(edge.to)' does not say when it is taken")
-        }
-      }
-      if step.next.count > 1, step.ordering == nil {
-        report.warnings.append(
-          "\(where_): fans out to \(step.next.count) steps without saying whether they are ordered"
-        )
-      }
+      Self.validateEdges(
+        step.next, at: where_, targets: ids, targetKind: "step", ordering: step.ordering,
+        into: &report)
     }
 
     // Reachability from the entry, which is the first step by construction.
-    let byID = Dictionary(uniqueKeysWithValues: node.steps.map { ($0.id, $0) })
+    // Keep validating after reporting a duplicate rather than trapping while building this index.
+    let byID = Dictionary(node.steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     var seen: Set<String> = [node.steps[0].id]
     var stack = [node.steps[0].id]
     while let current = stack.popLast() {
@@ -280,13 +213,47 @@ struct ReferenceReport {
       }
     }
     for step in node.steps where !seen.contains(step.id) {
-      report.errors.append(
-        "\(at): step '\(step.id)' is unreachable from '\(node.steps[0].id)'"
-      )
+      report.errors.append("\(at): step '\(step.id)' is unreachable from '\(node.steps[0].id)'")
     }
     if !node.steps.contains(where: { $0.next.isEmpty }) {
       report.errors.append("\(at): no step ends the algorithm; every path loops forever")
     }
+  }
+
+  static func validateEdges(
+    _ edges: [Pipeline.Edge], at: String, targets: Set<String>, targetKind: String,
+    ordering: Pipeline.Node.Ordering?, into report: inout ReferenceReport
+  ) {
+    for edge in edges {
+      if !targets.contains(edge.to) {
+        report.errors.append("\(at): edge points at unknown \(targetKind) '\(edge.to)'")
+      }
+      if edge.label.trimmingCharacters(in: .whitespaces).isEmpty {
+        report.errors.append("\(at): edge -> '\(edge.to)' has no 'label'")
+      }
+      if edge.kind == .branch, (edge.when ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+        report.warnings.append("\(at): branch -> '\(edge.to)' does not say when it is taken")
+      }
+    }
+    if edges.count > 1, ordering == nil {
+      report.warnings.append(
+        "\(at): fans out to \(edges.count) \(targetKind)s without saying whether they are ordered")
+    }
+  }
+
+  static func reportDuplicates(_ ids: [String], kind: String, into report: inout ReferenceReport) {
+    var seen = Set<String>()
+    for id in ids where !seen.insert(id).inserted {
+      report.errors.append("duplicate \(kind) id '\(id)'")
+    }
+  }
+
+  static func referenceError(
+    _ reference: String, kind: String, at: String, in candidates: Set<String>
+  ) -> String {
+    let near = Self.nearest(reference, in: candidates)
+    return
+      "\(at): \(kind) '\(reference)' does not resolve\(near.map { " (closest: '\($0)')" } ?? "")"
   }
 
   /// Cheap suggestion for a mistyped or renamed reference: longest shared prefix, then closest
@@ -295,14 +262,17 @@ struct ReferenceReport {
     let target = Array(needle)
     var best: String?
     var bestShared = 3
+    var bestLengthDelta = Int.max
     for candidate in haystack {
       let chars = Array(candidate)
       var shared = 0
       while shared < chars.count, shared < target.count, chars[shared] == target[shared] {
         shared += 1
       }
-      if shared > bestShared {
+      let lengthDelta = abs(chars.count - target.count)
+      if shared > bestShared || shared == bestShared && lengthDelta < bestLengthDelta {
         bestShared = shared
+        bestLengthDelta = lengthDelta
         best = candidate
       }
     }
