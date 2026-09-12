@@ -14,6 +14,21 @@
 // Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
 // carries the state across blocks: in, whether the previous block ended inside an odd run; out,
 // whether this one does.
+//
+// Deliberately scalar, and measured to stay that way (2026-09-11). The masks it needs
+// (0x5555.../0xAAAA...) are already compile-time immediates; the irreducible step is
+// `bs_bits + starts`, where the 64-bit adder's carry chain is a one-cycle prefix scan that
+// broadcasts each run's start parity to the byte past its end. NEON has no segmented scan:
+// a lane-wise version needs six log-steps of `ext`/`and`/`orr` over four vectors (~70 vector ops
+// for these 13 scalar ones), and the classifier below is already vector-issue-bound (~130 vector
+// ops per block against ~25 integer ops), so this runs for free on idle integer ports. Two NEON
+// shapes that kept the carry in a `d` register measured +7..+31% slower per block because LLVM
+// split the 64-bit lane chain across domains and paid six `fmov`s; a `bs_bits == 0` early-out
+// was +0.7..+17.6% slower per block (a late-resolving branch off an `fmov`) and flat end to end.
+// Deleting the step outright bounds any reformulation at ~15% of the kernel, which is invisible
+// in the parse. Carryless multiply (`pmull`, see prefix_xor below) gives prefix XOR, an
+// unsegmented scan, and cannot recover run-start parity. Harness and variants:
+// ~/.cache/sspab/cand_findesc/ from that session.
 static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *prev_ends_odd) {
   const uint64_t even_bits = 0x5555555555555555ULL;
   const uint64_t odd_bits = ~even_bits;

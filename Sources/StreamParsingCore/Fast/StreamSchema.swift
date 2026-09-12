@@ -350,6 +350,11 @@ public final class StreamSchema: @unchecked Sendable {
   // it, while adding it to BorrowedFrame would grow every frame from 24 to 32 bytes.
   @usableFromInline let fixedElementCount: Int32
 
+  // The box owning the element template a container schema's `appendElement`/`enterKey` copies
+  // from, or nil for a schema with no template. Held only to bound the template's lifetime by the
+  // schema's: the closures capture the raw pointer, never this. See `_StreamTemplateStorage`.
+  @usableFromInline let templateOwner: _StreamTemplateStorage?
+
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   // carries rather than one indistinguishable from a matcher that happens to answer -1.
   public convenience init(
@@ -435,8 +440,10 @@ public final class StreamSchema: @unchecked Sendable {
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
     inlineCapacity: Int32 = 0,
-    fields: StreamFieldTable? = nil
+    fields: StreamFieldTable? = nil,
+    templateOwner: _StreamTemplateStorage? = nil
   ) {
+    self.templateOwner = templateOwner
     self.shape = shape
     self.prepareRoot = prepareRoot
     self.fields = fields
@@ -831,13 +838,14 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   _ type: Element.Type,
   element: StreamSchema
 ) -> StreamSchema {
-  // One template per schema, allocated once and never freed: the element is copy-initialised
-  // from this address straight into its slot. A schema is a `static let` on its owner, so this is
-  // one allocation per element type per process, and the closure's only capture is the pointer.
-  // Building the value inside the closure instead -- a generic element's `Self()` re-enters the
-  // runtime's locking metadata cache per open, and any element's return by value is a second
-  // whole-element copy -- is what this replaces.
-  nonisolated(unsafe) let template = _streamLeakedTemplate(Element.streamElementInitialValue())
+  // One template per schema: the element is copy-initialised from this address straight into its
+  // slot, and the closure's only capture is the pointer. Building the value inside the closure
+  // instead -- a generic element's `Self()` re-enters the runtime's locking metadata cache per
+  // open, and any element's return by value is a second whole-element copy -- is what this
+  // replaces. The box is handed to the schema as `templateOwner`, so the allocation dies with the
+  // schema rather than leaking per `PartialsStream.init` for a container root.
+  let owner = _streamOwnedTemplate(Element.streamElementInitialValue())
+  nonisolated(unsafe) let template = owner.address(as: Element.self)
   return StreamSchema(
     shape: .array,
     appendElement: { storage, _ in
@@ -847,12 +855,15 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
     leafRoute: .array(element.leafRoute),
-    inlineCapacity: element.inlineCapacity
+    inlineCapacity: element.inlineCapacity,
+    templateOwner: owner
   )
 }
 
-/// A value the schema builders copy elements and dictionary values from, at a stable address for
-/// the rest of the process. Leaked on purpose: the schema that captures it is itself immortal.
+/// A value copied from at a stable address for the rest of the process, leaked on purpose.
+///
+/// Superseded by `_streamOwnedTemplate`, which ties the same allocation to the schema that
+/// captures it; kept because it is public API a client (or an older macro expansion) may call.
 @inlinable
 public func _streamLeakedTemplate<T>(_ value: T) -> UnsafePointer<T> {
   let template = UnsafeMutablePointer<T>.allocate(capacity: 1)
@@ -966,7 +977,8 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   element base: StreamSchema
 ) -> StreamSchema {
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
-  nonisolated(unsafe) let template = _streamLeakedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
+  let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: Wrapped?.self)
   return StreamSchema(
     shape: .array,
     appendElement: { storage, _ in
@@ -975,7 +987,8 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
     },
     elementSchema: element,
     leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,
-    inlineCapacity: element.inlineCapacity
+    inlineCapacity: element.inlineCapacity,
+    templateOwner: owner
   )
 }
 
@@ -985,7 +998,8 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   value base: StreamSchema
 ) -> StreamSchema {
   let value = _streamOptionalElementSchema(Wrapped.self, base: base)
-  nonisolated(unsafe) let template = _streamLeakedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
+  let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: Wrapped?.self)
   return StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
@@ -994,7 +1008,8 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
     },
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
-    inlineCapacity: value.inlineCapacity
+    inlineCapacity: value.inlineCapacity,
+    templateOwner: owner
   )
 }
 
@@ -1005,7 +1020,8 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 ) -> StreamSchema {
   // See `_streamArraySchema` for the template. A repeated key resumes its stored value and reads
   // nothing from it.
-  nonisolated(unsafe) let template = _streamLeakedTemplate(Value.streamElementInitialValue())
+  let owner = _streamOwnedTemplate(Value.streamElementInitialValue())
+  nonisolated(unsafe) let template = owner.address(as: Value.self)
   return StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
@@ -1014,7 +1030,8 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
     },
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
-    inlineCapacity: valueSchema.inlineCapacity
+    inlineCapacity: valueSchema.inlineCapacity,
+    templateOwner: owner
   )
 }
 
