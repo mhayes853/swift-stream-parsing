@@ -106,6 +106,28 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline var ownsBuffer: Bool
 
+  // The structural run's block path (JSONParserBlocks.swift), on by default. Turning it off makes
+  // the scalar ladder the whole run, which is the oracle `StructuralBlockWalkTests` holds the
+  // block path to.
+  //
+  // Declared here, immediately after the other deinit-only flag, and not for tidiness: the seven
+  // bytes between `ownsBuffer` and the eight-byte-aligned `windowThreshold` below are padding, so
+  // these fields cost the struct nothing. Anywhere else they grow `JSONParser`, and the parser is
+  // copied by value in `parse`'s prologue -- measured: two extra instructions in every `parse`
+  // specialisation, from a 16-byte pair copy splitting into a byte move plus pairs.
+  @usableFromInline package var blockWalkEnabled = true
+
+  // The walk's own verdict on this payload's shape, and the consecutive strikes behind it (the
+  // gate in JSONParserBlocks.swift). Written by the walk, read once per structural run.
+  //
+  // Packing the two into one byte, so the run's entry test would be a single load, was measured
+  // on the way here and is worse rather than better -- `Mesh - bulk` -4.0% against -8.8%,
+  // `Canada - bulk` -1.9% against -4.6%, interleaved and reproduced. Two plain `Bool` loads of
+  // two adjacent bytes cost less than one load plus the mask work, and the read-modify-write the
+  // walk would need to set a bit costs more still.
+  @usableFromInline package var blockWalkGivenUp = false
+  @usableFromInline package var blockWalkStrikes: UInt8 = 0
+
   // A chunk at least this long is parsed by the windowed path (JSONParserWindow.swift); shorter
   // ones, and every byte fed one, go through the dispatcher below. The window scratch is
   // allocated the first time the windowed path runs, so a parser that never sees a large
@@ -172,6 +194,8 @@ public struct JSONParser: ~Copyable {
     self.skipEndDepth = 0
     self.pendingUTF8Count = 0
     self.consumedByteCount = 0
+    self.blockWalkGivenUp = false
+    self.blockWalkStrikes = 0
     // Adaptive window telemetry restarts too: it describes the previous document's shape, and
     // the next document may not share it.
     self.windowDensity = .max
@@ -371,12 +395,48 @@ public struct JSONParser: ~Copyable {
   // not the switch, was the loop-carried dependency. A structural byte's work is a handful of
   // compares on a register; it should not wait on a store buffer to deliver the previous byte's
   // result.
+  // Two copies of the loop, and the reason is a measurement: sharing one loop between the block
+  // path and the scalar ladder costs the ladder registers even on the iterations that never take
+  // the branch. The `PartialSink` specialisation -- the typed layer, which is what `Mesh` and
+  // `Canada` measure -- went from 42 stack accesses to 52 with the branch merely *present*, and
+  // those ten accesses are -7.3% on `Mesh - bulk` and -4.0% on `Canada - bulk` (interleaved, three
+  // rounds, both reproduced within 0.4%) on payloads whose blocks the gate switches off after
+  // four. Split, the `blocks: false` copy compiles to the baseline's code exactly, and a payload
+  // the walk has given up on pays nothing at all for the walk's existence.
+  //
+  // `blocks` is a literal at both call sites, so each copy constant-folds its own branch away.
+  // The attribute on the body has to be `@_transparent`, and that is not a preference: measured
+  // with the block path statically dead, so that both spellings compile the *same* scalar loop,
+  // `@inline(__always)` still cost `Mesh - bulk` 4.0% and `Canada - bulk` 2.0% (the body is
+  // optimised once, then inlined, and the typed layer's register allocation comes out different),
+  // and plain `@inlinable` cost 7.4% and 4.7% (it is not inlined at all). `@_transparent` inlines
+  // in raw SIL, before the optimiser sees either copy, and measures +0.00% / +0.00% / +0.05% on
+  // `Mesh` / `Canada` / `Twitter` -- the refactor is then free, and what the rows below measure
+  // is the walk itself. The dispatch is one load and one compare per run call, off the per-token
+  // path entirely.
   @inlinable
   @inline(never)
   mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
     from: Int,
     to: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) -> Int {
+    #if arch(arm64)
+      if self.blockWalkEnabled && !self.blockWalkGivenUp {
+        return try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
+      }
+    #endif
+    return try self.structuralRun(base: base, from: from, to: to, blocks: false, into: &sink)
+  }
+
+  @_transparent
+  @usableFromInline
+  mutating func structuralRun<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer,
+    from: Int,
+    to: Int,
+    blocks: Bool,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var i = from
@@ -389,6 +449,48 @@ public struct JSONParser: ~Copyable {
       self.containers = containers
     }
     while i < to {
+      #if arch(arm64)
+        // The 64-byte block path (JSONParserBlocks.swift), tried at every token boundary because
+        // that is where it is re-entered: everything it will not judge -- a string it cannot
+        // close inside one block, a key with an escape, a cut number -- it hands back here, and
+        // once this loop has settled that one token the next block is available again.
+        //
+        // `state.isStructural` is not tested: the loop only reaches its own top in a structural
+        // state (the exits below break otherwise), and `parseDispatching` only enters in one.
+        if blocks, i &+ 64 <= to {
+          // The `inout`s are copies scoped to this branch, not the run's own locals, for the
+          // reason `consumeSkipRun` documents: taking the address of `depth` and `containers`
+          // themselves would make `var depth = self.depth` an address-taken initialisation, and
+          // the store it becomes lands in the entry block -- one more store on every byte-fed
+          // call that never reaches this branch.
+          var blockState = state
+          var blockDepth = depth
+          var blockContainers = containers
+          defer {
+            state = blockState
+            depth = blockDepth
+            containers = blockContainers
+          }
+          i = try self.consumeStructuralBlocks(
+            base: base, from: i, to: to, state: &blockState, depth: &blockDepth,
+            containers: &blockContainers, into: &sink
+          )
+          // A negative answer is the walk giving up on this payload's shape (the gate in
+          // JSONParserBlocks.swift); the index is its bitwise complement. Breaking is how the
+          // verdict is honoured without the loop holding anything mutable for it: the dispatcher
+          // re-enters this function on the very next turn -- `i < n` and a structural state is
+          // exactly its `consumeStructuralRun` case -- and the entry above reads the verdict once
+          // and never asks again. One extra call per parse, against the 17 to 119 stack accesses
+          // every mutable-local spelling of the same thing cost this loop.
+          if i < 0 {
+            i = ~i
+            break
+          }
+          // A block that handed the parse to the skip scanner, the string loop or the number path
+          // leaves the run exactly as the step below would have.
+          if !blockState.isStructural { break }
+        }
+      #endif
       // The scan hands back the byte it stopped on rather than just the index, so the dispatch
       // below reads a register instead of loading the same address the scan's one-compare fast
       // path just tested. Two L1 accesses per structural byte became one.

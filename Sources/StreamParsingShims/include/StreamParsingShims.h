@@ -285,6 +285,178 @@ stream_parsing_classify_skip_block(
   out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
   return out;
 }
+
+// MARK: - The structural run's block classifier
+//
+// The same 64 bytes, asked the question `consumeStructuralBlocks` (JSONParserBlocks.swift) has:
+// where does the next *token* start, where are the string extents, and is there anything in here
+// the scalar ladder would judge differently. Whitespace is never read on that path -- it is
+// simply absent from `starts` -- and neither is the interior of a string, which the extent
+// between two `quote` bits settles whole.
+//
+// `starts` is the whole trick, and it is one word:
+//
+//     starts = (~in_string & ~ws & ~quote) | (quote & in_string)
+//
+// Read it byte by byte. Outside a string, everything that is not whitespace and not a quote is a
+// token start candidate (a bracket, a colon, a comma, or the first byte of a number or literal --
+// and also the *interior* bytes of those tokens, which the walk clears from the mask when it
+// advances its cursor past them, so they cost nothing). The opening quote of a string is the one
+// byte that is `in_string` and a quote at once, so it is added back; the closing quote is a quote
+// *outside* the string, so it drops out -- which is exactly right, since the extent between the
+// two is consumed by whoever visited the opening one. `trailingZeroBitCount` on this mask is
+// therefore "the next token start after the cursor", one instruction, whitespace skipped for free.
+typedef struct {
+  // Token start candidates, one bit per byte, ascending. Read only when `needs_scalar` is zero.
+  uint64_t starts;
+  // Unescaped `"`, one bit per byte: the opening and closing quote of every string in the block.
+  // Escaped quotes are removed (`find_escaped`), so the first set bit above an opening quote is
+  // that string's closing quote.
+  uint64_t quote;
+  // Every `\` byte, escaped or not. The walk tests this over a string's extent: a string with no
+  // backslash between its quotes is emitted in place, one with any goes to the escape decoder.
+  uint64_t backslash;
+  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
+  uint64_t in_string;
+  // Carry out: 1 if this block ends inside an odd-length backslash run.
+  uint64_t ends_odd;
+  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
+  // string, or, outside one, any byte the scalar ladder does not accept (every non-ASCII byte and
+  // every stray backslash included). The caller re-reads the block from its first byte with the
+  // scalar loop, which reports whatever it finds, at the offset it finds it.
+  uint32_t needs_scalar;
+  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
+  // string, so this is what the caller passes as `containsNonASCII` for the strings it emits: the
+  // validator then runs over each string's own extent and reports at the byte it finds, which is
+  // where the scalar path reports it. The ~99% of blocks with no high byte skip the per-string
+  // high-bit reduction entirely.
+  uint32_t non_ascii;
+  // Nonzero: the block holds no whitespace *outside* a string. It is the walk's gate signal, and
+  // it is computed here rather than handed out as a mask because one `bic` + `cmp` in the shim is
+  // cheaper than another 64-bit field in the returned struct. Whitespace inside a string is
+  // deliberately excluded: `LLM message` and both Qwen payloads are full of spaces that live
+  // inside string values, and those are bytes the walk skips with its cursor, not bytes the
+  // classifier saves anything on.
+  uint32_t no_outer_whitespace;
+} stream_parsing_structural_classes;
+
+STREAM_PARSING_SIMD_SHIM stream_parsing_structural_classes
+stream_parsing_classify_structural_block(
+  const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
+) {
+  uint8x16_t v0 = vld1q_u8(p);
+  uint8x16_t v1 = vld1q_u8(p + 16);
+  uint8x16_t v2 = vld1q_u8(p + 32);
+  uint8x16_t v3 = vld1q_u8(p + 48);
+
+  const uint8x16_t backslash_byte = vdupq_n_u8('\\');
+  const uint8x16_t quote_byte = vdupq_n_u8('"');
+  uint64_t backslash = stream_parsing_movemask4(
+    vceqq_u8(v0, backslash_byte), vceqq_u8(v1, backslash_byte),
+    vceqq_u8(v2, backslash_byte), vceqq_u8(v3, backslash_byte)
+  );
+  uint64_t quote = stream_parsing_movemask4(
+    vceqq_u8(v0, quote_byte), vceqq_u8(v1, quote_byte),
+    vceqq_u8(v2, quote_byte), vceqq_u8(v3, quote_byte)
+  );
+  quote &= ~stream_parsing_find_escaped(backslash, &ends_odd_carry);
+  uint64_t in_string = stream_parsing_prefix_xor(quote) ^ in_string_carry;
+
+  stream_parsing_structural_classes out;
+  out.quote = quote;
+  out.backslash = backslash;
+  out.in_string = (uint64_t)((int64_t)in_string >> 63);
+  out.ends_odd = ends_odd_carry;
+  out.non_ascii = vmaxvq_u8(vmaxq_u8(vmaxq_u8(v0, v1), vmaxq_u8(v2, v3))) >= 0x80;
+
+  // A block lying edge to edge inside a string needs only its flags and carries: there is no
+  // token start in it by construction. (With a zero carry in -- which is what the structural
+  // walk always passes, since it hands a string it cannot close in one block to the scalar path
+  // -- `in_string` can only be all ones if `quote` is nonzero, so this folds away there. It is
+  // kept for the carrying caller.)
+  if (quote == 0 && in_string == ~(uint64_t)0) {
+    // Edge to edge inside a string: no byte of it is whitespace outside one, by construction.
+    out.no_outer_whitespace = 1;
+    out.starts = 0;
+    out.needs_scalar = vminvq_u8(vminq_u8(vminq_u8(v0, v1), vminq_u8(v2, v3))) < 0x20;
+    return out;
+  }
+
+  // The same two-table trick the skip classifier documents above, re-encoded. A bit is a
+  // rectangle (set of high nibble rows) x (set of low nibbles), and the shipped encoding is
+  // exactly full at eight, so two bits have to be *recovered* before whitespace can have one:
+  //   * row 5's accepted set {5B,5D} is the bracket rectangle's row-5 half, and row 7's
+  //     {70..7B,7D} is {70..7A} plus its row-7 half -- so row 5 needs no bit of its own once
+  //     "accepted" is tested as `c != 0` rather than `(c & 0x7F) != 0`, which is legal because
+  //     every bracket is an accepted byte. (It is also one instruction cheaper per vector:
+  //     `vtstq(c, c)` lowers to `cmeq #0` + `bic`.)
+  //   * rows 3 and 7 then share the residual low set {0..A} ({30..3A}, {70..7A}), so one
+  //     rectangle {3,7} x {0..A} serves both.
+  //
+  //   bit 0 0x01  WS3    {0}   x {9,A,D}     09 0A 0D      (whitespace minus space)
+  //   bit 1 0x02  ROW2   {2}   x {0,2,B,D,E} 20 22 2B 2D 2E
+  //   bit 2 0x04  COMMA  {2}   x {C}         2C
+  //   bit 3 0x08  COLON  {3}   x {A}         3A
+  //   bit 4 0x10  N37    {3,7} x {0..A}      30..3A 70..7A
+  //   bit 5 0x20  ROW6   {6}   x {1..F}      61..6F
+  //   bit 6 0x40  E45    {4}   x {5}         45
+  //   bit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D
+  //
+  // `\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and
+  // every byte >= 0x80 is in no class at all, which is what `needs_scalar` reads. The walk reads
+  // the four bracket bytes and the two operators it lands on out of the line the classifier just
+  // touched, so neither `brackets` nor `op` is computed here -- two movemasks the skip
+  // classifier's shape would have paid for.
+  //
+  // Space cannot get a ninth bit (the residual rows provably do not collapse into three
+  // rectangles), so whitespace costs one lookup of its own. It is deliberately *not* hung off
+  // `c`: indexed by the low nibble it is independent of the class chain and issues alongside it.
+  // Measured on the corpus by the kernel harness (~/.cache/sspab/cand_blockkernel): this
+  // spelling 9.43 ns/block on twitter against 9.87 for `(c & 0x01) | (v == 0x20)` and 10.53 for
+  // deriving the operators with compares instead of table bits.
+  const uint8x16_t lo_table = {
+    0x12, 0x30, 0x32, 0x30, 0x30, 0x70, 0x30, 0x30,
+    0x30, 0x31, 0x39, 0xA2, 0x24, 0xA3, 0x22, 0x20
+  };
+  const uint8x16_t hi_table = {
+    0x01, 0x00, 0x06, 0x18, 0x40, 0x80, 0x20, 0x90,
+    0, 0, 0, 0, 0, 0, 0, 0
+  };
+  // The low nibbles of 09, 0A, 0D and 20 are distinct, so one table indexed by the low nibble
+  // holds "the whitespace byte with this low nibble" and one compare against the raw byte answers
+  // it. 0xFF is an impossible value in every row but F, which gets 0x00 (no byte 0x?F is zero).
+  const uint8x16_t ws_table = {
+    0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0x09, 0x0A, 0xFF, 0xFF, 0x0D, 0xFF, 0x00
+  };
+  const uint8x16_t low_nibble = vdupq_n_u8(0x0F);
+  const uint8x16_t space = vdupq_n_u8(0x20);
+
+  uint8x16_t n0 = vandq_u8(v0, low_nibble);
+  uint8x16_t n1 = vandq_u8(v1, low_nibble);
+  uint8x16_t n2 = vandq_u8(v2, low_nibble);
+  uint8x16_t n3 = vandq_u8(v3, low_nibble);
+  uint8x16_t c0 = vandq_u8(vqtbl1q_u8(lo_table, n0), vqtbl1q_u8(hi_table, vshrq_n_u8(v0, 4)));
+  uint8x16_t c1 = vandq_u8(vqtbl1q_u8(lo_table, n1), vqtbl1q_u8(hi_table, vshrq_n_u8(v1, 4)));
+  uint8x16_t c2 = vandq_u8(vqtbl1q_u8(lo_table, n2), vqtbl1q_u8(hi_table, vshrq_n_u8(v2, 4)));
+  uint8x16_t c3 = vandq_u8(vqtbl1q_u8(lo_table, n3), vqtbl1q_u8(hi_table, vshrq_n_u8(v3, 4)));
+
+  uint64_t accepted = stream_parsing_movemask4(
+    vtstq_u8(c0, c0), vtstq_u8(c1, c1), vtstq_u8(c2, c2), vtstq_u8(c3, c3)
+  );
+  uint64_t whitespace = stream_parsing_movemask4(
+    vceqq_u8(v0, vqtbl1q_u8(ws_table, n0)), vceqq_u8(v1, vqtbl1q_u8(ws_table, n1)),
+    vceqq_u8(v2, vqtbl1q_u8(ws_table, n2)), vceqq_u8(v3, vqtbl1q_u8(ws_table, n3))
+  );
+  uint64_t control = stream_parsing_movemask4(
+    vcltq_u8(v0, space), vcltq_u8(v1, space), vcltq_u8(v2, space), vcltq_u8(v3, space)
+  );
+
+  out.no_outer_whitespace = (whitespace & ~in_string) == 0;
+  out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
+  out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
+  return out;
+}
 #endif
 
 #if !(defined(__aarch64__) && defined(__ARM_NEON))
