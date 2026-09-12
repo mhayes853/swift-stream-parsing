@@ -89,8 +89,20 @@ case "$cmd" in
     ;;
   run)
     test -x "$TOOL" && test -x "$BIN" || { echo "run './bench build' first" >&2; exit 1; }
+    # One BenchmarkTool at a time on this machine: two racing invocations corrupt both. Wait
+    # (up to an hour) for a machine-wide mkdir lock; a stale lock older than 90 min is reclaimed.
+    BLOCK="${BENCH_LOCK:-$HOME/.cache/sspab/.bench.lock}"
+    mkdir -p "$(dirname "$BLOCK")"
+    waited=0
+    until mkdir "$BLOCK" 2>/dev/null; do
+      if [ -d "$BLOCK" ] && [ "$(( $(date +%s) - $(stat -f %m "$BLOCK") ))" -gt 5400 ]; then rmdir "$BLOCK" 2>/dev/null; continue; fi
+      [ "$waited" -eq 0 ] && echo "bench: waiting for lock $BLOCK" >&2
+      sleep 5; waited=$((waited + 5))
+      [ "$waited" -gt 3600 ] && { echo "bench: gave up waiting for lock" >&2; exit 1; }
+    done
+    trap 'rmdir "$BLOCK" 2>/dev/null' EXIT
     work="$(mktemp -d)"
-    trap 'rm -rf "$work"' EXIT
+    trap 'rm -rf "$work"; rmdir "$BLOCK" 2>/dev/null' EXIT
 
     # The names these filters select. `--command list` ignores --filter (it always prints all
     # 481), so the whole-match is applied here, with the same semantics BenchmarkTool uses

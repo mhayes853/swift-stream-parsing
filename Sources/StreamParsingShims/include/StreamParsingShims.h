@@ -5,6 +5,32 @@
 
 #define STREAM_PARSING_SIMD_SHIM static inline __attribute__((always_inline))
 
+// MARK: - simdjson stage 1's two bit algorithms
+//
+// Shared by the window indexer (StreamParsingShims.c) and the skip scanner's block classifier
+// below. They live in the header rather than in that translation unit because the skip
+// classifier is inlined into Swift and needs them there.
+
+// Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
+// carries the state across blocks: in, whether the previous block ended inside an odd run; out,
+// whether this one does.
+static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *prev_ends_odd) {
+  const uint64_t even_bits = 0x5555555555555555ULL;
+  const uint64_t odd_bits = ~even_bits;
+  uint64_t start_edges = bs_bits & ~(bs_bits << 1);
+  uint64_t even_start_mask = even_bits ^ *prev_ends_odd;
+  uint64_t even_starts = start_edges & even_start_mask;
+  uint64_t odd_starts = start_edges & ~even_start_mask;
+  uint64_t even_carries = bs_bits + even_starts;
+  uint64_t odd_carries;
+  int ends_odd = __builtin_add_overflow(bs_bits, odd_starts, &odd_carries);
+  odd_carries |= *prev_ends_odd;
+  *prev_ends_odd = (uint64_t)ends_odd;
+  uint64_t even_carry_ends = even_carries & ~bs_bits;
+  uint64_t odd_carry_ends = odd_carries & ~bs_bits;
+  return (even_carry_ends & odd_bits) | (odd_carry_ends & even_bits);
+}
+
 // The one SIMD operation Swift's SIMD API cannot express: a byte table lookup. On arm64 it is
 // `tbl`, and the UTF-8 validator's three nibble tables are each one instruction with it. The
 // wrapper takes and returns an `ext_vector_type` so Swift imports it as `SIMD16<UInt8>`, and it
@@ -82,6 +108,181 @@ stream_parsing_movemask_u8(stream_parsing_u8x16 value) {
 STREAM_PARSING_SIMD_SHIM int
 stream_parsing_any_high_u8(stream_parsing_u8x16 value) {
   return vmaxvq_u8((uint8x16_t)value) >= 0x80;
+}
+
+// One bit per byte of a 64-byte block, ascending. `vshrn` folds a 16-lane vector to a nibble per
+// lane and is the right tool for "which lane"; this is the other question -- four vectors down to
+// one word -- and the bit-weight-plus-pairwise-add form is what NEON has for it.
+static inline uint64_t stream_parsing_movemask4(
+  uint8x16_t m0, uint8x16_t m1, uint8x16_t m2, uint8x16_t m3
+) {
+  const uint8x16_t bit_mask = {
+    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80
+  };
+  uint8x16_t sum0 = vpaddq_u8(vandq_u8(m0, bit_mask), vandq_u8(m1, bit_mask));
+  uint8x16_t sum1 = vpaddq_u8(vandq_u8(m2, bit_mask), vandq_u8(m3, bit_mask));
+  sum0 = vpaddq_u8(sum0, sum1);
+  sum0 = vpaddq_u8(sum0, sum0);
+  return vgetq_lane_u64(vreinterpretq_u64_u8(sum0), 0);
+}
+
+// Quote parity: bit i becomes the XOR of bits 0...i, which turns a mask of unescaped quotes into
+// "is byte i inside a string" -- the opening quote included, the closing one not. One carryless
+// multiply by all ones where the target has it, six shift-xors where it does not.
+static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
+#if defined(__ARM_FEATURE_AES) || defined(__ARM_FEATURE_CRYPTO)
+  return vgetq_lane_u64(
+    vreinterpretq_u64_p128(vmull_p64((poly64_t)bitmask, (poly64_t)~0ULL)), 0
+  );
+#else
+  bitmask ^= bitmask << 1;
+  bitmask ^= bitmask << 2;
+  bitmask ^= bitmask << 4;
+  bitmask ^= bitmask << 8;
+  bitmask ^= bitmask << 16;
+  bitmask ^= bitmask << 32;
+  return bitmask;
+#endif
+}
+
+// MARK: - The skip scanner's block classifier
+//
+// What `consumeSkipRun` (JSONParserSkip.swift) asks of 64 bytes of a subtree it is scanning to
+// the matching close: where the brackets outside strings are, whether the block holds anything
+// the wide path refuses to judge, and the two carries that define where the next block starts.
+// Everything else the scalar loop does per byte -- whitespace, commas, colons, number and literal
+// bytes -- costs nothing here: those bytes are simply not bracket bits.
+//
+// The whole kernel is in C for the reason the UTF-8 block kernel is: composed from Swift's SIMD
+// operators around the movemask shim it comes out half scalarised, because a shift or compare
+// whose result feeds the shim is lowered lane by lane. As one `static inline` returning a small
+// struct it disappears into the Swift caller, which is what the assembly audit checks.
+typedef struct {
+  // '{', '[', '}' and ']' outside any string: one bit per byte, ascending. Read only when
+  // `needs_scalar` is zero.
+  uint64_t brackets;
+  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
+  uint64_t in_string;
+  // Carry out: 1 if this block ends inside an odd-length backslash run, so the byte after it is
+  // an escape selector.
+  uint64_t ends_odd;
+  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
+  // string, or, outside one, any byte the scalar switch does not accept (which covers every
+  // non-ASCII byte and every stray backslash). The caller re-reads the block from its first byte
+  // with the scalar loop, which reports whatever it finds, at the offset it finds it.
+  uint32_t needs_scalar;
+  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
+  // string, which is exactly the region the caller must still validate as UTF-8.
+  uint32_t non_ascii;
+} stream_parsing_skip_classes;
+
+STREAM_PARSING_SIMD_SHIM stream_parsing_skip_classes
+stream_parsing_classify_skip_block(
+  const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
+) {
+  uint8x16_t v0 = vld1q_u8(p);
+  uint8x16_t v1 = vld1q_u8(p + 16);
+  uint8x16_t v2 = vld1q_u8(p + 32);
+  uint8x16_t v3 = vld1q_u8(p + 48);
+
+  const uint8x16_t backslash_byte = vdupq_n_u8('\\');
+  const uint8x16_t quote_byte = vdupq_n_u8('"');
+  uint64_t backslash = stream_parsing_movemask4(
+    vceqq_u8(v0, backslash_byte), vceqq_u8(v1, backslash_byte),
+    vceqq_u8(v2, backslash_byte), vceqq_u8(v3, backslash_byte)
+  );
+  uint64_t quote = stream_parsing_movemask4(
+    vceqq_u8(v0, quote_byte), vceqq_u8(v1, quote_byte),
+    vceqq_u8(v2, quote_byte), vceqq_u8(v3, quote_byte)
+  );
+  quote &= ~stream_parsing_find_escaped(backslash, &ends_odd_carry);
+  uint64_t in_string = stream_parsing_prefix_xor(quote) ^ in_string_carry;
+
+  stream_parsing_skip_classes out;
+  out.in_string = (uint64_t)((int64_t)in_string >> 63);
+  out.ends_odd = ends_odd_carry;
+  out.non_ascii = vmaxvq_u8(vmaxq_u8(vmaxq_u8(v0, v1), vmaxq_u8(v2, v3))) >= 0x80;
+
+  // A block lying edge to edge inside a string -- most of every block on a payload with long
+  // strings -- has no brackets by construction and needs only its two flags, which are reduces
+  // rather than three more movemasks. The quote test is not redundant: an opening quote at bit 0
+  // alone also makes the parity all ones.
+  if (quote == 0 && in_string == ~(uint64_t)0) {
+    out.brackets = 0;
+    out.needs_scalar = vminvq_u8(vminq_u8(vminq_u8(v0, v1), vminq_u8(v2, v3))) < 0x20;
+    return out;
+  }
+
+  // A byte is in a class iff (lo_table[b & 0xF] & hi_table[b >> 4]) has the class bit set.
+  // Bits 0...6 spell "the scalar switch accepts this byte outside a string", one bit per high
+  // nibble row, which makes every row an exact set of low nibbles:
+  //   0x01 h=0 {09 0A 0D}         0x02 h=2 {20 22 2B 2C 2D 2E}
+  //   0x04 h=3 {30...39 3A}       0x08 h=4 {45}
+  //   0x10 h=5 {5B 5D}            0x20 h=6 {61...6F}
+  //   0x40 h=7 {70...7B 7D}
+  // so `\`, `/`, `|`, `_`, every uppercase letter but E, every control byte that is not
+  // whitespace, and every byte >= 0x80 fall out as unaccepted. Bit 7 is the bracket class:
+  // {B, D} x {5, 7} is exactly {'[', ']', '{', '}'}, a rectangle, which is the one shape this
+  // table form carries for free. Getting the brackets from the same two lookups is why the kinds
+  // are not masked out here -- the caller reads the four bracket bytes it actually lands on.
+  const uint8x16_t lo_table = {
+    0x46, 0x64, 0x66, 0x64, 0x64, 0x6C, 0x64, 0x64,
+    0x64, 0x65, 0x65, 0xF2, 0x22, 0xF3, 0x22, 0x20
+  };
+  const uint8x16_t hi_table = {
+    0x01, 0x00, 0x02, 0x04, 0x08, 0x90, 0x20, 0xC0,
+    0, 0, 0, 0, 0, 0, 0, 0
+  };
+  const uint8x16_t low_nibble = vdupq_n_u8(0x0F);
+  const uint8x16_t accepted_bits = vdupq_n_u8(0x7F);
+  const uint8x16_t bracket_bit = vdupq_n_u8(0x80);
+  const uint8x16_t space = vdupq_n_u8(0x20);
+
+  uint8x16_t c0 = vandq_u8(
+    vqtbl1q_u8(lo_table, vandq_u8(v0, low_nibble)), vqtbl1q_u8(hi_table, vshrq_n_u8(v0, 4))
+  );
+  uint8x16_t c1 = vandq_u8(
+    vqtbl1q_u8(lo_table, vandq_u8(v1, low_nibble)), vqtbl1q_u8(hi_table, vshrq_n_u8(v1, 4))
+  );
+  uint8x16_t c2 = vandq_u8(
+    vqtbl1q_u8(lo_table, vandq_u8(v2, low_nibble)), vqtbl1q_u8(hi_table, vshrq_n_u8(v2, 4))
+  );
+  uint8x16_t c3 = vandq_u8(
+    vqtbl1q_u8(lo_table, vandq_u8(v3, low_nibble)), vqtbl1q_u8(hi_table, vshrq_n_u8(v3, 4))
+  );
+  uint64_t accepted = stream_parsing_movemask4(
+    vtstq_u8(c0, accepted_bits), vtstq_u8(c1, accepted_bits),
+    vtstq_u8(c2, accepted_bits), vtstq_u8(c3, accepted_bits)
+  );
+  uint64_t brackets = stream_parsing_movemask4(
+    vtstq_u8(c0, bracket_bit), vtstq_u8(c1, bracket_bit),
+    vtstq_u8(c2, bracket_bit), vtstq_u8(c3, bracket_bit)
+  );
+  uint64_t control = stream_parsing_movemask4(
+    vcltq_u8(v0, space), vcltq_u8(v1, space), vcltq_u8(v2, space), vcltq_u8(v3, space)
+  );
+
+  out.brackets = brackets & ~in_string;
+  // Inside a string every control byte is a grammar error; outside one, every byte the switch
+  // does not accept is. `in_string` covers the opening quote through the byte before the closing
+  // quote, so both quotes land on the side that accepts them.
+  out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
+  return out;
+}
+#endif
+
+#if !(defined(__aarch64__) && defined(__ARM_NEON))
+// The window indexer's portable path needs the parity too. The skip scanner's block path is arm64
+// only and keeps the scalar loop everywhere else.
+static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
+  bitmask ^= bitmask << 1;
+  bitmask ^= bitmask << 2;
+  bitmask ^= bitmask << 4;
+  bitmask ^= bitmask << 8;
+  bitmask ^= bitmask << 16;
+  bitmask ^= bitmask << 32;
+  return bitmask;
 }
 #endif
 
