@@ -93,6 +93,17 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// - Parameters:
   ///   - initialValue: The value state to start parsing from.
   ///   - format: The format describing the parser that will consume bytes.
+  //
+  // `@inlinable` so the root schema is built in the client module, with `Value` concrete. The
+  // container roots -- `StreamArray<E>` and `StreamDictionary<V>` -- build their schema's
+  // `appendElement`/`enterKey` closure here, and a closure emitted in this module instead is
+  // emitted once, generically: it reaches `_openElement`/`_openValue` through value witnesses and
+  // instantiates `Optional<Element>` metadata at runtime per open. Sampled on a root
+  // `StreamDictionary<GSoCProject.Partial>`: ~2.9% of the parse in
+  // `swift_getGenericMetadata`/`getCache` and a generic single-payload-enum `assignWithTake` per
+  // key, none of which the macro-generated roots pay, because their container schemas are already
+  // built at the use site.
+  @inlinable
   public init(
     initialValue: Value = Value.streamInitialValue(),
     from format: JSONStreamFormat

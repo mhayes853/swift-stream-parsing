@@ -463,8 +463,24 @@ extension StreamArray: StreamInitializable {
 
 extension StreamArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
+  // `@inlinable` so a client that roots a parse at `StreamArray<Element>` builds the schema --
+  // and therefore the `appendElement` closure inside it -- in its own module, where `Element` is
+  // concrete and the closure body specialises. Without it the whole body is emitted once here,
+  // generically: every `_openElement` in the closure goes through `Element`'s value witnesses and
+  // `Optional<Element>`'s runtime-instantiated metadata. Measured on a root `StreamDictionary`
+  // (the same shape, below): ~2.9% of the parse in `swift_getGenericMetadata`/`getCache` alone,
+  // plus a generic single-payload-enum `assignWithTake` per key. A macro-generated partial never
+  // hit this because its container schemas are built at the use site already.
+  //
+  // Cached per element type (`_streamCachedSchema`), because this is a *computed* property and
+  // `PartialsStream.init` reads it: every stream rooted at an array rebuilt the whole schema,
+  // template allocation included. The `@inlinable` stays -- the closure handed to the cache is
+  // formed here, at the use site, so it still specialises; only the probe is out of line.
+  @inlinable
   public static var streamSchema: StreamSchema {
-    _streamArraySchema(Element.self, element: Element.streamElementSchema)
+    _streamCachedSchema(for: Self.self) {
+      _streamArraySchema(Element.self, element: Element.streamElementSchema)
+    }
   }
 
   // Generic types cannot hold a stored static, so `streamInitialValue()` above is a real `Self()`

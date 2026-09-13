@@ -24,23 +24,9 @@ static const uint8_t stream_parsing_index_hi_table[16] = {
   0x10, 0, 0x09, 0x02, 0, 0x04, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
-// Escaped positions: bit i set iff byte i follows an odd-length backslash run.
-static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *prev_ends_odd) {
-  const uint64_t even_bits = 0x5555555555555555ULL;
-  const uint64_t odd_bits = ~even_bits;
-  uint64_t start_edges = bs_bits & ~(bs_bits << 1);
-  uint64_t even_start_mask = even_bits ^ *prev_ends_odd;
-  uint64_t even_starts = start_edges & even_start_mask;
-  uint64_t odd_starts = start_edges & ~even_start_mask;
-  uint64_t even_carries = bs_bits + even_starts;
-  uint64_t odd_carries;
-  int ends_odd = __builtin_add_overflow(bs_bits, odd_starts, &odd_carries);
-  odd_carries |= *prev_ends_odd;
-  *prev_ends_odd = (uint64_t)ends_odd;
-  uint64_t even_carry_ends = even_carries & ~bs_bits;
-  uint64_t odd_carry_ends = odd_carries & ~bs_bits;
-  return (even_carry_ends & odd_bits) | (odd_carry_ends & even_bits);
-}
+// `stream_parsing_find_escaped` and `stream_parsing_prefix_xor` -- the paper's odd-backslash-run
+// finder and the quote parity -- live in the header, shared with the skip scanner's block
+// classifier, which is inlined into Swift and needs them there.
 
 typedef struct {
   uint64_t backslash;
@@ -52,36 +38,6 @@ typedef struct {
 } stream_parsing_block_classes;
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
-
-static inline uint64_t stream_parsing_movemask4(
-  uint8x16_t m0, uint8x16_t m1, uint8x16_t m2, uint8x16_t m3
-) {
-  const uint8x16_t bit_mask = {
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80
-  };
-  uint8x16_t sum0 = vpaddq_u8(vandq_u8(m0, bit_mask), vandq_u8(m1, bit_mask));
-  uint8x16_t sum1 = vpaddq_u8(vandq_u8(m2, bit_mask), vandq_u8(m3, bit_mask));
-  sum0 = vpaddq_u8(sum0, sum1);
-  sum0 = vpaddq_u8(sum0, sum0);
-  return vgetq_lane_u64(vreinterpretq_u64_u8(sum0), 0);
-}
-
-static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
-#if defined(__ARM_FEATURE_AES) || defined(__ARM_FEATURE_CRYPTO)
-  return vgetq_lane_u64(
-    vreinterpretq_u64_p128(vmull_p64((poly64_t)bitmask, (poly64_t)~0ULL)), 0
-  );
-#else
-  bitmask ^= bitmask << 1;
-  bitmask ^= bitmask << 2;
-  bitmask ^= bitmask << 4;
-  bitmask ^= bitmask << 8;
-  bitmask ^= bitmask << 16;
-  bitmask ^= bitmask << 32;
-  return bitmask;
-#endif
-}
 
 // The block classifier is in two speeds. The quote and backslash masks come first and are all
 // the in-string parity needs; a block that turns out to lie entirely inside a string — most
@@ -157,16 +113,6 @@ static inline void stream_parsing_classify_rest(
 }
 
 #else  // Portable scalar path: correct everywhere, fast nowhere; arm64 is the tuned target.
-
-static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
-  bitmask ^= bitmask << 1;
-  bitmask ^= bitmask << 2;
-  bitmask ^= bitmask << 4;
-  bitmask ^= bitmask << 8;
-  bitmask ^= bitmask << 16;
-  bitmask ^= bitmask << 32;
-  return bitmask;
-}
 
 typedef struct {
   const uint8_t *p;

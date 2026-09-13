@@ -101,8 +101,16 @@ extension Float: StreamParseableRoot {}
 
 extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
 where Value: StreamParseableRoot {
+  // See `StreamArray.streamSchema`: `@inlinable` so the `enterKey` closure is emitted in the
+  // client module with `Value` concrete, which is what lets `_openValue(forKey:copying:)`
+  // specialise for it.
+  //
+  // Cached per value type; see `StreamArray.streamSchema`.
+  @inlinable
   public static var streamSchema: StreamSchema {
-    _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
+    _streamCachedSchema(for: Self.self) {
+      _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
+    }
   }
 
   // See `StreamArray`: generic, so there is no cached template to load and `Self()` pays the
@@ -348,7 +356,14 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
   // type or a protocol extension. Reading it inside the closures therefore allocated one per
   // *token* routed through an optional destination, rather than one per schema. Capturing it here
   // is what makes the delegation cost a call.
+  //
+  // Cached per wrapped type as well: an `Optional` root rebuilt this whole delegation -- a dozen
+  // closure contexts -- per `PartialsStream.init`.
   public static var streamSchema: StreamSchema {
+    _streamCachedSchema(for: Self.self) { Self._streamOptionalRootSchemaBody() }
+  }
+
+  static func _streamOptionalRootSchemaBody() -> StreamSchema {
     let wrapped = Wrapped.streamSchema
     // Propagated rather than always wrapped, so an optional around a destination that matches no
     // keys stays a destination that matches no keys and skips the call the same way.
