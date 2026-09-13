@@ -1,0 +1,167 @@
+#!/bin/bash
+# Fast benchmark driver: separates the build (slow, SwiftPM) from the run (fast, direct).
+#
+# `swift package benchmark run` pays ~60-85s of SwiftPM manifest + build-plan overhead on
+# EVERY invocation, even when nothing changed. That dwarfs most measurement rounds and is
+# the reason A/B protocols take hours. BenchmarkTool -- the plugin's own host process --
+# can be pointed at an already-built binary directly, which costs ~0.3s of overhead.
+#
+#   ./Benchmarks/bench build              # rebuild the benchmark binary (only after a code change)
+#   ./Benchmarks/bench run "Fast Literals.*"   # measure, no build
+#   ./Benchmarks/bench list
+#
+# NOTE: --filter is a whole-name regex match, not a substring search. Suffix `.*`.
+# NOTE: --time-units nanoseconds is deliberate: without it the tool auto-scales units
+#       per row AND per side of an A/B, which has silently corrupted comparisons before.
+#
+# `run` gap-fills lost rows. BenchmarkTool runs each benchmark in its own child process, and a
+# child that dies takes exactly one row with it -- the tool prints `Failed to run ... error
+# code [11]` and carries on with the rest of the sweep (measured: 11 of 12 rows returned).
+# Re-running a 480-row sweep to recover one row is therefore pure waste, and doing it is what
+# has turned 20-minute rounds into multi-hour ones. After each pass we diff the `### <name>`
+# sections that came back against the names the filters select, and re-run only what is
+# missing, up to BENCH_RETRIES extra passes (default 2).
+#
+# The deaths themselves are upstream: ordo-one's malloc interposer DYLD_INTERPOSEs free /
+# malloc_size and reads the 8 bytes *before* every pointer it is handed, which faults on
+# anything that is not a heap block start. Measured 2026-09-08 at ~1-5% of child processes,
+# and 0/250 with the same executable and the interpose section removed. Building with
+# BENCHMARK_DISABLE_MALLOC_INTERPOSER=1 stops it, at the cost of `Malloc (total)` reading 0.
+#
+# CAVEAT: a refilled row is measured in a different batch position from the rows around it,
+# and batch position is worth a few percent on the larger payloads (`Real GSoC 2018` reads
+# ~3.5% slower inside a 17-row batch than alone). Treat a refilled row as indicative; if it
+# is the row carrying a decision, re-run the sweep.
+#
+# Env: BENCH_BIN overrides the executable to drive (so an A/B harness can point this at a
+#      copied baseline binary and inherit the gap-filling rather than reimplement it).
+#      BENCH_RETRIES sets the number of extra passes (default 2, 0 disables gap-filling).
+set -euo pipefail
+
+PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PRODUCTS="$PKG/.build/out/Products/Release"
+TOOL="$PRODUCTS/BenchmarkTool"
+BIN="${BENCH_BIN:-$PRODUCTS/StreamParsingBenchmarks}"
+RETRIES="${BENCH_RETRIES:-2}"
+
+cmd="${1:-run}"; shift || true
+
+# Shared BenchmarkTool arguments. `run` and `list` differ only in --command and the filters.
+tool_args() {
+  printf '%s\0' --benchmark-executable-paths "$BIN" \
+                --command "$1" \
+                --format markdown \
+                --baseline-storage-path "$PKG/.benchmarkBaselines" \
+                --grouping benchmark \
+                --no-progress \
+                --time-units nanoseconds
+  shift
+  local f
+  for f in "$@"; do printf '%s\0' --filter "$f"; done
+}
+
+# Run BenchmarkTool into $1; never fails the script, so a lost row can be diagnosed by the
+# caller from the rows that came back rather than from an exit status. `tee` mode also streams
+# to stdout as rows land -- a 480-row sweep is ~10 minutes, and holding its output back until
+# the gap-fill diff is ready would leave the terminal blank for all of it.
+run_tool() {
+  local mode="$1" out="$2" command="$3"; shift 3
+  local args=()
+  while IFS= read -r -d '' a; do args+=("$a"); done < <(tool_args "$command" "$@")
+  if [ "$mode" = tee ]; then
+    "$TOOL" "${args[@]}" 2>&1 | tee "$out" || true
+  else
+    "$TOOL" "${args[@]}" > "$out" 2>&1 || true
+  fi
+}
+
+case "$cmd" in
+  build)
+    swift build --package-path "$PKG" -c release --product StreamParsingBenchmarks "$@"
+    test -x "$BIN" || { echo "build failed: no $BIN" >&2; exit 1; }
+    echo "built: $BIN"
+    ;;
+  list|baseline|thresholds)
+    test -x "$TOOL" && test -x "$BIN" || { echo "run './bench build' first" >&2; exit 1; }
+    args=()
+    while IFS= read -r -d '' a; do args+=("$a"); done < <(tool_args "$cmd" "$@")
+    "$TOOL" "${args[@]}"
+    ;;
+  run)
+    test -x "$TOOL" && test -x "$BIN" || { echo "run './bench build' first" >&2; exit 1; }
+    # One BenchmarkTool at a time on this machine: two racing invocations corrupt both. Wait
+    # (up to an hour) for a machine-wide mkdir lock; a stale lock older than 90 min is reclaimed.
+    BLOCK="${BENCH_LOCK:-$HOME/.cache/sspab/.bench.lock}"
+    mkdir -p "$(dirname "$BLOCK")"
+    waited=0
+    until mkdir "$BLOCK" 2>/dev/null; do
+      if [ -d "$BLOCK" ] && [ "$(( $(date +%s) - $(stat -f %m "$BLOCK") ))" -gt 5400 ]; then rmdir "$BLOCK" 2>/dev/null; continue; fi
+      [ "$waited" -eq 0 ] && echo "bench: waiting for lock $BLOCK" >&2
+      sleep 5; waited=$((waited + 5))
+      [ "$waited" -gt 3600 ] && { echo "bench: gave up waiting for lock" >&2; exit 1; }
+    done
+    trap 'rmdir "$BLOCK" 2>/dev/null' EXIT
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"; rmdir "$BLOCK" 2>/dev/null' EXIT
+
+    # The names these filters select. `--command list` ignores --filter (it always prints all
+    # 481), so the whole-match is applied here, with the same semantics BenchmarkTool uses
+    # (Swift's `wholeMatch(of:)`; bash ERE anchored at both ends agrees for these patterns).
+    run_tool quiet "$work/list" list
+    grep -v -e '^$' -e "^Target '" "$work/list" > "$work/names" || true
+    : > "$work/expected"
+    if [ $# -eq 0 ]; then
+      cp "$work/names" "$work/expected"
+    else
+      while IFS= read -r name; do
+        for f in "$@"; do
+          if [[ "$name" =~ ^($f)$ ]]; then printf '%s\n' "$name" >> "$work/expected"; break; fi
+        done
+      done < "$work/names"
+    fi
+
+    # Pass 1 is the sweep as it always was: streamed live, printed whole, header and all.
+    run_tool tee "$work/pass" run "$@"
+    cp "$work/pass" "$work/all"
+
+    # A `list` that came back empty (its child can die too) leaves nothing to diff against,
+    # so gap-filling is skipped rather than guessed at.
+    if [ ! -s "$work/expected" ]; then
+      echo "bench: could not read the benchmark list; skipping gap-fill" >&2
+      exit 0
+    fi
+
+    attempt=0
+    while [ "$attempt" -lt "$RETRIES" ]; do
+      sed -n 's/^### //p' "$work/all" | sort -u > "$work/got"
+      sort -u "$work/expected" > "$work/want"
+      comm -13 "$work/got" "$work/want" > "$work/missing" || true
+      [ -s "$work/missing" ] || break
+
+      attempt=$((attempt + 1))
+      count=$(grep -c . < "$work/missing" || true)
+      echo "bench: $count row(s) lost to a crashed child; refilling (attempt $attempt/$RETRIES)" >&2
+      sed 's/^/bench:   /' "$work/missing" >&2
+
+      # Names are regex-safe here (the only non-alphanumerics in the suite are space, hyphen,
+      # comma, apostrophe and colon), so each name doubles as its own whole-match filter.
+      missing=()
+      while IFS= read -r name; do missing+=("$name"); done < "$work/missing"
+      run_tool quiet "$work/pass" run "${missing[@]}"
+
+      # Print only the row sections, so the refill does not repeat the baseline/host header.
+      sed -n '/^### /,$p' "$work/pass"
+      cat "$work/pass" >> "$work/all"
+    done
+
+    sed -n 's/^### //p' "$work/all" | sort -u > "$work/got"
+    sort -u "$work/expected" > "$work/want"
+    comm -13 "$work/got" "$work/want" > "$work/missing" || true
+    if [ -s "$work/missing" ]; then
+      echo "bench: still missing after $RETRIES refill attempt(s):" >&2
+      sed 's/^/bench:   /' "$work/missing" >&2
+      exit 1
+    fi
+    ;;
+  *) echo "usage: bench {build|run|list} [filter-regex ...]" >&2; exit 2 ;;
+esac
