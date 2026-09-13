@@ -770,7 +770,8 @@
       "prose": [
         "Structural bytes arrive in runs — `},{\"`, `\":`, `,\"`, `[[` — and paying a call, a return and a re-entry into the dispatch switch for each one was measurably the cost of a structural byte, not the byte's own work. So the loop stays inside one function while the state stays structural, turning a run into a single call.",
         "The register trick is the part worth watching. Nesting is held in two values: `depth`, and a single `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. Sixty-four levels of JSON nesting, one register. Depth beyond that is rejected rather than spilled, which is why the ceiling exists at all.",
-        "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory — the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency."
+        "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory — the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency.",
+        "On arm64, a structural boundary with 64 bytes ahead first enters a block walk. The scalar copy is still the edge path and the authority for anything the classifier declines; splitting the two loop copies with `@_transparent` measured neutral on the scalar path."
       ],
       "evidence": {
         "doc": [
@@ -780,18 +781,26 @@
         ],
         "source": [
           "JSONParser.swift:consumeStructuralRun",
+          "JSONParserBlocks.swift:consumeStructuralBlocks",
           "JSONParser.swift:State"
         ],
         "asm": [
-          "JSONParser.consumeStructuralRun"
+          "JSONParser.consumeStructuralRun",
+          "JSONParser.consumeStructuralBlocks"
         ]
       },
       "next": [
         {
+          "to": "structural-blocks",
+          "kind": "branch",
+          "label": "64 bytes ahead, gate open",
+          "when": "On arm64, the parser is at a token boundary with no token in flight and the block walk has not given up on this payload's shape."
+        },
+        {
           "to": "whitespace-compare",
-          "kind": "step",
-          "label": "skip whitespace",
-          "when": "`streamWhitespaceEndByte` runs before every structural byte. It hands back the byte it stopped on as well as the index, so the ladder below reads a register instead of re-loading the address the scan just tested — two L1 accesses per structural byte became one."
+          "kind": "branch",
+          "label": "edge or scalar handoff",
+          "when": "Fewer than 64 bytes remain, a block contains something the classifier declines, or a token crosses the grid in a form the block path hands back. `streamWhitespaceEndByte` resumes at exactly that byte."
         },
         {
           "to": "state-ladder",
@@ -800,7 +809,7 @@
           "when": "`consumeStructural`, folded in `@_transparent`, advances `state`, `depth` and `containers`. All three are locals for the duration of the run and are written back on every exit, the throwing ones included."
         }
       ],
-      "invokes": "A loop over one function for as long as the state stays structural. Per byte it calls the whitespace scan, then the state ladder. It returns to the dispatcher only when the state stops being structural, or when a number's first byte has to be handed back.",
+      "invokes": "At the top of each structural-loop iteration, the arm64 copy tries a 64-byte block. The same loop then owns the scalar edge: whitespace scan, state ladder, and another turn until the state stops being structural.",
       "ordering": "ordered",
       "steps": [
         {
@@ -811,9 +820,58 @@
           "source": "JSONParser.swift:consumeStructuralRun",
           "next": [
             {
-              "to": "scan",
+              "to": "mode",
               "kind": "step",
               "label": "enter the run loop"
+            }
+          ]
+        },
+        {
+          "id": "mode",
+          "title": "is a whole block available?",
+          "kicker": "arm64, gate open",
+          "detail": "The block verdict is read once at the function entry; at each token boundary, 64 remaining bytes choose the block walk. The byte-fed and short-tail path reaches the scalar scan without paying for the classifier.",
+          "source": "JSONParser.swift:consumeStructuralRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "wide",
+              "kind": "branch",
+              "label": "64 bytes remain",
+              "when": "The parser is at a structural boundary and the block gate has not given up."
+            },
+            {
+              "to": "scan",
+              "kind": "branch",
+              "label": "scalar edge",
+              "when": "The tail is short, the architecture has no block path, or this parse already accumulated four gate strikes."
+            }
+          ]
+        },
+        {
+          "id": "wide",
+          "title": "consumeStructuralBlocks",
+          "kicker": "moving 64-byte grid",
+          "detail": "Classifies a block, walks `starts` with trailing-zero counts, and returns the first byte it will not settle. A negative result is the complemented cursor and permanently selects the scalar copy for the rest of this parse.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "leave",
+              "kind": "branch",
+              "label": "state became non-structural",
+              "when": "A string, number or skipped subtree needs its dispatcher arm."
+            },
+            {
+              "to": "scan",
+              "kind": "branch",
+              "label": "hands back one byte",
+              "when": "The block path declines at a byte but leaves a structural state for the unchanged scalar loop."
+            },
+            {
+              "to": "mode",
+              "kind": "return",
+              "label": "whole blocks consumed"
             }
           ]
         },
@@ -865,7 +923,7 @@
               "when": "`isStructural` is one unsigned compare on the raw value. A string, key, literal or skip state ends the run and the dispatcher picks the handler."
             },
             {
-              "to": "scan",
+              "to": "mode",
               "kind": "return",
               "label": "still structural"
             }
@@ -901,6 +959,178 @@
           "kicker": "the exception",
           "detail": "Paying a call, a return and a re-entry into the dispatch switch per structural byte was measurably the cost of a structural byte, not the byte's own work — which is why this is the *exit* rather than the normal case.",
           "source": "JSONParser.swift:State",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "structural-blocks",
+      "stage": "dispatch",
+      "title": "The structural block walk",
+      "kicker": "64 bytes, moving grid",
+      "viz": "structuralBlocks",
+      "prose": [
+        "One C classification replaces the whitespace scan before every token, the string scan before every in-place key or value, and the per-string high-bit reduction. `starts` contains the opening quote or first candidate byte of each token; `quote` pairs string extents; `backslash` decides whether an extent can stay in place.",
+        "The grid moves with completed tokens. If a long string or token crosses byte 64, its existing scanner finishes it and the next classification begins at that end rather than at the old fixed boundary. Every classification therefore starts with zero quote and escape carries, and long string interiors are not classified again.",
+        "The classifier only pays on shapes where it removes whitespace work. A block with no whitespace outside strings, or at least 48 start candidates, is one strike. Four consecutive strikes store a parser-wide give-up verdict; the unchanged scalar copy handles the rest of that parse."
+      ],
+      "evidence": {
+        "doc": [],
+        "source": [
+          "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "StreamParsingShims.h:stream_parsing_classify_structural_block",
+          "JSONParser.swift:consumeStructuralRun"
+        ],
+        "asm": [
+          "JSONParser.consumeStructuralBlocks"
+        ]
+      },
+      "next": [
+        {
+          "to": "state-ladder",
+          "kind": "detail",
+          "label": "the same grammar arms",
+          "when": "The block walk restates the scalar ladder's checks and event order over mask-selected token starts."
+        },
+        {
+          "to": "structural-run",
+          "kind": "return",
+          "label": "scalar handoff or next turn",
+          "when": "An unsettled byte returns to the scalar edge at its exact offset; exhausted and re-anchored grids return to the structural loop."
+        }
+      ],
+      "ordering": "unordered",
+      "invokes": "An outer loop classifies a moving 64-byte grid. An inner loop repeatedly takes `starts.trailingZeroBitCount`, consumes that token extent, and clears every candidate it covered.",
+      "steps": [
+        {
+          "id": "classify",
+          "title": "classify 64 bytes",
+          "kicker": "4 × 16-byte loads",
+          "detail": "The C kernel returns `starts`, unescaped quote bits, every backslash bit, the high-byte flag, the scalar-decline flag and the two gate signals. The structural walk always supplies zero carries because it completes every token it starts before moving its grid.",
+          "source": "StreamParsingShims.h:stream_parsing_classify_structural_block",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "scalar",
+              "kind": "branch",
+              "label": "needs_scalar != 0",
+              "when": "A control byte inside a string or a byte outside strings that the wide path will not judge. The scalar loop re-reads from the block's first byte so errors keep their offsets."
+            },
+            {
+              "to": "gate",
+              "kind": "branch",
+              "label": "the block is accepted",
+              "when": "Every byte belongs to a class the block path can settle."
+            }
+          ]
+        },
+        {
+          "id": "gate",
+          "title": "update consecutive strikes",
+          "kicker": "0…4",
+          "detail": "No whitespace outside strings or 48+ `starts` bits adds one strike; a useful block resets a nonzero count. Consecutive rather than cumulative preserves the measured GSoC gain across its occasional compact block.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "giveup",
+              "kind": "branch",
+              "label": "strike 4",
+              "when": "The walk stores `blockWalkGivenUp` and returns the complemented cursor before visiting this block's starts."
+            },
+            {
+              "to": "mask",
+              "kind": "branch",
+              "label": "the gate stays open",
+              "when": "The block remains worth walking, or has not yet accumulated four consecutive losing signals."
+            }
+          ]
+        },
+        {
+          "id": "mask",
+          "title": "starts.trailingZeroBitCount",
+          "kicker": "next token",
+          "detail": "Whitespace and string interiors are absent, so the lowest set bit is the next token candidate after the cursor. There is no whitespace call and no scan across the gap.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "extent",
+              "kind": "branch",
+              "label": "a start bit remains",
+              "when": "The byte itself selects the matching scalar-ladder arm."
+            },
+            {
+              "to": "advance",
+              "kind": "branch",
+              "label": "mask == 0",
+              "when": "Every token in the block is finished; anything after the last one is whitespace."
+            }
+          ]
+        },
+        {
+          "id": "extent",
+          "title": "settle one token extent",
+          "kicker": "quotes, literal or scanner",
+          "detail": "Quotes pair an in-block string immediately; a backslash inside that extent selects the existing escape decoder. Literal words are checked whole. Numbers still use `streamNumberRunEnd`, because only its grammar walk preserves the error byte for shapes such as `12abc`.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "reanchor",
+              "kind": "branch",
+              "label": "the token ends past byte 63",
+              "when": "The existing token scanner completed a long string, literal or number beyond this grid."
+            },
+            {
+              "to": "mask",
+              "kind": "return",
+              "label": "clear through the token"
+            }
+          ]
+        },
+        {
+          "id": "reanchor",
+          "title": "p = token end",
+          "kicker": "move the grid",
+          "detail": "The next classification begins at the byte after the completed token, with zero carries. The tail of the old grid is abandoned; the token's interior is never classified twice.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "next": [
+            {
+              "to": "classify",
+              "kind": "return",
+              "label": "64 bytes remain at the new p"
+            }
+          ]
+        },
+        {
+          "id": "advance",
+          "title": "p += 64",
+          "kicker": "zero-carry edge",
+          "detail": "The exhausted mask proves no token is open at the edge, so the next block is classified independently.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "next": [
+            {
+              "to": "classify",
+              "kind": "return",
+              "label": "another full block remains"
+            }
+          ]
+        },
+        {
+          "id": "scalar",
+          "title": "return p unchanged",
+          "kicker": "scalar authority",
+          "detail": "The block is handed back from its first byte with parser state untouched. The unchanged scalar copy remains the code that diagnoses it.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "next": []
+        },
+        {
+          "id": "giveup",
+          "title": "return ~p",
+          "kicker": "one-way gate",
+          "detail": "The complemented cursor carries the verdict without another mutable local in the structural loop. The dispatcher re-enters once and the entry test selects the scalar copy for the rest of the parse.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
           "next": []
         }
       ]
@@ -3058,7 +3288,8 @@
       "kicker": "structural speed",
       "viz": "skipRun",
       "prose": [
-        "The skip walk is its own state machine — three states, one of which exists only to carry a skipped string across a chunk boundary. They sit past `done` in the state enum on purpose, so that \"is this state structural\" stays a single unsigned compare for everyone else."
+        "The skip walk is its own state machine — three states, one of which exists only to carry a skipped string across a chunk boundary. They sit past `done` in the state enum on purpose, so that \"is this state structural\" stays a single unsigned compare for everyone else.",
+        "On arm64, a skipped interior with a whole block ahead first classifies 64 bytes and visits only brackets outside strings. The scalar animation here is still the edge and resumption path; the block animation alongside it shows the path large skipped subtrees now take."
       ],
       "evidence": {
         "doc": [
@@ -3066,11 +3297,21 @@
         ],
         "source": [
           "JSONParserSkip.swift:consumeSkipRun",
+          "JSONParserSkip.swift:consumeSkipBlocks",
+          "StreamParsingShims.h:stream_parsing_classify_skip_block",
           "JSONParser.swift:State"
         ],
-        "asm": []
+        "asm": [
+          "JSONParser.consumeSkipBlocks"
+        ]
       },
       "next": [
+        {
+          "to": "skip-blocks",
+          "kind": "branch",
+          "label": "64-byte skipped interior",
+          "when": "On arm64, the state is `.skipping` at a token boundary and at least one whole block remains."
+        },
         {
           "to": "dispositions",
           "kind": "detail",
@@ -3079,6 +3320,7 @@
         }
       ],
       "invokes": "Its own three-state machine, driven from the dispatcher like any other run.",
+      "ordering": "unordered",
       "steps": [
         {
           "id": "resume",
@@ -3101,10 +3343,38 @@
               "when": "A chunk cut the string itself."
             },
             {
-              "to": "loop",
+              "to": "blocks",
               "kind": "branch",
               "label": "`.skipping`",
               "when": "The ordinary case: between tokens."
+            }
+          ]
+        },
+        {
+          "id": "blocks",
+          "title": "try consumeSkipBlocks",
+          "kicker": "arm64, ≥ 64 bytes",
+          "detail": "Out of line so its hoisted tables and splats do not enlarge the prologue every byte-fed call pays. Only brackets outside strings reach its inner loop; the two carries name the exact scalar state at its handoff.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "matching close found",
+              "when": "The block path delivered the one close and left a structural state behind."
+            },
+            {
+              "to": "resume",
+              "kind": "branch",
+              "label": "quote or escape carry",
+              "when": "Quote parity or the odd-backslash carry selects the matching skipping resumption state before the edge is finished."
+            },
+            {
+              "to": "loop",
+              "kind": "branch",
+              "label": "edge or scalar handoff",
+              "when": "No whole block remains, or the classifier declined a block at its first byte."
             }
           ]
         },
@@ -3213,6 +3483,142 @@
           "kicker": "resumable",
           "detail": "The three states are what makes the skip resumable at all.",
           "source": "JSONParser.swift:State",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "skip-blocks",
+      "stage": "sink",
+      "title": "The skipped-subtree block walk",
+      "kicker": "brackets only",
+      "viz": "skipBlocks",
+      "prose": [
+        "A 64-byte skipped block reduces to the brackets outside strings. String contents, escape selectors, numbers, literal letters, whitespace, commas and colons never enter the inner loop; the four bracket bytes spell open versus close and object versus array from their own bits.",
+        "Quote parity and odd-backslash state carry across accepted blocks. At a handoff they become `.skippingString` or `.skippingEscape`, so the scalar edge resumes at the same byte and with the same validation obligations. Non-ASCII validation is deferred across adjacent blocks, then settled at an all-ASCII block or before the close/error that would overtake it.",
+        "The function is forced out of line. Inlining its classifier hoists tables and splats into callee-saved vector registers, enlarging the scalar skip function's prologue; that measured 5.1% slower on byte-fed escaped Twitter, which can never execute a whole block."
+      ],
+      "evidence": {
+        "doc": [
+          "stage-5-container-dispositions-skipped-subtrees-run-at-structural-speed"
+        ],
+        "source": [
+          "JSONParserSkip.swift:consumeSkipBlocks",
+          "StreamParsingShims.h:stream_parsing_classify_skip_block",
+          "JSONParserSkip.swift:consumeSkipRun"
+        ],
+        "asm": [
+          "JSONParser.consumeSkipBlocks"
+        ]
+      },
+      "next": [
+        {
+          "to": "skip-run",
+          "kind": "return",
+          "label": "carry or scalar edge",
+          "when": "The block path returns at the first unclassified byte, with its carries translated into the matching skipping state."
+        },
+        {
+          "to": "dispositions",
+          "kind": "detail",
+          "label": "one close still arrives",
+          "when": "Finding the refused container's matching close delivers that event before depth and state are updated."
+        }
+      ],
+      "ordering": "unordered",
+      "invokes": "The outer loop classifies one 64-byte block and carries quote/escape state; the inner loop repeatedly clears the lowest bracket bit and updates `depth` plus `containers`.",
+      "steps": [
+        {
+          "id": "classify",
+          "title": "classify 64 skipped bytes",
+          "kicker": "brackets + 2 carries",
+          "detail": "The C kernel removes escaped quotes, prefix-XORs the remaining quote mask, and returns only brackets outside the resulting string regions, plus `in_string`, `ends_odd`, non-ASCII and scalar-decline flags.",
+          "source": "StreamParsingShims.h:stream_parsing_classify_skip_block",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "handoff",
+              "kind": "branch",
+              "label": "needs_scalar != 0",
+              "when": "The scalar edge must diagnose a control byte in a string or an unaccepted byte outside one."
+            },
+            {
+              "to": "utf8",
+              "kind": "branch",
+              "label": "accepted block",
+              "when": "The masks settle the block's structure."
+            }
+          ]
+        },
+        {
+          "id": "utf8",
+          "title": "extend or settle UTF-8 span",
+          "kicker": "deferred",
+          "detail": "A non-ASCII block starts or extends the outstanding validation range. The first all-ASCII block settles it: no UTF-8 sequence can cross a block with no high byte.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
+          "next": [
+            {
+              "to": "mask",
+              "kind": "step",
+              "label": "walk the bracket mask"
+            }
+          ]
+        },
+        {
+          "id": "mask",
+          "title": "brackets.trailingZeroBitCount",
+          "kicker": "next bracket",
+          "detail": "Every gap is skipped without inspecting its bytes. The bracket byte itself carries object/array in bit 5 and open/close in bit 1, so the walk pays one cached byte load rather than two more block movemasks.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "close",
+              "kind": "branch",
+              "label": "matching close",
+              "when": "Decrementing depth reaches `skipEndDepth`."
+            },
+            {
+              "to": "mask",
+              "kind": "return",
+              "label": "another bracket bit"
+            },
+            {
+              "to": "carry",
+              "kind": "branch",
+              "label": "mask exhausted",
+              "when": "No bracket outside strings remains in this block."
+            }
+          ]
+        },
+        {
+          "id": "carry",
+          "title": "carry quote and escape state",
+          "kicker": "next 64 bytes",
+          "detail": "The next block receives whether its first byte is inside a string or follows an odd backslash run. Those fields update only after a block is accepted, so a declined block is handed back with the state of its first byte.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
+          "next": [
+            {
+              "to": "classify",
+              "kind": "return",
+              "label": "another whole block"
+            }
+          ]
+        },
+        {
+          "id": "handoff",
+          "title": "translate carries into state",
+          "kicker": "exact resumption",
+          "detail": "Odd backslash wins as `.skippingEscape`; otherwise quote parity selects `.skippingString`. A possibly split UTF-8 sequence is backed up to its lead before outstanding validation is settled.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
+          "next": []
+        },
+        {
+          "id": "close",
+          "title": "deliver the matching close",
+          "kicker": "the one event",
+          "detail": "Any outstanding UTF-8 precedes it and is validated first. The close event is sent before depth and state change, exactly matching the structural walk's observable order.",
+          "source": "JSONParserSkip.swift:consumeSkipBlocks",
           "next": []
         }
       ]

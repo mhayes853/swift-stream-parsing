@@ -177,6 +177,7 @@ if only == "all" || only == "traces" {
         """),
     containers: try ParserTraces.containers(
       sample: #"{"id":4,"tags":["a",{"k":[true]}],"ok":null}"#),
+    structuralBlocks: try BlockTraces.structural(),
     number: KernelTraces.numbers(["582", "12345678", "7", "-3.1415", "1e10", "99999999999"]),
     whitespaceTable: KernelTraces.whitespaceTable(), numberTable: KernelTraces.numberTable(),
     // Two, three and four byte sequences in one block, so all three lookups have something to say
@@ -186,7 +187,8 @@ if only == "all" || only == "traces" {
     // shows every group the protocol declares.
     sinkCalls: try SinkTraces.sinkCalls(
       sample: #"{"id":7,"tag":"a\"b","ok":true,"none":null,"xs":[1,2]}"#),
-    dispositions: dispositions, skipRun: skipRun, fieldMatch: RoutingTraces.fieldMatch(),
+    dispositions: dispositions, skipRun: skipRun, skipBlocks: try BlockTraces.skip(),
+    fieldMatch: RoutingTraces.fieldMatch(),
     frames: frames, streamString: streamString, collections: collections, views: views)
 
   let out = path("Web", "generated", "traces.json")
@@ -196,7 +198,9 @@ if only == "all" || only == "traces" {
     [
       traces.stringRun.verified, traces.whitespaceTable.verified, traces.numberTable.verified,
       traces.utf8.verified, traces.escapes.verified, traces.containers.offsetsVerified,
+      traces.structuralBlocks.verified,
       traces.sinkCalls.verified, traces.dispositions.verified, traces.skipRun.verified,
+      traces.skipBlocks.verified,
       traces.fieldMatch.verified, traces.frames.verified, traces.streamString.verified,
       traces.collections.verified, traces.views.verified
     ].filter { !$0 }.count + traces.number.cases.filter { !$0.verified }.count
@@ -205,6 +209,8 @@ if only == "all" || only == "traces" {
     traces.json: \(arch); stringRun \(traces.stringRun.blocks.count) blocks, \
     whitespace \(traces.whitespace.calls.count) calls, \
     containers \(traces.containers.steps.count) steps (depth ceiling \(traces.containers.maximumDepth)), \
+    structural blocks \(traces.structuralBlocks.cases.reduce(0) { $0 + $1.blocks.count }) across \
+    \(traces.structuralBlocks.cases.count) cases, \
     numbers \(traces.number.cases.count) cases, \
     tables \(traces.whitespaceTable.tables.count + traces.numberTable.tables.count + traces.utf8.tables.count) \
     across whitespace/number/UTF-8, escapes \(traces.escapes.entries.count) entries
@@ -214,6 +220,7 @@ if only == "all" || only == "traces" {
     sink boundary: \(traces.sinkCalls.calls.count) sink calls, \
     dispositions \(traces.dispositions.streamed.count) streamed vs \(traces.dispositions.skipped.count) skipped, \
     skip walk \(traces.skipRun.steps.count) steps, \
+    skip blocks \(traces.skipBlocks.blocks.count), \
     field match \(traces.fieldMatch.tables.count) tables \
     (\(traces.fieldMatch.tables.map { "\($0.entries.count) \($0.strategy)" }.joined(separator: ", "))), \
     frames \(traces.frames.steps.count) steps over \(traces.frames.schemas.count) schemas, \

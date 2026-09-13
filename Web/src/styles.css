@@ -1055,6 +1055,89 @@ mark {
 }
 .tape-caption { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
 
+/* MARK: - The 64-byte block walks
+   These are masks rather than SIMD registers: one bit per input byte, in four 16-byte rows so the
+   classifier's load boundaries stay aligned with the tape above. Clearing a token extent is the
+   block walk's work, so cleared candidates pulse and remain faintly visible. */
+
+.block-purpose { margin-top: 5px; }
+.block-masks {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 11px;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.block-mask-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; align-items: start; }
+.block-mask-label { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.3; }
+.block-mask-label code { font-size: 11px; font-weight: 650; color: var(--text-primary); }
+.block-mask-label span { font-size: 9.5px; color: var(--text-muted); }
+.block-mask {
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(16, minmax(8px, 1fr));
+  gap: 2px;
+}
+.block-mask i {
+  min-width: 0;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--grid);
+  border-radius: 2px;
+  background: var(--surface-1);
+  color: var(--axis);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-style: normal;
+}
+.block-mask i.on {
+  border-color: var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 28%, var(--surface-1));
+  color: var(--text-primary);
+}
+.block-mask i.cleared {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--series-2) 65%, var(--grid));
+  color: var(--series-2);
+  animation: mask-clear 520ms ease-out;
+}
+.block-mask i.current { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.strike-meter {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.strike-meter > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.strike-meter i { height: 8px; border-radius: 999px; background: var(--grid); }
+.strike-meter i.on, .strike-meter i.new { background: var(--series-2); }
+.strike-meter i.new { animation: lane-chg 620ms ease-out; }
+.strike-meter strong { color: var(--text-primary); font-family: var(--font-mono); }
+
+@keyframes mask-clear {
+  from { transform: scale(1.18); background: color-mix(in srgb, var(--series-2) 34%, var(--surface-1)); }
+  to { transform: none; background: var(--surface-1); }
+}
+
+@media (max-width: 620px) {
+  .block-mask-row { grid-template-columns: 1fr; }
+  .block-mask-label { flex-direction: row; justify-content: space-between; align-items: baseline; }
+  .block-mask i { height: 13px; }
+}
+
 /* MARK: - The step timeline
    A stack of registers is stepped through, so a row is not-yet-computed, computed-by-this-step or
    already-computed. A future row keeps its box and shows nothing, which is what stops the stack
@@ -1122,7 +1205,9 @@ mark {
    being removed: the phases still differ, they simply stop animating between them. */
 @media (prefers-reduced-motion: reduce) {
   .vec-row.now .vec-lane,
-  .vec-lane.chg { animation: none; }
+  .vec-lane.chg,
+  .block-mask i.cleared,
+  .strike-meter i.new { animation: none; }
   .tape-byte { transition: none; }
   .vec-op-row .sym { transition: none; }
 }

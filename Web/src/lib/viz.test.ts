@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { traces } from "../test/fixtures";
-import { blockStep, diff, firstHitLane, glyph, hex, phaseOf, readUpTo, splat, tapeKindAt, wordHex } from "./viz";
+import {
+  blockStep,
+  diff,
+  firstHitLane,
+  glyph,
+  hex,
+  phaseOf,
+  readUpTo,
+  skipBlockTimeline,
+  splat,
+  structuralBlockTimeline,
+  tapeKindAt,
+  wordHex
+} from "./viz";
 
 describe("glyph", () => {
   it("gives every byte something visible to draw", () => {
@@ -37,6 +50,26 @@ describe("blockStep", () => {
   it("splits a flat index into a block and an instruction within it", () => {
     expect(blockStep(0, 6)).toEqual({ block: 0, op: 0 });
     expect(blockStep(13, 6)).toEqual({ block: 2, op: 1 });
+  });
+});
+
+describe("block-walk timelines", () => {
+  it("keeps the moving grid and four-strike verdict in order", () => {
+    const moving = structuralBlockTimeline(traces.structuralBlocks.cases[0]);
+    const gated = structuralBlockTimeline(traces.structuralBlocks.cases[1]);
+    expect(moving[0].op).toBe("classify");
+    expect(moving.some((step) => step.op === "advance" && step.next === 85)).toBe(true);
+    expect(gated.at(-1)).toMatchObject({ op: "give up", next: 195 });
+  });
+
+  it("settles each skip block's carries after its bracket visits", () => {
+    const timeline = skipBlockTimeline(traces.skipBlocks);
+    for (const block of traces.skipBlocks.blocks) {
+      const slice = timeline.filter((step) => step.block === block.index);
+      expect(slice[0].op).toBe("classify");
+      expect(slice.at(-1)?.op).toBe("carry");
+      expect(slice.filter((step) => step.op === "visit")).toHaveLength(block.visits.length);
+    }
   });
 });
 

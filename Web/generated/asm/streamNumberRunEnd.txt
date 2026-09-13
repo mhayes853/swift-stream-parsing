@@ -3,56 +3,56 @@
 ; 53 instructions
 ; llvm-objdump -d, release benchmark binary
 
-10029262c:     	add	x8, x1, #0x10
-100292630:     	cmp	x2, x8
-100292634:     	b.ge	0x100292640 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x14>
-100292638:     	mov	x8, x1
-10029263c:     	b	0x10029269c <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x70>
-100292640:     	adrp	x8, 0x100418000 <_$s23StreamParsingBenchmarks25BenchmarkGSoCOrganizationV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOs0G3KeyAAMc+0x2c>
-100292644:     	ldr	q0, [x8, #0xe0]
-100292648:     	movi.16b	v1, #0xf
-10029264c:     	adrp	x8, 0x100418000 <_$s23StreamParsingBenchmarks25BenchmarkGSoCOrganizationV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOs0G3KeyAAMc+0x2c>
-100292650:     	ldr	q2, [x8, #0xf0]
-100292654:     	ldr	q3, [x0, x1]
-100292658:     	ushr.16b	v4, v3, #0x4
-10029265c:     	tbl.16b	v4, { v0 }, v4
-100292660:     	and.16b	v3, v3, v1
-100292664:     	tbl.16b	v3, { v2 }, v3
-100292668:     	cmtst.16b	v3, v3, v4
-10029266c:     	shrn.8b	v3, v3, #0x4
-100292670:     	fmov	x8, d3
-100292674:     	mvn	x8, x8
-100292678:     	rbit	x8, x8
-10029267c:     	clz	x8, x8
-100292680:     	cmp	x8, #0x3f
-100292684:     	b.ls	0x1002926f4 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xc8>
-100292688:     	add	x8, x1, #0x10
-10029268c:     	add	x9, x1, #0x20
-100292690:     	mov	x1, x8
-100292694:     	cmp	x2, x9
-100292698:     	b.ge	0x100292654 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x28>
-10029269c:     	cmp	x8, x2
-1002926a0:     	b.ge	0x1002926f8 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
-1002926a4:     	mov	w9, #0x1                ; =1
-1002926a8:     	mov	x10, #0x680000000000    ; =114349209288704
-1002926ac:     	b	0x1002926bc <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x90>
-1002926b0:     	add	x8, x8, #0x1
-1002926b4:     	cmp	x2, x8
-1002926b8:     	b.eq	0x1002926f8 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
-1002926bc:     	ldrb	w11, [x0, x8]
-1002926c0:     	sub	w12, w11, #0x30
-1002926c4:     	cmp	w12, #0xa
-1002926c8:     	b.lo	0x1002926b0 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
-1002926cc:     	cmp	w11, #0x2e
-1002926d0:     	lsl	x12, x9, x11
-1002926d4:     	and	x12, x12, x10
-1002926d8:     	ccmp	x12, #0x0, #0x4, ls
-1002926dc:     	b.ne	0x1002926b0 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
-1002926e0:     	and	w11, w11, #0xffffffdf
-1002926e4:     	cmp	w11, #0x45
-1002926e8:     	b.eq	0x1002926b0 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
-1002926ec:     	mov	x0, x8
-1002926f0:     	ret
-1002926f4:     	add	x2, x1, x8, lsr #2
-1002926f8:     	mov	x0, x2
-1002926fc:     	ret
+1002ab100:     	add	x8, x1, #0x10
+1002ab104:     	cmp	x2, x8
+1002ab108:     	b.ge	0x1002ab114 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x14>
+1002ab10c:     	mov	x8, x1
+1002ab110:     	b	0x1002ab170 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x70>
+1002ab114:     	adrp	x8, 0x100436000 <_write+0x100436000>
+1002ab118:     	ldr	q0, [x8, #0xf80]
+1002ab11c:     	movi.16b	v1, #0xf
+1002ab120:     	adrp	x8, 0x100436000 <_write+0x100436000>
+1002ab124:     	ldr	q2, [x8, #0xf90]
+1002ab128:     	ldr	q3, [x0, x1]
+1002ab12c:     	ushr.16b	v4, v3, #0x4
+1002ab130:     	tbl.16b	v4, { v0 }, v4
+1002ab134:     	and.16b	v3, v3, v1
+1002ab138:     	tbl.16b	v3, { v2 }, v3
+1002ab13c:     	cmtst.16b	v3, v3, v4
+1002ab140:     	shrn.8b	v3, v3, #0x4
+1002ab144:     	fmov	x8, d3
+1002ab148:     	mvn	x8, x8
+1002ab14c:     	rbit	x8, x8
+1002ab150:     	clz	x8, x8
+1002ab154:     	cmp	x8, #0x3f
+1002ab158:     	b.ls	0x1002ab1c8 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xc8>
+1002ab15c:     	add	x8, x1, #0x10
+1002ab160:     	add	x9, x1, #0x20
+1002ab164:     	mov	x1, x8
+1002ab168:     	cmp	x2, x9
+1002ab16c:     	b.ge	0x1002ab128 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x28>
+1002ab170:     	cmp	x8, x2
+1002ab174:     	b.ge	0x1002ab1cc <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
+1002ab178:     	mov	w9, #0x1                ; =1
+1002ab17c:     	mov	x10, #0x680000000000    ; =114349209288704
+1002ab180:     	b	0x1002ab190 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x90>
+1002ab184:     	add	x8, x8, #0x1
+1002ab188:     	cmp	x2, x8
+1002ab18c:     	b.eq	0x1002ab1cc <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
+1002ab190:     	ldrb	w11, [x0, x8]
+1002ab194:     	sub	w12, w11, #0x30
+1002ab198:     	cmp	w12, #0xa
+1002ab19c:     	b.lo	0x1002ab184 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+1002ab1a0:     	cmp	w11, #0x2e
+1002ab1a4:     	lsl	x12, x9, x11
+1002ab1a8:     	and	x12, x12, x10
+1002ab1ac:     	ccmp	x12, #0x0, #0x4, ls
+1002ab1b0:     	b.ne	0x1002ab184 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+1002ab1b4:     	and	w11, w11, #0xffffffdf
+1002ab1b8:     	cmp	w11, #0x45
+1002ab1bc:     	b.eq	0x1002ab184 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+1002ab1c0:     	mov	x0, x8
+1002ab1c4:     	ret
+1002ab1c8:     	add	x2, x1, x8, lsr #2
+1002ab1cc:     	mov	x0, x2
+1002ab1d0:     	ret

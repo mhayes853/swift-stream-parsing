@@ -2,6 +2,8 @@
 // which part of the input it touches, and the one kernel computation (`streamFirstHitLane`) that
 // the movemask animation re-derives rather than reads off the trace.
 
+import type { SkipBlockTrace, StructuralBlockCase } from "../types";
+
 /** Printable stand-in for a byte, so a control character still occupies its lane visibly. */
 export function glyph(byte: number): string {
   switch (byte) {
@@ -45,6 +47,77 @@ export function phaseOf(row: number, current: number): RowPhase {
 /** A flat step index over `perBlock` instructions repeated per block: which block, which one. */
 export function blockStep(index: number, perBlock: number): { block: number; op: number } {
   return { block: Math.floor(index / perBlock), op: index % perBlock };
+}
+
+export interface StructuralTimelineStep {
+  op: "classify" | "gate" | "visit" | "advance" | "give up";
+  block: number;
+  visit?: number;
+  cursor?: number;
+  next: number;
+  mask: boolean[];
+}
+
+/** Turns the recorded nested block/visit shape into the animation's one-dimensional timeline. */
+export function structuralBlockTimeline(trace: StructuralBlockCase): StructuralTimelineStep[] {
+  const steps: StructuralTimelineStep[] = [];
+  for (const block of trace.blocks) {
+    steps.push({ op: "classify", block: block.index, next: block.offset, mask: block.starts });
+    steps.push({ op: "gate", block: block.index, next: block.offset, mask: block.starts });
+    for (const [visit, token] of block.visits.entries()) {
+      steps.push({
+        op: "visit",
+        block: block.index,
+        visit,
+        cursor: token.offset,
+        next: token.next,
+        mask: token.maskAfter
+      });
+    }
+    const last = block.visits.at(-1);
+    steps.push({
+      op: block.givesUp ? "give up" : "advance",
+      block: block.index,
+      next: last?.reanchors ? last.next : block.givesUp ? block.offset : block.offset + 64,
+      mask: last?.maskAfter ?? block.starts
+    });
+  }
+  return steps;
+}
+
+export interface SkipBlockTimelineStep {
+  op: "classify" | "visit" | "carry";
+  block: number;
+  visit?: number;
+  cursor?: number;
+  next: number;
+  mask: boolean[];
+}
+
+/** The skip walk has the same classify/visit/advance rhythm, with carries settled at the edge. */
+export function skipBlockTimeline(trace: SkipBlockTrace): SkipBlockTimelineStep[] {
+  const steps: SkipBlockTimelineStep[] = [];
+  for (const block of trace.blocks) {
+    steps.push({ op: "classify", block: block.index, next: block.offset, mask: block.brackets });
+    for (const [visit, bracket] of block.visits.entries()) {
+      steps.push({
+        op: "visit",
+        block: block.index,
+        visit,
+        cursor: bracket.offset,
+        next: bracket.offset + 1,
+        mask: bracket.maskAfter
+      });
+    }
+    const last = block.visits.at(-1);
+    steps.push({
+      op: "carry",
+      block: block.index,
+      next: last?.emits ? last.offset + 1 : block.offset + 64,
+      mask: last?.maskAfter ?? block.brackets
+    });
+  }
+  return steps;
 }
 
 // MARK: - The input tape

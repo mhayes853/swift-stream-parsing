@@ -107,6 +107,7 @@ export type VizKind =
   | "stringRun"
   | "whitespace"
   | "containers"
+  | "structuralBlocks"
   | "number"
   | "movemask"
   | "whitespaceTable"
@@ -116,6 +117,7 @@ export type VizKind =
   | "sinkCalls"
   | "dispositions"
   | "skipRun"
+  | "skipBlocks"
   | "keyMatch"
   | "fieldTable"
   | "frames"
@@ -243,6 +245,51 @@ export interface ContainerTrace {
   steps: ContainerStep[];
   maximumDepth: number;
   offsetsVerified: boolean;
+}
+
+export interface StructuralBlockVisit {
+  offset: number;
+  byte: number;
+  kind: string;
+  next: number;
+  maskAfter: boolean[];
+  reanchors: boolean;
+}
+
+export interface StructuralBlock {
+  index: number;
+  offset: number;
+  bytes: number[];
+  starts: boolean[];
+  quotes: boolean[];
+  backslashes: boolean[];
+  startCount: number;
+  noOuterWhitespace: boolean;
+  nonASCII: boolean;
+  needsScalar: boolean;
+  strikeBefore: number;
+  strikeAfter: number;
+  givesUp: boolean;
+  visits: StructuralBlockVisit[];
+}
+
+export interface StructuralBlockCase {
+  name: string;
+  purpose: string;
+  sample: string;
+  bytes: number[];
+  blocks: StructuralBlock[];
+  end: number;
+  shippedEnd: number;
+  gaveUp: boolean;
+  shippedGaveUp: boolean;
+  eventsMatch: boolean;
+  verified: boolean;
+}
+
+export interface StructuralBlockTrace {
+  cases: StructuralBlockCase[];
+  verified: boolean;
 }
 
 export interface NumberCase {
@@ -376,6 +423,46 @@ export interface SkipRunTrace {
   steps: SkipRunStep[];
   end: number;
   shippedEnd: number;
+  verified: boolean;
+}
+
+export interface SkipBlockVisit {
+  offset: number;
+  byte: number;
+  depthBefore: number;
+  depthAfter: number;
+  isObject: boolean;
+  opens: boolean;
+  emits: boolean;
+  maskAfter: boolean[];
+}
+
+export interface SkipBlock {
+  index: number;
+  offset: number;
+  bytes: number[];
+  brackets: boolean[];
+  needsScalar: boolean;
+  nonASCII: boolean;
+  inStringBefore: boolean;
+  inStringAfter: boolean;
+  endsOddBefore: boolean;
+  endsOddAfter: boolean;
+  depthBefore: number;
+  depthAfter: number;
+  visits: SkipBlockVisit[];
+}
+
+export interface SkipBlockTrace {
+  sample: string;
+  bytes: number[];
+  from: number;
+  startDepth: number;
+  blocks: SkipBlock[];
+  end: number;
+  shippedEnd: number;
+  state: string;
+  shippedState: string;
   verified: boolean;
 }
 
@@ -545,6 +632,7 @@ export interface TraceBundle {
   stringRun: StringRunTrace;
   whitespace: WhitespaceTrace;
   containers: ContainerTrace;
+  structuralBlocks: StructuralBlockTrace;
   number: { cases: NumberCase[] };
   whitespaceTable: TableTrace;
   numberTable: TableTrace;
@@ -553,6 +641,7 @@ export interface TraceBundle {
   sinkCalls: SinkCallTrace;
   dispositions: DispositionTrace;
   skipRun: SkipRunTrace;
+  skipBlocks: SkipBlockTrace;
   fieldMatch: FieldMatchTrace;
   frames: FrameTrace;
   streamString: StreamStringTrace;

@@ -95,6 +95,7 @@ let package = Package(
       name: "StreamParsingSiteTool",
       dependencies: [
         "StreamParsingCore",
+        "StreamParsingShims",
         .product(name: "SwiftSyntax", package: "swift-syntax"),
         .product(name: "SwiftParser", package: "swift-syntax")
       ],

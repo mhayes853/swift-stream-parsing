@@ -3,14 +3,14 @@
 ; 11 instructions
 ; llvm-objdump -d, release benchmark binary
 
-1002931c4:     	mov.d	x8, v0[1]
-1002931c8:     	fmov	x9, d0
-1002931cc:     	rbit	x10, x9
-1002931d0:     	clz	x10, x10
-1002931d4:     	rbit	x8, x8
-1002931d8:     	clz	x8, x8
-1002931dc:     	lsr	x8, x8, #3
-1002931e0:     	cmp	x9, #0x0
-1002931e4:     	csel	x8, x8, xzr, eq
-1002931e8:     	add	x0, x8, x10, lsr #3
-1002931ec:     	ret
+1002abdc4:     	mov.d	x8, v0[1]
+1002abdc8:     	fmov	x9, d0
+1002abdcc:     	rbit	x10, x9
+1002abdd0:     	clz	x10, x10
+1002abdd4:     	rbit	x8, x8
+1002abdd8:     	clz	x8, x8
+1002abddc:     	lsr	x8, x8, #3
+1002abde0:     	cmp	x9, #0x0
+1002abde4:     	csel	x8, x8, xzr, eq
+1002abde8:     	add	x0, x8, x10, lsr #3
+1002abdec:     	ret

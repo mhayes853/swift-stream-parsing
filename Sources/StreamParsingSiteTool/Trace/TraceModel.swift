@@ -20,6 +20,7 @@ struct TraceBundle: Encodable {
   var stringRun: StringRunTrace
   var whitespace: WhitespaceTrace
   var containers: ContainerTrace
+  var structuralBlocks: StructuralBlockTrace
   var number: NumberTrace
   var whitespaceTable: TableTrace
   var numberTable: TableTrace
@@ -28,11 +29,106 @@ struct TraceBundle: Encodable {
   var sinkCalls: SinkCallTrace
   var dispositions: DispositionTrace
   var skipRun: SkipRunTrace
+  var skipBlocks: SkipBlockTrace
   var fieldMatch: FieldMatchTrace
   var frames: FrameTrace
   var streamString: StreamStringTrace
   var collections: CollectionTrace
   var views: ViewTrace
+}
+
+/// The structural run's moving 64-byte grid, recorded from the shipped C classifier and checked
+/// against the real block walk.
+///
+/// A case is a complete parser input. Every block carries the classifier's three masks and the
+/// exact token-start visits produced by clearing `starts`; the real `consumeStructuralBlocks`
+/// call then has to return at the same byte (including the complemented give-up result), and a
+/// full parse with the block walk enabled has to emit the same event stream as the scalar copy.
+struct StructuralBlockTrace: Encodable {
+  var cases: [Case]
+  var verified: Bool
+
+  struct Case: Encodable {
+    var name: String
+    var purpose: String
+    var sample: String
+    var bytes: [UInt8]
+    var blocks: [Block]
+    var end: Int
+    var shippedEnd: Int
+    var gaveUp: Bool
+    var shippedGaveUp: Bool
+    var eventsMatch: Bool
+    var verified: Bool
+  }
+
+  struct Block: Encodable {
+    var index: Int
+    var offset: Int
+    var bytes: [UInt8]
+    var starts: [Bool]
+    var quotes: [Bool]
+    var backslashes: [Bool]
+    var startCount: Int
+    var noOuterWhitespace: Bool
+    var nonASCII: Bool
+    var needsScalar: Bool
+    var strikeBefore: Int
+    var strikeAfter: Int
+    var givesUp: Bool
+    var visits: [Visit]
+  }
+
+  struct Visit: Encodable {
+    var offset: Int
+    var byte: UInt8
+    var kind: String
+    var next: Int
+    var maskAfter: [Bool]
+    var reanchors: Bool
+  }
+}
+
+/// The skipped-subtree block walk: only bracket bits survive the classifier, with quote parity
+/// and odd-backslash state carried to the next block.
+struct SkipBlockTrace: Encodable {
+  var sample: String
+  var bytes: [UInt8]
+  var from: Int
+  var startDepth: Int
+  var blocks: [Block]
+  var end: Int
+  var shippedEnd: Int
+  var state: String
+  var shippedState: String
+  var verified: Bool
+
+  struct Block: Encodable {
+    var index: Int
+    var offset: Int
+    var bytes: [UInt8]
+    var brackets: [Bool]
+    var needsScalar: Bool
+    var nonASCII: Bool
+    var inStringBefore: Bool
+    var inStringAfter: Bool
+    var endsOddBefore: Bool
+    var endsOddAfter: Bool
+    var depthBefore: Int
+    var depthAfter: Int
+    var visits: [Visit]
+  }
+
+  struct Visit: Encodable {
+    var offset: Int
+    var byte: UInt8
+    var depthBefore: Int
+    var depthAfter: Int
+    var isObject: Bool
+    var opens: Bool
+    var emits: Bool
+    var maskAfter: [Bool]
+  }
 }
 
 /// A kernel that answers a per-lane membership question by indexing a table with part of the byte.

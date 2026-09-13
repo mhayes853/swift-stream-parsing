@@ -1,5 +1,6 @@
 import type { TraceBundle, VizKind } from "../types";
 import { CollectionsViz, StreamStringViz, ViewsViz } from "./StorageViz";
+import { SkipBlockViz, StructuralBlockViz } from "./BlockWalkViz";
 import { ContainersViz } from "./ContainersViz";
 import { DispositionsViz, SinkCallsViz } from "./SinkViz";
 import { EscapeViz } from "./EscapeViz";
@@ -22,6 +23,8 @@ export function Visualization({ kind, traces }: { kind: VizKind; traces: TraceBu
       return <WhitespaceViz trace={traces.whitespace} table={traces.whitespaceTable} />;
     case "containers":
       return <ContainersViz trace={traces.containers} />;
+    case "structuralBlocks":
+      return <StructuralBlockViz trace={traces.structuralBlocks} />;
     case "number":
       return <NumberViz cases={traces.number.cases} />;
     case "movemask":
@@ -40,6 +43,8 @@ export function Visualization({ kind, traces }: { kind: VizKind; traces: TraceBu
       return <DispositionsViz trace={traces.dispositions} />;
     case "skipRun":
       return <SkipRunViz trace={traces.skipRun} />;
+    case "skipBlocks":
+      return <SkipBlockViz trace={traces.skipBlocks} />;
     case "keyMatch":
       return <KeyMatchViz trace={traces.fieldMatch} />;
     case "fieldTable":
