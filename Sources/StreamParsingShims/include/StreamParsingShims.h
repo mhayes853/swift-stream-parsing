@@ -46,6 +46,81 @@ static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *p
   return (even_carry_ends & odd_bits) | (odd_carry_ends & even_bits);
 }
 
+// MARK: - The block classifiers' results
+//
+// What the two 64-byte block classifiers hand back. Declared outside every architecture section
+// because two spellings return them: the NEON kernels below (`static inline`, folded into the
+// Swift caller) and the AVX2 kernels in AVX2.c (out of line, for the reason that file's header
+// gives). The Swift walks read the same fields either way and do not know which one they called.
+
+// The skip scanner's classes (`stream_parsing_classify_skip_block`).
+typedef struct {
+  // '{', '[', '}' and ']' outside any string: one bit per byte, ascending. Read only when
+  // `needs_scalar` is zero.
+  uint64_t brackets;
+  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
+  uint64_t in_string;
+  // Carry out: 1 if this block ends inside an odd-length backslash run, so the byte after it is
+  // an escape selector.
+  uint64_t ends_odd;
+  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
+  // string, or, outside one, any byte the scalar switch does not accept (which covers every
+  // non-ASCII byte and every stray backslash). The caller re-reads the block from its first byte
+  // with the scalar loop, which reports whatever it finds, at the offset it finds it.
+  uint32_t needs_scalar;
+  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
+  // string, which is exactly the region the caller must still validate as UTF-8.
+  uint32_t non_ascii;
+} stream_parsing_skip_classes;
+
+// The structural run's classes (`stream_parsing_classify_structural_block`).
+typedef struct {
+  // Token start candidates, one bit per byte, ascending. Read only when `needs_scalar` is zero.
+  uint64_t starts;
+  // Unescaped `"`, one bit per byte: the opening and closing quote of every string in the block.
+  // Escaped quotes are removed (`find_escaped`), so the first set bit above an opening quote is
+  // that string's closing quote.
+  uint64_t quote;
+  // Every `\` byte, escaped or not. The walk tests this over a string's extent: a string with no
+  // backslash between its quotes is emitted in place, one with any goes to the escape decoder.
+  uint64_t backslash;
+  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
+  uint64_t in_string;
+  // Carry out: 1 if this block ends inside an odd-length backslash run.
+  uint64_t ends_odd;
+  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
+  // string, or, outside one, any byte the scalar ladder does not accept (every non-ASCII byte and
+  // every stray backslash included). The caller re-reads the block from its first byte with the
+  // scalar loop, which reports whatever it finds, at the offset it finds it.
+  uint32_t needs_scalar;
+  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
+  // string, so this is what the caller passes as `containsNonASCII` for the strings it emits: the
+  // validator then runs over each string's own extent and reports at the byte it finds, which is
+  // where the scalar path reports it. The ~99% of blocks with no high byte skip the per-string
+  // high-bit reduction entirely.
+  uint32_t non_ascii;
+  // Nonzero: the block holds no whitespace *outside* a string. It is the walk's gate signal, and
+  // it is computed here rather than handed out as a mask because one `bic` + `cmp` in the shim is
+  // cheaper than another 64-bit field in the returned struct. Whitespace inside a string is
+  // deliberately excluded: `LLM message` and both Qwen payloads are full of spaces that live
+  // inside string values, and those are bytes the walk skips with its cursor, not bytes the
+  // classifier saves anything on.
+  uint32_t no_outer_whitespace;
+  // Nonzero: the block is a strike against the walk -- `no_outer_whitespace`, or at least
+  // `STREAM_PARSING_BLOCK_WALK_DENSE_STARTS` bits in `starts`. **Written by the AVX2 kernel
+  // only**, and read only on x86: baseline x86-64 has no `popcnt`, so the Swift gate's own
+  // `nonzeroBitCount` lowers to a 17-instruction bit-twiddling sequence per block, where the
+  // kernel -- compiled with the feature -- spends one instruction. On arm64 the Swift gate
+  // computes the same verdict from the two fields above. It sits in the struct's tail padding, so
+  // the struct is the same size either way.
+  uint32_t strike;
+} stream_parsing_structural_classes;
+
+// The gate's second strike: a block with at least this many token-start candidates has
+// whitespace but nothing to skip (JSONParserBlocks.swift). One constant for both spellings of the
+// gate -- the Swift one on arm64 and the AVX2 kernel's `strike`.
+#define STREAM_PARSING_BLOCK_WALK_DENSE_STARTS 48
+
 // The one SIMD operation Swift's SIMD API cannot express: a byte table lookup. On arm64 it is
 // `tbl`, and the UTF-8 validator's three nibble tables are each one instruction with it. The
 // wrapper takes and returns an `ext_vector_type` so Swift imports it as `SIMD16<UInt8>`, and it
@@ -173,25 +248,8 @@ static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
 // operators around the movemask shim it comes out half scalarised, because a shift or compare
 // whose result feeds the shim is lowered lane by lane. As one `static inline` returning a small
 // struct it disappears into the Swift caller, which is what the assembly audit checks.
-typedef struct {
-  // '{', '[', '}' and ']' outside any string: one bit per byte, ascending. Read only when
-  // `needs_scalar` is zero.
-  uint64_t brackets;
-  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
-  uint64_t in_string;
-  // Carry out: 1 if this block ends inside an odd-length backslash run, so the byte after it is
-  // an escape selector.
-  uint64_t ends_odd;
-  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
-  // string, or, outside one, any byte the scalar switch does not accept (which covers every
-  // non-ASCII byte and every stray backslash). The caller re-reads the block from its first byte
-  // with the scalar loop, which reports whatever it finds, at the offset it finds it.
-  uint32_t needs_scalar;
-  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
-  // string, which is exactly the region the caller must still validate as UTF-8.
-  uint32_t non_ascii;
-} stream_parsing_skip_classes;
-
+// (`stream_parsing_skip_classes` is declared above, outside the NEON section: the x86 AVX2 twin
+// in AVX2.c returns the same struct.)
 STREAM_PARSING_SIMD_SHIM stream_parsing_skip_classes
 stream_parsing_classify_skip_block(
   const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
@@ -306,39 +364,8 @@ stream_parsing_classify_skip_block(
 // *outside* the string, so it drops out -- which is exactly right, since the extent between the
 // two is consumed by whoever visited the opening one. `trailingZeroBitCount` on this mask is
 // therefore "the next token start after the cursor", one instruction, whitespace skipped for free.
-typedef struct {
-  // Token start candidates, one bit per byte, ascending. Read only when `needs_scalar` is zero.
-  uint64_t starts;
-  // Unescaped `"`, one bit per byte: the opening and closing quote of every string in the block.
-  // Escaped quotes are removed (`find_escaped`), so the first set bit above an opening quote is
-  // that string's closing quote.
-  uint64_t quote;
-  // Every `\` byte, escaped or not. The walk tests this over a string's extent: a string with no
-  // backslash between its quotes is emitted in place, one with any goes to the escape decoder.
-  uint64_t backslash;
-  // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
-  uint64_t in_string;
-  // Carry out: 1 if this block ends inside an odd-length backslash run.
-  uint64_t ends_odd;
-  // Nonzero: the block holds a byte the wide path will not judge -- a control byte inside a
-  // string, or, outside one, any byte the scalar ladder does not accept (every non-ASCII byte and
-  // every stray backslash included). The caller re-reads the block from its first byte with the
-  // scalar loop, which reports whatever it finds, at the offset it finds it.
-  uint32_t needs_scalar;
-  // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
-  // string, so this is what the caller passes as `containsNonASCII` for the strings it emits: the
-  // validator then runs over each string's own extent and reports at the byte it finds, which is
-  // where the scalar path reports it. The ~99% of blocks with no high byte skip the per-string
-  // high-bit reduction entirely.
-  uint32_t non_ascii;
-  // Nonzero: the block holds no whitespace *outside* a string. It is the walk's gate signal, and
-  // it is computed here rather than handed out as a mask because one `bic` + `cmp` in the shim is
-  // cheaper than another 64-bit field in the returned struct. Whitespace inside a string is
-  // deliberately excluded: `LLM message` and both Qwen payloads are full of spaces that live
-  // inside string values, and those are bytes the walk skips with its cursor, not bytes the
-  // classifier saves anything on.
-  uint32_t no_outer_whitespace;
-} stream_parsing_structural_classes;
+// (`stream_parsing_structural_classes` is declared above, outside the NEON section: the x86 AVX2
+// twin in AVX2.c returns the same struct.)
 
 STREAM_PARSING_SIMD_SHIM stream_parsing_structural_classes
 stream_parsing_classify_structural_block(
@@ -460,8 +487,8 @@ stream_parsing_classify_structural_block(
 #endif
 
 #if !(defined(__aarch64__) && defined(__ARM_NEON))
-// The window indexer's portable path needs the parity too. The skip scanner's block path is arm64
-// only and keeps the scalar loop everywhere else.
+// The window indexer's portable path needs the parity too. The block classifiers' x86 twins in
+// AVX2.c use `pclmulqdq` instead; every other architecture keeps the scalar loops.
 static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
   bitmask ^= bitmask << 1;
   bitmask ^= bitmask << 2;
@@ -501,6 +528,22 @@ int stream_parsing_utf8_validate(const void *base, ptrdiff_t from, ptrdiff_t to)
 // before it had its high bit set. Precondition: `stream_parsing_has_avx2()`.
 ptrdiff_t stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdiff_t to,
                                          int *out_non_ascii);
+
+// Whether the two block classifiers below may be called: AVX2 plus PCLMULQDQ (the quote parity)
+// and POPCNT (the structural kernel's gate strike). A separate question from
+// `stream_parsing_has_avx2` so a (hypothetical) AVX2 part without either keeps the validator and
+// the string scanner. Resolved on first use and cached with the same probe.
+int stream_parsing_has_avx2_block_kernels(void);
+
+// The two 64-byte block classifiers, with the NEON kernels' names, signatures and results, so the
+// Swift walks are one source on both architectures. Out of line where NEON's are inlined: a
+// `target("avx2")` body cannot be inlined into Swift compiled for baseline x86-64. Every field
+// means what the NEON kernel's does; AVX2.c documents the encoding differences.
+// Precondition: `stream_parsing_has_avx2_block_kernels()`.
+stream_parsing_skip_classes stream_parsing_classify_skip_block(
+    const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
+stream_parsing_structural_classes stream_parsing_classify_structural_block(
+    const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
 
 #endif  // __x86_64__
 

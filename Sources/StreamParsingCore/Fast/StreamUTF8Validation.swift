@@ -120,4 +120,9 @@ package func streamValidateUTF8Portable(base: UnsafeRawPointer, from: Int, to: I
 // into the caller. Confirmed by disassembly, because the opposite was assumed first.
 @usableFromInline
 let streamHasAVX2: Bool = stream_parsing_has_avx2() != 0
+
+// Whether the 64-byte block classifiers (AVX2.c) may be called: AVX2 plus PCLMULQDQ and POPCNT.
+// Read once per parser, into `JSONParser.blockKernelsAvailable`, and never on a parse path.
+@usableFromInline
+let streamHasAVX2BlockKernels: Bool = stream_parsing_has_avx2_block_kernels() != 0
 #endif

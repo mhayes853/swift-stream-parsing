@@ -1,9 +1,12 @@
-#if arch(arm64)
+#if arch(arm64) || arch(x86_64)
   import StreamParsingShims
 
   // The structural run's 64-byte block path: the same walk `consumeStructural` performs one byte
   // at a time, driven by three masks instead of a whitespace scan and a per-byte ladder
-  // (`stream_parsing_classify_structural_block`, StreamParsingShims.h).
+  // (`stream_parsing_classify_structural_block`: the NEON kernel in StreamParsingShims.h, inlined
+  // here; on x86 the AVX2 twin in AVX2.c, called once per block -- see that file for why it
+  // cannot be inlined, and `JSONParser.blockWalkGivenUp` for how a CPU without it never gets
+  // here). The measurements quoted below are arm64's.
   //
   // What it deletes, per block, is: the whitespace scan that precedes every token (whitespace is
   // simply absent from `starts`, so "the next token" is one `rbit`/`clz`), the string scan that
@@ -95,7 +98,19 @@
         // Not one block of `CITM`, `Twitter`, `GitHub` or `GSoC` is whitespace-free, so four
         // strikes never fire on them; `Canada`, `Mesh`, both Qwen payloads and `Twitter escaped`
         // strike on essentially every block and are out of the walk within four of them.
-        if classes.no_outer_whitespace != 0 || classes.starts.nonzeroBitCount >= 48 {
+        //
+        // On x86 the kernel hands back the verdict whole (`strike`): baseline x86-64 has no
+        // `popcnt`, and `nonzeroBitCount` here was a 17-instruction bit-twiddling sequence on every
+        // block of every payload the walk wins on, since those always have whitespace and never
+        // short-circuit past it.
+        #if arch(x86_64)
+          let strike = classes.strike != 0
+        #else
+          let strike =
+            classes.no_outer_whitespace != 0
+            || classes.starts.nonzeroBitCount >= Int(STREAM_PARSING_BLOCK_WALK_DENSE_STARTS)
+        #endif
+        if strike {
           self.blockWalkStrikes &+= 1
           if self.blockWalkStrikes >= 4 {
             self.blockWalkGivenUp = true

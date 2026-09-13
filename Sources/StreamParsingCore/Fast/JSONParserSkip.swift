@@ -16,11 +16,11 @@ import StreamParsingShims
 // advisory contract's other half — a sink that answered `.skip` still sees its container
 // close, so a `PartialSink` pops the ignored frame it pushed at the open.
 //
-// On arm64 the interior is scanned 64 bytes at a time (`stream_parsing_classify_skip_block`,
-// StreamParsingShims.h) and the per-byte loop below is what runs at the edges: it is the
-// reference the block path is held to by `SkipBlockScanTests`, and the fallback for every byte
-// the block path will not judge, which is what keeps the error offsets byte-identical to a
-// byte-fed parse.
+// On arm64, and on x86 with AVX2, the interior is scanned 64 bytes at a time
+// (`stream_parsing_classify_skip_block`) and the per-byte loop below is what runs at the edges:
+// it is the reference the block path is held to by `SkipBlockScanTests`, and the fallback for
+// every byte the block path will not judge, which is what keeps the error offsets byte-identical
+// to a byte-fed parse.
 extension JSONParser {
   // One run, from wherever the skip stands — mid-interior, mid-string, or one byte after a
   // backslash the chunk cut — to the matching close or the chunk's end. Out of line like the
@@ -51,13 +51,16 @@ extension JSONParser {
       i = end
     }
 
-    #if arch(arm64)
+    #if arch(arm64) || arch(x86_64)
       // The 64-byte block path, out of line on purpose: it hoists the classifier's tables and
       // splats into callee-saved vector registers, and a `d8` save in *this* function's prologue
       // would be paid by every byte-fed call that lands inside a skipped subtree, where the
       // block loop cannot run at all. Measured: -5.1% on `Real Twitter escaped - byte by byte
       // discarding` with the loop inlined here. The scalar entry keeps its original frame.
-      if state == .skipping, i &+ 64 <= to {
+      //
+      // `blockKernelsAvailable` is the constant `true` on arm64. On x86 it is one byte load, and
+      // it is tested last so a byte-fed call -- which fails `i &+ 64 <= to` -- never makes it.
+      if state == .skipping, i &+ 64 <= to, self.blockKernelsAvailable {
         // The `inout`s are copies scoped to this branch, not the run's own locals: taking the
         // address of `depth` and `containers` themselves would make `var depth = self.depth` an
         // address-taken initialisation, and the store it becomes lands in the entry block —
@@ -159,11 +162,12 @@ extension JSONParser {
     return to
   }
 
-  #if arch(arm64)
+  #if arch(arm64) || arch(x86_64)
     // MARK: - The block path
     //
     // Whole 64-byte blocks of the skipped interior, classified at once
-    // (`stream_parsing_classify_skip_block`, StreamParsingShims.h). Only the brackets outside
+    // (`stream_parsing_classify_skip_block`: NEON in StreamParsingShims.h, AVX2 in AVX2.c, the
+    // latter out of line and entered only when `blockKernelsAvailable`). Only the brackets outside
     // strings are visited; every other byte of the interior — string content, escape selectors,
     // numbers, literals, whitespace, commas, colons — is settled by the masks and never read.
     //

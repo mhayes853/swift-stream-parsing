@@ -125,8 +125,31 @@ public struct JSONParser: ~Copyable {
   // `Canada - bulk` -1.9% against -4.6%, interleaved and reproduced. Two plain `Bool` loads of
   // two adjacent bytes cost less than one load plus the mask work, and the read-modify-write the
   // walk would need to set a bit costs more still.
-  @usableFromInline package var blockWalkGivenUp = false
+  //
+  // On x86 the verdict also carries whether the walk can run at all: a CPU without the AVX2
+  // classifier (`streamHasAVX2BlockKernels`) starts every document already given up. The run's
+  // entry test is then the availability test too, with no third load on it -- and no read of the
+  // lazily initialised global on any parse path, which is what that global has cost before
+  // (StreamScanners.swift, `streamStringRun`).
+  #if arch(x86_64)
+    @usableFromInline package var blockWalkGivenUp = !streamHasAVX2BlockKernels
+  #else
+    @usableFromInline package var blockWalkGivenUp = false
+  #endif
   @usableFromInline package var blockWalkStrikes: UInt8 = 0
+
+  // Whether this CPU has the block classifiers, which both 64-byte block paths need (the one
+  // above, and the skip scanner's in JSONParserSkip.swift). On arm64 NEON is architectural, so
+  // it is the constant `true` and every test of it folds away; on x86 it is a byte in the same
+  // padding as the flags above, copied from the process-wide probe once per parser. It is what
+  // `reset` restores the gate to, and what the skip scanner tests before its block path.
+  #if arch(x86_64)
+    @usableFromInline package var blockKernelsAvailable = streamHasAVX2BlockKernels
+  #elseif arch(arm64)
+    @inlinable package var blockKernelsAvailable: Bool { true }
+  #else
+    @inlinable package var blockKernelsAvailable: Bool { false }
+  #endif
 
   // A chunk at least this long is parsed by the windowed path (JSONParserWindow.swift); shorter
   // ones, and every byte fed one, go through the dispatcher below. The window scratch is
@@ -194,7 +217,7 @@ public struct JSONParser: ~Copyable {
     self.skipEndDepth = 0
     self.pendingUTF8Count = 0
     self.consumedByteCount = 0
-    self.blockWalkGivenUp = false
+    self.blockWalkGivenUp = !self.blockKernelsAvailable
     self.blockWalkStrikes = 0
     // Adaptive window telemetry restarts too: it describes the previous document's shape, and
     // the next document may not share it.
@@ -426,9 +449,39 @@ public struct JSONParser: ~Copyable {
       if self.blockWalkEnabled && !self.blockWalkGivenUp {
         return try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
       }
+    #elseif arch(x86_64)
+      // On x86 `blockWalkGivenUp` also says the CPU lacks the AVX2 classifier, so this one test is
+      // the availability check as well.
+      //
+      // And the block copy is a call, not a second inlined body. On arm64 the two copies share
+      // this function and the scalar one still compiles to the baseline's code; on x86 they do
+      // not. With both inlined here the `PartialSink` specialisation's frame grew from 0xa0 to
+      // 0xc0 and `self` moved from `r14` to a stack slot, and the scalar loop -- which is where a
+      // payload the gate has turned the walk off for spends its whole parse -- paid for it:
+      // `Mesh - bulk` -7.8% against -2.5% split out, `Mesh - bulk discarding` -2.6% against
+      // +3.9% (layout-stabilised builds, best of three interleaved rounds). The call costs
+      // nothing measurable: a bulk parse enters the run once or twice per document (counted), and
+      // the block copy then holds it for the whole document.
+      if self.blockWalkEnabled && !self.blockWalkGivenUp {
+        return try self.consumeStructuralRunBlocks(base: base, from: from, to: to, into: &sink)
+      }
     #endif
     return try self.structuralRun(base: base, from: from, to: to, blocks: false, into: &sink)
   }
+
+  #if arch(x86_64)
+    // The `blocks: true` copy of the run, on its own (see `consumeStructuralRun`).
+    @inlinable
+    @inline(never)
+    mutating func consumeStructuralRunBlocks<Sink: StreamParseSink & ~Copyable>(
+      base: UnsafeRawPointer,
+      from: Int,
+      to: Int,
+      into sink: inout Sink
+    ) throws(JSONParsingError) -> Int {
+      try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
+    }
+  #endif
 
   @_transparent
   @usableFromInline
@@ -449,7 +502,7 @@ public struct JSONParser: ~Copyable {
       self.containers = containers
     }
     while i < to {
-      #if arch(arm64)
+      #if arch(arm64) || arch(x86_64)
         // The 64-byte block path (JSONParserBlocks.swift), tried at every token boundary because
         // that is where it is re-entered: everything it will not judge -- a string it cannot
         // close inside one block, a key with an escape, a cut number -- it hands back here, and
