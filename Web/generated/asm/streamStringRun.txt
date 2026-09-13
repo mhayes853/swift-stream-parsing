@@ -1,0 +1,84 @@
+; StreamParsingCore.streamStringRun(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int) -> StreamParsingCore.StreamStringRun
+; _$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF
+; 79 instructions
+; llvm-objdump -d, release benchmark binary
+
+1002aafc4:     	mov	x8, x1
+1002aafc8:     	cmp	x1, x2
+1002aafcc:     	b.ge	0x1002aaff8 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+1002aafd0:     	mov	w9, #0x0                ; =0
+1002aafd4:     	ldrb	w10, [x0, x8]
+1002aafd8:     	cmp	w10, #0x22
+1002aafdc:     	b.eq	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002aafe0:     	cmp	w10, #0x5c
+1002aafe4:     	b.eq	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002aafe8:     	cmp	w10, #0x20
+1002aafec:     	b.hs	0x1002aaff8 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x34>
+1002aaff0:     	mov	w9, #0x0                ; =0
+1002aaff4:     	b	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002aaff8:     	add	x9, x8, #0x10
+1002aaffc:     	movi.2d	v0, #0000000000000000
+1002ab000:     	cmp	x2, x9
+1002ab004:     	b.ge	0x1002ab010 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x4c>
+1002ab008:     	mov	x10, x8
+1002ab00c:     	b	0x1002ab058 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x94>
+1002ab010:     	movi.16b	v1, #0x22
+1002ab014:     	movi.16b	v2, #0x5c
+1002ab018:     	movi.16b	v3, #0x20
+1002ab01c:     	ldr	q4, [x0, x8]
+1002ab020:     	cmeq.16b	v5, v4, v1
+1002ab024:     	cmeq.16b	v6, v4, v2
+1002ab028:     	orr.16b	v5, v5, v6
+1002ab02c:     	cmhi.16b	v6, v3, v4
+1002ab030:     	orr.16b	v5, v6, v5
+1002ab034:     	umaxv.16b	b6, v5
+1002ab038:     	fmov	w9, s6
+1002ab03c:     	tbnz	w9, #0x0, 0x1002ab0b4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xf0>
+1002ab040:     	orr.16b	v0, v4, v0
+1002ab044:     	add	x10, x8, #0x10
+1002ab048:     	add	x9, x8, #0x20
+1002ab04c:     	mov	x8, x10
+1002ab050:     	cmp	x2, x9
+1002ab054:     	b.ge	0x1002ab01c <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x58>
+1002ab058:     	umaxv.16b	b0, v0
+1002ab05c:     	smov.b	w8, v0[0]
+1002ab060:     	cmp	w8, #0x0
+1002ab064:     	cset	w9, lt
+1002ab068:     	cmp	x10, x2
+1002ab06c:     	b.ge	0x1002ab0ac <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xe8>
+1002ab070:     	mov	x8, x10
+1002ab074:     	ldrb	w10, [x0, x8]
+1002ab078:     	cmp	w10, #0x22
+1002ab07c:     	b.eq	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002ab080:     	cmp	w10, #0x5c
+1002ab084:     	b.eq	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002ab088:     	cmp	w10, #0x20
+1002ab08c:     	b.lo	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002ab090:     	sxtb	w10, w10
+1002ab094:     	cmp	w10, #0x0
+1002ab098:     	cset	w10, lt
+1002ab09c:     	orr	w9, w9, w10
+1002ab0a0:     	add	x8, x8, #0x1
+1002ab0a4:     	cmp	x2, x8
+1002ab0a8:     	b.ne	0x1002ab074 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0xb0>
+1002ab0ac:     	mov	x8, x2
+1002ab0b0:     	b	0x1002ab0f4 <_$s17StreamParsingCore15streamStringRun4base4from2toAA0aeF0VSV_S2itF+0x130>
+1002ab0b4:     	shrn.8b	v1, v5, #0x4
+1002ab0b8:     	fmov	x9, d1
+1002ab0bc:     	rbit	x9, x9
+1002ab0c0:     	clz	x9, x9
+1002ab0c4:     	lsr	x9, x9, #2
+1002ab0c8:     	dup.16b	v1, w9
+1002ab0cc:     	adrp	x10, 0x100436000 <_write+0x100436000>
+1002ab0d0:     	ldr	q2, [x10, #0xfa0]
+1002ab0d4:     	cmhi.16b	v1, v1, v2
+1002ab0d8:     	add	x8, x9, x8
+1002ab0dc:     	and.16b	v1, v1, v4
+1002ab0e0:     	orr.16b	v0, v1, v0
+1002ab0e4:     	umaxv.16b	b0, v0
+1002ab0e8:     	smov.b	w9, v0[0]
+1002ab0ec:     	cmp	w9, #0x0
+1002ab0f0:     	cset	w9, lt
+1002ab0f4:     	and	w1, w9, #0x1
+1002ab0f8:     	mov	x0, x8
+1002ab0fc:     	ret

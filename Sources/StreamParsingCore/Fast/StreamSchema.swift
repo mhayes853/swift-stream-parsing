@@ -318,15 +318,6 @@ public final class StreamSchema: @unchecked Sendable {
   // ``elementSchema``. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
 
-  // Returns the slot of the element or value that is currently open, with the storage holding it
-  // made unique first: the address `appendElement` or `enterKey` last returned, or its copy if a
-  // snapshot has shared the block since. Arrays and dictionaries only; nil for a schema with no
-
-  // Makes the container safe to write into before its first element or value opens: what the
-  // sink calls once on entering an array or dictionary, so nothing has to be asked per element
-  // (see `StreamArray.nextSlot`). Storage the value arrived with may be shared -- a caller's
-  // initial value, a template a conformer built with elements in it -- and this freezes it in
-
   // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
   // appends the `number` records in `from..<to` and returns how many it took. Arrays of
   // number-convertible elements only; nil means the batch is unrolled through `appendElement` and

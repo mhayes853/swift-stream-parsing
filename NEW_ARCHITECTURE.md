@@ -4038,7 +4038,7 @@ At the call site the exponent arrives as `abs(exponent)`, which is enough for th
 drop the low half of the bounds check and the entire negative half of the table. The whole lookup
 becomes two instructions:
 
-```
+```asm
 cmp  w8, #0x134                  ; 308
 ldr  d1, [x9, w8, uxth #3]       ; x9 = adrp/add of the .rodata table
 ```
@@ -4463,7 +4463,7 @@ no-whitespace case for the whole of `canada` and `llm_message` and half of every
 loads the byte, tests it against `0x20`, and throws it away. `consumeStructuralRun` then reloads
 the same address to switch on it. In the release build that is nine instructions apart:
 
-```
+```asm
 be3a0  cmpb   $0x20, (%rdi,%rsi)   ; whitespace early-out
 be3a4  jbe    ...                   ; not taken on a structural byte
 be452  movzbl (%rdi,%r14), %eax     ; the same address, again
@@ -6945,7 +6945,7 @@ remaining gap is block buffers the census says a perfect hint would only cut by 
 larger remaining term on these rows is not allocation at all: it is the per-fragment append
 itself, which is where the earlier `StreamString` census left it.
 
-## The open element moves into the storage
+## The open element in the storage: `StreamBlock` landed, the in-place open rejected
 
 Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of
 raw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was
@@ -6968,7 +6968,7 @@ commit into the tail, the template copy into `pending`, and tail growth. Eight m
 traffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,
 which is why that idea was set aside in favour of this one.
 
-### The protocol
+### The protocol that was built
 
 The element is copy-initialised **in place**, from a template, at the end of the tail block, and
 the sink is handed that slot's address. No `pending`, no move at close. Three things had to
@@ -7087,3 +7087,45 @@ of four or more -- so the spare is never unique, every cycle allocates, and the 
 cycle (an element copy the old design also paid, plus a block and the reseat) is charged per
 byte. The realistic shape, the latest state held while chunks arrive, sits between the two: the
 harness table above, -16% at 64-byte chunks.
+
+### Rejected: the revert, and the two thirds of it that stayed
+
+The bulk table above is real and so is the streaming one, and the streaming one decides it. A
+retained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does
+not, and no form of the freeze/compact chain got that below a heap block per retained snapshot:
+the first froze by copying the tail, the second by sealing into the spine, the third by chaining
+behind a fresh tail with a spare kept for reuse -- and the spare is only reusable while nothing
+holds it, which is exactly the condition the `Retention` and `Dictionary` rows break by design.
+So the open element went back to `pending`, held inline in the value, where a plain struct copy
+diverges it for free: no allocation, no epoch, no reseat walk, and `PartialSink`'s frames go back
+to being valid because the address they hold is at a fixed offset in storage the stream owns.
+
+What the experiment leaves behind is the half of it that never depended on where the element
+lives:
+
+- **`StreamBlock`.** The blocks are a `ManagedBuffer` with the elements tail-allocated rather
+  than a `ContiguousArray`, and they keep every property the in-place design needed them for:
+  one allocation per block, a stored capacity, a header read through its pointer, and no
+  genericity in the header. What they buy now is different and larger than the open element ever
+  was. Because the block owns its capacity, each array can hold its *own* count of the elements
+  in the filling block, captured by value when the array is copied -- so a snapshot's elements
+  are a prefix of the filling block's, the parser appends above that prefix, and **there is no
+  copy-on-write check on the commit path at all**, at any block size. The old rule ("the first
+  commit after a snapshot copies one block") is gone; only a write *into* the prefix copies.
+- **The template pointer.** One leaked template per schema, copied straight into the element's
+  slot by `_streamCopyInitialize`, replacing the two-form initial-value closure the hoist
+  experiment left behind. The size threshold in it is the one the in-place work measured:
+  `initialize(to:)` below 1 KB, `initialize(from:count:)` above, because the counted form is
+  `swift_arrayInitWithCopy` and the single-value form stages a large loadable value on the stack.
+- **The dictionary's values, blocked.** `storedValues` is a `StreamArray` now, which reverses the
+  older finding that blocking a dictionary's storage cost 2x on the discarding path -- that
+  measurement had no snapshot row in front of it, and a flat `[Value]` makes a snapshot-per-byte
+  parse copy the whole value array per byte. The dictionary keeps its own open value rather than
+  borrowing the array's, because a repeated key's open value is an element the array already
+  holds, and unlike an append a write into one of those is a write a kept state can see.
+
+The `memmove` profile that opened this chapter is therefore still unanswered for the largest
+partials: `BenchmarkTweetFull.Partial`'s eleven kilobytes still move once per open and once per
+close. What this settles is that moving them is cheaper than the bookkeeping required to stop
+moving them, for every shape that keeps a snapshot -- which is the shape the streaming API is
+for.
