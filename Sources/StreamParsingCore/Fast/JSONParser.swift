@@ -1109,11 +1109,43 @@ public struct JSONParser: ~Copyable {
   // and the rescan, not the work, so the call is exactly the right place to pay for it.
   //
   // The emission sequence is `consumeStringRun`'s, byte for byte and offset for offset: the same
-  // `stringBegin` at the opening quote, the same chunks, the same `stringEnd`, the same
-  // `fuseAfterValue`. Anything the loop cannot finish in the chunk -- a cut, an escape that
-  // straddles the end, a diagnostic that needs the per-byte states -- leaves `self.state` set
-  // exactly as the out-of-run path would have left it, and the caller copies it back into the
-  // run's register and breaks. So this is a shortcut through the same states, never a new one.
+  // `stringBegin` at the opening quote, the same chunks, the same `stringEnd`. Anything the loop
+  // cannot finish in the chunk -- a cut, an escape that straddles the end, a diagnostic that
+  // needs the per-byte states -- leaves `self.state` set exactly as the out-of-run path would
+  // have left it, and the caller copies it back into the run's register and breaks. So this is a
+  // shortcut through the same states, never a new one.
+  //
+  // What it must *not* do is `consumeStringRun`'s comma fusion. `fuseAfterValue` asks
+  // `self.depth` and `self.containers` whether the comma after the value separates array
+  // elements or object members, and the structural run -- this function's only caller, both the
+  // scalar ladder and the block walk -- holds the stack in registers and writes it back only when
+  // it returns. From here the fields are the stack as it stood when the run was *entered*. A bulk
+  // parse enters at depth zero, where the fusion declines, so nothing showed; a chunk that began
+  // inside an array the run then closed took the `,"t"` after `"s":"x\ny"` for an array comma,
+  // read the key as a string value and failed on its colon (`twitter` at 4096-byte chunks,
+  // `unexpectedToken` at 13,921). The opposite mix read an array element as a key, and an array's
+  // number arm accepted `{"s":"x\ny",1}`.
+  //
+  // Declining loses nothing: the caller *is* a structural run, and it takes the comma and
+  // whatever follows in place with the stack it actually has -- "the run is the fusion now", as
+  // `consumeStructural`'s number arm puts it. A fused element would only have ended the run to go
+  // round the dispatcher.
+  //
+  // It declines by zeroing `self.depth`, the fusion's first test, and that store is the entire
+  // fix. The field is dead until the run returns: nothing between here and the run's exit reads
+  // it except the fusion, and the run's `defer` overwrites it from its register on every exit,
+  // the throwing ones included. The two spellings that say the same thing more directly were both
+  // built, and both cost more than a store in a cold function:
+  //
+  // - Storing the run's registers to the fields before the call (and reloading them after, or
+  //   not) keeps the fusion alive and correct, but moves the run's own register allocation: the
+  //   sink pointer or `depth` trades a callee-saved register for a stack slot, and 10-27 static
+  //   stack accesses come and go across the four specialisations of the run and the walk -- the
+  //   loops everything else in this file is arranged to keep still.
+  // - A `fusing: Bool` literal threaded through `stringRunBody` and the coalescing tail leaves the
+  //   run byte for byte as it was, but flipped the library's `consumeStringRun<PartialSink>` from
+  //   calling `stringRunBody` to inlining it (frame 0x70 -> 0x140), and that copy is the one byte-
+  //   fed typed input enters on every escape: `LLM message - byte by byte discarding` -5%.
   @inlinable
   @inline(never)
   mutating func consumeEscapedStringInRun<Sink: StreamParseSink & ~Copyable>(
@@ -1129,6 +1161,8 @@ public struct JSONParser: ~Copyable {
     // the state when it *finishes* something; entering from the structural run means nobody has
     // set it yet, and a chunk that ends mid-token would otherwise resume in a structural state.
     self.state = .inString
+    // Declines `fuseAfterValue` -- see above. The run's write-back restores the real depth.
+    self.depth = 0
     try self.record(.stringBegin, start: quoteAt, length: 1, end: from, base: base, into: &sink)
     return try self.stringRunBody(base: base, from: from, to: to, run: run, into: &sink)
   }

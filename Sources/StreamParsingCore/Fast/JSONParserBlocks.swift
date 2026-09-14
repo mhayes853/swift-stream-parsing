@@ -221,15 +221,18 @@
               // A string value with an escape: the existing decoder, entered exactly as the
               // scalar run enters it -- the scan from the byte after the opening quote (which
               // stops at that first backslash), then `consumeEscapedStringInRun`, which owns the
-              // `stringBegin`, the chunks, the `stringEnd` and the comma fusion.
+              // `stringBegin`, the chunks and the `stringEnd`. It does not fuse the comma after
+              // the value -- it could only ask the fields for the container stack, and this
+              // walk's `depth` and `containers` are not in them -- so a finished token comes back
+              // `.afterValue` at its closing quote and the walk takes the comma itself.
               self.isKeyToken = false
               let run = streamStringRun(base: base, from: at &+ 1, to: to)
               let next = try self.consumeEscapedStringInRun(
                 base: base, quoteAt: at, from: at &+ 1, to: to, run: run, into: &sink
               )
               state = self.state
-              // `fuseAfterValue` may have left a per-byte state behind (or the token may have
-              // been cut); either way the run's own `isStructural` check is what decides, and the
+              // A token the chunk cut, or an escape left to the per-byte states, comes back in one
+              // of those states; the run's own `isStructural` check is what decides, and the
               // caller's copy of `state` has just been told.
               if !state.isStructural { return next }
               if next &- p >= 64 {

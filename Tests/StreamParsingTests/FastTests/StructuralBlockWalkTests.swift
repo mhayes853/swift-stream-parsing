@@ -368,6 +368,9 @@ struct StructuralBlockWalkTests {
     let bytes = try #require(streamBenchmarkCorpus(name))
     for chunk in [64, 100, 4096, Int.max] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
+      // Agreement alone is not enough: a scalar oracle that fails agrees with a walk that fails
+      // the same way, which is how both paths failing `twitter` at 4096 once passed here.
+      #expect(expected.errorReason == nil, "\(name) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))")
       let actual = Self.run(bytes, chunk: chunk, blocks: true)
       #expect(actual.errorReason == expected.errorReason, "\(name) chunk \(chunk)")
       #expect(actual.errorOffset == expected.errorOffset, "\(name) chunk \(chunk)")
@@ -393,6 +396,7 @@ struct StructuralBlockWalkTests {
     let bytes = try #require(streamBenchmarkCorpus(name))
     for chunk in [320, 4096] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
+      #expect(expected.errorReason == nil, "\(name) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))")
       let actual = Self.run(bytes, chunk: chunk, blocks: true, rearmGate: true)
       #expect(actual.errorReason == expected.errorReason, "\(name) chunk \(chunk)")
       #expect(actual.errorOffset == expected.errorOffset, "\(name) chunk \(chunk)")
@@ -449,6 +453,10 @@ struct StructuralBlockWalkTests {
       for chunk in [320, 4096, Int.max] {
         let expected = Self.runSkipping(
           bytes, chunk: chunk, blocks: false, skipFromDepth: skipFromDepth
+        )
+        #expect(
+          expected.errorReason == nil,
+          "\(name) skip>=\(skipFromDepth) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))"
         )
         let actual = Self.runSkipping(
           bytes, chunk: chunk, blocks: true, skipFromDepth: skipFromDepth, rearmGate: true
