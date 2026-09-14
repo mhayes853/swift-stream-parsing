@@ -195,10 +195,8 @@ struct ScalarTarget {
 // non-generic type is one copy of everything, permanently.
 public struct PartialSink: ~Copyable, StreamParseSink {
   // The typed layer accumulates string bytes into `StreamString`, so it pays per chunk call and
-  // not per byte copied: see `JSONParser.coalescedEscapedStringTail`.
-  @inlinable
-  public static var _streamCoalescesStringChunks: Bool { true }
-
+  // not per byte copied -- the sink escaped-value coalescing was built for (see
+  // `JSONParser.coalescedEscapedStringTail`), and which every sink now gets.
   public private(set) var streamFailure: StreamSinkFailure?
 
   @usableFromInline var root: UnsafeMutableRawPointer

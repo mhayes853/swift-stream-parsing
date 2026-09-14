@@ -532,7 +532,9 @@ extension JSONParser {
       guard i < close else { break }
       let byte = base.load(fromByteOffset: i, as: UInt8.self)
       if byte == .asciiBackslash {
-        if let fused = try self.fusedEscapeEnd(base: base, from: i &+ 1, to: close, into: &sink) {
+        if let fused = try self.fusedEscapeEnd(
+          base: base, from: i &+ 1, to: close, coalescing: false, into: &sink
+        ) {
           i = fused
           continue
         }

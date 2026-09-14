@@ -74,18 +74,13 @@ public struct JSONParser: ~Copyable {
   // matching end call and leaves skip mode. Valid only while `state` is one of the skipping
   // states. Bounded by `maximumDepth`, so a byte.
   @usableFromInline var skipEndDepth: UInt8 = 0
-  // A string value past its first escape is being coalesced into `bufferBase` rather than
-  // delivered fragment by fragment (`coalescedEscapedStringTail`). Only ever set inside that
-  // function, and always cleared -- with a flush -- on every path that leaves it.
-  //
-  // Declared *here*, in the padding byte between `skipEndDepth` and the two-byte-aligned
-  // `unicodeValue` below, and not next to the other string flags where it reads better. Anywhere
-  // earlier it shifts `literalKind`/`literalIndex` from offset 4/5 to 5/6, and the fused
-  // halfword store the literal path emits for the pair stops being two-byte aligned: every
-  // `consumeStructuralRun` specialisation in the binary, for sinks that have nothing to do with
-  // this flag, turned `strh` into `sturh`. Here the flag costs the struct nothing and moves
-  // nothing.
-  @usableFromInline var stringBuffering = false
+  // Offset 9, between `skipEndDepth` and the two-byte-aligned `unicodeValue` below, is padding.
+  // It held a `stringBuffering` flag while escaped-string coalescing was a runtime mode; any new
+  // one-byte field belongs there. Anywhere earlier shifts `literalKind`/`literalIndex` from
+  // offset 4/5 to 5/6, and the fused halfword store the literal path emits for the pair stops
+  // being two-byte aligned: every `consumeStructuralRun` specialisation in the binary turned
+  // `strh` into `sturh`.
+
   // Four hex digits and a surrogate half: sixteen bits each, exactly.
   @usableFromInline var unicodeValue: UInt16 = 0
   @usableFromInline var highSurrogate: UInt16 = 0
@@ -930,89 +925,80 @@ public struct JSONParser: ~Copyable {
     return try self.stringRunBody(base: base, from: i, to: to, run: run, into: &sink)
   }
 
-  // The string value loop proper, split out of `consumeStringRun` so the structural run can
+  // The string value body proper, split out of `consumeStringRun` so the structural run can
   // enter it with a scan it already paid for. It is `@inline(__always)`, so `consumeStringRun`
   // is byte for byte the function it was -- the split exists to give `consumeEscapedStringInRun`
   // below a second entry, not to add a call.
   //
   // `run` is the scan covering `from`: the caller has already established where the first
-  // non-content byte is, and every subsequent iteration rescans for itself.
+  // non-content byte is, and it is the only scan this body makes. The body used to be a loop
+  // that decoded an escape in place and rescanned after it; every escape now leaves for
+  // `coalescedEscapedStringTail` (or the per-byte states), so there is no second iteration --
+  // the zero-copy run up to the first non-content byte, then that byte's verdict.
   @inlinable
   @inline(__always)
   mutating func stringRunBody<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
     from: Int,
     to: Int,
-    run initialRun: StreamStringRun,
+    run: StreamStringRun,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var i = from
-    var run = initialRun
-    while true {
-      let end = run.end
+    let end = run.end
 
-      if end > i {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: i) }
-        let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
-        if emitEnd > i {
-          try self.validateUTF8IfNeeded(
-            base: base,
-            from: i,
-            to: emitEnd,
-            containsNonASCII: run.containsNonASCII,
-            reportAt: nil
-          )
-          try self.record(.stringChunk, start: i, length: emitEnd &- i, end: emitEnd, base: base, into: &sink)
-        }
-        if emitEnd < end {
-          try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
-        }
-        i = end
+    if end > i {
+      if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: i) }
+      let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
+      if emitEnd > i {
+        try self.validateUTF8IfNeeded(
+          base: base,
+          from: i,
+          to: emitEnd,
+          containsNonASCII: run.containsNonASCII,
+          reportAt: nil
+        )
+        try self.record(.stringChunk, start: i, length: emitEnd &- i, end: emitEnd, base: base, into: &sink)
       }
+      if emitEnd < end {
+        try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
+      }
+      i = end
+    }
 
-      guard i < to else { return i }
+    guard i < to else { return i }
 
-      let byte = base.load(fromByteOffset: i, as: UInt8.self)
-      let byteAt = i
-      i &+= 1
-      if byte == .asciiQuote {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
-        try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
-        self.state = .afterValue
-        return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
-      } else if byte == .asciiBackslash {
-        // A sink that accumulates string bytes takes the rest of this value coalesced, out of
-        // line: the decode, the surrogate handling and the buffer bookkeeping all leave this
-        // function, which is the one thing the run body cannot afford to grow. The test is a
-        // static `Bool` per specialisation, so the arm the sink did not ask for is not compiled
-        // into its copy of the loop at all -- which is what keeps the zero-copy sinks byte for
-        // byte the loop they had.
-        if Sink._streamCoalescesStringChunks {
-          // A backslash that is the chunk's last byte cannot fuse, and the tail would do nothing
-          // but fail `fusedEscapeEnd`'s own `from < to` guard and hand the escape to the per-byte
-          // states. Answering that here rather than in the callee is worth a compare: byte fed
-          // input reaches this arm with `i == to` for *every* escape it sees, and paying a call
-          // into a 1450 instruction cold function each time measured -1.6% on
-          // `Twitter escaped - byte by byte`. Nothing is buffered yet on this edge -- the loop
-          // above never buffers -- so there is nothing to flush before leaving.
-          guard i < to else {
-            self.state = .escape
-            return i
-          }
-          return try self.coalescedEscapedStringTail(base: base, from: i, to: to, into: &sink)
-        }
-        // Decoding the escape here keeps the scan going; the states exist for the escape that
-        // straddles a chunk boundary and for the ones carrying diagnostics.
-        if let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
-          i = fused
-          run = streamStringRun(base: base, from: i, to: to)
-          continue
-        }
+    let byte = base.load(fromByteOffset: i, as: UInt8.self)
+    let byteAt = i
+    i &+= 1
+    if byte == .asciiQuote {
+      if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
+      try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
+      self.state = .afterValue
+      return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
+    } else if byte == .asciiBackslash {
+      // The rest of this value is taken coalesced, out of line: the decode, the surrogate
+      // handling and the buffer bookkeeping all leave this function, which is the one thing the
+      // run body cannot afford to grow. This used to be one arm of two, chosen per
+      // specialisation by a static `Sink._streamCoalescesStringChunks`: the sinks answering
+      // `false` kept an inline `fusedEscapeEnd` here that decoded the escape into a fragment of
+      // its own and went back to scanning. Every sink coalesces now, so that inline decode is
+      // gone from the run body entirely.
+      //
+      // A backslash that is the chunk's last byte cannot fuse, and the tail would do nothing but
+      // fail `fusedEscapeEnd`'s own `from < to` guard and hand the escape to the per-byte states.
+      // Answering that here rather than in the callee is worth a compare: byte fed input reaches
+      // this arm with `i == to` for *every* escape it sees, and paying a call into a 1450
+      // instruction cold function each time measured -1.6% on `Twitter escaped - byte by byte`.
+      // Nothing is buffered yet on this edge -- the run above never buffers -- so there is
+      // nothing to flush before leaving.
+      guard i < to else {
         self.state = .escape
         return i
-      } else {
-        throw self.error(.unterminatedString, at: byteAt)
       }
+      return try self.coalescedEscapedStringTail(base: base, from: i, to: to, into: &sink)
+    } else {
+      throw self.error(.unterminatedString, at: byteAt)
     }
   }
 
@@ -1021,7 +1007,16 @@ public struct JSONParser: ~Copyable {
   // string chunks and 35% of `gsoc-2018`'s 39,810 are a single byte, one sink call each. From
   // the first backslash on, content is copied into the parser's own buffer and handed over one
   // chunk per buffer-full -- 26,076 chunks become 2,003 and 39,810 become 16,869 -- which is a
-  // copy the sink pays for many times over in calls it no longer makes.
+  // copy an accumulating sink (`PartialSink`, appending into `StreamString`) pays for many times
+  // over in calls it no longer makes.
+  //
+  // Every sink takes this path. It began as an opt-in for the accumulating sinks behind a static
+  // `_streamCoalescesStringChunks`, with the rest handed the fragments zero-copy; a sink whose
+  // chunk calls are nearly free (counting, checksumming) now pays the copy of every post-escape
+  // byte for no call savings -- `FastCountingSink` on `LLM message - bulk` reads ~11% slower --
+  // which was judged a better price than a second delivery mode and the per-sink knob that
+  // selected it. Chunk boundaries were never promised, so what a sink can observe is only fewer,
+  // larger chunks and rejection points at the flushes.
   //
   // Out of line by force, and that is the whole point of the split: this loop spelled inside
   // `stringRunBody` -- `@inline(__always)` into both `consumeStringRun` and
@@ -1029,21 +1024,32 @@ public struct JSONParser: ~Copyable {
   // -15%, the last on a payload whose escapes it barely touches. The run body has to stay the
   // size it is; moving the escape decode out of it makes it smaller than it was.
   //
-  // Every exit flushes and clears `stringBuffering`, so the per-byte escape states and the key
-  // path below can never see it set, and a chunk that cuts the string resumes exactly where the
-  // fragment-by-fragment loop resumed -- only the chunk boundaries differ.
+  // Every exit that does not throw flushes, so a chunk that cuts the string resumes exactly where
+  // the fragment-by-fragment loop resumed -- only the chunk boundaries differ -- and the per-byte
+  // escape states the cut hands over to never find anything buffered.
+  //
+  // That the escapes decode into the buffer here, and into inline chunks everywhere else (the
+  // per-byte states, `consumeKeyRun`, the windowed walk), is a fact of the call path: this loop
+  // passes `coalescing: true` to `fusedEscapeEnd`, which is `@inline(__always)`, so the literal
+  // folds and no other caller carries the buffered arm. It used to be a runtime `stringBuffering`
+  // flag set around this loop and tested in `emitScratch`, which put a field load and a
+  // never-taken arm into every escape emitter in the binary -- including the ones inlined into
+  // the byte fed dispatcher `parse(_:)`, where anything placed in that arm re-laid out the
+  // per-escape blocks: an 8-byte store in `bufferStringScratch` cost `LLM message - byte by byte
+  // discarding` 4.9% through a branch that dispatcher never took.
   @inlinable
   @inline(never)
   mutating func coalescedEscapedStringTail<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var i = from
-    self.stringBuffering = true
-    // The escape that sent us here, decoded first; `stringBuffering` routes its bytes into the
-    // buffer. A decode that cannot fuse has emitted nothing, so falling back to the per-byte
-    // states is the same fall-back the run body made.
-    guard let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) else {
-      self.stringBuffering = false
+    // The escape that sent us here, decoded first. A decode that cannot fuse has emitted
+    // nothing, so falling back to the per-byte states is the same fall-back the run body made.
+    guard
+      let fused = try self.fusedEscapeEnd(
+        base: base, from: i, to: to, coalescing: true, into: &sink
+      )
+    else {
       self.state = .escape
       return i
     }
@@ -1060,7 +1066,7 @@ public struct JSONParser: ~Copyable {
             base: base, from: i, to: emitEnd, containsNonASCII: run.containsNonASCII, reportAt: nil
           )
           try self.bufferStringRun(
-            base: base, from: i, count: emitEnd &- i, end: emitEnd, into: &sink
+            base: base, from: i, count: emitEnd &- i, end: emitEnd, to: to, into: &sink
           )
         }
         if emitEnd < end {
@@ -1070,7 +1076,7 @@ public struct JSONParser: ~Copyable {
       }
 
       guard i < to else {
-        try self.endStringBuffering(into: &sink, end: i)
+        try self.flushStringBuffer(into: &sink, end: i)
         return i
       }
 
@@ -1079,16 +1085,18 @@ public struct JSONParser: ~Copyable {
       i &+= 1
       if byte == .asciiQuote {
         if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
-        try self.endStringBuffering(into: &sink, end: byteAt)
+        try self.flushStringBuffer(into: &sink, end: byteAt)
         try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
         self.state = .afterValue
         return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
       } else if byte == .asciiBackslash {
-        if let next = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
+        if let next = try self.fusedEscapeEnd(
+          base: base, from: i, to: to, coalescing: true, into: &sink
+        ) {
           i = next
           continue
         }
-        try self.endStringBuffering(into: &sink, end: i)
+        try self.flushStringBuffer(into: &sink, end: i)
         self.state = .escape
         return i
       } else {
@@ -1201,7 +1209,9 @@ public struct JSONParser: ~Copyable {
         self.state = .afterKey
         return i
       } else if byte == .asciiBackslash {
-        if let fused = try self.fusedEscapeEnd(base: base, from: i, to: to, into: &sink) {
+        if let fused = try self.fusedEscapeEnd(
+          base: base, from: i, to: to, coalescing: false, into: &sink
+        ) {
           i = fused
           continue
         }
@@ -1223,18 +1233,30 @@ public struct JSONParser: ~Copyable {
   // the chunk all return nil and fall back to the per byte states. That is what keeps error offsets
   // and resumption identical: this path never reports anything, so it cannot report it in the
   // wrong place, and it commits nothing before it knows it can finish.
+  //
+  // `coalescing` is where the decoded bytes go: `true` only from `coalescedEscapedStringTail`,
+  // which appends them to the coalescing buffer; `false` everywhere else, where they are a key's
+  // buffered bytes or an inline chunk of their own (`emitScratch`). Always a literal at the call
+  // site, and this function is `@inline(__always)`, so each caller's copy holds one arm only.
   @inlinable
   @inline(__always)
   mutating func fusedEscapeEnd<Sink: StreamParseSink & ~Copyable>(
-    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+    base: UnsafeRawPointer, from: Int, to: Int, coalescing: Bool, into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
     guard self.highSurrogate == 0, from < to else { return nil }
     let selector = base.load(fromByteOffset: from, as: UInt8.self)
     guard selector != .asciiLowerU else {
+      if coalescing {
+        return try self.coalescedUnicodeEscapeEnd(base: base, from: from, to: to, into: &sink)
+      }
       return try self.fusedUnicodeEscapeEnd(base: base, from: from, to: to, into: &sink)
     }
     guard let decoded = streamDecodeSimpleEscape(selector) else { return nil }
-    try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
+    if coalescing {
+      try self.bufferStringScratch(UInt64(decoded), count: 1, into: &sink, reportAt: from)
+    } else {
+      try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
+    }
     return from &+ 1
   }
 
@@ -1245,10 +1267,29 @@ public struct JSONParser: ~Copyable {
   // and every string heavy document 1-5%, while the documents it exists for kept their gain either
   // way. A `\u` escape is five bytes of work and saves five dispatcher iterations, so it can
   // afford the call; `\n` is one byte and cannot.
+  //
+  // Two out-of-line entries over one body, one per destination, because a literal passed to an
+  // `@inline(never)` function is a runtime argument inside it.
   @inlinable
   @inline(never)
   mutating func fusedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+  ) throws(JSONParsingError) -> Int? {
+    try self.unicodeEscapeEnd(base: base, from: from, to: to, coalescing: false, into: &sink)
+  }
+
+  @inlinable
+  @inline(never)
+  mutating func coalescedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+  ) throws(JSONParsingError) -> Int? {
+    try self.unicodeEscapeEnd(base: base, from: from, to: to, coalescing: true, into: &sink)
+  }
+
+  @inlinable
+  @inline(__always)
+  mutating func unicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, from: Int, to: Int, coalescing: Bool, into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
     guard from &+ 5 <= to, let scalar = streamHexQuad(base: base, from: from &+ 1) else {
       return nil
@@ -1277,7 +1318,12 @@ public struct JSONParser: ~Copyable {
       return nil
     }
 
-    try self.emitScalar(value, into: &sink, reportAt: from)
+    if coalescing {
+      let encoded = Self.utf8Word(value)
+      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from)
+    } else {
+      try self.emitScalar(value, into: &sink, reportAt: from)
+    }
     return end
   }
 
@@ -1608,9 +1654,18 @@ public struct JSONParser: ~Copyable {
   // when the run does not fit, and a run at least as long as the whole buffer is handed to the
   // sink in place: copying is worth it for the fragments an escape cuts, never for a run already
   // big enough to be its own chunk.
+  //
+  // A run of at most sixteen bytes -- the fragment an escape cuts is almost always that: 57% of
+  // `llm_message`'s were a single byte -- is copied as one unaligned 16-byte load and store rather
+  // than through `copyMemory`, which is a call into libc `memmove` whose fixed cost is many times
+  // a few-byte copy. Both sides are checked for the slack: the source needs sixteen readable bytes
+  // before the chunk's end `to` (the input has no padding behind it), and the destination sixteen
+  // writable bytes before the end of the allocation, which is the buffer plus the reserved
+  // `scratchByteCount` behind it (dead while a value is being coalesced). The bytes written past
+  // `count` are garbage the count never covers.
   @inlinable
   mutating func bufferStringRun<Sink: StreamParseSink & ~Copyable>(
-    base: UnsafeRawPointer, from: Int, count: Int, end: Int, into sink: inout Sink
+    base: UnsafeRawPointer, from: Int, count: Int, end: Int, to: Int, into sink: inout Sink
   ) throws(JSONParsingError) {
     if Int(self.bufferCount) &+ count > Int(self.bufferCapacity) {
       try self.flushStringBuffer(into: &sink, end: from)
@@ -1621,14 +1676,32 @@ public struct JSONParser: ~Copyable {
         return
       }
     }
-    UnsafeMutableRawPointer(self.bufferBase + Int(self.bufferCount))
-      .copyMemory(from: base.advanced(by: from), byteCount: count)
+    let at = Int(self.bufferCount)
+    if count <= 16, to &- from >= 16,
+      at &+ 16 <= Int(self.bufferCapacity) &+ Self.scratchByteCount
+    {
+      UnsafeMutableRawPointer(self.bufferBase + at).storeBytes(
+        of: base.loadUnaligned(fromByteOffset: from, as: SIMD16<UInt8>.self),
+        as: SIMD16<UInt8>.self
+      )
+    } else {
+      UnsafeMutableRawPointer(self.bufferBase + at)
+        .copyMemory(from: base.advanced(by: from), byteCount: count)
+    }
     self.bufferCount &+= UInt32(count)
   }
 
-  // The decoded bytes of one escape, appended to the coalescing buffer. One to four bytes held
-  // in a register, so byte stores rather than a copy out of a stack slot -- the same shape
-  // `appendScratchToBuffer` uses for keys.
+  // The decoded bytes of one escape, appended to the coalescing buffer: the whole scratch word in
+  // one unaligned 8-byte store, the shape `recordInlineChunk` uses for the same word. One to four
+  // bytes are meaningful; the rest land past `bufferCount`, where nothing reads them, and never
+  // past the allocation -- after the capacity check `bufferCount` is at most `capacity - 1`, and
+  // the reserved `scratchByteCount` (eight) sits behind the buffer, dead while a value is being
+  // coalesced. Only `coalescedEscapedStringTail` reaches this (by the `coalescing: true` literal),
+  // so the store is in no other function's code -- which is what made it affordable: spelled
+  // behind a runtime flag in `emitScratch`, the same store sat in a never-taken arm of the byte
+  // fed dispatcher and cost `LLM message - byte by byte discarding` 4.9%. The `for _ in
+  // 0..<count` byte loop it replaces (the shape `appendScratchToBuffer` keeps for keys) had cost
+  // `Fast Unicode escaped string - bulk` ~20% once every sink coalesced.
   @inlinable
   mutating func bufferStringScratch<Sink: StreamParseSink & ~Copyable>(
     _ word: UInt64, count: Int, into sink: inout Sink, reportAt: Int
@@ -1636,36 +1709,20 @@ public struct JSONParser: ~Copyable {
     if Int(self.bufferCount) &+ count > Int(self.bufferCapacity) {
       try self.flushStringBuffer(into: &sink, end: reportAt)
     }
-    var remaining = word
-    var at = Int(self.bufferCount)
-    for _ in 0..<count {
-      self.bufferBase[at] = UInt8(truncatingIfNeeded: remaining)
-      remaining &>>= 8
-      at &+= 1
-    }
+    UnsafeMutableRawPointer(self.bufferBase + Int(self.bufferCount))
+      .storeBytes(of: word, as: UInt64.self)
     self.bufferCount &+= UInt32(count)
-  }
-
-  // Leaves the coalescing mode `coalescedEscapedStringTail` runs in: the flag has to be clear
-  // before the sink call, so the per-byte escape states and the key path can never observe it
-  // set. Every exit of that loop does exactly this pair.
-  //
-  // Left to the optimizer rather than forced inline: `@inline(__always)` here pulled
-  // `flushStringBuffer`'s body into one of the three exits, growing the `PartialSink`
-  // specialisation of the tail from 726 to 756 instructions, and `Twitter full - bulk
-  // discarding` measured -1.8% p0 with it (Canada, Mesh, CITM, GSoC, LLM and Twitter escaped all
-  // flat, so it is the tail's size and placement, not its work).
-  @inlinable
-  mutating func endStringBuffering<Sink: StreamParseSink & ~Copyable>(
-    into sink: inout Sink, end: Int
-  ) throws(JSONParsingError) {
-    self.stringBuffering = false
-    try self.flushStringBuffer(into: &sink, end: end)
   }
 
   // Hands everything coalesced so far to the sink as one chunk. Rejection reports at `end`, the
   // input offset the flush was reached at, which is where fragment-by-fragment delivery reported
   // the last chunk before it.
+  //
+  // Left to the optimizer rather than forced inline: `@inline(__always)` on the wrapper the
+  // tail's exits used to call pulled this body into one of the three exits, growing the
+  // `PartialSink` specialisation of the tail from 726 to 756 instructions, and `Twitter full -
+  // bulk discarding` measured -1.8% p0 with it (Canada, Mesh, CITM, GSoC, LLM and Twitter escaped
+  // all flat, so it is the tail's size and placement, not its work).
   @inlinable
   mutating func flushStringBuffer<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink, end: Int
@@ -1716,7 +1773,15 @@ public struct JSONParser: ~Copyable {
 
   // MARK: UTF-8
 
+  // Forced inline for byte fed input: a one-byte chunk ends every string run at `to`, so the
+  // string body asks this on *every* content byte. Left to the optimizer, it was inlined into
+  // `consumeStringRun` only while `stringRunBody` was spelled as a `while true` loop; once the
+  // body became straight-line code (every escape leaves for the coalescing tail), the serialized
+  // `consumeStringRun<PartialSink>` that `parse(byte:)` reaches started calling it instead, and
+  // `LLM message - byte by byte discarding` lost 1.4%, every round. Forced, that copy is
+  // instruction for instruction what it was before.
   @inlinable
+  @inline(__always)
   mutating func trimmingIncompleteUTF8(
     base: UnsafeRawPointer, from: Int, to: Int
   ) throws(JSONParsingError) -> Int {
@@ -1929,7 +1994,15 @@ public struct JSONParser: ~Copyable {
   mutating func emitScalar<Sink: StreamParseSink & ~Copyable>(
     _ value: UInt32, into sink: inout Sink, reportAt: Int
   ) throws(JSONParsingError) {
-    // Assembled little-endian in a register instead of stored to the buffer's tail page.
+    let encoded = Self.utf8Word(value)
+    try self.emitScratch(encoded.word, count: encoded.count, into: &sink, reportAt: reportAt)
+  }
+
+  // A scalar's UTF-8 encoding, assembled little-endian in a register instead of stored to the
+  // buffer's tail page: the low `count` bytes of `word`.
+  @inlinable
+  @inline(__always)
+  static func utf8Word(_ value: UInt32) -> (word: UInt64, count: Int) {
     let word: UInt64
     let count: Int
     if value < .utf8OneByteCeiling {
@@ -1954,7 +2027,7 @@ public struct JSONParser: ~Copyable {
         | (UInt64(0x80 | (value & .utf8ContinuationMask)) &<< 24)
       count = 4
     }
-    try self.emitScratch(word, count: count, into: &sink, reportAt: reportAt)
+    return (word, count)
   }
 
   @inlinable
@@ -1973,15 +2046,9 @@ public struct JSONParser: ~Copyable {
       try self.appendScratchToBuffer(word, count: count, reportAt: reportAt)
       return
     }
-    // Statically false for a sink that never coalesces, so its copy of this -- and of
-    // `consumeKeyRun` and `consumeEscapedStringInRun`, which inline it -- is the code it was.
-    // Spelled as a plain runtime test first, it cost the raw specialisations a field load and a
-    // branch per escape, and the register pressure that came with it rematerialised the string
-    // scan's vector constants inside the loop.
-    if Sink._streamCoalescesStringChunks, self.stringBuffering {
-      try self.bufferStringScratch(word, count: count, into: &sink, reportAt: reportAt)
-      return
-    }
+    // A string value's escape outside `coalescedEscapedStringTail` -- the per-byte escape
+    // states, the windowed walk's `scanStringValue` -- is its own inline chunk. The tail's
+    // escapes never come through here: it asks `fusedEscapeEnd` for the buffered arm by literal.
     try self.recordInlineChunk(word, count: count, end: reportAt &+ 1, into: &sink)
   }
 

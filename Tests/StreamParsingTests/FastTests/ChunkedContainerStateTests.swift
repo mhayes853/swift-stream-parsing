@@ -42,31 +42,7 @@ struct StaleDepthNested: Equatable {
 // document is cut. Every chunk size, and every two-way split, against the whole-document parse.
 @Suite
 struct `Chunked container state tests` {
-  // MARK: - Sinks
-
-  // `TreeSink`, coalescing: an escaped string value goes through `coalescedEscapedStringTail`,
-  // which is `PartialSink`'s route to `fuseAfterValue`, rather than the run body's own.
-  struct CoalescingTreeSink: StreamParseSink {
-    var tree = TreeSink()
-
-    static var _streamCoalescesStringChunks: Bool { true }
-    var streamFailure: StreamSinkFailure? { self.tree.streamFailure }
-    var value: TreeSink.Node? { self.tree.value }
-
-    mutating func beginObject() -> StreamContainerDisposition { self.tree.beginObject() }
-    mutating func beginArray() -> StreamContainerDisposition { self.tree.beginArray() }
-    mutating func endObject() { self.tree.endObject() }
-    mutating func endArray() { self.tree.endArray() }
-    mutating func key(_ bytes: Span<UInt8>) { self.tree.key(bytes) }
-    mutating func stringBegin() { self.tree.stringBegin() }
-    mutating func stringChunk(_ bytes: Span<UInt8>) { self.tree.stringChunk(bytes) }
-    mutating func stringEnd() { self.tree.stringEnd() }
-    mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
-      self.tree.number(bytes, info: info)
-    }
-    mutating func boolean(_ value: Bool) { self.tree.boolean(value) }
-    mutating func null() { self.tree.null() }
-  }
+  // MARK: - Driving
 
   enum Outcome: Equatable {
     case value(TreeSink.Node?)
@@ -75,18 +51,13 @@ struct `Chunked container state tests` {
 
   // `ends` are the exclusive end offsets of the pieces, the last one being the document's length.
   // `nil` feeds the byte-fed entry point, which is a different dispatcher from a one-byte chunk.
-  static func run(_ bytes: [UInt8], ends: [Int]?, coalescing: Bool = false) -> Outcome {
-    if coalescing {
-      var sink = CoalescingTreeSink()
-      return Self.drive(bytes, ends: ends, into: &sink) { $0.value }
-    }
+  //
+  // One sink is enough: every sink takes an escaped string value through
+  // `coalescedEscapedStringTail`, the route that ends in `fuseAfterValue`. (This file used to run
+  // a second, coalescing `TreeSink` alongside the zero-copy one, when coalescing was a per-sink
+  // opt-in and the two routes were different code.)
+  static func run(_ bytes: [UInt8], ends: [Int]?) -> Outcome {
     var sink = TreeSink()
-    return Self.drive(bytes, ends: ends, into: &sink) { $0.value }
-  }
-
-  private static func drive<Sink: StreamParseSink>(
-    _ bytes: [UInt8], ends: [Int]?, into sink: inout Sink, value: (Sink) -> TreeSink.Node?
-  ) -> Outcome {
     var parser = JSONParser()
     do {
       if let ends {
@@ -104,7 +75,7 @@ struct `Chunked container state tests` {
     } catch {
       return .failure(String(describing: error.reason), error.byteOffset)
     }
-    return .value(value(sink))
+    return .value(sink.value)
   }
 
   static func ends(chunk: Int, count: Int) -> [Int] {
@@ -129,31 +100,29 @@ struct `Chunked container state tests` {
     }
   }
 
-  // Every chunk size and every two-way split, both sink routes, against the whole parse.
+  // Every chunk size and every two-way split against the whole parse.
   static func expectChunkIndependence(
     _ bytes: [UInt8], _ label: String, sourceLocation: SourceLocation = #_sourceLocation
   ) {
-    for coalescing in [false, true] {
-      let expected = Self.run(bytes, ends: [bytes.count], coalescing: coalescing)
-      var cuts: [(String, [Int]?)] = [("byte fed", nil)]
-      for chunk in 1...max(bytes.count, 1) {
-        cuts.append(("chunk \(chunk)", Self.ends(chunk: chunk, count: bytes.count)))
-      }
-      for split in 1..<max(bytes.count, 1) {
-        cuts.append(("split \(split)", [split, bytes.count]))
-      }
-      for (name, ends) in cuts {
-        let actual = Self.run(bytes, ends: ends, coalescing: coalescing)
-        guard actual == expected else {
-          Issue.record(
-            """
-            \(label) \(coalescing ? "coalescing" : "zero-copy") \(name) disagreed with the whole parse.
-            \(diff(expected, actual) ?? "")
-            """,
-            sourceLocation: sourceLocation
-          )
-          return
-        }
+    let expected = Self.run(bytes, ends: [bytes.count])
+    var cuts: [(String, [Int]?)] = [("byte fed", nil)]
+    for chunk in 1...max(bytes.count, 1) {
+      cuts.append(("chunk \(chunk)", Self.ends(chunk: chunk, count: bytes.count)))
+    }
+    for split in 1..<max(bytes.count, 1) {
+      cuts.append(("split \(split)", [split, bytes.count]))
+    }
+    for (name, ends) in cuts {
+      let actual = Self.run(bytes, ends: ends)
+      guard actual == expected else {
+        Issue.record(
+          """
+          \(label) \(name) disagreed with the whole parse.
+          \(diff(expected, actual) ?? "")
+          """,
+          sourceLocation: sourceLocation
+        )
+        return
       }
     }
   }
@@ -168,14 +137,11 @@ struct `Chunked container state tests` {
       ("s", .string("x\ny")),
       ("t", .number("1")),
     ])
-    for coalescing in [false, true] {
-      expectNoDifference(Self.run(bytes, ends: [bytes.count], coalescing: coalescing), .value(expected))
-      expectNoDifference(Self.run(bytes, ends: [14, bytes.count], coalescing: coalescing), .value(expected))
-      expectNoDifference(
-        Self.run(bytes, ends: Self.ends(chunk: 14, count: bytes.count), coalescing: coalescing),
-        .value(expected)
-      )
-    }
+    expectNoDifference(Self.run(bytes, ends: [bytes.count]), .value(expected))
+    expectNoDifference(Self.run(bytes, ends: [14, bytes.count]), .value(expected))
+    expectNoDifference(
+      Self.run(bytes, ends: Self.ends(chunk: 14, count: bytes.count)), .value(expected)
+    )
   }
 
   // The same shape with the array's first element a string, so it has a typed home: `"qq"` is as
@@ -257,8 +223,7 @@ struct `Chunked container state tests` {
     Self.expectChunkIndependence(Array(text.utf8), name)
   }
 
-  // The typed layer over the valid rows of the same shapes: `PartialSink` coalesces, so it takes
-  // the coalescing tail's fusion rather than the run body's.
+  // The typed layer over the valid rows of the same shapes, through `PartialSink`.
   @Test(
     arguments: [
       #"{"o":{"b":"c\nd"},"l":["x\ny","z"],"n":[["a\tb"],["c\"",""]],"m":{"k":"v\"w","j":"u"},"e":"end\\"}"#,
@@ -305,22 +270,18 @@ struct `Chunked container state tests` {
   )
   func `Benchmark corpora mean the same at a handful of chunk sizes`(name: String) throws {
     let bytes = try #require(streamBenchmarkCorpus(name))
-    for coalescing in [false, true] {
-      let expected = Self.run(bytes, ends: [bytes.count], coalescing: coalescing)
-      guard case .value = expected else {
-        Issue.record("\(name) failed its bulk parse: \(expected)")
-        return
-      }
-      for chunk in [7, 64, 4096] {
-        let actual = Self.run(
-          bytes, ends: Self.ends(chunk: chunk, count: bytes.count), coalescing: coalescing
-        )
-        if actual != expected {
-          if case .failure(let reason, let offset) = actual {
-            Issue.record("\(name) chunk \(chunk) coalescing \(coalescing): \(reason) at \(offset)")
-          } else {
-            Issue.record("\(name) chunk \(chunk) coalescing \(coalescing) built a different tree")
-          }
+    let expected = Self.run(bytes, ends: [bytes.count])
+    guard case .value = expected else {
+      Issue.record("\(name) failed its bulk parse: \(expected)")
+      return
+    }
+    for chunk in [7, 64, 4096] {
+      let actual = Self.run(bytes, ends: Self.ends(chunk: chunk, count: bytes.count))
+      if actual != expected {
+        if case .failure(let reason, let offset) = actual {
+          Issue.record("\(name) chunk \(chunk): \(reason) at \(offset)")
+        } else {
+          Issue.record("\(name) chunk \(chunk) built a different tree")
         }
       }
     }

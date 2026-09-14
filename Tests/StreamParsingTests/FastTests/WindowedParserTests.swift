@@ -12,7 +12,9 @@ import Darwin
 // document here is parsed byte by byte through the dispatcher, then in bulk and in several
 // chunkings with the window threshold forced to one byte, and the recorded event streams —
 // every event, every span's bytes, every number's info, and the error if any — must be
-// identical. A rejecting sink checks the same for where a rejection surfaces.
+// identical, with adjacent string chunks folded (an escaped value is cut differently on the two
+// paths; see `Outcome.foldingStringChunks`). A rejecting sink checks the same for where a
+// rejection surfaces.
 @Suite
 struct `Windowed parser tests` {
   enum Event: Equatable {
@@ -76,6 +78,29 @@ struct `Windowed parser tests` {
   struct Outcome: Equatable {
     var events: [Event]
     var error: JSONParsingError?
+
+    // Adjacent `stringChunk`s folded into one. The two paths agree on every event and every byte,
+    // but not on how an escaped string value is cut: the dispatcher coalesces a value from its
+    // first escape on (`JSONParser.coalescedEscapedStringTail`), while the windowed walk's
+    // `scanStringValue` still delivers each decoded escape as its own chunk. Chunk boundaries
+    // carry no meaning (see `StreamParseSink.stringBegin()`), so the comparison ignores them;
+    // no rejection below refuses a `stringChunk`, so folding cannot hide a moved offset.
+    var foldingStringChunks: Outcome {
+      var out = [Event]()
+      out.reserveCapacity(self.events.count)
+      var run: [UInt8]?
+      for event in self.events {
+        if case .stringChunk(let bytes) = event {
+          if run == nil { run = bytes } else { run!.append(contentsOf: bytes) }
+          continue
+        }
+        if let run { out.append(.stringChunk(run)) }
+        run = nil
+        out.append(event)
+      }
+      if let run { out.append(.stringChunk(run)) }
+      return Outcome(events: out, error: self.error)
+    }
   }
 
   static func run(
@@ -111,7 +136,9 @@ struct `Windowed parser tests` {
   static func expectEquivalent(_ bytes: [UInt8], _ label: String, rejecting: Set<String> = []) {
     for chunk in [Int.max, 64, 100, 1000, 32_768, 40_000] {
       let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max, rejecting: rejecting)
+        .foldingStringChunks
       let windowed = Self.run(bytes, chunk: chunk, windowThreshold: 1, rejecting: rejecting)
+        .foldingStringChunks
       guard windowed != dispatcher else { continue }
       // A whole-stream diff of a large document is quadratic; name the first divergence.
       let at = zip(windowed.events, dispatcher.events).enumerated().first { $1.0 != $1.1 }?.offset
@@ -382,8 +409,8 @@ struct `Windowed parser tests` {
   func `Event batches flatten to the dispatcher's stream`(name: String) {
     let bytes = Array(Self.documents.first { $0.0 == name }!.1.utf8)
     for chunk in [Int.max, 100, 32_768] {
-      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max)
-      let batched = Self.runEvents(bytes, chunk: chunk)
+      let dispatcher = Self.run(bytes, chunk: chunk, windowThreshold: .max).foldingStringChunks
+      let batched = Self.runEvents(bytes, chunk: chunk).foldingStringChunks
       #expect(batched == dispatcher, "\(name): chunk \(chunk)")
     }
   }

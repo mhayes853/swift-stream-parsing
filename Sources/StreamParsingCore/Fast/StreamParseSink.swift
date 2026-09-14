@@ -290,6 +290,16 @@ public protocol StreamParseSink: ~Copyable {
   /// The fallback string form: a value cut by a chunk boundary or carrying escapes arrives as
   /// `stringBegin`, chunks, `stringEnd`. Rare per document, mandatory for correctness — a sink
   /// that ignores these is wrong on chunked input.
+  ///
+  /// Chunk boundaries carry no meaning; only the concatenated bytes do. Content ahead of a
+  /// value's first escape is a zero-copy borrow of the input. From the first escape to the end
+  /// of the value (or of the parse call), the decoded escapes and the literal runs between them
+  /// are coalesced in the parser's buffer and delivered one chunk per buffer-full: an escape
+  /// splits the zero-copy run, and fragment-by-fragment delivery turned an escape-dense value
+  /// into many tiny calls — 57% of `llm_message`'s 26,076 string chunks were a single byte, 35%
+  /// of `gsoc-2018`'s 39,810. A literal run at least as long as the buffer is still handed over
+  /// in place. The escape that straddles a parse call's end, and one carrying a diagnostic,
+  /// arrive as their own small chunk.
   mutating func stringBegin()
   mutating func stringChunk(_ bytes: Span<UInt8>)
   mutating func stringEnd()
@@ -313,26 +323,6 @@ public protocol StreamParseSink: ~Copyable {
   mutating func commit()
 
   var streamFailure: StreamSinkFailure? { get }
-
-  /// Whether an escaped string's content should be coalesced before delivery.
-  ///
-  /// An escape splits the zero-copy run, so an escape-dense value arrives as many tiny chunks —
-  /// 57% of `llm_message`'s 26,076 string chunks are a single byte, 35% of `gsoc-2018`'s 39,810.
-  /// A sink that merely looks at the bytes (counting, checksumming, forwarding a borrow) wants
-  /// those fragments handed over as they are: the calls are free and a copy is not. A sink that
-  /// *accumulates* the bytes wants the opposite — it pays per call, so the parser copying an
-  /// escaped value into its own buffer and delivering one chunk per buffer-full is cheaper for
-  /// it many times over.
-  ///
-  /// Answering `true` changes chunk boundaries and nothing else: the same `stringBegin`, the
-  /// same bytes in the same order, the same `stringEnd`, and a value cut by a chunk boundary
-  /// still ends the chunk where it did. Defaulted to `false`, the zero-copy answer.
-  ///
-  /// Underscored: a delivery-granularity hint for the library's own accumulating sink, not a
-  /// supported customisation point. It has to be a static requirement rather than a check on the
-  /// concrete sink because the parser is generic over `Sink` and the arm must fold away per
-  /// specialisation.
-  static var _streamCoalescesStringChunks: Bool { get }
 }
 
 extension StreamParseSink where Self: ~Copyable {
@@ -349,9 +339,6 @@ extension StreamParseSink where Self: ~Copyable {
 
   @inlinable
   public mutating func commit() {}
-
-  @inlinable
-  public static var _streamCoalescesStringChunks: Bool { false }
 }
 
 extension StreamEventBatch {
