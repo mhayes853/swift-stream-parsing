@@ -92,7 +92,7 @@ struct StructuralBlockWalkTests {
             // which would leave the corpora below comparing two scalar paths to each other.
             // Clearing it per chunk re-arms the walk every `chunk` bytes, so the differential
             // still covers the whole file rather than its first 256 bytes.
-            if rearmGate { parser.blockWalkGivenUp = false }
+            if rearmGate { parser.blockWalkGivenUp = !parser.blockKernelsAvailable }
             try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
             index = end
           }
@@ -320,7 +320,7 @@ struct StructuralBlockWalkTests {
         var index = 0
         while index < input.count {
           let end = Swift.min(index &+ chunk, input.count)
-          if rearmGate { parser.blockWalkGivenUp = false }
+          if rearmGate { parser.blockWalkGivenUp = !parser.blockKernelsAvailable }
           try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
           index = end
         }
