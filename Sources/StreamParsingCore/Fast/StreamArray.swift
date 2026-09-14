@@ -65,21 +65,67 @@ public struct StreamArray<Element> {
   // A power of two, so the sealed count is `blocks.count << blockShift` and needs no stored field.
   @usableFromInline static var initialTailCapacity: Int { 8 }
   @usableFromInline static var blockShift: Int { 5 }
-  @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
-  @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
+
+  // The ceiling every shift below is clamped to: 512 elements, which is where a block stops
+  // being a granularity choice and starts being a large allocation to copy.
+  @usableFromInline static var maximumBlockShift: Int { 9 }
+
+  // ceil(log2(stride)), so a byte budget divided by it is a bound rather than an average.
+  // `stride == 1` is spelled out rather than left to `(0).leadingZeroBitCount == Int.bitWidth`
+  // cancelling the subtraction to zero.
+  @usableFromInline static var strideShift: Int {
+    let stride = MemoryLayout<Element>.stride
+    return stride == 1 ? 0 : Int.bitWidth &- (stride &- 1).leadingZeroBitCount
+  }
 
   // A block is what a write into a shared block copies, so its size in bytes is bounded: no cap
   // while an element is at most 512 bytes, then a shift that keeps a block near 16 KB. Blocks of
   // two are the floor. Folds to a constant per element type.
   @usableFromInline static var strideBlockShiftCap: Int {
-    let stride = MemoryLayout<Element>.stride
-    guard stride > 512 else { return 9 }
-    let strideShift = Int.bitWidth &- (stride &- 1).leadingZeroBitCount  // ceil(log2(stride))
-    return Swift.max(14 &- strideShift, 1)
+    guard MemoryLayout<Element>.stride > 512 else { return Self.maximumBlockShift }
+    return Swift.max(14 &- Self.strideShift, 1)
   }
 
+  // The block size an array with no capacity hint uses.
+  //
+  // 32 elements is the granularity the snapshot semantics were designed around, and it is what a
+  // partial of a few hundred bytes wants: a block is what a write into a shared block copies and
+  // what a half-filled tail wastes. It is the wrong size for a *small* element, though. A block
+  // is one malloc, `prepareSlot` is one out-of-line call, and a block of 32 doubles is 256 bytes
+  // -- so a flat array of ten thousand numbers pays a malloc every 256 bytes of payload. That
+  // showed up directly: `prepareSlot` was 4.0% of typed Mesh and 3.0% of typed Canada, all of it
+  // under the number-array and SIMD-pair element opens.
+  //
+  // So: for a trivial element of at most sixteen bytes, aim the block at `blockByteShift` bytes'
+  // worth of elements instead of at 32 elements. Doubles and `Int`s get 256-element (2 KB)
+  // blocks, `SIMD2<Double>` 128-element ones, and everything else keeps exactly the size it had.
+  //
+  // The sixteen-byte ceiling is not arithmetic, it is measured. Raising it to 64 covered small
+  // POD *partials* too -- a dictionary's value blocks, for instance -- and cost CITM 1.2% for no
+  // gain anywhere: those containers hold tens of elements, not thousands, so the larger block is
+  // a 2 KB allocation they never fill instead of a malloc they never repeat. Sixteen bytes is
+  // exactly the width of the elements that come in their thousands (a number, a coordinate
+  // pair), which is where the malloc traffic actually was.
+  //
+  // Folds to a constant per element type: every term is a compile-time property of `Element`.
+  //
+  // Spelled as a shift, which is the only form the byte target was ever used in: 2 KB.
+  @usableFromInline static var blockByteShift: Int { 11 }
+
+  @usableFromInline static var defaultBlockCapacity: Int { 1 &<< Self.defaultBlockShift }
+
   @usableFromInline static var defaultBlockShift: Int {
-    Swift.min(Self.blockShift, Self.strideBlockShiftCap)
+    let base = Swift.min(Self.blockShift, Self.strideBlockShiftCap)
+    let stride = MemoryLayout<Element>.stride
+    // Non-trivial elements are left alone: their blocks carry a destroy loop, and the reason to
+    // grow a block is malloc traffic the destroy loop dwarfs anyway.
+    guard _isPOD(Element.self), stride > 0, stride <= 16 else { return base }
+    return Swift.max(
+      base,
+      Swift.min(
+        Self.maximumBlockShift, Self.strideBlockShiftCap, Self.blockByteShift &- Self.strideShift
+      )
+    )
   }
 
   public init() {
@@ -105,18 +151,25 @@ public struct StreamArray<Element> {
     for element in elements { self.append(element) }
   }
 
-  @usableFromInline var currentBlockCapacity: Int { Int(self.blockCapacityBits) }
+  @inlinable var currentBlockCapacity: Int { Int(self.blockCapacityBits) }
 
-  @usableFromInline
+  // `@inlinable`, not merely `@usableFromInline`: `StreamDictionary.drainPending` is inlinable and
+  // specialises in the *client* module, and a `@usableFromInline` body does not travel with it.
+  // At b01cfd6 the specialised `drainPending` called the unspecialised, generic
+  // `StreamArray.sealedCount.getter` once per dictionary key -- a runtime-metadata call to read
+  // `blocks.count`, and a barrier the surrounding loads could not be folded across.
+  @inlinable
   var sealedCount: Int {
-    if _fastPath(self.blockShiftBits == UInt8(Self.blockShift)) {
-      return self.blocks.count &<< Self.blockShift
+    // Against the *default* shift, not the fixed 32: the default is still a per-element-type
+    // constant, and it is the shift every array that was never given a capacity hint carries.
+    if _fastPath(self.blockShiftBits == UInt8(Self.defaultBlockShift)) {
+      return self.blocks.count &<< Self.defaultBlockShift
     }
     return self.blocks.count &<< Int(self.blockShiftBits)
   }
 
   // The elements that are in blocks. The open one is not among them.
-  @usableFromInline
+  @inlinable
   var closedCount: Int { self.sealedCount &+ self.tailCount }
 
   @usableFromInline
@@ -125,9 +178,21 @@ public struct StreamArray<Element> {
     // granularity for ordinary arrays and bound the amount copied by a write into a shared
     // block. `minimumCapacity / 64` avoids overflowing for capacities near Int.max.
     let desired = minimumCapacity / 64 + (minimumCapacity % 64 == 0 ? 0 : 1)
-    guard desired > Self.blockCapacity else { return UInt8(Self.defaultBlockShift) }
+    // Against the default capacity rather than the fixed 32: the `max(defaultBlockShift, ...)`
+    // below floors the result at the default anyway, so every `desired` between the two
+    // thresholds already answered `defaultBlockShift` -- this just stops computing it.
+    guard desired > Self.defaultBlockCapacity else { return UInt8(Self.defaultBlockShift) }
     let roundedShift = Int.bitWidth &- (desired &- 1).leadingZeroBitCount
-    return UInt8(Swift.min(9, roundedShift, Self.strideBlockShiftCap))
+    // Never below the default: a hint is a statement that the array will be *large*, and a small
+    // element's default block is already chosen for a large array. Without the floor a hint of a
+    // few thousand doubles would ask for smaller blocks than the same array gets with no hint
+    // at all.
+    return UInt8(
+      Swift.max(
+        Self.defaultBlockShift,
+        Swift.min(Self.maximumBlockShift, roundedShift, Self.strideBlockShiftCap)
+      )
+    )
   }
 
   // MARK: Slots
@@ -221,7 +286,13 @@ public struct StreamArray<Element> {
 
   // Appends past the open element, which is what every path other than the parser wants: a user
   // appending to a parsed array adds after it rather than replacing it.
+  //
+  // `@inline(__always)`: at this size the optimizer left it outlined, and `_appendClosed` -- which
+  // is this function, per element of a homogeneous number array -- measured worse with a `bl` and
+  // a frame per element than the `_openElement` round trip it replaced. Both halves are
+  // `@inline(__always)` too, so every caller gets straight-line code.
   @inlinable
+  @inline(__always)
   mutating func appendSealed(_ element: Element) {
     self.drainPending()
     self.commit(element)
@@ -302,6 +373,10 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
     self.closedCount &+ (self.pending == nil ? 0 : 1)
   }
 
+  // `@inlinable` so a client-module specialisation (a repeated dictionary key resuming its stored
+  // value) reads the element directly instead of calling the unspecialised generic getter through
+  // instantiated metadata.
+  @inlinable
   public subscript(position: Int) -> Element {
     get {
       let sealed = self.sealedCount
@@ -658,5 +733,32 @@ extension StreamArray {
   @inlinable
   public mutating func _elementAddress(_ position: Int) -> UnsafeMutableRawPointer {
     self.elementAddress(position)
+  }
+}
+
+// MARK: - Closed appends
+
+extension StreamArray {
+  /// Appends `element` as an already-closed element: it goes straight into its block slot and no
+  /// open element is left behind.
+  ///
+  /// The whole-value routes use this. A number token is delivered to the sink exactly once and
+  /// whole -- the parser buffers a number that straddles a chunk boundary and emits it at the
+  /// closing byte (`emitBufferedNumber`) -- so there is no window in which a snapshot could
+  /// observe a half-written element, which is the only thing `pending` buys. Going through
+  /// `_openElement` instead cost, per element, a whole-element move out of `pending` into the
+  /// slot, the `nil` tag written over the vacated payload, and the new value plus its `.some`
+  /// tag written back into `pending`: four stores and a load-compare where this is one store.
+  ///
+  /// The `drainPending` ahead of the commit is a load, a compare and a never-taken branch on
+  /// this route (nothing else opens an element in a homogeneous number array), and it is what
+  /// keeps the element order right for an array a caller had already appended to by hand.
+  @inlinable
+  @inline(__always)
+  public mutating func _appendClosed(_ element: Element) {
+    // `appendSealed` is `@inline(__always)` for this call site's sake: left outlined it costs a
+    // `bl` and a frame per element, which measured worse than the `_openElement` round trip this
+    // route replaced.
+    self.appendSealed(element)
   }
 }

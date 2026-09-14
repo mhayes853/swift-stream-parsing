@@ -102,7 +102,7 @@ extension Float: StreamParseableRoot {}
 extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
 where Value: StreamParseableRoot {
   // See `StreamArray.streamSchema`: `@inlinable` so the `enterKey` closure is emitted in the
-  // client module with `Value` concrete, which is what lets `_openValue(forKey:copying:)`
+  // client module with `Value` concrete, which is what lets `_openValue(forKey:copyingSome:)`
   // specialise for it.
   //
   // Cached per value type; see `StreamArray.streamSchema`.

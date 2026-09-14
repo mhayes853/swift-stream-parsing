@@ -53,19 +53,30 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
     }
   }
 
-  // Element by element rather than `deinitialize(count:)`: the counted form is
-  // `swift_arrayDestroy`, a runtime call that consults the element's metadata first. Moving the
-  // value out lets the specialised destroy run on it.
+  // Destroys the elements where they live.
+  //
+  // `deinit` on a generic class is emitted ONCE, generically -- the binary holds
+  // `StreamParsingCore.StreamBlock.deinit` and no per-element-type copy of it -- so whatever this
+  // body does, it does through `Element`'s value witnesses, and the "specialised destroy" this
+  // used to reach for never existed on the teardown path.
+  //
+  // It used to be a loop of `(elements + index).move()`. That is `load [take]`, and unspecialised
+  // IRGen lowers it to an `alloca` of the element's stride, an `initializeWithTake` witness call
+  // into it, and only then the destroy witness on the copy: every element was memmoved onto the
+  // stack purely to be torn down there. On Twitter full (11.9 KB partial, 100 elements) that was
+  // 1.19 MB of `memmove` per parse, charged to the discard.
+  //
+  // The counted form is one `swift_arrayDestroy`, which walks the elements in place and calls the
+  // destroy witness on each. It was avoided here for consulting the element's metadata first --
+  // but unspecialised this function has already loaded that metadata (the `_isPOD` check below
+  // reads it), and the per-element form pays an out-of-line `UnsafeMutablePointer.deinitialize`
+  // call *plus* `swift_arrayDestroy` per element rather than once per block.
   @inlinable
   static func destroy(_ elements: UnsafeMutablePointer<Element>, count: Int) {
-    // Nothing to do for a trivial element, and the loop below is not free for 40,000 doubles:
-    // it cost the homogeneous double array 10% when it ran unconditionally.
+    // Nothing to do for a trivial element, and the call below is not free for 40,000 doubles:
+    // destroying unconditionally cost the homogeneous double array 10%.
     guard !_isPOD(Element.self) else { return }
-    var index = 0
-    while index < count {
-      _ = (elements + index).move()
-      index &+= 1
-    }
+    elements.deinitialize(count: count)
   }
 
   // The element storage. `ManagedBuffer` hands it out through a closure; the address is a fixed

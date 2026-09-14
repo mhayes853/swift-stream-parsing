@@ -10,9 +10,16 @@ struct `Stream dictionary tests` {
     var dictionary = StreamDictionary<Int>(initialCapacity: 100)
 
     expectNoDifference(dictionary.entries.capacity >= 100, true)
-    expectNoDifference(dictionary.storedValues.blocks.capacity >= 3, true)
-    expectNoDifference(dictionary.storedValues.tail?.slotCapacity, 32)
-    expectNoDifference(dictionary.table?.count, 256)
+    expectNoDifference(
+      dictionary.storedValues.blocks.capacity
+        >= 100 / StreamArray<Int>.defaultBlockCapacity,
+      true
+    )
+    expectNoDifference(
+      dictionary.storedValues.tail?.slotCapacity,
+      Swift.min(100, StreamArray<Int>.defaultBlockCapacity)
+    )
+    expectNoDifference(dictionary.table.count, 256)
     for value in 0..<100 { dictionary.updateValue(value, forKey: "key\(value)") }
     expectNoDifference(dictionary.count, 100)
     for value in 0..<100 { expectNoDifference(dictionary["key\(value)"], value) }
@@ -21,9 +28,9 @@ struct `Stream dictionary tests` {
   @Test
   func `Small Initial Capacity Keeps Linear Lookup`() {
     var dictionary = StreamDictionary<Int>(initialCapacity: 8)
-    expectNoDifference(dictionary.table, nil)
+    expectNoDifference(dictionary.table.isEmpty, true)
     for value in 0..<12 { dictionary.updateValue(value, forKey: "key\(value)") }
-    expectNoDifference(dictionary.table?.count, 32)
+    expectNoDifference(dictionary.table.count, 32)
   }
 
   @Test
@@ -158,7 +165,7 @@ struct `Stream dictionary tests` {
 
     expectNoDifference(dictionary.entries.count, 9)
     expectNoDifference(dictionary.storedValues.count, 8)
-    expectNoDifference(dictionary.table?.count, 32)
+    expectNoDifference(dictionary.table.count, 32)
     expectNoDifference(dictionary["key_8"], 80)
 
     dictionary.updateValue(9, forKey: "key_9")
@@ -194,7 +201,7 @@ struct `Stream dictionary tests` {
       ).assumingMemoryBound(to: Int.self).pointee = 100
     }
 
-    expectNoDifference(dictionary.table?[10], 10)
+    expectNoDifference(dictionary.table[10], 10)
     expectNoDifference(dictionary[keys[10]], 100)
   }
 }

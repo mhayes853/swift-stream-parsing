@@ -174,11 +174,19 @@ public struct StreamString {
     self.appendBlocked(buffer)
   }
 
-  // The first overflow append sizes the schedule's start, the same way a reservation does: a
-  // value that arrives as one big span (an unescaped long string parsed in bulk) starts on a
-  // block matched to half its size instead of walking the whole doubling ramp, while a
-  // fragment-fed value keeps the 512-byte start and lets the ramp absorb growth. Never lowers a
-  // shift a reservation already raised, and never runs once bytes are blocked.
+  // The first overflow append sizes the schedule's start, the way a reservation does but from the
+  // *whole* byte count in hand rather than half of it: a value that arrives as one big span (an
+  // unescaped long string parsed in bulk) lands in a single block instead of sealing a half-sized
+  // one and walking the doubling ramp, while a fragment-fed value keeps the 512-byte start and
+  // lets the ramp absorb growth. Never lowers a shift a reservation already raised, and never
+  // runs once bytes are blocked.
+  //
+  // The whole size rather than half is measured, not tidiness: it is what took `Real LLM message
+  // - bulk discarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6 (on top of chunk
+  // coalescing, which is +37.6%/+7.6% of that on its own), with total mallocs on the LLM row
+  // 2,069 -> 576. It costs no memory either -- `promoteInlineStorage`'s empty-tail arm reserves
+  // `min(needed, blockCapacity)` exactly, so a larger block means one seal fewer, not a larger
+  // allocation.
   //
   // Outlined: promotion happens once per value, and its body inlined into every `stringChunk`
   // call site is exactly the kind of growth that flips the parse loop's inlining (the byte-fed
@@ -186,8 +194,7 @@ public struct StreamString {
   @inlinable
   @inline(never)
   mutating func promoteSizedInlineStorage(reserving needed: Int) {
-    let half = (needed &>> 1) &+ (needed & 1)
-    let desiredShift = Int.bitWidth &- (half &- 1).leadingZeroBitCount
+    let desiredShift = Int.bitWidth &- (needed &- 1).leadingZeroBitCount
     if desiredShift > self.startBlockShift {
       self.setStartBlockShift(min(desiredShift, Self.maximumBlockShift))
     }

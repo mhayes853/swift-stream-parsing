@@ -194,6 +194,11 @@ struct ScalarTarget {
 // experiment measured thirteen accessor calls in its loop, ~30% on the table route). One
 // non-generic type is one copy of everything, permanently.
 public struct PartialSink: ~Copyable, StreamParseSink {
+  // The typed layer accumulates string bytes into `StreamString`, so it pays per chunk call and
+  // not per byte copied: see `JSONParser.coalescedEscapedStringTail`.
+  @inlinable
+  public static var _streamCoalescesStringChunks: Bool { true }
+
   public private(set) var streamFailure: StreamSinkFailure?
 
   @usableFromInline var root: UnsafeMutableRawPointer
@@ -710,6 +715,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .arrayInt:
       self.appendHomogeneousInt(bytes, info: info)
       return
+    case .simd2Double, .simd3Double, .simd4Double:
+      self.storeSIMDDoubleLane(bytes, info: info)
+      return
     default:
       // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
       if self.activeElementKindBits != 0 {
@@ -1027,8 +1035,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     guard let top = self.topFrame else { return }
-    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
-      ._openElement(value)
+    top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
+      ._appendClosed(value)
   }
 
   @inline(__always)
@@ -1038,8 +1046,39 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     guard let top = self.topFrame else { return }
-    _ = top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
-      ._openElement(value)
+    top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
+      ._appendClosed(value)
+  }
+
+  // The lane store for a `SIMD2/3/4<Double>` frame, the shape Canada's coordinate pairs are.
+  //
+  // `applyKnownNumber` reaches the same store, but only after `knownScalarSlot` has asked the
+  // frame's kind, its shape and whether its route uses the element cursor, and then after
+  // `storeNumber(_:optional:at:_:_:)`'s twelve-way switch over the field kind -- a jump table
+  // whose other eleven arms are dead here, since these three routes exist only on a schema whose
+  // element kind is `.double`, whose element stride is `Double`'s and whose elements are never
+  // optional. All three facts are constants at this call, so the whole resolution collapses to a
+  // bounds check on the cursor and a scaled store.
+  //
+  // The cursor is bumped before the conversion so that a token the conversion refuses leaves the
+  // frame exactly where the closure path left it: `knownScalarSlot` bumps it, then hands the slot
+  // to a `storeNumber` that may still answer `.unsupported`.
+  @inline(__always)
+  private mutating func storeSIMDDoubleLane(_ bytes: Span<UInt8>, info: NumberInfo) {
+    guard let top = self.topFrame else { return }
+    let index = top.pointee.pendingField
+    guard index < top.pointee.schema.fixedElementCount else {
+      // Past the vector's arity: the same mismatch the lane path has always reported.
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    top.pointee.pendingField = index &+ 1
+    guard let value = Double(streamParsing: bytes, info: info) else {
+      self.recordFailure(.typeMismatch)
+      return
+    }
+    (top.pointee.storage + Int(index) &* MemoryLayout<Double>.stride)
+      .assumingMemoryBound(to: Double.self).pointee = value
   }
 
   // Outlining the closure route keeps its register pressure out of `number`. The public entry

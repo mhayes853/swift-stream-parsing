@@ -69,6 +69,11 @@ extension FixedWidthInteger {
 
     if info.flags.contains(.negative) {
       guard Self.isSigned else { return nil }
+      // Integer-to-integer `init?(exactly:)` is `@inlinable` in the standard library and folds to
+      // a range compare, so the argument the floating-point path below makes against
+      // `init(exactly:)` -- an out-of-line `bl` with a float round trip inside it -- does not
+      // apply to either use here.
+      //
       // The bound is expressed in Self.Magnitude rather than UInt64, because widening the
       // other way traps for types wider than 64 bits.
       guard let magnitude = Self.Magnitude(exactly: info.magnitude),
@@ -90,20 +95,55 @@ extension FixedWidthInteger {
 // MARK: - Floating point
 
 extension BinaryFloatingPoint where Self: LosslessStringConvertible {
-  // Accumulation rather than a string round trip. Both operands of the scale are exact when the
-  // significand fits the mantissa and the power of ten is in the exactly representable range,
-  // so a single rounding gives the correctly rounded result. Multiplication is used for a
-  // positive exponent and division for a negative one, because a negative power of ten is not
-  // itself exact.
+  // Accumulation rather than a string round trip, in three tiers, none of which is written for
+  // one concrete type.
   //
-  // Anything outside that range falls back to the standard library's parser, which is slow but
-  // correct.
+  // 1. The Clinger exact path. Both operands of the scale are exact when the significand fits the
+  //    significand field and the power of ten is in the exactly representable range, so a single
+  //    multiply or divide gives the correctly rounded result. Both bounds are properties of
+  //    `Self` -- `2^(significandBitCount + 1)` and `streamMaxExactPow10` -- and both fold to
+  //    immediates when the generic specialises: 2^53 / 10^22 for `Double`, 2^24 / 10^10 for
+  //    `Float`.
+  // 2. Eisel-Lemire, parameterised on `Self`'s binary format. Reached by every token the exact
+  //    path cannot take, which on `canada.json` is 91.2% of them.
+  // 3. The standard library's parser, for the cases the kernel declines and for a token of more
+  //    than nineteen digits, whose accumulated `magnitude` has wrapped.
   //
-  // For types narrower than Double, `Self(exactly: scale)` narrows the usable exponent window to
-  // the powers that type can itself represent exactly; the arithmetic still rounds only once.
+  // This used to fold `Self.self == Double.self` and jump to a separate non-generic body, because
+  // the generic spelling charged every type for three conversions that are identities or
+  // constant folds. Reading the release binary showed all three were `init(exactly:)`, not
+  // genericity:
+  //
+  //   * `Self(exactly: info.magnitude)` stayed an out-of-line `bl` to
+  //     `Double.init<UInt64>(exactly:)` -- a `ucvtf`, an `fcmp` against 2^64, an `fcvtzu` back and
+  //     a compare -- executed for **every** number and discarded for the 91% of `canada.json`
+  //     whose significand exceeds 2^53. `Self(_:)` on the same operand is a bare `ucvtf`; the
+  //     range question is answered by the `magnitude <= 2^(significandBitCount + 1)` compare that
+  //     has to happen anyway, because a magnitude above that bound is unusable by this path even
+  //     when it happens to be representable.
+  //   * `Self(exactly: scale)` on a `.rodata` power of ten emitted `fcmp d1, d1; b.vs` -- a NaN
+  //     test on a compile-time-constant table entry -- and was doing duty as the type-dependent
+  //     Clinger window. `streamMaxExactPow10(Self.self)` is that window as a constant.
+  //   * `Self(exactly: value)` on Eisel-Lemire's result emitted an infinity/NaN test on a kernel
+  //     that returns neither.
+  //
+  // With those gone the `Double` specialisation is the straight-line kernel the special case
+  // used to provide, and `Float` gets the same three tiers instead of exact-or-`String`.
+  //
+  // The sign is applied to the significand before the scale rather than to the result: a power of
+  // ten is positive, so multiplying or dividing carries the sign through unchanged, zero
+  // included, and doing it here costs the same two instructions (`fneg`/`fcsel`) the old
+  // `Double`-only body spent OR-ing the sign bit into the finished bit pattern -- while staying
+  // expressible for a `Self` whose bit pattern this extension cannot name.
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard !info.flags.contains(.overflowed) else {
+    // Tested against the raw bits rather than through `contains`, so the two tests are a `tbnz`
+    // pair on a register the caller already holds rather than two `OptionSet` calls. The masks
+    // are the flags' own `rawValue`s: those statics are `@inlinable` and computed, so each folds
+    // to its immediate and no bit index is written down twice.
+    let flags = info.flags.rawValue
+    guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else {
+      // More than nineteen digits: `magnitude` has wrapped, so nothing below may look at it.
       guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
         return nil
       }
@@ -111,44 +151,38 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
       return
     }
 
-    if let significand = Self(exactly: info.magnitude) {
-      if info.exponent == 0 {
-        self = info.flags.contains(.negative) ? -significand : significand
+    let magnitude = info.magnitude
+    let exponent = Int(info.exponent)
+    let negative = flags & NumberInfo.Flags.negative.rawValue != 0
+
+    if magnitude <= streamMaxExactMagnitude(Self.self) {
+      let unsigned = Self(magnitude)
+      let significand = negative ? -unsigned : unsigned
+      if exponent == 0 {
+        self = significand
         return
       }
-
-      let exponent = Int(info.exponent)
-      if info.magnitude <= (1 << 53),
-        let scale = digitPow10Value(abs(exponent)),
-        let typedScale = Self(exactly: scale)
-      {
-        let scaled = exponent >= 0 ? significand * typedScale : significand / typedScale
-        self = info.flags.contains(.negative) ? -scaled : scaled
+      let index = exponent < 0 ? -exponent : exponent
+      if index <= streamMaxExactPow10(Self.self) {
+        let scale = Self(streamExactPow10(index))
+        // Split rather than written as one `?:` so a corpus whose exponents all have one sign
+        // pays a predicted branch instead of an unconditional `fdiv` it throws away.
+        if exponent >= 0 {
+          self = significand * scale
+          return
+        }
+        self = significand / scale
         return
       }
     }
 
-    // Everything the two exact paths above could not reach, which is where `canada.json` sent
-    // 91.2% of its tokens: a significand past the mantissa, or a power of ten beyond 10^22.
-    // 10^22 is the last power whose factor of five fits Double's 53-bit significand; using the
-    // rounded Double value of 10^23 or above as a scale can miss the correctly rounded result by
-    // one ULP. Eisel-Lemire answers values inside its table bit-exactly and declines rather than
-    // guessing, leaving the existing fallback to handle exponents outside that table.
-    //
-    // `Double`'s alone, deliberately. The kernel computes in `Double`, so a narrower `Self` would
-    // round twice -- once into `Double`, once into `Self` -- which is *worse* than the fallback
-    // those cases take today, and a wider one would lose bits outright. The metatype comparison
-    // folds away when the generic specialises, so `Double` pays nothing for the check and the
-    // other types keep exactly the behaviour they had.
-    if Self.self == Double.self,
-      let value = streamEiselLemire(
-        magnitude: info.magnitude,
-        exponent: Int(info.exponent),
-        negative: info.flags.contains(.negative)
-      ),
-      let typed = Self(exactly: value)
-    {
-      self = typed
+    if let value = streamEiselLemireAny(
+      magnitude: magnitude,
+      exponent: exponent,
+      negative: negative,
+      as: Self.self
+    ) {
+      self = value
       return
     }
 
@@ -157,6 +191,44 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
     }
     self = fallback
   }
+}
+
+// Eisel-Lemire for the formats that have a `StreamBinaryFormat`, and a decline for every other
+// `BinaryFloatingPoint`.
+//
+// The extension above is on `BinaryFloatingPoint where Self: LosslessStringConvertible`, a
+// constraint set this package does not own, so it cannot require the format conformance the
+// kernel needs; a type test is the only way to ask. Both comparisons fold to constants when the
+// generic specialises -- the `Double` specialisation is left with the kernel call and nothing
+// else -- and a type without a format (`Float80`, `CGFloat`, a user's own) declines here and
+// takes the `String` fallback, exactly as it did before.
+//
+// `Float` is emphatically *not* served by computing a `Double` and narrowing: decimal -> `Double`
+// -> `Float` rounds twice and is not correctly rounded in general (`7.038531e-26` is the
+// classic). It gets its own instantiation of the kernel, with its own constants.
+@inlinable
+@inline(__always)
+func streamEiselLemireAny<T: BinaryFloatingPoint>(
+  magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
+) -> T? {
+  // Guarded by the type test, so the `unsafeBitCast` is a no-op on the only branch that can
+  // reach it and dead code on every other specialisation. The arms differ only in which format
+  // they instantiate, so the body is written once and each call folds to its own kernel.
+  // Spelled with a `guard` rather than `.map`: the closure `.map` takes is a real closure in the
+  // *unspecialised* generic, which reached it through `__swift_instantiateConcreteTypeFromMangled
+  // NameV2` and three partial-apply forwarders. The specialisations fold either form away.
+  @inline(__always)
+  func bridge<F: StreamBinaryFormat>(_ format: F.Type) -> T? {
+    guard
+      let value = streamEiselLemire(
+        magnitude: magnitude, exponent: exponent, negative: negative, as: F.self
+      )
+    else { return nil }
+    return unsafeBitCast(value, to: T.self)
+  }
+  if T.self == Double.self { return bridge(Double.self) }
+  if T.self == Float.self { return bridge(Float.self) }
+  return nil
 }
 
 @usableFromInline

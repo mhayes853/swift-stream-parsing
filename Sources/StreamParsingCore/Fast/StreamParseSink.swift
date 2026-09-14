@@ -313,6 +313,26 @@ public protocol StreamParseSink: ~Copyable {
   mutating func commit()
 
   var streamFailure: StreamSinkFailure? { get }
+
+  /// Whether an escaped string's content should be coalesced before delivery.
+  ///
+  /// An escape splits the zero-copy run, so an escape-dense value arrives as many tiny chunks —
+  /// 57% of `llm_message`'s 26,076 string chunks are a single byte, 35% of `gsoc-2018`'s 39,810.
+  /// A sink that merely looks at the bytes (counting, checksumming, forwarding a borrow) wants
+  /// those fragments handed over as they are: the calls are free and a copy is not. A sink that
+  /// *accumulates* the bytes wants the opposite — it pays per call, so the parser copying an
+  /// escaped value into its own buffer and delivering one chunk per buffer-full is cheaper for
+  /// it many times over.
+  ///
+  /// Answering `true` changes chunk boundaries and nothing else: the same `stringBegin`, the
+  /// same bytes in the same order, the same `stringEnd`, and a value cut by a chunk boundary
+  /// still ends the chunk where it did. Defaulted to `false`, the zero-copy answer.
+  ///
+  /// Underscored: a delivery-granularity hint for the library's own accumulating sink, not a
+  /// supported customisation point. It has to be a static requirement rather than a check on the
+  /// concrete sink because the parser is generic over `Sink` and the arm must fold away per
+  /// specialisation.
+  static var _streamCoalescesStringChunks: Bool { get }
 }
 
 extension StreamParseSink where Self: ~Copyable {
@@ -329,6 +349,9 @@ extension StreamParseSink where Self: ~Copyable {
 
   @inlinable
   public mutating func commit() {}
+
+  @inlinable
+  public static var _streamCoalescesStringChunks: Bool { false }
 }
 
 extension StreamEventBatch {

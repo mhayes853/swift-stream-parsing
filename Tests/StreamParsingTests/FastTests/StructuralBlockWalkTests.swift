@@ -358,17 +358,6 @@ struct StructuralBlockWalkTests {
 
   // MARK: - Real documents
 
-  private static let corpusDirectory: URL = {
-    var url = URL(fileURLWithPath: #filePath)
-    // Tests/StreamParsingTests/FastTests/<this file>
-    for _ in 0..<4 { url.deleteLastPathComponent() }
-    return
-      url
-      .appendingPathComponent("Benchmarks")
-      .appendingPathComponent("StreamParsingBenchmarks")
-      .appendingPathComponent("Resources")
-  }()
-
   @Test(
     arguments: [
       "canada", "citm_catalog", "github_events", "gsoc-2018", "llm_message", "mesh", "twitter",
@@ -376,8 +365,7 @@ struct StructuralBlockWalkTests {
     ]
   )
   func `Benchmark corpora parse identically on both paths`(name: String) throws {
-    let url = Self.corpusDirectory.appendingPathComponent("\(name).json")
-    let bytes = Array(try Data(contentsOf: url))
+    let bytes = try #require(streamBenchmarkCorpus(name))
     for chunk in [64, 100, 4096, Int.max] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
       let actual = Self.run(bytes, chunk: chunk, blocks: true)
@@ -402,8 +390,7 @@ struct StructuralBlockWalkTests {
     ]
   )
   func `Benchmark corpora agree with the gate held open`(name: String) throws {
-    let url = Self.corpusDirectory.appendingPathComponent("\(name).json")
-    let bytes = Array(try Data(contentsOf: url))
+    let bytes = try #require(streamBenchmarkCorpus(name))
     for chunk in [320, 4096] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
       let actual = Self.run(bytes, chunk: chunk, blocks: true, rearmGate: true)
@@ -457,8 +444,7 @@ struct StructuralBlockWalkTests {
     ]
   )
   func `Benchmark corpora agree with a skipping sink`(name: String) throws {
-    let url = Self.corpusDirectory.appendingPathComponent("\(name).json")
-    let bytes = Array(try Data(contentsOf: url))
+    let bytes = try #require(streamBenchmarkCorpus(name))
     for skipFromDepth in [1, 2, 3] {
       for chunk in [320, 4096, Int.max] {
         let expected = Self.runSkipping(

@@ -41,7 +41,10 @@ public struct StreamDictionary<Value> {
   // Open addressed slot table, -1 where empty, held at half load since linear probing degrades
   // sharply past that. Nil below the threshold, where a scan over `entries` measures the same and
   // costs no table at all.
-  @usableFromInline var table: ContiguousArray<Int32>?
+  // Empty where a scan over `entries` measures the same, rather than `nil`: an
+  // `Optional<ContiguousArray>` cannot be handed to a borrowing probe without unwrapping it, and
+  // every unwrap of it is a retain that makes the buffer non-unique for the next write into it.
+  @usableFromInline var table: ContiguousArray<Int32>
 
   // The entry being parsed, held inline for the same reason `StreamArray` holds its open element
   // there: the parser's frame points at a slot no other value can see, so a write through it is
@@ -62,7 +65,7 @@ public struct StreamDictionary<Value> {
   public init() {
     self.entries = ContiguousArray<StreamDictionaryEntry>()
     self.storedValues = StreamArray<Value>()
-    self.table = nil
+    self.table = []
     self.pendingValue = nil
     self.pendingSlot = -1
   }
@@ -180,17 +183,17 @@ public struct StreamDictionary<Value> {
   ) -> Int32 {
     let slot = Int32(self.entries.count)
     self.entries.append(StreamDictionaryEntry(hash: hash, key: key))
-    guard self.table != nil else {
+    guard !self.table.isEmpty else {
       if self.entries.count > Self.indexThreshold { self.rebuildTable() }
       return slot
     }
-    guard self.entries.count * 2 <= self.table.unsafelyUnwrapped.count else {
+    guard self.entries.count * 2 <= self.table.count else {
       self.rebuildTable()
       return slot
     }
     if vacantBucket >= 0 {
-      assert(self.table.unsafelyUnwrapped[vacantBucket] < 0)
-      self.table![vacantBucket] = slot
+      assert(self.table[vacantBucket] < 0)
+      self.table[vacantBucket] = slot
       return slot
     }
     self.claim(slot: slot, hash: hash)
@@ -201,10 +204,10 @@ public struct StreamDictionary<Value> {
   // the first empty rather than comparing anything.
   @inlinable
   mutating func claim(slot: Int32, hash: UInt64) {
-    let mask = self.table.unsafelyUnwrapped.count - 1
+    let mask = self.table.count - 1
     var probe = Int(hash & UInt64(mask))
-    while self.table.unsafelyUnwrapped[probe] >= 0 { probe = (probe &+ 1) & mask }
-    self.table![probe] = slot
+    while self.table[probe] >= 0 { probe = (probe &+ 1) & mask }
+    self.table[probe] = slot
   }
 
   // Rebuilt from the entries' stored hashes, so growth hashes nothing and never looks at a key.
@@ -213,7 +216,7 @@ public struct StreamDictionary<Value> {
     var capacity = 16
     let entryCapacity = Swift.max(self.entries.count, minimumEntryCapacity)
     while capacity < entryCapacity * 2 { capacity &*= 2 }
-    if let table = self.table, table.count >= capacity { return }
+    if self.table.count >= capacity { return }
     var built = ContiguousArray<Int32>(repeating: -1, count: capacity)
     let mask = capacity - 1
     var slot = 0
@@ -251,36 +254,72 @@ extension StreamDictionary {
 
   // On an indexed miss, hands the empty bucket back so insertion does not walk the same probe
   // chain again. It remains unchanged for the small linear scan and every successful lookup.
+  //
+  // Forced inline, which is worth more than the code it costs. This is a *non-mutating* method
+  // called from inside `_openValue`'s `inout self`, and `Self` is loadable but large -- 2,164
+  // bytes for the GSoC partial's dictionary, most of it the open value. Out of line, `self`
+  // arrives @in_guaranteed and the nested read cannot share the address the outer inout access
+  // already holds, so the caller stages the whole struct: `memcpy(sp, self, 2164)` per key, twice
+  // over (once per key-span branch), for a body that reads exactly two words of it -- `entries`
+  // and `table`. Inlined there is no second access and no copy at all. Checked in the
+  // disassembly of `_openValue`: `mov w2, #0x874 ; bl memcpy` before every `bl ...slot...`.
   @inlinable
-  func slot(
+  @inline(__always)
+  static func slot(
+    entries: UnsafeBufferPointer<StreamDictionaryEntry>,
+    table: UnsafeBufferPointer<Int32>,
     forKey key: UnsafeBufferPointer<UInt8>,
     hash: UInt64,
     vacantBucket: inout Int
   ) -> Int32? {
-    guard let table = self.table else {
+    // Tested on the counts, not the base addresses: an empty `ContiguousArray` still yields a
+    // non-nil base (the empty singleton's first element address), so a `baseAddress == nil` test
+    // sends an unindexed dictionary down the table path with `mask == -1`.
+    guard let base = entries.baseAddress, !entries.isEmpty else { return nil }
+    guard !table.isEmpty else {
       var slot = 0
-      while slot < self.entries.count {
-        if self.entries[slot].hash == hash, self.keyMatches(slot, key) {
+      while slot < entries.count {
+        if base[slot].hash == hash, _streamEntryKeyMatches(base + slot, key) {
           return Int32(slot)
         }
         slot &+= 1
       }
       return nil
     }
+    let index = table.baseAddress.unsafelyUnwrapped
     let mask = table.count - 1
     var probe = Int(hash & UInt64(mask))
     while true {
-      let slot = table[probe]
+      let slot = index[probe]
       guard slot >= 0 else {
         vacantBucket = probe
         return nil
       }
       let position = Int(slot)
-      if self.entries[position].hash == hash, self.keyMatches(position, key) {
+      if base[position].hash == hash, _streamEntryKeyMatches(base + position, key) {
         return slot
       }
       probe = (probe &+ 1) & mask
     }
+  }
+
+  // The instance spelling, for the callers that are not on the parse path.
+  @inlinable
+  func slot(
+    forKey key: UnsafeBufferPointer<UInt8>,
+    hash: UInt64,
+    vacantBucket: inout Int
+  ) -> Int32? {
+    var bucket = vacantBucket
+    let result = self.entries.withUnsafeBufferPointer { entries in
+      self.table.withUnsafeBufferPointer { table in
+        Self.slot(
+          entries: entries, table: table, forKey: key, hash: hash, vacantBucket: &bucket
+        )
+      }
+    }
+    vacantBucket = bucket
+    return result
   }
 
   @inlinable
@@ -295,27 +334,6 @@ extension StreamDictionary {
     return key.withUTF8 { buffer in self.slot(forKey: buffer, hash: Self.hash(buffer)) }
   }
 
-  @inlinable
-  func keyMatches(_ slot: Int, _ key: UnsafeBufferPointer<UInt8>) -> Bool {
-    let stored = self.entries[slot].key
-    let equal = stored.utf8.withContiguousStorageIfAvailable { storage in
-      Self.bytesEqual(storage, key)
-    }
-    guard let equal else { return stored.utf8.elementsEqual(key) }
-    return equal
-  }
-
-  // Sixteen bytes per compare through `streamBytesEqual`, which is what a resumed key and every
-  // colliding probe walk.
-  @inlinable
-  static func bytesEqual(
-    _ lhs: UnsafeBufferPointer<UInt8>,
-    _ rhs: UnsafeBufferPointer<UInt8>
-  ) -> Bool {
-    guard lhs.count == rhs.count else { return false }
-    guard let left = lhs.baseAddress, let right = rhs.baseAddress else { return true }
-    return streamBytesEqual(UnsafeRawPointer(left), UnsafeRawPointer(right), count: lhs.count)
-  }
 }
 
 // MARK: - View
@@ -386,7 +404,9 @@ extension StreamDictionary where Value: StreamParseableRoot {
 // MARK: - Parsing support
 
 extension StreamDictionary {
-  /// Opens the entry for `key`, returning the address of its value slot.
+  /// Opens the entry for `key`, returning the address of its value slot, copy-initialised from
+  /// `template` -- which is already the `.some` the slot must end up holding -- when the key is
+  /// new.
   ///
   /// A repeated key resumes from the value already stored under it rather than resetting, and
   /// never materialises a `String`, since the span is matched against the stored keys directly.
@@ -403,23 +423,59 @@ extension StreamDictionary {
   /// is worth more than the two tag writes it costs. Unnesting the projections out of
   /// `withUnsafeBufferPointer` restored this function's own specialisations and changed nothing.
   ///
-  /// Deliberately two near-identical bodies rather than one with the difference in a closure.
-  /// Folding them into a shared helper that reported back what the caller still had to write
-  /// -- an `inout Bool` and an optional payload pointer -- stopped the specialiser cold: the
-  /// `Swift.Int`, `StreamString` and CITM-partial specialisations of this function disappeared
-  /// from the binary and every `Value` operation went through its value witness, which cost the
-  /// dictionary rows two thirds of their throughput and GSoC 20%. Checked with `nm | swift
-  /// demangle | grep "generic specialization"`, which is faster than measuring it.
+  /// Deliberately near-identical to `_openValue(forKey:initial:)` rather than one body with the
+  /// difference in a closure. Folding them into a shared helper that reported back what the caller
+  /// still had to write -- an `inout Bool` and an optional payload pointer -- stopped the
+  /// specialiser cold: the `Swift.Int`, `StreamString` and CITM-partial specialisations of this
+  /// function disappeared from the binary and every `Value` operation went through its value
+  /// witness, which cost the dictionary rows two thirds of their throughput and GSoC 20%. Checked
+  /// with `nm | swift demangle | grep "generic specialization"`, which is faster than measuring
+  /// it.
+  ///
+  /// Taking the template as a `Value?` rather than a `Value` is what keeps the copy to one pass.
+  /// `self.pendingValue = template.pointee` would be an *assignment* into `Value?`, and for a
+  /// partial of any size that is not one copy but five. Measured on the GSoC partial (1,056
+  /// bytes) at b01cfd6, per new key, from the disassembly of the specialised body:
+  ///
+  ///   memcpy 1056 (template -> stack)   x2, an `outlined enum tag store of Partial?` to mark the
+  ///   staged copy `.some`, memcpy 1056 (old `pendingValue` -> stack) so the assignment can
+  ///   destroy what it overwrote, an `outlined init with copy of Partial` (a sixth pass, with the
+  ///   retains), an `outlined destroy of Partial?` of the `nil` it just staged, and finally
+  ///   memcpy 1056 (stack -> `pendingValue`). A 6,400-byte stack frame, entered through
+  ///   `__chkstk_darwin`.
+  ///
+  /// None of that is needed. `drainPending()` above leaves `pendingValue` holding `.none`, which
+  /// owns nothing, so the whole optional -- payload *and* tag -- can be copy-initialised over it
+  /// in a single `initializeWithCopy`, which is what a `Value?` template makes expressible: the
+  /// tag travels in the template's bytes instead of being injected afterwards, so no branch here
+  /// has to know whether `Value?` spends a spare bit or a trailing byte on it.
+  ///
+  /// The two projections of `pendingValue` sit on mutually exclusive returns rather than in one
+  /// body, for the reason the `drainPending()` paragraph above records: two projections of
+  /// the same stored property in one body, with work in one of them, stop the compiler addressing
+  /// the box in place. `StreamArray._openElement(copying:)` is shaped the same way.
   @inlinable
   public mutating func _openValue(
     forKey key: Span<UInt8>,
-    copying template: UnsafePointer<Value>
+    copyingSome template: UnsafePointer<Value?>
   ) -> UnsafeMutableRawPointer {
     self.drainPending()
+    // `pendingSlot < 0` and `pendingValue == nil` are the same state; `drainPending()` has just
+    // established it, and the copy-initialise below depends on it.
+    assert(self.pendingValue == nil)
+    var isNew = false
     key.withUnsafeBufferPointer { buffer in
       let hash = Self.hash(buffer)
       var vacantBucket = -1
-      if let existing = self.slot(forKey: buffer, hash: hash, vacantBucket: &vacantBucket) {
+      // Probed through the two buffers rather than through `self`: see `slot(entries:table:...)`.
+      let existing = self.entries.withUnsafeBufferPointer { entries in
+        self.table.withUnsafeBufferPointer { table in
+          Self.slot(
+            entries: entries, table: table, forKey: buffer, hash: hash, vacantBucket: &vacantBucket
+          )
+        }
+      }
+      if let existing {
         self.pendingSlot = existing
         self.pendingValue = self.storedValues[Int(existing)]
       } else {
@@ -428,10 +484,16 @@ extension StreamDictionary {
           hash: hash,
           vacantBucket: vacantBucket
         )
-        self.pendingValue = template.pointee
+        isNew = true
       }
     }
-    return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
+    guard isNew else {
+      return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
+    }
+    return withUnsafeMutablePointer(to: &self.pendingValue) { box in
+      _streamCopyInitialize(box, from: template)
+      return UnsafeMutableRawPointer(box)
+    }
   }
 
   /// The same, for a value passed in by value: the scalar kinds the sink opens directly.
@@ -525,6 +587,37 @@ extension StreamDictionary: StreamParseable where Value: StreamParseableRoot {
   public typealias Partial = Self
 
   public var streamPartialValue: Self { self }
+}
+
+// Compares a stored entry's key against a key span, reached through the entry's address so that
+// nothing copies the `ContiguousArray` the entry lives in. Sixteen bytes per compare through
+// `streamBytesEqual`, which is what a resumed key and every colliding probe walk.
+@usableFromInline
+@inline(__always)
+func _streamEntryKeyMatches(
+  _ entry: UnsafePointer<StreamDictionaryEntry>,
+  _ key: UnsafeBufferPointer<UInt8>
+) -> Bool {
+  let equal = entry.pointee.key.utf8.withContiguousStorageIfAvailable { storage in
+    storage.count == key.count
+      && (storage.baseAddress == nil || key.baseAddress == nil
+        || streamBytesEqual(
+          UnsafeRawPointer(storage.baseAddress.unsafelyUnwrapped),
+          UnsafeRawPointer(key.baseAddress.unsafelyUnwrapped),
+          count: storage.count
+        ))
+  }
+  guard let equal else { return _streamForeignKeyMatches(entry.pointee.key, key) }
+  return equal
+}
+
+// A stored key with no contiguous UTF-8 -- a bridged or otherwise foreign `String`. Out of line
+// and at file scope so `slot(forKey:hash:vacantBucket:)`, which is force-inlined into
+// `_openValue`, does not carry `Sequence.elementsEqual`'s generic body into every caller.
+@inline(never)
+@usableFromInline
+func _streamForeignKeyMatches(_ stored: String, _ key: UnsafeBufferPointer<UInt8>) -> Bool {
+  stored.utf8.elementsEqual(key)
 }
 
 // An empty buffer has no base address, and hashing zero bytes never reads one; this gives the

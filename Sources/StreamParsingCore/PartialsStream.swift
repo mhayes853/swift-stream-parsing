@@ -60,6 +60,9 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   @usableFromInline var hasFinished = false
   @usableFromInline var hasParserThrown = false
+  // Set only by the consuming `finishValue()`, which takes the tree out of the slot and leaves it
+  // uninitialised. `deinit` reads it instead of destroying whatever is there.
+  @usableFromInline var hasTakenStorage = false
 
   /// The most recent value state emitted by the stream.
   ///
@@ -118,7 +121,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   }
 
   deinit {
-    self.storage.deinitialize(count: 1)
+    // Nothing to destroy after a consuming `finishValue()`: the tree left in the returned value and
+    // the slot is uninitialised rather than refilled. Refilling it cost a whole
+    // `streamInitialValue()` — an `initializeWithCopy` of the root partial's template, which for
+    // a document-shaped root is the largest partial in the model — plus the destroy of that empty
+    // copy here, once per parse, on the exact path (parse then discard) the library is measured on.
+    if !self.hasTakenStorage { self.storage.deinitialize(count: 1) }
     self.storage.deallocate()
   }
 
@@ -211,12 +219,14 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     try self.parser.finish(into: &self.sink)
     // Move rather than read: `storage.move()` transfers the tree bitwise, so no copy is made.
-    // The slot is refilled with the empty initial value for the deinit to destroy — a tree of
-    // nils, which costs a few outlined destroys instead of a walk over everything that was
-    // parsed. (`discard self` would skip even that, but it requires every stored property to be
-    // trivially destroyed, and the parser and sink own buffers.)
+    // The slot is left uninitialised and `deinit` is told so, rather than refilled with an empty
+    // initial value for `deinit` to destroy: that refill was a full `initializeWithCopy` of the
+    // root partial's template followed by the destroy of the copy, per parse, and nothing can
+    // observe the slot after a consuming finish. (`discard self` would skip the deinit entirely,
+    // but it requires every stored property to be trivially destroyed, and the parser and sink own
+    // buffers.)
     let value = self.storage.move()
-    self.storage.initialize(to: Value.streamInitialValue())
+    self.hasTakenStorage = true
     return value
   }
 

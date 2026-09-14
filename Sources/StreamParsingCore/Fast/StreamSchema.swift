@@ -998,13 +998,15 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   value base: StreamSchema
 ) -> StreamSchema {
   let value = _streamOptionalElementSchema(Wrapped.self, base: base)
-  let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
-  nonisolated(unsafe) let template = owner.address(as: Wrapped?.self)
+  // The template is the `.some` the dictionary's own `pendingValue` must end up holding, one
+  // optional deeper than the element templates above: see `_openValue(forKey:copyingSome:)`.
+  let owner = _streamOwnedTemplate(Wrapped??.some(.some(Wrapped.streamInitialValue())))
+  nonisolated(unsafe) let template = owner.address(as: Wrapped??.self)
   return StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
-        ._openValue(forKey: key, copying: template)
+        ._openValue(forKey: key, copyingSome: template)
     },
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
@@ -1020,13 +1022,13 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 ) -> StreamSchema {
   // See `_streamArraySchema` for the template. A repeated key resumes its stored value and reads
   // nothing from it.
-  let owner = _streamOwnedTemplate(Value.streamElementInitialValue())
-  nonisolated(unsafe) let template = owner.address(as: Value.self)
+  let owner = _streamOwnedTemplate(Value?.some(Value.streamElementInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: Value?.self)
   return StreamSchema(
     shape: .dictionary,
     enterKey: { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
-        ._openValue(forKey: key, copying: template)
+        ._openValue(forKey: key, copyingSome: template)
     },
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,

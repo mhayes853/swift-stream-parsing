@@ -1,7 +1,8 @@
 import Testing
 
 import StreamParsing
-import StreamParsingCore
+
+@testable import StreamParsingCore
 
 // The kernel answers or declines; it never guesses. So the oracle is the standard library's own
 // correctly rounded parser, and the property is exact bit equality on every case the kernel
@@ -21,7 +22,7 @@ struct `Eisel-Lemire tests` {
     mutating func check(magnitude: UInt64, exponent: Int, negative: Bool) {
       let text = "\(negative ? "-" : "")\(magnitude)e\(exponent)"
       guard let value = streamEiselLemire(
-        magnitude: magnitude, exponent: exponent, negative: negative
+        magnitude: magnitude, exponent: exponent, negative: negative, as: Double.self
       ) else {
         self.declined += 1
         return
@@ -133,7 +134,7 @@ struct `Eisel-Lemire tests` {
     for (magnitude, exponent, negative) in cases {
       let text = "\(negative ? "-" : "")\(magnitude)e\(exponent)"
       let actual = streamEiselLemire(
-        magnitude: magnitude, exponent: exponent, negative: negative
+        magnitude: magnitude, exponent: exponent, negative: negative, as: Double.self
       )
       #expect(actual?.bitPattern == Double(text)?.bitPattern, "\(text) declined or mismatched")
     }
@@ -143,9 +144,10 @@ struct `Eisel-Lemire tests` {
   // reach the same answer.
   @Test
   func `Zero keeps its sign without declining`() {
-    #expect(streamEiselLemire(magnitude: 0, exponent: 0, negative: false) == 0.0)
+    #expect(streamEiselLemire(magnitude: 0, exponent: 0, negative: false, as: Double.self) == 0.0)
     #expect(
-      streamEiselLemire(magnitude: 0, exponent: -5, negative: true)?.sign == .minus
+      streamEiselLemire(magnitude: 0, exponent: -5, negative: true, as: Double.self)?.sign
+        == .minus
     )
   }
 
@@ -155,8 +157,12 @@ struct `Eisel-Lemire tests` {
   func `Exponents outside the table decline`() {
     let above = streamPow10MaxExponent + 1
     let below = streamPow10MinExponent - 1
-    #expect(streamEiselLemire(magnitude: 1, exponent: above, negative: false) == nil)
-    #expect(streamEiselLemire(magnitude: 1, exponent: below, negative: false) == nil)
+    #expect(
+      streamEiselLemire(magnitude: 1, exponent: above, negative: false, as: Double.self) == nil
+    )
+    #expect(
+      streamEiselLemire(magnitude: 1, exponent: below, negative: false, as: Double.self) == nil
+    )
   }
 }
 

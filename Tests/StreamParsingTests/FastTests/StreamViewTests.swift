@@ -147,23 +147,29 @@ struct `Stream view tests` {
   // outside this package) during development; this is a toolchain limitation on generic
   // `~Escapable` types, not a logic issue in either subscript. `sealedBlock(_:)`/`tail`, below,
   // return `Span`, not a generic `~Escapable` view, and are unaffected.
-  // 35 elements crosses one full 32-element sealed block into the tail. The array is closed here
-  // (a complete, non-partial parse), but closing does not itself drain `pending` into `tail` —
-  // nothing triggers `drainPending()` without a following element — so only 34 of the 35
-  // elements land in `blocks`/`tail`; the last stays in `pending`, which `sealedBlock`/`tail`
-  // deliberately do not expose (see the comment on `StreamDictionary.View`).
+  // 259 elements crosses one full sealed block into the tail. `scores` is `[Int]`, whose
+  // default block holds 256 (a trivial eight-byte element is blocked by bytes, not by the
+  // 32-element count a non-trivial one keeps).
+  //
+  // All 259 are visible here. A homogeneous number array appends through `_appendClosed`: a
+  // number token is delivered whole and exactly once, so there is no half-written element for
+  // `pending` to hold and nothing is left outside the blocks. An array whose elements *are*
+  // built incrementally (an array of objects) still keeps its last element in `pending`, which
+  // these spans deliberately do not expose (see the comment on `StreamDictionary.View`).
   @Test
   func `A view exposes sealed elements as spans`() throws {
-    let elements = (0..<35).map(String.init).joined(separator: ",")
+    let elements = (0..<259).map(String.init).joined(separator: ",")
     let stream = try self.stream(#"{"scores":["# + elements + "]}")
     stream.withView { profile in
       expectNoDifference(scoresSealedBlockCount(profile), 1)
-      for index in 0..<32 {
+      for index in 0..<256 {
         expectNoDifference(scoresBlockElement(profile, at: index), index, "block index \(index)")
       }
-      expectNoDifference(scoresTailCount(profile), 2)
-      for index in 0..<2 {
-        expectNoDifference(scoresTailElement(profile, at: index), 32 + index, "tail index \(index)")
+      expectNoDifference(scoresTailCount(profile), 3)
+      for index in 0..<3 {
+        expectNoDifference(
+          scoresTailElement(profile, at: index), 256 + index, "tail index \(index)"
+        )
       }
     }
   }
