@@ -84,8 +84,7 @@ extension JSONParser {
         case .asciiArrayStart:
           guard depth < Self.maximumDepth else { break }
           try self.record(.beginArray, start: start, length: 1, end: start &+ 1, base: base, into: &sink)
-          containers &= ~(1 &<< Self.shiftAmount(depth))
-          depth &+= 1
+          Self.pushContainer(object: false, depth: &depth, containers: &containers)
           cursor = start &+ 1
           k = k &+ 1
           first = true

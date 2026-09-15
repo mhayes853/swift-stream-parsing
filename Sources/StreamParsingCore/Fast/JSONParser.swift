@@ -687,8 +687,7 @@ public struct JSONParser: ~Copyable {
       case .asciiObjectStart:
         let disposition = try self.recordContainerOpen(object: true, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
-        containers |= 1 &<< Self.shiftAmount(depth)
-        depth &+= 1
+        Self.pushContainer(object: true, depth: &depth, containers: &containers)
         // A skip leaves the run: the loop's `isStructural` check breaks, and the dispatcher
         // re-enters through the skip scanner. For a sink whose answer is the constant `.stream`
         // the branch folds away in its specialization.
@@ -701,8 +700,7 @@ public struct JSONParser: ~Copyable {
       case .asciiArrayStart:
         let disposition = try self.recordContainerOpen(object: false, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
-        containers &= ~(1 &<< Self.shiftAmount(depth))
-        depth &+= 1
+        Self.pushContainer(object: false, depth: &depth, containers: &containers)
         if disposition != .stream {
           self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
           state = .skipping
@@ -2111,6 +2109,17 @@ public struct JSONParser: ~Copyable {
   @inline(__always)
   var topIsObject: Bool {
     Self.topIsObject(depth: self.depth, containers: self.containers)
+  }
+
+  // The container push every ladder shares: set the depth's bit (1 = object, 0 = array) and
+  // descend. `@_transparent`, not `@inline(__always)`, for the reason `structuralRun` records
+  // above; the `depth < maximumDepth` guard stays at each call site so the error keeps its offset.
+  @_transparent
+  @usableFromInline
+  static func pushContainer(object: Bool, depth: inout Int, containers: inout UInt64) {
+    let bit: UInt64 = 1 &<< Self.shiftAmount(depth)
+    if object { containers |= bit } else { containers &= ~bit }
+    depth &+= 1
   }
 
   // `depth` as a shift amount. The conversion is truncating rather than checked because

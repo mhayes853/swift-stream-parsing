@@ -286,8 +286,7 @@
               guard depth < Self.maximumDepth else {
                 try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
               }
-              containers |= 1 &<< Self.shiftAmount(depth)
-              depth &+= 1
+              Self.pushContainer(object: true, depth: &depth, containers: &containers)
               // The skip scanner owns the subtree from here; the dispatcher re-enters it.
               //
               // Skipping it *in place* instead -- walking the rest of the block's `starts` bits,
@@ -312,8 +311,7 @@
               guard depth < Self.maximumDepth else {
                 try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
               }
-              containers &= ~(1 &<< Self.shiftAmount(depth))
-              depth &+= 1
+              Self.pushContainer(object: false, depth: &depth, containers: &containers)
               if disposition != .stream {
                 self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
                 state = .skipping

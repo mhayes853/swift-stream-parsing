@@ -106,14 +106,12 @@ extension JSONParser {
         guard depth < Self.maximumDepth else {
           try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
         }
-        containers |= 1 &<< Self.shiftAmount(depth)
-        depth &+= 1
+        Self.pushContainer(object: true, depth: &depth, containers: &containers)
       case .asciiArrayStart:
         guard depth < Self.maximumDepth else {
           try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
         }
-        containers &= ~(1 &<< Self.shiftAmount(depth))
-        depth &+= 1
+        Self.pushContainer(object: false, depth: &depth, containers: &containers)
       case .asciiObjectEnd:
         guard Self.topIsObject(depth: depth, containers: containers) else {
           try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
@@ -243,12 +241,7 @@ extension JSONParser {
               }
               try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
             }
-            if isObject {
-              containers |= 1 &<< Self.shiftAmount(depth)
-            } else {
-              containers &= ~(1 &<< Self.shiftAmount(depth))
-            }
-            depth &+= 1
+            Self.pushContainer(object: isObject, depth: &depth, containers: &containers)
           } else {
             guard depth > 0, isObject == Self.topIsObject(depth: depth, containers: containers)
             else {

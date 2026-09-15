@@ -309,8 +309,7 @@ extension JSONParser {
           // precedes the error in the same order.
           let disposition = try self.recordContainerOpen(object: true, end: pos &+ 1, into: &sink)
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
-          containers |= 1 &<< Self.shiftAmount(depth)
-          depth &+= 1
+          Self.pushContainer(object: true, depth: &depth, containers: &containers)
           cursor = pos &+ 1
           k &+= 1
           if disposition != .stream {
@@ -330,8 +329,7 @@ extension JSONParser {
         case .asciiArrayStart:
           let disposition = try self.recordContainerOpen(object: false, end: pos &+ 1, into: &sink)
           guard depth < Self.maximumDepth else { throw self.error(.depthExceeded, at: pos) }
-          containers &= ~(1 &<< Self.shiftAmount(depth))
-          depth &+= 1
+          Self.pushContainer(object: false, depth: &depth, containers: &containers)
           cursor = pos &+ 1
           k &+= 1
           if disposition != .stream {
