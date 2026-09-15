@@ -1,31 +1,20 @@
 // Array storage the parser can hold a pointer into, and that a snapshot can copy without copying
-// the elements.
+// the elements. Everything left of the parse cursor is immutable, which `Array` cannot express:
+// any divergence from a shared buffer copies all of it.
 //
-// Everything left of the parse cursor is immutable: once an element is closed it never changes.
-// `Array` cannot express that, because any divergence from a shared buffer copies all of it, so
-// keeping a value while parsing continues costs a full rebuild per snapshot.
+// Three invariants make that cheap (NEW_ARCHITECTURE.md, "The open element moves into the
+// storage"):
 //
-// Three pieces make that cheap here:
-//
-// - **The open element lives inline, in `pending`.** It is the one piece of storage the parser
-//   writes that a snapshot taken mid-element also reads, so it is the one piece that has to
-//   diverge -- and holding it inline makes a plain value copy diverge it, for free, with no
-//   allocation and no bookkeeping. Holding it in the storage instead means buying that
-//   divergence back with a heap block per retained snapshot, which is what the frozen-tail
-//   chain that used to be here did. The inline slot costs one whole-element move per element
-//   (the closed one, into its slot, when the next opens); the chain cost a malloc per snapshot
-//   and could not be made to cost less.
+// - **The open element lives inline, in `pending`.** It is the one piece of storage a mid-element
+//   snapshot also reads, so it is the one piece that has to diverge -- and holding it by value
+//   diverges it for free, with no allocation and no bookkeeping.
 // - **Closed elements live in uniform power-of-two blocks, and a shared block is written past,
-//   not copied.** Each array holds its own `tailCount`, captured by value when the array is
-//   copied, so a snapshot's elements are a prefix of the filling block's. The parser appends
-//   above that prefix -- memory no snapshot reads -- so there is no copy-on-write check on the
-//   commit path at all, at any block size. Only a write *into* the prefix (the checked
-//   subscript, a repeated dictionary key in a sealed block) copies, and copies one block.
-// - **The parser's write target never moves.** `pending` is at a fixed offset in the value, and
-//   the value sits in storage the stream owns for its lifetime, so the address the sink is
-//   handed when an element opens stays correct however the blocks behind it grow, seal or are
-//   copied. That is what lets the sink resolve a destination once per element rather than
-//   re-derive it per parse call.
+//   not copied.** Each array captures its own `tailCount`, so a snapshot's elements are a prefix
+//   of the filling block's and the parser appends above that prefix: no uniqueness check on the
+//   commit path at all. Only a write *into* the prefix copies, and copies one block.
+// - **The parser's write target never moves.** `pending` sits at a fixed offset in a value the
+//   stream owns for its lifetime, so the address handed to the sink when an element opens stays
+//   correct however the blocks behind it grow, seal or are copied.
 //
 // A plain value copy is therefore already a correct snapshot, which is why nothing here has a
 // `streamSnapshot()`.
@@ -86,30 +75,12 @@ public struct StreamArray<Element> {
     return Swift.max(14 &- Self.strideShift, 1)
   }
 
-  // The block size an array with no capacity hint uses.
-  //
-  // 32 elements is the granularity the snapshot semantics were designed around, and it is what a
-  // partial of a few hundred bytes wants: a block is what a write into a shared block copies and
-  // what a half-filled tail wastes. It is the wrong size for a *small* element, though. A block
-  // is one malloc, `prepareSlot` is one out-of-line call, and a block of 32 doubles is 256 bytes
-  // -- so a flat array of ten thousand numbers pays a malloc every 256 bytes of payload. That
-  // showed up directly: `prepareSlot` was 4.0% of typed Mesh and 3.0% of typed Canada, all of it
-  // under the number-array and SIMD-pair element opens.
-  //
-  // So: for a trivial element of at most sixteen bytes, aim the block at `blockByteShift` bytes'
-  // worth of elements instead of at 32 elements. Doubles and `Int`s get 256-element (2 KB)
-  // blocks, `SIMD2<Double>` 128-element ones, and everything else keeps exactly the size it had.
-  //
-  // The sixteen-byte ceiling is not arithmetic, it is measured. Raising it to 64 covered small
-  // POD *partials* too -- a dictionary's value blocks, for instance -- and cost CITM 1.2% for no
-  // gain anywhere: those containers hold tens of elements, not thousands, so the larger block is
-  // a 2 KB allocation they never fill instead of a malloc they never repeat. Sixteen bytes is
-  // exactly the width of the elements that come in their thousands (a number, a coordinate
-  // pair), which is where the malloc traffic actually was.
-  //
-  // Folds to a constant per element type: every term is a compile-time property of `Element`.
-  //
-  // Spelled as a shift, which is the only form the byte target was ever used in: 2 KB.
+  // The byte target a small trivial element's block aims at instead of 32 elements: `Double` and
+  // `Int` get 256-element (2 KB) blocks, `SIMD2<Double>` 128-element ones, everything else keeps
+  // the size it had. Every term is a compile-time property of `Element`, so it folds to a constant.
+  // measured: at 32 elements `prepareSlot` was 4.0% of typed Mesh and 3.0% of typed Canada;
+  // raising the sixteen-byte element ceiling to 64 cost CITM 1.2% for no gain anywhere. Keep both
+  // the byte target and the ceiling.
   @usableFromInline static var blockByteShift: Int { 11 }
 
   @usableFromInline static var defaultBlockCapacity: Int { 1 &<< Self.defaultBlockShift }
@@ -286,11 +257,9 @@ public struct StreamArray<Element> {
 
   // Appends past the open element, which is what every path other than the parser wants: a user
   // appending to a parsed array adds after it rather than replacing it.
-  //
-  // `@inline(__always)`: at this size the optimizer left it outlined, and `_appendClosed` -- which
-  // is this function, per element of a homogeneous number array -- measured worse with a `bl` and
-  // a frame per element than the `_openElement` round trip it replaced. Both halves are
-  // `@inline(__always)` too, so every caller gets straight-line code.
+  // measured: `@inline(__always)` for `_appendClosed`'s sake -- outlined, a `bl` and a frame per
+  // element measured worse than the `_openElement` round trip that route replaced. Both halves
+  // are forced inline too, so every caller gets straight-line code.
   @inlinable
   @inline(__always)
   mutating func appendSealed(_ element: Element) {
@@ -548,19 +517,16 @@ extension StreamArray: StreamInitializable {
 
 extension StreamArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
-  // `@inlinable` so a client that roots a parse at `StreamArray<Element>` builds the schema --
-  // and therefore the `appendElement` closure inside it -- in its own module, where `Element` is
-  // concrete and the closure body specialises. Without it the whole body is emitted once here,
-  // generically: every `_openElement` in the closure goes through `Element`'s value witnesses and
-  // `Optional<Element>`'s runtime-instantiated metadata. Measured on a root `StreamDictionary`
-  // (the same shape, below): ~2.9% of the parse in `swift_getGenericMetadata`/`getCache` alone,
-  // plus a generic single-payload-enum `assignWithTake` per key. A macro-generated partial never
-  // hit this because its container schemas are built at the use site already.
+  // `@inlinable` so a client that roots a parse at `StreamArray<Element>` builds the schema -- and
+  // the `appendElement` closure inside it -- in its own module, where `Element` is concrete and the
+  // closure body specialises.
+  // measured: emitted generically here it cost ~2.9% of the parse in
+  // `swift_getGenericMetadata`/`getCache` alone, plus a generic `assignWithTake` per key.
   //
-  // Cached per element type (`_streamCachedSchema`), because this is a *computed* property and
-  // `PartialsStream.init` reads it: every stream rooted at an array rebuilt the whole schema,
-  // template allocation included. The `@inlinable` stays -- the closure handed to the cache is
-  // formed here, at the use site, so it still specialises; only the probe is out of line.
+  // Cached per element type, because this is a *computed* property that `PartialsStream.init`
+  // reads: every stream rooted at an array otherwise rebuilt the schema, template allocation
+  // included. The closure handed to the cache is still formed at the use site, so it still
+  // specialises; only the probe is out of line.
   @inlinable
   public static var streamSchema: StreamSchema {
     _streamCachedSchema(for: Self.self) {
@@ -677,16 +643,12 @@ extension StreamArray {
     return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 
-  /// The same, copy-initialising the new element from `template`.
-  ///
   /// Two whole-element copies and nothing else: the closed element moves into its slot, and the
-  /// new one is copy-initialised into the space it vacated. Neither is materialised anywhere
-  /// else -- a template passed or returned by value would be a third copy per element, and for a
-  /// partial of a few kilobytes that is worth measuring. The optional's tag is not touched: it
-  /// says `.some` on the way in and on the way out, so there is no enum injection on this path
-  /// and the payload is uninitialised only between the two statements below, which nothing can
-  /// observe and nothing between them can throw. The template must outlive every call; the
-  /// schema builders allocate theirs once per schema and never free it.
+  /// new one is copy-initialised into the space it vacated. A template passed or returned by value
+  /// would be a third copy per element. The optional's tag is not touched -- it says `.some` on the
+  /// way in and on the way out -- so the payload is uninitialised only between the two statements
+  /// below, which nothing can observe and nothing between them can throw. The template must
+  /// outlive every call; the schema builders allocate one per schema and never free it.
   @inlinable
   @inline(__always)
   public mutating func _openElement(
@@ -740,20 +702,13 @@ extension StreamArray {
 // MARK: - Closed appends
 
 extension StreamArray {
-  /// Appends `element` as an already-closed element: it goes straight into its block slot and no
-  /// open element is left behind.
-  ///
   /// The whole-value routes use this. A number token is delivered to the sink exactly once and
-  /// whole -- the parser buffers a number that straddles a chunk boundary and emits it at the
-  /// closing byte (`emitBufferedNumber`) -- so there is no window in which a snapshot could
-  /// observe a half-written element, which is the only thing `pending` buys. Going through
-  /// `_openElement` instead cost, per element, a whole-element move out of `pending` into the
-  /// slot, the `nil` tag written over the vacated payload, and the new value plus its `.some`
-  /// tag written back into `pending`: four stores and a load-compare where this is one store.
-  ///
-  /// The `drainPending` ahead of the commit is a load, a compare and a never-taken branch on
-  /// this route (nothing else opens an element in a homogeneous number array), and it is what
-  /// keeps the element order right for an array a caller had already appended to by hand.
+  /// whole (`emitBufferedNumber` holds one that straddles a chunk boundary), so there is no window
+  /// in which a snapshot could observe a half-written element, which is the only thing `pending`
+  /// buys. The `drainPending` inside is a never-taken branch on this route, and is what keeps the
+  /// order right for an array a caller had already appended to by hand.
+  /// measured: the `_openElement` round trip cost four stores and a load-compare per element where
+  /// this is one store.
   @inlinable
   @inline(__always)
   public mutating func _appendClosed(_ element: Element) {

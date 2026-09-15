@@ -1,29 +1,18 @@
 // String storage with a compile-time capacity and no heap behind it.
 //
-// `StreamString` grows to fit whatever arrives, which costs it two refcounted stored properties
-// and a branch on every read between the inline buffer and the block list. A field whose length
-// the schema already bounds -- an identifier, an enum-ish value, a key echoed back by a model --
-// does not need either. `StreamInlineString<32>` is `count` plus 32 bytes, `BitwiseCopyable`,
-// and therefore:
-//
-// - **A copy is a memcpy.** A partial tree built from these has no refcounted fields at all, so
-//   emitting a partial retains nothing and a snapshot shares nothing.
-// - **An append is a bounds check and a memcpy.** No uniqueness check, no block seal, no branch
-//   between representations, because there is only one representation.
-// - **There is no allocator.** Which is what makes it usable where `StreamString` is not: above
-//   64 bytes that type takes a heap block.
+// `StreamInlineString<32>` is `count` plus 32 bytes and `BitwiseCopyable`, so a copy is a memcpy,
+// an append is a bounds check and a memcpy, and there is no allocator -- which is what makes it
+// usable where `StreamString` is not, since above 64 bytes that type takes a heap block. A partial
+// tree built from these has no refcounted fields at all.
 //
 // The cost is the mirror image and it is not small: a copy is O(capacity), not O(count). At
-// capacity 32 that beats two retains; at capacity 4096 it loses badly to them. This type is for
-// *bounded* fields. A field whose length the document decides still wants `StreamString`.
+// capacity 32 that beats two retains; at 4096 it loses badly. This type is for *bounded* fields; a
+// field whose length the document decides still wants `StreamString`.
 //
-// Overflow is a parse failure, not a truncation. `streamAppend` answers `.capacityExceeded`
-// without taking any of the bytes, so a rejected value holds exactly what it accumulated through
-// the last append that fit, and the sink turns that answer into
-// `StreamSinkFailure.Reason.capacityExceeded` at the byte offset where the overflow happened.
+// Overflow is a parse failure, not a truncation: `streamAppend` answers `.capacityExceeded`
+// without taking any of the bytes, and the sink reports it at the offset the overflow happened.
 //
-// Availability matches `InlineArray`'s: generic type metadata carrying a value argument needs a
-// runtime that can instantiate it. Nothing in `PartialSink` names this type -- the fast path
+// Availability matches `InlineArray`'s. Nothing in `PartialSink` names this type -- the fast path
 // reaches it through a layout-erased route -- so the gate stops here rather than spreading into
 // the core.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -46,13 +35,10 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
 
   /// Creates a value holding `string`'s UTF-8, or `nil` when those bytes do not fit `capacity`.
   ///
-  /// Failable because overflow is this type's defining failure and silently truncating a caller's
-  /// text would contradict what the parser does with the same overflow.
-  ///
-  /// A *literal* argument does not reach this initializer: `StreamInlineString<8>("too long")`
-  /// resolves to the literal path and traps. That split is the intended one -- a literal too long
-  /// for its capacity is a programmer error, while text arriving at runtime is a value to
-  /// reject -- but it means `Self(someString)` and `Self("someString")` fail differently.
+  /// Failable because overflow is this type's defining failure and silently truncating would
+  /// contradict what the parser does with the same overflow. Note that a *literal* argument does
+  /// not reach here -- `StreamInlineString<8>("too long")` resolves to the literal path and traps,
+  /// a programmer error rather than a value to reject.
   public init?(_ string: some StringProtocol) {
     self.init()
     var copy = String(string)
@@ -451,11 +437,9 @@ extension StreamInlineString: ExpressibleByStringInterpolation {
 
 // Byte-wise, like `StreamString`: for decoded JSON text the parser has already resolved escapes,
 // so equal documents produce equal bytes. Stricter than `String`'s canonical equivalence -- NFC
-// and NFD spellings compare unequal here, as they do in the JSON grammar itself.
-//
-// Capacity is not part of the value. Two accumulations of the same bytes are equal whatever room
-// they were declared with, which is why the cross-capacity operators exist and why hashing feeds
-// only the used bytes.
+// and NFD spellings compare unequal, as they do in the JSON grammar. Capacity is not part of the
+// value: two accumulations of the same bytes are equal whatever room they were declared with,
+// which is why the cross-capacity operators exist and why hashing feeds only the used bytes.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
@@ -753,17 +737,12 @@ extension StreamInlineString: StreamParseable {
 // MARK: - The layout-erased append
 
 // Everything below is deliberately *not* availability-gated, because none of it names
-// `StreamInlineString`. That is the whole point of erasing the layout: `PartialSink` appends to
-// an inline string through a raw pointer and a capacity read off the schema, so the parser core
-// stays buildable on every platform this package supports while the type itself is gated.
+// `StreamInlineString`: `PartialSink` appends through a raw pointer and a capacity read off the
+// schema, so the parser core stays buildable everywhere while the type itself is gated.
 //
-// The contract these two halves share:
-//
-// - offset 0: `Int32` count of accumulated UTF-8 bytes
-// - offset `_streamInlineStringByteOffset`: exactly `capacity` bytes of storage
-//
-// `_streamStringSchema` checks it against `MemoryLayout` before ever emitting the route, so a
-// layout that drifts fails when the schema is built rather than corrupting memory later.
+// The layout contract the two halves share -- offset 0 an `Int32` count, offset
+// `_streamInlineStringByteOffset` exactly `capacity` bytes -- is checked by `_streamStringSchema`
+// against `MemoryLayout` before the route is ever emitted, so drift fails at schema build time.
 
 @usableFromInline
 let _streamInlineStringByteOffset = 4

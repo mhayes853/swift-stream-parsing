@@ -57,21 +57,15 @@
   // MARK: - PersonNameComponents
 
   // The one support type that is an object rather than a scalar, so it carries the first hand
-  // written schema. The key words are checked against the keys they encode in
-  // `Foundation conversion tests`, because writing them by hand is exactly what produced four
-  // wrong literals out of nine before the macro took the job over.
+  // written schema. The key words are checked against the keys they encode in `Foundation
+  // conversion tests`, because writing them by hand produced four wrong literals out of nine.
   //
-  // PersonNameComponents is eight bytes on Darwin, a single handle to a bridged reference, so
-  // every one of its properties is computed. Taking the address of one yields a stack temporary
-  // that dies when the inout scope ends, so each string write is a get, modify and set through
-  // the bridge rather than an append. That is quadratic in the length of a name streamed byte by
-  // byte, which is the tradeoff for a type that offers no storage to accumulate into.
-  //
-  // `phoneticRepresentation` is entered rather than skipped, and the same absence of storage is
-  // what decides how. A frame needs an address that outlives the call that produced it, which no
-  // property here can give, so the frame points at the *parent* carrying a schema that reaches
-  // the field through the bridge on every write. Same shape as `Tagged`, which applies its raw
-  // value's schema to a pointer to the `Tagged` itself.
+  // PersonNameComponents is eight bytes on Darwin, a single handle to a bridged reference, so every
+  // property is computed and taking the address of one yields a stack temporary that dies with the
+  // inout scope. Each string write is therefore a get/modify/set through the bridge, quadratic in
+  // a name streamed byte by byte. For the same reason `phoneticRepresentation` is entered with the
+  // frame pointing at the *parent*, carrying a schema that reaches the field through the bridge on
+  // every write -- the same shape as `Tagged`.
   extension PersonNameComponents: StreamInitializable, StreamParseableObject {
     public static func streamInitialValue() -> Self { Self() }
 

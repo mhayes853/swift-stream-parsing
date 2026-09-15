@@ -4,17 +4,14 @@
 // `Dictionary` can rehash and relocate every value on insertion, so there is no address to write a
 // nested value through byte by byte. Entries here live in append only storage, which inherits the
 // invariant the array path relies on, and insertion order is preserved, which makes conversion to
-// an ordered container lossless.
+// an ordered container lossless. Lookups go through a byte keyed slot table rather than a
+// `[String: Int]`, which measured faster at every key count and on every axis.
 //
-// Lookups go through a byte keyed slot table rather than a `[String: Int]`, which measured faster
-// at every key count and on every axis: 12 to 17 ns per hit against 34 to 42, flat in key count,
-// and no allocation on a lookup where a `Dictionary` materialises a `String` for one.
-//
-// Two things here were measured rather than assumed, and both went against the plan. Blocking the
-// storage the way `StreamArray` does cost 2x on the discarding path, because a dictionary reads its
-// storage back on every lookup where an array never reads at all. And a retained state's cost
-// tracks the *number* of buffers it shares, not their size, so the key and its hash travel
-// together and the table is one array rather than a heads and next pair.
+// measured, against the plan in both cases: the *entry* storage is not blocked the way
+// `StreamArray`'s elements are (a dictionary reads its storage back on every lookup where an array
+// never reads at all -- blocking cost 2x on the discarding path), and the key travels with its
+// hash in one array rather than a heads/next pair, because a retained state's cost tracks the
+// number of buffers it shares, not their size.
 @usableFromInline
 struct StreamDictionaryEntry: Hashable, Sendable {
   @usableFromInline var hash: UInt64
@@ -47,16 +44,13 @@ public struct StreamDictionary<Value> {
   @usableFromInline var table: ContiguousArray<Int32>
 
   // The entry being parsed, held inline for the same reason `StreamArray` holds its open element
-  // there: the parser's frame points at a slot no other value can see, so a write through it is
-  // an ordinary mutation rather than a raw write into storage a kept state is sharing. The
-  // dictionary needs its own rather than borrowing the values array's, because a repeated key's
-  // open value is an element the array already holds -- and unlike an append, a write into one
-  // of those is a write a kept state can see.
+  // there: the parser's frame points at a slot no other value can see. The dictionary needs its
+  // own rather than borrowing the values array's, because a repeated key's open value is an
+  // element the array already holds, and a write into one of those is a write a kept state can see.
   //
-  // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats, which is
-  // what keeps `{"a":1,"b":2,"a":3}` in its original order, and `storedValues.count` when it is
-  // new. A new key is inserted into `entries` and the table immediately, so those can lead
-  // `storedValues` by one while its value remains in the stable pending slot.
+  // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats -- which is
+  // what keeps `{"a":1,"b":2,"a":3}` in its original order -- and `storedValues.count` when it is
+  // new, in which case `entries` and the table lead `storedValues` by one until `drainPending`.
   @usableFromInline var pendingValue: Value?
   @usableFromInline var pendingSlot: Int32
 
@@ -243,12 +237,10 @@ public struct StreamDictionary<Value> {
 
 extension StreamDictionary {
   // A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the embedded
-  // subset. Deliberately collided keys degrade the chain walk to the scan it replaces, since every
-  // step compares a `UInt64` before it compares bytes, so the worst case is bounded by the measured
-  // scan rather than being unbounded.
-  //
-  // The mix itself is `streamHashBytes`, which reads sixteen bytes per vector load into two
-  // independent accumulators. It replaced FNV-1a, whose per byte multiply chain was the cost.
+  // subset. Deliberately collided keys degrade to the scan the table replaces, since every step
+  // compares a `UInt64` before it compares bytes, so the worst case stays bounded. The mix is
+  // `streamHashBytes` (sixteen bytes per vector load into two accumulators); it replaced FNV-1a,
+  // whose per byte multiply chain was the cost.
   @inlinable
   static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64 {
     guard let base = key.baseAddress else { return streamHashBytes(base: emptyKeyAddress, count: 0) }
@@ -262,16 +254,12 @@ extension StreamDictionary {
   }
 
   // On an indexed miss, hands the empty bucket back so insertion does not walk the same probe
-  // chain again. It remains unchanged for the small linear scan and every successful lookup.
+  // chain again. Unchanged for the small linear scan and every successful lookup.
   //
-  // Forced inline, which is worth more than the code it costs. This is a *non-mutating* method
-  // called from inside `_openValue`'s `inout self`, and `Self` is loadable but large -- 2,164
-  // bytes for the GSoC partial's dictionary, most of it the open value. Out of line, `self`
-  // arrives @in_guaranteed and the nested read cannot share the address the outer inout access
-  // already holds, so the caller stages the whole struct: `memcpy(sp, self, 2164)` per key, twice
-  // over (once per key-span branch), for a body that reads exactly two words of it -- `entries`
-  // and `table`. Inlined there is no second access and no copy at all. Checked in the
-  // disassembly of `_openValue`: `mov w2, #0x874 ; bl memcpy` before every `bl ...slot...`.
+  // Forced inline, which is worth more than the code it costs: this is a *non-mutating* method
+  // called from inside `_openValue`'s `inout self`, and `Self` is loadable but large.
+  // measured: out of line, the caller stages the whole struct -- `memcpy(sp, self, 2164)` per key
+  // for the GSoC partial, twice over, for a body that reads two words of it. Keep the attribute.
   @inlinable
   @inline(__always)
   static func slot(
@@ -348,12 +336,10 @@ extension StreamDictionary where Value: StreamParseableRoot {
   /// A borrowed window onto the dictionary, for reading a value by key without copying the
   /// dictionary or the value.
   ///
-  /// Unlike ``StreamArray``, `storedValues` is not exposed as a bulk `Span`: a repeated key
-  /// reuses its existing slot (see `pendingSlot`), so the position that slot occupies in
-  /// `storedValues` can briefly hold a stale value while the live one sits in `pendingValue`,
-  /// until the next `drainPending()`. A single `subscript(key:)` lookup routes around that by
-  /// checking the pending entry first, the same way the non-view `subscript(key:)` does — a raw
-  /// span over `storedValues` would not.
+  /// Unlike ``StreamArray``, `storedValues` is not exposed as a bulk `Span`: a repeated key reuses
+  /// its existing slot (see `pendingSlot`), so that position can briefly hold a stale value while
+  /// the live one sits in `pendingValue`. `subscript(key:)` routes around that by checking the
+  /// pending entry first; a raw span would not.
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
 
@@ -412,54 +398,18 @@ extension StreamDictionary where Value: StreamParseableRoot {
 extension StreamDictionary {
   /// Opens the entry for `key`, returning the address of its value slot, copy-initialised from
   /// `template` -- which is already the `.some` the slot must end up holding -- when the key is
-  /// new.
-  ///
-  /// A repeated key resumes from the value already stored under it rather than resetting, and
+  /// new. A repeated key resumes from the value already stored under it rather than resetting, and
   /// never materialises a `String`, since the span is matched against the stored keys directly.
   /// Underscored because only the frame entry helpers call it.
   ///
-  /// `drainPending()` stays a separate call rather than being fused into the open the way
-  /// `StreamArray._openElement(copying:)` fuses its pair. Fusing was measured and is 32% slower on
-  /// the dictionary discarding rows: two `withUnsafeMutablePointer(to: &self.pendingValue)`
-  /// projections in one body, with real work in the second, stop the compiler addressing the box
-  /// in place, so it stages a copy of `Value?` and destroys it -- an outlined init-with-copy and
-  /// an outlined destroy, twice each, or four retain/release pairs per key (16 retains for a
-  /// 128-key parse became 528). A projection whose closure is trivial, or one that is alone in its
-  /// own function, folds to direct addressing instead; that is what the separate call buys, and it
-  /// is worth more than the two tag writes it costs. Unnesting the projections out of
-  /// `withUnsafeBufferPointer` restored this function's own specialisations and changed nothing.
-  ///
-  /// Deliberately near-identical to `_openValue(forKey:initial:)` rather than one body with the
-  /// difference in a closure. Folding them into a shared helper that reported back what the caller
-  /// still had to write -- an `inout Bool` and an optional payload pointer -- stopped the
-  /// specialiser cold: the `Swift.Int`, `StreamString` and CITM-partial specialisations of this
-  /// function disappeared from the binary and every `Value` operation went through its value
-  /// witness, which cost the dictionary rows two thirds of their throughput and GSoC 20%. Checked
-  /// with `nm | swift demangle | grep "generic specialization"`, which is faster than measuring
-  /// it.
-  ///
-  /// Taking the template as a `Value?` rather than a `Value` is what keeps the copy to one pass.
-  /// `self.pendingValue = template.pointee` would be an *assignment* into `Value?`, and for a
-  /// partial of any size that is not one copy but five. Measured on the GSoC partial (1,056
-  /// bytes) at b01cfd6, per new key, from the disassembly of the specialised body:
-  ///
-  ///   memcpy 1056 (template -> stack)   x2, an `outlined enum tag store of Partial?` to mark the
-  ///   staged copy `.some`, memcpy 1056 (old `pendingValue` -> stack) so the assignment can
-  ///   destroy what it overwrote, an `outlined init with copy of Partial` (a sixth pass, with the
-  ///   retains), an `outlined destroy of Partial?` of the `nil` it just staged, and finally
-  ///   memcpy 1056 (stack -> `pendingValue`). A 6,400-byte stack frame, entered through
-  ///   `__chkstk_darwin`.
-  ///
-  /// None of that is needed. `drainPending()` above leaves `pendingValue` holding `.none`, which
-  /// owns nothing, so the whole optional -- payload *and* tag -- can be copy-initialised over it
-  /// in a single `initializeWithCopy`, which is what a `Value?` template makes expressible: the
-  /// tag travels in the template's bytes instead of being injected afterwards, so no branch here
-  /// has to know whether `Value?` spends a spare bit or a trailing byte on it.
-  ///
-  /// The two projections of `pendingValue` sit on mutually exclusive returns rather than in one
-  /// body, for the reason the `drainPending()` paragraph above records: two projections of
-  /// the same stored property in one body, with work in one of them, stop the compiler addressing
-  /// the box in place. `StreamArray._openElement(copying:)` is shaped the same way.
+  /// Three shapes are measured, not incidental. Do not fuse `drainPending()` into the open the way
+  /// `StreamArray._openElement(copying:)` fuses its pair -- two projections of `pendingValue` in
+  /// one body stop the compiler addressing the box in place, -32% on the dictionary rows, and the
+  /// same rule is why the projections below sit on mutually exclusive returns. Do not fold the two
+  /// overloads into a shared helper -- it loses every `Value` specialisation of this function (two
+  /// thirds of the dictionary rows, GSoC 20%). Keep the template as `Value?`, not `Value`:
+  /// assigning into the optional is six passes over a large partial, where copy-initialising over
+  /// the `.none` `drainPending()` left is one.
   @inlinable
   public mutating func _openValue(
     forKey key: Span<UInt8>,

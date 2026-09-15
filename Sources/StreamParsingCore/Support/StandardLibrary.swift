@@ -240,16 +240,11 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
 // and a null still clears it. The payload sits at offset zero, the same assumption the frame
 // entry helpers rely on.
 extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
-  // The wrapped schema is resolved once and captured, not read inside each closure.
-  //
-  // `Wrapped.streamSchema` is a computed property for every scalar and container root — it builds
-  // a fresh `StreamSchema` on each access, since a stored static cannot be declared in a generic
-  // type or a protocol extension. Reading it inside the closures therefore allocated one per
-  // *token* routed through an optional destination, rather than one per schema. Capturing it here
-  // is what makes the delegation cost a call.
-  //
-  // Cached per wrapped type as well: an `Optional` root rebuilt this whole delegation -- a dozen
-  // closure contexts -- per `PartialsStream.init`.
+  // The wrapped schema is resolved once and captured, not read inside each closure:
+  // `Wrapped.streamSchema` is a computed property for every scalar and container root, so reading
+  // it inside allocated a fresh `StreamSchema` per *token* routed through an optional destination
+  // rather than one per schema. Cached per wrapped type as well -- an `Optional` root otherwise
+  // rebuilt a dozen closure contexts per `PartialsStream.init`.
   public static var streamSchema: StreamSchema {
     _streamCachedSchema(for: Self.self) { Self._streamOptionalRootSchemaBody() }
   }
@@ -324,13 +319,11 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 
 // The two positions an optional can occupy, and the only type for which they differ.
 //
-// `streamSchema` above materialises per token because a bare optional root has no owner to do it
-// first. An optional *element* does: the container opened the slot, and
-// `_streamOptionalElementSchema` is the wrapped type's own closures with only `applyNull` replaced,
-// so a token costs one schema call rather than a materialise and a second one. That is the whole
-// 2.4x, and routing it through a requirement rather than the macro is what makes `Array<Int?>`,
-// `typealias Xs = [Int?]` and a bare `StreamArray<Int?>` root as fast as the sugared spelling —
-// none of which the macro can see.
+// A bare optional root has no owner to materialise it, so `streamSchema` above materialises per
+// token. An optional *element* does: the container opened the slot, so this is the wrapped type's
+// own closures with only `applyNull` replaced -- one schema call per token instead of a
+// materialise and a second one, which is the whole 2.4x. Routing it through a requirement rather
+// than macro sugar is what makes `Array<Int?>` and a bare `StreamArray<Int?>` root as fast.
 extension Optional where Wrapped: StreamParseableRoot {
   @inlinable
   public static var streamElementSchema: StreamSchema {

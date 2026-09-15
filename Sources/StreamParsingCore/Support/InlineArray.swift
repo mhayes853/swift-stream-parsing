@@ -1,10 +1,9 @@
-// InlineArray is fixed-size storage, not a collection with an incremental logical count. Every
-// slot therefore starts as a valid element and is immediately visible; the sink frame carries how
-// many slots the document has actually supplied and exact arity is checked when `]` arrives.
+// InlineArray is fixed-size storage, not a collection with an incremental logical count: every
+// slot starts as a valid element and is immediately visible, the sink frame carries how many the
+// document has supplied, and exact arity is checked when `]` arrives.
 //
-// The standard library currently gates InlineArray to Apple OS 26. Keep the conformances gated so
-// this package's older deployment targets continue to build and run without exposing unavailable
-// API.
+// The conformances stay gated to Apple OS 26, matching the standard library's own gate on
+// InlineArray, so this package's older deployment targets still build.
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension InlineArray: StreamInitializable where Element: StreamInitializable {

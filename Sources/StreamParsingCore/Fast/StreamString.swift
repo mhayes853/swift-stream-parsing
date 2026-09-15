@@ -1,31 +1,20 @@
 // String storage the parser can append to without materializing a `String` per chunk.
 //
 // `String.streamAppend` is `self += String(decoding:)`: a whole intermediate `String` built and
-// destroyed per chunk, re-validating UTF-8 the parser already validated. Bulk pays it once per
-// escape-delimited run — every escape splits the run, so escaped markdown pays it every ~80
-// bytes — and a byte fed stream pays it per content byte, ~61 ns each measured in
-// `StringAppendBenchmarks`. Accumulating raw bytes and decoding once at read was the floor those
-// measurements found, ~7x under the append path at small chunks; this is that accumulation.
+// destroyed per chunk, re-validating UTF-8 the parser already validated -- every escape splits a
+// run, and a byte fed stream pays it per content byte (~61 ns each, `StringAppendBenchmarks`).
+// This accumulates raw bytes and decodes once at read instead, ~7x under the append path.
 //
-// Values up to 64 UTF-8 bytes live inline. That covers the short keys and values which previously
-// fit `String`'s small representation, without charging every non-empty partial string a tail
-// allocation. Once the inline buffer overflows, storage takes `StreamArray`'s shape for the same
-// snapshot reasons:
-//
-// - **Sealed bytes live in power-of-two blocks that double as the value grows.** The first block
-//   is 512 bytes, or larger when the size of the value is already known at promotion — either a
-//   reservation made before promotion or the first overflowing append itself, whichever raised
-//   the shift furthest (see `promoteSizedInlineStorage`) — and
-//   each sealed block doubles the last up to the 8 KiB cap. Growth is what keeps a long unhinted
-//   value from paying one allocation per 512 bytes — the measured majority of the typed layer's
-//   cost on string-heavy documents — while a short promoted value still allocates only a small
-//   tail. The schedule is a pure function of the first block's shift and the block index, so
-//   locating a byte stays closed form (one `clz`) rather than a search over prefix sums. Once a
-//   block fills it is never written again, so a snapshot shares it forever and an append after a
-//   snapshot copies at most the tail, not the accumulated string.
-// - **Blocks are `ContiguousArray` rather than a class wrapping one.** A single refcounted
-//   pointer each, copy on write for the shared tail comes for free, and every stored property
-//   stays a value type, which is what lets `Sendable` be checked rather than asserted.
+// Values up to 64 UTF-8 bytes live inline, which covers the short keys and values that used to fit
+// `String`'s small representation. Past that, storage takes `StreamArray`'s shape for the same
+// snapshot reasons: sealed bytes live in power-of-two blocks that double, from a 512-byte first
+// block (or larger, when the size is already known at promotion -- a reservation, or the first
+// overflowing append itself) up to an 8 KiB cap. A sealed block is never written again, so a
+// snapshot shares it forever and an append after a snapshot copies at most the tail. The schedule
+// is a pure function of the first block's shift and the block index, so locating a byte stays
+// closed form (one `clz`) rather than a search over prefix sums. Blocks are `ContiguousArray`
+// rather than a class wrapping one, which keeps every stored property a value type and so lets
+// `Sendable` be checked rather than asserted.
 //
 // Physical layout can differ between hinted, unhinted and differently-fed values. Every physical
 // block boundary is a multiple of 512, so reads, equality, ordering and hashing retain canonical
@@ -177,22 +166,14 @@ public struct StreamString {
   }
 
   // The first overflow append sizes the schedule's start, the way a reservation does but from the
-  // *whole* byte count in hand rather than half of it: a value that arrives as one big span (an
-  // unescaped long string parsed in bulk) lands in a single block instead of sealing a half-sized
-  // one and walking the doubling ramp, while a fragment-fed value keeps the 512-byte start and
-  // lets the ramp absorb growth. Never lowers a shift a reservation already raised, and never
-  // runs once bytes are blocked.
-  //
-  // The whole size rather than half is measured, not tidiness: it is what took `Real LLM message
-  // - bulk discarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6 (on top of chunk
-  // coalescing, which is +37.6%/+7.6% of that on its own), with total mallocs on the LLM row
-  // 2,069 -> 576. It costs no memory either -- `promoteInlineStorage`'s empty-tail arm reserves
-  // `min(needed, blockCapacity)` exactly, so a larger block means one seal fewer, not a larger
-  // allocation.
-  //
-  // Outlined: promotion happens once per value, and its body inlined into every `stringChunk`
-  // call site is exactly the kind of growth that flips the parse loop's inlining (the byte-fed
-  // rows pay double digits when it does — see the parse-inlining-cliff history).
+  // *whole* byte count in hand rather than half of it: a value arriving as one big span lands in a
+  // single block instead of sealing a half-sized one and walking the doubling ramp, while a
+  // fragment-fed value keeps the 512-byte start. Never lowers a shift a reservation already
+  // raised, and never runs once bytes are blocked.
+  // measured: whole size rather than half took `Real LLM message - bulk discarding` +73.7% and
+  // `Real GSoC 2018` +11.6%, LLM mallocs 2,069 -> 576, at no memory cost. `@inline(never)` because
+  // promotion runs once per value and its body inlined into every `stringChunk` call site flips
+  // the parse loop's inlining (double digits on the byte-fed rows).
   @inlinable
   @inline(never)
   mutating func promoteSizedInlineStorage(reserving needed: Int) {
@@ -233,17 +214,11 @@ public struct StreamString {
       let needed = self.tail.count &+ take
       if self.tail.capacity < needed {
         // An empty tail reserves only what the fragment in hand needs, so a value that promotes
-        // and then stops short does not take a whole block for eighty bytes. That is right for
-        // the *first* block and wrong for every one after it: a seal empties the tail, so a
-        // fragment-fed value was re-entering this arm at every block and growing 512 bytes in
-        // steps, paying a reallocation per block. Escape-split values are exactly the ones that
-        // arrive in fragments, which is why the string-heavy corpora pay it and the one-span
-        // rows do not.
-        //
-        // "Has a block already sealed" is answered from `storageBits` alone — the tail's shift
-        // has moved past the start's — so this asks nothing of `blocks` and adds no dependent
-        // load to the append path. Once the schedule is capped the two shifts stop diverging, and
-        // a value that reached the cap is long by construction.
+        // and then stops short does not take a whole block for eighty bytes. Right for the *first*
+        // block and wrong for every one after it: a seal empties the tail, so a fragment-fed value
+        // re-entered this arm at every block and reallocated its way up. "Has a block already
+        // sealed" is answered from `storageBits` alone -- the tail's shift has moved past the
+        // start's -- so it asks nothing of `blocks` and adds no dependent load to the append path.
         let provenLong =
           blockCapacity != self.startBlockCapacity
           || blockCapacity == 1 &<< Self.maximumBlockShift
@@ -253,15 +228,11 @@ public struct StreamString {
       offset &+= take
       guard self.tail.count == blockCapacity else { continue }
       // `blocks` grows by doubling from its first append, so a three-block value paid two array
-      // reallocations on top of its three buffers — a quarter to a third of the census's
-      // `StreamString` mallocs. Reserving at the first seal makes that one allocation for
-      // anything up to four blocks (7,680 bytes on the unhinted schedule), and the load is free
-      // here because the append below touches the same array.
-      //
-      // Keyed on `capacity`, not `isEmpty`: `streamReserve` already sizes this array to the exact
-      // block count the hint implies, and reserving 4 over a hint that asked for 2 reallocates it
-      // — measured as +163 mallocs on hinted GSoC and +91 on hinted LLM message before this read
-      // was narrowed to "nobody has reserved anything yet".
+      // reallocations on top of its three buffers. Reserving at the first seal makes that one
+      // allocation for anything up to four blocks, and the load is free because the append below
+      // touches the same array.
+      // measured: keyed on `capacity`, not `isEmpty` -- `streamReserve` already sizes this array
+      // exactly, and reserving 4 over a hint that asked for 2 cost +163 mallocs on hinted GSoC.
       if self.blocks.capacity == 0 { self.blocks.reserveCapacity(4) }
       self.blocks.append(self.tail)
       self.tail = ContiguousArray<UInt8>()
@@ -440,11 +411,9 @@ extension StreamString {
   /// ``utf8Count``.
   ///
   /// The padding is why a matcher must still test ``utf8Count``: an accumulated value may hold a
-  /// decoded NUL, which is otherwise indistinguishable from the padding.
-  ///
-  /// `start` is expected to be a multiple of eight, which every generated matcher uses. Any
-  /// eight-byte window at such an offset lies inside one contiguous 512-byte block, so this
-  /// never has to stitch a word across a block seam.
+  /// decoded NUL, which is otherwise indistinguishable from it. `start` is expected to be a
+  /// multiple of eight, which every generated matcher uses; such a window always lies inside one
+  /// contiguous 512-byte block, so this never stitches a word across a block seam.
   @inlinable
   public func paddedWord(at start: Int) -> UInt64 {
     // Debug only, because a `precondition` would land on the generated enum matcher path.
@@ -839,11 +808,9 @@ extension StreamString {
   /// Whether the accumulated bytes are a prefix of `text`'s UTF-8, compared byte-wise —
   /// including when they are all of it.
   ///
-  /// The mirror of ``hasPrefix(_:)``, and the direction a *streaming* match needs: the question
-  /// is whether what has arrived so far is still consistent with `text`, not whether `text` has
-  /// already arrived. A generated enum matcher walks its cases shortest-first asking this, so the
-  /// first case still consistent with the bytes in hand is the shortest one — which is the
-  /// documented resolution rule when the value may yet grow.
+  /// The direction a *streaming* match needs: whether what has arrived so far is still consistent
+  /// with `text`. A generated enum matcher walks its cases shortest-first asking this, so the
+  /// first case still consistent with the bytes in hand is the shortest one.
   public func isPrefix(of text: some StringProtocol) -> Bool {
     var copy = String(text)
     return copy.withUTF8 { buffer in
@@ -861,14 +828,11 @@ extension StreamString {
   /// The byte range of the first occurrence of `needle`'s UTF-8 at or after `offset`,
   /// compared byte-wise.
   ///
-  /// The bounds are byte offsets, the currency every other door accepts: `utf8[range]`,
-  /// `String(_:)` and `Substring(_:)` of the slice. A match of well-formed text in well-formed
-  /// text is always scalar-aligned — UTF-8 self-synchronizes — but not necessarily grapheme-
-  /// cluster-aligned: searching for `"e"` finds the `e` inside a decomposed `"é"`. An empty
-  /// needle matches emptily at `offset`.
-  ///
-  /// A first-byte scan with a full match at each candidate — worst case is quadratic, which a
-  /// field-sized string never notices and a pathological one pays only when asked.
+  /// The bounds are byte offsets, the currency every other door accepts. A match of well-formed
+  /// text in well-formed text is always scalar-aligned, but not necessarily grapheme-cluster-
+  /// aligned: searching for `"e"` finds the `e` inside a decomposed `"é"`. An empty needle matches
+  /// emptily at `offset`. A first-byte scan with a full match at each candidate, so the worst case
+  /// is quadratic.
   public func range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamString byte offset out of range"

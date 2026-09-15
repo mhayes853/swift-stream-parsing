@@ -1,23 +1,10 @@
 // A block of elements a `StreamArray` fills and seals.
 //
-// `ContiguousArray` was the block type until the open element moved out of it. It could not
-// stay: an array never exposes its spare capacity, so committing an element meant handing it to
-// `append` and letting the array copy it in, and a shared array copies *all* of its elements
-// before the first of those writes. This owns its capacity outright, so the parser writes the
-// element into the slot it will live in, and a block a snapshot shares is written past rather
-// than copied (see `StreamArray`).
-//
-// A `ManagedBuffer` rather than a class holding a pointer: the elements are tail-allocated with
-// the object, so a block is one allocation, not two. That is not a nicety -- the two-allocation
-// form doubled the malloc count of every number-heavy corpus (Canada 2,659 -> 5,109, a
-// capacity-hinted Canada 58 K -> 116 K) and cost them 10-28%.
-//
-// A reference type so that a copy of the containing `StreamArray` is one retain per block and a
-// snapshot shares the blocks instead of copying them.
-//
-// Not generic over the element: a generic header makes the header's size, and so the elements'
-// offset, a question for the type's metadata wherever the block is reached unspecialized, which
-// cost GitHub and GSoC 7-8%.
+// A `ManagedBuffer` rather than a class holding a pointer, so a block is one allocation and not
+// two; a reference type, so copying the array is one retain per block; and deliberately not
+// generic over the element, because a generic header makes the element offset a metadata lookup
+// wherever the block is reached unspecialized. See NEW_ARCHITECTURE.md, "The open element moves
+// into the storage", for the measurements behind all three.
 @usableFromInline
 struct StreamBlockHeader {
   // The high-water mark of initialised slots, always a prefix of the capacity, and the count
@@ -59,22 +46,12 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
 
   // Destroys the elements where they live.
   //
-  // `deinit` on a generic class is emitted ONCE, generically -- the binary holds
-  // `StreamParsingCore.StreamBlock.deinit` and no per-element-type copy of it -- so whatever this
-  // body does, it does through `Element`'s value witnesses, and the "specialised destroy" this
-  // used to reach for never existed on the teardown path.
-  //
-  // It used to be a loop of `(elements + index).move()`. That is `load [take]`, and unspecialised
-  // IRGen lowers it to an `alloca` of the element's stride, an `initializeWithTake` witness call
-  // into it, and only then the destroy witness on the copy: every element was memmoved onto the
-  // stack purely to be torn down there. On Twitter full (11.9 KB partial, 100 elements) that was
-  // 1.19 MB of `memmove` per parse, charged to the discard.
-  //
-  // The counted form is one `swift_arrayDestroy`, which walks the elements in place and calls the
-  // destroy witness on each. It was avoided here for consulting the element's metadata first --
-  // but unspecialised this function has already loaded that metadata (the `_isPOD` check below
-  // reads it), and the per-element form pays an out-of-line `UnsafeMutablePointer.deinitialize`
-  // call *plus* `swift_arrayDestroy` per element rather than once per block.
+  // `deinit` on a generic class is emitted ONCE, generically, so this body runs through
+  // `Element`'s value witnesses however it is written -- the "specialised destroy" it used to
+  // reach for never existed on the teardown path.
+  // measured: a `(elements + index).move()` loop lowers unspecialised to an alloca +
+  // `initializeWithTake` + destroy per element, 1.19 MB of memmove per Twitter full parse; keep
+  // the counted form, which is one `swift_arrayDestroy` in place.
   @inlinable
   static func destroy(_ elements: UnsafeMutablePointer<Element>, count: Int) {
     // Nothing to do for a trivial element, and the call below is not free for 40,000 doubles:

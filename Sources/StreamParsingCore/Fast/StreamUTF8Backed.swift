@@ -1,23 +1,15 @@
-// The read surface `StreamString` and `StreamInlineString` share.
-//
-// Both types answer the same questions about accumulated UTF-8 -- scalar decoding, grapheme
-// spans, byte-wise comparison against foreign text, searching -- and answered them in two
-// near-identical copies. Everything in those answers reduces to four primitives, which are this
-// protocol's requirements; the bodies below are written once against them.
+// The read surface `StreamString` and `StreamInlineString` share: scalar decoding, grapheme spans,
+// byte-wise comparison against foreign text, searching. All of it reduces to the four primitives
+// this protocol requires, and the bodies below are written once against them.
 //
 // Deliberately NOT a home for the primitives themselves. `decodeScalar` and `scalarAlignedOffset`
-// stay per-type (see the note above `StreamInlineString.decodeScalar`): one reaches its bytes
-// through a block dispatch and the other through a contiguous buffer, and a shared body would
-// put a call where each currently has a load. Nothing the parser's chunk path touches --
-// `append`, the gathers, `streamReserve`, `withWindow`, `paddedWord` -- is reachable from here.
+// stay per-type: one reaches its bytes through a block dispatch and the other through a contiguous
+// buffer, and a shared body would put a call where each currently has a load. Nothing the parser's
+// chunk path touches is reachable from here.
 //
-// Ungated, because `StreamString` is: only `StreamInlineString`'s conformance carries the
-// availability its type does.
-//
-// Internal rather than public, which is why each type still spells its own public methods out as
-// one-line forwarders onto the helpers here: an extension member of an internal protocol is
-// internal outside the module however it is spelled, so hoisting the public methods themselves
-// would silently unpublish them.
+// Ungated, because `StreamString` is; only `StreamInlineString`'s conformance carries availability.
+// Internal, which is why each type still spells its own public methods out as one-line forwarders:
+// an extension member of an internal protocol is internal however it is spelled.
 @usableFromInline
 protocol _StreamUTF8Backed {
   /// The number of UTF-8 bytes accumulated so far.
