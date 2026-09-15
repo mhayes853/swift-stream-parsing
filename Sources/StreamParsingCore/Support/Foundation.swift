@@ -151,14 +151,31 @@
 
   private func streamMatchPersonNameField(_ key: Span<UInt8>) -> Int32 {
     typealias StreamField = PersonNameComponents.StreamField
+    // The trailing word conditions are the ones `StreamParseableMacro.keyMatchGuard` emits for a
+    // key longer than eight bytes. Without them a same-length key sharing the leading word is
+    // routed to a field it is not -- and `phoneticRepresentation`, of which only 8 of 22 bytes
+    // would be checked, enters a nested frame.
     switch key.paddedLeadingWord() {
-    case 0x614E_796C_696D_6166 where key.count == 10: return StreamField.familyName
-    case 0x6D61_4E6E_6576_6967 where key.count == 9: return StreamField.givenName
-    case 0x614E_656C_6464_696D where key.count == 10: return StreamField.middleName
-    case 0x6665_7250_656D_616E where key.count == 10: return StreamField.namePrefix
-    case 0x6666_7553_656D_616E where key.count == 10: return StreamField.nameSuffix
+    case 0x614E_796C_696D_6166
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_656D:
+      return StreamField.familyName
+    case 0x6D61_4E6E_6576_6967
+    where key.count == 9 && key.paddedWord(at: 8) == 0x0000_0000_0000_0065:
+      return StreamField.givenName
+    case 0x614E_656C_6464_696D
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_656D:
+      return StreamField.middleName
+    case 0x6665_7250_656D_616E
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_7869:
+      return StreamField.namePrefix
+    case 0x6666_7553_656D_616E
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_7869:
+      return StreamField.nameSuffix
     case 0x656D_616E_6B63_696E where key.count == 8: return StreamField.nickname
-    case 0x6369_7465_6E6F_6870 where key.count == 22: return StreamField.phoneticRepresentation
+    case 0x6369_7465_6E6F_6870
+    where key.count == 22 && key.paddedWord(at: 8) == 0x6E65_7365_7270_6552
+      && key.paddedWord(at: 16) == 0x0000_6E6F_6974_6174:
+      return StreamField.phoneticRepresentation
     default: return -1
     }
   }

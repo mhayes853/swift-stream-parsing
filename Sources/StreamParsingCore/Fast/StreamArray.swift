@@ -443,9 +443,17 @@ extension StreamArray: RangeReplaceableCollection {
 
   public mutating func reserveCapacity(_ minimumCapacity: Int) {
     precondition(minimumCapacity >= 0, "StreamArray capacity must not be negative")
+    // Only ever raises, the way `StreamString.streamReserve` does. An empty array can still own
+    // an allocated `tail` from an earlier, larger hint, and `nextSlot` fills that tail against its
+    // own `slotCapacity`: dropping the schedule under it would let the array run past
+    // `blockCapacity` and then hand `moved(count:capacity:)` a count larger than the block it is
+    // moving into, which is a heap overflow.
     if self.isEmpty {
-      self.blockShiftBits = Self.adaptiveBlockShift(for: minimumCapacity)
-      self.blockCapacityBits = UInt16(1 &<< Int(self.blockShiftBits))
+      let shift = Self.adaptiveBlockShift(for: minimumCapacity)
+      if 1 &<< Int(shift) >= (self.tail?.slotCapacity ?? 0) {
+        self.blockShiftBits = shift
+        self.blockCapacityBits = UInt16(1 &<< Int(shift))
+      }
     }
     let shift = Int(self.blockShiftBits)
     let blockCapacity = Int(self.blockCapacityBits)
@@ -470,7 +478,7 @@ extension StreamArray: ExpressibleByArrayLiteral {
 // block boundaries fall, and they are the same array.
 extension StreamArray: Equatable where Element: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.count == rhs.count && lhs.elementsEqual(rhs)
+    lhs.elementsEqual(rhs)
   }
 }
 
@@ -486,13 +494,15 @@ extension StreamArray: Hashable where Element: Hashable {
 // at the top), not the type system.
 extension StreamArray: @unchecked Sendable where Element: Sendable {}
 
-extension StreamArray: CustomStringConvertible {
-  public var description: String {
-    "[" + self.map { "\($0)" }.joined(separator: ", ") + "]"
-  }
-}
-
 #if !hasFeature(Embedded)
+  // Interpolating an unconstrained `Element` is `String(describing:)`, i.e. reflection, which is
+  // outside the embedded subset -- the same reason the conformances below are guarded.
+  extension StreamArray: CustomStringConvertible {
+    public var description: String {
+      "[" + self.map { "\($0)" }.joined(separator: ", ") + "]"
+    }
+  }
+
   // Without this a reflecting printer walks the blocks, the tail and the pending slot, which puts
   // the internals into every custom dump and every recorded snapshot.
   extension StreamArray: CustomReflectable {
@@ -711,15 +721,6 @@ extension StreamArray {
   @inlinable
   public mutating func _commitAppend() {
     self.advance()
-  }
-
-  /// The address of the open element, or nil when there is none.
-  ///
-  /// It never moves, so this is a projection of `pending` and nothing more.
-  @inlinable
-  public mutating func _openElementAddress() -> UnsafeMutableRawPointer? {
-    guard self.pending != nil else { return nil }
-    return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 
   /// The address of element `position`, with the block holding it made unique first. For a

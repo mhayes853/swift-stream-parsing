@@ -109,6 +109,12 @@ public struct StreamDictionary<Value> {
     }
   }
 
+  /// The value stored under `key`, or `nil` when there is none.
+  ///
+  /// - Important: Assigning `nil` is a no-op. The storage is append only -- entries, their keys
+  ///   and their values are three parallel runs indexed by slot, and nothing in the type can take
+  ///   an entry out of the middle of them -- so there is no removal to perform. Use the
+  ///   non-optional ``updateValue(_:forKey:)`` when a write must be total.
   public subscript(key: String) -> Value? {
     get {
       if let pendingEntryKey, pendingEntryKey == key { return self.pendingValue }
@@ -192,6 +198,9 @@ public struct StreamDictionary<Value> {
       return slot
     }
     if vacantBucket >= 0 {
+      // Positional promise: `vacantBucket` was found by the caller's own probe, so it is only
+      // valid while the table has not changed since. It holds because the entry above is appended
+      // before the load factor test and every arm that can rebuild the table has already returned.
       assert(self.table[vacantBucket] < 0)
       self.table[vacantBucket] = slot
       return slot
@@ -310,16 +319,13 @@ extension StreamDictionary {
     hash: UInt64,
     vacantBucket: inout Int
   ) -> Int32? {
-    var bucket = vacantBucket
-    let result = self.entries.withUnsafeBufferPointer { entries in
+    self.entries.withUnsafeBufferPointer { entries in
       self.table.withUnsafeBufferPointer { table in
         Self.slot(
-          entries: entries, table: table, forKey: key, hash: hash, vacantBucket: &bucket
+          entries: entries, table: table, forKey: key, hash: hash, vacantBucket: &vacantBucket
         )
       }
     }
-    vacantBucket = bucket
-    return result
   }
 
   @inlinable
@@ -557,11 +563,15 @@ extension StreamDictionary: Equatable where Value: Equatable {
 // `Dictionary` for the flat index preserved.
 extension StreamDictionary: Sendable where Value: Sendable {}
 
-extension StreamDictionary: CustomStringConvertible {
-  public var description: String {
-    "[" + self.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + "]"
+#if !hasFeature(Embedded)
+  // Interpolating an unconstrained `Value` is `String(describing:)`, i.e. reflection, which is
+  // outside the embedded subset.
+  extension StreamDictionary: CustomStringConvertible {
+    public var description: String {
+      "[" + self.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + "]"
+    }
   }
-}
+#endif
 
 extension StreamDictionary: ExpressibleByDictionaryLiteral {
   public init(dictionaryLiteral elements: (String, Value)...) {
@@ -631,16 +641,6 @@ nonisolated(unsafe) let emptyKeyAddress = UnsafeRawPointer(bitPattern: 0x1000).u
 // `package` or `@usableFromInline` symbols, can time the pieces of `_openValue` against the whole.
 // Remove with the measurement they support.
 extension StreamDictionary {
-  @_spi(Benchmarking)
-  public static func _benchmarkHash(_ key: Span<UInt8>) -> UInt64 {
-    key.withUnsafeBufferPointer { Self.hash($0) }
-  }
-
-  @_spi(Benchmarking)
-  public func _benchmarkSlot(_ key: Span<UInt8>, hash: UInt64) -> Int32 {
-    key.withUnsafeBufferPointer { self.slot(forKey: $0, hash: hash) ?? -1 }
-  }
-
   @_spi(Benchmarking)
   public var _benchmarkStoredHashes: [UInt64] {
     self.entries.map(\.hash)

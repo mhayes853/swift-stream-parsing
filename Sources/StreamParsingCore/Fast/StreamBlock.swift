@@ -41,8 +41,12 @@ struct StreamBlockHeader {
 final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   @inlinable
   static func make(capacity: Int) -> StreamBlock<Element> {
-    let buffer = Self.create(minimumCapacity: Swift.max(capacity, 1)) { _ in
-      StreamBlockHeader(count: 0, capacity: capacity)
+    // One slot is always allocated, so the header records the count that was allocated rather
+    // than the one that was asked for: `slotCapacity` is the type's only statement about the room
+    // it owns.
+    let slots = Swift.max(capacity, 1)
+    let buffer = Self.create(minimumCapacity: slots) { _ in
+      StreamBlockHeader(count: 0, capacity: slots)
     }
     return unsafeDowncast(buffer, to: StreamBlock<Element>.self)
   }

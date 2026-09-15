@@ -13,7 +13,9 @@
 // snapshot reasons:
 //
 // - **Sealed bytes live in power-of-two blocks that double as the value grows.** The first block
-//   is 512 bytes (or larger, when a reservation made before promotion privately selects so), and
+//   is 512 bytes, or larger when the size of the value is already known at promotion — either a
+//   reservation made before promotion or the first overflowing append itself, whichever raised
+//   the shift furthest (see `promoteSizedInlineStorage`) — and
 //   each sealed block doubles the last up to the 8 KiB cap. Growth is what keeps a long unhinted
 //   value from paying one allocation per 512 bytes — the measured majority of the typed layer's
 //   cost on string-heavy documents — while a short promoted value still allocates only a small
@@ -30,7 +32,7 @@
 // 512-byte logical windows across layouts.
 public struct StreamString {
   @usableFromInline
-  struct InlineBuffer: Hashable, Sendable {
+  struct InlineBuffer: Sendable {
     @usableFromInline var word0: UInt64 = 0
     @usableFromInline var word1: UInt64 = 0
     @usableFromInline var word2: UInt64 = 0
@@ -371,7 +373,11 @@ extension StreamString {
   @inlinable
   func utf8Byte(at position: Int) -> UInt8 {
     if self.usesInlineStorage {
-      precondition(position < self.inlineCount, "StreamString byte offset out of range")
+      // Both bounds: past the inline arm this lands on `UnsafeBufferPointer.subscript`, whose
+      // own check is a `_debugPrecondition` and so is gone in a release stdlib client.
+      precondition(
+        position >= 0 && position < self.inlineCount, "StreamString byte offset out of range"
+      )
       return self.withInlineBuffer { $0[position] }
     }
     let sealed = self.sealedCount
@@ -391,6 +397,18 @@ extension StreamString {
   func withWindow<R>(
     at position: Int, count: Int, _ body: (UnsafeBufferPointer<UInt8>) -> R
   ) -> R {
+    // Unchecked in release: every caller derives `count` from the 512 mask, which is safe only
+    // because `startBlockShift >= 9` is an invariant of `init` and of `setStartBlockShift`'s two
+    // callers, both of which only raise. Lower that floor and every window here becomes an out of
+    // bounds read, so the invariant is asserted where it is relied on.
+    assert(
+      count >= 0 && position >= 0 && position &+ count <= self.utf8Count,
+      "StreamString window out of range"
+    )
+    assert(
+      self.usesInlineStorage || count <= 512 &- (position & 511),
+      "StreamString window crosses a physical block boundary"
+    )
     if self.usesInlineStorage {
       return self.withInlineBuffer { buffer in
         body(UnsafeBufferPointer(start: buffer.baseAddress! + position, count: count))
@@ -429,6 +447,8 @@ extension StreamString {
   /// never has to stitch a word across a block seam.
   @inlinable
   public func paddedWord(at start: Int) -> UInt64 {
+    // Debug only, because a `precondition` would land on the generated enum matcher path.
+    assert(start & 7 == 0, "StreamString.paddedWord(at:) requires an eight-byte aligned start")
     let count = self.utf8Count
     guard start >= 0, start < count else { return 0 }
     // Clamped rather than overread: unlike a key span, whose bytes are a borrow into the

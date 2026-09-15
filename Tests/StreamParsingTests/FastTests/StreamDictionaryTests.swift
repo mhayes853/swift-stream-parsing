@@ -206,6 +206,22 @@ struct `Stream dictionary tests` {
   }
 }
 
+extension `Stream dictionary tests` {
+  // The same shrink, reached through the value storage `reserveCapacity` forwards to.
+  @Test
+  func `A Smaller Late Reservation Does Not Shrink The Value Storage Schedule`() {
+    var dictionary = StreamDictionary<Int>(initialCapacity: 100_000)
+    let hinted = dictionary.storedValues.currentBlockCapacity
+    dictionary.reserveCapacity(10)
+
+    expectNoDifference(dictionary.storedValues.currentBlockCapacity, hinted)
+    for value in 0..<600 { dictionary.updateValue(value, forKey: "key\(value)") }
+    expectNoDifference(dictionary.count, 600)
+    expectNoDifference(dictionary["key599"], 599)
+    expectNoDifference(dictionary["key512"], 512)
+  }
+}
+
 // All generated keys land in slot zero for every table size used while these entries are
 // inserted. This exercises linear probing across the threshold and each table rebuild without
 // relying on a probabilistic collision.
