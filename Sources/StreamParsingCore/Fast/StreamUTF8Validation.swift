@@ -6,8 +6,8 @@ import StreamParsingShims
 package func streamValidateUTF8Scalar(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
   let count = to &- from
   guard count > 0 else { return true }
-  // A sequence cut by the end of the run. The block test sees the lead and never the missing
-  // continuation, so the last three bytes are checked against what may legally sit there.
+  // A sequence cut by the end of the run: the block test never sees the missing continuation, so
+  // the last three bytes are checked against what may legally sit there.
   if base.load(fromByteOffset: to &- 1, as: UInt8.self) >= .utf8TwoByteFloor { return false }
   if count >= 2, base.load(fromByteOffset: to &- 2, as: UInt8.self) >= .utf8ThreeByteFloor {
     return false
@@ -93,11 +93,9 @@ package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> B
   #if arch(arm64)
     return streamValidateUTF8Shimmed(base: base, from: from, to: to)
   #elseif arch(x86_64)
-    // The whole run loop is in the shim, not just the block kernel: `pshufb` and the 32 byte
-    // `vpshufb` both need a target attribute Swift cannot spell, and Clang will not inline such
-    // a function into a caller that lacks the feature. Since this function is `@inline(never)`
-    // and runs once per non-ASCII run, moving the loop across the boundary costs no call that
-    // was not already being made. See `StreamParsingShims.h`.
+    // The whole run loop is in the shim: `pshufb`/`vpshufb` need a target attribute Swift cannot
+    // spell, and Clang will not inline such a function into a caller without it. This function is
+    // `@inline(never)` and runs once per non-ASCII run, so the boundary adds no call.
     guard streamHasAVX2 else { return streamValidateUTF8Scalar(base: base, from: from, to: to) }
     return stream_parsing_utf8_validate(base, from, to) != 0
   #else
@@ -105,8 +103,7 @@ package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> B
   #endif
 }
 
-// The compare-based path, reachable by name so the tests can hold both paths to the same
-// oracle on a platform that has the lookup.
+// The compare-based path by name, so tests hold both paths to one oracle where the lookup exists.
 @inlinable
 @inline(never)
 package func streamValidateUTF8Portable(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
@@ -115,10 +112,8 @@ package func streamValidateUTF8Portable(base: UnsafeRawPointer, from: Int, to: I
 
 
 #if arch(x86_64)
-// Resolved once, at first use. This is one `movzbl` from a global at every later read -- Swift
-// statically initializes it rather than routing through `swift_once`, and it is cheaper than
-// calling `stream_parsing_has_avx2()` directly, which inlines that function's own lazy-init test
-// into the caller. Confirmed by disassembly, because the opposite was assumed first.
+// Resolved once: one `movzbl` from a global per later read, cheaper than calling
+// `stream_parsing_has_avx2()`, which inlines its own lazy-init test. Confirmed by disassembly.
 @usableFromInline
 let streamHasAVX2: Bool = stream_parsing_has_avx2() != 0
 

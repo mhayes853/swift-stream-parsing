@@ -134,10 +134,9 @@ public struct StreamDictionary<Value> {
       ? self.storedValues._slotForAppend()
       : self.storedValues._uniqueSlotAddress(slot)
     withUnsafeMutablePointer(to: &self.pendingValue) { box in
-      // The payload is moved out of the optional bitwise rather than unwrapped: `unsafelyUnwrapped` is
-      // a read accessor, so it copies -- a retain per reference field and a release when the optional
-      // dies, once per key. A single-payload enum keeps its payload at offset zero, so `.some`'s bits
-      // are the value's; the slot is re-marked nil after, so nothing is destroyed twice.
+      // Moved out bitwise, not unwrapped: `unsafelyUnwrapped` is a read accessor, so it copies -- a
+      // retain per reference field and a release when the optional dies, once per key. The payload
+      // is at offset zero in a single-payload enum; the slot is re-marked nil after.
       let payload = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Value.self)
       let typed = destination.assumingMemoryBound(to: Value.self)
       if isAppend {
@@ -218,10 +217,9 @@ public struct StreamDictionary<Value> {
 // MARK: - Lookup
 
 extension StreamDictionary {
-  // A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the Embedded
-  // subset. Deliberately collided keys degrade to the scan the table replaces, since every step
-  // compares a `UInt64` before it compares bytes, so the worst case stays bounded. `streamHashBytes`
-  // replaced FNV-1a, whose per byte multiply chain was the cost.
+  // A fixed basis rather than a seeded `Hasher`, which keeps this inside the Embedded subset.
+  // Collided keys degrade to the scan the table replaces, since every step compares a `UInt64`
+  // before bytes. `streamHashBytes` replaced FNV-1a, whose per byte multiply chain was the cost.
   @inlinable
   static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64 {
     guard let base = key.baseAddress else { return streamHashBytes(base: emptyKeyAddress, count: 0) }
@@ -380,7 +378,7 @@ extension StreamDictionary {
   ///
   /// Three shapes are measured: do not fuse `drainPending()` into the open (-32%, and the same rule
   /// puts the projections below on mutually exclusive returns); do not fold the two overloads into
-  /// one helper (loses every `Value` specialisation, GSoC -20%); keep the template `Value?`, not `Value`.
+  /// one helper (loses every `Value` specialisation, GSoC -20%); keep the template `Value?`.
   @inlinable
   public mutating func _openValue(
     forKey key: Span<UInt8>,

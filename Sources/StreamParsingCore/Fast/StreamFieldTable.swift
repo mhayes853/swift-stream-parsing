@@ -1,18 +1,15 @@
-// The field table: what a schema knows about each member of an object, as data.
-//
-// An entry says it once: this key, this kind of destination, at this byte offset. The sink matches
-// the key against the table and, for every kind whose layout the library knows, writes the value
-// with a typed store at `storage + offset` — nothing is called. Closures survive only for `custom`
-// and for entering a container, which is once per container rather than once per value. This
-// replaced two generated `switch`es behind stored closures, 21 ns and a retain/release pair per
-// integer member (NEW_ARCHITECTURE.md, "The field table").
+// The field table: each object member as data -- key, destination kind, byte offset. The sink
+// matches the key and, for every kind with a known layout, does a typed store at `storage +
+// offset` with no call; closures remain only for `custom` and container entry. Replaced two
+// generated `switch`es behind closures, 21 ns and a retain/release pair per integer member
+// (NEW_ARCHITECTURE.md, "The field table").
 
 // MARK: - StreamFieldKind
 
 /// How a value arriving at a field is written.
 public enum StreamFieldKind: UInt8, Sendable {
-  /// A conforming type the library has no layout for. Applied through the schema's closures with
-  /// the entry's `index`, exactly as every field used to be.
+  /// A conforming type the library has no layout for, applied through the schema's closures with
+  /// the entry's `index`.
   case custom = 0
   case int
   case int8
@@ -32,11 +29,9 @@ public enum StreamFieldKind: UInt8, Sendable {
   case streamString
   /// `StreamInlineString<N>`: an `Int32` count and then exactly `capacity` bytes.
   case inlineString
-  /// An object, array, dictionary or fixed-width vector. Entered from the entry itself when it
-  /// carries the child's `schema` -- the frame is the member's address and that schema, after
-  /// the entry's `prepare` (if any) has materialised an optional or reserved a capacity -- and
-  /// through the schema's `enterField` closure with the entry's `index` when it does not. A scalar
-  /// arriving here is a type mismatch.
+  /// An object, array, dictionary or fixed-width vector. Entered from the entry when it carries the
+  /// child's `schema` (after its `prepare`, if any), through the schema's `enterField` closure with
+  /// the entry's `index` when it does not. A scalar arriving here is a type mismatch.
   case container
 
   @inlinable
@@ -53,8 +48,7 @@ public enum StreamFieldKind: UInt8, Sendable {
 public typealias StreamFieldPrepare = @Sendable (UnsafeMutableRawPointer, Int32) -> Void
 
 /// One member of an object schema, as declared. The schema packs these into the forty-byte
-/// entries the sink matches against (`StreamFieldEntry`); this form keeps the key and the strong
-/// references those entries only point at.
+/// ``StreamFieldEntry`` the sink matches; this form keeps the key and the strong references.
 public struct StreamField: Sendable {
   /// The key's first eight bytes, little-endian, zero padded.
   public var keyWord: UInt64
@@ -68,8 +62,7 @@ public struct StreamField: Sendable {
   public var index: Int32
   /// Kind-specific: an inline string's byte capacity, a string member's reservation hint.
   public var capacity: Int32
-  /// Where the whole key starts in the schema's key byte blob; read only for keys longer than a
-  /// word.
+  /// Where the whole key starts in the schema's key blob; read only for keys longer than a word.
   @usableFromInline var keyStart: UInt32
 
   public struct Flags: OptionSet, Sendable {
@@ -84,9 +77,8 @@ public struct StreamField: Sendable {
   /// The key as declared, kept until the schema packs every entry's key into one blob.
   @usableFromInline var key: [UInt8]
 
-  /// For a `container` member, the schema the frame over it carries: the hoisted static the
-  /// enclosing `Partial` owns. The entry keeps an unowned copy; this is the reference that keeps
-  /// the declaration form honest about what it points at.
+  /// For a `container` member, the child schema: the hoisted static the enclosing `Partial` owns.
+  /// The packed entry keeps only an unowned copy.
   public var schema: StreamSchema?
 
   /// See ``StreamFieldPrepare``. Only a `container` member has one.
@@ -102,8 +94,7 @@ public struct StreamField: Sendable {
   ) {
     let bytes = Array(key.utf8)
     precondition(bytes.count <= Int(UInt16.max), "stream field key exceeds 65535 bytes")
-    // `Int(UInt32.max)` would overflow on a platform where `Int` is 32 bits (wasm32 and other
-    // embedded 32-bit targets), since UInt32.max does not fit in a signed 32-bit `Int`.
+    // Unsigned: `Int(UInt32.max)` overflows wherever `Int` is 32 bits (wasm32, embedded targets).
     precondition(offset >= 0 && UInt(offset) <= UInt(UInt32.max), "stream field offset out of range")
     precondition(capacity <= Int(Int32.max), "stream field capacity exceeds Int32")
     self.key = bytes
@@ -138,13 +129,10 @@ public struct StreamField: Sendable {
 
 /// The packed form of a ``StreamField``: what the sink reads.
 ///
-/// Forty bytes, laid out so the match reads the first sixteen -- the key's first word and its
-/// length -- and touches the rest only on a hit.
-///
-/// The child schema is raw bits, not a reference of any strength. Measured: forming a reference on
-/// the way into the frame -- even `unowned(unsafe)` bound with `if let` -- is a retain and a release
-/// per container open the optimizer will not remove, since nothing owns the value it could prove a
-/// lifetime against. The table owns every schema an entry names.
+/// Forty bytes; the match reads the first sixteen (the key's first word and length) and the rest
+/// only on a hit. The child schema is raw bits, not a reference. Measured: forming any reference on
+/// the way into the frame, even `unowned(unsafe)` bound with `if let`, is a retain/release per
+/// container open the optimizer will not remove. The table owns every schema an entry names.
 @usableFromInline
 struct StreamFieldEntry {
   @usableFromInline var keyWord: UInt64
@@ -185,8 +173,7 @@ struct StreamFieldEntry {
 public struct StreamFieldRoute: Sendable {
   public var kind: StreamFieldKind
   public var optional: Bool
-  /// A capacity the kind itself dictates -- an inline string's, a string member's reservation --
-  /// or zero.
+  /// A capacity the kind dictates (an inline string's, a string member's reservation), or zero.
   public var capacity: Int
   /// A container member's child schema. See ``StreamField/schema``.
   public var schema: StreamSchema?
@@ -210,8 +197,7 @@ public struct StreamFieldRoute: Sendable {
 
 // MARK: - Kinds for the types the library knows
 
-// Each is a chain of metatype compares on a type the caller has made concrete, so after
-// specialisation it is one constant.
+// Metatype compare chains on a concrete type: one constant after specialisation.
 
 @inlinable
 public func _streamNumberFieldKind<T: StreamNumberConvertible>(_ type: T.Type) -> StreamFieldKind {
@@ -237,8 +223,7 @@ public func _streamStringFieldRoute<T: StreamStringConvertible>(
   if T.self == StreamString.self { return StreamFieldRoute(.streamString, optional: optional) }
   let inlineCapacity = T._streamInlineCapacity
   if inlineCapacity > 0 {
-    // The same layout `_streamStringSchema` checks before it emits the erased route: an `Int32`
-    // count and then exactly `capacity` bytes.
+    // The layout `_streamStringSchema` checks before emitting the erased route.
     precondition(
       T._streamInlineByteOffset == _streamInlineStringByteOffset
         && MemoryLayout<T>.size == T._streamInlineByteOffset + inlineCapacity,
@@ -258,24 +243,20 @@ public func _streamBooleanFieldKind<T: StreamBooleanConvertible>(_ type: T.Type)
 
 /// The entries of one object schema, in one allocation, with their keys packed behind them.
 ///
-/// A class so the schema can hand the sink a pointer to the entries that outlives every frame the
-/// schema outlives, which is what `BorrowedFrame` already requires of the schema itself.
+/// A class so the entries pointer the sink holds outlives every frame the schema outlives, as
+/// `BorrowedFrame` already requires of the schema.
 @usableFromInline
 final class StreamFieldTable: @unchecked Sendable {
   @usableFromInline let entries: UnsafeMutablePointer<StreamFieldEntry>
   @usableFromInline let count: Int
   @usableFromInline let keyBytes: UnsafeMutablePointer<UInt8>
-  // Parallel to `entries`, indexed by entry. Off the entry itself so the match's stride stays
-  // forty bytes; a container open reads its slot once, and only when the entry's flag says so.
+  // Parallel to `entries`, off the entry so the match's stride stays forty bytes.
   @usableFromInline let prepares: UnsafeMutablePointer<StreamFieldPrepare?>
   // The owners of every schema an entry points at unowned.
   @usableFromInline let schemas: [StreamSchema]
 
-  // Open-addressed slot table over `entries`, -1 where empty, built once at construction since a
-  // field table never grows (unlike `StreamDictionary`, whose entries arrive at parse time). `nil`
-  // below `indexThreshold`: a scan over a handful of entries measures the same as a probe and
-  // costs no table at all. Above it, a struct like a 40-field API object pays for a hash instead
-  // of a scan whose length no longer fits in what the prefetcher hides.
+  // Open-addressed slot table over `entries`, -1 where empty, built once (a field table never
+  // grows). `nil` at or below `indexThreshold`, where a scan measures the same as a probe.
   @usableFromInline let index: UnsafeMutablePointer<Int32>?
   @usableFromInline let indexMask: Int
 
@@ -335,10 +316,9 @@ final class StreamFieldTable: @unchecked Sendable {
 
 /// The entry index for `key` in a table, or -1.
 ///
-/// A linear scan over the first word and the length: objects declare a handful of members, so it is
-/// a few compares against forty-byte strides the prefetcher already has. Keys longer than a word
-/// verify their tail against the packed key bytes on a first-word hit. Takes the raw views rather
-/// than the table object so nothing is retained on the way in.
+/// A linear scan over first word and length: a few compares against forty-byte strides the
+/// prefetcher already has. Longer keys verify their tail on a first-word hit. Takes raw views
+/// rather than the table so nothing is retained on the way in.
 @inlinable
 @inline(__always)
 func streamMatchField(
@@ -364,9 +344,8 @@ func streamMatchField(
   return -1
 }
 
-/// Murmur3's `fmix64`: two multiplies and three xor-shifts, chosen because the input is already a
-/// dense 64-bit word (the key's leading bytes) rather than a byte stream -- there is nothing here
-/// for a wider mix to fold in, only avalanche to add so nearby keys don't cluster in the table.
+/// Murmur3's `fmix64`: the input is already a dense 64-bit word, so there is nothing for a wider
+/// mix to fold in, only avalanche to add so nearby keys don't cluster.
 @inlinable
 @inline(__always)
 func streamFieldHash(word: UInt64, length: UInt16) -> UInt64 {
@@ -377,9 +356,8 @@ func streamFieldHash(word: UInt64, length: UInt16) -> UInt64 {
   return z
 }
 
-/// The entry index for `key` in an indexed table, or -1. Same match as ``streamMatchField(_:count:keyBytes:_:)``
-/// once a candidate is found; the difference is how the candidate is found; a probe rather than a
-/// walk.
+/// The entry index for `key` in an indexed table, or -1: the same match as
+/// ``streamMatchField(_:count:keyBytes:_:)``, with a probe instead of a walk.
 @inlinable
 @inline(__always)
 func streamMatchFieldIndexed(
@@ -445,10 +423,8 @@ func streamFieldKeyBytesEqual(_ a: UnsafeRawPointer, _ b: UnsafeRawPointer, coun
 
 /// The byte offset of `member` inside the value at `base`.
 ///
-/// Pointer arithmetic rather than `MemoryLayout.offset(of:)`, because a key path does not compile
-/// under Embedded Swift. `member` is a stored property reached through `base.pointee`, so the
-/// address the inout binding yields is the property's own; `StreamFieldTableTests` pins the two
-/// against each other where key paths are available.
+/// Pointer arithmetic, not `MemoryLayout.offset(of:)`, which needs a key path Embedded Swift
+/// rejects. `StreamFieldTableTests` pins the two against each other where key paths exist.
 @inlinable
 @inline(__always)
 public func _streamFieldOffset<Root, Member>(

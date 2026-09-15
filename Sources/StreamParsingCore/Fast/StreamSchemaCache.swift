@@ -1,26 +1,17 @@
-// Template ownership and the per-type schema cache.
-//
-// A container schema copies each new element from a template it allocated once (see
-// `_streamArraySchema`). Leaking it is only correct when the capturing schema is immortal, which a
-// schema built by `StreamArray.streamSchema` is not — it is a *computed* property, because a
-// generic type cannot hold a stored static. `_StreamTemplateStorage` ties the template's lifetime
-// to the schema's; the closures still capture only the raw pointer, so there is no retain/release
-// per element. `_streamCachedSchema(for:build:)` then builds one schema per type per process.
-//
-// The accessors must stay `@inlinable` so `build` is emitted in the client module with the element
-// type concrete, which is what keeps `_openElement`/`_openValue` specialised (+10% on GSoC). Only
-// the cache probe is non-inlinable.
+// Template ownership and the per-type schema cache. A container schema copies each new element
+// from a template it allocated once; leaking it is only correct for an immortal schema, which
+// `StreamArray.streamSchema` (a computed property) is not, so `_StreamTemplateStorage` ties the
+// template to the schema while closures capture only the raw pointer. The accessors stay
+// `@inlinable` so `build` specialises in the client module (GSoC +10%); only the probe is not.
 
 /// Owns a template value for the lifetime of the schema that copies elements from it.
 ///
-/// The pointer is handed to the schema's closures as a bare `UnsafePointer`, deliberately: a
-/// captured class reference would be a load plus, in some closure shapes, a retain/release per
-/// element. The schema outlives every parse that borrows it (`PartialSink` holds schemas
-/// `unowned(unsafe)`), so the box's lifetime is a strictly wider bound than the pointer's use.
+/// Handed to the schema's closures as a bare `UnsafePointer`: a captured class reference would be
+/// a load and, in some closure shapes, a retain/release per element. The schema outlives every
+/// parse that borrows it (`PartialSink` holds schemas `unowned(unsafe)`).
 public final class _StreamTemplateStorage: @unchecked Sendable {
   @usableFromInline let pointer: UnsafeMutableRawPointer
-  // Type-erased `deinitialize(count: 1)` + `deallocate` for the element type. A closure rather
-  // than a generic parameter on the class, so the schema can hold one field of one type.
+  // Type-erased destroy and deallocate: a closure rather than a generic parameter on the class.
   @usableFromInline let destroy: @Sendable (UnsafeMutableRawPointer) -> Void
 
   @usableFromInline
@@ -45,9 +36,8 @@ public final class _StreamTemplateStorage: @unchecked Sendable {
 
 /// Allocates a template value at a stable address, owned by the returned box.
 ///
-/// Replaces `_streamLeakedTemplate` in the container builders. The value is built once here
-/// rather than inside the element closure, because a generic element's `Self()` re-enters the
-/// runtime's locking metadata cache per open and returning it by value is a second whole-element
+/// Built once here rather than in the element closure: a generic element's `Self()` re-enters the
+/// runtime's locking metadata cache per open, and returning it by value is a second whole-element
 /// copy.
 @inlinable
 public func _streamOwnedTemplate<T>(_ value: T) -> _StreamTemplateStorage {
@@ -71,8 +61,8 @@ extension _StreamTemplateStorage {
 // MARK: - Per-type schema cache
 
 #if hasFeature(Embedded)
-  /// Embedded Swift has no metatype identity to key on (and a single-threaded target has nothing
-  /// to lock), so the build is not cached there. The template is still owned, so nothing leaks.
+  /// Embedded Swift has no metatype identity to key on, so the build is not cached there. The
+  /// template is still owned, so nothing leaks.
   @inlinable
   public func _streamCachedSchema(
     for type: Any.Type,
@@ -83,19 +73,16 @@ extension _StreamTemplateStorage {
 #else
   /// Returns the process-wide schema for `type`, building it on first ask.
   ///
-  /// Not `@inlinable`: the lock and the dictionary stay in this module. The caller's `build`
-  /// closure is still formed at the call site with its generic parameters concrete, so the schema
-  /// it builds is the specialised one.
+  /// Not `@inlinable`: the lock and the dictionary stay in this module. `build` is still formed at
+  /// the call site with its generic parameters concrete, so the schema is the specialised one.
   public func _streamCachedSchema(
     for type: Any.Type,
     build: () -> StreamSchema
   ) -> StreamSchema {
     let key = ObjectIdentifier(type)
     if let cached = _streamSchemaCache.value(for: key) { return cached }
-    // Built outside the lock: `build` re-enters this function for the element schema of a nested
-    // container root (`StreamArray<StreamArray<Int>>`), and a non-recursive lock would deadlock.
-    // A race builds twice and one of the two is discarded; the survivor is whichever landed
-    // first, so identity stays stable for everyone afterwards.
+    // Built outside the lock: `build` re-enters here for a nested container root's element schema,
+    // and a non-recursive lock would deadlock. A race builds twice; the first insert wins.
     let built = build()
     return _streamSchemaCache.insert(built, for: key)
   }
@@ -120,8 +107,7 @@ extension _StreamTemplateStorage {
 #endif
 
 #if DEBUG && !hasFeature(Embedded)
-  // Test-only accounting for template lifetimes: `StreamSchemaLifetimeTests` asserts that
-  // building and destroying a container-rooted stream N times does not grow the live count.
+  // Test-only: `StreamSchemaLifetimeTests` asserts repeated streams do not grow the live count.
   final class _StreamTemplateCounters: @unchecked Sendable {
     private let counts = _StreamLock((live: 0, total: 0))
 

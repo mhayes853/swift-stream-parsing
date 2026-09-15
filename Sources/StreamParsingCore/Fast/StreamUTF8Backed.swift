@@ -1,15 +1,7 @@
-// The read surface `StreamString` and `StreamInlineString` share: scalar decoding, grapheme spans,
-// byte-wise comparison against foreign text, searching. All of it reduces to the four primitives
-// this protocol requires, and the bodies below are written once against them.
-//
-// Deliberately NOT a home for the primitives themselves. `decodeScalar` and `scalarAlignedOffset`
-// stay per-type: one reaches its bytes through a block dispatch and the other through a contiguous
-// buffer, and a shared body would put a call where each currently has a load. Nothing the parser's
-// chunk path touches is reachable from here.
-//
-// Ungated, because `StreamString` is; only `StreamInlineString`'s conformance carries availability.
-// Internal, which is why each type still spells its own public methods out as one-line forwarders:
-// an extension member of an internal protocol is internal however it is spelled.
+// The read surface `StreamString` and `StreamInlineString` share (scalar traversal, grapheme spans,
+// comparison against foreign text, searching), written once against the primitives below.
+// `decodeScalar` and `scalarAlignedOffset` stay per type: a shared body would put a call where
+// each has a load. Internal, so each type forwards its public methods; ungated.
 @usableFromInline
 protocol _StreamUTF8Backed {
   /// The number of UTF-8 bytes accumulated so far.
@@ -38,9 +30,9 @@ protocol _StreamUTF8Backed {
 extension _StreamUTF8Backed {
   /// The scalar-view index before `index`.
   ///
-  /// Walks back over at most three continuation bytes. When the lead byte reached does not
-  /// actually span back to `index`, the byte before `index` is ill-formed and stands alone as its
-  /// own U+FFFD, which keeps backward and forward traversal visiting the same positions.
+  /// Walks back over at most three continuation bytes. When the lead byte reached does not span
+  /// back to `index`, the byte before `index` stands alone as U+FFFD, so backward and forward
+  /// traversal visit the same positions.
   @usableFromInline
   func scalarIndex(before index: Int) -> Int {
     var candidate = index &- 1
@@ -55,11 +47,8 @@ extension _StreamUTF8Backed {
 
 // MARK: - Characters
 
-// Forward `Character` access without claiming that byte offsets are character indices. Grapheme
-// segmentation is not public API and its tables are not something this package should carry, so
-// the boundary question is delegated to `String`'s own breaker over a small decoded window. The
-// window grows while its first character fills it entirely; once that character ends inside the
-// window, the boundary is final.
+// Forward `Character` access. Grapheme segmentation is not public API, so boundaries come from
+// `String`'s own breaker over a small decoded window, grown while its first character fills it.
 extension _StreamUTF8Backed {
   @usableFromInline
   func characterSpan(at offset: Int) -> (character: Character, end: Int) {
@@ -68,8 +57,7 @@ extension _StreamUTF8Backed {
     while true {
       let window = self.decode(in: offset..<windowEnd)
       let first = window.first ?? "\u{FFFD}"
-      // A decode that did not round-trip its byte count hit ill-formed bytes. Advance by the raw
-      // scalar length so iteration continues one ill-formed byte at a time.
+      // A decode that did not round-trip its byte count hit ill-formed bytes: advance one scalar.
       guard window.utf8.count == windowEnd &- offset else {
         return (first, offset &+ self.decodeScalar(at: offset).length)
       }
@@ -86,10 +74,8 @@ extension _StreamUTF8Backed {
 
 // MARK: - Comparison against StringProtocol
 
-// Byte-wise, like each type's homogeneous `==`: for decoded JSON text the parser has already
-// resolved escapes, so equal documents produce equal bytes. Every one of these borrows the
-// foreign text's contiguous UTF-8 once and hands it to `utf8Matches`, which is the single
-// requirement that knows how the accumulated bytes are laid out.
+// Byte-wise, like each type's `==`. Each borrows the foreign text's UTF-8 once and hands it to
+// `utf8Matches`, the one requirement that knows the storage layout.
 extension _StreamUTF8Backed {
   @usableFromInline
   func utf8Equals(_ other: some StringProtocol) -> Bool {
@@ -113,9 +99,8 @@ extension _StreamUTF8Backed {
     }
   }
 
-  /// A first-byte scan with a full match at each candidate — worst case is quadratic, which a
-  /// field-sized string never notices and a pathological one pays only when asked. `offset` is
-  /// range-checked by the caller, whose `precondition` message names its own type.
+  /// A first-byte scan with a full match at each candidate, so the worst case is quadratic. The
+  /// caller range-checks `offset`, so its `precondition` names its own type.
   @usableFromInline
   func utf8Range(of needle: some StringProtocol, from offset: Int) -> Range<Int>? {
     var copy = String(needle)
