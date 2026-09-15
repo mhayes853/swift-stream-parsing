@@ -140,6 +140,7 @@ let benchmarks: @Sendable () -> Void = {
     inlineStringBenchmarks()
   }
   keyLookupBenchmarks()
+  crossModuleBenchmarks()
 }
 
 // MARK: - Helpers
