@@ -909,7 +909,9 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
         ._openElement(copying: template)
     },
     elementSchema: element,
-    leafRoute: element.shape == .scalar ? .array(element.leafRoute) : .generic,
+    // Unguarded for the reason `_streamArraySchema` gives: an optional SIMD element has shape
+    // `.array`, and the guard demoted `.arrayOptionalSIMD2Double` and its siblings to `.generic`.
+    leafRoute: .array(element.leafRoute),
     inlineCapacity: element.inlineCapacity,
     templateOwner: owner
   )
