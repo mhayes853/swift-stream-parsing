@@ -297,7 +297,8 @@ extension StreamParseableMacro {
           keyNames: enumCase.matchNames,
           initialCapacity: nil,
           isIgnored: false,
-          hasDefaultValue: false
+          hasDefaultValue: false,
+          storageName: Self.caseStorageName(for: enumCase)
         )
       }
       // `ResolvedView`/`resolved` go in as members of `View` itself, not a second extension of
@@ -309,7 +310,8 @@ extension StreamParseableMacro {
         membersMode: .optional,
         extraViewMembers: cases.isEmpty
           ? ""
-          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
+          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable),
+        discriminated: !cases.isEmpty
       )
       .description
       // `.description` renders flush left, and only the first line of a `\(raw:)` interpolation
@@ -330,7 +332,11 @@ extension StreamParseableMacro {
     case .scalar:
       conversion = Self.scalarRawConversion(modifierPrefix: prefix, inlinable: inlinable)
     case .none:
-      conversion = Self.objectConversion(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
+      // A hand written `Partial` has no `_streamCase`, so its conversion always counts.
+      conversion = Self.objectConversion(
+        cases: cases, modifierPrefix: prefix, inlinable: inlinable,
+        discriminated: !hasExistingPartial && !cases.isEmpty
+      )
     }
 
     let defaultCase = cases.first { $0.isDefault }
@@ -475,36 +481,47 @@ extension StreamParseableMacro {
   }
 
   // The raw-less form. Which case arrived is which member is non-`nil`, and *exactly* one must
-  // be, matching what `JSONDecoder` accepts for the same document. Two passes rather than one,
-  // because a payload-bearing case can also fail by having arrived incomplete: the first pass
-  // only counts, and the second extracts the one identified payload or declines outright.
-  // Both halves of the two-pass resolve, for both readers. `objectConversion` and
-  // `resolvedViewDecl` run the identical count-then-switch protocol over the identical member
-  // list; only how a member is reached and how each arm reads differ, so only the arm bodies do.
+  // be, matching what `JSONDecoder` accepts for the same document. `_streamCase` names that
+  // member in O(1) (`discriminatorMembers`); only once two cases have been set (`-2`) does a
+  // reader count them. Each arm still checks its member, which a `null` may have cleared.
   static func caseArms(
     _ cases: [EnumCase],
+    discriminated: Bool,
     _ arm: (_ index: Int, _ enumCase: EnumCase, _ member: String) -> String
   ) -> String {
     cases.enumerated()
-      .map { arm($0.offset, $0.element, Self.memberIdentifier(for: $0.element.bareName)) }
+      .map { index, enumCase in
+        let member =
+          discriminated
+          ? Self.caseStorageName(for: enumCase) : Self.memberIdentifier(for: enumCase.bareName)
+        return arm(index, enumCase, member)
+      }
       .joined(separator: "\n")
   }
 
-  static func objectConversion(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
+  // The stored member behind a discriminated case's public wrapper.
+  static func caseStorageName(for enumCase: EnumCase) -> String {
+    "_streamCase_\(enumCase.bareName)"
+  }
+
+  static func objectConversion(
+    cases: [EnumCase], modifierPrefix: String, inlinable: Bool, discriminated: Bool
+  ) -> String {
     let inline = Self.inlinableAttribute(inlinable)
-    let countArms = Self.caseArms(cases) { index, _, member in
+    let countArms = Self.caseArms(cases, discriminated: discriminated) { index, _, member in
       """
-            if partial.\(member) != nil {
-              streamMatched = \(index)
-              streamMatches += 1
-            }
+              if partial.\(member) != nil {
+                streamMatched = \(index)
+                streamMatches += 1
+              }
         """
     }
 
-    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
+    let resolveArms = Self.caseArms(cases, discriminated: discriminated) { index, enumCase, member in
       guard !enumCase.associatedValues.isEmpty else {
         return """
               case \(index):
+                guard partial.\(member) != nil else { return nil }
                 self = .\(enumCase.reference)
           """
       }
@@ -512,12 +529,14 @@ extension StreamParseableMacro {
       let arguments = Self.caseConstructorArguments(for: enumCase.associatedValues, from: "streamValue")
       return """
             case \(index):
-              guard let streamValue = \(payloadType).Value(streamPartial: partial.\(member)!)
+              guard partial.\(member) != nil,
+                let streamValue = \(payloadType).Value(streamPartial: partial.\(member)!)
               else { return nil }
               self = .\(enumCase.reference)(\(arguments))
         """
     }
 
+    let start = discriminated ? "partial._streamCase" : "-2"
     return """
       \(inline)\(modifierPrefix)init?(_ partial: Partial) {
           self.init(streamPartial: partial)
@@ -527,10 +546,12 @@ extension StreamParseableMacro {
         /// the same document — and, for a case with associated values, unless that one case's own
         /// payload has everything it needs yet.
         \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
-          var streamMatched = -1
-          var streamMatches = 0
+          var streamMatched: Int32 = \(start)
+          if streamMatched < -1 {
+            var streamMatches = 0
       \(countArms)
-          guard streamMatches == 1 else { return nil }
+            guard streamMatches == 1 else { return nil }
+          }
           switch streamMatched {
       \(resolveArms)
           default:
@@ -538,6 +559,50 @@ extension StreamParseableMacro {
           }
         }
       """
+  }
+
+  // A discriminated `Partial`'s case members: the storage the sink writes, `_streamCase`, and a
+  // public wrapper per case whose writes keep `_streamCase` true. The sink's own entries record
+  // the case in the table's `prepare` (`_streamEnumCaseRoute`); a `null` leaves it, see `caseArms`.
+  static func discriminatorMembers(
+    for members: [(property: StoredProperty, type: String)],
+    modifierPrefix: String,
+    inlinable: Bool
+  ) -> String {
+    let storageAccess = inlinable ? "@usableFromInline " : ""
+    let inline = Self.inlinableAttribute(inlinable)
+    let storage = members.map { "  \(storageAccess)var \($0.property.storageMember): \($0.type)" }
+    let wrappers = members.enumerated().map { index, member in
+      let stored = member.property.storageMember
+      return """
+          \(inline)\(modifierPrefix)var \(member.property.memberName): \(member.type) {
+            get { self.\(stored) }
+            _modify {
+              defer {
+                self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
+                  self._streamCase, case: \(index), present: self.\(stored) != nil
+                )
+              }
+              yield &self.\(stored)
+            }
+          }
+        """
+    }
+    return (storage + ["  \(storageAccess)var _streamCase: Int32"] + [""] + wrappers)
+      .joined(separator: "\n")
+  }
+
+  // The memberwise initializer's `_streamCase`: exact, since it can see every member.
+  static func discriminatorInitialization(for properties: [StoredProperty]) -> String {
+    let steps = properties.enumerated().map { index, property in
+      """
+          streamCase = StreamParsing._streamEnumCaseAfterWrite(
+            streamCase, case: \(index), present: \(property.memberName) != nil
+          )
+      """
+    }
+    return (["    var streamCase: Int32 = -1"] + steps + ["    self._streamCase = streamCase"])
+      .joined(separator: "\n")
   }
 
   // `matchGuard` reading a `StreamString` rather than a key span.
@@ -721,16 +786,17 @@ extension StreamParseableMacro {
   // address via `withUnsafePointer(to:)` dangles the moment the getter returns.
   static func resolvedViewDecl(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
     let inline = Self.inlinableAttribute(inlinable)
-    let countArms = Self.caseArms(cases) { index, _, member in
+    let countArms = Self.caseArms(cases, discriminated: true) { index, _, member in
       """
-            if self._streamStorage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
+              if self._streamStorage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
         """
     }
 
-    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
+    let resolveArms = Self.caseArms(cases, discriminated: true) { index, enumCase, member in
       guard !enumCase.associatedValues.isEmpty else {
         return """
               case \(index):
+                guard self._streamStorage.pointee.\(member) != nil else { return .unresolved }
                 return .\(enumCase.reference)
           """
       }
@@ -766,12 +832,14 @@ extension StreamParseableMacro {
         \(inline)\(modifierPrefix)var resolved: ResolvedView {
           @_lifetime(borrow self)
           get {
-            var streamMatched = -1
-            var streamMatches = 0
+            var streamMatched = self._streamStorage.pointee._streamCase
+            if streamMatched < -1 {
+              var streamMatches = 0
       \(countArms)
-            guard streamMatches == 1 else {
-              if streamMatches == 0 { return .unresolved }
-              return .ambiguous
+              guard streamMatches == 1 else {
+                if streamMatches == 0 { return .unresolved }
+                return .ambiguous
+              }
             }
             switch streamMatched {
       \(resolveArms)

@@ -492,6 +492,162 @@ struct `Enum Parseable Tests` {
   }
 }
 
+// MARK: - Wide enums
+
+// Nine cases, so the resolution is the stored discriminator's rather than a count over every
+// member. The oracle below is that count, read through the public members.
+@StreamParseable
+private enum Wide: Codable, Equatable {
+  @StreamParseableDefault
+  case c0
+  case c1
+  case c2
+  case c3
+  case c4
+  case c5
+  case c6
+  case c7(label: String)
+  case c8(Int)
+
+  static let names = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"]
+
+  var name: String {
+    switch self {
+    case .c0: "c0"
+    case .c1: "c1"
+    case .c2: "c2"
+    case .c3: "c3"
+    case .c4: "c4"
+    case .c5: "c5"
+    case .c6: "c6"
+    case .c7: "c7"
+    case .c8: "c8"
+    }
+  }
+}
+
+@StreamParseable
+private struct WideDocument: Codable, Equatable {
+  var values: [Wide]
+}
+
+// What resolution meant before the discriminator: count the members that are present.
+private func countedName(_ partial: Wide.Partial) -> String {
+  let present = [
+    partial.c0 != nil, partial.c1 != nil, partial.c2 != nil, partial.c3 != nil, partial.c4 != nil,
+    partial.c5 != nil, partial.c6 != nil, partial.c7 != nil, partial.c8 != nil
+  ]
+  let hits = present.indices.filter { present[$0] }
+  switch hits.count {
+  case 0: return "unresolved"
+  case 1: return Wide.names[hits[0]]
+  default: return "ambiguous"
+  }
+}
+
+private func resolvedName(_ partial: borrowing Wide.Partial.View) -> String {
+  switch partial.resolved {
+  case .unresolved: "unresolved"
+  case .ambiguous: "ambiguous"
+  case .c0: "c0"
+  case .c1: "c1"
+  case .c2: "c2"
+  case .c3: "c3"
+  case .c4: "c4"
+  case .c5: "c5"
+  case .c6: "c6"
+  case .c7: "c7"
+  case .c8: "c8"
+  }
+}
+
+// The conversion agrees with the count: nil unless one case is present, that case when it has no
+// payload, and that case or nil (an incomplete payload) when it has one.
+private func expectResolution(_ partial: Wide.Partial, sourceLocation: SourceLocation = #_sourceLocation) {
+  let expected = countedName(partial)
+  let converted = Wide(streamPartial: partial)
+  switch expected {
+  case "unresolved", "ambiguous":
+    #expect(converted == nil, "\(expected)", sourceLocation: sourceLocation)
+  case "c7", "c8":
+    #expect(converted == nil || converted?.name == expected, sourceLocation: sourceLocation)
+  default:
+    #expect(converted?.name == expected, sourceLocation: sourceLocation)
+  }
+}
+
+@Suite
+struct `Wide Enum Tests` {
+  private static let document = #"""
+    {"values":[{"c3":{}},{"c7":{"label":"x"}},{"c0":{}},{"c8":{"_0":5}},{"c6":{}},{"c1":{}},\#
+    {"c5":{}},{"c2":{}},{"c4":{}},{"c7":{"label":"yz"}},{"c3":{}}]}
+    """#
+
+  @Test
+  func `Resolves every case of an array at every chunk size`() throws {
+    let bytes = Array(Self.document.utf8)
+    let expected = try JSONDecoder().decode(WideDocument.self, from: Data(bytes))
+    for size in 1...bytes.count {
+      var stream = PartialsStream(initialValue: WideDocument.Partial(), from: .json())
+      var index = 0
+      while index < bytes.count {
+        let end = min(index + size, bytes.count)
+        try stream.next(bytes[index..<end])
+        index = end
+        // The open element is the one whose case may have just switched.
+        if let open = stream.current.values?.last { expectResolution(open) }
+      }
+      expectNoDifference(WideDocument(streamPartial: stream.current), expected)
+    }
+  }
+
+  // Two keys in one object, a `null`, and a repeated key: the discriminator either names the one
+  // present case or hands back to the count, and must agree with it after every chunk.
+  @Test(arguments: [
+    #"{"c1":{},"c2":{}}"#,
+    #"{"c1":null,"c2":{}}"#,
+    #"{"c1":{},"c1":null,"c2":{}}"#,
+    #"{"c2":{},"c2":null}"#,
+    #"{"c7":{"label":"a"},"c7":{"label":"b"}}"#,
+    #"{"c8":{"_0":1},"c0":{},"c0":null}"#,
+    #"{"c4":{},"c5":{},"c4":null,"c5":null,"c6":{}}"#
+  ])
+  func `Agrees with the member count after every chunk`(json: String) throws {
+    let bytes = Array(json.utf8)
+    for size in 1...bytes.count {
+      var stream = PartialsStream(initialValue: Wide.Partial(), from: .json())
+      var index = 0
+      while index < bytes.count {
+        let end = min(index + size, bytes.count)
+        try stream.next(bytes[index..<end])
+        index = end
+        let counted = countedName(stream.current)
+        stream.withView { expectNoDifference(resolvedName($0), counted) }
+        expectResolution(stream.current)
+      }
+    }
+  }
+
+  @Test
+  func `Tracks writes made through the members`() {
+    var partial = Wide.Partial()
+    expectNoDifference(Wide(streamPartial: partial), nil)
+    partial.c5 = StreamEmptyObject()
+    expectNoDifference(Wide(streamPartial: partial), .c5)
+    partial.c6 = StreamEmptyObject()
+    expectNoDifference(Wide(streamPartial: partial), nil)
+    partial.c5 = nil
+    expectNoDifference(Wide(streamPartial: partial), .c6)
+    partial.c6 = nil
+    expectNoDifference(Wide(streamPartial: partial), nil)
+    partial.c0 = StreamEmptyObject()
+    expectNoDifference(Wide(streamPartial: partial), .c0)
+    expectNoDifference(Wide(streamPartial: Wide.Partial(c1: StreamEmptyObject(), c4: StreamEmptyObject())), nil)
+    expectNoDifference(Wide(streamPartial: Wide.Partial(c4: StreamEmptyObject())), .c4)
+    expectNoDifference(Wide(streamPartial: Wide.c8(3).streamPartialValue), .c8(3))
+  }
+}
+
 // MARK: - StreamString word access
 
 @Suite

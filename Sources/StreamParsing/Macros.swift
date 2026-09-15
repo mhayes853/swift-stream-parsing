@@ -85,6 +85,49 @@ public macro StreamParseableDefault() =
 public macro StreamParseableIgnored() =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableIgnoredMacro")
 
+// MARK: - Enum case discriminator
+
+/// `_streamCase` after a write to case `index` of a raw-less enum's `Partial`: `index` while no
+/// other case can be set, `-1` while none is, and `-2` once two may be, which sends a reader back
+/// to counting the members. The invariant is only ever "no *other* case is set": a `null` can
+/// still clear case `index` itself.
+@inlinable
+@inline(__always)
+public func _streamEnumCaseAfterWrite(_ current: Int32, case index: Int32, present: Bool) -> Int32 {
+  if present { return current == -1 || current == index ? index : -2 }
+  return current == index ? -1 : current
+}
+
+/// The optional-object route `_streamFieldRoute` gives a case member, whose `prepare` also records
+/// the case in `_streamCase`, `discriminatorOffset` bytes into the partial. Mirrors
+/// `_streamOptionalContainerPrepare` rather than wrapping it, so an entry stays one closure call.
+@inlinable
+public func _streamEnumCaseRoute<Root, T: StreamParseableObject>(
+  _ member: inout T?,
+  in base: UnsafeMutablePointer<Root>,
+  schema: StreamSchema?,
+  case index: Int32,
+  discriminatorOffset: Int
+) -> StreamFieldRoute {
+  let delta = discriminatorOffset - _streamFieldOffset(&member, in: base)
+  let owner = _streamOwnedTemplate(T?.some(T.streamInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: T?.self)
+  let inner = T._streamContainerPrepare
+  return StreamFieldRoute(
+    .container, optional: true, schema: schema,
+    prepare: { [owner] storage, _ in
+      _ = owner
+      let pointer = storage.assumingMemoryBound(to: T?.self)
+      if pointer.pointee == nil {
+        _streamCopyInitialize(pointer, from: template)
+      }
+      inner?(storage, 0)
+      let tag = (storage + delta).assumingMemoryBound(to: Int32.self)
+      tag.pointee = _streamEnumCaseAfterWrite(tag.pointee, case: index, present: true)
+    }
+  )
+}
+
 // MARK: - Helpers
 
 /// Controls how the generated partial struct initializes its properties.
