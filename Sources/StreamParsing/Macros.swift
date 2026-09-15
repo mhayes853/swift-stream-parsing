@@ -6,11 +6,11 @@
 /// @StreamParseable struct Payload { var id: Int }
 /// ```
 ///
-/// An enum parses what `Codable` produces: `enum S: String` from `"live"`, `enum S: Int` from `5`
-/// (raw types: `String`, integers, floating point), `enum S` from `{"live":{}}` with associated
-/// values keyed by label or `_0`, `_1`, .... Each names a fallback case with
-/// ``StreamParseableDefault()`` or `StreamInitializable`. A partial `String`-raw value resolves to
-/// the shortest case it prefixes (`live` may become `livestream`); `Partial.View.resolved` reads
+/// An enum parses what `Codable` produces: `enum S: String` from `"live"`, `enum S: Int` from `5`,
+/// and `enum S` from `{"live":{}}`, associated values keyed by label or `_0`, `_1`, .... Raw types
+/// other than `String`, integers and floating point are diagnosed. Each enum names a fallback case
+/// with ``StreamParseableDefault()`` or `StreamInitializable`. A partial `String`-raw value resolves
+/// to the shortest case it prefixes (`live` may become `livestream`); `Partial.View.resolved` reads
 /// whichever case has arrived so far.
 @attached(
   extension,

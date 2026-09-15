@@ -112,8 +112,9 @@ package func streamValidateUTF8Portable(base: UnsafeRawPointer, from: Int, to: I
 
 
 #if arch(x86_64)
-// Resolved once: one `movzbl` from a global per later read, cheaper than calling
-// `stream_parsing_has_avx2()`, which inlines its own lazy-init test. Confirmed by disassembly.
+// A lazily initialised global: every read is a once-token compare, then a load (x86_64
+// disassembly). Read it only behind `@inline(never)`, as here -- in an inlined scan loop the
+// accessor cost CITM -9.9% (NEW_ARCHITECTURE.md).
 @usableFromInline
 let streamHasAVX2: Bool = stream_parsing_has_avx2() != 0
 
