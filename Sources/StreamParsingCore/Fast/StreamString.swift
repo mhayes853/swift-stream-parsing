@@ -105,8 +105,12 @@ public struct StreamString {
     copy.withUTF8 { self.append(utf8: $0) }
   }
 
-  @usableFromInline var usesInlineStorage: Bool { self.blocks.isEmpty && self.tail.isEmpty }
-  @usableFromInline var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
+  // `@inlinable` because `append(utf8:)` and `utf8Count` are: out of line, a client specialisation
+  // copied the whole value to the stack and called out per append to read two counts. `|`, not
+  // `&&`: the short-circuit's extra block tipped `streamAppend` over the inliner's threshold and
+  // outlined it at 33 sites, `PartialSink.stringChunk` among them.
+  @inlinable var usesInlineStorage: Bool { self.blocks.count | self.tail.count == 0 }
+  @inlinable var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
 
   /// The number of UTF-8 bytes accumulated so far.
   @inlinable
@@ -210,7 +214,7 @@ public struct StreamString {
 
   // MARK: Reading
 
-  @usableFromInline
+  @inlinable
   func withInlineBuffer<R>(_ body: (UnsafeBufferPointer<UInt8>) throws -> R) rethrows -> R {
     try withUnsafeBytes(of: self.inlineBytes) { source in
       try body(
