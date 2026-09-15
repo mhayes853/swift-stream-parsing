@@ -465,14 +465,19 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  // Produces the frame a value should be written through, appending an array element first when
-  // the enclosing container is an array. Whether the frame can hold the value that arrives is the
-  // caller's question, not this one's: a scalar frame is the right answer for a scalar and the
-  // wrong one for a container.
-  private mutating func valueTarget() -> BorrowedFrame? {
-    guard let top = self.topFrame else { return nil }
-    switch top.pointee.schema.shape {
-    case .array:
+  // The array and dictionary arms `valueTarget` and `resolveScalarTarget` share: open the next
+  // element slot and pair it with the element schema. `dictionary` is a literal at all four call
+  // sites, so each copy folds to the arm it asked for.
+  @inline(__always)
+  private mutating func openElementSlot(
+    _ top: UnsafeMutablePointer<BorrowedFrame>, dictionary: Bool
+  ) -> (UnsafeMutableRawPointer, UnsafeRawPointer)? {
+    let slot: UnsafeMutableRawPointer
+    if dictionary {
+      guard let pending = self.pendingDictionaryStorage else { return nil }
+      self.pendingDictionaryStorage = nil
+      slot = pending
+    } else {
       let indexed = top.pointee.leafRoute == .inlineArray
       let index = indexed ? top.pointee.pendingField : -1
       if indexed, index >= top.pointee.schema.fixedElementCount {
@@ -482,14 +487,28 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         self.recordFailure(.capacityExceeded)
         return nil
       }
-      guard let slot = Self.openElement(top, index) else {
+      guard let opened = Self.openElement(top, index) else {
         if indexed { self.recordFailure(.capacityExceeded) }
         return nil
       }
       if indexed { top.pointee.pendingField = index &+ 1 }
-      // A slot with nothing to describe it -- a hand-written array schema that declared no
-      // element schema -- is a destination the sink cannot write, and is ignored.
-      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      slot = opened
+    }
+    // A slot with nothing to describe it -- a hand-written schema that declared no element
+    // schema -- is a destination the sink cannot write, and is ignored.
+    guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+    return (slot, bits)
+  }
+
+  // Produces the frame a value should be written through, appending an array element first when
+  // the enclosing container is an array. Whether the frame can hold the value that arrives is the
+  // caller's question, not this one's: a scalar frame is the right answer for a scalar and the
+  // wrong one for a container.
+  private mutating func valueTarget() -> BorrowedFrame? {
+    guard let top = self.topFrame else { return nil }
+    switch top.pointee.schema.shape {
+    case .array:
+      guard let (slot, bits) = self.openElementSlot(top, dictionary: false) else { return nil }
       return BorrowedFrame(storage: slot, schemaBits: bits)
     case .object:
       guard top.pointee.pendingField >= 0 else { return nil }
@@ -516,9 +535,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       guard let frame = entered else { return nil }
       return self.borrow(frame)
     case .dictionary:
-      guard let slot = self.pendingDictionaryStorage else { return nil }
-      self.pendingDictionaryStorage = nil
-      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      guard let (slot, bits) = self.openElementSlot(top, dictionary: true) else { return nil }
       return BorrowedFrame(storage: slot, schemaBits: bits)
     case .scalar:
       return nil
@@ -1533,20 +1550,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     switch top.pointee.schema.shape {
     case .array:
-      let indexed = top.pointee.leafRoute == .inlineArray
-      let index = indexed ? top.pointee.pendingField : -1
-      if indexed, index >= top.pointee.schema.fixedElementCount {
-        // The scalar-element twin of the same check in `valueTarget`, and the same failure: a
-        // fixed array handed more elements than it declares is bounded storage overflowing.
-        self.recordFailure(.capacityExceeded)
-        return nil
-      }
-      guard let slot = Self.openElement(top, index) else {
-        if indexed { self.recordFailure(.capacityExceeded) }
-        return nil
-      }
-      if indexed { top.pointee.pendingField = index &+ 1 }
-      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      guard let (slot, bits) = self.openElementSlot(top, dictionary: false) else { return nil }
       return ScalarTarget(
         storage: slot, schemaBits: bits, field: StreamSchema.wholeValueField, entry: nil
       )
@@ -1561,9 +1565,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         field: top.pointee.pendingField, entry: nil
       )
     case .dictionary:
-      guard let slot = self.pendingDictionaryStorage else { return nil }
-      self.pendingDictionaryStorage = nil
-      guard let bits = top.pointee.schema.elementSchemaBits else { return nil }
+      guard let (slot, bits) = self.openElementSlot(top, dictionary: true) else { return nil }
       return ScalarTarget(
         storage: slot, schemaBits: bits, field: StreamSchema.wholeValueField, entry: nil
       )
