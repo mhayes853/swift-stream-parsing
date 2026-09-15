@@ -20,20 +20,6 @@
 // the client module with the element type concrete, which is what keeps `_openElement` /
 // `_openValue` specialised (measured +10% on GSoC); only the cache probe is non-inlinable.
 
-#if !hasFeature(Embedded)
-  #if canImport(Darwin)
-    import Darwin
-  #elseif canImport(Glibc)
-    import Glibc
-  #elseif canImport(Musl)
-    import Musl
-  #elseif canImport(Android)
-    import Android
-  #elseif canImport(WinSDK)
-    import WinSDK
-  #endif
-#endif
-
 /// Owns a template value for the lifetime of the schema that copies elements from it.
 ///
 /// The pointer is handed to the schema's closures as a bare `UnsafePointer`, deliberately: a
@@ -47,7 +33,10 @@ public final class _StreamTemplateStorage: @unchecked Sendable {
   @usableFromInline let destroy: @Sendable (UnsafeMutableRawPointer) -> Void
 
   @usableFromInline
-  init(pointer: UnsafeMutableRawPointer, destroy: @escaping @Sendable (UnsafeMutableRawPointer) -> Void) {
+  init(
+    pointer: UnsafeMutableRawPointer,
+    destroy: @escaping @Sendable (UnsafeMutableRawPointer) -> Void
+  ) {
     self.pointer = pointer
     self.destroy = destroy
     #if DEBUG && !hasFeature(Embedded)
@@ -121,95 +110,42 @@ extension _StreamTemplateStorage {
   }
 
   final class _StreamSchemaCache: @unchecked Sendable {
-    private let lock = _StreamLock()
-    private var storage: [ObjectIdentifier: StreamSchema] = [:]
+    private let storage = _StreamLock<[ObjectIdentifier: StreamSchema]>([:])
 
     func value(for key: ObjectIdentifier) -> StreamSchema? {
-      self.lock.withLock { self.storage[key] }
+      self.storage.withLock { $0[key] }
     }
 
     func insert(_ schema: StreamSchema, for key: ObjectIdentifier) -> StreamSchema {
-      self.lock.withLock {
-        if let existing = self.storage[key] { return existing }
-        self.storage[key] = schema
+      self.storage.withLock { storage in
+        if let existing = storage[key] { return existing }
+        storage[key] = schema
         return schema
       }
     }
   }
 
   let _streamSchemaCache = _StreamSchemaCache()
-
-  // A lock, without Foundation: the core module must stay importable where Foundation is not, and
-  // `Synchronization.Mutex` is gated on macOS 15 while this package's floor is 10.15.
-  final class _StreamLock: @unchecked Sendable {
-    #if canImport(Darwin)
-      private let lock: UnsafeMutablePointer<os_unfair_lock>
-
-      init() {
-        self.lock = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1)
-        self.lock.initialize(to: os_unfair_lock())
-      }
-
-      @inline(__always)
-      func withLock<R>(_ body: () -> R) -> R {
-        os_unfair_lock_lock(self.lock)
-        defer { os_unfair_lock_unlock(self.lock) }
-        return body()
-      }
-    #elseif canImport(WinSDK)
-      private let lock: UnsafeMutablePointer<SRWLOCK>
-
-      init() {
-        self.lock = UnsafeMutablePointer<SRWLOCK>.allocate(capacity: 1)
-        InitializeSRWLock(self.lock)
-      }
-
-      @inline(__always)
-      func withLock<R>(_ body: () -> R) -> R {
-        AcquireSRWLockExclusive(self.lock)
-        defer { ReleaseSRWLockExclusive(self.lock) }
-        return body()
-      }
-    #else
-      private let lock: UnsafeMutablePointer<pthread_mutex_t>
-
-      init() {
-        self.lock = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
-        pthread_mutex_init(self.lock, nil)
-      }
-
-      @inline(__always)
-      func withLock<R>(_ body: () -> R) -> R {
-        pthread_mutex_lock(self.lock)
-        defer { pthread_mutex_unlock(self.lock) }
-        return body()
-      }
-    #endif
-
-    deinit {
-      #if !canImport(Darwin) && !canImport(WinSDK)
-        pthread_mutex_destroy(self.lock)
-      #endif
-      self.lock.deallocate()
-    }
-  }
 #endif
 
 #if DEBUG && !hasFeature(Embedded)
   // Test-only accounting for template lifetimes: `StreamSchemaLifetimeTests` asserts that
   // building and destroying a container-rooted stream N times does not grow the live count.
   final class _StreamTemplateCounters: @unchecked Sendable {
-    private let lock = _StreamLock()
-    private var live = 0
-    private var total = 0
+    private let counts = _StreamLock((live: 0, total: 0))
 
-    func opened() { self.lock.withLock { self.live += 1; self.total += 1 } }
-    func closed() { self.lock.withLock { self.live -= 1 } }
-    var counts: (live: Int, total: Int) { self.lock.withLock { (self.live, self.total) } }
+    func opened() {
+      self.counts.withLock {
+        $0.live += 1
+        $0.total += 1
+      }
+    }
+    func closed() { self.counts.withLock { $0.live -= 1 } }
+    var value: (live: Int, total: Int) { self.counts.withLock { $0 } }
   }
 
   let _streamTemplateCounters = _StreamTemplateCounters()
 
   /// Templates currently allocated, and templates allocated since process start. Debug only.
-  public var _streamTemplateStorageCounts: (live: Int, total: Int) { _streamTemplateCounters.counts }
+  public var _streamTemplateStorageCounts: (live: Int, total: Int) { _streamTemplateCounters.value }
 #endif
