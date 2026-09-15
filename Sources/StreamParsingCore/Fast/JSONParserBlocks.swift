@@ -34,9 +34,10 @@
         // error names is the byte the scalar loop names.
         if classes.needs_scalar != 0 { return p }
         // The gate: a block strikes with no whitespace outside strings (nothing for the `tzcnt` to
-        // buy over the ladder's scan) or dense `starts` (Mesh); four in a row and the walk is done
-        // with this parser. Census in NEW_ARCHITECTURE.md. x86 gets the verdict whole from the
-        // kernel: baseline x86-64 has no `popcnt` (`nonzeroBitCount` was 17 instructions a block).
+        // buy over the ladder's scan) or dense `starts` (Mesh); four in a row give the walk up
+        // until `probeBlockWalk` re-arms it. Census in NEW_ARCHITECTURE.md. x86 gets the verdict
+        // whole from the kernel: baseline x86-64 has no `popcnt` (`nonzeroBitCount` was 17
+        // instructions a block).
         #if arch(x86_64)
           let strike = classes.strike != 0
         #else
@@ -48,6 +49,11 @@
           self.blockWalkStrikes &+= 1
           if self.blockWalkStrikes >= 4 {
             self.blockWalkGivenUp = true
+            self.blockWalkProbeCountdown = Self.blockWalkProbeKilobytes
+            if self.windowThreshold == .max {
+              self.windowThreshold = Self.blockWalkProbeChunk
+              self.blockWalkProbeLowered = true
+            }
             return ~p
           }
         } else if self.blockWalkStrikes != 0 {
@@ -396,3 +402,35 @@
     }
   }
 #endif
+
+// The re-probe: a given-up walk is re-armed once `blockWalkProbeKilobytes` of chunks of at least
+// `blockWalkProbeChunk` bytes have gone by, so a stream that changes shape is judged again. A
+// failed probe is at most four blocks walked per 64 KB, ~0.15% at Mesh's per-block loss (-26.4%).
+// Smaller chunks keep the verdict; a caller-set `windowThreshold` is left alone, its chunks count.
+extension JSONParser {
+  @inlinable package static var blockWalkProbeKilobytes: UInt8 { 64 }
+  @inlinable package static var blockWalkProbeChunk: Int { 4096 }
+
+  // While a re-probe is due the default `windowThreshold` is lowered to `blockWalkProbeChunk`, so
+  // `parsePastThreshold` gets every bulk-sized chunk and counts it here before parsing it: the one
+  // that runs the countdown out is walked from its first block. Only the gate's give-up starts a
+  // countdown, and the gate only runs with the kernels.
+  @usableFromInline
+  @inline(never)
+  mutating func probeBlockWalk(count n: Int) {
+    let kilobytes = n &>> 10
+    if kilobytes < Int(self.blockWalkProbeCountdown) {
+      self.blockWalkProbeCountdown &-= UInt8(truncatingIfNeeded: kilobytes)
+      return
+    }
+    self.blockWalkProbeCountdown = 0
+    if self.blockWalkProbeLowered {
+      self.windowThreshold = .max
+      self.blockWalkProbeLowered = false
+    }
+    if self.blockKernelsAvailable {
+      self.blockWalkGivenUp = false
+      self.blockWalkStrikes = 0
+    }
+  }
+}

@@ -121,6 +121,12 @@ public struct JSONParser: ~Copyable {
     @inlinable package var blockKernelsAvailable: Bool { false }
   #endif
 
+  // Kilobytes left before a given-up walk is re-armed (`probeBlockWalk`), zero while no re-probe
+  // is due (always, without the kernels); and whether the gate lowered the default `.max`
+  // `windowThreshold` so bulk chunks reach it. Both sit in the padding before `windowThreshold`.
+  @usableFromInline package var blockWalkProbeCountdown: UInt8 = 0
+  @usableFromInline var blockWalkProbeLowered = false
+
   // A chunk at least this long takes the windowed path (JSONParserWindow.swift). The window
   // scratch is allocated on first use, so a parser that never sees a large chunk never pays.
   @usableFromInline var windowThreshold: Int
@@ -188,6 +194,9 @@ public struct JSONParser: ~Copyable {
     self.consumedByteCount = 0
     self.blockWalkGivenUp = !self.blockKernelsAvailable
     self.blockWalkStrikes = 0
+    self.blockWalkProbeCountdown = 0
+    if self.blockWalkProbeLowered { self.windowThreshold = .max }
+    self.blockWalkProbeLowered = false
     // Window telemetry describes the previous document's shape; the next may not share it.
     self.windowDensity = .max
     self.windowsSinceProbe = 0
@@ -254,7 +263,7 @@ public struct JSONParser: ~Copyable {
     let base = UnsafeRawPointer(start)
     let n = input.count
     if n >= self.windowThreshold {
-      try self.parseWindowed(base: base, count: n, into: &sink)
+      try self.parsePastThreshold(base: base, count: n, into: &sink)
       return
     }
     do throws(JSONParsingError) {
@@ -286,6 +295,34 @@ public struct JSONParser: ~Copyable {
     while i < n {
       i = try self.dispatchOnce(base: base, from: i, to: n, into: &sink)
     }
+  }
+
+  // Every chunk `parse` sends past `windowThreshold`: the windowed path, or, while a block-walk
+  // re-probe is due, a chunk only the lowered threshold sent here -- counted, then parsed by
+  // `parse`'s own dispatcher branch, restated. Measured: a test of its own in `parse` stopped the
+  // benchmark chunk loops inlining `parse` and moved `consumeStructuralRun`'s frame.
+  @inlinable
+  @inline(never)
+  mutating func parsePastThreshold<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, count n: Int, into sink: inout Sink
+  ) throws(JSONParsingError) {
+    if self.blockWalkProbeCountdown != 0 {
+      let lowered = self.blockWalkProbeLowered
+      if n >= Self.blockWalkProbeChunk { self.probeBlockWalk(count: n) }
+      if lowered {
+        do throws(JSONParsingError) {
+          try self.parseDispatching(base: base, count: n, into: &sink)
+        } catch {
+          try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+          try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
+        }
+        try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+        try self.commitSink(chunkEnd: n, into: &sink)
+        self.consumedByteCount &+= n
+        return
+      }
+    }
+    try self.parseWindowed(base: base, count: n, into: &sink)
   }
 
   @inlinable
