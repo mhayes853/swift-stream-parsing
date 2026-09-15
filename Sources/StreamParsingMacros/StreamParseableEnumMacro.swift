@@ -193,15 +193,20 @@ extension StreamParseableMacro {
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
     Self.diagnoseUnsupportedRawType(in: declaration, rawKind: rawKind, context: context)
-    let prefix = Self.modifierPrefix(for: Self.accessModifier(for: declaration.modifiers))
+    let accessModifier = Self.accessModifier(for: declaration.modifiers)
+    let prefix = Self.modifierPrefix(for: accessModifier)
 
     let body: String
+    // Not for the raw-less form: under library evolution an inlinable `switch self` over a
+    // non-frozen enum is an error ("may have additional unknown values").
+    var inlinable = Self.isInlinable(accessModifier)
     switch rawKind {
     case .string:
       body = "self.rawValue.streamPartialValue"
     case .scalar:
       body = "self.rawValue"
     case .none:
+      inlinable = false
       guard !cases.isEmpty else { return [] }
       let arms = cases
         .map { enumCase in
@@ -237,7 +242,7 @@ extension StreamParseableMacro {
 
     return [
       """
-      \(raw: prefix)var streamPartialValue: Partial {
+      \(raw: Self.inlinableAttribute(inlinable))\(raw: prefix)var streamPartialValue: Partial {
         \(raw: body)
       }
       """
@@ -262,6 +267,8 @@ extension StreamParseableMacro {
 
     let accessModifier = Self.accessModifier(for: declaration.modifiers)
     let prefix = Self.modifierPrefix(for: accessModifier)
+    let inlinable = Self.isInlinable(accessModifier)
+    let inline = Self.inlinableAttribute(inlinable)
     let hasExistingPartial = Self.hasExistingPartial(in: declaration.memberBlock.members)
 
     let partialSection: String
@@ -302,7 +309,7 @@ extension StreamParseableMacro {
         membersMode: .optional,
         extraViewMembers: cases.isEmpty
           ? ""
-          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix)
+          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
       )
       .description
       // `.description` renders flush left, and only the first line of a `\(raw:)` interpolation
@@ -319,11 +326,11 @@ extension StreamParseableMacro {
     let conversion: String
     switch rawKind {
     case .string:
-      conversion = Self.stringRawConversion(cases: cases, modifierPrefix: prefix)
+      conversion = Self.stringRawConversion(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
     case .scalar:
-      conversion = Self.scalarRawConversion(modifierPrefix: prefix)
+      conversion = Self.scalarRawConversion(modifierPrefix: prefix, inlinable: inlinable)
     case .none:
-      conversion = Self.objectConversion(cases: cases, modifierPrefix: prefix)
+      conversion = Self.objectConversion(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
     }
 
     let defaultCase = cases.first { $0.isDefault }
@@ -337,7 +344,7 @@ extension StreamParseableMacro {
 
           /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
           /// produce a value this type can represent.
-          \(prefix)static func streamValueOrInitial(from partial: Partial) -> Self {
+          \(inline)\(prefix)static func streamValueOrInitial(from partial: Partial) -> Self {
         \(Self.defaultCaseFallbackBody(for: enumCase))
           }
         """
@@ -368,7 +375,10 @@ extension StreamParseableMacro {
   // signal, so a mid-flight read must assume something; the assumption is the shortest case still
   // consistent with the bytes in hand, implemented by emitting the chain sorted by length
   // ascending. (The caller-visible consequence is documented on `@StreamParseable` itself.)
-  static func stringRawConversion(cases: [EnumCase], modifierPrefix: String) -> String {
+  static func stringRawConversion(
+    cases: [EnumCase], modifierPrefix: String, inlinable: Bool
+  ) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     var candidates = [(name: String, reference: String)]()
     for enumCase in cases {
       for name in enumCase.matchNames {
@@ -432,7 +442,7 @@ extension StreamParseableMacro {
     let body = lines.joined(separator: "\n")
 
     return """
-      \(modifierPrefix)init?(_ partial: Partial) {
+      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
           self.init(streamPartial: partial)
         }
 
@@ -441,23 +451,24 @@ extension StreamParseableMacro {
         ///
         /// A partial string cannot say whether it is finished, so a value that names one case and
         /// is a prefix of a longer one resolves to the shorter and may later be superseded.
-        \(modifierPrefix)init?(streamPartial partial: Partial) {
+        \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
       \(body)
         }
       """
   }
 
-  static func scalarRawConversion(modifierPrefix: String) -> String {
+  static func scalarRawConversion(modifierPrefix: String, inlinable: Bool) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     // `Partial` *is* the raw value for every numeric raw type, so there is nothing to accumulate
     // and nothing to match: a number arrives whole, and the only question is whether the case list
     // covers it. That is exactly `init(rawValue:)`.
-    """
-    \(modifierPrefix)init?(_ partial: Partial) {
+    return """
+    \(inline)\(modifierPrefix)init?(_ partial: Partial) {
         self.init(streamPartial: partial)
       }
 
       /// Fails when the stream produced a raw value no case declares.
-      \(modifierPrefix)init?(streamPartial partial: Partial) {
+      \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
         self.init(rawValue: partial)
       }
     """
@@ -479,7 +490,8 @@ extension StreamParseableMacro {
       .joined(separator: "\n")
   }
 
-  static func objectConversion(cases: [EnumCase], modifierPrefix: String) -> String {
+  static func objectConversion(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     let countArms = Self.caseArms(cases) { index, _, member in
       """
             if partial.\(member) != nil {
@@ -507,14 +519,14 @@ extension StreamParseableMacro {
     }
 
     return """
-      \(modifierPrefix)init?(_ partial: Partial) {
+      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
           self.init(streamPartial: partial)
         }
 
         /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
         /// the same document — and, for a case with associated values, unless that one case's own
         /// payload has everything it needs yet.
-        \(modifierPrefix)init?(streamPartial partial: Partial) {
+        \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
           var streamMatched = -1
           var streamMatches = 0
       \(countArms)
@@ -666,14 +678,18 @@ extension StreamParseableMacro {
     // `conversionMembers`'s `_streamValue`/`_streamValueOrInitial` calls resolve through a
     // protocol extension on `StreamParseable` itself, so `Value` has to actually conform —
     // `streamPartialValue` included, even though nothing here ever calls it back.
+    let inlinable = Self.isInlinable(accessModifier)
     let valuePartialValue = Self.reindented(
-      Self.streamPartialValueProperty(from: properties, modifierPrefix: modifierPrefix),
+      Self.streamPartialValueProperty(
+        from: properties, modifierPrefix: modifierPrefix, inlinable: inlinable
+      ),
       by: 4
     )
     let valueConversion = Self.reindented(
       Self.stripped(
         Self.conversionMembers(
-          from: properties, modifierPrefix: modifierPrefix, membersMode: .optional
+          from: properties, modifierPrefix: modifierPrefix, membersMode: .optional,
+          inlinable: inlinable
         )
       ),
       by: 4
@@ -703,7 +719,8 @@ extension StreamParseableMacro {
   // for a `~Copyable` match on Swift 6.3/6.4, so every arm is single-pattern. And this must live
   // on `View`, reaching through the caller-supplied `_streamStorage` — a `Partial` value's own
   // address via `withUnsafePointer(to:)` dangles the moment the getter returns.
-  static func resolvedViewDecl(cases: [EnumCase], modifierPrefix: String) -> String {
+  static func resolvedViewDecl(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     let countArms = Self.caseArms(cases) { index, _, member in
       """
             if self._streamStorage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
@@ -746,7 +763,7 @@ extension StreamParseableMacro {
       \(viewCases)
         }
 
-        \(modifierPrefix)var resolved: ResolvedView {
+        \(inline)\(modifierPrefix)var resolved: ResolvedView {
           @_lifetime(borrow self)
           get {
             var streamMatched = -1

@@ -43,7 +43,12 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
     let streamPartialValuePropertySection =
       !hasStreamPartialValue
-      ? Self.streamPartialValueProperty(from: properties, modifierPrefix: modifierPrefix)
+      ? Self.streamPartialValueProperty(
+        from: properties,
+        modifierPrefix: modifierPrefix,
+        inlinable: Self.isInlinable(accessModifier)
+          && properties.allSatisfy { $0.isIgnored || $0.isReadableInline(from: accessModifier) }
+      )
       : ""
     return ["\(raw: streamPartialValuePropertySection)"]
   }
@@ -82,7 +87,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let conversionMembers = Self.conversionMembers(
       from: properties,
       modifierPrefix: Self.modifierPrefix(for: accessModifier),
-      membersMode: membersMode
+      membersMode: membersMode,
+      inlinable: Self.isInlinable(accessModifier)
     )
 
     // A hand written `Partial` still gets the conversions, on the same terms as
@@ -248,6 +254,8 @@ extension StreamParseableMacro {
     extraViewMembers: String = ""
   ) -> DeclSyntax {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
+    let inlinable = Self.isInlinable(accessModifier)
+    let inline = Self.inlinableAttribute(inlinable)
     let propertyLines = Self.partialStructProperties(
       from: properties,
       modifierPrefix: modifierPrefix,
@@ -260,13 +268,17 @@ extension StreamParseableMacro {
     )
     let schemaLines = Self.partialStructSchema(
       from: properties,
-      modifierPrefix: modifierPrefix
+      modifierPrefix: modifierPrefix,
+      inlinable: inlinable
     )
     let viewLines = Self.partialStructView(
       from: properties,
       modifierPrefix: modifierPrefix,
+      inlinable: inlinable,
       extraViewMembers: extraViewMembers
     )
+    // An inlinable body cannot name a `private` declaration.
+    let templateAccess = inlinable ? "@usableFromInline " : "private "
     return """
       \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseable,
         StreamParsingCore.StreamParseableObject, Sendable {
@@ -280,9 +292,9 @@ extension StreamParseableMacro {
         // for a large nested struct is a long chain of small copies. Every member's own `Partial`
         // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
         // `Self` itself `Sendable` here and lets the template be a plain `static let`.
-        private static let _streamInitialValueTemplate: Self = Self()
+        \(raw: templateAccess)static let _streamInitialValueTemplate: Self = Self()
 
-        \(raw: modifierPrefix)static func streamInitialValue() -> Self {
+        \(raw: inline)\(raw: modifierPrefix)static func streamInitialValue() -> Self {
           Self._streamInitialValueTemplate
         }
 
@@ -296,14 +308,16 @@ extension StreamParseableMacro {
   private static func partialStructView(
     from properties: [StoredProperty],
     modifierPrefix: String,
+    inlinable: Bool,
     extraViewMembers: String = ""
   ) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
     let accessors = active
       .map { property in
         let type = Self.partialTypeName(for: property)
         return """
-            \(modifierPrefix)var \(property.memberName): \(type).View? {
+            \(inline)\(modifierPrefix)var \(property.memberName): \(type).View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.memberName)) else {
@@ -321,18 +335,20 @@ extension StreamParseableMacro {
     // attached to.
     let closing = extraViewMembers.isEmpty ? "  }" : "  \n\(extraViewMembers)\n}"
     // `_streamStorage`, not `storage`: a member named `storage` would otherwise redeclare it.
+    // `@frozen` so the inlinable `init` stays legal under library evolution; it is one pointer.
+    let frozen = inlinable ? "@frozen " : ""
     return """
-      \(modifierPrefix)struct View: ~Copyable, ~Escapable {
+      \(frozen)\(modifierPrefix)struct View: ~Copyable, ~Escapable {
           \(modifierPrefix)let _streamStorage: UnsafeMutablePointer<Partial>
 
           @_lifetime(borrow storage)
-          \(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
+          \(inline)\(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
             self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
           }
       \(body)\(closing)
 
         @_lifetime(borrow storage)
-        \(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+        \(inline)\(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
           View(storage)
         }
       """
@@ -504,13 +520,19 @@ extension StreamParseableMacro {
     return constants.joined(separator: "\n  ") + "\n\n  "
   }
 
-  private static func fieldConstants(for properties: [StoredProperty]) -> String {
+  // Computed when inlinable: another module sees an inlinable getter's constant, not a `let`'s.
+  private static func fieldConstants(for properties: [StoredProperty], inlinable: Bool) -> String {
     guard !properties.isEmpty else { return "" }
     let constants = properties.enumerated()
-      .map { index, property in "    static let \(property.memberName): Int32 = \(index)" }
+      .map { index, property in
+        inlinable
+          ? "    @inlinable static var \(property.memberName): Int32 { \(index) }"
+          : "    static let \(property.memberName): Int32 = \(index)"
+      }
       .joined(separator: "\n")
+    let access = inlinable ? "@usableFromInline" : "private"
     return """
-      private enum StreamField {
+      \(access) enum StreamField {
       \(constants)
         }
       """ + "\n\n  "
@@ -564,8 +586,10 @@ extension StreamParseableMacro {
 
   private static func partialStructSchema(
     from properties: [StoredProperty],
-    modifierPrefix: String
+    modifierPrefix: String,
+    inlinable: Bool
   ) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
     let cases = Self.schemaCases(for: active)
 
@@ -580,7 +604,7 @@ extension StreamParseableMacro {
     let applyFunctions = cases.applies
       .map { function in
         """
-          \(modifierPrefix)static func \(function.name)(
+          \(inline)\(modifierPrefix)static func \(function.name)(
             \(function.parameters)
           ) -> StreamParsingCore.StreamApplyResult {
         \(storageBinding(function.cases))    switch field {
@@ -592,7 +616,7 @@ extension StreamParseableMacro {
       .joined(separator: "\n\n")
 
     return """
-      \(Self.fieldConstants(for: active))\(Self.containerSchemaConstants(cases.containerSchemas))\(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
+      \(Self.fieldConstants(for: active, inlinable: inlinable))\(Self.containerSchemaConstants(cases.containerSchemas))\(inline)\(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
           switch key.paddedLeadingWord() {
       \(switchBody(cases.match))    default: return -1
           }
@@ -725,12 +749,14 @@ extension StreamParseableMacro {
 
   static func streamPartialValueProperty(
     from properties: [StoredProperty],
-    modifierPrefix: String
+    modifierPrefix: String,
+    inlinable: Bool
   ) -> String {
+    let inline = Self.inlinableAttribute(inlinable)
     let activeProperties = properties.filter { !$0.isIgnored }
     guard !activeProperties.isEmpty else {
       return """
-          \(modifierPrefix)var streamPartialValue: Partial {
+          \(inline)\(modifierPrefix)var streamPartialValue: Partial {
             Partial()
           }
         """
@@ -756,7 +782,7 @@ extension StreamParseableMacro {
       .joined(separator: "\n")
 
     return """
-      \(modifierPrefix)var streamPartialValue: Partial {
+      \(inline)\(modifierPrefix)var streamPartialValue: Partial {
         Partial(
       \(argumentLines)
         )
@@ -772,8 +798,12 @@ extension StreamParseableMacro {
   static func conversionMembers(
     from properties: [StoredProperty],
     modifierPrefix: String,
-    membersMode: PartialMembersMode
+    membersMode: PartialMembersMode,
+    inlinable: Bool
   ) -> String {
+    // Only the delegating members: under library evolution an `@inlinable` struct initializer
+    // that assigns stored properties does not compile (the memberwise `Partial.init` likewise).
+    let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
     // An ignored property is absent from `Partial`, so a generated initializer has nothing to
     // fill it from. One that initializes itself is already set; the rest are optional, because
@@ -818,12 +848,12 @@ extension StreamParseableMacro {
     // visible, so it is the strict conversion and it can decline; with members that start at
     // their initial values absence is not expressible, so it is the total one and cannot.
     let decliningInit = """
-      \(modifierPrefix)init?(_ partial: Partial) {
+      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
           self.init(streamPartial: partial)
         }
       """
     let totalInit = """
-      \(modifierPrefix)init(_ partial: Partial) {
+      \(inline)\(modifierPrefix)init(_ partial: Partial) {
           self.init(orInitial: partial)
         }
       """
@@ -843,7 +873,7 @@ extension StreamParseableMacro {
       \(assignments("_streamValueOrInitial"))
         }
 
-        \(modifierPrefix)static func streamValueOrInitial(from partial: Partial) -> Self {
+        \(inline)\(modifierPrefix)static func streamValueOrInitial(from partial: Partial) -> Self {
           Self(orInitial: partial)
         }
       """
@@ -871,6 +901,16 @@ extension StreamParseableMacro {
 
   static func modifierPrefix(for accessModifier: String?) -> String {
     accessModifier.map { "\($0) " } ?? ""
+  }
+
+  // Only a public or package type's members are emitted `@inlinable`: the attribute exists to
+  // cross a module boundary, so an internal type's expansion stays exactly what it was.
+  static func isInlinable(_ accessModifier: String?) -> Bool {
+    accessModifier == "public" || accessModifier == "package"
+  }
+
+  static func inlinableAttribute(_ inlinable: Bool) -> String {
+    inlinable ? "@inlinable " : ""
   }
 
   static func hasExplicitPartialMembersArgument(_ node: AttributeSyntax) -> Bool {
@@ -914,9 +954,22 @@ extension StreamParseableMacro {
     // Whether the declaration supplies its own value. A generated initializer must leave such a
     // property alone: it is already initialized, and if it is a `let` it cannot be assigned twice.
     let hasDefaultValue: Bool
+    /// The declaration's own access level and `@usableFromInline`, which decide whether an
+    /// inlinable member may read it. `nil` for a generated property, as visible as its type.
+    var access: String? = nil
+    var isUsableFromInline = false
 
     /// `name`, re-escaped wherever the identifier itself is emitted.
     var memberName: String { StreamParseableMacro.memberIdentifier(for: self.name) }
+
+    func isReadableInline(from typeAccess: String?) -> Bool {
+      if self.isUsableFromInline { return true }
+      switch self.access {
+      case nil, "public": return true
+      case "package": return typeAccess == "package"
+      default: return false
+      }
+    }
   }
 
   struct KeyNamesResult {
@@ -1052,8 +1105,25 @@ extension StreamParseableMacro {
       keyNames: keyInfo.names,
       initialCapacity: capacityInfo.value,
       isIgnored: isIgnored,
-      hasDefaultValue: hasDefaultValue
+      hasDefaultValue: hasDefaultValue,
+      access: Self.declaredAccess(of: variableDecl.modifiers),
+      isUsableFromInline: !Self.attributes(named: "usableFromInline", in: variableDecl.attributes)
+        .isEmpty
     )
+  }
+
+  // The getter's access: `private(set)` names only the setter, which no inlinable member uses.
+  private static func declaredAccess(of modifiers: DeclModifierListSyntax) -> String {
+    for modifier in modifiers where modifier.detail == nil {
+      switch modifier.name.tokenKind {
+      case .keyword(.public), .keyword(.open): return "public"
+      case .keyword(.package): return "package"
+      case .keyword(.fileprivate): return "fileprivate"
+      case .keyword(.private): return "private"
+      default: continue
+      }
+    }
+    return "internal"
   }
 
   private static func diagnoseUnsettableIgnoredMember(
