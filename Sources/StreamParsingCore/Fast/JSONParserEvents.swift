@@ -172,9 +172,10 @@ extension JSONParser {
     }
   }
 
-  // One string byte, the shape byte-fed input is mostly made of. Out of line: `parse(byte:)` runs
-  // once per byte and its inlining is the least stable thing in the parser. The byte borrows the
-  // reserved scratch for a stable address; no escape is in progress inside a clean string byte.
+  // One string byte, the shape byte-fed input is mostly made of. Out of line: `parse(byte:)`'s
+  // inlining is the least stable thing in the parser. The byte borrows the reserved scratch (no
+  // escape is in flight inside a clean string byte), so the call's commit lands here, doubling as
+  // the chunk's failure check: a no-op `commit()` leaves the body what it was.
   @inlinable
   @inline(never)
   mutating func deliverStringByte<Sink: StreamParseSink & ~Copyable>(
@@ -183,7 +184,7 @@ extension JSONParser {
     let scratch = self.scratchBase
     scratch[0] = byte
     sink.stringChunk(Self.scratchSpan(UnsafeRawPointer(scratch), 1))
-    try self.checkEmission(&sink, at: 1)
+    try self.commitSink(chunkEnd: 1, into: &sink)
     self.consumedByteCount &+= 1
   }
 
