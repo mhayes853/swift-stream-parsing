@@ -179,6 +179,20 @@ extension JSONParser {
     // loop. Inlined into `consumeSkipRun` that prologue is paid by every byte-fed call that
     // lands in a skipped subtree, which can never execute a block. That cost was measured:
     // `Real Twitter escaped - byte by byte discarding` -5.1% p0.
+    // Settles the deferred UTF-8 validation the block loop carries: validates the outstanding
+    // non-ASCII run, if any, and returns the cleared marker. By value, not `inout`: taking
+    // `validateFrom`'s address spills it out of its register for the whole block loop.
+    @inlinable
+    @inline(__always)
+    mutating func settleValidation(
+      base: UnsafeRawPointer, from: Int, to: Int
+    ) throws(JSONParsingError) -> Int {
+      if from >= 0 {
+        try self.validateNonASCIIRun(base: base, from: from, to: to, reportAt: nil)
+      }
+      return -1
+    }
+
     @inlinable
     @inline(never)
     mutating func consumeSkipBlocks<Sink: StreamParseSink & ~Copyable>(
@@ -214,9 +228,8 @@ extension JSONParser {
 
         if classes.non_ascii != 0 {
           if validateFrom < 0 { validateFrom = p }
-        } else if validateFrom >= 0 {
-          try self.validateNonASCIIRun(base: base, from: validateFrom, to: p, reportAt: nil)
-          validateFrom = -1
+        } else {
+          validateFrom = try self.settleValidation(base: base, from: validateFrom, to: p)
         }
 
         var brackets = classes.brackets
@@ -236,9 +249,7 @@ extension JSONParser {
             // back: four instructions on every block to save one predicted compare on the
             // brackets that are actually there.
             guard depth < Self.maximumDepth else {
-              if validateFrom >= 0 {
-                try self.validateNonASCIIRun(base: base, from: validateFrom, to: at, reportAt: nil)
-              }
+              validateFrom = try self.settleValidation(base: base, from: validateFrom, to: at)
               try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
             }
             Self.pushContainer(object: isObject, depth: &depth, containers: &containers)
@@ -247,15 +258,11 @@ extension JSONParser {
             else {
               // Everything outstanding is earlier in the document than this bracket, so it is
               // reported first — the order a byte-fed parse would have found them in.
-              if validateFrom >= 0 {
-                try self.validateNonASCIIRun(base: base, from: validateFrom, to: at, reportAt: nil)
-              }
+              validateFrom = try self.settleValidation(base: base, from: validateFrom, to: at)
               try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
             }
             if depth &- 1 == skipEnd {
-              if validateFrom >= 0 {
-                try self.validateNonASCIIRun(base: base, from: validateFrom, to: at, reportAt: nil)
-              }
+              validateFrom = try self.settleValidation(base: base, from: validateFrom, to: at)
               // The event precedes the depth/state updates, exactly as the structural run orders
               // them, so a failure the check surfaces leaves the same parser state behind.
               try self.record(
@@ -286,9 +293,7 @@ extension JSONParser {
         // loop's own trim would have.
         p = try self.trimmingIncompleteUTF8(base: base, from: from, to: p)
       }
-      if validateFrom >= 0 {
-        try self.validateNonASCIIRun(base: base, from: validateFrom, to: p, reportAt: nil)
-      }
+      validateFrom = try self.settleValidation(base: base, from: validateFrom, to: p)
       return p
     }
   #endif
