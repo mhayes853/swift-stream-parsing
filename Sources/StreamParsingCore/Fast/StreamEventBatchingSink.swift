@@ -1,29 +1,9 @@
-// Batching, demoted from protocol requirement to adapter: a sink that implements the per-token
-// methods by recording `StreamEventRecord`s and flushing a `StreamEventBatch` to its consumer
-// every `batchCapacity` events and at `commit()` — the parser's old internal transport,
-// relocated behind the protocol it used to be.
-//
-// This exists for the boundaries fusion cannot cross: a consumer on another thread, an async
-// event sequence, FFI, record/replay tooling. It is NOT the fast path and does not try to be —
-// a sink that can be specialized into the parse loop should conform to `StreamParseSink`
-// directly and skip the transport entirely.
-//
-// Three contracts are deliberately looser than direct delivery:
-//
-// - Bytes are copied. A per-token span borrows parser memory the adapter cannot hold past the
-//   call, and the span carries no offset into the chunk, so records into live input are not
-//   reconstructible from out here. Every consumer this adapter serves crosses a boundary the
-//   bytes could not have stayed borrowed across anyway; the batch the consumer sees references
-//   the adapter's own scratch and is valid for the duration of its `events` call.
-// - Rejection surfaces at the next flush. The parser polls `streamFailure` per token, but a
-//   deferred event is only refused when the consumer sees it, up to a batch later; the parse
-//   stops there, and the reported offset is the token that was current at the flush, not the
-//   one refused. `StreamEventRecord.end` is likewise not populated: it was a chunk offset only
-//   the parser's own recorder could know.
-// - Skips are not honored. The adapter answers `.stream` at every container open (its consumer
-//   has not seen the open yet, so it cannot be asked), and the replay on the far side discards
-//   the consumer's dispositions — a subtree the consumer's sink would have skipped is parsed,
-//   validated and delivered in full on this path.
+// Batching as an adapter: records the per-token calls and flushes a `StreamEventBatch` to its
+// consumer every `batchCapacity` events and at `commit()`. For boundaries fusion cannot cross
+// (another thread, async sequences, FFI, replay tooling); not a fast path. Looser than direct
+// delivery: bytes are copied (a batch is valid for its `events` call); a rejection surfaces at the
+// next flush, reported at the token current then, and `StreamEventRecord.end` is unpopulated; and
+// skips are not honored.
 public protocol StreamEventBatchConsumer: ~Copyable {
   /// Consumes events in order and returns how many were taken: `batch.count` when all were, or
   /// the index of the first event refused after recording ``streamFailure``.
@@ -92,15 +72,10 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
       self.reset()
       return
     }
-    // The consumer call is deliberately *outside* every array borrow. Calling the mutating
-    // `consumer.events` from inside three nested `withUnsafeBufferPointer` borrows of this
-    // struct's own stored properties is legal only because the accesses are to disjoint
-    // properties, and it is one re-entrancy away from a bug: a consumer that fed bytes back into
-    // this same sink would mutate the arrays the live `StreamEventBatch` points into. The bases
-    // are taken first and the array values held across the call instead, which keeps the same
-    // pointers valid -- a re-entrant append now copies on write rather than reallocating under
-    // the batch -- with no overlapping exclusive access. This is not a fast path (see the note
-    // at the top of the file); it runs once per 256 events.
+    // The consumer call is deliberately outside every array borrow: inside three nested
+    // `withUnsafeBufferPointer`s, a consumer feeding this sink would mutate the arrays the live
+    // batch points into. Holding the arrays across the call keeps the pointers valid, and a
+    // re-entrant append copies on write instead of reallocating under the batch.
     let recordCount = self.records.count
     let recordBase = self.records.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped }
     let infoBase = self.infos.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped }
@@ -135,11 +110,9 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
 
   // MARK: StreamParseSink
 
-  // Always `.stream`: the transport's whole point is deferred delivery, so the consumer cannot
-  // be asked about a subtree it has not seen yet, and the replay on the far side discards the
-  // dispositions it collects (the advisory contract makes that legal). A third documented
-  // looseness: a subtree the consumer's sink would have skipped is parsed — and its interior
-  // grammar checked — in full on this path.
+  // Always `.stream`: with deferred delivery the consumer cannot be asked about a subtree it has
+  // not seen, and the replay discards dispositions (legal by the advisory contract), so a subtree
+  // it would have skipped is parsed and delivered in full.
   public mutating func beginObject() -> StreamContainerDisposition {
     self.append(.beginObject)
     return .stream

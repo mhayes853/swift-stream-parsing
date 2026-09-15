@@ -6,21 +6,16 @@ public protocol StreamInitializable: SendableMetatype {
 }
 
 public protocol StreamStringConvertible: StreamInitializable {
-  // Returns whether the bytes were taken. Unbounded storage answers `.applied` unconditionally
-  // and the result folds away on specialization; bounded storage is the reason the result exists,
-  // and answers `.capacityExceeded` without taking any of the bytes, so a value holds exactly
+  // Whether the bytes were taken. Unbounded storage answers `.applied` (folded on specialization);
+  // bounded storage answers `.capacityExceeded` without taking any bytes, so a value holds exactly
   // what it accumulated up to the last append that fit.
   @discardableResult
   mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
 
-  // How a schema recognizes fixed-capacity inline storage without being able to name it: a static
-  // requirement rather than a metatype cast, because `_streamStringSchema` cannot spell
-  // `StreamInlineString<capacity>` and an existential cast would not survive Embedded Swift. Read
-  // once per schema build, and a constant after specialisation.
-  //
-  // Zero means "not inline storage". A non-zero value is a promise about layout, checked in
-  // `_streamStringSchema`: `_streamInlineByteOffset` bytes of header, then exactly that many bytes
-  // of UTF-8 storage, which is what lets `PartialSink` append without naming the type.
+  // How a schema recognizes inline storage it cannot name: a static requirement, not a metatype
+  // cast (`_streamStringSchema` cannot spell `StreamInlineString<capacity>`, and an existential
+  // cast would not survive Embedded). Zero means not inline; non-zero promises (checked in
+  // `_streamStringSchema`) `_streamInlineByteOffset` header bytes, then that many UTF-8 bytes.
   static var _streamInlineCapacity: Int { get }
   static var _streamInlineByteOffset: Int { get }
 }
@@ -47,10 +42,9 @@ public protocol StreamNullable: SendableMetatype {
 // MARK: - Integers
 
 extension FixedWidthInteger {
-  // A token carrying an exponent is rejected rather than scaled, matching prior behaviour.
-  // Inlinable so a generic caller specialised for a concrete integer gets a specialised
-  // conversion: reached through the protocol witness alone this ran unspecialised, with a
-  // metadata lookup per number, and the batch appender measured Mesh at half speed.
+  // A token carrying an exponent is rejected rather than scaled. Inlinable so a specialised caller
+  // gets a specialised conversion: through the protocol witness alone it paid a metadata lookup
+  // per number, Mesh at half speed.
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard !info.flags.contains(.fraction), info.exponent == 0 else { return nil }
@@ -88,36 +82,14 @@ extension FixedWidthInteger {
 // MARK: - Floating point
 
 extension BinaryFloatingPoint where Self: LosslessStringConvertible {
-  // Accumulation rather than a string round trip, in three tiers, none of which is written for
-  // one concrete type.
-  //
-  // 1. The Clinger exact path. Both operands of the scale are exact when the significand fits the
-  //    significand field and the power of ten is in the exactly representable range, so a single
-  //    multiply or divide gives the correctly rounded result. Both bounds are properties of
-  //    `Self` -- `2^(significandBitCount + 1)` and `streamMaxExactPow10` -- and both fold to
-  //    immediates when the generic specialises: 2^53 / 10^22 for `Double`, 2^24 / 10^10 for
-  //    `Float`.
-  // 2. Eisel-Lemire, parameterised on `Self`'s binary format. Reached by every token the exact
-  //    path cannot take, which on `canada.json` is 91.2% of them.
-  // 3. The standard library's parser, for the cases the kernel declines and for a token of more
-  //    than nineteen digits, whose accumulated `magnitude` has wrapped.
-  //
-  // **No `init(exactly:)` on this path.** Every one of the three it used to carry lowered to real
-  // work the surrounding code had already done or could not need -- an out-of-line `bl` with a
-  // float round trip, a NaN test on a `.rodata` constant, an infinity test on a kernel that returns
-  // neither -- which is what made the generic spelling look like a genericity cost. `Self(_:)` plus
-  // the range compares below is the same answer for free. (NEW_ARCHITECTURE.md, "Three
-  // `init(exactly:)` calls".)
-  //
-  // The sign is applied to the significand before the scale, not to the result: a power of ten is
-  // positive, so the sign carries through unchanged (zero included) at the same two instructions,
-  // and it stays expressible for a `Self` whose bit pattern this extension cannot name.
+  // Accumulation, not a string round trip, in three generic tiers: Clinger's exact path (bounds
+  // fold per `Self`, 2^53 / 10^22 for `Double`), Eisel-Lemire on `Self`'s format (91.2% of canada),
+  // then the standard library for declines and wrapped 20+ digit magnitudes. No `init(exactly:)`:
+  // each lowered to redundant work (NEW_ARCHITECTURE.md, "Three `init(exactly:)` calls").
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    // Tested against the raw bits rather than through `contains`, so the two tests are a `tbnz`
-    // pair on a register the caller already holds rather than two `OptionSet` calls. The masks
-    // are the flags' own `rawValue`s: those statics are `@inlinable` and computed, so each folds
-    // to its immediate and no bit index is written down twice.
+    // Raw-bit tests, so the pair is a `tbnz` on a held register rather than two `OptionSet` calls;
+    // the masks are the flags' computed `@inlinable` statics, which fold to immediates.
     let flags = info.flags.rawValue
     guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else {
       // More than nineteen digits: `magnitude` has wrapped, so nothing below may look at it.
@@ -170,26 +142,18 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
   }
 }
 
-// Eisel-Lemire for the formats that have a `StreamBinaryFormat`, and a decline for every other
-// `BinaryFloatingPoint`.
-//
-// The extension above is constrained on protocols this package does not own, so it cannot require
-// the format conformance the kernel needs; a type test is the only way to ask, and both comparisons
-// fold to constants on specialisation. A type without a format declines here and takes the `String`
-// fallback.
-//
-// `Float` is emphatically *not* served by computing a `Double` and narrowing: decimal -> `Double`
-// -> `Float` rounds twice and is not correctly rounded in general (`7.038531e-26`). It gets its own
-// instantiation of the kernel.
+// Eisel-Lemire for the formats with a `StreamBinaryFormat`, a decline for any other type. The
+// extension above cannot require the conformance, so a type test asks (folded on specialisation).
+// `Float` is *not* narrowed from `Double`: decimal -> `Double` -> `Float` rounds twice and is not
+// correctly rounded in general (`7.038531e-26`).
 @inlinable
 @inline(__always)
 func streamEiselLemireAny<T: BinaryFloatingPoint>(
   magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
 ) -> T? {
-  // Guarded by the type test, so the `unsafeBitCast` is a no-op on the only branch that can reach
-  // it and dead code on every other specialisation. Measured: spelled with `.map` the unspecialised
-  // generic forms a real closure, reached through `__swift_instantiateConcreteTypeFromMangledNameV2`
-  // and three partial-apply forwarders; keep the `guard`.
+  // The type test guards the `unsafeBitCast`, a no-op on the only branch reaching it. Measured:
+  // with `.map` the unspecialised generic formed a real closure (a metadata instantiation and three
+  // partial-apply forwarders); keep the `guard`.
   @inline(__always)
   func bridge<F: StreamBinaryFormat>(_ format: F.Type) -> T? {
     guard

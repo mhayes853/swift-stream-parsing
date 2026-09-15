@@ -37,14 +37,10 @@ public struct NumberInfo: Hashable, Sendable {
 
 // MARK: - StreamApplyResult
 
-// What a destination did with a token.
-//
-// Non-exhaustive, so a later kind of rejection can be added without breaking clients.
-//
-// **The raw values are load-bearing.** `applied` must be zero and must stay the minimum: a check
-// against it is a branch on zero, and the string path folds a chunk's result into the value it
-// already holds with `max` rather than a branch (measured: branching per chunk cost 8.7% of
-// `Real Twitter - bulk discarding`). A case added later takes the next integer.
+// What a destination did with a token; non-exhaustive, so a rejection kind can be added later. The
+// raw values are load-bearing: `applied` must be zero and the minimum, since the string path folds
+// chunk results with `max` rather than a branch (measured: a branch per chunk cost Twitter
+// discarding 8.7%). A new case takes the next integer.
 @nonexhaustive
 public enum StreamApplyResult: UInt8, Hashable, Sendable {
   /// The destination took the token.
@@ -82,10 +78,9 @@ public struct StreamEventRecord: Hashable, Sendable {
     case beginObject, endObject, beginArray, endArray
     case key, stringBegin, stringChunk, stringEnd
     case number, boolean, null
-    /// A whole string value, complete in the chunk and free of escapes: what the byte fed path
-    /// delivers as `stringBegin`, one `stringChunk` (omitted when empty) and `stringEnd`. One
-    /// record where those are three. A sink that rejects it is taken to have rejected it at
-    /// `stringBegin`, and the parser reports the rejection at the byte after the opening quote.
+    /// A whole string value, complete in the chunk and escape-free: one record for `stringBegin`,
+    /// `stringChunk` (omitted when empty) and `stringEnd`. A rejection is taken to be at
+    /// `stringBegin` and reported at the byte after the opening quote.
     case string
   }
 
@@ -122,9 +117,7 @@ public struct StreamEventRecord: Hashable, Sendable {
   @inlinable public var booleanValue: Bool { self.extra != 0 }
 }
 
-/// A run of events, in document order, delivered together: a chunk's worth on the byte fed and
-/// small-chunk path, a window's worth on the windowed path. The sink sees them with lookahead,
-/// and can take a run — numbers into an array, members into an object — in one pass.
+/// A run of recorded events in document order, delivered together (see `StreamEventBatchingSink`).
 public struct StreamEventBatch: ~Escapable {
   @usableFromInline let recordBase: UnsafePointer<StreamEventRecord>
   @usableFromInline let infoBase: UnsafePointer<NumberInfo>
@@ -145,10 +138,9 @@ public struct StreamEventBatch: ~Escapable {
     self.bufferBase = bufferBase
   }
 
-  // A batch over memory the caller owns rather than the parser's scratch. For the benchmark
-  // suite's replay rows, which record the batches a parse delivered and hand them back to a sink
-  // with no parser in the loop (`Benchmarks/.../PartialSinkReplayBenchmarks.swift`). Not API:
-  // nothing checks that the pointers agree with the records, which is the parser's job.
+  // A batch over caller-owned memory, for the benchmark suite's replay rows
+  // (`PartialSinkReplayBenchmarks.swift`). Not API: nothing checks that the pointers agree with the
+  // records.
   @_spi(Benchmarks)
   @_lifetime(borrow recordBase)
   public init(
@@ -176,11 +168,9 @@ public struct StreamEventBatch: ~Escapable {
     }
   }
 
-  // `extra` is the record's last stored property and its alignment is the record's, so the last
-  // four bytes of a record are exactly `extra` and there is no trailing padding to skip.
-  // Computed this way rather than through `MemoryLayout.offset(of:)` because a key path does not
-  // compile under Embedded Swift; `StreamEventRecordLayoutTests` pins the two against each other
-  // where key paths are available.
+  // `extra` is the record's last stored property, with the record's alignment, so it is the last
+  // four bytes. Not `MemoryLayout.offset(of:)`: key paths do not compile under Embedded Swift;
+  // `StreamEventRecordLayoutTests` pins the two where they do.
   @usableFromInline
   static var inlineBytesOffset: Int {
     MemoryLayout<StreamEventRecord>.size &- MemoryLayout<UInt32>.size
@@ -219,59 +209,39 @@ public struct StreamEventBatch: ~Escapable {
 /// A sink's answer to a container opening: how it wants the subtree delivered.
 ///
 /// Returned from ``StreamParseSink/beginObject()`` and ``StreamParseSink/beginArray()``. The
-/// answer is *advisory*: a deliverer that cannot skip — the batching adapter's replay, which has
-/// already recorded the subtree — delivers the interior anyway, so a sink answering ``skip``
-/// must still be correct receiving it (`PartialSink` keeps its ignored frame for exactly this).
-/// What the answer buys when the parser *can* honor it: the subtree's interior runs at
-/// structural-scan speed — no key matching, no number parse, no escape decode, no sink calls.
-///
-/// Non-exhaustive so a byte-delivering case (`wholeValue`, handing the subtree's raw bytes to
-/// the sink at the close) can be added without breaking clients that switch over this.
+/// answer is *advisory*: a deliverer that cannot skip (the batching adapter's replay) delivers the
+/// interior anyway, so a sink answering ``skip`` must still handle it. When the parser honors it,
+/// the interior runs at structural-scan speed with no sink calls. Non-exhaustive, so a
+/// byte-delivering case can be added later.
 @nonexhaustive
 public enum StreamContainerDisposition: UInt8, Hashable, Sendable {
   /// Parse and deliver the subtree token by token: the normal path.
   case stream = 0
-  /// The sink has no use for the subtree's interior. The parser skips to the matching close
-  /// and delivers only the matching `endObject`/`endArray` call — nothing in between.
+  /// The sink has no use for the subtree's interior: the parser skips to the matching close and
+  /// delivers only the matching `endObject`/`endArray` call.
   ///
-  /// A skipped interior is validated *structurally*, not tokenwise: brackets must match by
-  /// kind, strings must terminate (with control bytes still rejected and UTF-8 still
-  /// validated), and the depth cap still holds — but number grammar, escape selectors and
-  /// comma/colon placement inside it are not checked. A malformed interior a streaming sink
-  /// would have rejected can therefore pass under a skipping one.
+  /// A skipped interior is validated *structurally*: brackets match by kind, strings terminate
+  /// (control bytes and invalid UTF-8 still rejected) and the depth cap holds, but number grammar,
+  /// escape selectors and comma/colon placement are not checked, so a malformed interior a
+  /// streaming sink would reject can pass under a skipping one.
   case skip = 1
 }
 
 // MARK: - StreamParseSink
 
-/// Receives the parser's tokens.
+/// Receives the parser's tokens, one call per token at the lex points (inlined into the parse
+/// loop when specialized). Every span borrows the parser's input or buffer, is invalid once the
+/// call returns, has no readable padding, and ends on a UTF-8 boundary; a key is always whole, and
+/// a number is one call carrying the token and its parsed info.
 ///
-/// The per-token methods are the primary interface: the parser calls them at the lex points,
-/// and a sink compiled in the same specialization domain has them inlined into the parse loop —
-/// there is no transport between lexing a token and storing it. Every span borrows the parser's
-/// input or buffer and is invalid once the call returns; a key, string chunk or number is
-/// readable only within its span's count — there is no padding behind it. Every string and key
-/// span ends on a UTF-8 sequence boundary; a key is always whole (the parser reassembles one a
-/// chunk boundary or escape cut); a number is exactly one call carrying the whole token and its
-/// parsed info, so no sink re-lexes digits.
-///
-/// The two container opens return a ``StreamContainerDisposition``: a sink with no use for a
-/// subtree's interior answers ``StreamContainerDisposition/skip`` and the parser scans past it
-/// at structural speed, delivering only the matching close. The answer is advisory — see the
-/// disposition's own documentation for the contract.
-///
-/// No other method throws or returns a result: a check after every token sits on the hottest path
-/// and pins the callee's tail calls. A sink records its failure instead, and the parser polls
-/// ``streamFailure`` at token boundaries, reporting it at the token that provoked it. The failure
-/// is sticky: once recorded, later tokens must not clear it.
+/// The container opens return an advisory ``StreamContainerDisposition``. Nothing else throws or
+/// returns: a sink records its failure, which the parser polls through ``streamFailure`` at token
+/// boundaries and reports at the provoking token. Once recorded, later tokens must not clear it.
 public protocol StreamParseSink: ~Copyable {
 
-  // Structure. The parser owns grammar and depth; these observe — and answer. The returned
-  // disposition is deliberately not defaulted: a defaulted returning requirement silently
-  // shadows a conformer's `Void` implementation (the classic near-miss), and a sink author
-  // should decide, per container, whether the interior matters. Answer `.stream` when in doubt.
-  // The answer is advisory (see `StreamContainerDisposition`): a `.skip` answer may still be
-  // followed by the interior, but the matching end call always arrives.
+  // Structure. The disposition is deliberately not defaulted: a defaulted returning requirement
+  // silently shadows a conformer's `Void` implementation. Answer `.stream` when in doubt; after a
+  // `.skip` the interior may still arrive, but the matching end call always does.
   mutating func beginObject() -> StreamContainerDisposition
   mutating func endObject()
   mutating func beginArray() -> StreamContainerDisposition
@@ -281,15 +251,12 @@ public protocol StreamParseSink: ~Copyable {
   mutating func key(_ bytes: Span<UInt8>)
 
   /// The fallback string form: a value cut by a chunk boundary or carrying escapes arrives as
-  /// `stringBegin`, chunks, `stringEnd`. Rare per document, mandatory for correctness — a sink
-  /// that ignores these is wrong on chunked input.
+  /// `stringBegin`, chunks, `stringEnd`. Mandatory for correctness on chunked input.
   ///
-  /// Chunk boundaries carry no meaning; only the concatenated bytes do. Content ahead of a value's
-  /// first escape is a zero-copy borrow of the input. From the first escape onward, decoded escapes
-  /// and the literal runs between them are coalesced in the parser's buffer and delivered one chunk
-  /// per buffer-full, because fragment-by-fragment delivery made most chunks a single byte on
-  /// escape-dense corpora. A literal run at least as long as the buffer is still handed over in
-  /// place; an escape that straddles a parse call's end arrives as its own small chunk.
+  /// Chunk boundaries carry no meaning. Content before a value's first escape is a zero-copy
+  /// borrow of the input; from the first escape on, decoded escapes and the runs between them are
+  /// coalesced and delivered per buffer-full (a run at least a buffer long still goes in place, and
+  /// an escape straddling a parse call's end arrives as its own chunk).
   mutating func stringBegin()
   mutating func stringChunk(_ bytes: Span<UInt8>)
   mutating func stringEnd()
@@ -305,11 +272,9 @@ public protocol StreamParseSink: ~Copyable {
   mutating func boolean(_ value: Bool)
   mutating func null()
 
-  /// Called when memory the sink's spans borrowed is about to become invalid: at the end of
-  /// each parse call and at finish. A sink that deferred work referencing borrowed bytes — a
-  /// batching adapter holding record offsets into the input — must complete it now. The parser
-  /// signals lifetimes only; when and how much to buffer stays the sink's business. Defaulted
-  /// to a no-op.
+  /// Called when memory the sink's spans borrowed is about to become invalid: at the end of each
+  /// parse call and at finish. A sink that deferred work referencing borrowed bytes must complete
+  /// it now; when and how much to buffer stays its business. Defaulted to a no-op.
   mutating func commit()
 
   var streamFailure: StreamSinkFailure? { get }
@@ -333,11 +298,9 @@ extension StreamParseSink where Self: ~Copyable {
 
 extension StreamEventBatch {
   /// Replays the batch into a sink's per-token methods, stopping at the first recorded failure:
-  /// the receiving end of the batch transport, for a `StreamEventBatchConsumer` that drives an
-  /// ordinary sink on the far side of whatever boundary the batching crossed. Returns how many
-  /// events were taken — `count` when all were, or the index of the refused event. `.string`
-  /// records route through ``StreamParseSink/string(_:)`` so a whole-string override is honored
-  /// on this path too.
+  /// the far side of a `StreamEventBatchConsumer` boundary. Returns `count` when every event was
+  /// taken, or the index of the refused one. `.string` records go through
+  /// ``StreamParseSink/string(_:)``, so a whole-string override is honored.
   @inlinable
   public func replay<S: StreamParseSink & ~Copyable>(into sink: inout S) -> Int {
     let records = self.records
@@ -345,9 +308,8 @@ extension StreamEventBatch {
     while index < self.count {
       let record = records[index]
       switch record.kind {
-      // Dispositions are discarded: the subtree was already recorded, so there is nothing left
-      // to skip. The advisory contract is what makes that legal — a sink that answered `.skip`
-      // routes the interior through whatever it kept standing (PartialSink's ignored frame).
+      // Dispositions are discarded: the subtree was already recorded. Legal by the advisory
+      // contract; a `.skip` sink routes the interior through what it kept (an ignored frame).
       case .beginObject: _ = sink.beginObject()
       case .endObject: sink.endObject()
       case .beginArray: _ = sink.beginArray()
