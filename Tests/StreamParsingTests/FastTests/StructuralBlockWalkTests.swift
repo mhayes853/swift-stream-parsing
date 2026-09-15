@@ -60,10 +60,7 @@ struct StructuralBlockWalkTests {
     var streamFailure: StreamSinkFailure? { nil }
 
     private static func text(_ bytes: Span<UInt8>) -> String {
-      var out = [UInt8]()
-      out.reserveCapacity(bytes.count)
-      for index in 0..<bytes.count { out.append(bytes[index]) }
-      return String(decoding: out, as: UTF8.self)
+      String(decoding: streamCopy(bytes), as: UTF8.self)
     }
   }
 

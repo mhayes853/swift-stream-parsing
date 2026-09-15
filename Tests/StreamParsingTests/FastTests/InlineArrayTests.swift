@@ -36,15 +36,7 @@ struct `InlineArray parsing tests` {
     _ json: String,
     as type: Root.Type
   ) -> StreamSinkFailure.Reason? {
-    do {
-      _ = try self.parse(json, as: type)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    streamFailureReason(json, as: type)
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)

@@ -29,10 +29,8 @@ import StreamParsingCore
 @Suite
 struct `Number buffer bounds tests` {
   private static func parse(_ text: String) throws -> [UInt64] {
-    var parser = JSONParser()
     var sink = BoundsRecordingSink()
-    try Array(text.utf8).withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-    try parser.finish(into: &sink)
+    try feed(Array(text.utf8), into: &sink)
     return sink.magnitudes
   }
 

@@ -11,17 +11,8 @@ import StreamParsingCore
 @Suite
 struct `Error offset tests` {
   private static func parse(_ bytes: [UInt8], splitAt: Int) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
-      let second = UnsafeBufferPointer(
-        start: buffer.baseAddress! + splitAt, count: buffer.count - splitAt
-      )
-      if !first.isEmpty { try parser.parse(first, into: &sink) }
-      if !second.isEmpty { try parser.parse(second, into: &sink) }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, splitAt: splitAt, into: &sink)
   }
 
   private static func failure(_ bytes: [UInt8], splitAt: Int) -> JSONParsingError? {
@@ -36,13 +27,9 @@ struct `Error offset tests` {
   }
 
   private static func bytewiseFailure(_ bytes: [UInt8]) -> JSONParsingError? {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
     do {
-      for byte in bytes {
-        try parser.parse(byte: byte, into: &sink)
-      }
-      try parser.finish(into: &sink)
+      try feedByByte(bytes, into: &sink)
       return nil
     } catch {
       return error

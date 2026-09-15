@@ -31,15 +31,7 @@ struct `Partial sink failure tests` {
     _ json: String, chunk: Int = .max
   ) -> StreamSinkFailure.Reason? {
     var value = StrictValues.Partial()
-    do {
-      try parsePartial(json, into: &value, chunk: chunk)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    return streamFailureReason(json, into: &value, chunk: chunk)
   }
 
   // MARK: - Type mismatches
@@ -148,16 +140,7 @@ struct `Partial sink failure tests` {
   private func failure<Root: StreamParseableRoot>(
     _ json: String, as type: Root.Type, chunk: Int = .max
   ) -> StreamSinkFailure.Reason? {
-    var value = Root.streamInitialValue()
-    do {
-      try parsePartial(json, into: &value, chunk: chunk)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    streamFailureReason(json, as: type, chunk: chunk)
   }
 
   @Test(arguments: [Int.max, 7, 1])

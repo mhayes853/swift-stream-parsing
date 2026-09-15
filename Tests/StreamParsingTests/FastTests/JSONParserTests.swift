@@ -103,19 +103,8 @@ struct TreeSink: StreamParseSink {
 }
 
 private func parse(_ json: String, chunk: Int = .max) throws -> TreeSink {
-  var parser = JSONParser()
   var sink = TreeSink()
-  let bytes = Array(json.utf8)
-  try bytes.withUnsafeBufferPointer { buffer in
-    var i = 0
-    while i < buffer.count {
-      let count = min(chunk, buffer.count - i)
-      let slice = UnsafeBufferPointer(start: buffer.baseAddress! + i, count: count)
-      try parser.parse(slice, into: &sink)
-      i += count
-    }
-  }
-  try parser.finish(into: &sink)
+  try feed(Array(json.utf8), chunk: chunk, into: &sink)
   return sink
 }
 

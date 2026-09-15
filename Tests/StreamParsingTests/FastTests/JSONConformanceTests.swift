@@ -9,18 +9,8 @@ import StreamParsingCore
 @Suite
 struct `JSON conformance tests` {
   private static func parse(_ bytes: [UInt8], chunk: Int) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      var i = 0
-      while i < buffer.count {
-        let count = min(chunk, buffer.count - i)
-        let slice = UnsafeBufferPointer(start: buffer.baseAddress! + i, count: count)
-        try parser.parse(slice, into: &sink)
-        i += count
-      }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, chunk: chunk, into: &sink)
   }
 
   private static func expectRejected(_ json: String, _ sourceLocation: SourceLocation = #_sourceLocation) {
