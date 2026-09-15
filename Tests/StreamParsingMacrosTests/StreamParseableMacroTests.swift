@@ -1416,32 +1416,12 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
-            var _streamCase_circle: StreamParsingCore.StreamEmptyObject.Partial?
-            var _streamCase: Int32
-
-            var circle: StreamParsingCore.StreamEmptyObject.Partial? {
-              get {
-                self._streamCase_circle
-              }
-              _modify {
-                defer {
-                  self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                    self._streamCase, case: 0, present: self._streamCase_circle != nil
-                  )
-                }
-                yield &self._streamCase_circle
-              }
-            }
+            var circle: StreamParsingCore.StreamEmptyObject.Partial?
 
             init(
               circle: StreamParsingCore.StreamEmptyObject.Partial? = nil
             ) {
-              self._streamCase_circle = circle
-              var streamCase: Int32 = -1
-              streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                streamCase, case: 0, present: circle != nil
-              )
-              self._streamCase = streamCase
+              self.circle = circle
             }
 
             // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
@@ -1465,7 +1445,7 @@ extension BaseTestSuite {
             var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_circle) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.circle) else {
                     return nil
                   }
                   return _overrideLifetime(StreamParsingCore.StreamEmptyObject.Partial.streamView(address), borrowing: self)
@@ -1483,25 +1463,20 @@ extension BaseTestSuite {
             var resolved: ResolvedView {
               @_lifetime(borrow self)
               get {
-                var streamMatched = self._streamStorage.pointee._streamCase
-                if streamMatched < -1 {
-                  var streamMatches = 0
-                if self._streamStorage.pointee._streamCase_circle != nil {
-                    streamMatched = 0;
-                    streamMatches += 1
+                var streamMatched = -1
+                var streamMatches = 0
+              if self._streamStorage.pointee.circle != nil {
+                  streamMatched = 0;
+                  streamMatches += 1
+                }
+                guard streamMatches == 1 else {
+                  if streamMatches == 0 {
+                    return .unresolved
                   }
-                  guard streamMatches == 1 else {
-                    if streamMatches == 0 {
-                      return .unresolved
-                    }
-                    return .ambiguous
-                  }
+                  return .ambiguous
                 }
                 switch streamMatched {
               case 0:
-                guard self._streamStorage.pointee._streamCase_circle != nil else {
-                  return .unresolved
-                }
                 return .circle
                 default:
                   return .unresolved
@@ -1537,7 +1512,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, utf8: bytes)
+                return streamApply(&p.pointee.circle, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -1550,7 +1525,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, bytes: bytes, info: info)
+                return streamApply(&p.pointee.circle, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -1562,7 +1537,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, boolean: value)
+                return streamApply(&p.pointee.circle, boolean: value)
               default:
                 return .unsupported
               }
@@ -1574,7 +1549,7 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return StreamParsing.streamApplyNull(&p.pointee._streamCase_circle)
+                return StreamParsing.streamApplyNull(&p.pointee.circle)
               default:
                 return .unsupported
               }
@@ -1586,11 +1561,8 @@ extension BaseTestSuite {
               [
                 StreamParsingCore.StreamField(
                   key: "circle", index: Self.StreamField.circle,
-                  route: StreamParsing._streamEnumCaseRoute(
-                    &p.pointee._streamCase_circle, in: p, schema: Self.streamContainerSchema_circle, case: Self.StreamField.circle,
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  ),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase_circle, in: p)
+                  route: _streamFieldRoute(&p.pointee.circle, schema: Self.streamContainerSchema_circle),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.circle, in: p)
                 ),
               ]
             }
@@ -1614,22 +1586,17 @@ extension BaseTestSuite {
           /// the same document — and, for a case with associated values, unless that one case's own
           /// payload has everything it needs yet.
           init?(streamPartial partial: Partial) {
-            var streamMatched: Int32 = partial._streamCase
-            if streamMatched < -1 {
-              var streamMatches = 0
-              if partial._streamCase_circle != nil {
-                streamMatched = 0
-                streamMatches += 1
-              }
-              guard streamMatches == 1 else {
-                return nil
-              }
+            var streamMatched = -1
+            var streamMatches = 0
+            if partial.circle != nil {
+              streamMatched = 0
+              streamMatches += 1
+            }
+            guard streamMatches == 1 else {
+              return nil
             }
             switch streamMatched {
             case 0:
-              guard partial._streamCase_circle != nil else {
-                return nil
-              }
               self = .circle
             default:
               return nil
@@ -1746,51 +1713,15 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseableObject, Sendable {
             typealias Partial = Self
 
-            var _streamCase_default: DefaultPayload.Partial?
-            var _streamCase_class: StreamParsingCore.StreamEmptyObject.Partial?
-            var _streamCase: Int32
-
-            var `default`: DefaultPayload.Partial? {
-              get {
-                self._streamCase_default
-              }
-              _modify {
-                defer {
-                  self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                    self._streamCase, case: 0, present: self._streamCase_default != nil
-                  )
-                }
-                yield &self._streamCase_default
-              }
-            }
-            var `class`: StreamParsingCore.StreamEmptyObject.Partial? {
-              get {
-                self._streamCase_class
-              }
-              _modify {
-                defer {
-                  self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                    self._streamCase, case: 1, present: self._streamCase_class != nil
-                  )
-                }
-                yield &self._streamCase_class
-              }
-            }
+            var `default`: DefaultPayload.Partial?
+            var `class`: StreamParsingCore.StreamEmptyObject.Partial?
 
             init(
               `default`: DefaultPayload.Partial? = nil,
               `class`: StreamParsingCore.StreamEmptyObject.Partial? = nil
             ) {
-              self._streamCase_default = `default`
-              self._streamCase_class = `class`
-              var streamCase: Int32 = -1
-              streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                streamCase, case: 0, present: `default` != nil
-              )
-              streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                streamCase, case: 1, present: `class` != nil
-              )
-              self._streamCase = streamCase
+              self.`default` = `default`
+              self.`class` = `class`
             }
 
             // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
@@ -1814,7 +1745,7 @@ extension BaseTestSuite {
             var `default`: DefaultPayload.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_default) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`default`) else {
                     return nil
                   }
                   return _overrideLifetime(DefaultPayload.Partial.streamView(address), borrowing: self)
@@ -1824,7 +1755,7 @@ extension BaseTestSuite {
             var `class`: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_class) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`class`) else {
                     return nil
                   }
                   return _overrideLifetime(StreamParsingCore.StreamEmptyObject.Partial.streamView(address), borrowing: self)
@@ -1843,27 +1774,25 @@ extension BaseTestSuite {
             var resolved: ResolvedView {
               @_lifetime(borrow self)
               get {
-                var streamMatched = self._streamStorage.pointee._streamCase
-                if streamMatched < -1 {
-                  var streamMatches = 0
-                if self._streamStorage.pointee._streamCase_default != nil {
-                    streamMatched = 0;
-                    streamMatches += 1
+                var streamMatched = -1
+                var streamMatches = 0
+              if self._streamStorage.pointee.`default` != nil {
+                  streamMatched = 0;
+                  streamMatches += 1
+                }
+              if self._streamStorage.pointee.`class` != nil {
+                  streamMatched = 1;
+                  streamMatches += 1
+                }
+                guard streamMatches == 1 else {
+                  if streamMatches == 0 {
+                    return .unresolved
                   }
-                if self._streamStorage.pointee._streamCase_class != nil {
-                    streamMatched = 1;
-                    streamMatches += 1
-                  }
-                  guard streamMatches == 1 else {
-                    if streamMatches == 0 {
-                      return .unresolved
-                    }
-                    return .ambiguous
-                  }
+                  return .ambiguous
                 }
                 switch streamMatched {
               case 0:
-                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_default)
+                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`default`)
                 else {
                   return .unresolved
                 }
@@ -1872,9 +1801,6 @@ extension BaseTestSuite {
                   borrowing: self
                 )
               case 1:
-                guard self._streamStorage.pointee._streamCase_class != nil else {
-                  return .unresolved
-                }
                 return .`class`
                 default:
                   return .unresolved
@@ -1914,9 +1840,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.`default`:
-                return streamApply(&p.pointee._streamCase_default, utf8: bytes)
+                return streamApply(&p.pointee.`default`, utf8: bytes)
               case Self.StreamField.`class`:
-                return streamApply(&p.pointee._streamCase_class, utf8: bytes)
+                return streamApply(&p.pointee.`class`, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -1929,9 +1855,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.`default`:
-                return streamApply(&p.pointee._streamCase_default, bytes: bytes, info: info)
+                return streamApply(&p.pointee.`default`, bytes: bytes, info: info)
               case Self.StreamField.`class`:
-                return streamApply(&p.pointee._streamCase_class, bytes: bytes, info: info)
+                return streamApply(&p.pointee.`class`, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -1943,9 +1869,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.`default`:
-                return streamApply(&p.pointee._streamCase_default, boolean: value)
+                return streamApply(&p.pointee.`default`, boolean: value)
               case Self.StreamField.`class`:
-                return streamApply(&p.pointee._streamCase_class, boolean: value)
+                return streamApply(&p.pointee.`class`, boolean: value)
               default:
                 return .unsupported
               }
@@ -1957,9 +1883,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.`default`:
-                return StreamParsing.streamApplyNull(&p.pointee._streamCase_default)
+                return StreamParsing.streamApplyNull(&p.pointee.`default`)
               case Self.StreamField.`class`:
-                return StreamParsing.streamApplyNull(&p.pointee._streamCase_class)
+                return StreamParsing.streamApplyNull(&p.pointee.`class`)
               default:
                 return .unsupported
               }
@@ -1971,19 +1897,13 @@ extension BaseTestSuite {
               [
                 StreamParsingCore.StreamField(
                   key: "default", index: Self.StreamField.`default`,
-                  route: StreamParsing._streamEnumCaseRoute(
-                    &p.pointee._streamCase_default, in: p, schema: Self.streamContainerSchema_default, case: Self.StreamField.`default`,
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  ),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase_default, in: p)
+                  route: _streamFieldRoute(&p.pointee.`default`, schema: Self.streamContainerSchema_default),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.`default`, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "class", index: Self.StreamField.`class`,
-                  route: StreamParsing._streamEnumCaseRoute(
-                    &p.pointee._streamCase_class, in: p, schema: Self.streamContainerSchema_class, case: Self.StreamField.`class`,
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  ),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase_class, in: p)
+                  route: _streamFieldRoute(&p.pointee.`class`, schema: Self.streamContainerSchema_class),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.`class`, in: p)
                 ),
               ]
             }
@@ -2179,33 +2099,27 @@ extension BaseTestSuite {
           /// the same document — and, for a case with associated values, unless that one case's own
           /// payload has everything it needs yet.
           init?(streamPartial partial: Partial) {
-            var streamMatched: Int32 = partial._streamCase
-            if streamMatched < -1 {
-              var streamMatches = 0
-              if partial._streamCase_default != nil {
-                streamMatched = 0
-                streamMatches += 1
-              }
-              if partial._streamCase_class != nil {
-                streamMatched = 1
-                streamMatches += 1
-              }
-              guard streamMatches == 1 else {
-                return nil
-              }
+            var streamMatched = -1
+            var streamMatches = 0
+            if partial.`default` != nil {
+              streamMatched = 0
+              streamMatches += 1
+            }
+            if partial.`class` != nil {
+              streamMatched = 1
+              streamMatches += 1
+            }
+            guard streamMatches == 1 else {
+              return nil
             }
             switch streamMatched {
             case 0:
-              guard partial._streamCase_default != nil,
-                let streamValue = DefaultPayload.Value(streamPartial: partial._streamCase_default!)
+              guard let streamValue = DefaultPayload.Value(streamPartial: partial.`default`!)
               else {
                 return nil
               }
               self = .`default`(streamValue._0)
             case 1:
-              guard partial._streamCase_class != nil else {
-                return nil
-              }
               self = .`class`
             default:
               return nil
@@ -3641,51 +3555,15 @@ extension BaseTestSuite {
             StreamParsingCore.StreamParseableObject, Sendable {
             public typealias Partial = Self
 
-            @usableFromInline var _streamCase_circle: StreamParsingCore.StreamEmptyObject.Partial?
-            @usableFromInline var _streamCase_square: StreamParsingCore.StreamEmptyObject.Partial?
-            @usableFromInline var _streamCase: Int32
-
-            @inlinable public var circle: StreamParsingCore.StreamEmptyObject.Partial? {
-              get {
-                self._streamCase_circle
-              }
-              _modify {
-                defer {
-                  self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                    self._streamCase, case: 0, present: self._streamCase_circle != nil
-                  )
-                }
-                yield &self._streamCase_circle
-              }
-            }
-            @inlinable public var square: StreamParsingCore.StreamEmptyObject.Partial? {
-              get {
-                self._streamCase_square
-              }
-              _modify {
-                defer {
-                  self._streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                    self._streamCase, case: 1, present: self._streamCase_square != nil
-                  )
-                }
-                yield &self._streamCase_square
-              }
-            }
+            public var circle: StreamParsingCore.StreamEmptyObject.Partial?
+            public var square: StreamParsingCore.StreamEmptyObject.Partial?
 
             public init(
               circle: StreamParsingCore.StreamEmptyObject.Partial? = nil,
               square: StreamParsingCore.StreamEmptyObject.Partial? = nil
             ) {
-              self._streamCase_circle = circle
-              self._streamCase_square = square
-              var streamCase: Int32 = -1
-              streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                streamCase, case: 0, present: circle != nil
-              )
-              streamCase = StreamParsing._streamEnumCaseAfterWrite(
-                streamCase, case: 1, present: square != nil
-              )
-              self._streamCase = streamCase
+              self.circle = circle
+              self.square = square
             }
 
             // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
@@ -3709,7 +3587,7 @@ extension BaseTestSuite {
             @inlinable public var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_circle) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.circle) else {
                     return nil
                   }
                   return _overrideLifetime(StreamParsingCore.StreamEmptyObject.Partial.streamView(address), borrowing: self)
@@ -3719,7 +3597,7 @@ extension BaseTestSuite {
             @inlinable public var square: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._streamCase_square) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.square) else {
                     return nil
                   }
                   return _overrideLifetime(StreamParsingCore.StreamEmptyObject.Partial.streamView(address), borrowing: self)
@@ -3738,34 +3616,26 @@ extension BaseTestSuite {
             @inlinable public var resolved: ResolvedView {
               @_lifetime(borrow self)
               get {
-                var streamMatched = self._streamStorage.pointee._streamCase
-                if streamMatched < -1 {
-                  var streamMatches = 0
-                if self._streamStorage.pointee._streamCase_circle != nil {
-                    streamMatched = 0;
-                    streamMatches += 1
+                var streamMatched = -1
+                var streamMatches = 0
+              if self._streamStorage.pointee.circle != nil {
+                  streamMatched = 0;
+                  streamMatches += 1
+                }
+              if self._streamStorage.pointee.square != nil {
+                  streamMatched = 1;
+                  streamMatches += 1
+                }
+                guard streamMatches == 1 else {
+                  if streamMatches == 0 {
+                    return .unresolved
                   }
-                if self._streamStorage.pointee._streamCase_square != nil {
-                    streamMatched = 1;
-                    streamMatches += 1
-                  }
-                  guard streamMatches == 1 else {
-                    if streamMatches == 0 {
-                      return .unresolved
-                    }
-                    return .ambiguous
-                  }
+                  return .ambiguous
                 }
                 switch streamMatched {
               case 0:
-                guard self._streamStorage.pointee._streamCase_circle != nil else {
-                  return .unresolved
-                }
                 return .circle
               case 1:
-                guard self._streamStorage.pointee._streamCase_square != nil else {
-                  return .unresolved
-                }
                 return .square
                 default:
                   return .unresolved
@@ -3809,9 +3679,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, utf8: bytes)
+                return streamApply(&p.pointee.circle, utf8: bytes)
               case Self.StreamField.square:
-                return streamApply(&p.pointee._streamCase_square, utf8: bytes)
+                return streamApply(&p.pointee.square, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -3824,9 +3694,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, bytes: bytes, info: info)
+                return streamApply(&p.pointee.circle, bytes: bytes, info: info)
               case Self.StreamField.square:
-                return streamApply(&p.pointee._streamCase_square, bytes: bytes, info: info)
+                return streamApply(&p.pointee.square, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -3838,9 +3708,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return streamApply(&p.pointee._streamCase_circle, boolean: value)
+                return streamApply(&p.pointee.circle, boolean: value)
               case Self.StreamField.square:
-                return streamApply(&p.pointee._streamCase_square, boolean: value)
+                return streamApply(&p.pointee.square, boolean: value)
               default:
                 return .unsupported
               }
@@ -3852,9 +3722,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.circle:
-                return StreamParsing.streamApplyNull(&p.pointee._streamCase_circle)
+                return StreamParsing.streamApplyNull(&p.pointee.circle)
               case Self.StreamField.square:
-                return StreamParsing.streamApplyNull(&p.pointee._streamCase_square)
+                return StreamParsing.streamApplyNull(&p.pointee.square)
               default:
                 return .unsupported
               }
@@ -3866,19 +3736,13 @@ extension BaseTestSuite {
               [
                 StreamParsingCore.StreamField(
                   key: "circle", index: Self.StreamField.circle,
-                  route: StreamParsing._streamEnumCaseRoute(
-                    &p.pointee._streamCase_circle, in: p, schema: Self.streamContainerSchema_circle, case: Self.StreamField.circle,
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  ),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase_circle, in: p)
+                  route: _streamFieldRoute(&p.pointee.circle, schema: Self.streamContainerSchema_circle),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.circle, in: p)
                 ),
                 StreamParsingCore.StreamField(
                   key: "square", index: Self.StreamField.square,
-                  route: StreamParsing._streamEnumCaseRoute(
-                    &p.pointee._streamCase_square, in: p, schema: Self.streamContainerSchema_square, case: Self.StreamField.square,
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  ),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase_square, in: p)
+                  route: _streamFieldRoute(&p.pointee.square, schema: Self.streamContainerSchema_square),
+                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.square, in: p)
                 ),
               ]
             }
@@ -3902,31 +3766,23 @@ extension BaseTestSuite {
           /// the same document — and, for a case with associated values, unless that one case's own
           /// payload has everything it needs yet.
           @inlinable public init?(streamPartial partial: Partial) {
-            var streamMatched: Int32 = partial._streamCase
-            if streamMatched < -1 {
-              var streamMatches = 0
-              if partial._streamCase_circle != nil {
-                streamMatched = 0
-                streamMatches += 1
-              }
-              if partial._streamCase_square != nil {
-                streamMatched = 1
-                streamMatches += 1
-              }
-              guard streamMatches == 1 else {
-                return nil
-              }
+            var streamMatched = -1
+            var streamMatches = 0
+            if partial.circle != nil {
+              streamMatched = 0
+              streamMatches += 1
+            }
+            if partial.square != nil {
+              streamMatched = 1
+              streamMatches += 1
+            }
+            guard streamMatches == 1 else {
+              return nil
             }
             switch streamMatched {
             case 0:
-              guard partial._streamCase_circle != nil else {
-                return nil
-              }
               self = .circle
             case 1:
-              guard partial._streamCase_square != nil else {
-                return nil
-              }
               self = .square
             default:
               return nil

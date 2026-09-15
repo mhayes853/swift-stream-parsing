@@ -254,15 +254,11 @@ extension StreamParseableMacro {
     return false
   }
 
-  /// `discriminated` is the raw-less enum lowering: every property is a case, stored under its
-  /// `storageName` behind a public wrapper, and `_streamCase` tracks which one is set. See
-  /// `discriminatorMembers`.
   static func partialStructDecl(
     for properties: [StoredProperty],
     accessModifier: String?,
     membersMode: PartialMembersMode,
-    extraViewMembers: String = "",
-    discriminated: Bool = false
+    extraViewMembers: String = ""
   ) -> DeclSyntax {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
     let inlinable = Self.isInlinable(accessModifier)
@@ -270,21 +266,17 @@ extension StreamParseableMacro {
     let propertyLines = Self.partialStructProperties(
       from: properties,
       modifierPrefix: modifierPrefix,
-      membersMode: membersMode,
-      discriminated: discriminated,
-      inlinable: inlinable
+      membersMode: membersMode
     )
     let initializerLines = Self.partialStructInitializer(
       from: properties,
       modifierPrefix: modifierPrefix,
-      membersMode: membersMode,
-      discriminated: discriminated
+      membersMode: membersMode
     )
     let schemaLines = Self.partialStructSchema(
       from: properties,
       modifierPrefix: modifierPrefix,
-      inlinable: inlinable,
-      discriminated: discriminated
+      inlinable: inlinable
     )
     let viewLines = Self.partialStructView(
       from: properties,
@@ -335,7 +327,7 @@ extension StreamParseableMacro {
             \(inline)\(modifierPrefix)var \(property.memberName): \(type).View? {
                 @_lifetime(borrow self)
                 get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.storageMember)) else {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.memberName)) else {
                     return nil
                   }
                   return _overrideLifetime(\(type).streamView(address), borrowing: self)
@@ -553,9 +545,7 @@ extension StreamParseableMacro {
       """ + "\n\n  "
   }
 
-  private static func schemaCases(
-    for properties: [StoredProperty], discriminated: Bool
-  ) -> SchemaCases {
+  private static func schemaCases(for properties: [StoredProperty]) -> SchemaCases {
     var cases = SchemaCases()
     for property in properties {
       let field = "Self.StreamField.\(property.memberName)"
@@ -565,24 +555,15 @@ extension StreamParseableMacro {
         cases.match.append("    case \(word)\(guardClause): return \(field)")
       }
 
-      let target = "p.pointee.\(property.storageMember)"
+      let target = "p.pointee.\(property.memberName)"
       let constant = "streamContainerSchema_\(property.name)"
       let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
-      let route =
-        discriminated
-        ? """
-          StreamParsing._streamEnumCaseRoute(
-                    &\(target), in: p, schema: Self.\(constant), case: \(field),
-                    discriminatorOffset: StreamParsingCore._streamFieldOffset(&p.pointee._streamCase, in: p)
-                  )
-          """
-        : "_streamFieldRoute(&\(target), schema: Self.\(constant)\(capacityArgument))"
       for key in property.keyNames {
         cases.fields.append(
           """
                 StreamParsingCore.StreamField(
                   key: \(Self.stringLiteral(key)), index: \(field),
-                  route: \(route),
+                  route: _streamFieldRoute(&\(target), schema: Self.\(constant)\(capacityArgument)),
                   offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)
                 ),
           """
@@ -613,12 +594,11 @@ extension StreamParseableMacro {
   private static func partialStructSchema(
     from properties: [StoredProperty],
     modifierPrefix: String,
-    inlinable: Bool,
-    discriminated: Bool
+    inlinable: Bool
   ) -> String {
     let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
-    let cases = Self.schemaCases(for: active, discriminated: discriminated)
+    let cases = Self.schemaCases(for: active)
 
     func switchBody(_ cases: [String]) -> String {
       cases.isEmpty ? "" : cases.joined(separator: "\n") + "\n"
@@ -673,24 +653,14 @@ extension StreamParseableMacro {
   private static func partialStructProperties(
     from properties: [StoredProperty],
     modifierPrefix: String,
-    membersMode: PartialMembersMode,
-    discriminated: Bool,
-    inlinable: Bool
+    membersMode: PartialMembersMode
   ) -> String {
-    let active = properties.filter { !$0.isIgnored }
-    guard discriminated else {
-      return active
-        .map { property in
-          let type = Self.memberTypeName(for: property, membersMode: membersMode)
-          return "  \(modifierPrefix)var \(property.memberName): \(type)"
-        }
-        .joined(separator: "\n")
-    }
-    return Self.discriminatorMembers(
-      for: active.map { ($0, Self.memberTypeName(for: $0, membersMode: membersMode)) },
-      modifierPrefix: modifierPrefix,
-      inlinable: inlinable
-    )
+    let lines = properties.filter { !$0.isIgnored }
+      .map { property in
+        let type = Self.memberTypeName(for: property, membersMode: membersMode)
+        return "  \(modifierPrefix)var \(property.memberName): \(type)"
+      }
+    return lines.joined(separator: "\n")
   }
 
   // The partial storage a property's *wrapped* type describes, with no optionality of its own.
@@ -759,8 +729,7 @@ extension StreamParseableMacro {
   private static func partialStructInitializer(
     from properties: [StoredProperty],
     modifierPrefix: String,
-    membersMode: PartialMembersMode,
-    discriminated: Bool
+    membersMode: PartialMembersMode
   ) -> String {
     let activeProperties = properties.filter { !$0.isIgnored }
     let parameters =
@@ -770,15 +739,12 @@ extension StreamParseableMacro {
         return "\(property.memberName): \(type) = \(membersMode.defaultValueSyntax)"
       }
       .joined(separator: ",\n    ")
-    var assignments =
+    let assignments =
       activeProperties
       .map { property in
-        "    self.\(property.storageMember) = \(property.memberName)"
+        "    self.\(property.memberName) = \(property.memberName)"
       }
       .joined(separator: "\n")
-    if discriminated {
-      assignments += "\n" + Self.discriminatorInitialization(for: activeProperties)
-    }
     return """
       \(modifierPrefix)init(
           \(parameters)
@@ -999,14 +965,9 @@ extension StreamParseableMacro {
     /// inlinable member may read it. `nil` for a generated property, as visible as its type.
     var access: String? = nil
     var isUsableFromInline = false
-    /// Where the value is stored when that is not `memberName`: a raw-less enum's case storage.
-    var storageName: String? = nil
 
     /// `name`, re-escaped wherever the identifier itself is emitted.
     var memberName: String { StreamParseableMacro.memberIdentifier(for: self.name) }
-
-    /// The stored property the sink, the table and the view address.
-    var storageMember: String { self.storageName ?? self.memberName }
 
     func isReadableInline(from typeAccess: String?) -> Bool {
       if self.isUsableFromInline { return true }
