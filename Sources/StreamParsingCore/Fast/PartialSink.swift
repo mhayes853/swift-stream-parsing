@@ -616,10 +616,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
-    let result = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
-      let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-      return target.withSchema { $0.applyString(target.storage, target.field, Span(_unsafeElements: empty)) }
-    }
+    let result = target.withSchema { $0.applyString(target.storage, target.field, Span()) }
     if result != .applied {
       self.scalarTarget = nil
       self.recordFailure(Self.failureReason(for: result))
@@ -1477,10 +1474,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // The closure route, exactly as before the table: the empty span materialises and settles.
       let target = self.scalarTarget.unsafelyUnwrapped
       let field = entry.pointee.index
-      return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
-        let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-        return target.withSchema { $0.applyString(storage, field, Span(_unsafeElements: empty)) }
-      }
+      return target.withSchema { $0.applyString(storage, field, Span()) }
     default:
       return .unsupported
     }
@@ -1512,12 +1506,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
       return _streamInlineStringAppend(member, capacity: entry.pointee.capacity, bytes)
     case .custom:
-      let opened = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { buffer in
-        let empty = UnsafeBufferPointer(start: buffer.baseAddress, count: 0)
-        return frame.pointee.schema.applyString(
-          storage, entry.pointee.index, Span(_unsafeElements: empty)
-        )
-      }
+      let opened = frame.pointee.schema.applyString(storage, entry.pointee.index, Span())
       if opened != .applied { return opened }
       if bytes.count > 0 {
         return frame.pointee.schema.applyString(storage, entry.pointee.index, bytes)
