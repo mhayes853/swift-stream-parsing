@@ -212,7 +212,7 @@ public final class StreamSchema: @unchecked Sendable {
   // Where a key arriving at this schema has to go, precomputed into one byte.
   //
   // A schema call costs a closure load, a retain, an indirect call and a release — 17 ns against
-  // 4.6 ns for a bare function pointer, measured in `SchemaDispatchBenchmarks` — and a schema with
+  // 4.6 ns for a bare function pointer — and a schema with
   // no matcher spends all of it to reach `{ _ in -1 }`. That is not a rare case: the schema stood
   // up for a subtree the destination has no field for is this one, and 52% of `twitter.json`'s
   // 13,345 keys are inside such a subtree when parsed into a model that declares part of it, which
@@ -317,15 +317,6 @@ public final class StreamSchema: @unchecked Sendable {
   // Returns the slot of the value stored under a dynamic key, written through
   // ``elementSchema``. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
-
-  // Returns the slot of the element or value that is currently open, with the storage holding it
-  // made unique first: the address `appendElement` or `enterKey` last returned, or its copy if a
-  // snapshot has shared the block since. Arrays and dictionaries only; nil for a schema with no
-
-  // Makes the container safe to write into before its first element or value opens: what the
-  // sink calls once on entering an array or dictionary, so nothing has to be asked per element
-  // (see `StreamArray.nextSlot`). Storage the value arrived with may be shared -- a caller's
-  // initial value, a template a conformer built with elements in it -- and this freezes it in
 
   // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
   // appends the `number` records in `from..<to` and returns how many it took. Arrays of
@@ -599,7 +590,7 @@ extension StreamParseableRoot where View == StreamPointerView<Self> {
 /// need to expose their shape in source syntax. A partial whose storage is described directly by
 /// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
 public protocol StreamContainerPartial: StreamParseableRoot {
-  /// The schema ``streamContainerFrame(at:schema:)`` installs.
+  /// The schema a container entry installs on the frame it pushes.
   ///
   /// Separated from the frame so a caller can resolve it once and store it: `streamSchema` is a
   /// computed property on every generic partial, so reading it per entry allocates per container
@@ -854,6 +845,11 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
     },
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
+    // Deliberately *not* guarded on `element.shape == .scalar` the way the three sibling builders
+    // are: a SIMD element's schema has shape `.array` (`_streamSIMD2DoubleSchema`), and that
+    // guard would demote `.arraySIMD2Double` and its five siblings to `.generic`, losing the
+    // lane-store route for every array of SIMD vectors. `_StreamLeafRoute.array(_)` already maps
+    // every route it does not recognise to `.generic`, so the guard buys nothing here.
     leafRoute: .array(element.leafRoute),
     inlineCapacity: element.inlineCapacity,
     templateOwner: owner
@@ -963,7 +959,16 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
         : .generic),
     fixedElementCount: base.fixedElementCount,
     inlineCapacity: base.inlineCapacity,
-    fields: base.fields
+    fields: base.fields,
+    // `appendElement` and `enterKey` above dereference a raw template pointer whose allocation
+    // the base's `templateOwner` box owns, so the derived schema has to keep that box alive: it
+    // can outlive the base (a caller's `streamSchema` is often a computed property) and the
+    // box's `deinit` destroys and frees the template.
+    //
+    // Not carried: `prepareRoot`, which only ever runs against the sink's root and an element
+    // schema is never a root; and `appendNumbers`, whose closure binds `storage` to the *base's*
+    // storage type, where the storage an optional element hands it is one `Optional` deeper.
+    templateOwner: base.templateOwner
   )
 }
 

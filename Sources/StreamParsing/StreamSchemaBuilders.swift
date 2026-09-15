@@ -61,7 +61,7 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
 
 // MARK: - Hoisted container schemas
 
-// The schema a field's `streamContainerFrame` will install, or nil when the field's storage is
+// The schema a field's container entry will install, or nil when the field's storage is
 // not a container at all. The macro calls this once per field into a `private static let`, so
 // the schema exists exactly once per `Partial` type and outlives every frame that borrows it —
 // where reading `T.streamSchema` inside the entry allocated a schema per container occurrence
@@ -230,8 +230,13 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 // Evaluating `T.streamInitialValue()` inside the closure re-entered the runtime's locking
 // generic-metadata caches on every occurrence — `StreamArray<Element>()` cannot cache its own
 // template (generic types have no stored statics), so the template lives in this closure's
-// context instead, in a leaked one-slot allocation because the schema owning the closure is
-// itself immortal.
+// context instead. The allocation is owned by a `_StreamTemplateStorage` box that the closure
+// captures purely for its lifetime: `StreamFieldPrepare` is a bare closure typealias, so the
+// context is the only place on the field table that can hold the box, and the body never touches
+// it -- no retain, no release and no load per call. It used to be leaked outright, which is only
+// correct when the schema owning the closure is itself immortal; that is true for a macro
+// `static let` and for an interned `_streamCachedSchema`, and false for any hand-written
+// conformance whose `streamSchema` is computed, which leaked a template per key per build.
 //
 // The template is the optional already `.some`, and the member is copy-initialised from its
 // address in one step rather than assigned: an assignment would destroy the `nil` first (a
@@ -242,13 +247,16 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
   _ type: T.Type
 ) -> StreamFieldPrepare {
-  nonisolated(unsafe) let template = UnsafeMutablePointer<T?>.allocate(capacity: 1)
-  template.initialize(to: .some(T.streamInitialValue()))
+  let owner = _streamOwnedTemplate(T?.some(T.streamInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: T?.self)
   let inner = T._streamContainerPrepare
-  return { storage, _ in
+  return { [owner] storage, _ in
+    // Named so the capture is real: Swift captures only what the body references, and the
+    // capture is the whole point -- the box has to die with the closure, not before it.
+    _ = owner
     let pointer = storage.assumingMemoryBound(to: T?.self)
     if pointer.pointee == nil {
-      _streamCopyInitialize(pointer, from: UnsafePointer(template))
+      _streamCopyInitialize(pointer, from: template)
     }
     inner?(storage, 0)
   }

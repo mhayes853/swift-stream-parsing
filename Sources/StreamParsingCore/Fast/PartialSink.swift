@@ -29,10 +29,10 @@ struct BorrowedFrame {
   @usableFromInline var elementOptional: Bool { StreamRouteBits.elementOptional(self.routeBits) }
 
   @usableFromInline
-  init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
+  init(storage: UnsafeMutableRawPointer, schema: StreamSchema) {
     self.storage = storage
     self.schema = schema
-    self.pendingField = pendingField
+    self.pendingField = -1
     self.routeBits = 0
   }
 
@@ -69,13 +69,6 @@ struct BorrowedFrame {
   @inline(__always)
   func withSchema<R>(_ body: (StreamSchema) -> R) -> R {
     Unmanaged<StreamSchema>.fromOpaque(self.schemaBits)._withUnsafeGuaranteedRef(body)
-  }
-
-  // A strong reference from the same bits, for a holder that wants one.
-  @usableFromInline
-  @inline(__always)
-  static func schema(fromBits bits: UnsafeRawPointer) -> StreamSchema {
-    Unmanaged<StreamSchema>.fromOpaque(bits).takeUnretainedValue()
   }
 }
 
@@ -162,12 +155,10 @@ struct ScalarTarget {
   var schemaBits: UnsafeRawPointer
   var field: Int32
 
-  @inline(__always)
-  var schema: StreamSchema { BorrowedFrame.schema(fromBits: self.schemaBits) }
-
-  // The zero-ARC read. The computed property above returns at +1 — a retain in the getter and a
-  // release after the use, one pair per scalar token on the byte-fed rows. `Unmanaged`'s
-  // guaranteed-ref scope is the one form that hands the reference over borrowed.
+  // The zero-ARC read, and the only one: a computed `schema` returning a strong reference costs
+  // a retain in the getter and a release after the use, one pair per scalar token on the
+  // byte-fed rows. `Unmanaged`'s guaranteed-ref scope is the one form that hands the reference
+  // over borrowed.
   @inline(__always)
   func withSchema<R>(_ body: (StreamSchema) -> R) -> R {
     Unmanaged<StreamSchema>.fromOpaque(self.schemaBits)._withUnsafeGuaranteedRef(body)
@@ -235,6 +226,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // Frames there was no room for. A container that could not be pushed must not pop one that
   // could, and a caller that catches the depth error and keeps feeding gets more `beginObject`
   // calls after it, so overflow has to stay balanced rather than merely not crash once.
+  //
+  // Only containers deeper than the *first* overflow are counted: the first one is pushed as
+  // `ignoredFrame` into the reserved slot (see `overflowCapacity`), so everything underneath is
+  // routed to a schema that accepts and discards. Counting the first one instead left the top
+  // frame pointing at the *parent*, and `key(_:)` and the scalar entry points have no depth test
+  // -- deliberately, that test would sit on the hot path -- so an over-deep key was matched
+  // against the parent's field table and written into it.
   @usableFromInline var droppedFrameCount = 0
 
   #if DEBUG && !hasFeature(Embedded)
@@ -254,12 +252,18 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   @usableFromInline
   static var frameCapacity: Int { JSONParser.maximumDepth + 1 }
 
+  // One slot past every frame a legal document can produce, reserved for the ignored frame that
+  // absorbs an over-deep subtree. Nothing the parser feeds ever reaches it -- the parser rejects
+  // the depth first -- so it costs one 24-byte frame in an allocation that already exists.
+  @usableFromInline
+  static var overflowCapacity: Int { Self.frameCapacity + 1 }
+
   // A document whose root is an array, a dictionary or a bare scalar is as valid as one rooted
   // in an object, so the root's shape comes from its schema rather than from a constraint.
   public init(root: UnsafeMutableRawPointer, schema: StreamSchema) {
     self.root = root
     self.rootSchema = schema
-    self.frames = .allocate(capacity: Self.frameCapacity)
+    self.frames = .allocate(capacity: Self.overflowCapacity)
   }
 
   public init<Root>(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
@@ -291,6 +295,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.inlineStringStorage = nil
     self.inlineStringCapacity = 0
     self.stringResultRaw = 0
+    #if DEBUG && !hasFeature(Embedded)
+      // The borrows recorded for the previous document are over with its last frame. Keeping
+      // them would fail the tripwire during the *next* document for a schema the previous one
+      // borrowed and legitimately released after this reset.
+      self.audit = StreamSchemaBorrowAudit()
+    #endif
   }
 
   // MARK: Frame stack
@@ -306,8 +316,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       self.audit.verify()
     #endif
     guard self.frameCount < Self.frameCapacity else {
-      self.droppedFrameCount &+= 1
-      self.recordFailure(.depthExceeded)
+      self.pushOverflowFrame()
       return
     }
     var frame = initialFrame
@@ -317,6 +326,25 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // four bytes are its element cursor without increasing the 24-byte frame.
       frame.pendingField = 0
     }
+    (self.frames + self.frameCount).initialize(to: frame)
+    self.frameCount &+= 1
+    self.activeRouteBits = frame.routeBits
+  }
+
+  // The cold half of `pushFrame`, outlined so the depth check stays a predicted-not-taken branch
+  // over a call rather than inlining the overflow bookkeeping into every container open.
+  @usableFromInline
+  @inline(never)
+  mutating func pushOverflowFrame() {
+    self.recordFailure(.depthExceeded)
+    guard self.frameCount < Self.overflowCapacity else {
+      // Already inside an ignored subtree: the top frame discards, so deeper containers only have
+      // to stay balanced against `popFrame`.
+      self.droppedFrameCount &+= 1
+      return
+    }
+    var frame = self.ignoredFrame
+    frame.routeBits = frame.schema.routeBits
     (self.frames + self.frameCount).initialize(to: frame)
     self.frameCount &+= 1
     self.activeRouteBits = frame.routeBits
@@ -624,10 +652,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     guard let target = self.scalarTarget else { return }
-    // The one added check on the string hot path. A destination that reached `stringBegin` has
-    // already proved it accepts strings, so this branch is never taken except by bounded storage
-    // that has filled up -- predicted not-taken, and it is what turns an overflow into a reported
-    // failure rather than silently dropped bytes.
     // The one addition to the string hot path, and deliberately not a branch.
     //
     // Checking the result here and reporting immediately cost 8.7% of `Real Twitter - bulk
@@ -700,7 +724,19 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
     }
     self.stringBegin()
-    if self.streamFailure != nil { return }
+    if self.streamFailure != nil {
+      // Returning here would leave the state `stringBegin` just set -- the storage pointers, the
+      // capacity, the target, the folded result -- live with no `stringEnd` to clear it, so a
+      // driver that keeps feeding after a recorded failure would see the next string routed at
+      // this one's destination. Clearing them is exactly what `stringEnd` does, minus reporting
+      // a result whose failure is already recorded.
+      self.homogeneousStringStorage = nil
+      self.inlineStringStorage = nil
+      self.scalarTarget = nil
+      self.inlineStringCapacity = 0
+      self.stringResultRaw = 0
+      return
+    }
     if bytes.count > 0 { self.stringChunk(bytes) }
     self.stringEnd()
   }
@@ -985,7 +1021,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   @inline(never)
   private mutating func openKnownSIMDDoubleElement(_ route: _StreamLeafRoute) {
-    guard let top = self.topFrame else { return }
+    // `beginArray` only reaches here off `activeRouteBits`, which is zero whenever the frame
+    // stack is empty, so the top frame is the array these elements belong to. Asserted rather
+    // than tolerated: returning without pushing would leave the matching `endArray` popping the
+    // *parent's* frame.
+    guard let top = self.topFrame else {
+      preconditionFailure("A SIMD array element opened with no frame for the array itself")
+    }
     switch route {
     case .arraySIMD2Double:
       let storage = top.pointee.storage.assumingMemoryBound(
@@ -1535,19 +1577,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // A nil target means the destination has no such field, which is not an error: unknown keys
   // have always been ignored. A target that refuses the token is a type mismatch, because the
-  // key matched something that cannot hold this kind of value.
-  private mutating func withScalarTarget(
-    _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult
-  ) {
-    guard let target = self.resolveScalarTarget() else { return }
-    let result = target.withSchema { body(target.storage, target.field, $0) }
-    if result != .applied {
-      self.recordFailure(Self.failureReason(for: result))
-    }
-  }
-
-  // The same, when the target may be a table entry: `table` writes it, `body` is the closure
-  // route for everything else.
+  // key matched something that cannot hold this kind of value. `table` writes a target that is a
+  // field entry; `body` is the closure route for everything else.
   private mutating func withScalarTarget(
     table: (UnsafePointer<StreamFieldEntry>, UnsafeMutableRawPointer, StreamSchema) -> StreamApplyResult,
     _ body: (UnsafeMutableRawPointer, Int32, StreamSchema) -> StreamApplyResult

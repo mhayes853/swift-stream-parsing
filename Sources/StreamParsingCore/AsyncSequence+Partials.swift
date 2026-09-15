@@ -29,6 +29,10 @@ extension AsyncSequence where Element == UInt8 {
   ///   - type: The value type describing each partial state.
   ///   - format: The format describing the parser to drive from the async bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
+  // Disfavoured so a type conforming to *both* `StreamParseable` and `StreamParseableRoot` --
+  // `StreamEmptyObject`, and any macro `Partial` that is itself `StreamParseable` -- resolves to
+  // the `StreamParseable` form instead of being ambiguous. See `Partials overload probe`.
+  @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat
@@ -75,6 +79,10 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   ///   - type: The value type represented by each partial.
   ///   - format: The format describing the parser that processes the collected sequences.
   /// - Returns: An ``AsyncPartialsSequence``.
+  // Disfavoured so a type conforming to *both* `StreamParseable` and `StreamParseableRoot` --
+  // `StreamEmptyObject`, and any macro `Partial` that is itself `StreamParseable` -- resolves to
+  // the `StreamParseable` form instead of being ambiguous. See `Partials overload probe`.
+  @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat

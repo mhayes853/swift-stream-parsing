@@ -163,9 +163,9 @@ struct StreamFieldEntry {
   @usableFromInline var reserved: UInt32
   @usableFromInline var schemaBits: UnsafeRawPointer?
 
-  @inlinable public var isOptional: Bool { self.flags.contains(.optional) }
-  /// Whether the entry has a `prepare` closure in the table's parallel array.
-  @inlinable public var hasPrepare: Bool { self.flags.contains(.prepare) }
+  @inlinable var isOptional: Bool { self.flags.contains(.optional) }
+  // Whether the entry has a `prepare` closure in the table's parallel array.
+  @inlinable var hasPrepare: Bool { self.flags.contains(.prepare) }
 
   @usableFromInline
   init(_ field: StreamField, keyStart: Int) {
@@ -335,7 +335,6 @@ final class StreamFieldTable: @unchecked Sendable {
     self.keyBytes.deallocate()
     self.index?.deallocate()
   }
-
 }
 
 /// The entry index for `key` in a table, or -1.

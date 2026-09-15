@@ -86,26 +86,34 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
       self.reset()
       return
     }
-    let taken = self.records.withUnsafeBufferPointer { records in
-      self.infos.withUnsafeBufferPointer { infos in
-        self.bytes.withUnsafeBufferPointer { bytes in
-          // An all-structural batch has no bytes; the base only needs to be valid to add zero to.
-          withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { fallback in
-            let base = bytes.baseAddress
-              ?? UnsafePointer(fallback.baseAddress.unsafelyUnwrapped)
-            let batch = StreamEventBatch(
-              replaying: records.baseAddress.unsafelyUnwrapped,
-              infoBase: infos.baseAddress.unsafelyUnwrapped,
-              count: records.count,
-              bytesBase: base,
-              bufferBase: base
-            )
-            return self.consumer.events(batch)
-          }
-        }
+    // The consumer call is deliberately *outside* every array borrow. Calling the mutating
+    // `consumer.events` from inside three nested `withUnsafeBufferPointer` borrows of this
+    // struct's own stored properties is legal only because the accesses are to disjoint
+    // properties, and it is one re-entrancy away from a bug: a consumer that fed bytes back into
+    // this same sink would mutate the arrays the live `StreamEventBatch` points into. The bases
+    // are taken first and the array values held across the call instead, which keeps the same
+    // pointers valid -- a re-entrant append now copies on write rather than reallocating under
+    // the batch -- with no overlapping exclusive access. This is not a fast path (see the note
+    // at the top of the file); it runs once per 256 events.
+    let recordCount = self.records.count
+    let recordBase = self.records.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped }
+    let infoBase = self.infos.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped }
+    let byteBase = self.bytes.withUnsafeBufferPointer { $0.baseAddress }
+    let taken = withExtendedLifetime((self.records, self.infos, self.bytes)) {
+      // An all-structural batch has no bytes; the base only needs to be valid to add zero to.
+      withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 1) { fallback in
+        let base = byteBase ?? UnsafePointer(fallback.baseAddress.unsafelyUnwrapped)
+        let batch = StreamEventBatch(
+          replaying: recordBase,
+          infoBase: infoBase,
+          count: recordCount,
+          bytesBase: base,
+          bufferBase: base
+        )
+        return self.consumer.events(batch)
       }
     }
-    if taken < self.records.count {
+    if taken < recordCount {
       // A consumer that refuses an event must say why; a refusal with no reason recorded is
       // reported as the mismatch it almost certainly is rather than dropped.
       self.streamFailure = self.consumer.streamFailure ?? StreamSinkFailure(reason: .typeMismatch)

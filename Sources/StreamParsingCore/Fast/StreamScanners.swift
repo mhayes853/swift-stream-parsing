@@ -1071,7 +1071,7 @@ package func streamUTF8BlockIsInvalidPortable(
   var invalid = isContinuation .^ needsContinuation
   // Leads that exist in no valid sequence: C0, C1 (overlong two byte) and F5 and above.
   invalid .|= (current &- SIMD16<UInt8>(repeating: .utf8TwoByteFloor)) .< SIMD16<UInt8>(repeating: 2)
-  invalid .|= current .> SIMD16<UInt8>(repeating: .utf8LeadCeiling)
+  invalid .|= current .> SIMD16<UInt8>(repeating: .utf8MaximumLead)
   // The four second byte constraints: overlong three and four byte forms, encoded surrogates,
   // and scalars past U+10FFFF. Each fires only where the lead is that exact byte, and where the
   // following byte is not a continuation the continuation test above has fired already.

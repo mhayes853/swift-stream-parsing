@@ -1842,7 +1842,7 @@ public struct JSONParser: ~Copyable {
     // An invalid lead can be rejected before anything is held, which leaves completion with only
     // the second byte constraints to check.
     let lead = base.load(fromByteOffset: from, as: UInt8.self)
-    guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else {
+    guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else {
       throw self.error(.invalidUTF8, at: from)
     }
     // Little-endian, a byte per lane: `completePendingUTF8` appends at lane `have` with a shift
@@ -1973,7 +1973,7 @@ public struct JSONParser: ~Copyable {
         i &+= 1
         continue
       }
-      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       let needed = Self.sequenceLength(lead)
       guard i &+ needed <= to else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       for offset in 1..<needed {

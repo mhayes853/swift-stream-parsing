@@ -217,7 +217,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public consuming func finishValue() throws -> Value {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
-    try self.parser.finish(into: &self.sink)
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
     // Move rather than read: `storage.move()` transfers the tree bitwise, so no copy is made.
     // The slot is left uninitialised and `deinit` is told so, rather than refilled with an empty
     // initial value for `deinit` to destroy: that refill was a full `initializeWithCopy` of the
