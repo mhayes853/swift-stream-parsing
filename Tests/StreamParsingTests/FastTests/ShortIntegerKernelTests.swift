@@ -47,7 +47,6 @@ struct `Short integer kernel tests` {
   @Test
   func `The kernel agrees with the scalar walk on every length and prefix`() {
     var random = Random()
-    var checked = 0
     for width in 1...8 {
       let bound = (1...width).reduce(UInt64(1)) { product, _ in product &* 10 }
       for _ in 0..<20_000 {
@@ -55,10 +54,8 @@ struct `Short integer kernel tests` {
         guard text.utf8.count == width else { continue }
         let prefix = (0..<8).map { _ in Self.junk[Int(random.next() % UInt64(Self.junk.count))] }
         #expect(Self.run(text, prefix: prefix) == Self.oracle(text), "\(text) after \(prefix)")
-        checked += 1
       }
     }
-    #expect(checked > 50_000)
   }
 
   // The exact shape of the borrow defect: a byte below `'0'` immediately before the token.

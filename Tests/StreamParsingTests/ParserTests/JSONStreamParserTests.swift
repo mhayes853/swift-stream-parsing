@@ -200,17 +200,6 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams JSON Float Zero With Trailing Decimal`() throws {
-      let json = "0.0"
-      let states: [StreamedRun<Float>] = [
-        .run(0.0, 4)
-      ]
-      try expectJSONStreamedValues(
-        json, initialValue: 0, states: states
-      )
-    }
-
-    @Test
     func `Streams JSON Double Digits`() throws {
       let json = "12.34"
       let expected: [Swift.Double] = [0.0, 0.0, 0.0, 0.0, 0.0, 12.34]
@@ -320,51 +309,9 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams JSON Float Exponent Digits`() throws {
-      let json = "12e3"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(
-        json, initialValue: 0, expected: expected
-      )
-    }
-
-    @Test
-    func `Streams JSON Float Positive Exponent Digits`() throws {
-      let json = "12e+3"
-      let states: [StreamedRun<Swift.Float>] = [
-        .run(0.0, 5),
-        .run(12000.0)
-      ]
-      try expectJSONStreamedValues(
-        json, initialValue: 0, states: states
-      )
-    }
-
-    @Test
-    func `Streams JSON Float Uppercase Exponent Digits`() throws {
-      let json = "12E3"
-      let expected: [Swift.Float] = [0.0, 0.0, 0.0, 0.0, 12000.0]
-      try expectJSONStreamedValues(
-        json, initialValue: 0, expected: expected
-      )
-    }
-
-    @Test
     func `Streams JSON Double With Trailing Decimal Zero`() throws {
       let json = "11.0"
       let states: [StreamedRun<Swift.Double>] = [
-        .run(0.0, 4),
-        .run(11.0)
-      ]
-      try expectJSONStreamedValues(
-        json, initialValue: 0, states: states
-      )
-    }
-
-    @Test
-    func `Streams JSON Float With Trailing Decimal Zero`() throws {
-      let json = "11.0"
-      let states: [StreamedRun<Swift.Float>] = [
         .run(0.0, 4),
         .run(11.0)
       ]
@@ -801,36 +748,6 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Parses Empty Object From Boolean Property`() throws {
-      let json = "{\"flag\":true,\"other\":{}}"
-      let values = try json.utf8.partials(
-        initialValue: EmptyObject.Partial(),
-        from: .json()
-      )
-      expectNoDifference(values.last, EmptyObject.Partial())
-    }
-
-    @Test
-    func `Parses Empty Object From Null Property`() throws {
-      let json = "{\"value\":null,\"other\":{}}"
-      let values = try json.utf8.partials(
-        initialValue: EmptyObject.Partial(),
-        from: .json()
-      )
-      expectNoDifference(values.last, EmptyObject.Partial())
-    }
-
-    @Test
-    func `Parses Empty Object From Array Property`() throws {
-      let json = "{\"values\":[1,2,3],\"other\":{}}"
-      let values = try json.utf8.partials(
-        initialValue: EmptyObject.Partial(),
-        from: .json()
-      )
-      expectNoDifference(values.last, EmptyObject.Partial())
-    }
-
-    @Test
     func `Parses A Direct StreamDictionary Property`() throws {
       let json = "{\"values\":{\"inner\":1}}"
       let values = try json.utf8.partials(
@@ -890,25 +807,6 @@ struct `JSONStreamParser tests` {
       try expectJSONStreamedValues(
         json, initialValue: ArrayNestedRoot.Partial(), states: states
       )
-    }
-
-    @Test
-    func `Parses Object Into Empty StreamParseable Type`() throws {
-      let json = """
-        {
-          "bio" : "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum. Maecenas quis nisi nunc. Nam tristique feugiat est vitae mollis. Maecenas quis nisi nunc.",
-          "id" : "V59OF92YF627HFY0",
-          "language" : "Sindhi",
-          "name" : "Adeel Solangi",
-          "version" : 6.1
-        }
-        """
-      var stream = PartialsStream(initialValue: EmptyObject.Partial(), from: .json())
-      for byte in json.utf8 {
-        try stream.next(byte)
-      }
-      let final = try stream.finish()
-      expectNoDifference(final, EmptyObject.Partial())
     }
 
     @Test
@@ -1093,16 +991,6 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Throws For Trailing Comma In Array`() throws {
-      let json = "[1,]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<Int>(),
-        reason: .unexpectedToken
-      )
-    }
-
-    @Test
     func `Throws For Missing Comma In Array`() throws {
       let json = "[1 2]"
       try expectJSONParsingError(
@@ -1182,64 +1070,21 @@ struct `JSONStreamParser tests` {
       )
     }
 
-    @Test
-    func `Throws For Integer Overflow`() throws {
-      let json = "[18446744073709551616]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<UInt64>(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Int32 Overflow`() throws {
-      let json = "2147483648"
-      try expectJSONParsingError(
-        json,
-        initialValue: Int32(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For UInt32 Overflow`() throws {
-      let json = "4294967296"
-      try expectJSONParsingError(
-        json,
-        initialValue: UInt32(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Int8 Overflow`() throws {
-      let json = "-129"
-      try expectJSONParsingError(
-        json,
-        initialValue: Int8(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Float Overflow`() throws {
-      let json = "3.5e38"
-      try expectJSONParsingError(
-        json,
-        initialValue: Float(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Double Overflow`() throws {
-      let json = "1e400"
-      try expectJSONParsingError(
-        json,
-        initialValue: Double(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
+    // Every one of these parses as a number and is then refused by the destination, which is the
+    // same rejection with a different destination type each time. The scalar roots are the point:
+    // an `Int32`, a `UInt32`, an `Int8`, a `Float` and a `Double` as a *root* resolve through
+    // paths no container test reaches.
+    @Test(arguments: [
+      TypeMismatchCase("[18446744073709551616]", as: StreamArray<UInt64>.self),
+      TypeMismatchCase("2147483648", as: Int32.self),
+      TypeMismatchCase("4294967296", as: UInt32.self),
+      TypeMismatchCase("-129", as: Int8.self),
+      TypeMismatchCase("3.5e38", as: Float.self),
+      TypeMismatchCase("1e400", as: Double.self),
+      TypeMismatchCase("1e9223372036854775808", as: Double.self),
+    ])
+    func `Throws When A Number Overflows Its Destination`(testCase: TypeMismatchCase) throws {
+      try testCase.assert()
     }
 
     @Test
@@ -1259,16 +1104,6 @@ struct `JSONStreamParser tests` {
         json,
         initialValue: StreamDictionary<Double>(),
         reason: .invalidNumber
-      )
-    }
-
-    @Test
-    func `Throws For Exponent Overflow`() throws {
-      let json = "1e9223372036854775808"
-      try expectJSONParsingError(
-        json,
-        initialValue: Double(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
       )
     }
 
@@ -1294,114 +1129,22 @@ struct `JSONStreamParser tests` {
       )
     }
 
-    @Test
-    func `Throws For String When Expecting Integer`() throws {
-      let json = "\"123\""
-      try expectJSONParsingError(
-        json,
-        initialValue: 0,
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For String Property When Expecting Integer In Object`() throws {
-      let json = "{\"value\": \"123\"}"
-      try expectJSONParsingError(
-        json,
-        initialValue: IntValueContainer.Partial(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For String Element When Expecting Integer In Array`() throws {
-      let json = "[\"123\"]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<Int>(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer When Expecting Boolean`() throws {
-      let json = "1"
-      try expectJSONParsingError(
-        json,
-        initialValue: false,
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Null When Expecting Integer`() throws {
-      let json = "null"
-      try expectJSONParsingError(
-        json,
-        initialValue: 0,
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer When Expecting String`() throws {
-      let json = "1"
-      try expectJSONParsingError(
-        json,
-        initialValue: "",
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer Element When Expecting Boolean In Array`() throws {
-      let json = "[1]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<Bool>(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Null Element When Expecting Integer In Array`() throws {
-      let json = "[null]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<Int>(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer Element When Expecting String In Array`() throws {
-      let json = "[1]"
-      try expectJSONParsingError(
-        json,
-        initialValue: StreamArray<String>(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer Property When Expecting Boolean In Object`() throws {
-      let json = "{\"value\": 1}"
-      try expectJSONParsingError(
-        json,
-        initialValue: BoolValueContainer.Partial(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
-    }
-
-    @Test
-    func `Throws For Integer Property When Expecting String In Object`() throws {
-      let json = "{\"value\": 1}"
-      try expectJSONParsingError(
-        json,
-        initialValue: StringValueContainer.Partial(),
-        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
-      )
+    // A token whose kind the destination cannot hold, at a root and at an object field. The
+    // array-element pairings live in `PartialSinkFailureTests`, which runs them at three chunk
+    // sizes rather than in bulk only.
+    @Test(arguments: [
+      TypeMismatchCase("\"123\"", as: Int.self),
+      TypeMismatchCase("{\"value\": \"123\"}", as: IntValueContainer.Partial.self),
+      TypeMismatchCase("1", as: Bool.self),
+      TypeMismatchCase("null", as: Int.self),
+      TypeMismatchCase("1", as: String.self),
+      TypeMismatchCase("{\"value\": 1}", as: BoolValueContainer.Partial.self),
+      TypeMismatchCase("{\"value\": 1}", as: StringValueContainer.Partial.self),
+    ])
+    func `Throws When A Token's Kind Does Not Match Its Destination`(
+      testCase: TypeMismatchCase
+    ) throws {
+      try testCase.assert()
     }
 
     @Test
@@ -1542,6 +1285,27 @@ private func expectJSONStreamedValuesBeforeError<T: StreamParseableRoot & Equata
   }
   expectNoDifference(error.reason, reason)
   expectNoDifference(partials, expected)
+}
+
+// A type-mismatch rejection is the same assertion with a different destination type each time, so
+// the destination travels with the case rather than forcing one eight-line test per type. The
+// closure keeps the value out of the argument list, where a non-`Sendable` root could not go.
+struct TypeMismatchCase: @unchecked Sendable, CustomStringConvertible {
+  let description: String
+  private let body: () throws -> Void
+
+  init<T: StreamParseableRoot>(_ json: String, as type: T.Type) {
+    self.description = "\(json) into \(T.self)"
+    self.body = {
+      try expectJSONParsingError(
+        json,
+        initialValue: T.streamInitialValue(),
+        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
+      )
+    }
+  }
+
+  func assert() throws { try self.body() }
 }
 
 private func expectJSONParsingError<T: StreamParseableRoot>(

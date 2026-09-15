@@ -60,43 +60,8 @@ struct DiffText: Equatable {
   var text: String = ""
 }
 
-// Chunk size is the axis the differential varied, because a token split across a call is where
-// carry-over state shows up.
-private func expectSameAtEveryChunkSize<Value: StreamParseableRoot>(
-  _ json: String,
-  as type: Value.Type,
-  sourceLocation: SourceLocation = #_sourceLocation
-) throws {
-  var whole = Value.streamInitialValue()
-  try parsePartial(json, into: &whole)
-
-  for chunk in [7, 3, 1] {
-    var chunked = Value.streamInitialValue()
-    try parsePartial(json, into: &chunked, chunk: chunk)
-    if let difference = diff(whole, chunked) {
-      Issue.record(
-        "Chunk size \(chunk) disagreed with the whole parse of \(json).\n\(difference)",
-        sourceLocation: sourceLocation
-      )
-      return
-    }
-  }
-}
-
 @Suite
 struct `Parser corpus tests` {
-  @Test(arguments: [
-    #"{"id":4,"name":"Blob Johnson","email":"blob@example.com","age":42,"score":98.25,"isActive":true}"#,
-    #"{"id":0,"name":"","email":"","age":0,"score":0,"isActive":false}"#,
-    #"  {  "id" : 4 , "name" : "Blob"  }  "#,
-    #"{"id":-17,"score":-1.5e3}"#,
-    #"{"unknown":1,"id":9}"#,
-    #"{}"#
-  ])
-  func `Flat objects parse the same at every chunk size`(json: String) throws {
-    try expectSameAtEveryChunkSize(json, as: DiffProfile.Partial.self)
-  }
-
   @Test
   func `Flat object values are what the document says`() throws {
     var value = DiffProfile.Partial()
@@ -112,14 +77,6 @@ struct `Parser corpus tests` {
     expectNoDifference(value.isActive, true)
   }
 
-  @Test(arguments: [
-    #"{"id":7,"name":"Blob Jr","company":{"name":"Point-Free","address":{"street":"123 Way","city":"Brooklyn"}}}"#,
-    #"{"company":{"name":"Point-Free"}}"#
-  ])
-  func `Nested objects parse the same at every chunk size`(json: String) throws {
-    try expectSameAtEveryChunkSize(json, as: DiffEmployee.Partial.self)
-  }
-
   @Test
   func `Nested object values reach every depth`() throws {
     var value = DiffEmployee.Partial()
@@ -133,15 +90,6 @@ struct `Parser corpus tests` {
     expectNoDifference(value.company?.address?.city, "Brooklyn")
   }
 
-  @Test(arguments: [
-    #"{"users":[{"id":1,"name":"A"},{"id":2,"name":"B"},{"id":3,"name":"C"}],"total":3}"#,
-    #"{"users":[],"total":0}"#,
-    #"{"users":[{"id":1,"name":""}],"total":1}"#
-  ])
-  func `Arrays of objects parse the same at every chunk size`(json: String) throws {
-    try expectSameAtEveryChunkSize(json, as: DiffUserList.Partial.self)
-  }
-
   @Test
   func `Arrays of objects keep their order and contents`() throws {
     var value = DiffUserList.Partial()
@@ -151,15 +99,6 @@ struct `Parser corpus tests` {
     expectNoDifference(value.total, 2)
     expectNoDifference(value.users?.map(\.id), [1, 2])
     expectNoDifference(value.users?.map(\.name), ["A", "B"])
-  }
-
-  @Test(arguments: [
-    #"{"rows":[[1,2,3],[4,5,6]]}"#,
-    #"{"rows":[[],[1]]}"#,
-    #"{"rows":[]}"#
-  ])
-  func `Nested arrays parse the same at every chunk size`(json: String) throws {
-    try expectSameAtEveryChunkSize(json, as: DiffMatrix.Partial.self)
   }
 
   @Test
@@ -181,7 +120,6 @@ struct `Parser corpus tests` {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
     expectNoDifference(value.text.map(String.init), expected as String?)
-    try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 
   // An empty string produced nil until the differential caught it: the parser emits begin and end
@@ -206,7 +144,6 @@ struct `Parser corpus tests` {
     var value = DiffText.Partial()
     try parsePartial(json, into: &value)
     expectNoDifference(value.text.map(String.init), expected as String?)
-    try expectSameAtEveryChunkSize(json, as: DiffText.Partial.self)
   }
 
   // It materialized a nested partial only when a leaf wrote into one, leaving an empty object as

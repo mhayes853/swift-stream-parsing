@@ -438,7 +438,9 @@ struct `Partial sink tests` {
   // non-optional, and there the same helper resolves to the disfavoured overload and the null is
   // the mismatch it should be.
   @Test(arguments: [Int.max, 7, 1])
-  func `A null into a non-nullable container is rejected`(chunk: Int) {
+  func `A null clears an optional container member and is rejected by a non-optional one`(
+    chunk: Int
+  ) {
     var optionalMembers = SinkUser.Partial()
     #expect(throws: Never.self) {
       try parsePartial(#"{"scores":null}"#, into: &optionalMembers, chunk: chunk)

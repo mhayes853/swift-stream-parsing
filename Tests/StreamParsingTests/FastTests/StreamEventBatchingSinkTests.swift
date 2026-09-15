@@ -200,8 +200,14 @@ struct StreamEventBatchingSinkTests {
     var parser = JSONParser()
     try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     try parser.finish(into: &sink)
-    // beginArray + 1000 numbers + endArray = 1002 events: three full batches and the tail.
-    expectNoDifference(sink.consumer.sizes, [256, 256, 256, 234])
+    // beginArray + 1000 numbers + endArray = 1002 events. The batch capacity is a tuning choice,
+    // so this pins the invariant rather than the exact cadence: every event arrives, as equal
+    // full batches followed by the commit's remainder at end of input.
+    let sizes = sink.consumer.sizes
+    expectNoDifference(sizes.reduce(0, +), 1002)
+    #expect(sizes.count > 1 && sizes.count < 10)
+    #expect(sizes.dropLast().allSatisfy { $0 == sizes.first })
+    #expect((sizes.last ?? 0) <= (sizes.first ?? 0))
   }
 
   @Test

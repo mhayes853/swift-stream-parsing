@@ -283,11 +283,13 @@ struct `Coalesced string chunk tests` {
       guard case .stringChunk(let bytes) = tagged.event else { return 0 }
       return bytes.count
     }
-    // 16 bytes ahead of the first escape, then 10,184 coalesced into a 4 KB buffer: three
-    // flushes, where fragment by fragment delivery was 1,200 chunks.
+    // 16 bytes ahead of the first escape, then everything after it coalesced through the buffer.
+    // The buffer's size is a tuning choice, so what is pinned is the invariant rather than the
+    // exact cadence: a handful of flushes, none larger than the buffer, where fragment by
+    // fragment delivery was 1,200 chunks.
     #expect(sizes.first == 16)
     #expect(sizes.reduce(0, +) == 600 * 17)
-    #expect(sizes.count == 4)
+    #expect(sizes.count < 10)
     #expect(sizes.dropFirst().allSatisfy { $0 <= 4096 })
   }
 

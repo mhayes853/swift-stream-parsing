@@ -7,6 +7,11 @@ struct `JSON chunk boundary tests` {
     #"{"id":4,"name":"Blob Johnson","email":"blob@example.com","age":42,"score":98.25,"isActive":true}"#,
     #"{"id":0,"name":"","email":"","age":0,"score":0,"isActive":false}"#,
     #"  {  "id" : 4 , "name" : "Blob"  }  "#,
+    // A negative integer and an exponent, an unknown key whose value straddles the cut, and the
+    // empty object -- carried over from the corpus sweep this replaced.
+    #"{"id":-17,"score":-1.5e3}"#,
+    #"{"unknown":1,"id":9}"#,
+    #"{}"#,
   ])
   func `Flat objects parse identically at every split`(json: String) throws {
     try expectChunkBoundaryEquivalence(json, as: ChunkProfile.Partial.self)
@@ -15,6 +20,7 @@ struct `JSON chunk boundary tests` {
   @Test(arguments: [
     #"{"id":7,"name":"Blob Jr","company":{"name":"Point-Free","address":{"street":"123 Functional Way","city":"Brooklyn","postalCode":"11201"}}}"#,
     #"{"company":{"address":{}}}"#,
+    #"{"company":{"name":"Point-Free"}}"#,
   ])
   func `Nested objects parse identically at every split`(json: String) throws {
     try expectChunkBoundaryEquivalence(json, as: ChunkEmployee.Partial.self)
@@ -50,6 +56,8 @@ struct `JSON chunk boundary tests` {
     #"{"text":"\u00e9\u20ac\ud83d\ude00"}"#,
     #"{"text":"\u0000"}"#,
     #"{"text":"x\n\u00e9\t\ud83d\ude00\\y"}"#,
+    #"{"text":"slash \/"}"#,
+    #"{"text":""}"#,
   ])
   func `Escapes parse identically at every split`(json: String) throws {
     try expectChunkBoundaryEquivalence(json, as: ChunkText.Partial.self)
@@ -96,6 +104,7 @@ struct `JSON chunk boundary tests` {
   @Test(arguments: [
     #"{"rows":[[1,2,3],[4,5,6]]}"#,
     #"{"rows":[[],[1]]}"#,
+    #"{"rows":[]}"#,
   ])
   func `Nested arrays parse identically at every split`(json: String) throws {
     try expectChunkBoundaryEquivalence(json, as: ChunkMatrix.Partial.self)

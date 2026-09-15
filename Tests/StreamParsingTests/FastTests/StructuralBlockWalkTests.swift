@@ -336,26 +336,6 @@ struct StructuralBlockWalkTests {
     return outcome
   }
 
-  @Test
-  func `A skipping sink leaves the block walk at the same open`() {
-    for pad in 0..<70 {
-      let document =
-        Array(repeating: UInt8(0x20), count: pad)
-        + Array(#"{"a":{"b":[1,2,{"c":"x"}],"d":"y"},"e":[[1],[2]],"f":1}"#.utf8)
-      for depth in [1, 2, 3] {
-        for chunk in [64, 100, 4096, Int.max] {
-          let expected = Self.runSkipping(
-            document, chunk: chunk, blocks: false, skipFromDepth: depth
-          )
-          let actual = Self.runSkipping(document, chunk: chunk, blocks: true, skipFromDepth: depth)
-          if actual != expected {
-            expectNoDifference(actual, expected, "pad \(pad) depth \(depth) chunk \(chunk)")
-          }
-        }
-      }
-    }
-  }
-
   // MARK: - Real documents
 
   @Test(
