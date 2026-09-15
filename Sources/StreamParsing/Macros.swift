@@ -131,10 +131,13 @@ public func _streamEnumCaseRoute<Root, T: StreamParseableObject>(
 // MARK: - Helpers
 
 /// Controls how the generated partial struct initializes its properties.
-public struct PartialMembersMode: Sendable {
+///
+/// The macro reads the argument's spelling (`.optional`, `.streamInitialValue`), never its value,
+/// so it must be written as one of the two cases.
+public enum PartialMembersMode: Hashable, Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
-  public static let optional = Self()
+  case optional
 
   /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
-  public static let streamInitialValue = Self()
+  case streamInitialValue
 }
