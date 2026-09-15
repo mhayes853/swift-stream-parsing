@@ -317,15 +317,10 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Structural
 
-  // The structural run: the loop stays here while the state stays structural, so a run of structural
-  // bytes costs one call rather than a dispatch each. `state`, `depth` and `containers` are run
-  // locals written back on every exit. `@inline(never)` with `consumeStructural` folded in; but
-  // `checkEmission` still runs per byte, so a rejection stops at its own token (`ErrorOffsetTests`).
-  //
-  // Two copies of the loop, `blocks` a literal at both call sites. Measured: one shared loop cost
-  // `Mesh - bulk` -7.3% and `Canada - bulk` -4.0% from the branch merely being present, and the
-  // shared body must be `@_transparent` -- `@inline(__always)` cost 4.0%/2.0% and `@inlinable`
-  // 7.4%/4.7% on the identical scalar loop.
+  // The structural run: one call per run of structural bytes, `state`/`depth`/`containers` in
+  // locals written back on every exit; `checkEmission` still runs per token (`ErrorOffsetTests`).
+  // Two loop copies (`blocks` a literal at both sites), body `@_transparent`. Measured: one shared
+  // loop cost Mesh -7.3%, an `@inline(__always)` body -4.0% (NEW_ARCHITECTURE.md, "Two copies").
   @inlinable
   @inline(never)
   mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
@@ -651,13 +646,10 @@ public struct JSONParser: ~Copyable {
   }
 
 
-  // A value inside a container is followed by `,` and then the next value's first byte, so taking
-  // both leaves nothing structural before the next value and that member's `consumeStructuralRun`
-  // call disappears. Arrays too -- measured: objects only cost `canada` -3.8%.
-  //
-  // A sink that has already failed stops the fusion: correctness, not tuning. `parse` reads the
-  // failure once per token with the cursor as the offset, so a fusion that ran first moved the
-  // cursor onto the next token first (`[1,2]` refusing numbers reported byte 3 for the `1`).
+  // Takes the `,` after a value in a container and the next value's first byte, so that member's
+  // `consumeStructuralRun` call disappears; arrays too (objects only cost canada -3.8%). A failed
+  // sink stops the fusion -- correctness, not tuning: a fusion that ran first moved the failure
+  // offset onto the next token (`[1,2]` refusing numbers reported byte 3 for the `1`).
   @inlinable
   @inline(__always)
   mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
@@ -793,13 +785,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
-  // The remainder of a string value from its first escape, coalesced into the parser's buffer and
-  // handed over one chunk per buffer-full. Every sink takes this path; chunk boundaries were never
-  // promised. Every non-throwing exit flushes, so the per-byte states find nothing buffered.
-  //
-  // Out of line by force -- measured: spelled inside `stringRunBody` it cost raw llm -52%, gsoc
-  // -23%, twitter -15%. The buffered escape arm exists only here, selected by the `coalescing:
-  // true` literal; as a runtime flag in `emitScratch` it cost LLM byte-fed 4.9%.
+  // A string value from its first escape on, coalesced into the parser's buffer and handed over per
+  // buffer-full; every sink takes it (chunk boundaries were never promised) and every non-throwing
+  // exit flushes. Measured: inside `stringRunBody` raw llm -52%; the buffered arm selected by a
+  // runtime flag in `emitScratch` instead of the `coalescing: true` literal, LLM byte-fed -4.9%.
   @inlinable
   @inline(never)
   mutating func coalescedEscapedStringTail<Sink: StreamParseSink & ~Copyable>(
@@ -868,15 +857,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
-  // A string value whose scan stopped on a backslash with the closing quote still inside the
-  // chunk, finished here instead of handed back and rescanned from the opening quote. Out of line
-  // by force. The emission sequence is `consumeStringRun`'s byte for byte; anything it cannot
-  // finish leaves `self.state` as the out-of-run path would, and the caller copies it back.
-  //
-  // It must NOT fuse the comma: `fuseAfterValue` reads `self.depth`/`self.containers`, which the
-  // structural run holds in registers, so from here they are the stack as of the run's *entry* --
-  // a chunk beginning inside an array read the following key as a string value. It declines by
-  // zeroing `self.depth`; measured: both more direct spellings cost more (byte-fed typed -5%).
+  // A string value whose scan stopped on a backslash with the closing quote in the chunk, done
+  // here instead of handed back (out of line by force); what it cannot finish it leaves in
+  // `self.state` for the caller. It must NOT fuse the comma -- the fields hold the run's *entry*
+  // stack -- so it zeroes `self.depth`; direct spellings measured worse (byte-fed typed -5%).
   @inlinable
   @inline(never)
   mutating func consumeEscapedStringInRun<Sink: StreamParseSink & ~Copyable>(

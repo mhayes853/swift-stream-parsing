@@ -1,13 +1,10 @@
 import StreamParsingShims
 
-// Shape loops for the windowed walk. A shape loop commits to a pattern the index makes visible
-// ahead of time — a run of entries whose kinds are known before they are consumed — and
-// processes it without the state machine: no state variable, no per-token switch, extents read
-// straight from the index. It is speculative by construction: every element is pattern-checked
-// before any sink call or state change for it, and the first element off the pattern returns
-// control to `consumeWindow`, which resumes its exact machine from a well-defined position.
-// The loops therefore never throw a grammar error themselves; whatever is malformed is handed
-// to the walk, whose errors are the dispatcher's. NEW_ARCHITECTURE.md, "Shape loops".
+// Shape loops for the windowed walk: a run of index entries whose kinds are known ahead, processed
+// with no state variable or per-token switch and extents read from the index. Speculative: every
+// element is pattern-checked before any sink call or state change, and the first one off the
+// pattern returns to `consumeWindow` at a well-defined position, so the loops never throw a grammar
+// error themselves. NEW_ARCHITECTURE.md, "Shape loops".
 extension JSONParser {
   @usableFromInline
   enum ShapeOutcome {
@@ -19,18 +16,10 @@ extension JSONParser {
     case fellBack
   }
 
-  // Numeric array subtree: entered after the walk has processed a `[` (pushed, `beginArray`
-  // sent) or a `,` inside an array — the second entry is what keeps an array thousands of
-  // elements long in the loop across window boundaries. It runs while elements are numbers or
-  // nested arrays of the same shape — Canada's `[[x,y],[x,y],...]` rings and Mesh's flat vertex
-  // arrays never leave it. Per element the work is one byte test on the element's first byte,
-  // one on its separator, and a parse on an extent read from the index: `streamNumberRunEnd`
-  // is gone, because the separator entry *is* the end. An extent the parse rejects — garbage,
-  // or whitespace before the comma — falls back before anything is emitted, and the walk's
-  // scanning path re-parses it and reports exactly what the dispatcher reports.
-  //
-  // Numbers are recorded like every other event; a sink sees the run as consecutive `number`
-  // records in one batch and can take it in one pass (`PartialSink.events` does).
+  // Numeric array subtree, entered after a processed `[` or an array's `,` (which keeps a long array
+  // in the loop across windows); Canada's rings and Mesh's vertex arrays never leave it. The
+  // separator entry is the number's end. An extent the parse rejects falls back before anything is
+  // emitted, and the walk re-parses it and reports exactly what the dispatcher reports.
   @inlinable
   @inline(never)
   mutating func consumeNumericArray<Sink: StreamParseSink & ~Copyable>(
@@ -135,17 +124,10 @@ extension JSONParser {
     return .fellBack
   }
 
-  // `emitNumber` without the emission: the same walk, the same errors at the same offsets,
-  // returning the info for the batch. Kept as its own copy rather than a refactor of
-  // `emitNumber`, which is inlined into the dispatcher's `consumeNumber` and has cost 4% from
-  // layout alone when its shape moved.
-  // LOCKSTEP: `JSONParser.emitNumber` + `emitGeneralNumber` are the other copy, and no test holds
-  // the two to each other -- a fix to either belongs in both. The `to >= 8` in the entry guard
-  // below is load-bearing in both: it is what keeps `streamShortInteger`'s backward eight-byte
-  // load in bounds.
-  // `@_transparent` rather than `@inline(__always)`: the performance inliner left this as a
-  // cross-module call under the latter, generic or not, and mandatory inlining is what the
-  // branchless number tail needed before it for the same reason.
+  // `emitNumber` without the emission: same walk, same errors at the same offsets. A copy because
+  // moving `emitNumber`'s shape has cost 4% from layout alone. LOCKSTEP: `emitNumber` and
+  // `emitGeneralNumber`, untested against each other; `to >= 8` bounds `streamShortInteger`'s
+  // backward load in both. `@_transparent`: `@inline(__always)` left a cross-module call.
   @usableFromInline
   @_transparent
   func parseNumber(
@@ -220,12 +202,10 @@ extension JSONParser {
     )
   }
 
-  // The third number path: a simple decimal longer than sixteen bytes, classified and
-  // accumulated in one pass by the shim. Gated on length because the classification's latency
-  // is only amortized by long tokens (the lab measured -27% on nine-digit integers), and on
-  // the extent lying at least 32 bytes inside the chunk, which is what the shim reads. Returns
-  // exactly what `parseNumber` would — the lab verified the two agree on every extent the shim
-  // accepts — and nil for anything it declines.
+  // The third number path: a simple decimal over sixteen bytes, classified and accumulated in one
+  // pass by the shim; agrees with `parseNumber` on every extent it accepts, nil otherwise. Gated on
+  // length (only long tokens amortize its latency; nine digits measured -27%) and on 32 bytes of
+  // chunk from `from`, which the shim reads.
   @inlinable
   @inline(__always)
   func parseLongDecimal(base: UnsafeRawPointer, from: Int, to: Int, chunkEnd: Int) -> NumberInfo? {
@@ -245,13 +225,10 @@ extension JSONParser {
     )
   }
 
-  // Object members with scalar values: `"key": value,` repeated, which is most of every object
-  // in the corpus. In the index a member is a fixed cadence — quote, quote, colon, then a quote
-  // pair or a scalar, then comma or brace — so the four state transitions the walk spends on
-  // it collapse into loads at known offsets. Entered just after `{` (state `.firstKey`) or
-  // just after a `,` inside an object (state `.key`). A container value, an escaped key or
-  // string, or anything malformed falls back at the member's key or at its separator; the
-  // walk handles it and re-enters the loop at the next comma.
+  // Object members with scalar values: in the index a member is a fixed cadence (quote, quote,
+  // colon, a quote pair or a scalar, comma or brace), so the walk's four transitions become loads
+  // at known offsets. Entered after `{` (`.firstKey`) or an object's `,` (`.key`). A container, an
+  // escape or anything malformed falls back at the key or separator; the walk re-enters at a comma.
   @inlinable
   @inline(never)
   mutating func consumeObjectMembers<Sink: StreamParseSink & ~Copyable>(
@@ -282,9 +259,8 @@ extension JSONParser {
         base.load(fromByteOffset: colon, as: UInt8.self) == .asciiColon,
         open == cursor || streamIsWhitespace(base.load(fromByteOffset: cursor, as: UInt8.self))
       else { state = first ? .firstKey : .key; return .fellBack }
-      // The index does not necessarily give a scalar directly after a quote its own
-      // entry. Check the key-to-colon gap before emitting the key or consuming the colon.
-      // Compact JSON takes the adjacent-colon comparison without scanning whitespace.
+      // A scalar directly after a quote has no index entry, so the key-to-colon gap is checked
+      // before the key is emitted; compact JSON takes the adjacent-colon compare without a scan.
       guard colon == close &+ 1
         || streamWhitespaceEnd(base: base, from: close &+ 1, to: colon) == colon
       else { state = first ? .firstKey : .key; return .fellBack }

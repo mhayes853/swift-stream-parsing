@@ -1,18 +1,11 @@
 import StreamParsingShims
 
-// The windowed parse path. A chunk is walked in 32 KB windows: stage 1 (the C indexer) finds
-// every position the walk must visit, then `consumeWindow` drives the sink from those
-// positions with token extents already known. The dispatcher in JSONParser.swift is untouched
-// and still owns two things: every token a window cuts (the walk hands the cursor back at
-// the token's first byte and the dispatcher finishes it, exactly as it would at a chunk
-// boundary) and every key with an escape in it. Both are cold. The design and the numbers
-// that chose a 32 KB window are in NEW_ARCHITECTURE.md, "Stage-1 extraction".
-//
-// The contract this file has to keep is that the sink cannot tell which path ran: same
-// events, same spans, same error reasons and offsets, same rejection points. That is why the
-// structural arms below are the dispatcher's arms restated rather than a new grammar, and why
-// every check-the-sink offset is the byte after the token, which is where the dispatcher's
-// cursor sits when it reads the failure.
+// The windowed parse path: 32 KB windows, where stage 1 (the C indexer) finds every position the
+// walk must visit and `consumeWindow` drives the sink from them. The dispatcher still owns every
+// token a window cuts and every key with an escape (both cold). The sink must not be able to tell
+// which path ran -- same events, spans, error offsets and rejection points -- so the arms restate
+// the dispatcher's. NEW_ARCHITECTURE.md, "Stage-1 extraction".
+
 // The indexer, reachable by the tests that pin it against a scalar reference.
 package func streamIndexWindow(
   base: UnsafeRawPointer,
@@ -68,9 +61,8 @@ extension JSONParser {
         into: &sink
       )
     } catch {
-      // The commit lands before the error propagates: everything emitted ahead of the error is
-      // the sink's, and a deferring sink's late rejection is earlier in the document than the
-      // grammar error and is what gets reported.
+      // Commit before the error propagates; a deferring sink's late rejection is earlier in the
+      // document than the grammar error and is what gets reported.
       try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
       try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
@@ -106,11 +98,9 @@ extension JSONParser {
         continue
       }
       if i >= windowEnd {
-        // A sparse window is the dispatcher's, one step at a time until the cursor leaves the
-        // span. The steps are bounded by where they stop, not by what they scan — a handler
-        // may overrun the span, as a string longer than it would — so the sink sees exactly
-        // the chunks a bulk parse produces. Every eighth window is indexed regardless, so a
-        // document that turns dense again is noticed within one window.
+        // A sparse window is the dispatcher's, stepped until the cursor leaves the span (a step
+        // may overrun it, as a long string would), so the sink sees a bulk parse's chunks. Every
+        // eighth window is indexed regardless, so a document that turns dense again is noticed.
         if self.windowDensity < Self.sparseWindowDensity,
           self.windowsSinceProbe < Self.windowProbeInterval
         {
@@ -245,15 +235,10 @@ extension JSONParser {
     }
   }
 
-  // Returns the cursor: the window's end when everything in it was consumed, or the first
-  // byte of a token handed back to the dispatcher.
-  //
-  // The index holds structural bytes, quotes, and scalars that follow whitespace. So a byte
-  // at the cursor that is not the next entry is either whitespace — in which case everything
-  // up to the next entry is whitespace, since a non-whitespace byte after whitespace would be
-  // an entry — or a scalar token directly after a structural byte, which is a number or
-  // literal in a value state and an error in every other, at the offset the dispatcher reports.
-  // One load and one compare per entry; the walk never scans a gap.
+  // Returns the window's end, or the first byte of a token handed back to the dispatcher. The index
+  // holds structural bytes, quotes, and scalars after whitespace, so a gap byte is either
+  // whitespace (and so is the whole gap) or a scalar directly after a structural byte: one load
+  // and compare per entry, and the walk never scans a gap.
   @inlinable
   @inline(never)
   mutating func consumeWindow<Sink: StreamParseSink & ~Copyable>(
@@ -340,8 +325,7 @@ extension JSONParser {
             return cursor
           }
           state = .firstValue
-          // A numeric array subtree is a shape loop's; it decides in two loads whether this is
-          // one. It emits to the sink directly, so everything recorded so far goes first.
+          // A numeric array subtree is a shape loop's; it decides in two loads whether this is one.
           if k < count {
             _ = try self.consumeNumericArray(
               base: base, to: n, count: count, indices: indices, cursor: &cursor, k: &k,
@@ -502,11 +486,9 @@ extension JSONParser {
     }
   }
 
-  // A string value with an escape or a control byte somewhere in its blocks: the dispatcher's
-  // string loop, bounded by the closing quote the indexer already found. Escapes decode in
-  // place through the same fused path; one that carries a diagnostic hands the cursor back at
-  // its selector with the state set to `.escape`, so the dispatcher reports it exactly where
-  // and how it would have.
+  // A string value whose blocks hold an escape or control byte: the dispatcher's string loop,
+  // bounded by the indexed closing quote. An escape carrying a diagnostic hands the cursor back at
+  // its selector in `.escape`, so the dispatcher reports it exactly where and how it would have.
   @inlinable
   @inline(never)
   mutating func scanStringValue<Sink: StreamParseSink & ~Copyable>(

@@ -1,31 +1,13 @@
 import StreamParsingShims
 
-// The skip scanner: what runs between a container open whose sink answered `.skip` and its
-// matching close. The interior is scanned *structurally* — brackets tracked in the same
-// `depth`/`containers` registers the structural run uses (so a `[` closed by `}` is still
-// rejected, and the depth cap still holds), strings skipped with control bytes still rejected
-// and UTF-8 still validated — but token interiors are not re-checked: numbers are their byte
-// class, escape selectors are not decoded, literals are loose letters, and commas and
-// colons are not positionally validated. That trade is the entire point: no key matching, no
-// number parse, no escape decode, no sink call per token — and it is documented on
-// `StreamContainerDisposition.skip`. simdjson's On Demand makes the same one for skipped
-// values.
-//
-// The scanner delivers exactly one thing: the matching `endObject`/`endArray` call, at the
-// close bracket, with the same failure-check offset the streaming path uses. That is the
-// advisory contract's other half — a sink that answered `.skip` still sees its container
-// close, so a `PartialSink` pops the ignored frame it pushed at the open.
-//
-// On arm64, and on x86 with AVX2, the interior is scanned 64 bytes at a time
-// (`stream_parsing_classify_skip_block`) and the per-byte loop below is what runs at the edges:
-// it is the reference the block path is held to by `SkipBlockScanTests`, and the fallback for
-// every byte the block path will not judge, which is what keeps the error offsets byte-identical
-// to a byte-fed parse.
+// The skip scanner: from a container open whose sink answered `.skip` to its matching close, the
+// only event it delivers. Structural only: brackets matched, depth cap held, strings still reject
+// control bytes and invalid UTF-8; token interiors are not checked (the `.skip` contract). The
+// per-byte loop is the block path's reference (`SkipBlockScanTests`) and its fallback, keeping
+// error offsets byte-identical to a byte-fed parse. NEW_ARCHITECTURE.md, "The skip block scanner".
 extension JSONParser {
-  // One run, from wherever the skip stands — mid-interior, mid-string, or one byte after a
-  // backslash the chunk cut — to the matching close or the chunk's end. Out of line like the
-  // structural run, and for the same reason: it owns its registers, and `parse` stays a thin
-  // dispatcher.
+  // One run, from wherever the skip stands (mid-interior, mid-string, after a cut backslash) to
+  // the matching close or the chunk's end. Out of line like the structural run.
   @inlinable
   @inline(never)
   mutating func consumeSkipRun<Sink: StreamParseSink & ~Copyable>(
@@ -52,20 +34,14 @@ extension JSONParser {
     }
 
     #if arch(arm64) || arch(x86_64)
-      // The 64-byte block path, out of line on purpose: it hoists the classifier's tables and
-      // splats into callee-saved vector registers, and a `d8` save in *this* function's prologue
-      // would be paid by every byte-fed call that lands inside a skipped subtree, where the
-      // block loop cannot run at all. Measured: -5.1% on `Real Twitter escaped - byte by byte
-      // discarding` with the loop inlined here. The scalar entry keeps its original frame.
-      //
-      // `blockKernelsAvailable` is the constant `true` on arm64. On x86 it is one byte load, and
-      // it is tested last so a byte-fed call -- which fails `i &+ 64 <= to` -- never makes it.
+      // The block path is out of line to keep its d8 save out of this prologue, which every
+      // byte-fed call inside a skipped subtree pays (measured inlined: byte-fed Twitter escaped
+      // discarding -5.1%). `blockKernelsAvailable` (a load on x86) is tested last so a byte-fed
+      // call, failing `i &+ 64 <= to`, never reads it.
       if state == .skipping, i &+ 64 <= to, self.blockKernelsAvailable {
-        // The `inout`s are copies scoped to this branch, not the run's own locals: taking the
-        // address of `depth` and `containers` themselves would make `var depth = self.depth` an
-        // address-taken initialisation, and the store it becomes lands in the entry block —
-        // one more store on every byte-fed call that never reaches this branch. The copies are
-        // three register moves on the path that does.
+        // Copies scoped to this branch, not the run's locals: taking the address of those makes
+        // `var depth = self.depth` an address-taken init whose store lands in the entry block, on
+        // every byte-fed call that never gets here.
         var blockState = state
         var blockDepth = depth
         var blockContainers = containers
@@ -80,8 +56,7 @@ extension JSONParser {
           base: base, from: i, to: to, state: &blockState, depth: &blockDepth,
           containers: &blockContainers, into: &sink
         )
-        // The block path delivered the matching close: it left a structural state behind, which
-        // none of the three skipping states is.
+        // A structural state means the block path delivered the matching close.
         if blockState.isStructural { return i }
         if blockState != .skipping {
           guard
@@ -144,10 +119,8 @@ extension JSONParser {
       case .asciiComma, .asciiColon:
         break
       case .asciiDash, .asciiDot, .asciiPlus, .asciiUpperE, .asciiZero ... .asciiNine:
-        // The whole byte class in one scan; the grammar walk over it is what the skip omits.
-        // `.`, `+` and `E` are here because a number the chunk cut resumes at any byte of its
-        // class — the scanner keeps no cross-chunk number state, it just scans the class again.
-        // (`e` is covered by the letters arm below.)
+        // The whole byte class in one scan, no grammar walk. `.`, `+` and `E` are here because a
+        // number the chunk cut resumes at any byte of its class (`e` is in the letters arm).
         i = streamNumberRunEnd(base: base, from: at, to: to)
       case .asciiLowerA ... .asciiLowerZ:
         // Literal bytes, one at a time: `true` is four cheap iterations, and a skipped interior
@@ -162,26 +135,9 @@ extension JSONParser {
 
   #if arch(arm64) || arch(x86_64)
     // MARK: - The block path
-    //
-    // Whole 64-byte blocks of the skipped interior, classified at once
-    // (`stream_parsing_classify_skip_block`: NEON in StreamParsingShims.h, AVX2 in AVX2.c, the
-    // latter out of line and entered only when `blockKernelsAvailable`). Only the brackets outside
-    // strings are visited; every other byte of the interior — string content, escape selectors,
-    // numbers, literals, whitespace, commas, colons — is settled by the masks and never read.
-    //
-    // Entered outside a string with at least one whole block ahead. Returns where the scalar
-    // loop takes over, with `state` naming what the carries say sits there — or, when the
-    // matching close was found and delivered, the index after it, with `state` structural.
-    //
-    // Out of line, and not by inheritance from its caller: this is where the classifier's two
-    // tables, four splats and the carryless-multiply operand get hoisted, and hoisting into
-    // `d8` puts a save/restore pair and a bigger frame in whatever function's prologue owns the
-    // loop. Inlined into `consumeSkipRun` that prologue is paid by every byte-fed call that
-    // lands in a skipped subtree, which can never execute a block. That cost was measured:
-    // `Real Twitter escaped - byte by byte discarding` -5.1% p0.
-    // Settles the deferred UTF-8 validation the block loop carries: validates the outstanding
-    // non-ASCII run, if any, and returns the cleared marker. By value, not `inout`: taking
-    // `validateFrom`'s address spills it out of its register for the whole block loop.
+
+    // Settles the block loop's deferred UTF-8 validation and returns the cleared marker. By value,
+    // not `inout`: taking `validateFrom`'s address spills it for the whole block loop.
     @inlinable
     @inline(__always)
     mutating func settleValidation(
@@ -193,6 +149,10 @@ extension JSONParser {
       return -1
     }
 
+    // Whole 64-byte blocks of the skipped interior; only brackets outside strings are read. Entered
+    // outside a string with a whole block ahead. Returns where the scalar loop takes over, `state`
+    // naming what the carries say sits there, or the index after the delivered matching close with
+    // `state` structural. Out of line for the d8 prologue reason in `consumeSkipRun`.
     @inlinable
     @inline(never)
     mutating func consumeSkipBlocks<Sink: StreamParseSink & ~Copyable>(
@@ -211,11 +171,9 @@ extension JSONParser {
       // to it with the state of its *first* byte.
       var inStringCarry: UInt64 = 0
       var endsOddCarry: UInt64 = 0
-      // UTF-8 validation is deferred: the start of the first block since the last settlement
-      // that held a non-ASCII byte, or -1 when nothing is outstanding. Settling per block would
-      // call the validator on every string; settling never would validate the whole subtree at
-      // its close, far out of cache. Settling at the first all-ASCII block is both short-ranged
-      // and safe — a sequence cannot straddle a block with no high bit in it.
+      // Deferred UTF-8 validation: the first block with a non-ASCII byte since the last settlement,
+      // or -1. Settled at the first all-ASCII block -- short-ranged, and safe because a sequence
+      // cannot straddle a block with no high bit in it.
       var validateFrom = -1
       var p = from
       while p &+ 64 <= to {
@@ -236,18 +194,13 @@ extension JSONParser {
         while brackets != 0 {
           let at = p &+ brackets.trailingZeroBitCount
           brackets &= brackets &- 1
-          // The four bracket bytes spell their own kinds: '[' 0x5B and '{' 0x7B carry bit 1 and
-          // the closers do not, and the braces carry bit 5 where the square brackets do not. One
-          // byte load out of a line the classifier just read beats two more movemasks over the
-          // whole block.
+          // The byte spells its kind: openers carry bit 1, braces bit 5. One load from a line the
+          // classifier just read beats two more movemasks.
           let byte = base.load(fromByteOffset: at, as: UInt8.self)
           let isObject = byte & 0x20 != 0
           if byte & 0x02 != 0 {
-            // The cap is checked per open, exactly where the scalar loop checks it, so it
-            // reports at the bracket that breaches it. Deriving the same verdict per block takes
-            // a popcount, which is a general-register value crossing to the vector unit and
-            // back: four instructions on every block to save one predicted compare on the
-            // brackets that are actually there.
+            // The cap is checked per open, as the scalar loop checks it, so it reports at the
+            // breaching bracket; a per-block popcount verdict costs four instructions every block.
             guard depth < Self.maximumDepth else {
               validateFrom = try self.settleValidation(base: base, from: validateFrom, to: at)
               try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
@@ -327,11 +280,9 @@ extension JSONParser {
     return end
   }
 
-  // The interior of a string being skipped, from just past a quote (or wherever the previous
-  // chunk left off). Returns the index after the closing quote, or nil at the chunk's end with
-  // `state` naming where the cut fell. The same scanner and the same UTF-8 machinery the
-  // streaming string loop uses — a control byte and invalid UTF-8 are rejected in a skipped
-  // string exactly as in a delivered one — minus every emission.
+  // The interior of a skipped string, from just past a quote or where the last chunk left off.
+  // Returns the index after the closing quote, or nil at the chunk's end with `state` naming the
+  // cut. The streaming loop's scanner and UTF-8 checks, minus every emission.
   @inlinable
   mutating func skipStringBody(
     base: UnsafeRawPointer, from: Int, to: Int, state: inout State
