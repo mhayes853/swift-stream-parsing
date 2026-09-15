@@ -45,15 +45,26 @@ what matters about them is whether they are correct, not how fast they are wrong
 | `Keys` | `StreamDictionary`'s two lookup routes in isolation |
 | `Depth` | the frame spine, at 16 and 63 levels |
 | `Schema` | key matching against a 48 member type |
-| `Buffer` | `bufferCapacity`, and the parser's own malloc |
+| `Buffer` | `bufferCapacity` away from its default, and the parser's own malloc |
 | `Boundary` | chunk sizes that land inside tokens rather than between them |
 | `Numbers` | number token shapes through the real parser |
-| `Sink` | sinks replaying recorded event batches with no parser in the loop: `PartialSink` in isolation |
+| `Typed shape` | one `PartialSink` route per synthetic payload, each with a raw counting control |
+| `Layer` | one payload and one chunking through the null sink, `PartialSink`, and `PartialsStream` |
+| `Leaf`, `Inline string`, `Fixed array`, `Parseable enum` | the container and element types, end to end |
 
 Payload benchmarks report both iterations per second and payload MB/s. The real-world Codable
-rows decode typed models with both Foundation's `JSONDecoder` and swift-yyjson's `YYJSONDecoder`;
-their input `Data` is prepared before timing. They are therefore comparable to the parser's typed
-bulk and windowed convenience rows, not to its raw counting-sink rows.
+rows decode the *same* `Benchmark*` models the parser rows decode, with both Foundation's
+`JSONDecoder` and swift-yyjson's `YYJSONDecoder`; their input `Data` is prepared before timing.
+They are therefore comparable to the parser's typed bulk convenience rows, not to its raw
+counting-sink rows. (`Real Twitter full - JSONDecoder Codable` is Foundation only: it is the
+comparator for the 26-field `Real Twitter full - bulk discarding` row.)
+
+Two axes are gated rather than swept across every corpus. A `- 16KB chunks*` row is registered
+only where the payload is larger than one 16 KB chunk, because below that the chunked feed is the
+bulk row under another name. A `- ...windowed` row is registered only for Canada and Mesh:
+`windowThreshold` defaults to `.max`, so no shipped configuration takes that path, and the
+full-corpus A/B in `NEW_ARCHITECTURE.md` has it losing on everything but number batches. Those two
+corpora keep a control so a future change to the windowed path has something to move.
 
 ## Payloads
 

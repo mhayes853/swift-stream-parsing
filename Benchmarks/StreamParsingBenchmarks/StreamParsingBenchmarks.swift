@@ -41,6 +41,12 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
+  Benchmark("Stream Long string - snapshot per byte") { benchmark in
+    for _ in benchmark.scaledIterations {
+      blackHole(try streamSnapshotting(Payloads.document, as: BenchmarkDocument.Partial.self))
+    }
+  }
+
   Benchmark("Stream Array of structs - snapshot per byte") { benchmark in
     for _ in benchmark.scaledIterations {
       blackHole(try streamSnapshotting(Payloads.userList, as: BenchmarkUserList.Partial.self))
@@ -59,7 +65,7 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  for chunk in [16, 64, 256, 1024, 4096] {
+  for chunk in [16, 64, 256] {
     Benchmark("Stream Array of structs - snapshot per \(chunk)B chunk") { benchmark in
       for _ in benchmark.scaledIterations {
         blackHole(
@@ -99,8 +105,9 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  // 100 users is the payload every `Stream Array of structs` row above uses, so its two scaling
-  // rows were literal duplicates of them and are gone. These are the other two points.
+  // The `Scaling` axis is user count and nothing else. 100 users is the payload every
+  // `Stream Array of structs` row above uses, so its two scaling rows were literal duplicates of
+  // them and are gone; these are the other two points.
   for (name, payload) in [
     ("10 users", Payloads.userList10),
     ("400 users", Payloads.userList400)
@@ -118,15 +125,8 @@ let benchmarks: @Sendable () -> Void = {
     }
   }
 
-  Benchmark("Scaling 8KB document - snapshot per byte") { benchmark in
-    for _ in benchmark.scaledIterations {
-      blackHole(try streamSnapshotting(Payloads.document, as: BenchmarkDocument.Partial.self))
-    }
-  }
-
   addFastParserBenchmarks()
   layerOverheadBenchmarks()
-  partialSinkReplayBenchmarks()
   typedShapeBenchmarks()
   enumBenchmarks()
   parserShapeBenchmarks()

@@ -21,6 +21,17 @@ import StreamParsingCore
 // suite was. Validation is unconditional now, so there is no configuration axis here any more —
 // these rows measure the parser as it ships.
 
+// Windowed rows are gated to these two corpora. `windowThreshold` defaults to `.max` -- the path
+// is off in every shipped configuration -- and the full-corpus A/B recorded in NEW_ARCHITECTURE.md
+// has it losing 4-36% on string-heavy and sub-window payloads. Canada and Mesh are the number-batch
+// documents where it was ever competitive, so they keep a control; the other 37 rows are gone.
+private let windowedCorpora: Set<String> = ["Canada", "Mesh"]
+
+// 16 KB is a TLS record, which is the granularity a document this size actually arrives at. Below
+// that the "chunked" feed is one slice, i.e. the bulk row under a different name, so it is gated on
+// the payload being larger than one chunk.
+private let chunkSize = 16_384
+
 private let realWorldPayloads: [(String, [UInt8])] = [
   ("Twitter", Payloads.twitter),
   ("Twitter escaped", Payloads.twitterEscaped),
@@ -71,27 +82,31 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
     }
   }
 
-  Benchmark("Real \(name) - 16KB chunks discarding", configuration: payloadConfiguration) {
-    benchmark in
-    measurePayloadThroughput(benchmark, payload: payload) {
-      blackHole(
-        expectParses {
-          try streamDiscardingChunks(payload, chunk: 16_384, as: Value.self)
-        }
-      )
+  if payload.count > chunkSize {
+    Benchmark("Real \(name) - 16KB chunks discarding", configuration: payloadConfiguration) {
+      benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(
+          expectParses {
+            try streamDiscardingChunks(payload, chunk: chunkSize, as: Value.self)
+          }
+        )
+      }
     }
   }
 
   // The same convenience-layer parse through the windowed path, which is where number batches
   // reach `PartialSink`. The row above is its gate-off control.
-  Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
-    benchmark in
-    measurePayloadThroughput(benchmark, payload: payload) {
-      blackHole(
-        expectParses {
-          try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
-        }
-      )
+  if windowedCorpora.contains(name) {
+    Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
+      benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        blackHole(
+          expectParses {
+            try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
+          }
+        )
+      }
     }
   }
 
@@ -232,26 +247,22 @@ private func addRealWorldFastRows() {
       }
     }
 
-    // 16 KB is a TLS record, which is the granularity a document this size actually arrives at.
-    Benchmark("Real \(name) - 16KB chunks", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: 16_384) })
+    if payload.count > chunkSize {
+      Benchmark("Real \(name) - 16KB chunks", configuration: payloadConfiguration) { benchmark in
+        measurePayloadThroughput(benchmark, payload: payload) {
+          blackHole(expectParses { try runFastParser(payload, chunk: chunkSize) })
+        }
       }
     }
 
-    // The same two feeds through the windowed path (JSONParserWindow.swift), which the gate
-    // takes for any chunk at or above the threshold. Both variants live in one binary so they
-    // can be interleaved in one run.
-    Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
-      }
-    }
-
-    Benchmark("Real \(name) - 16KB chunks windowed", configuration: payloadConfiguration) {
-      benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runFastParser(payload, chunk: 16_384, windowThreshold: 1) })
+    // The same bulk feed through the windowed path (JSONParserWindow.swift), which the gate takes
+    // for any chunk at or above the threshold. Both variants live in one binary so they can be
+    // interleaved in one run.
+    if windowedCorpora.contains(name) {
+      Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
+        measurePayloadThroughput(benchmark, payload: payload) {
+          blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
+        }
       }
     }
   }
@@ -386,10 +397,12 @@ private func addRealWorldCapacityConvenienceRows() {
   )
 }
 
+// 1400 B is a TLS record under an Ethernet MTU and 16384 B is a full one: the two granularities a
+// streamed document actually arrives at. The 65536 B point sat past the knee, and the
+// `string capacity hint` twin of all six rows answered a question that is settled and recorded.
 private func addRealWorldViewRows() {
-  for chunk in [1_400, 16_384, 65_536] {
+  for chunk in [1_400, 16_384] {
     addRealWorldViewRows(for: chunk)
-    addRealWorldStringCapacityViewRows(for: chunk)
   }
 }
 
@@ -429,47 +442,10 @@ private func addRealWorldViewRows(for chunk: Int) {
   }
 }
 
-private func addRealWorldStringCapacityViewRows(for chunk: Int) {
-  Benchmark(
-    "Real LLM message string capacity hint - view read per \(chunk)B chunk",
-    configuration: payloadConfiguration
-  ) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
-      blackHole(
-        expectParses {
-          try streamViewingChunks(
-            Payloads.llmMessage,
-            chunk: chunk,
-            as: BenchmarkLLMMessageStringCapacity.Partial.self
-          ) { blackHole($0.stop_reason?.value) }
-        }
-      )
-    }
-  }
-
-  Benchmark(
-    "Real LLM message string capacity hint - snapshot per \(chunk)B chunk",
-    configuration: payloadConfiguration
-  ) { benchmark in
-    measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
-      blackHole(
-        expectParses {
-          try streamSnapshottingChunks(
-            Payloads.llmMessage,
-            chunk: chunk,
-            as: BenchmarkLLMMessageStringCapacity.Partial.self
-          )
-        }
-      )
-    }
-  }
-}
-
 func realWorldBenchmarks() {
   validateRealWorldModels()
   addRealWorldFastRows()
   addAllRealWorldConvenienceRows()
   addRealWorldCodableRows()
-  foundationRealWorldBenchmarks()
   addRealWorldViewRows()
 }

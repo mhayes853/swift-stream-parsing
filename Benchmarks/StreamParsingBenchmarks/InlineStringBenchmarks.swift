@@ -164,15 +164,9 @@ func inlineStringBenchmarks() {
     includeByteByByte: true, includeSnapshot: true
   )
 
-  // The capacity sweep: appends cost the same at every capacity, copies do not.
-  addInlineStringRow(
-    "Array 64 short", payload: InlineStringPayloads.shortStrings,
-    as: StreamArray<StreamInlineString<64>>.self, includeSnapshot: true
-  )
-  addInlineStringRow(
-    "Array 128 short", payload: InlineStringPayloads.shortStrings,
-    as: StreamArray<StreamInlineString<128>>.self, includeSnapshot: true
-  )
+  // The far end of the capacity axis: appends cost the same at every capacity, copies do not.
+  // The 64 and 128 points between this and the pair above are gone -- the crossover they were
+  // built to find is recorded.
   addInlineStringRow(
     "Array 512 short", payload: InlineStringPayloads.shortStrings,
     as: StreamArray<StreamInlineString<512>>.self, includeSnapshot: true

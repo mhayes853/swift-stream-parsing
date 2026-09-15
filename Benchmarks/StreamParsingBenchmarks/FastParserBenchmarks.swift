@@ -93,7 +93,6 @@ func addFastParserBenchmarks() {
     ("Flat struct", Payloads.flat),
     ("Nested structs", Payloads.nested),
     ("Array of structs", Payloads.userList),
-    ("Nested arrays", Payloads.matrix),
     ("Dictionary", Payloads.counts),
     ("Literals", Payloads.literals),
     ("Long string", Payloads.document),

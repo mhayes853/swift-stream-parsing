@@ -67,14 +67,15 @@ private func schemaWidthBenchmarks() {
 // MARK: - Buffer capacity
 
 // The parser's buffer holds the longest single token — a key, a number, or an escaped string run.
-// `bufferCapacity` defaults to 4096 and was never swept, and the caller-supplied initializer that
-// avoids the parser's own malloc appeared exactly once in the suite, hardcoded at 256. A capacity
-// below the longest token fails with `bufferExhausted`, so the sweep starts above it.
+// `bufferCapacity` defaults to 4096, and these rows are malloc guards on the capacities that are
+// not the default: at the default the call is identical to a `Fast ...` row, and the 256 B and
+// 64 KB points were a sweep with no open question left in it. A capacity below the longest token
+// fails with `bufferExhausted`, so 64 B is the low end that still parses these payloads.
 private func bufferCapacityBenchmarks() {
   var configuration = Benchmark.defaultConfiguration
   configuration.metrics = [.wallClock, .cpuTotal, .mallocCountTotal]
 
-  for capacity in [64, 256, 4_096, 65_536] {
+  for capacity in [64] {
     Benchmark("Buffer \(capacity)B - array of structs", configuration: configuration) { benchmark in
       for _ in benchmark.scaledIterations {
         blackHole(
@@ -101,13 +102,8 @@ private func bufferCapacityBenchmarks() {
   }
 
   // The malloc the allocating initializer pays per parser, which the doc names as what dominates
-  // a small payload. The supplied-buffer row is the same parse without it.
-  Benchmark("Buffer allocating - flat struct", configuration: configuration) { benchmark in
-    for _ in benchmark.scaledIterations {
-      blackHole(expectParses { try runFastParser(Payloads.flat, chunk: .max) })
-    }
-  }
-
+  // a small payload. Its control is `Fast Flat struct - bulk`, which is the identical call: this
+  // row is the same parse with the parser's own buffer supplied by the caller instead.
   Benchmark("Buffer supplied - flat struct", configuration: configuration) { benchmark in
     for _ in benchmark.scaledIterations {
       blackHole(
