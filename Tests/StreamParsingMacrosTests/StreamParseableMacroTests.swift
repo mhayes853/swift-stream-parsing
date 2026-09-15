@@ -4729,6 +4729,72 @@ extension BaseTestSuite {
       }
     }
 
+    @Test
+    func `Self Referential Payloads Are Diagnosed`() {
+      assertMacro {
+        """
+        @StreamParseable
+        enum Tree {
+          @StreamParseableDefault
+          case leaf
+          case node([Tree])
+          case pair(Tree?, Int)
+          case named(children: [String: Tree], parent: Optional<Self>)
+          case kind(Tree.Kind)
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        enum Tree {
+          @StreamParseableDefault
+          case leaf
+          case node([Tree])
+                    ┬─────
+                    ╰─ 🛑 Case 'node' has a payload that contains 'Tree' itself. @StreamParseable does not support recursive enums, because the generated 'Partial' would contain itself.
+          case pair(Tree?, Int)
+                    ┬────
+                    ╰─ 🛑 Case 'pair' has a payload that contains 'Tree' itself. @StreamParseable does not support recursive enums, because the generated 'Partial' would contain itself.
+          case named(children: [String: Tree], parent: Optional<Self>)
+                                                       ┬─────────────
+                               │                       ╰─ 🛑 Case 'named' has a payload that contains 'Tree' itself. @StreamParseable does not support recursive enums, because the generated 'Partial' would contain itself.
+                               ┬─────────────
+                               ╰─ 🛑 Case 'named' has a payload that contains 'Tree' itself. @StreamParseable does not support recursive enums, because the generated 'Partial' would contain itself.
+          case kind(Tree.Kind)
+        }
+        """
+      }
+    }
+
+    @Test
+    func `Qualified Self Reference Is Diagnosed In A Nested Enum`() {
+      assertMacro {
+        """
+        struct Outer {
+          @StreamParseable
+          enum Tree {
+            @StreamParseableDefault
+            case leaf
+            case node(Outer.Tree)
+          }
+        }
+        """
+      } diagnostics: {
+        """
+        struct Outer {
+          @StreamParseable
+          enum Tree {
+            @StreamParseableDefault
+            case leaf
+            case node(Outer.Tree)
+                      ┬─────────
+                      ╰─ 🛑 Case 'node' has a payload that contains 'Tree' itself. @StreamParseable does not support recursive enums, because the generated 'Partial' would contain itself.
+          }
+        }
+        """
+      }
+    }
+
   }
 }
 

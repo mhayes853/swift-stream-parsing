@@ -31,7 +31,11 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
   ) throws -> [DeclSyntax] {
     let sink = DiagnosticSink()
     if let enumDecl = declaration.as(EnumDeclSyntax.self) {
-      guard enumDecl.genericParameterClause == nil, !Self.isIndirect(enumDecl) else { return [] }
+      guard enumDecl.genericParameterClause == nil, !Self.isIndirect(enumDecl),
+        !Self.diagnoseSelfReferentialPayloads(
+          enumDecl, lexicalContext: context.lexicalContext, in: sink
+        )
+      else { return [] }
       return try Self.enumMemberExpansion(declaration: enumDecl, in: sink)
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
@@ -63,7 +67,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let sink = DiagnosticSink(context)
     if let enumDecl = declaration.as(EnumDeclSyntax.self) {
       guard !Self.diagnoseGenericParameters(enumDecl.genericParameterClause, in: sink),
-        !Self.diagnoseIndirectEnum(enumDecl, in: sink)
+        !Self.diagnoseIndirectEnum(enumDecl, in: sink),
+        !Self.diagnoseSelfReferentialPayloads(
+          enumDecl, lexicalContext: context.lexicalContext, in: sink
+        )
       else {
         return []
       }

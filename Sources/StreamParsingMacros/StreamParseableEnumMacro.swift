@@ -896,6 +896,98 @@ extension StreamParseableMacro {
   }
 }
 
+// MARK: - Self-referential payloads
+
+extension StreamParseableMacro {
+  // A payload naming the enum, however wrapped (`E?`, `[E]`, `[String: E]`, `Optional<E>`), nests
+  // `Partial` inside itself exactly as `indirect` does, and would build its schema from itself.
+  // Syntactic, like `indirect`: recursion through another declared type is not visible here.
+  static func diagnoseSelfReferentialPayloads(
+    _ declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax],
+    in context: DiagnosticSink
+  ) -> Bool {
+    let names = Self.selfReferenceNames(for: declaration, lexicalContext: lexicalContext)
+    var found = false
+    for member in declaration.memberBlock.members {
+      guard let caseDecl = member.decl.as(EnumCaseDeclSyntax.self) else { continue }
+      for element in caseDecl.elements {
+        for parameter in element.parameterClause?.parameters ?? [] {
+          let finder = SelfReferenceFinder(names: names)
+          finder.walk(parameter.type)
+          guard finder.found else { continue }
+          found = true
+          context.diagnose(
+            Self.error(
+              parameter.type,
+              """
+              Case '\(Self.unescaped(element.name))' has a payload that contains \
+              '\(declaration.name.text)' itself. @StreamParseable does not support recursive \
+              enums, because the generated 'Partial' would contain itself.
+              """
+            )
+          )
+        }
+      }
+    }
+    return found
+  }
+
+  // `Self`, the bare name, and every qualified spelling the enclosing types allow (`B.E`,
+  // `A.B.E`). The innermost lexical context is usually the enum itself, so it is skipped.
+  static func selfReferenceNames(
+    for declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax]
+  ) -> Set<String> {
+    let name = declaration.name.text
+    var names: Set<String> = ["Self", name]
+    var path = name
+    for (index, node) in lexicalContext.enumerated() {
+      if index == 0, node.as(EnumDeclSyntax.self)?.name.text == name { continue }
+      let component: String
+      if let type = node.as(ExtensionDeclSyntax.self) {
+        component = type.extendedType.trimmedDescription
+      } else if node.is(StructDeclSyntax.self) || node.is(EnumDeclSyntax.self)
+        || node.is(ClassDeclSyntax.self) || node.is(ActorDeclSyntax.self),
+        let named = node.asProtocol(NamedDeclSyntax.self)
+      {
+        component = named.name.text
+      } else {
+        // A function or closure: a local type has no qualified spelling.
+        break
+      }
+      path = component + "." + path
+      names.insert(path)
+    }
+    return names
+  }
+}
+
+// Finds a type named by `names`. A member type's base is not walked: `E.Kind` is a type nested
+// in `E`, not `E`. Generic arguments, optionals, arrays, dictionaries and tuples are.
+private final class SelfReferenceFinder: SyntaxVisitor {
+  let names: Set<String>
+  var found = false
+
+  init(names: Set<String>) {
+    self.names = names
+    super.init(viewMode: .sourceAccurate)
+  }
+
+  override func visit(_ node: IdentifierTypeSyntax) -> SyntaxVisitorContinueKind {
+    if self.names.contains(node.name.text) { self.found = true }
+    return .visitChildren
+  }
+
+  override func visit(_ node: MemberTypeSyntax) -> SyntaxVisitorContinueKind {
+    if self.names.contains("\(node.baseType.trimmedDescription).\(node.name.text)") {
+      self.found = true
+    }
+    if let arguments = node.genericArgumentClause { self.walk(arguments) }
+    return .skipChildren
+  }
+}
+
 extension StreamParseableMacro {
   static func diagnoseNonLiteralRawValue(
     in element: EnumCaseElementSyntax,
