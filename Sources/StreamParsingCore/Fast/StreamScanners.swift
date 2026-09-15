@@ -313,8 +313,8 @@ package func streamWhitespaceMissMask(_ chunk: SIMD16<UInt8>) -> SIMDMask<SIMD16
 // Kept out of line deliberately. Inlining the vector body into the parse loop measured 18-35%
 // *slower* on escape dense documents, which contain no whitespace for it to scan at all: the
 // loop's own register pressure is the cost, not the scan.
-// `consumeStructuralRun` takes the inline twin below instead; `parse` and `streamWhitespaceEnd`
-// keep this one.
+// `consumeStructuralRun` and `consumeSkipRun` take the inline twin below (through
+// `streamWhitespaceEndByte`) instead; `streamWhitespaceEnd` and the tests keep this one.
 @inlinable
 @inline(never)
 package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -1050,20 +1050,6 @@ package func streamMaskBytes(_ mask: SIMDMask<SIMD16<Int8>>) -> SIMD16<UInt8> {
     )
   }
 
-  @inlinable
-  @inline(__always)
-  package func streamUTF8BlockIsInvalidShimmed(
-    current: SIMD16<UInt8>,
-    previous1: SIMD16<UInt8>,
-    previous2: SIMD16<UInt8>,
-    previous3: SIMD16<UInt8>
-  ) -> Bool {
-    streamVectorIsNonZero(
-      streamUTF8BlockErrorsShimmed(
-        current: current, previous1: previous1, previous2: previous2, previous3: previous3
-      )
-    )
-  }
 #endif
 
 @inlinable
@@ -1245,7 +1231,10 @@ package func streamShortInteger(base: UnsafeRawPointer, from: Int, end: Int) -> 
   // including the fractional ones that never reach this kernel at all. `Mesh` -2.8%,
   // `Qwen 3 search tool call` -3.3% and `Twitter` -1.3% against `Canada` +9.7%, where the
   // shift change alone accounts for the gain.
-  assert(end > from && end &- from <= 8)
+  // `end >= 8` is the condition the backward load needs and it lives in the callers (`emitNumber`
+  // and `JSONParserShapes.parseNumber` both spell it as part of their entry guard), so it is
+  // restated here: a third caller that forgets it is an out-of-bounds read with no release signal.
+  assert(end >= 8 && end > from && end &- from <= 8)
   let keep = UInt64.max &<< shift
   let biased = (word & keep) &- (0x3030_3030_3030_3030 & keep)
   let bad = ((biased &+ 0x7676_7676_7676_7676) | biased) & 0x8080_8080_8080_8080

@@ -117,8 +117,11 @@ extension JSONParser {
     case .string: sink.string(Self.emissionSpan(base, start, length))
     case .boolean: sink.boolean(extra != 0)
     case .null: sink.null()
-    // Numbers carry their parsed info and always come through `recordNumber`.
-    case .number: sink.number(Self.emissionSpan(base, start, length), info: NumberInfo())
+    // Numbers carry their parsed info and always come through `recordNumber`; no caller passes
+    // `.number` here. `kind` is a literal at every call site and this is `@inline(__always)`, so
+    // the switch folds and the trap costs nothing -- it just keeps a future caller from getting a
+    // silently default-constructed `NumberInfo` instead of a diagnostic.
+    case .number: preconditionFailure("numbers are recorded through recordNumber")
     }
     // A rejected whole string reports at its content start — the byte after the opening quote —
     // and every other token at the byte after itself, exactly where batch delivery reported.

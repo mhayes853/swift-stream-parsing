@@ -138,10 +138,16 @@ public struct JSONParser: ~Copyable {
   // entry test is then the availability test too, with no third load on it -- and no read of the
   // lazily initialised global on any parse path, which is what that global has cost before
   // (StreamScanners.swift, `streamStringRun`).
+  //
+  // Initialised from `blockKernelsAvailable`, which is what `reset` restores it to, so a fresh
+  // parser and a reset one agree on every architecture. On arm64 and the non-tuned targets that
+  // property is a constant and the initialiser folds to a literal; only x86 reads the probe.
   #if arch(x86_64)
     @usableFromInline package var blockWalkGivenUp = !streamHasAVX2BlockKernels
-  #else
+  #elseif arch(arm64)
     @usableFromInline package var blockWalkGivenUp = false
+  #else
+    @usableFromInline package var blockWalkGivenUp = true
   #endif
   @usableFromInline package var blockWalkStrikes: UInt8 = 0
 
@@ -170,6 +176,14 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var windowsSinceProbe: UInt32 = 0
 
   public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
+    // The same bound `init(buffer:)` states, for the same reason: `bufferCapacity` is narrowed to
+    // `UInt32` below, and `capacity &+ Self.scratchByteCount` wraps before the allocation on a
+    // 32-bit `Int` target. Spelled as an unsigned comparison so the `Int(UInt32.max)` in the
+    // condition itself cannot overflow there.
+    precondition(
+      UInt(bufferCapacity) <= UInt(UInt32.max),
+      "JSONParser requires a buffer capacity smaller than 4 GB."
+    )
     let capacity = Swift.max(bufferCapacity, 64)
     self.bufferBase = .allocate(capacity: capacity &+ Self.scratchByteCount)
     self.bufferCapacity = UInt32(capacity)
@@ -395,6 +409,11 @@ public struct JSONParser: ~Copyable {
     }
     // Everything is emitted; the lifetime signal goes out before the structural checks, which
     // deliver nothing new to the sink.
+    //
+    // Note that `.number` above moved the parser to `.done` *before* these checks can throw. That
+    // is deliberate rather than an oversight: it makes a second `finish()` after a caught
+    // `unterminatedContainer` raise the same error again instead of re-emitting the buffered
+    // number to the sink. `reset()` is the documented recovery either way.
     try self.commitSink(chunkEnd: 0, into: &sink)
     if self.depth > 0 { throw self.error(.unterminatedContainer, at: 0) }
     if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8, at: 0) }
@@ -409,8 +428,9 @@ public struct JSONParser: ~Copyable {
   // structural byte costs. The loop stays here while the state stays structural, which turns a run
   // into one call.
   //
-  // `checkSink` still runs per byte rather than per run: a sink that rejects a token has to stop
-  // the parse at the token it rejected, and where that surfaces is what `ErrorOffsetTests` pins.
+  // `checkEmission` still runs per byte rather than per run: a sink that rejects a token has to
+  // stop the parse at the token it rejected, and where that surfaces is what `ErrorOffsetTests`
+  // pins.
   // `fuseAfterValue` carries the other half of that guarantee, since it can move the cursor
   // between a rejection and the check that reads it.
   // Out of line by force, with `consumeStructural` folded into it by force: left alone the
@@ -844,8 +864,9 @@ public struct JSONParser: ~Copyable {
   // offset the unfused path reports, so where a rejection surfaces no longer depends on whether
   // the bytes after it happened to be fusable.
   //
-  // The test is third, after the two register compares, and it reads the same field `checkSink`
-  // reads a few instructions later, so it is a load that was going to happen anyway.
+  // The test is third, after the two register compares, and it reads the same field
+  // `checkEmission` reads a few instructions later, so it is a load that was going to happen
+  // anyway.
   @inlinable
   @inline(__always)
   mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
@@ -1260,13 +1281,15 @@ public struct JSONParser: ~Copyable {
     return from &+ 1
   }
 
-  // Out of line, and for the same reason the whitespace vector body is: this is inlined into
-  // `consumeStringRun`, and the hex decode plus the surrogate pair handling is dead weight in it
-  // for any document whose escapes are all one character. Spelling it inline alongside the simple
-  // escapes above cost `Fast Escaped string` — `a\nb\t` repeated, no `\u` in it at all — 18.5%,
-  // and every string heavy document 1-5%, while the documents it exists for kept their gain either
-  // way. A `\u` escape is five bytes of work and saves five dispatcher iterations, so it can
-  // afford the call; `\n` is one byte and cannot.
+  // Out of line, and for the same reason the whitespace vector body is: this is inlined into its
+  // callers -- `consumeKeyRun` and the windowed walk's `scanStringValue` for the `coalescing:
+  // false` entry, `coalescedEscapedStringTail` for the twin below -- and the hex decode plus the
+  // surrogate pair handling is dead weight in them for any document whose escapes are all one
+  // character. Spelling it inline alongside the simple escapes above cost `Fast Escaped string`
+  // — `a\nb\t` repeated, no `\u` in it at all — 18.5%, and every string heavy document 1-5%,
+  // while the documents it exists for kept their gain either way. A `\u` escape is five bytes of
+  // work and saves five dispatcher iterations, so it can afford the call; `\n` is one byte and
+  // cannot.
   //
   // Two out-of-line entries over one body, one per destination, because a literal passed to an
   // `@inline(never)` function is a runtime argument inside it.
@@ -1319,10 +1342,17 @@ public struct JSONParser: ~Copyable {
     }
 
     if coalescing {
+      // `reportAt` here is the offset the *flush* was reached at -- everything buffered ahead of
+      // this escape -- so it stays at the escape, exactly as `bufferStringRun`'s flush does.
       let encoded = Self.utf8Word(value)
       try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from)
     } else {
-      try self.emitScalar(value, into: &sink, reportAt: from)
+      // The chunk delivered here is the decoded escape itself, and `emitScratch` reports at
+      // `reportAt &+ 1`, so `reportAt` has to be the escape's *last* byte -- `end &- 1`, which is
+      // the final hex digit of a `\uXXXX` and of a surrogate pair alike. Passing `from` (the `u`)
+      // reported four bytes early for a single escape and ten early for a pair, where the per byte
+      // path reports the byte after the escape. Free: `end` is already in a register here.
+      try self.emitScalar(value, into: &sink, reportAt: end &- 1)
     }
     return end
   }
@@ -1396,8 +1426,9 @@ public struct JSONParser: ~Copyable {
 
   // A high surrogate with no low surrogate after it. Every event that can follow one asks for
   // this, and it is out of line and returns the error rather than throwing it so that the common
-  // path at each call site stays a compare against zero: two of the four callers are in
-  // `consumeStringRun`, once per literal run and once per closing quote.
+  // path at each call site stays a compare against zero. Six call sites, two each in
+  // `stringRunBody`, `coalescedEscapedStringTail` and `consumeKeyRun`: once per literal run and
+  // once per closing quote.
   @inlinable
   @inline(never)
   func loneHighSurrogateError(reportAt: Int) -> JSONParsingError {
@@ -2135,17 +2166,6 @@ public struct JSONParser: ~Copyable {
   @inline(never)
   static func fail(_ error: JSONParsingError) throws(JSONParsingError) -> Never {
     throw error
-  }
-
-  @inlinable
-  mutating func checkSink<Sink: StreamParseSink & ~Copyable>(
-    _ sink: inout Sink, at offset: Int
-  ) throws(JSONParsingError) {
-    if let failure = sink.streamFailure {
-      throw JSONParsingError(
-        reason: .sinkRejectedToken(failure), byteOffset: self.consumedByteCount &+ offset
-      )
-    }
   }
 
   @inlinable

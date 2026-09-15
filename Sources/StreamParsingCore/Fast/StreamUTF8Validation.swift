@@ -85,7 +85,8 @@ package func streamValidateUTF8Scalar(base: UnsafeRawPointer, from: Int, to: Int
   }
 }
 
-// The validator the parser calls: table lookups and lane shifts where the platform has them.
+// The validator the parser calls: table lookups and overlapping loads where the platform has
+// them (see `StreamParsingShims.h`, where lane shifting was measured 10% slower and dropped).
 @inlinable
 @inline(never)
 package func streamValidateUTF8(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {

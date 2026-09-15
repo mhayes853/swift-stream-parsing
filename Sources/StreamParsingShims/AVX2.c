@@ -35,6 +35,21 @@
 #include <stddef.h>
 #include <string.h>
 
+// C11 atomics, for the feature cache near the bottom of the file only. A freestanding or
+// pre-C11 toolchain that defines `__STDC_NO_ATOMICS__` keeps the plain `int` this used to be:
+// the race is benign in practice on every x86 this compiles for, and losing the tier over a
+// missing header would not be.
+#if defined(__STDC_NO_ATOMICS__)
+#define STREAM_PARSING_ATOMIC_INT int
+#define STREAM_PARSING_RELAXED_LOAD(p) (*(p))
+#define STREAM_PARSING_RELAXED_STORE(p, v) (*(p) = (v))
+#else
+#include <stdatomic.h>
+#define STREAM_PARSING_ATOMIC_INT _Atomic int
+#define STREAM_PARSING_RELAXED_LOAD(p) atomic_load_explicit(p, memory_order_relaxed)
+#define STREAM_PARSING_RELAXED_STORE(p, v) atomic_store_explicit(p, v, memory_order_relaxed)
+#endif
+
 // Storage class included deliberately: these are file-static, and `static` has to sit
 // alongside the target attribute rather than be spelled separately at each definition.
 #define STREAM_PARSING_AVX2_FN static __attribute__((target("avx2")))
@@ -524,10 +539,16 @@ enum {
   STREAM_X86_BLOCK_KERNELS = 1 << 2
 };
 
-// Resolved on first use and cached; every later call is a load and a predicted branch.
+// Resolved on first use and cached; every later call is a relaxed load and a predicted branch.
+//
+// `_Atomic` with relaxed ordering rather than a plain `int`: every thread that races here computes
+// the same value, so no ordering is needed, but a plain non-atomic object written from several
+// threads is a data race by the C11 model -- UB on paper, a TSan report in practice, and a load
+// the compiler is free to split or repeat. Relaxed atomics cost nothing on x86 (a plain `mov`
+// either way) and nothing here even on a weaker model, since the value is self-describing.
 static int stream_parsing_x86_features(void) {
-  static int features = 0;
-  int cached = features;
+  static STREAM_PARSING_ATOMIC_INT features = 0;
+  int cached = STREAM_PARSING_RELAXED_LOAD(&features);
   if (__builtin_expect(cached == 0, 0)) {
     int avx2 = 0;
     int clmul = 0;
@@ -553,8 +574,9 @@ static int stream_parsing_x86_features(void) {
     }
     cached = STREAM_X86_PROBED | (avx2 ? STREAM_X86_AVX2 : 0)
         | (avx2 && clmul && popcnt ? STREAM_X86_BLOCK_KERNELS : 0);
-    // Benign race: every thread computes the same value, and the write is a single aligned int.
-    features = cached;
+    // Racy by design: every thread computes the same value, so the last writer wins with nothing
+    // to order against. See the note on the declaration for why it is still spelled atomically.
+    STREAM_PARSING_RELAXED_STORE(&features, cached);
   }
   return cached;
 }

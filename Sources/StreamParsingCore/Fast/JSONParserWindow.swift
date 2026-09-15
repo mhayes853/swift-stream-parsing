@@ -62,9 +62,8 @@ extension JSONParser {
     let needsScan = (scratch + Self.windowIndexCapacity &* 4).assumingMemoryBound(to: UInt64.self)
     let nonASCII = needsScan + Self.windowBitmapWordCount
 
-    var i = 0
     do throws(JSONParsingError) {
-      i = try self.parseWindows(
+      try self.parseWindows(
         base: base, count: n, indices: indices, needsScan: needsScan, nonASCII: nonASCII,
         into: &sink
       )
@@ -75,7 +74,6 @@ extension JSONParser {
       try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
       try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
-    _ = i
     try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
     try self.commitSink(chunkEnd: n, into: &sink)
     self.consumedByteCount &+= n
@@ -90,7 +88,7 @@ extension JSONParser {
     needsScan: UnsafeMutablePointer<UInt64>,
     nonASCII: UnsafeMutablePointer<UInt64>,
     into sink: inout Sink
-  ) throws(JSONParsingError) -> Int {
+  ) throws(JSONParsingError) {
     var i = 0
     if self.pendingUTF8Count > 0 {
       i = try self.completePendingUTF8(base: base, count: n, into: &sink)
@@ -149,7 +147,6 @@ extension JSONParser {
         i = try self.dispatchOnce(base: base, from: i, to: n, into: &sink)
       }
     }
-    return i
   }
 
   // One iteration of the dispatcher's loop, verbatim, so the seam runs the same handlers the

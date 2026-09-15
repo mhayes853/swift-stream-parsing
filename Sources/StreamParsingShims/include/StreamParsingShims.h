@@ -581,6 +581,12 @@ STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_swar8(uint64_t w) {
   return w;
 }
 
+// Reads in eight-byte words, so the `count % 8 != 0` tail below loads up to seven bytes past
+// `q + count`. That is in bounds only because of the caller: `stream_parsing_decimal32` rejects
+// any token with `len > 21` and passes slices of the same `p`, so the furthest byte this can touch
+// is `p + 27` -- inside the 32 mapped bytes `stream_parsing_decimal32` documents as its
+// precondition (and which `JSONParserShapes.parseNumber` guarantees with `from &+ 32 <=
+// chunkEnd`). Loosening the `len <= 21` gate without revisiting this is an out-of-bounds read.
 STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_decimal_digits(const uint8_t *q, unsigned count) {
   static const uint64_t pow10[8] = {
     1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL
