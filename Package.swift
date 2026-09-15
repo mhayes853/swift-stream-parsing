@@ -83,8 +83,10 @@ let package = Package(
           condition: .when(traits: ["StreamParsingTagged"])
         )
       ],
-      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
-        + suppressedAssociatedTypes + lifetimes + addressableTypes
+      swiftSettings: [
+          .enableExperimentalFeature(streamParsing128BitIntegers),
+          .treatWarning("EmbeddedRestrictions", as: .warning)
+      ] + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
     .macro(
       name: "StreamParsingMacros",
