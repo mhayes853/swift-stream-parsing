@@ -28,8 +28,6 @@ extension Sequence where Element == UInt8 {
   ///   - type: The value type to collect partials for.
   ///   - format: The format describing the parser that produces the value states.
   /// - Returns: The values observed after each byte and at completion.
-  // Disfavoured so a type that is both `StreamParseable` and `StreamParseableRoot` (such as
-  // `StreamEmptyObject`) resolves to the `StreamParseable` form. See `Partials overload probe`.
   @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
@@ -83,8 +81,6 @@ extension Sequence where Element: Sequence<UInt8> {
   ///   - type: The value type being parsed.
   ///   - format: The format describing the parser that consumes the nested sequences.
   /// - Returns: The value states observed after each collection and at completion.
-  // Disfavoured so a type that is both `StreamParseable` and `StreamParseableRoot` (such as
-  // `StreamEmptyObject`) resolves to the `StreamParseable` form. See `Partials overload probe`.
   @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,

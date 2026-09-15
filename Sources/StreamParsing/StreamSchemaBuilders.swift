@@ -16,8 +16,7 @@ public func _streamSchema<T: StreamParseableObject>(for type: T.Type) -> StreamS
 }
 
 // A fixed-width SIMD value is syntactically a generic type but semantically an array-shaped
-// container. Below the object overload, so an object (which refines `StreamContainerPartial`)
-// keeps its more specific route.
+// container.
 @_disfavoredOverload
 @inlinable
 public func _streamSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema {
