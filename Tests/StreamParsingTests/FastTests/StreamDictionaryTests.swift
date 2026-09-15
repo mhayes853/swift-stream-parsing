@@ -1,4 +1,5 @@
 import CustomDump
+import Foundation
 import Testing
 
 @testable import StreamParsingCore
@@ -219,6 +220,98 @@ extension `Stream dictionary tests` {
     expectNoDifference(dictionary.count, 600)
     expectNoDifference(dictionary["key599"], 599)
     expectNoDifference(dictionary["key512"], 512)
+  }
+}
+
+// MARK: - Conformances
+
+extension `Stream dictionary tests` {
+  // A dictionary whose last entry is still open, as the parser leaves one mid-value.
+  private func withOpenEntry() -> StreamDictionary<Int> {
+    var dictionary: StreamDictionary<Int> = ["b": 2]
+    Array("a".utf8).withUnsafeBufferPointer { buffer in
+      dictionary._openValue(forKey: Span(_unsafeElements: buffer), initial: 0)
+        .assumingMemoryBound(to: Int.self).pointee = 1
+    }
+    return dictionary
+  }
+
+  @Test
+  func `Reflects as its key-value pairs in insertion order`() {
+    let mirror = Mirror(reflecting: self.withOpenEntry())
+    expectNoDifference(mirror.displayStyle, .dictionary)
+    let pairs = mirror.children.map { $0.value as! (key: String, value: Int) }
+    expectNoDifference(pairs.map(\.key), ["b", "a"])
+    expectNoDifference(pairs.map(\.value), [2, 1])
+
+    var dumped = ""
+    dump(self.withOpenEntry(), to: &dumped)
+    #expect(dumped.contains(#"key: "a""#))
+    #expect(!dumped.contains("storedValues") && !dumped.contains("pendingValue"))
+  }
+
+  @Test
+  func `Encodes as a JSON object with string keys`() throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    expectNoDifference(
+      String(decoding: try encoder.encode(self.withOpenEntry()), as: UTF8.self),
+      #"{"a":1,"b":2}"#
+    )
+    let nested: StreamDictionary<StreamArray<StreamString>> = ["k": ["x", "y"], "1": []]
+    expectNoDifference(
+      try encoder.encode(nested),
+      try encoder.encode(["k": ["x", "y"], "1": [String]()])
+    )
+  }
+
+  @Test
+  func `Decodes a JSON object with its keys in sorted order`() throws {
+    let decoded = try JSONDecoder().decode(
+      StreamDictionary<Int>.self, from: Data(#"{"zebra":1,"apple":2,"mango":3}"#.utf8)
+    )
+    expectNoDifference(decoded.keys, ["apple", "mango", "zebra"])
+    expectNoDifference(decoded.values, [2, 3, 1])
+
+    let nested = try JSONDecoder().decode(
+      StreamDictionary<StreamDictionary<StreamString>?>.self,
+      from: Data(#"{"a":{"x":"y"},"b":null}"#.utf8)
+    )
+    expectNoDifference(nested["a"]??["x"], "y")
+    expectNoDifference(nested["b"], .some(nil))
+
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(StreamDictionary<Int>.self, from: Data("[1]".utf8))
+    }
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(StreamDictionary<Int>.self, from: Data(#"{"a":"x"}"#.utf8))
+    }
+  }
+
+  @Test
+  func `Codable round trips a sorted dictionary`() throws {
+    let value: StreamDictionary<Int> = ["a": 1, "b": 2, "c": 3]
+    let decoded = try JSONDecoder().decode(
+      StreamDictionary<Int>.self, from: try JSONEncoder().encode(value)
+    )
+    expectNoDifference(decoded, value)
+  }
+
+  @Test
+  func `Hashes consistently with equality`() {
+    // Equal however they were built: literal, repeated key, open entry.
+    var updated: StreamDictionary<Int> = ["b": 0, "a": 1]
+    updated.updateValue(2, forKey: "b")
+    let values = [self.withOpenEntry(), ["b": 2, "a": 1], updated]
+    for value in values {
+      expectNoDifference(value, values[0])
+      expectNoDifference(value.hashValue, values[0].hashValue)
+    }
+
+    // Order sensitive, like `==`.
+    let reordered: StreamDictionary<Int> = ["a": 1, "b": 2]
+    #expect(reordered != values[0])
+    expectNoDifference(Set(values + [reordered]).count, 2)
   }
 }
 
