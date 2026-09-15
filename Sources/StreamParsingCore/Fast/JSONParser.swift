@@ -1467,6 +1467,11 @@ public struct JSONParser: ~Copyable {
   // That is also what rejects doubled exponent signs, which the per-byte rules accepted.
   // Forced inline: recording instead of calling the sink made this small enough for the
   // optimizer to leave it out of line, at two call sites in `consumeNumber`.
+  // LOCKSTEP: `JSONParserShapes.parseNumber` is a deliberate copy of this walk (and of
+  // `emitGeneralNumber`); nothing holds the two to each other, so a fix here needs applying
+  // there. That includes the `to &- from <= 8, to >= 8` entry guard below: its `to >= 8` is the
+  // only thing keeping `streamShortInteger`'s backward eight-byte load in bounds, and it is
+  // spelled separately in both files.
   @inlinable
   @inline(__always)
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(

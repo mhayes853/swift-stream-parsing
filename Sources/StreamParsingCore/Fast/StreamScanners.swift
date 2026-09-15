@@ -247,8 +247,9 @@ package func streamWhitespaceMissMask(_ chunk: SIMD16<UInt8>) -> SIMDMask<SIMD16
 // Kept out of line deliberately: measured, inlining the vector body into the parse loop cost 18-35%
 // on escape-dense documents that contain no whitespace at all — the loop's register pressure, not
 // the scan. `consumeStructuralRun` and `consumeSkipRun` take the inline twin below (through
-// `streamWhitespaceEndByte`); `streamWhitespaceEnd` and the tests keep this one. Both bodies must
-// be edited together.
+// `streamWhitespaceEndByte`); `streamWhitespaceEnd` and the tests keep this one.
+// LOCKSTEP: `streamWhitespaceRunEndInline` is this body character for character, and only
+// `StreamScannerTests` exercises this one -- a fix here must be applied there by hand.
 @inlinable
 @inline(never)
 package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -284,7 +285,7 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
 }
 
 // The same body as `streamWhitespaceRunEnd`, for `consumeStructuralRun` alone, where it is forced
-// inline: the call was 16% of `twitter`. Measured: `@_transparent` must stay on the *whole* chain
+// inline: the call was 16% of `twitter`. LOCKSTEP: a fix to either body belongs in both. Measured: `@_transparent` must stay on the *whole* chain
 // (the step, `streamWhitespaceEndByte`, this), because it inlines before the size heuristic gets a
 // vote — freed of 192 instructions the inliner still pushed one or the other out of line. Same
 // reason the hit test is the shim and not `all(hit)`: at that stage the library's `any`/`all` on a

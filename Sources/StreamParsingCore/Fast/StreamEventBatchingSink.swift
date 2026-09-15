@@ -56,10 +56,16 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
 
   // MARK: Recording
 
+  // The tail both `append`s share: a full batch is delivered as soon as it fills.
+  @inline(__always)
+  private mutating func recordAppended() {
+    if self.records.count == Self.batchCapacity { self.flush() }
+  }
+
   private mutating func append(_ kind: StreamEventRecord.Kind, extra: UInt32 = 0) {
     self.records.append(StreamEventRecord(kind: kind, start: 0, length: 0, end: 0, extra: extra))
     self.infos.append(NumberInfo())
-    if self.records.count == Self.batchCapacity { self.flush() }
+    self.recordAppended()
   }
 
   private mutating func append(
@@ -73,7 +79,7 @@ public struct StreamEventBatchingSink<Consumer: StreamEventBatchConsumer & ~Copy
       StreamEventRecord(kind: kind, start: start, length: bytes.count, end: 0)
     )
     self.infos.append(info)
-    if self.records.count == Self.batchCapacity { self.flush() }
+    self.recordAppended()
   }
 
   // MARK: Flushing

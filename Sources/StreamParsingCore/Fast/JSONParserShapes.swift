@@ -139,6 +139,10 @@ extension JSONParser {
   // returning the info for the batch. Kept as its own copy rather than a refactor of
   // `emitNumber`, which is inlined into the dispatcher's `consumeNumber` and has cost 4% from
   // layout alone when its shape moved.
+  // LOCKSTEP: `JSONParser.emitNumber` + `emitGeneralNumber` are the other copy, and no test holds
+  // the two to each other -- a fix to either belongs in both. The `to >= 8` in the entry guard
+  // below is load-bearing in both: it is what keeps `streamShortInteger`'s backward eight-byte
+  // load in bounds.
   // `@_transparent` rather than `@inline(__always)`: the performance inliner left this as a
   // cross-module call under the latter, generic or not, and mandatory inlining is what the
   // branchless number tail needed before it for the same reason.
