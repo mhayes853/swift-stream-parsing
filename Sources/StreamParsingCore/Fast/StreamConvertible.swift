@@ -13,17 +13,14 @@ public protocol StreamStringConvertible: StreamInitializable {
   @discardableResult
   mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
 
-  // How a schema recognizes fixed-capacity inline storage without being able to name it.
-  //
-  // `_streamStringSchema` is generic over the destination and cannot spell
-  // `StreamInlineString<capacity>` for a capacity it does not know, and an existential metatype
-  // cast to ask the question would not survive into Embedded Swift. A static requirement with a
-  // default answers it instead: it is read once when a schema is built, never per token, and
-  // specializes to a constant that folds the branch away for every type that leaves it zero.
+  // How a schema recognizes fixed-capacity inline storage without being able to name it: a static
+  // requirement rather than a metatype cast, because `_streamStringSchema` cannot spell
+  // `StreamInlineString<capacity>` and an existential cast would not survive Embedded Swift. Read
+  // once per schema build, and a constant after specialisation.
   //
   // Zero means "not inline storage". A non-zero value is a promise about layout, checked in
-  // `_streamStringSchema`: `_streamInlineByteOffset` bytes of header, then exactly that many
-  // bytes of UTF-8 storage, which is what lets `PartialSink` append to it without naming it.
+  // `_streamStringSchema`: `_streamInlineByteOffset` bytes of header, then exactly that many bytes
+  // of UTF-8 storage, which is what lets `PartialSink` append without naming the type.
   static var _streamInlineCapacity: Int { get }
   static var _streamInlineByteOffset: Int { get }
 }
@@ -69,13 +66,9 @@ extension FixedWidthInteger {
 
     if info.flags.contains(.negative) {
       guard Self.isSigned else { return nil }
-      // Integer-to-integer `init?(exactly:)` is `@inlinable` in the standard library and folds to
-      // a range compare, so the argument the floating-point path below makes against
-      // `init(exactly:)` -- an out-of-line `bl` with a float round trip inside it -- does not
-      // apply to either use here.
-      //
-      // The bound is expressed in Self.Magnitude rather than UInt64, because widening the
-      // other way traps for types wider than 64 bits.
+      // Integer-to-integer `init?(exactly:)` folds to a range compare, so the objection the
+      // floating-point path below raises against `init(exactly:)` does not apply here. The bound is
+      // in `Self.Magnitude`, not `UInt64`: widening the other way traps past 64 bits.
       guard let magnitude = Self.Magnitude(exactly: info.magnitude),
         magnitude <= Self.min.magnitude
       else { return nil }
@@ -109,32 +102,16 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
   // 3. The standard library's parser, for the cases the kernel declines and for a token of more
   //    than nineteen digits, whose accumulated `magnitude` has wrapped.
   //
-  // This used to fold `Self.self == Double.self` and jump to a separate non-generic body, because
-  // the generic spelling charged every type for three conversions that are identities or
-  // constant folds. Reading the release binary showed all three were `init(exactly:)`, not
-  // genericity:
+  // **No `init(exactly:)` on this path.** Every one of the three it used to carry lowered to real
+  // work the surrounding code had already done or could not need -- an out-of-line `bl` with a
+  // float round trip, a NaN test on a `.rodata` constant, an infinity test on a kernel that returns
+  // neither -- which is what made the generic spelling look like a genericity cost. `Self(_:)` plus
+  // the range compares below is the same answer for free. (NEW_ARCHITECTURE.md, "Three
+  // `init(exactly:)` calls".)
   //
-  //   * `Self(exactly: info.magnitude)` stayed an out-of-line `bl` to
-  //     `Double.init<UInt64>(exactly:)` -- a `ucvtf`, an `fcmp` against 2^64, an `fcvtzu` back and
-  //     a compare -- executed for **every** number and discarded for the 91% of `canada.json`
-  //     whose significand exceeds 2^53. `Self(_:)` on the same operand is a bare `ucvtf`; the
-  //     range question is answered by the `magnitude <= 2^(significandBitCount + 1)` compare that
-  //     has to happen anyway, because a magnitude above that bound is unusable by this path even
-  //     when it happens to be representable.
-  //   * `Self(exactly: scale)` on a `.rodata` power of ten emitted `fcmp d1, d1; b.vs` -- a NaN
-  //     test on a compile-time-constant table entry -- and was doing duty as the type-dependent
-  //     Clinger window. `streamMaxExactPow10(Self.self)` is that window as a constant.
-  //   * `Self(exactly: value)` on Eisel-Lemire's result emitted an infinity/NaN test on a kernel
-  //     that returns neither.
-  //
-  // With those gone the `Double` specialisation is the straight-line kernel the special case
-  // used to provide, and `Float` gets the same three tiers instead of exact-or-`String`.
-  //
-  // The sign is applied to the significand before the scale rather than to the result: a power of
-  // ten is positive, so multiplying or dividing carries the sign through unchanged, zero
-  // included, and doing it here costs the same two instructions (`fneg`/`fcsel`) the old
-  // `Double`-only body spent OR-ing the sign bit into the finished bit pattern -- while staying
-  // expressible for a `Self` whose bit pattern this extension cannot name.
+  // The sign is applied to the significand before the scale, not to the result: a power of ten is
+  // positive, so the sign carries through unchanged (zero included) at the same two instructions,
+  // and it stays expressible for a `Self` whose bit pattern this extension cannot name.
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     // Tested against the raw bits rather than through `contains`, so the two tests are a `tbnz`
@@ -196,27 +173,23 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
 // Eisel-Lemire for the formats that have a `StreamBinaryFormat`, and a decline for every other
 // `BinaryFloatingPoint`.
 //
-// The extension above is on `BinaryFloatingPoint where Self: LosslessStringConvertible`, a
-// constraint set this package does not own, so it cannot require the format conformance the
-// kernel needs; a type test is the only way to ask. Both comparisons fold to constants when the
-// generic specialises -- the `Double` specialisation is left with the kernel call and nothing
-// else -- and a type without a format (`Float80`, `CGFloat`, a user's own) declines here and
-// takes the `String` fallback, exactly as it did before.
+// The extension above is constrained on protocols this package does not own, so it cannot require
+// the format conformance the kernel needs; a type test is the only way to ask, and both comparisons
+// fold to constants on specialisation. A type without a format declines here and takes the `String`
+// fallback.
 //
 // `Float` is emphatically *not* served by computing a `Double` and narrowing: decimal -> `Double`
-// -> `Float` rounds twice and is not correctly rounded in general (`7.038531e-26` is the
-// classic). It gets its own instantiation of the kernel, with its own constants.
+// -> `Float` rounds twice and is not correctly rounded in general (`7.038531e-26`). It gets its own
+// instantiation of the kernel.
 @inlinable
 @inline(__always)
 func streamEiselLemireAny<T: BinaryFloatingPoint>(
   magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
 ) -> T? {
-  // Guarded by the type test, so the `unsafeBitCast` is a no-op on the only branch that can
-  // reach it and dead code on every other specialisation. The arms differ only in which format
-  // they instantiate, so the body is written once and each call folds to its own kernel.
-  // Spelled with a `guard` rather than `.map`: the closure `.map` takes is a real closure in the
-  // *unspecialised* generic, which reached it through `__swift_instantiateConcreteTypeFromMangled
-  // NameV2` and three partial-apply forwarders. The specialisations fold either form away.
+  // Guarded by the type test, so the `unsafeBitCast` is a no-op on the only branch that can reach
+  // it and dead code on every other specialisation. Measured: spelled with `.map` the unspecialised
+  // generic forms a real closure, reached through `__swift_instantiateConcreteTypeFromMangledNameV2`
+  // and three partial-apply forwarders; keep the `guard`.
   @inline(__always)
   func bridge<F: StreamBinaryFormat>(_ format: F.Type) -> T? {
     guard

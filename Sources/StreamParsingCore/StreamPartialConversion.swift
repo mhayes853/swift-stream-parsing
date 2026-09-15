@@ -1,27 +1,17 @@
 // MARK: - Generated conversion helpers
 //
-// The two entry points a macro generated initializer is written out of. Both exist so the *type
-// checker* supplies the destination type, rather than the macro re-deriving it from syntax.
+// The two entry points a macro-generated initializer is written out of. Both exist so the *type
+// checker* supplies the destination type rather than the macro re-deriving it from syntax.
 //
-// `typeOf` is never called. Its only job is to bind `T` to the declared type of the property
-// being filled, which buys two things:
+// **`typeOf` is never called and must not be deleted.** Its only job is to bind `T` to the declared
+// type of the property being filled, so the macro spells nothing but `Self` and a property name,
+// and so the macro's own `Partial` derivation is checked against the compiler's `T.Partial` — a
+// mistake in `partialTypeName` becomes a compile error instead of a silent misparse. (A second
+// derivation here is where the `[String?]` double-optional bug came from.)
 //
-//   - The macro spells nothing but `Self` and a property name. It already derives a member type
-//     once, for `Partial`; deriving the same type a second time here is where `[String?]` and the
-//     double-optional bug came from, and neither derivation can go wrong if there is only one.
-//   - The two derivations are checked against each other. `T` comes from the property, `T.Partial`
-//     from the compiler, and the member the macro emitted has to match it — so a mistake in
-//     `partialTypeName` is a compile error at the call site instead of a silent misparse.
-//
-// It is a closure rather than a `KeyPath` because key paths do not lower under Embedded Swift.
-// Both forms optimize away completely once specialized, so this costs nothing at runtime; a key
-// path would have cost nothing either, and then failed to link on a microcontroller.
-//
-// Both take `T.Partial?`, which is what lets one signature serve every member shape. Where the
-// macro wrapped a member because the mode asked for optional members, the argument matches
-// directly and absence is visible. Where it did not — a `.streamInitialValue` member, or a
-// property the user declared optional, whose `T.Partial` is already an `Optional` — the argument
-// promotes to `.some` and absence is not expressible, which is correct in both cases.
+// A closure, not a `KeyPath`: key paths do not lower under Embedded Swift. Both take `T.Partial?`,
+// which lets one signature serve every member shape — where the macro did not wrap the member the
+// argument promotes to `.some` and absence is correctly not expressible.
 extension StreamParseable {
   /// Strict: an absent member fails the whole conversion.
   @inline(__always)

@@ -1,26 +1,17 @@
 import StreamParsingShims
 
-// Eisel-Lemire: a decimal significand and a power of ten to the correctly rounded binary float,
-// with one 64x64 multiply in the common case and a second only when the first product's low bits
-// cannot decide the rounding. It replaces the `magnitude <= 1 << 53 && |exponent| <= 22` exact
-// path for everything that path could not reach -- which on `canada.json` was 91.2% of tokens,
-// each of them building a `String` and calling the standard library's parser.
+// Eisel-Lemire: a decimal significand and a power of ten to the correctly rounded binary float, one
+// 64x64 multiply in the common case and a second only when the first product's low bits cannot
+// decide the rounding. It takes everything the Clinger exact path cannot (NEW_ARCHITECTURE.md).
 //
-// The function declines rather than guesses. Two cases reach `nil`: a product whose low word is
-// all ones, and the halfway case the (mantissa + 3)-bit approximation cannot separate. Measured
-// over the whole corpus plus ~500K generated cases against a correctly rounded oracle, that is
-// 0.146% of `canada.json` and ~0.2% of uniformly random input, and the caller's existing fallback
-// settles them. Nothing else is approximate: every case it does answer is bit-exact.
+// **It declines rather than guesses**, at `nil`, in exactly two cases: a product whose low word is
+// all ones, and a halfway case the (mantissa + 3)-bit approximation cannot separate — ~0.2% of
+// random input, settled by the caller's `String` fallback. Every case it answers is bit-exact.
 //
-// `NumberInfo` already carries the inputs in the form this wants -- `magnitude` is the digits
-// with the dot removed and `exponent` is the power of ten they are scaled by -- so no re-walk of
-// the token is needed.
-//
-// The kernel is parameterised on the destination's binary format the way fast_float's
-// `binary_format<T>` is, so `Float` gets a *correctly rounded* conversion of its own rather than
-// the decimal -> `Double` -> `Float` narrowing, which double-rounds. The 128-bit power of ten
-// table is shared: it is a property of the decimal exponent, not of the destination, and it
-// already spans -342 ... 308, far wider than `Float` can reach.
+// Parameterised on the destination's binary format (fast_float's `binary_format<T>`), so `Float`
+// gets a correctly rounded conversion rather than a double-rounding narrowing from `Double`. The
+// 128-bit power of ten table is shared: it is a property of the decimal exponent, not the
+// destination, and already spans -342 ... 308.
 
 @inlinable
 package var streamPow10MinExponent: Int { Int(STREAM_PARSING_POW10_128_MIN_EXPONENT) }
@@ -30,16 +21,14 @@ package var streamPow10MaxExponent: Int { Int(STREAM_PARSING_POW10_128_MAX_EXPON
 
 // MARK: - Binary format
 
-// Everything the kernel needs to know about the destination, as static constants. Three of the
-// six derive from `significandBitCount`/`exponentBitCount`, which is why this refines
-// `BinaryFloatingPoint` -- the defaults below are the derivation, so a new format states only
-// what cannot be derived. The other three (the round-to-even window and the subnormal cutoff)
-// are not derivable at all; fast_float hardcodes them per format too.
+// Everything the kernel needs about the destination, as static constants. Three of the six derive
+// from `significandBitCount`/`exponentBitCount` — hence the refinement, and the defaults below are
+// the derivation, so a new format states only what cannot be derived. The round-to-even window and
+// the subnormal cutoff are not derivable; fast_float hardcodes them per format too.
 //
-// The refinement costs nothing at runtime: the kernel never does floating point arithmetic, only
-// integer arithmetic on the raw bit pattern, and every constant folds to the same immediate a
-// hand-written `Double` kernel would use, which is the point -- `streamEiselLemire<Double>` must
-// stay instruction-for-instruction what the non-generic `Double` kernel was.
+// Costs nothing at runtime: the kernel does integer arithmetic on the raw bit pattern only, and
+// every constant folds to the immediate a hand-written `Double` kernel would use — which is the
+// requirement, `streamEiselLemire<Double>` must stay instruction-for-instruction that kernel.
 @usableFromInline
 protocol StreamBinaryFormat: BinaryFloatingPoint {
   // The raw bit pattern of the format: `UInt64` for `Double`, `UInt32` for `Float`.

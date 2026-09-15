@@ -3,12 +3,11 @@
 #include <string.h>
 
 
-// The header's `static inline` functions are what the Swift side inlines; this file holds the
-// one out-of-line kernel, the stage-1 window indexer. Its three block algorithms are simdjson's
-// stage 1 restated: the paper's odd-backslash-run escape finder, quote parity as a prefix XOR
-// (carryless multiply by all ones), and the nibble-table character classifier. The entry
-// definition and the per-block flags are pinned by `StageOneIndexTests` against a scalar
-// reference. The measurement that chose this shape is in NEW_ARCHITECTURE.md.
+// The one out-of-line kernel: the stage-1 window indexer (everything Swift inlines is `static
+// inline` in the header). Its three block algorithms are simdjson's stage 1 restated — the
+// odd-backslash-run escape finder, quote parity as a prefix XOR, and the nibble-table classifier.
+// `StageOneIndexTests` pins the entry definition and the per-block flags against a scalar
+// reference; NEW_ARCHITECTURE.md has the measurement that chose this shape.
 
 // Classification tables. A byte is in a class iff
 // (lo_table[b & 0xF] & hi_table[b >> 4]) has the class bit set:

@@ -12,13 +12,10 @@ public struct StreamFrame {
 
 // MARK: - Closed homogeneous leaf routes
 
-// The public conversion protocols remain open-ended. This byte is deliberately not: it names the
-// few exact standard-library/storage pairings whose implementation PartialSink can see through
-// completely. Everything else stays `.generic` and uses the schema closures, so adding a custom
-// conformer never changes correctness and adding a fast route is an explicit benchmarked choice.
-//
-// A scalar schema carries a `value...` case only so an array/dictionary builder can map it to the
-// exact container operation. Only container cases are ever cached on an active frame.
+// A closed byte naming the exact standard-library/storage pairings `PartialSink` can see through.
+// Everything else stays `.generic` and goes through the schema closures, so a custom conformer is
+// always correct and a fast route is always an explicit benchmarked choice. A scalar schema carries
+// a `value...` case only so a container builder can map it; only container cases reach a frame.
 @usableFromInline
 enum _StreamLeafRoute: UInt8, Sendable {
   case generic
@@ -198,29 +195,17 @@ public final class StreamSchema: @unchecked Sendable {
   /// The field an apply closure receives when the destination *is* the value rather than a field
   /// of one — an array element, a dictionary value, a bare scalar root.
   ///
-  /// Zero cannot say that, because zero is also the first field a generated object schema
-  /// declares, and the two reached the same `applyString(storage, 0, bytes)`. An object arriving
-  /// as an array element therefore absorbed a scalar into whichever member happened to be
-  /// declared first: `["abc"]` into a `StreamArray<Person.Partial>` set `name` to "abc", and `[5]`
-  /// was a type mismatch only because `name` could not hold a number.
-  ///
-  /// A negative field cannot collide with a declared one, so an object schema's
-  /// `default: return .unsupported` turns those back into the mismatches they are. A scalar schema
-  /// ignores the field either way and is unaffected.
+  /// Must stay negative so it cannot collide with a declared field: zero was also the first field
+  /// a generated object schema declares, so `["abc"]` into a `StreamArray<Person.Partial>` was
+  /// absorbed by whichever member was declared first. An object schema's `default: .unsupported`
+  /// now turns those back into the mismatches they are.
   public static let wholeValueField = Int32(-1)
 
-  // Where a key arriving at this schema has to go, precomputed into one byte.
-  //
-  // A schema call costs a closure load, a retain, an indirect call and a release — 17 ns against
-  // 4.6 ns for a bare function pointer — and a schema with
-  // no matcher spends all of it to reach `{ _ in -1 }`. That is not a rare case: the schema stood
-  // up for a subtree the destination has no field for is this one, and 52% of `twitter.json`'s
-  // 13,345 keys are inside such a subtree when parsed into a model that declares part of it, which
-  // is what a model normally does.
-  //
-  // One byte rather than a `shape == .dictionary` test followed by a matcher test, because the
-  // dictionary test was already on this path: routing the two questions through a single load and
-  // a single switch is what keeps the schemas that *do* match from paying for the ones that do not.
+  // Where a key arriving at this schema has to go, precomputed into one byte so the common case —
+  // a subtree the destination has no field for, 52% of `twitter.json`'s keys for a typical model —
+  // never loads and calls a closure to reach `{ _ in -1 }` (17 ns against 4.6 ns for a bare
+  // function pointer). One byte, one load, one switch, rather than a dictionary test then a
+  // matcher test.
   @usableFromInline
   enum KeyRouting: UInt8, Sendable {
     case match
@@ -245,13 +230,10 @@ public final class StreamSchema: @unchecked Sendable {
   @usableFromInline let fieldIndex: UnsafePointer<Int32>?
   @usableFromInline let fieldIndexMask: Int
 
-  // The schema an array's elements or a dictionary's values are written through, for a schema
-  // whose `appendElement` or `enterKey` hands back a slot. The frame the sink pushes over that
-  // slot is the slot and this schema, so the element schema is data on the parent rather than a
-  // value the closure returns -- returning it was a `StreamFrame`, whose strong schema was a
-  // retain on the way out and a release when the sink lowered it, per element. The bits are
-  // what the sink copies into a frame (see `StreamFieldEntry.schemaBits` for why bits); the
-  // strong reference is the owner.
+  // The schema an array's elements or a dictionary's values are written through. Data on the
+  // parent, not a value the closure returns: returning a `StreamFrame` meant a retain on the way
+  // out and a release when the sink lowered it, per element. The bits are what the sink copies
+  // into a frame (see `StreamFieldEntry.schemaBits`); the strong reference is the owner.
   public let elementSchema: StreamSchema?
   @usableFromInline let elementSchemaBits: UnsafeRawPointer?
 
@@ -287,12 +269,10 @@ public final class StreamSchema: @unchecked Sendable {
   // Returns the field identifier for a key, or -1 when the destination has no such field.
   public let matchField: @Sendable (Span<UInt8>) -> Int32
 
-  // Each reports what the destination did with the token. A field that matched a key but has no
-  // destination for this kind of token returns `.unsupported`, which is what lets the sink tell a
-  // type mismatch from a key the destination simply does not have; bounded storage that is full
-  // returns `.capacityExceeded`, which is a different failure and reported as one. A returned
-  // result rather than a throw, for the same reason the sink methods do not throw: a check after
-  // every call sits on the hottest path.
+  // Each reports what the destination did with the token: `.unsupported` for a matched field with
+  // no destination for this token kind (which is how the sink tells a type mismatch from a key the
+  // destination does not have), `.capacityExceeded` for full bounded storage. A returned result
+  // rather than a throw, because the check after every call sits on the hottest path.
   //
   // The field is a declared field's identifier when the schema stands over an object, and
   // ``wholeValueField`` when the destination *is* the value.
@@ -481,12 +461,9 @@ public final class StreamSchema: @unchecked Sendable {
   }
 }
 
-// Anything that can describe its own routing, whatever shape it is.
-//
-// The macro resolves a field's shape through overloads, because it sees only syntax. That works
-// where a concrete type is written and nowhere else: a function generic over `Value` cannot pick
-// an overload on its behalf. `partials(of:from:)` is exactly such a function, so a root schema
-// has to come from a protocol requirement rather than an overload.
+// Anything that can describe its own routing, whatever shape it is. A root schema has to be a
+// protocol requirement rather than a macro overload, because a function generic over `Value` —
+// `partials(of:from:)` — cannot pick an overload on its behalf.
 //
 // Kept separate from `StreamParseableObject` because the constrained `_streamFieldRoute` keys off
 // that one, and it must not match a `String` field and route it as a container.
@@ -503,19 +480,13 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// The schema this type is written through when a container holds it, and the value that
   /// container opens its slot with.
   ///
-  /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only
-  /// where the two positions differ, which today means only for `Optional`. A container owns the
-  /// slot it hands out and can therefore open it already materialised, so an optional element does
-  /// not have to check for `nil` before every write — where a bare optional *root* has no such
-  /// owner and must. That is worth two requirements because the difference is 2.4x: measured on a
-  /// 20,000 element array, `[Int?]` costs 73.5 ns/element written through ``streamSchema`` and
-  /// 32.9 through these, against 32.1 for the non-optional path.
+  /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only for
+  /// `Optional`: a container owns the slot it hands out and can open it already materialised, so
+  /// an optional element never checks for `nil` before a write, where a bare optional *root* must.
+  /// Worth 2.4x on `[Int?]` (NEW_ARCHITECTURE.md, "The optional seam").
   ///
-  /// The defaults are the root forms, so a type for which the two positions are the same — every
-  /// type but `Optional` — conforms without saying anything.
-  ///
-  /// "Element" covers a dictionary's values too, matching `_streamOptionalElementSchema`, which
-  /// both container builders call.
+  /// The defaults are the root forms, so every type but `Optional` conforms without saying
+  /// anything. "Element" covers a dictionary's values too.
   static var streamElementSchema: StreamSchema { get }
 
   /// - SeeAlso: ``streamElementSchema``
@@ -524,15 +495,11 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// Whether building ``streamElementInitialValue()`` is worth hoisting out of a container's
   /// per-element closure into a captured template.
   ///
-  /// It is worth it for exactly one reason: a *generic* container element — a nested
-  /// `StreamArray`/`StreamDictionary` — has no stored static to cache a template in, so
-  /// `Self()` re-enters the runtime's locking generic-metadata caches on every open. A concrete
-  /// macro-generated partial already caches its template in a stored static, so hoisting only
-  /// buys it a closure context where it had none, which is a real loss: measured against a
-  /// blanket hoist, CITM and Twitter full lost 5-8% and the 48-member schema 18-22%, while
-  /// nested-array payloads gained 10-33%. Hence the flag rather than one form for everything.
-  ///
-  /// Defaults to `false`, which is right for every concrete conformer.
+  /// True for exactly one case: a *generic* container element (a nested `StreamArray`/
+  /// `StreamDictionary`) has no stored static to cache a template in, so `Self()` re-enters the
+  /// runtime's locking generic-metadata caches on every open. A blanket hoist is a loss — it buys a
+  /// concrete partial a closure context it did not have. Hence the flag; `false` is right for every
+  /// concrete conformer.
   static var _streamInitialValueIsExpensive: Bool { get }
 
   /// A borrowed window onto the value, for reading part of it without copying the whole.
@@ -543,11 +510,9 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// return.
   ///
   /// `~Escapable`, so "must outlive the view" on ``streamView(_:)`` is checked rather than merely
-  /// documented — every conformer's `View`, defaulted or overridden, ties the view's borrow-
-  /// checked scope to the call that produced it, and a caller cannot move one out to somewhere
-  /// longer-lived. There is deliberately no `= Self` fallback: letting some conformers' `View` be
-  /// plain `Self` (Escapable) and others be a genuine projection (`~Escapable`) is exactly what
-  /// makes per-field code generation ambiguous — see the macro's `partialStructView`.
+  /// documented. There is deliberately no `= Self` fallback: a mix of Escapable `Self` views and
+  /// `~Escapable` projections is what makes per-field code generation ambiguous — see the macro's
+  /// `partialStructView`.
   associatedtype View: ~Copyable, ~Escapable
 
   /// Builds a view over a value at `storage`.
@@ -572,12 +537,9 @@ extension StreamParseableRoot {
 }
 
 extension StreamParseableRoot where View == StreamPointerView<Self> {
-  // A view of a value with nothing to project defers its one dereference to the read, rather
-  // than copying immediately the way the old `View == Self` default did. Either way, this is a
-  // correct snapshot: every container the parser writes into holds its open element in an inline
-  // slot, so a copy shares only storage that is sealed and never written again, and the open
-  // element's own buffers copy on write at the parser's next append. This is what replaced a
-  // recursive `streamSnapshot()` rebuild.
+  // A correct snapshot without a recursive rebuild: every container the parser writes into holds
+  // its open element in an inline slot, so a copy shares only storage that is sealed and never
+  // written again, and the open element's own buffers copy on write at the next append.
   @_lifetime(borrow storage)
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> StreamPointerView<Self> {
     StreamPointerView(storage)
@@ -594,9 +556,8 @@ public protocol StreamContainerPartial: StreamParseableRoot {
   ///
   /// Separated from the frame so a caller can resolve it once and store it: `streamSchema` is a
   /// computed property on every generic partial, so reading it per entry allocates per container
-  /// occurrence, and the schema built for one entry died with that entry's frame — the only
-  /// schema in the system without a durable owner. The macro hoists this value into a
-  /// `private static let` on the generated `Partial` and passes it back per entry.
+  /// occurrence and leaves the entry's frame as the schema's only owner. The macro hoists this into
+  /// a `private static let` on the generated `Partial`.
   static var streamContainerSchema: StreamSchema { get }
 
   /// Makes the storage of a member of this type ready for ``streamContainerSchema`` to write
@@ -616,11 +577,10 @@ extension StreamContainerPartial {
   public static var _streamContainerPrepare: StreamFieldPrepare? { nil }
 }
 
-// Refines `StreamContainerPartial` so that a nested object field's schema is hoisted by its
-// parent exactly as a container field's is. Without that the entry read `T.streamSchema` per
-// occurrence, which is a stored static for a generated `Partial` and a freshly built schema for
-// any hand-written conformance — `PersonNameComponents` is one — leaving the frame as its only
-// owner. That is invisible while a frame retains its schema and fatal once a frame borrows it.
+// Refines `StreamContainerPartial` so a nested object field's schema is hoisted by its parent
+// exactly as a container field's is. Reading `T.streamSchema` per occurrence builds a fresh schema
+// for any hand-written conformance, leaving the frame as its only owner — invisible while a frame
+// retains its schema, fatal now that a frame borrows it.
 public protocol StreamParseableObject: StreamContainerPartial {}
 
 // MARK: - Scalar schemas
@@ -874,14 +834,13 @@ extension StreamParseableRoot {
   { nil }
 }
 
-// The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending
-// swap — convert and commit in a loop. A plain loop, deliberately: unrolling it two, four and
-// eight wide with the conversions hoisted ahead of the commits measured monotonically worse
-// (Mesh 323 → 316 → 312 → 311 MB/s), because the core already overlaps the independent
-// conversions and the unrolled bodies only add code. The open element is drained first, since
-// `commit` appends past it; and the last number is left as the new open element, which is where
-// the one-at-a-time path leaves it, so a snapshot taken between a batch and the array's close
-// sees the same array either way.
+// The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending swap.
+// Measured: unrolling 2/4/8 wide with the conversions hoisted was monotonically worse (Mesh
+// 323 → 311 MB/s) — the core already overlaps the conversions. Keep the plain loop.
+//
+// The open element is drained first, since `commit` appends past it, and the last number is left as
+// the new open element, which is where the one-at-a-time path leaves it — so a snapshot taken
+// between a batch and the array's close sees the same array either way.
 extension StreamParseableRoot where Self: StreamNumberConvertible {
   @inlinable
   public static var _streamArrayNumberAppender:
@@ -909,21 +868,15 @@ extension StreamParseableRoot where Self: StreamNumberConvertible {
 
 // The schema an optional element or dictionary value is written through.
 //
-// Exactly two things differ from the wrapped type's own schema, and the point is that everything
-// else is not merely equivalent but *identical*: `applyString`, `applyNumber`, `applyBoolean`,
-// `enterField`, `appendElement` and `enterKey` are the same closure values the non-optional path
-// stores, so a token routed through an optional element costs one schema call, not two.
+// Exactly two things differ from the wrapped type's own schema; everything else is not merely
+// equivalent but the *identical* closure value, so a token routed through an optional element costs
+// one schema call, not two.
 //
-// The first difference is that nothing here checks for `nil` before it writes, because the
-// container that produced this opened the slot already materialised. That is what the wrapper
-// below could not do: `Optional.streamSchema` has to materialise per token, and to materialise it
-// must load and call another schema's closure afterwards. Measured on a 20,000 element array, the
-// wrapper costs 73.5 ns/element against 32.1 for the non-optional path; this costs 32.9.
-//
-// The second is that a null naming the value itself clears the optional, where the wrapped type
-// only knows how to null one of its fields. `StreamSchema.wholeValueField` is what makes that
-// expressible at all — before it, a null arriving at an element and a null arriving at the
-// element's first field were the same call with the same arguments.
+// 1. Nothing checks for `nil` before writing: the container that produced this opened the slot
+//    already materialised, where `Optional.streamSchema` must materialise per token and then call
+//    another schema's closure (73.5 ns/element against 32.9 here).
+// 2. A null naming the value itself clears the optional, where the wrapped type only knows how to
+//    null one of its fields — which is what `StreamSchema.wholeValueField` makes expressible.
 @inlinable
 public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
   _ type: Wrapped.Type,

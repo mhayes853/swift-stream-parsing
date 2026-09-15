@@ -5,16 +5,13 @@ import StreamParsingCore
 
 // Schema construction for macro generated code.
 //
-// A macro sees only the syntax of a property's type. It can tell an array from a dictionary from
-// a plain identifier, but not whether that identifier is a nested object or something that
-// accepts string content. Overload pairs resolve that: the constrained overload does the work,
-// the unconstrained one degrades to something harmless, and Swift ranks the constrained one
-// higher.
+// A macro sees only the syntax of a property's type, so overload pairs resolve the rest: the
+// constrained overload does the work, the unconstrained one degrades harmlessly, and Swift ranks
+// the constrained one higher.
 //
-// Overloads resolve where a generic is written, not where it is specialized, so a helper that
-// is generic over an unconstrained element cannot pick the right one on its behalf. Element and
-// value schemas are therefore built by `_streamSchema(for:)` at the call site, where the macro
-// has written a concrete type.
+// Overloads resolve where a generic is *written*, not where it is specialized, so a helper generic
+// over an unconstrained element cannot pick one on its behalf. Element and value schemas are
+// therefore built by `_streamSchema(for:)` at the call site, where the macro wrote a concrete type.
 
 // MARK: - Schema for a concrete type
 
@@ -61,11 +58,10 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
 
 // MARK: - Hoisted container schemas
 
-// The schema a field's container entry will install, or nil when the field's storage is
-// not a container at all. The macro calls this once per field into a `private static let`, so
-// the schema exists exactly once per `Partial` type and outlives every frame that borrows it —
-// where reading `T.streamSchema` inside the entry allocated a schema per container occurrence
-// whose only owner was the frame itself.
+// The schema a field's container entry will install, or nil when the field's storage is not a
+// container. The macro calls this once per field into a `private static let`, so the schema exists
+// once per `Partial` type and outlives every frame that borrows it — reading `T.streamSchema` in
+// the entry instead allocated one per container occurrence, owned only by the frame.
 //
 // The overload pair mirrors `_streamEnterField`'s: the constrained one fires for exactly the
 // storage types whose entry produces a frame, so a nil here means the entry answers nil too.
@@ -121,14 +117,10 @@ public func streamApply<T: StreamBooleanConvertible>(
 
 // What a member's type resolves to for the field table, by the same overload structure
 // `streamApply` uses, so a member is classified exactly the way it would have been applied. Two
-// overloads per protocol, for the optional and the initialised members modes. Every overload
-// takes the field's hoisted container schema so the macro can emit one call shape; only the
-// container ones read it.
-//
-// A container route carries that schema and, when the member needs it, a `prepare` that
-// materialises the optional or reserves the declared capacity. The closures capture nothing --
-// the capacity arrives from the entry -- so after specialisation each is a bare function with
-// no context to retain.
+// overloads per protocol (optional and initialised members modes); every overload takes the field's
+// hoisted container schema so the macro emits one call shape, and only the container ones read it.
+// The `prepare` closures capture nothing — the capacity arrives from the entry — so after
+// specialisation each is a bare function with no context to retain.
 
 @inlinable
 public func _streamFieldRoute<T: StreamStringConvertible>(
@@ -225,24 +217,17 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 // Materialises an optional container member and then lets the wrapped type prepare its own
 // storage, which an `Optional` wrapped in another does.
 //
-// This builder runs once per schema, so everything the closure would otherwise resolve per
-// container occurrence is resolved here: the initial value and the wrapped type's own prepare.
-// Evaluating `T.streamInitialValue()` inside the closure re-entered the runtime's locking
-// generic-metadata caches on every occurrence — `StreamArray<Element>()` cannot cache its own
-// template (generic types have no stored statics), so the template lives in this closure's
-// context instead. The allocation is owned by a `_StreamTemplateStorage` box that the closure
-// captures purely for its lifetime: `StreamFieldPrepare` is a bare closure typealias, so the
-// context is the only place on the field table that can hold the box, and the body never touches
-// it -- no retain, no release and no load per call. It used to be leaked outright, which is only
-// correct when the schema owning the closure is itself immortal; that is true for a macro
-// `static let` and for an interned `_streamCachedSchema`, and false for any hand-written
-// conformance whose `streamSchema` is computed, which leaked a template per key per build.
+// This builder runs once per schema, so the initial value and the wrapped type's prepare are
+// resolved here rather than per container occurrence — `T.streamInitialValue()` inside the closure
+// re-entered the runtime's locking generic-metadata caches every time, and a generic type has no
+// stored static to cache a template in. The allocation is owned by a `_StreamTemplateStorage` box
+// the closure captures purely for its lifetime: `StreamFieldPrepare` is a bare closure typealias,
+// so the context is the only place the field table can hold the box, and the body never touches it
+// (no retain, no release, no load per call).
 //
-// The template is the optional already `.some`, and the member is copy-initialised from its
-// address in one step rather than assigned: an assignment would destroy the `nil` first (a
-// no-op the optimiser cannot always see) and, spelled `pointer.pointee = template.pointee`,
-// read the payload into a temporary before writing it. Initialising over a `nil` is sound
-// because a `nil` optional owns nothing.
+// The template is the optional already `.some`, and the member is **copy-initialised** from its
+// address, not assigned: an assignment destroys the `nil` first and reads the payload through a
+// temporary. Initialising over a `nil` is sound because a `nil` optional owns nothing.
 @inlinable
 public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
   _ type: T.Type

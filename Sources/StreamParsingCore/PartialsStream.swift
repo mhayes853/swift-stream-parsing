@@ -97,15 +97,10 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   ///   - initialValue: The value state to start parsing from.
   ///   - format: The format describing the parser that will consume bytes.
   //
-  // `@inlinable` so the root schema is built in the client module, with `Value` concrete. The
-  // container roots -- `StreamArray<E>` and `StreamDictionary<V>` -- build their schema's
-  // `appendElement`/`enterKey` closure here, and a closure emitted in this module instead is
-  // emitted once, generically: it reaches `_openElement`/`_openValue` through value witnesses and
-  // instantiates `Optional<Element>` metadata at runtime per open. Sampled on a root
-  // `StreamDictionary<GSoCProject.Partial>`: ~2.9% of the parse in
-  // `swift_getGenericMetadata`/`getCache` and a generic single-payload-enum `assignWithTake` per
-  // key, none of which the macro-generated roots pay, because their container schemas are already
-  // built at the use site.
+  // Must stay `@inlinable` or container roots go generic: the schema has to be built in the client
+  // module with `Value` concrete, otherwise `StreamArray`/`StreamDictionary` roots reach
+  // `_openElement`/`_openValue` through value witnesses and instantiate `Optional<Element>`
+  // metadata per open (~2.9% of a `StreamDictionary<GSoCProject.Partial>` parse).
   @inlinable
   public init(
     initialValue: Value = Value.streamInitialValue(),
@@ -122,10 +117,8 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   deinit {
     // Nothing to destroy after a consuming `finishValue()`: the tree left in the returned value and
-    // the slot is uninitialised rather than refilled. Refilling it cost a whole
-    // `streamInitialValue()` — an `initializeWithCopy` of the root partial's template, which for
-    // a document-shaped root is the largest partial in the model — plus the destroy of that empty
-    // copy here, once per parse, on the exact path (parse then discard) the library is measured on.
+    // the slot is uninitialised rather than refilled, because refilling costs an
+    // `initializeWithCopy` of the root partial's template plus its destroy, once per parse.
     if !self.hasTakenStorage { self.storage.deinitialize(count: 1) }
     self.storage.deallocate()
   }
@@ -137,14 +130,10 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   ///
   /// - Parameter byte: Byte to feed into the parser.
   ///
-  /// Inlinable because it is not otherwise: `JSONParser.parse` is generic over the sink and
-  /// specializes into its caller, and a caller in another module cannot specialize what it cannot
-  /// see. Left opaque, one byte through this method costs a call into `StreamParsingCore` and an
-  /// unspecialized parse; measured on `LayerOverheadBenchmarks`, that was half the wall clock of
-  /// every byte fed row — `Layer Array of structs byte by byte - stream` 325 µs → 151 µs, `Layer
-  /// LLM message byte by byte - stream` 68 ms → 38 ms — and 3% of the bulk rows. Both land the
-  /// stream exactly on the raw `PartialSink` numbers, so the wrapper's own bookkeeping is free
-  /// and this attribute was the whole of its cost.
+  /// Must stay `@inlinable`: `JSONParser.parse` is generic over the sink and specializes into its
+  /// caller, and a caller in another module cannot specialize what it cannot see. Left opaque, this
+  /// was half the wall clock of every byte-fed row (`LayerOverheadBenchmarks`) and 3% of the bulk
+  /// rows.
   @inlinable
   public mutating func next(_ byte: UInt8) throws {
     guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
@@ -223,13 +212,10 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
       self.hasParserThrown = true
       throw error
     }
-    // Move rather than read: `storage.move()` transfers the tree bitwise, so no copy is made.
-    // The slot is left uninitialised and `deinit` is told so, rather than refilled with an empty
-    // initial value for `deinit` to destroy: that refill was a full `initializeWithCopy` of the
-    // root partial's template followed by the destroy of the copy, per parse, and nothing can
-    // observe the slot after a consuming finish. (`discard self` would skip the deinit entirely,
-    // but it requires every stored property to be trivially destroyed, and the parser and sink own
-    // buffers.)
+    // Move rather than read: `storage.move()` transfers the tree bitwise. The slot is left
+    // uninitialised and `deinit` is told so — nothing can observe it after a consuming finish.
+    // (`discard self` would skip the deinit, but it needs every stored property trivially
+    // destroyed, and the parser and sink own buffers.)
     let value = self.storage.move()
     self.hasTakenStorage = true
     return value

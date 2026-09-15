@@ -1,16 +1,11 @@
 // The field table: what a schema knows about each member of an object, as data.
 //
-// A key used to be resolved by a generated `switch` and then applied by a second generated
-// `switch` behind a stored closure -- two closure calls per scalar, each a context load, a retain,
-// an indirect call and a release, plus the decode of a decision the key match had already made.
-// Measured in isolation (`Sink synthetic int fields`), that was 21 ns and one retain/release pair
-// per integer member on a route that allocates nothing.
-//
-// A table entry says the same thing once: this key, this kind of destination, at this byte
-// offset. The sink matches the key against the table and, for every kind the library knows the
-// layout of, writes the value with a typed store at `storage + offset`. Nothing is called. The
-// closures survive only for `custom` (a conforming type the library cannot see into) and for
-// entering a container, which is once per container rather than once per value.
+// An entry says it once: this key, this kind of destination, at this byte offset. The sink matches
+// the key against the table and, for every kind whose layout the library knows, writes the value
+// with a typed store at `storage + offset` — nothing is called. Closures survive only for `custom`
+// and for entering a container, which is once per container rather than once per value. This
+// replaced two generated `switch`es behind stored closures, 21 ns and a retain/release pair per
+// integer member (NEW_ARCHITECTURE.md, "The field table").
 
 // MARK: - StreamFieldKind
 
@@ -144,11 +139,12 @@ public struct StreamField: Sendable {
 /// The packed form of a ``StreamField``: what the sink reads.
 ///
 /// Forty bytes, laid out so the match reads the first sixteen -- the key's first word and its
-/// length -- and touches the rest only on a hit. The child schema is its object address as raw
-/// bits rather than a reference of any strength: the sink copies the bits into a frame, and
-/// forming a reference on the way -- even `unowned(unsafe)` bound with `if let` -- is a retain
-/// and a release per container open that the optimizer does not remove, because nothing owns the
-/// value it could prove the lifetime against. The table owns every schema an entry names.
+/// length -- and touches the rest only on a hit.
+///
+/// The child schema is raw bits, not a reference of any strength. Measured: forming a reference on
+/// the way into the frame -- even `unowned(unsafe)` bound with `if let` -- is a retain and a release
+/// per container open the optimizer will not remove, since nothing owns the value it could prove a
+/// lifetime against. The table owns every schema an entry names.
 @usableFromInline
 struct StreamFieldEntry {
   @usableFromInline var keyWord: UInt64
@@ -339,11 +335,10 @@ final class StreamFieldTable: @unchecked Sendable {
 
 /// The entry index for `key` in a table, or -1.
 ///
-/// A linear scan over the first word and the length. Objects declare a handful of members, so
-/// the scan is a few compares against forty-byte strides the prefetcher already has; the
-/// generated `switch` it replaces was the same compares as a chain. Keys longer than a word
-/// verify their tail against the packed key bytes on a first-word hit. Takes the raw views
-/// rather than the table object so nothing is retained on the way in.
+/// A linear scan over the first word and the length: objects declare a handful of members, so it is
+/// a few compares against forty-byte strides the prefetcher already has. Keys longer than a word
+/// verify their tail against the packed key bytes on a first-word hit. Takes the raw views rather
+/// than the table object so nothing is retained on the way in.
 @inlinable
 @inline(__always)
 func streamMatchField(

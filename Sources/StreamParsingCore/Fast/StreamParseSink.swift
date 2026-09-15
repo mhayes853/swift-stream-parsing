@@ -39,18 +39,12 @@ public struct NumberInfo: Hashable, Sendable {
 
 // What a destination did with a token.
 //
-// A `Bool` carried this until bounded storage arrived: an inline string that is full has not
-// declined the *kind* of token, it has run out of room for it, and reporting the two as one
-// value made a capacity failure indistinguishable from a schema mismatch. Non-exhaustive so a
-// later kind of rejection -- a number outside a field's range is the obvious candidate -- can be
-// added without breaking clients that switch over this.
+// Non-exhaustive, so a later kind of rejection can be added without breaking clients.
 //
-// Still one byte in a register, exactly as the `Bool` was. The raw values are load-bearing rather
-// than decorative: `applied` is zero so a check against it is a branch on zero, and the string
-// path folds a chunk's result into the value it already holds with `max` rather than a branch --
-// measured, because branching on this per chunk cost 8.7% of `Real Twitter - bulk discarding`.
-// Any ordering where `applied` is the minimum keeps that fold correct; a case added later can
-// take the next integer.
+// **The raw values are load-bearing.** `applied` must be zero and must stay the minimum: a check
+// against it is a branch on zero, and the string path folds a chunk's result into the value it
+// already holds with `max` rather than a branch (measured: branching per chunk cost 8.7% of
+// `Real Twitter - bulk discarding`). A case added later takes the next integer.
 @nonexhaustive
 public enum StreamApplyResult: UInt8, Hashable, Sendable {
   /// The destination took the token.
@@ -266,11 +260,10 @@ public enum StreamContainerDisposition: UInt8, Hashable, Sendable {
 /// at structural speed, delivering only the matching close. The answer is advisory — see the
 /// disposition's own documentation for the contract.
 ///
-/// No other method throws or returns a result: a check after every token sits on the hottest path and
-/// pins the callee's tail calls (measured on the string chunk path), so a sink records its
-/// failure and the parser polls ``streamFailure`` at token boundaries, reporting the failure at
-/// the token that provoked it. The failure is sticky: once recorded, later tokens must not
-/// clear it.
+/// No other method throws or returns a result: a check after every token sits on the hottest path
+/// and pins the callee's tail calls. A sink records its failure instead, and the parser polls
+/// ``streamFailure`` at token boundaries, reporting it at the token that provoked it. The failure
+/// is sticky: once recorded, later tokens must not clear it.
 public protocol StreamParseSink: ~Copyable {
 
   // Structure. The parser owns grammar and depth; these observe — and answer. The returned
@@ -291,15 +284,12 @@ public protocol StreamParseSink: ~Copyable {
   /// `stringBegin`, chunks, `stringEnd`. Rare per document, mandatory for correctness — a sink
   /// that ignores these is wrong on chunked input.
   ///
-  /// Chunk boundaries carry no meaning; only the concatenated bytes do. Content ahead of a
-  /// value's first escape is a zero-copy borrow of the input. From the first escape to the end
-  /// of the value (or of the parse call), the decoded escapes and the literal runs between them
-  /// are coalesced in the parser's buffer and delivered one chunk per buffer-full: an escape
-  /// splits the zero-copy run, and fragment-by-fragment delivery turned an escape-dense value
-  /// into many tiny calls — 57% of `llm_message`'s 26,076 string chunks were a single byte, 35%
-  /// of `gsoc-2018`'s 39,810. A literal run at least as long as the buffer is still handed over
-  /// in place. The escape that straddles a parse call's end, and one carrying a diagnostic,
-  /// arrive as their own small chunk.
+  /// Chunk boundaries carry no meaning; only the concatenated bytes do. Content ahead of a value's
+  /// first escape is a zero-copy borrow of the input. From the first escape onward, decoded escapes
+  /// and the literal runs between them are coalesced in the parser's buffer and delivered one chunk
+  /// per buffer-full, because fragment-by-fragment delivery made most chunks a single byte on
+  /// escape-dense corpora. A literal run at least as long as the buffer is still handed over in
+  /// place; an escape that straddles a parse call's end arrives as its own small chunk.
   mutating func stringBegin()
   mutating func stringChunk(_ bytes: Span<UInt8>)
   mutating func stringEnd()

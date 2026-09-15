@@ -1,24 +1,15 @@
 // Template ownership and the per-type schema cache.
 //
-// Two problems live here, and they are the same problem seen from either end.
-//
 // A container schema copies each new element from a template it allocated once (see
-// `_streamArraySchema`). That template used to be leaked outright, which is correct exactly when
-// the schema that captures it is itself immortal -- true for a macro-generated `static let`
-// schema, false for a schema built by `StreamArray.streamSchema`, which is a *computed* property
-// because a generic type cannot hold a stored static. A stream rooted at a container therefore
-// leaked one template per `PartialsStream.init`. `_StreamTemplateStorage` ties the template to
-// the schema that captures it: the schema holds the box, the box's `deinit` destroys and frees
-// the memory, and the closures still capture nothing but the raw pointer, so the hot path is
-// unchanged (no retain/release per element).
+// `_streamArraySchema`). Leaking it is only correct when the capturing schema is immortal, which a
+// schema built by `StreamArray.streamSchema` is not — it is a *computed* property, because a
+// generic type cannot hold a stored static. `_StreamTemplateStorage` ties the template's lifetime
+// to the schema's; the closures still capture only the raw pointer, so there is no retain/release
+// per element. `_streamCachedSchema(for:build:)` then builds one schema per type per process.
 //
-// The other end is that rebuilding the schema per init is waste in its own right -- a field
-// table, a handful of closure contexts and a template allocation for a stream that may parse a
-// 200 byte payload. `_streamCachedSchema(for:build:)` builds one per element type per process and
-// hands the same object back afterwards, which also restores "one template per type per process"
-// for container roots. The accessors stay `@inlinable` so the `build` closure is still emitted in
-// the client module with the element type concrete, which is what keeps `_openElement` /
-// `_openValue` specialised (measured +10% on GSoC); only the cache probe is non-inlinable.
+// The accessors must stay `@inlinable` so `build` is emitted in the client module with the element
+// type concrete, which is what keeps `_openElement`/`_openValue` specialised (+10% on GSoC). Only
+// the cache probe is non-inlinable.
 
 /// Owns a template value for the lifetime of the schema that copies elements from it.
 ///

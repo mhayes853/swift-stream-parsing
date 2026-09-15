@@ -1,19 +1,9 @@
 // An object partial with no members: it records that a `{...}` arrived and nothing about what was
-// in it.
-//
-// This exists for the shape Swift's own `Codable` synthesis gives an enum case that carries no
-// associated values. `enum Stage { case unknown, live }` encodes as `{"live":{}}` — the case name
-// is a key and its value is an empty object — so `@StreamParseable` lowers such an enum to an
-// object partial with one optional member per case, each of this type. Which case arrived is then
-// exactly which member is non-`nil`, and that question is already answered by machinery the
-// parser has: entering a container materialises the member it is entered through, empty or not.
-//
-// Zero stored properties, so an `Optional<StreamEmptyObject>` member is one byte and an enum's
-// whole partial is one byte per case.
-//
-// It is `.object`-shaped with no fields, which is not the same as having no schema: the shape is
-// what makes `{"live":5}` and `{"live":[]}` type mismatches rather than silently accepted, since
-// `Shape.canHold(container:)` admits only an object and every scalar apply answers `.unsupported`.
+// in it. This is the shape `Codable` gives an enum case with no associated values (`{"live":{}}`),
+// so `@StreamParseable` lowers such an enum to one optional member of this type per case; which
+// case arrived is which member is non-`nil`. Zero stored properties, so the whole partial is one
+// byte per case. `.object`-shaped with no fields rather than schema-less, so `{"live":5}` is a
+// type mismatch instead of being silently accepted.
 public struct StreamEmptyObject: Sendable, Hashable, BitwiseCopyable {
   public init() {}
 }

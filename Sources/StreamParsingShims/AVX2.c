@@ -1,14 +1,11 @@
 // The x86-64 AVX2 tier, out of line.
 //
-// This lives in a `.c` file rather than in `StreamParsingShims.h` because the header is an
-// umbrella header for a Clang module, and `#include <immintrin.h>` from a modular header forces
-// the toolchain to build the `_Builtin_intrinsics` module -- every x86 intrinsic header compiled
-// at once, with no target features enabled. That fails outright on some x86-64 SDKs (the Android
-// x86-64 SDK cannot build the MMX header that way), so the module must not see `immintrin.h` at
-// all. Nothing is lost: every function here already carried `__attribute__((target("avx2")))`,
-// and Clang refuses to inline such a function into a caller compiled without the feature, so
-// these were never inlined into the Swift callers even when they were spelled in the header.
-// The entry points are declared in `StreamParsingShims.h` and are external here.
+// **`immintrin.h` must not be reachable from the umbrella header.** Including it from a modular
+// header forces the toolchain to build `_Builtin_intrinsics` -- every x86 intrinsic header at once,
+// no target features enabled -- which fails outright on some x86-64 SDKs (Android's cannot build
+// the MMX header that way). Nothing is lost: every function here carries
+// `__attribute__((target("avx2")))`, which Clang already refuses to inline into a caller compiled
+// without the feature. Entry points are declared in `StreamParsingShims.h`.
 #include "include/StreamParsingShims.h"
 
 // MARK: - x86: the UTF-8 validator
@@ -18,17 +15,13 @@
 // `streamValidateUTF8Scalar` recomputes with range compares everywhere else -- three spellings of
 // one set of error classes.
 //
-// **AVX2 or nothing.** There is deliberately no SSSE3 or SSE2 twin: a machine without AVX2 keeps
-// the portable Swift validator, which is already correct and already pinned against the standard
-// library's decoder. Carrying narrower C tiers would mean carrying their differential tests too,
-// for hardware this library is not being tuned for.
+// **AVX2 or nothing.** No SSSE3 or SSE2 twin: a machine without AVX2 keeps the portable Swift
+// validator, and a narrower C tier would mean carrying its differential tests too.
 //
-// Unlike the arm64 shims in the header these are **not** `always_inline`. Clang will not
-// force-inline a function carrying a target attribute into a caller compiled without that
-// feature -- it is a hard LLVM `report_fatal_error`, not a diagnostic -- so the inliner has to be
-// left free to decline. That costs nothing here: `streamValidateUTF8` is already `@inline(never)`
-// on the Swift side and already runs once per non-ASCII string run, so the call that was there is
-// the call that is here.
+// **Not `always_inline`**, unlike the arm64 shims: force-inlining a target-attributed function into
+// a caller compiled without that feature is a hard LLVM `report_fatal_error`, not a diagnostic, so
+// the inliner must be free to decline. It costs nothing -- `streamValidateUTF8` is `@inline(never)`
+// on the Swift side and runs once per non-ASCII run.
 #if defined(__x86_64__)
 
 #include <immintrin.h>
@@ -229,19 +222,15 @@ stream_parsing_utf8_validate_avx2(const unsigned char *p, ptrdiff_t from, ptrdif
 
 // MARK: - x86: the string run scanner, wide tier
 //
-// The escalation tier behind `streamStringRun`. Swift scans the first two 16 byte blocks inline;
-// a run that survives both is long by definition, and only then does it reach this. On the corpus
-// that is 9.7% of twitter's runs (43.7% of its string bytes), 25.4% of github_events' and 1.0% of
-// citm's -- so a document made of short keys pays the escalation test and nothing else.
+// The escalation tier behind `streamStringRun`: Swift scans the first two 16-byte blocks inline, so
+// a run that reaches here is long by definition and a document of short keys pays only the test.
 //
-// `containsNonASCII` comes out cheaper here than the Swift SIMD16 path computes it. That path
-// builds a lane index mask, selects the bytes before the terminator with `replacing(with:where:)`,
-// ORs them into the accumulator and reduces -- five vector ops on the hit path. `vpmovmskb` of the
-// raw block *is* the per byte high bit, so masking off the bytes at and after the terminator is
-// one AND against `(1 << lane) - 1`.
+// `containsNonASCII` is cheaper here than in the Swift SIMD16 path: `vpmovmskb` of the raw block
+// *is* the per-byte high bit, so masking off the bytes at and after the terminator is one AND
+// against `(1 << lane) - 1`, where the Swift path needs five vector ops on the hit path.
 //
-// The flag stays exact, which the parser depends on: a validated ASCII run skips UTF-8 validation
-// entirely, so a false negative would let invalid UTF-8 through.
+// **The flag must stay exact.** A validated ASCII run skips UTF-8 validation entirely, so a false
+// negative lets invalid UTF-8 through.
 __attribute__((target("avx2"))) ptrdiff_t
 stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdiff_t to,
                                int *out_non_ascii) {
@@ -286,32 +275,17 @@ stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdiff_t to,
 // `consumeStructuralBlocks`) are one source on both architectures, and the differential suites
 // (`SkipBlockScanTests`, `StructuralBlockWalkTests`) hold both to the scalar loops.
 //
-// What differs is the cost model, in both directions.
+// **`vpshufb` zeroes any lane whose index byte has its high bit set**, which is why the low-nibble
+// tables are indexed here with the *raw* byte and the `& 0x0F` NEON's `tbl` needs is absent: below
+// 0x80 the raw byte indexes as its low nibble, at or above it the answer is zero, which is exactly
+// "in no class". The high nibble still needs `srli_epi16` + `and` (x86 has no byte shift), and
+// every table is broadcast to both 128-bit halves, because `vpshufb` looks up within its own half.
 //
-// Cheaper: 64 bytes is two YMM registers rather than four Q registers, and `vpmovmskb` *is* the
-// movemask -- NEON pays `stream_parsing_movemask4`'s five-instruction pairwise-add tree for each
-// of its masks. `vpshufb` also zeroes any lane whose index byte has its high bit set, and both
-// tables that are indexed by the low nibble are indexed with the *raw* byte here: for a byte below
-// 0x80 that is the low nibble, and for a byte at or above it the answer is zero, which is exactly
-// "in no class" (every byte >= 0x80 is unaccepted outside a string, and none is whitespace). That
-// deletes the `& 0x0F` NEON's `tbl` needs on those lookups. The high nibble still needs
-// `srli_epi16` + `and` -- x86 has no byte shift, and the 16-bit shift drags the neighbouring
-// byte's low nibble into the top of each lane -- and every table is broadcast to both 128-bit
-// halves, because `vpshufb` looks up within its own half.
-//
-// Dearer: these are calls. NEON's kernels are `static inline` and disappear into the walk; an
-// AVX2 body cannot, since Swift compiles its callers for baseline x86-64 (see the top of this
-// file). So each classified block pays a call, a return, and a 40- or 32-byte struct returned
-// through memory (SysV returns only 16 bytes in registers), and the constants -- three tables,
-// four splats -- are rematerialised per call instead of being hoisted out of the walk's loop.
-// The call is in the walks' *outer* loops, once per block, and a Twitter block holds ~10 token
-// starts, so it is spread over the tokens rather than paid by each.
-//
-// Quote parity is `pclmulqdq` against all ones, as simdjson's Haswell kernel does it -- the
-// six-step shift/XOR ladder is a dependent chain on the critical path from the quote mask to
-// every other output. And the structural kernel settles the walk's gate strike itself, with
-// `popcnt` (see `strike` in StreamParsingShims.h). That is why the target attribute and the
-// availability probe both name `pclmul` and `popcnt` alongside `avx2`.
+// These are calls where NEON's kernels are `static inline`, since Swift compiles its callers for
+// baseline x86-64; the call sits in the walks' outer loops, once per block, so it is spread over a
+// block's tokens rather than paid by each. Quote parity is `pclmulqdq` against all ones and the
+// gate strike is `popcnt`, which is why the target attribute and the availability probe name
+// `pclmul` and `popcnt` alongside `avx2`.
 #define STREAM_PARSING_BLOCK_FN __attribute__((target("avx2,pclmul,popcnt")))
 
 // A 16-entry table in both 128-bit halves. From a `static const` array, as the validator's are,

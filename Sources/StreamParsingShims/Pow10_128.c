@@ -3,10 +3,9 @@
 // Each entry is the top 128 bits of 10^q, truncated, normalised so bit 127 is set, stored
 // high word first. Regenerate with `Scripts/generate_pow10_128.py`; do not edit by hand.
 //
-// Storage lives here rather than in Swift because a Swift `[UInt64]` global is a heap
-// allocation behind a lazy `swift_once` reached through an addressor, with a bounds check per
-// access -- the same reason `streamSimpleEscapeTable` is a `StaticString`. A C array is
-// `.rodata`, costs no startup work, and stays inside the Embedded subset.
+// It lives in C because a Swift `[UInt64]` global is a heap allocation behind a lazy `swift_once`
+// reached through an addressor, with a bounds check per access. A C array is `.rodata`, costs no
+// startup work, and stays inside the Embedded subset.
 #include "StreamParsingShims.h"
 
 const uint64_t stream_parsing_pow10_128_storage[] = {

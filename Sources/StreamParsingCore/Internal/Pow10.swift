@@ -6,19 +6,11 @@ import StreamParsingShims
 // entries indexed directly by the positive exponent. 10^22 is the last exact entry because its
 // odd factor, 5^22, is the largest that fits Double's 53-bit significand.
 //
-// It used to be two Swift `[Double]` globals. What that cost, read off the release binary rather
-// than assumed: the optimizer does fold an array literal of constants into a statically
-// initialized array object, so no `swift_once` ran at the use site -- but the objects landed in
-// `__DATA` behind a 0x28-byte array header, the addressor and one-time-initialization functions
-// were still emitted (and a build that does not get that fold, including a debug or Embedded one,
-// really does pay them), and the two tables meant the sign of the exponent had to be branched on
-// before either could be indexed, each with its own signed bounds check. The function stayed out
-// of line and handed back an `Optional<Double>` in a register pair, which the caller then had to
-// take apart.
-//
-// One `.rodata` table plus `@inline(__always)` collapses all of that. At the only call site the
-// exponent arrives as `abs(exponent)`, so one unsigned compare simultaneously proves the table
-// index and the exactness precondition before the direct indexed load.
+// It must stay a C `.rodata` table, not a Swift `[Double]` global: an array global lands in
+// `__DATA` behind a 0x28-byte header with an addressor and one-time-init emitted (which a debug or
+// Embedded build really does pay), and two of them forced a branch on the exponent's sign plus two
+// signed bounds checks. See NEW_ARCHITECTURE.md, "The power-of-ten table". Here the exponent
+// arrives as `abs(exponent)`, so one unsigned compare proves both the index and exactness.
 
 // 23: `10^0 ... 10^22`.
 @inlinable
