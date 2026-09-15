@@ -3,8 +3,7 @@
 
   // MARK: - Conversion protocols
 
-  // Everything forwards to the raw value, so a tagged identifier accepts exactly what its raw
-  // value accepts.
+  // Everything forwards to the raw value, so a tagged identifier accepts what its raw value does.
 
   extension Tagged: StreamInitializable where RawValue: StreamInitializable {
     public static func streamInitialValue() -> Self {
@@ -45,13 +44,11 @@
     }
   }
 
-  // Needed explicitly: `StreamParseableObject` refines this, but a conditional conformance to a
-  // refined protocol does not imply one to what it refines, even though `RawValue:
-  // StreamParseableObject` below entails `RawValue: StreamContainerPartial`.
+  // Explicit: a conditional conformance to a refined protocol (`StreamParseableObject`) does not
+  // imply one to what it refines.
   extension Tagged: StreamContainerPartial where RawValue: StreamContainerPartial {}
 
-  // The schema comes from the root conformance above; this is what makes a tagged object
-  // enterable as a nested field.
+  // The schema comes from the root conformance above; this makes a tagged object a nested field.
   extension Tagged: StreamParseableObject where RawValue: StreamParseableObject {}
 
   // MARK: - Legacy handler registration

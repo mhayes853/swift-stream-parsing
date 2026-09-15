@@ -5,8 +5,8 @@
 public protocol StreamParseable {
   /// The partial representation exposed during parsing.
   ///
-  /// Defaults to `Self`, which is what every scalar whose partial is the value itself wants; the
-  /// `where Partial == Self` extension below then supplies all three members.
+  /// Defaults to `Self`, for scalars whose partial is the value itself; the `where Partial == Self`
+  /// extension below supplies all three members.
   associatedtype Partial: StreamParseableRoot = Self
 
   /// The partial state that corresponds to the type’s incremental parsing representation.
@@ -15,18 +15,16 @@ public protocol StreamParseable {
   /// The strict inverse of ``streamPartialValue``: `nil` when the partial is not complete
   /// enough to describe a whole value.
   ///
-  /// A member the stream never produced fails the conversion, and so does a member the type
-  /// cannot represent — a raw value outside an enum's cases, say. A member the type *declares*
-  /// as optional does not: absence is representable there, so it converts to `nil`.
+  /// A member the stream never produced fails, as does one the type cannot represent (a raw value
+  /// outside an enum's cases). A member the type declares optional converts to `nil`.
   init?(streamPartial: Partial)
 
   /// The total inverse of ``streamPartialValue``: members the stream never produced fall back
   /// to their initial values, recursively.
   ///
-  /// This preserves what did arrive. Only the absent members default, so a partial carrying an
-  /// `id` and nothing else converts to a value with that `id` and defaults elsewhere — which is
-  /// why a type with members implements this member-wise rather than taking the blanket default
-  /// below, which discards the whole value when any part of it is missing.
+  /// Only absent members default, so a partial carrying just an `id` converts to a value with that
+  /// `id`. A type with members implements this member-wise; the blanket default below discards the
+  /// whole value when any part is missing.
   static func streamValueOrInitial(from partial: Partial) -> Self
 }
 
@@ -44,9 +42,8 @@ extension StreamParseable where Partial == Self {
   }
 }
 
-// The fallback for a type whose partial carries nothing worth preserving piecewise — a scalar, or
-// an enum that names a default case. A type with members must not take this: it throws away every
-// member that *did* arrive as soon as one is missing.
+// The fallback for a partial with nothing worth preserving piecewise (a scalar, or an enum with a
+// default case). A type with members must not take this: it discards every member that arrived.
 extension StreamParseable where Self: StreamInitializable {
   public static func streamValueOrInitial(from partial: Partial) -> Self {
     Self(streamPartial: partial) ?? Self.streamInitialValue()
@@ -59,9 +56,8 @@ where Self: RawRepresentable, RawValue: StreamParseable, Partial == RawValue.Par
     self.rawValue.streamPartialValue
   }
 
-  // A raw value the case list does not cover is exactly the "cannot represent it" failure the
-  // strict conversion exists to report. An enum that would rather default than fail says so by
-  // conforming to `StreamInitializable`, which picks up the fallback above.
+  // An uncovered raw value is exactly the failure the strict conversion reports. An enum that would
+  // rather default conforms to `StreamInitializable`, picking up the fallback above.
   public init?(streamPartial: Partial) {
     guard let rawValue = RawValue(streamPartial: streamPartial),
       let value = Self(rawValue: rawValue)

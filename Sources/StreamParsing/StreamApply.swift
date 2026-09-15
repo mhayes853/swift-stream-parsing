@@ -1,17 +1,13 @@
 import StreamParsingCore
 
-// Bridging shims for macro generated code.
-//
-// A macro sees only the syntax of a property's type. The constrained overload does the work, the
-// unconstrained one does nothing, and Swift ranks the constrained one higher, so generated code can
-// emit every field into every apply switch and let overload resolution decide. Dead combinations
-// optimize away entirely: a 100-field struct emitting every field into every switch produced
-// byte-identical code to one emitting only the matching fields.
+// Bridging shims for macro generated code. A macro sees only a property type's syntax, so the
+// constrained overload does the work, the unconstrained one nothing, and generated code emits
+// every field into every apply switch. Dead combinations optimize away: a 100-field struct
+// compiled byte-identical to one emitting only the matching fields.
 
-// Each reports what it did with the token. The unconstrained overload returning `.unsupported` is
-// what turns "this field cannot hold a string" into a reportable type mismatch instead of silence.
-// A constrained overload forwards its destination's own answer, which is how an inline string's
-// capacity failure reaches the sink as a capacity failure rather than a mismatch.
+// Each reports what it did: the unconstrained `.unsupported` turns "cannot hold a string" into a
+// type mismatch, and a constrained overload forwards its destination's answer, so an inline
+// string's overflow reaches the sink as a capacity failure.
 
 @inlinable
 @inline(__always)

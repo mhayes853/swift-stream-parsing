@@ -1,13 +1,11 @@
-// Embedded Swift has no AsyncSequence in the 6.3 SDK and no use for one regardless: a target
-// with no scheduler is not consuming an async byte stream. Gated rather than conditionally
-// available, so the rest of the core stays embedded clean on both toolchains.
+// Embedded Swift has no AsyncSequence in the 6.3 SDK, and a target with no scheduler has no
+// async byte stream to consume. Gated so the rest of the core stays Embedded clean.
 #if !hasFeature(Embedded)
 extension AsyncSequence where Element == UInt8 {
   /// Incrementally parses bytes as a value in an async sequence.
   ///
   /// ```swift
-  /// let partials = sequence.partials(of: MyModel.self, from: .json())
-  /// for try await partial in partials {
+  /// for try await partial in sequence.partials(of: MyModel.self, from: .json()) {
   ///   print(partial)
   /// }
   /// ```
@@ -29,9 +27,8 @@ extension AsyncSequence where Element == UInt8 {
   ///   - type: The value type describing each partial state.
   ///   - format: The format describing the parser to drive from the async bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  // Disfavoured so a type conforming to *both* `StreamParseable` and `StreamParseableRoot` --
-  // `StreamEmptyObject`, and any macro `Partial` that is itself `StreamParseable` -- resolves to
-  // the `StreamParseable` form instead of being ambiguous. See `Partials overload probe`.
+  // Disfavoured so a type that is both `StreamParseable` and `StreamParseableRoot` (such as
+  // `StreamEmptyObject`) resolves to the `StreamParseable` form. See `Partials overload probe`.
   @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
@@ -79,9 +76,8 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   ///   - type: The value type represented by each partial.
   ///   - format: The format describing the parser that processes the collected sequences.
   /// - Returns: An ``AsyncPartialsSequence``.
-  // Disfavoured so a type conforming to *both* `StreamParseable` and `StreamParseableRoot` --
-  // `StreamEmptyObject`, and any macro `Partial` that is itself `StreamParseable` -- resolves to
-  // the `StreamParseable` form instead of being ambiguous. See `Partials overload probe`.
+  // Disfavoured so a type that is both `StreamParseable` and `StreamParseableRoot` (such as
+  // `StreamEmptyObject`) resolves to the `StreamParseable` form. See `Partials overload probe`.
   @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
@@ -136,8 +132,7 @@ public struct AsyncPartialsSequence<
   let bytes: @Sendable (Base.Element) -> Seq
   private let subscription = AsyncPartialsSubscription()
 
-  // AsyncIteratorProtocol requires a copyable conforming type. The box ensures iterator copies
-  // share both the underlying iterator position and the uniquely owned parser stream.
+  // Iterators must be copyable; the box makes copies share the base iterator and the stream.
   final class Box {
     let base: Base
     let subscriber = AsyncPartialsSubscriber()
