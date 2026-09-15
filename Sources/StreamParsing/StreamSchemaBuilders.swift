@@ -302,6 +302,29 @@ public func _streamFieldRoute<Value>(
   )
 }
 
+// An inline string is a string, but its capacity is its type's `N`, so a hint could only be
+// ignored: a larger one reads as raising the bound, which it would not. Rejected with the reason
+// rather than by the fallback below, whose message says strings are supported.
+@available(
+  *, unavailable,
+  message: "StreamInlineString<N> has a fixed capacity of N bytes; remove @StreamParseableMember(initialCapacity:) or change N."
+)
+public func _streamFieldRoute<let capacity: Int>(
+  _ value: inout StreamInlineString<capacity>?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: true)
+}
+
+@available(
+  *, unavailable,
+  message: "StreamInlineString<N> has a fixed capacity of N bytes; remove @StreamParseableMember(initialCapacity:) or change N."
+)
+public func _streamFieldRoute<let capacity: Int>(
+  _ value: inout StreamInlineString<capacity>, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: false)
+}
+
 // Overload resolution sees through aliases the macro cannot: an alias of a `StreamArray` or
 // `StreamDictionary` partial selects a concrete overload above. These fallbacks keep an annotation
 // on a scalar or object from silently becoming a no-op.
