@@ -1274,7 +1274,9 @@ public struct JSONParser: ~Copyable {
     }
     guard let decoded = streamDecodeSimpleEscape(selector) else { return nil }
     if coalescing {
-      try self.bufferStringScratch(UInt64(decoded), count: 1, into: &sink, reportAt: from)
+      // A flush here delivers what was buffered *before* the escape, so it reports one past that
+      // chunk's last content byte: the backslash, `from &- 1`.
+      try self.bufferStringScratch(UInt64(decoded), count: 1, into: &sink, reportAt: from &- 1)
     } else {
       try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
     }
@@ -1342,10 +1344,10 @@ public struct JSONParser: ~Copyable {
     }
 
     if coalescing {
-      // `reportAt` here is the offset the *flush* was reached at -- everything buffered ahead of
-      // this escape -- so it stays at the escape, exactly as `bufferStringRun`'s flush does.
+      // A flush here delivers everything buffered ahead of this escape, so it reports one past
+      // that chunk's last content byte: the backslash, `from &- 1` (as `bufferStringRun` does).
       let encoded = Self.utf8Word(value)
-      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from)
+      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from &- 1)
     } else {
       // The chunk delivered here is the decoded escape itself, and `emitScratch` reports at
       // `reportAt &+ 1`, so `reportAt` has to be the escape's *last* byte -- `end &- 1`, which is

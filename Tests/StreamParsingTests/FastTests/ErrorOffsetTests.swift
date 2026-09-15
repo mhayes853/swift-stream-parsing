@@ -312,6 +312,25 @@ struct `Error offset tests` {
     expectNoDifference(error?.byteOffset, offset)
   }
 
+  // A coalescing flush forced by an escape delivers the bytes buffered *before* it, so a rejection
+  // reports one past that chunk's last content byte: the escape's backslash (71 here), not its
+  // selector. Both the simple-escape and the `\u` arms flush through the same path.
+  @Test(arguments: ["\u{5C}n", "\u{5C}u0042"])
+  func `Reports a rejected coalescing flush at the escape's backslash`(escape: String) {
+    let json = "[\"\u{5C}u0041" + String(repeating: "b", count: 63) + escape + "x\"]"
+    var parser = JSONParser(bufferCapacity: 64)
+    var sink = RejectingSink(rejecting: .stringChunk)
+    let bytes = Array(json.utf8)
+    var error: JSONParsingError?
+    do {
+      try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    } catch let caught as JSONParsingError {
+      error = caught
+    } catch {}
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.byteOffset, 71)
+  }
+
   // Spelled with `\u{5C}` so the backslash is unambiguous next to the `u` the parser reads.
   private static let simpleEscape = "[\"\u{5C}u0041x\"]"
   private static let pairEscape = "[\"\u{5C}uD83D\u{5C}uDE00x\"]"
