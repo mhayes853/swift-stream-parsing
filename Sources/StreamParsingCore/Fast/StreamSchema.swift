@@ -88,6 +88,9 @@ enum _StreamLeafRoute: UInt8, Sendable {
     case .simd2Double: .optionalSIMD2Double
     case .simd3Double: .optionalSIMD3Double
     case .simd4Double: .optionalSIMD4Double
+    // No optional twin, but the lane route must survive: it is what makes the frame count lanes,
+    // and without it every lane of an optional element found no slot and was dropped.
+    case .simd2Number, .simd3Number, .simd4Number: base
     default: .generic
     }
   }
