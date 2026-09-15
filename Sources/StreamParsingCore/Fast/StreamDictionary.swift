@@ -1,17 +1,9 @@
 // Dictionary storage the parser can hold a pointer into, and that a snapshot can copy without
-// copying the entries.
-//
-// `Dictionary` can rehash and relocate every value on insertion, so there is no address to write a
-// nested value through byte by byte. Entries here live in append only storage, which inherits the
-// invariant the array path relies on, and insertion order is preserved, which makes conversion to
-// an ordered container lossless. Lookups go through a byte keyed slot table rather than a
-// `[String: Int]`, which measured faster at every key count and on every axis.
-//
-// measured, against the plan in both cases: the *entry* storage is not blocked the way
-// `StreamArray`'s elements are (a dictionary reads its storage back on every lookup where an array
-// never reads at all -- blocking cost 2x on the discarding path), and the key travels with its
-// hash in one array rather than a heads/next pair, because a retained state's cost tracks the
-// number of buffers it shares, not their size.
+// copying the entries. `Dictionary` rehashes and relocates on insertion, so it offers no address to
+// write a nested value through; entries here are append only and insertion ordered, and lookups go
+// through a byte keyed slot table rather than a `[String: Int]`.
+// Measured: blocking the *entry* storage the way `StreamArray` blocks elements cost 2x on the
+// discarding path, and key-with-hash in one array beat a heads/next pair; keep both forms.
 @usableFromInline
 struct StreamDictionaryEntry: Hashable, Sendable {
   @usableFromInline var hash: UInt64
@@ -28,29 +20,22 @@ public struct StreamDictionary<Value> {
   // The key and the hash that guards it, kept in one buffer so a probe reads one cache line and a
   // retained state copies one thing.
   @usableFromInline var entries: ContiguousArray<StreamDictionaryEntry>
-  // Blocked, like an array's elements, and for the same reason: a snapshot shares the blocks
-  // instead of copying them, and the open value is the array's own inline `pending` slot, so a
-  // repeated key resumes in the slot it already has and `{"a":1,"b":2,"a":3}` keeps its original
-  // order. A flat `[Value]` here made a snapshot-per-byte parse copy the whole value array per
-  // byte (-58% on the dictionary snapshot rows).
+  // Blocked like an array's elements and for the same reason: a snapshot shares the blocks instead
+  // of copying them, and the open value is the array's own inline `pending` slot, so a repeated key
+  // resumes in the slot it already has. Measured: a flat `[Value]` copied the whole value array per
+  // byte on a snapshot-per-byte parse, -58% on the dictionary snapshot rows.
   @usableFromInline var storedValues: StreamArray<Value>
 
   // Open addressed slot table, -1 where empty, held at half load since linear probing degrades
-  // sharply past that. Nil below the threshold, where a scan over `entries` measures the same and
-  // costs no table at all.
-  // Empty where a scan over `entries` measures the same, rather than `nil`: an
-  // `Optional<ContiguousArray>` cannot be handed to a borrowing probe without unwrapping it, and
-  // every unwrap of it is a retain that makes the buffer non-unique for the next write into it.
+  // sharply past that. Empty below `indexThreshold`, where a scan over `entries` measures the same,
+  // rather than `nil`: an `Optional<ContiguousArray>` cannot be handed to a borrowing probe without
+  // unwrapping, and every unwrap is a retain that makes the buffer non-unique for the next write.
   @usableFromInline var table: ContiguousArray<Int32>
 
-  // The entry being parsed, held inline for the same reason `StreamArray` holds its open element
-  // there: the parser's frame points at a slot no other value can see. The dictionary needs its
-  // own rather than borrowing the values array's, because a repeated key's open value is an
-  // element the array already holds, and a write into one of those is a write a kept state can see.
-  //
-  // `pendingSlot` is -1 when no entry is open, an existing slot when the key repeats -- which is
-  // what keeps `{"a":1,"b":2,"a":3}` in its original order -- and `storedValues.count` when it is
-  // new, in which case `entries` and the table lead `storedValues` by one until `drainPending`.
+  // The entry being parsed, held inline so the parser's frame points at a slot no other value can
+  // see. It cannot borrow the values array's open element, because a repeated key's open value is
+  // an element the array already holds and a kept state can see. `pendingSlot` is -1 when nothing
+  // is open, an existing slot when the key repeats, and `storedValues.count` when it is new.
   @usableFromInline var pendingValue: Value?
   @usableFromInline var pendingSlot: Int32
 
@@ -133,11 +118,10 @@ public struct StreamDictionary<Value> {
     return nil
   }
 
-  // Writes the open entry into storage. An appended value moves into the slot it will live in;
-  // a repeated key's value is assigned into the element it already occupies, with that block made
-  // unique first. Both happen inside this call, so no state can be taken between the uniqueness
-  // check and the write -- which is the whole reason the open value is held here rather than
-  // written where it will end up.
+  // Writes the open entry into storage: an appended value moves into the slot it will live in, a
+  // repeated key's value is assigned into the element it already occupies, that block made unique
+  // first. Both happen inside this call, so no state can be taken between the uniqueness check and
+  // the write -- the whole reason the open value is held here.
   @inlinable
   mutating func drainPending() {
     guard self.pendingSlot >= 0 else { return }
@@ -150,12 +134,10 @@ public struct StreamDictionary<Value> {
       ? self.storedValues._slotForAppend()
       : self.storedValues._uniqueSlotAddress(slot)
     withUnsafeMutablePointer(to: &self.pendingValue) { box in
-      // The payload is moved out of the optional bitwise rather than unwrapped:
-      // `unsafelyUnwrapped` is a read accessor, so unwrapping copies the value -- a retain for
-      // every reference field and a matching release when the optional is destroyed, once per
-      // committed key. A single-payload enum keeps its payload at offset zero, so `.some`'s bits
-      // are the value's bits; after the move the slot is re-marked nil so nothing is destroyed
-      // twice. `pendingSlot >= 0` guarantees the case is `.some`.
+      // The payload is moved out of the optional bitwise rather than unwrapped: `unsafelyUnwrapped` is
+      // a read accessor, so it copies -- a retain per reference field and a release when the optional
+      // dies, once per key. A single-payload enum keeps its payload at offset zero, so `.some`'s bits
+      // are the value's; the slot is re-marked nil after, so nothing is destroyed twice.
       let payload = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Value.self)
       let typed = destination.assumingMemoryBound(to: Value.self)
       if isAppend {
@@ -236,11 +218,10 @@ public struct StreamDictionary<Value> {
 // MARK: - Lookup
 
 extension StreamDictionary {
-  // A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the embedded
+  // A fixed basis rather than a seeded `Hasher`, which is what keeps this inside the Embedded
   // subset. Deliberately collided keys degrade to the scan the table replaces, since every step
-  // compares a `UInt64` before it compares bytes, so the worst case stays bounded. The mix is
-  // `streamHashBytes` (sixteen bytes per vector load into two accumulators); it replaced FNV-1a,
-  // whose per byte multiply chain was the cost.
+  // compares a `UInt64` before it compares bytes, so the worst case stays bounded. `streamHashBytes`
+  // replaced FNV-1a, whose per byte multiply chain was the cost.
   @inlinable
   static func hash(_ key: UnsafeBufferPointer<UInt8>) -> UInt64 {
     guard let base = key.baseAddress else { return streamHashBytes(base: emptyKeyAddress, count: 0) }
@@ -253,13 +234,10 @@ extension StreamDictionary {
     return key.withUTF8 { Self.hash($0) }
   }
 
-  // On an indexed miss, hands the empty bucket back so insertion does not walk the same probe
-  // chain again. Unchanged for the small linear scan and every successful lookup.
-  //
-  // Forced inline, which is worth more than the code it costs: this is a *non-mutating* method
-  // called from inside `_openValue`'s `inout self`, and `Self` is loadable but large.
-  // measured: out of line, the caller stages the whole struct -- `memcpy(sp, self, 2164)` per key
-  // for the GSoC partial, twice over, for a body that reads two words of it. Keep the attribute.
+  // On an indexed miss, hands the empty bucket back so insertion does not walk the same probe chain
+  // again. Forced inline, which is worth more than the code it costs: this is a *non-mutating*
+  // method called from inside `_openValue`'s `inout self`, and `Self` is loadable but large.
+  // Measured: out of line the caller stages the whole struct, `memcpy(sp, self, 2164)` per key.
   @inlinable
   @inline(__always)
   static func slot(
@@ -363,11 +341,10 @@ extension StreamDictionary where Value: StreamParseableRoot {
     public subscript(key: String) -> Value.View? {
       @_lifetime(borrow self)
       get {
-        // Resolve the address of the live slot in fully escapable terms first, then form the
-        // one `~Escapable` view at a single exit. Building a view per branch and returning it
-        // from there is equivalent, but it leaves several `Optional<Value.View>` stack slots
-        // for the optimizer to merge, which crashes PredictableDeadAllocationElimination on
-        // Swift 6.3 (fixed in 6.4). Single-address, single-view keeps that shape from arising.
+        // Resolve the address of the live slot in fully escapable terms first, then form the one
+        // `~Escapable` view at a single exit. A view per branch is equivalent but leaves several
+        // `Optional<Value.View>` stack slots for the optimizer to merge, which crashes
+        // PredictableDeadAllocationElimination on Swift 6.3 (fixed in 6.4).
         let address: UnsafeMutableRawPointer?
         if self.storage.pointee.pendingEntryKey == key {
           address =
@@ -397,19 +374,13 @@ extension StreamDictionary where Value: StreamParseableRoot {
 
 extension StreamDictionary {
   /// Opens the entry for `key`, returning the address of its value slot, copy-initialised from
-  /// `template` -- which is already the `.some` the slot must end up holding -- when the key is
-  /// new. A repeated key resumes from the value already stored under it rather than resetting, and
-  /// never materialises a `String`, since the span is matched against the stored keys directly.
-  /// Underscored because only the frame entry helpers call it.
+  /// `template` -- already the `.some` the slot must end up holding -- when the key is new. A
+  /// repeated key resumes from the value stored under it rather than resetting, never materialises
+  /// a `String`, and only the frame entry helpers call it.
   ///
-  /// Three shapes are measured, not incidental. Do not fuse `drainPending()` into the open the way
-  /// `StreamArray._openElement(copying:)` fuses its pair -- two projections of `pendingValue` in
-  /// one body stop the compiler addressing the box in place, -32% on the dictionary rows, and the
-  /// same rule is why the projections below sit on mutually exclusive returns. Do not fold the two
-  /// overloads into a shared helper -- it loses every `Value` specialisation of this function (two
-  /// thirds of the dictionary rows, GSoC 20%). Keep the template as `Value?`, not `Value`:
-  /// assigning into the optional is six passes over a large partial, where copy-initialising over
-  /// the `.none` `drainPending()` left is one.
+  /// Three shapes are measured: do not fuse `drainPending()` into the open (-32%, and the same rule
+  /// puts the projections below on mutually exclusive returns); do not fold the two overloads into
+  /// one helper (loses every `Value` specialisation, GSoC -20%); keep the template `Value?`, not `Value`.
   @inlinable
   public mutating func _openValue(
     forKey key: Span<UInt8>,

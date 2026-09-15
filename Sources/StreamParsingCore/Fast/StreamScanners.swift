@@ -37,18 +37,10 @@ package func streamIsWhitespace(_ byte: UInt8) -> Bool {
   (streamWhitespaceBitmap >> UInt64(byte)) & 1 != 0
 }
 
-// The lowest lane where `mask` is set, or 16 when no lane is: the portable spelling of the
-// movemask idiom.
-//
-// Mask bytes are 0xFF or 0x00, so read as two 64-bit words each lane owns a byte and the lane index
-// is the trailing zero count over eight. `UInt64(littleEndian:)` because `trailingZeroBitCount`
-// counts from the low byte and only little-endian storage agrees with lane order.
-//
-// The two halves are combined arithmetically, not selected: `trailingZeroBitCount` is 64 for an
-// empty word, so bit 6 of the low count *is* "the low word had no hit", and two empty words give
-// 8 + 8 == 16, one past the block. Measured: spelled as `low != 0 ? ... : ...` LLVM's
-// `X86CmovConverterPass` turns the `cmov` back into two branches on an inherently unpredictable
-// lane; keep the arithmetic form.
+// The lowest lane where `mask` is set, or 16 when no lane is: the portable spelling of the movemask
+// idiom. Mask bytes are 0xFF or 0x00, so read as two little-endian words each lane owns a byte and
+// the lane is the trailing zero count over eight; two empty words give 8 + 8 == 16, one past the end.
+// Measured: as `low != 0 ? ... : ...` LLVM's X86CmovConverterPass re-branches the `cmov`; keep this.
 @inlinable
 @inline(__always)
 package func streamFirstHitLane(_ mask: SIMDMask<SIMD16<Int8>>) -> Int {
@@ -104,9 +96,8 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
   var i = from
   // The AVX2 escalation bound, folded into the loop bound so nothing is counted per iteration.
   // Measured: a per-iteration counter cost CITM -2.6% / Qwen -5.0%, and reading `streamHasAVX2`
-  // here (a lazy-init accessor call at the entry of an `@inline(__always)` function) cost CITM
-  // -9.9% / Twitter -6.1%. The availability check belongs behind `@inline(never)`, which is where
-  // it is. Off x86 this is `to` and the whole tier folds away.
+  // here (a lazy-init accessor call inside an `@inline(__always)` body) cost CITM -9.9% /
+  // Twitter -6.1%; keep the availability check behind `@inline(never)`.
 #if arch(x86_64)
   let narrowLimit = Swift.min(to, from &+ 2 &* streamScannerVectorWidth)
 #else
@@ -160,15 +151,10 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
   return StreamStringRun(end: to, containsNonASCII: containsNonASCII)
 }
 
-// One compare in front, scans out of line. Every JSON whitespace byte is <= 0x20 and every byte
-// that may legally follow one is > 0x20, so a single compare settles the no-whitespace case.
-//
-// This is `@inline(__always)` into the parse loop, so the inlined body has to stay this small —
-// that is the constraint, not the scan. Measured: inlining the vector body here, or peeling a
-// one-byte run here, cost -18%/-34% on escape-dense documents that contain no whitespace at all.
-// The width test is what keeps the byte-fed path off the vector body (`to &- from` is 1 at every
-// call there; routing that through the vector splats four constants to scan one byte, -20% on
-// `twitter` byte by byte).
+// One compare in front, scans out of line: every JSON whitespace byte is <= 0x20 and every byte that
+// may legally follow one is > 0x20. The inlined body must stay this small. Measured: inlining the
+// vector body or peeling a one-byte run here cost -18%/-34% on whitespace-free escape-dense
+// documents, and routing the byte-fed path (`to &- from == 1`) through the vector cost twitter -20%.
 @inlinable
 @inline(__always)
 package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -181,9 +167,8 @@ package func streamWhitespaceEnd(base: UnsafeRawPointer, from: Int, to: Int) -> 
 
 // The run end and the byte that ends it, for callers that dispatch on that byte: `streamWhitespaceEnd`
 // would load it, test it and throw it away, and every caller would reload the same address.
-//
-// The byte is meaningless when `end == to` and is reported as zero there. Every caller must test
-// that first, because a run that reaches the chunk end has no byte to dispatch on.
+// The byte is meaningless when `end == to` and is reported as zero there; every caller must test
+// that first.
 @inlinable
 @_transparent
 package func streamWhitespaceEndByte(
@@ -218,15 +203,10 @@ package func streamWhitespaceScalarEnd(base: UnsafeRawPointer, from: Int, to: In
   return i
 }
 
-// Which lanes of a block are not whitespace. On arm64 one table lookup and a compare rather than
-// four compares ORed together: 0x20, 0x09, 0x0A and 0x0D have distinct low nibbles, so a sixteen
-// entry table indexed by the low nibble hands back the one whitespace byte a lane could be, and
-// `chunk .!= lookup` is the miss mask. `and`, `tbl`, `cmeq` with one splat, against four splats
-// held live by the OR form.
-//
-// **The filler must be 0x00, not 0xFF**: a filler must differ from every byte that indexes it, and
-// 0xFF has low nibble 0xF, so at entry fifteen it matched itself and 0xFF scanned as whitespace
-// (caught by the scanner oracle). 0x00's low nibble is zero, where entry zero holds the space.
+// Which lanes of a block are not whitespace. On arm64 one table lookup and a compare rather than four
+// compares ORed: 0x20, 0x09, 0x0A and 0x0D have distinct low nibbles, so a nibble-indexed table hands
+// back the one whitespace byte a lane could be. The filler must be 0x00, not 0xFF -- a filler must
+// differ from every byte that indexes it, and 0xFF's low nibble matches itself at entry fifteen.
 @inlinable
 @_transparent
 package func streamWhitespaceMissMask(_ chunk: SIMD16<UInt8>) -> SIMDMask<SIMD16<Int8>> {
@@ -245,22 +225,17 @@ package func streamWhitespaceMissMask(_ chunk: SIMD16<UInt8>) -> SIMDMask<SIMD16
 }
 
 // Kept out of line deliberately: measured, inlining the vector body into the parse loop cost 18-35%
-// on escape-dense documents that contain no whitespace at all — the loop's register pressure, not
-// the scan. `consumeStructuralRun` and `consumeSkipRun` take the inline twin below (through
-// `streamWhitespaceEndByte`); `streamWhitespaceEnd` and the tests keep this one.
-// LOCKSTEP: `streamWhitespaceRunEndInline` is this body character for character, and only
-// `StreamScannerTests` exercises this one -- a fix here must be applied there by hand.
+// on whitespace-free escape-dense documents -- the loop's register pressure, not the scan. The
+// structural and skip runs take the inline twin below. LOCKSTEP: `streamWhitespaceRunEndInline` is
+// this body character for character, and only `StreamScannerTests` exercises this one.
 @inlinable
 @inline(never)
 package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
   var i = from
-  // Two bytes of bitmap test in front of the vector setup: what it resolves is the one-byte run and
-  // nothing else, and roughly half of every whitespace-bearing document's runs are one byte.
-  //
-  // Measured (NEW_ARCHITECTURE.md, "Cheap first tiers"): +6..13% across the corpus with no row
-  // regressing. Keep the bound at two and keep it written as two straight-line tests — at four it
-  // cost `citm_catalog` -3.3% and at eight -10.0% (runs of exactly two do not occur, so widening
-  // buys no population until four), and spelled as a loop it did not unroll.
+  // Two bytes of bitmap test in front of the vector setup: roughly half of every whitespace-bearing
+  // document's runs are one byte. Measured: +6..13% across the corpus with no row regressing, and
+  // the bound must stay two written as two straight-line tests -- four cost `citm_catalog` -3.3%,
+  // eight -10.0%, and a loop form did not unroll.
   if i < to {
     guard streamIsWhitespace(base.load(fromByteOffset: i, as: UInt8.self)) else { return i }
     i &+= 1
@@ -284,13 +259,10 @@ package func streamWhitespaceRunEnd(base: UnsafeRawPointer, from: Int, to: Int) 
   return streamWhitespaceScalarEnd(base: base, from: i, to: to)
 }
 
-// The same body as `streamWhitespaceRunEnd`, for `consumeStructuralRun` alone, where it is forced
-// inline: the call was 16% of `twitter`. LOCKSTEP: a fix to either body belongs in both. Measured: `@_transparent` must stay on the *whole* chain
-// (the step, `streamWhitespaceEndByte`, this), because it inlines before the size heuristic gets a
-// vote — freed of 192 instructions the inliner still pushed one or the other out of line. Same
-// reason the hit test is the shim and not `all(hit)`: at that stage the library's `any`/`all` on a
-// composed mask deoptimise into a call to the generic `SIMD.min`.
-// See NEW_ARCHITECTURE.md, "Outlined throws, and the whitespace inline".
+// The same body as `streamWhitespaceRunEnd`, forced inline for `consumeStructuralRun`, where the call
+// was 16% of `twitter`. LOCKSTEP: a fix to either body belongs in both. Measured: `@_transparent`
+// must stay on the whole chain (the step, `streamWhitespaceEndByte`, this) because it inlines before
+// the size heuristic votes; the hit test is the shim because `any`/`all` on a composed mask deopts.
 @inlinable
 @_transparent
 package func streamWhitespaceRunEndInline(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -320,12 +292,10 @@ package func streamWhitespaceRunEndInline(base: UnsafeRawPointer, from: Int, to:
 
 
 #if arch(x86_64)
-// Out of line on purpose, and this is where the availability check belongs: reading
-// `streamHasAVX2` is a lazy-init accessor call, which is affordable once per escalated run and
-// ruinous at the entry of the inlined scanner (measured -9.9% on `CITM catalog`).
-//
-// Without AVX2 the scan continues at SIMD16 rather than failing, which is what the narrow twin
-// below is for.
+// Out of line on purpose, and this is where the availability check belongs: reading `streamHasAVX2`
+// is a lazy-init accessor call, affordable once per escalated run and ruinous at the entry of the
+// inlined scanner (measured `CITM catalog` -9.9%). Without AVX2 the scan continues at SIMD16 rather
+// than failing, which is what the narrow twin below is for.
 @inlinable
 @inline(never)
 package func streamStringRunWide(
@@ -384,15 +354,10 @@ package func streamStringRunNarrow(
 
 // MARK: - Key words
 
-// Eight key bytes as one little-endian word — the first thing a generated matcher does to every
-// object key.
-//
-// The load must stay bounded by the span: a key span is a borrow into the parser's input, and
-// `paddedWord` is public on any `Span<UInt8>`. There is no padding behind a key to overread into.
-//
-// Under eight bytes it is a halving ladder, not a vector: NEON has no masked load, and the ladder
-// settles any tail in at most three loads and three predictable branches. Most JSON keys land here
-// (`id`, `text`, `user`), so the tail is the case worth spelling out.
+// Eight key bytes as one little-endian word -- the first thing a generated matcher does to a key.
+// The load must stay bounded by the span: a key span is a borrow into the parser's input and there
+// is no padding behind a key to overread into. Under eight bytes it is a halving ladder, not a
+// vector: NEON has no masked load, and most JSON keys (`id`, `text`, `user`) land in that tail.
 @inlinable
 @inline(__always)
 package func streamPaddedWord(base: UnsafeRawPointer, from: Int, to: Int) -> UInt64 {
@@ -498,11 +463,9 @@ package func streamHashBytes(base: UnsafeRawPointer, count: Int) -> UInt64 {
   return hash
 }
 
-// Byte equality, sixteen bytes at a time.
-//
-// The lanes are xored and the difference read as two words, rather than compared into a mask:
-// `any(mask)` lowers to an out-of-line reduction call, which is the same reason
-// `streamIsEightDigits` spells its all-lanes test by hand.
+// Byte equality, sixteen bytes at a time. The lanes are xored and the difference read as two words
+// rather than compared into a mask: `any(mask)` lowers to an out-of-line reduction call, which is
+// the same reason `streamIsEightDigits` spells its all-lanes test by hand.
 @inlinable
 @inline(__always)
 package func streamBytesEqual(
@@ -565,21 +528,10 @@ package func streamCompareBytes(
 
 // MARK: - Number scanning
 
-// Finds the first byte outside the number token class: digits, '.', 'e', 'E', '+', '-'. The
-// scan is greedy — placement is the whole-token parse's business — which is what makes it
-// stateless and lets SIMD16 test all six membership conditions per lane. Strategy table in
-// NEW_ARCHITECTURE.md: 12.6–23.4 ns/number against 19.5–91.8 for the fused per-byte scan.
-//
-// On arm64 the membership test is two nibble-indexed table lookups instead of six compares: each
-// nibble looks up a bitmask of the number classes possible for it (`streamNumberClassHighTable`,
-// `streamNumberClassLowTable`) and `vtstq_u8` tests whether they share a set bit —
-// `ldr, ushr, tbl, and, tbl, cmtst` against the portable path's `ldr` plus eleven.
-//
-// **Trap:** the all-lanes test must not be `all()` on the `vtstq_u8` result. `all()`'s fast path
-// only recognises a mask it can see was built from a compare; one arriving by `unsafeBitCast`
-// silently deoptimises to an out-of-line `bl` instead of `uminv`, with no diagnostic. The portable
-// six-compare fallback stays untouched — its `all(hit)` does lower to `uminv`, and its tuning is
-// independent of the arm64 kernel.
+// Finds the first byte outside the number token class: the ten numerals, '.', 'e', 'E', '+', '-'.
+// The scan is greedy -- placement is the whole-token parse's business -- which keeps it stateless
+// and lets one vector test all six conditions per lane. On arm64 that is two nibble-indexed table
+// lookups (`ldr, ushr, tbl, and, tbl, cmtst`); trap: on a bitcast mask `all()` silently deoptimises.
 @inlinable
 @inline(__always)
 package func streamNumberRunEnd(base: UnsafeRawPointer, from: Int, to: Int) -> Int {
@@ -685,12 +637,10 @@ package func streamNumberRunEndTail(base: UnsafeRawPointer, from: Int, to: Int) 
   return to
 }
 
-// The classic 8-digit conversion as a SIMD lane tree: '0'-biased bytes are combined pairwise,
-// then the lane count halves each stage, widening only where the next place value needs it.
-// Every stage is exact — two digits still fit a byte, four fit a `UInt16` — so the block agrees
-// with the scalar loop and only the accumulate below wraps, keeping overflowed magnitudes
-// congruent (mod 2^64) between the two paths. 7-13% over the SWAR form it replaced; table in
-// NEW_ARCHITECTURE.md.
+// The classic eight-byte conversion as a SIMD lane tree: '0'-biased bytes combine pairwise, the lane
+// count halving each stage and widening only where the next place value needs it. Every stage is
+// exact, so the block agrees with the scalar loop and only the accumulate below wraps, keeping
+// overflowed magnitudes congruent mod 2^64. Measured: 7-13% over the SWAR form it replaced.
 @inlinable
 @inline(__always)
 package func streamParseEightDigits(_ chunk: SIMD8<UInt8>) -> UInt64 {
@@ -772,11 +722,9 @@ package func streamHexQuad(base: UnsafeRawPointer, from: Int) -> UInt32? {
   return UInt32(weighted.wrappedSum())
 }
 
-// A direct byte-to-byte map for JSON's eight simple escapes. Zero means "not a simple escape"; no
-// valid simple escape decodes to NUL, so the sentinel needs no separate validity table. It is a
-// `StaticString` so the 128 bytes sit in read-only storage rather than an `Array` built at startup
-// — required by the one-allocation fast path and by Embedded Swift. The parser handles `u` before
-// asking this table.
+// A direct byte-to-byte map for JSON's eight simple escapes; the parser handles `u` first. Zero means
+// "not a simple escape", and no valid one decodes to NUL, so the sentinel needs no validity table.
+// A `StaticString` puts the 128 bytes in read-only storage, as the one-allocation path and Embedded need.
 // swift-format-ignore
 @usableFromInline
 let streamSimpleEscapeTable: StaticString = """
@@ -813,16 +761,10 @@ package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) 
 
 // MARK: - UTF-8 validation
 
-// Keiser and Lemire's lookup validator ("Validating UTF-8 In Less Than One Instruction Per Byte").
-// Every UTF-8 error is visible in a window of two adjacent bytes plus one structural fact (a
-// continuation is required after a three or four byte lead), so a sixteen byte block validates at
-// once: the previous byte's high and low nibbles and the current byte's high nibble each index a
-// table of error classes, the three are ANDed, the structural fact XORed in. The portable path
-// recomputes the same classes with range compares.
-//
-// It answers only valid or not; the parser's scalar walk then locates the byte, which keeps error
-// offsets where `ErrorOffsetTests` pins them. A sequence split by a chunk is reassembled and
-// checked in `completePendingUTF8` before any run is scanned.
+// Keiser and Lemire's lookup validator ("Validating UTF-8 In Less Than One Instruction Per Byte"):
+// every error is visible in two adjacent bytes plus one structural fact, so three nibble-indexed
+// error-class tables ANDed and XORed validate a sixteen byte block at once. It answers only valid or
+// not; the scalar walk locates the byte, keeping error offsets where `ErrorOffsetTests` pins them.
 
 @usableFromInline
 package enum StreamUTF8ErrorClass {
@@ -957,14 +899,10 @@ package func streamUTF8BlockIsInvalidPortable(
   return streamVectorIsNonZero(streamMaskBytes(invalid))
 }
 
-// True when `[from, to)` is well formed UTF-8 in full: no sequence may run past `to`, and nothing
-// before `from` is part of one. The "previous byte" views are overlapping unaligned loads at
-// `i - 1/2/3`; the first block, a short run and a short tail go through a 32-byte zero-padded
-// scratch, since zero reads as ASCII — which is exactly what lies before a run (a quote, an escape,
-// or a chunk boundary `completePendingUTF8` already settled) and what padding after it must be.
-//
-// Shimmed and scalar are two copies of one shape, not a shared body taking the block check as a
-// parameter: only a literal folds away at -O, a passed-in function value does not.
+// True when `[from, to)` is well formed UTF-8 in full: no sequence may run past `to` and nothing
+// before `from` is part of one. The "previous byte" views are unaligned loads at i-1/2/3; the first
+// block, a short run and a short tail go through a 32-byte zero-padded scratch, since zero reads as
+// ASCII. Shimmed and scalar are two copies of one shape: only a literal block check folds away at -O.
 #if arch(arm64)
   @inlinable
   @inline(__always)
@@ -1053,37 +991,19 @@ package func streamUTF8BlockIsInvalidPortable(
 
 // MARK: - Short integer kernel
 
-// An unsigned integer of one to eight digits, parsed whole with no loop and no data dependent
-// branch, or `nil` if the token is not that shape. The digit test doubles as the shape test, so
-// this replaces the structured walk's sign, dot, exponent and final position checks for the
-// tokens it accepts rather than adding to them.
-//
-// **The load is the eight bytes ending at the token, not starting at it.** Those bytes are behind
-// the cursor -- already consumed input in the same buffer -- so a single `end >= 8` test makes the
-// read safe, where reading forward past the token would need a bound the parser does not carry.
-// Right alignment also removes the scaling step: the masked-off bytes below the token become
-// leading zeros, so the eight-digit tree's answer is already the token's value.
-//
-// **The mask must come before the bias.** Subtracting `0x30` from the whole word borrows out of any
-// byte below `'0'` and into the token's leading digit -- `\n`, `,` and `"` are all below it, so
-// `582` preceded by a newline reads as `482`. Masking first makes those bytes zero, and zero minus
-// zero does not borrow. A differential test found this, not reasoning, which is why
-// `ShortIntegerKernelTests` pads with hostile bytes rather than spaces.
+// An unsigned integer of one to eight numerals, parsed whole with no loop and no data dependent
+// branch, or `nil` if the token is not that shape; the class test doubles as the shape test. The load
+// is the eight bytes *ending* at the token -- already consumed input, so `end >= 8` makes it safe, and
+// right alignment makes the masked-off bytes leading zeros. Mask before bias, or `0x30` borrows in.
 @inlinable
 @inline(__always)
 package func streamShortInteger(base: UnsafeRawPointer, from: Int, end: Int) -> UInt64? {
   let word = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: end &- 8, as: UInt64.self))
   let shift = UInt64(truncatingIfNeeded: 8 &* (8 &- (end &- from)))
-  // Masking shift (`&<<`), not the smart one: a token is one to eight bytes so `shift` is 0...56,
-  // but the compiler cannot see that range from here and emits the over-shift defence — three
-  // instructions and a flag dependency in front of the `and` everything else waits on. Measured:
-  // removing it is worth `Canada` +9.7%. Keep `&<<`.
-  //
-  // The bounds are asserted, not guarded: hoisting the lower bound into the callers as an unsigned
-  // range test cost one `lea` on the entry guard that every number pays, `Mesh` -2.8% /
-  // `Qwen 3 search tool call` -3.3%. `end >= 8` is what the backward load needs and it lives in the
-  // callers' entry guards (`emitNumber`, `JSONParserShapes.parseNumber`); a third caller that
-  // forgets it is an out-of-bounds read with no release signal.
+  // Masking shift (`&<<`), not the smart one: `shift` is 0...56 but the compiler cannot see that from
+  // here and emits the over-shift defence in front of the `and` everything waits on. Measured: removing
+  // it is `Canada` +9.7%. The bounds are asserted, not guarded -- hoisting the lower bound into the
+  // callers cost `Mesh` -2.8% / `Qwen` -3.3%; `end >= 8` lives in their entry guards.
   assert(end >= 8 && end > from && end &- from <= 8)
   let keep = UInt64.max &<< shift
   let biased = (word & keep) &- (0x3030_3030_3030_3030 & keep)

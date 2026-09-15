@@ -7,20 +7,13 @@
 
 // MARK: - simdjson stage 1's two bit algorithms
 //
-// Shared by the window indexer (StreamParsingShims.c) and the skip scanner's block classifier
-// below. They live in the header rather than in that translation unit because the skip
-// classifier is inlined into Swift and needs them there.
+// Shared by the window indexer (StreamParsingShims.c) and the classifiers below. They live in
+// the header rather than that translation unit because the classifiers are inlined into Swift.
 
 // Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
-// carries the state across blocks: in, whether the previous block ended inside an odd run; out,
-// whether this one does.
-//
-// **Deliberately scalar, and measured to stay that way.** The irreducible step is
-// `bs_bits + starts`: the 64-bit adder's carry chain is a prefix scan that broadcasts each run's
-// start parity to the byte past its end, and NEON has no segmented scan (`pmull`'s prefix XOR is
-// unsegmented and cannot recover run-start parity). The classifier below is vector-issue-bound, so
-// these 13 integer ops run for free on idle ports. See NEW_ARCHITECTURE.md, "find_escaped stays
-// scalar" for the NEON shapes and the early-out that measured worse.
+// carries "the previous block ended inside an odd run" in and out.
+// Measured: NEON shapes cost +7..+31% per block and a `bs_bits == 0` early-out +0.7..+17.6%;
+// keep it scalar (NEW_ARCHITECTURE.md, "find_escaped stays scalar").
 static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *prev_ends_odd) {
   const uint64_t even_bits = 0x5555555555555555ULL;
   const uint64_t odd_bits = ~even_bits;
@@ -40,10 +33,8 @@ static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *p
 
 // MARK: - The block classifiers' results
 //
-// What the two 64-byte block classifiers hand back. Declared outside every architecture section
-// because two spellings return them: the NEON kernels below (`static inline`, folded into the
-// Swift caller) and the AVX2 kernels in AVX2.c (out of line, for the reason that file's header
-// gives). The Swift walks read the same fields either way and do not know which one they called.
+// What the two 64-byte block classifiers hand back, shared by the NEON kernels below (inlined
+// into Swift) and AVX2.c's out-of-line ones. The Swift walks read the same fields either way.
 
 // The skip scanner's classes (`stream_parsing_classify_skip_block`).
 typedef struct {
@@ -86,10 +77,8 @@ typedef struct {
   // scalar loop, which reports whatever it finds, at the offset it finds it.
   uint32_t needs_scalar;
   // Nonzero: the block holds a byte >= 0x80. With `needs_scalar` zero every such byte is inside a
-  // string, so this is what the caller passes as `containsNonASCII` for the strings it emits: the
-  // validator then runs over each string's own extent and reports at the byte it finds, which is
-  // where the scalar path reports it. The ~99% of blocks with no high byte skip the per-string
-  // high-bit reduction entirely.
+  // string, so this is the caller's `containsNonASCII` for the strings it emits; the validator
+  // then runs each string's own extent and reports at the byte it finds, as the scalar path does.
   uint32_t non_ascii;
   // Nonzero: the block holds no whitespace *outside* a string -- the walk's gate signal, computed
   // here rather than handed out as a mask because one `bic` + `cmp` beats another 64-bit field in
@@ -97,11 +86,9 @@ typedef struct {
   // with its cursor anyway, so the classifier saves nothing on them.
   uint32_t no_outer_whitespace;
   // Nonzero: the block is a strike against the walk -- `no_outer_whitespace`, or at least
-  // `STREAM_PARSING_BLOCK_WALK_DENSE_STARTS` bits in `starts`. **Written by the AVX2 kernel only**,
-  // and read only on x86: baseline x86-64 has no `popcnt`, so Swift's `nonzeroBitCount` lowers to
-  // 17 instructions per block where the kernel -- compiled with the feature -- spends one. On arm64
-  // the Swift gate computes the same verdict from the two fields above. It sits in the struct's
-  // tail padding, so the struct is the same size either way.
+  // `STREAM_PARSING_BLOCK_WALK_DENSE_STARTS` bits in `starts`. Written by the AVX2 kernel only and
+  // read only on x86 (baseline x86-64 has no `popcnt`); arm64's Swift gate recomputes it from the
+  // two fields above. Sits in the struct's tail padding, so the size is the same either way.
   uint32_t strike;
 } stream_parsing_structural_classes;
 
@@ -110,11 +97,9 @@ typedef struct {
 // gate -- the Swift one on arm64 and the AVX2 kernel's `strike`.
 #define STREAM_PARSING_BLOCK_WALK_DENSE_STARTS 48
 
-// The one SIMD operation Swift's SIMD API cannot express: a byte table lookup. On arm64 it is
-// `tbl`, and the UTF-8 validator's three nibble tables are each one instruction with it. The
-// wrapper takes and returns an `ext_vector_type` so Swift imports it as `SIMD16<UInt8>`, and it
-// is `static inline` so the call disappears into the Swift caller. Platforms without it take the
-// validator's portable path; `#if arch(arm64)` on the Swift side is what selects this one.
+// The one SIMD operation Swift's SIMD API cannot express: a byte table lookup, `tbl` on arm64.
+// The `ext_vector_type` signature imports as `SIMD16<UInt8>`, and `static inline` folds the call
+// into the Swift caller. `#if arch(arm64)` selects this over the validator's portable path.
 #if defined(__aarch64__) && defined(__ARM_NEON)
 #include <arm_neon.h>
 
@@ -125,16 +110,10 @@ stream_parsing_tbl1q_u8(stream_parsing_u8x16 table, stream_parsing_u8x16 indices
   return (stream_parsing_u8x16)vqtbl1q_u8((uint8x16_t)table, (uint8x16_t)indices);
 }
 
-// The UTF-8 validator's block kernel, whole: the three nibble table lookups ANDed (Keiser and
-// Lemire's special cases), XORed with 0x80 where a continuation is required by a three byte lead
-// two back or a four byte lead three back. Nonzero lanes are errors. The three "previous byte"
-// views are supplied by the caller as overlapping unaligned loads at `i - 1`, `i - 2`, `i - 3`.
-//
-// **The whole kernel stays in C, and the views stay loads.** Composed from the primitives above on
-// the Swift side it ran 2.6x slower (Swift's SIMD operators are lane loops LLVM must re-vectorize,
-// and a shift or compare feeding a fifteen-lane `ext` half-vectorizes); lane-shifting the views
-// from a carried block with `ext` instead of loading them was 10% slower, because the loads issue
-// on the load ports where `ext` competes with the kernel's own vector ALU work.
+// The UTF-8 validator's block kernel, whole: three nibble table lookups ANDed (Keiser and Lemire's
+// special cases), XORed with 0x80 where a three or four byte lead requires a continuation; nonzero
+// lanes are errors. The three "previous byte" views are the caller's unaligned loads at i-1/2/3.
+// Measured: composed in Swift 2.6x slower, `ext`-shifted views 10% slower; keep the C kernel.
 STREAM_PARSING_SIMD_SHIM stream_parsing_u8x16
 stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
                                  stream_parsing_u8x16 previous1_block,
@@ -157,19 +136,10 @@ stream_parsing_utf8_block_errors(stream_parsing_u8x16 current_block,
   return (stream_parsing_u8x16)veorq_u8(special, must_continue);
 }
 
-// The arm64 movemask, which Swift cannot spell: `vshrn_n_u16` takes an immediate, so it does not
-// import at all (`cannot find 'vshrn_n_u16' in scope`) and there is no portable SIMD operator
-// that lowers to it. Reading the vector as eight `uint16_t` and narrowing each by a four bit
-// shift folds every input byte to a nibble of the result: lane `n` of the input lands in nibble
-// `n` of the returned word, 0xF where the byte was 0xFF and 0x0 where it was 0x00.
-//
-// One `shrn` plus one `fmov` answers both "is there a terminator in this block" and "which lane",
-// against Swift's two options: a `uminv` reduction (a dependent vector chain a short run pays in
-// full) or a per-lane `umov` + branch ladder.
-//
-// Kept deliberately as a leaf returning a scalar, not a kernel returning a struct: that is the
-// shape that survived in `stream_parsing_utf8_block_errors` and the one that did not in the
-// `streamStringRun` port, whose better kernel still made the parse slower at the boundary.
+// The arm64 movemask Swift cannot spell: `vshrn_n_u16` takes an immediate, so it does not import
+// and no portable SIMD operator lowers to it. Lane n of the input lands in nibble n of the result,
+// 0xF where the byte was 0xFF. Measured: one `shrn` + `fmov` answers both "any hit" and "which
+// lane" against a `uminv` chain or a `umov` ladder; keep it a leaf returning a scalar, not a struct.
 STREAM_PARSING_SIMD_SHIM uint64_t
 stream_parsing_movemask_u8(stream_parsing_u8x16 value) {
   return vget_lane_u64(
@@ -223,14 +193,11 @@ static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
 
 // MARK: - The skip scanner's block classifier
 //
-// What `consumeSkipRun` (JSONParserSkip.swift) asks of 64 bytes of a subtree it is scanning to the
-// matching close: where the brackets outside strings are, whether the block holds anything the wide
-// path refuses to judge, and the two carries defining where the next block starts. Everything else
-// the scalar loop does per byte costs nothing here -- those bytes are simply not bracket bits.
-//
-// The whole kernel is in C for the reason the UTF-8 block kernel is: composed from Swift's SIMD
-// operators around the movemask shim it comes out half scalarised. As one `static inline` returning
-// a small struct it disappears into the Swift caller.
+// Measured: composed from Swift's SIMD operators around the movemask shim this comes out half
+// scalarised; keep the whole kernel in C, `static inline` so it folds into the Swift caller.
+
+// What `consumeSkipRun` (JSONParserSkip.swift) asks of 64 bytes: the bracket bits outside strings,
+// whether the block holds anything the wide path refuses to judge, and the two carries.
 STREAM_PARSING_SIMD_SHIM stream_parsing_skip_classes
 stream_parsing_classify_skip_block(
   const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
@@ -268,18 +235,10 @@ stream_parsing_classify_skip_block(
     return out;
   }
 
-  // A byte is in a class iff (lo_table[b & 0xF] & hi_table[b >> 4]) has the class bit set.
-  // Bits 0...6 spell "the scalar switch accepts this byte outside a string", one bit per high
-  // nibble row, which makes every row an exact set of low nibbles:
-  //   0x01 h=0 {09 0A 0D}         0x02 h=2 {20 22 2B 2C 2D 2E}
-  //   0x04 h=3 {30...39 3A}       0x08 h=4 {45}
-  //   0x10 h=5 {5B 5D}            0x20 h=6 {61...6F}
-  //   0x40 h=7 {70...7B 7D}
-  // so `\`, `/`, `|`, `_`, every uppercase letter but E, every control byte that is not
-  // whitespace, and every byte >= 0x80 fall out as unaccepted. Bit 7 is the bracket class:
-  // {B, D} x {5, 7} is exactly {'[', ']', '{', '}'}, a rectangle, which is the one shape this
-  // table form carries for free. Getting the brackets from the same two lookups is why the kinds
-  // are not masked out here -- the caller reads the four bracket bytes it actually lands on.
+  // A byte is in a class iff (lo_table[b & 0xF] & hi_table[b >> 4]) has the class bit set. Bits
+  // 0...6 spell "the scalar switch accepts this byte outside a string", one bit per high nibble
+  // row; bit 7 is the bracket class, {B,D} x {5,7} == {'[', ']', '{', '}'} -- a rectangle, the one
+  // shape this form carries free. Kinds stay unmasked: the caller reads the bracket byte it hits.
   const uint8x16_t lo_table = {
     0x46, 0x64, 0x66, 0x64, 0x64, 0x6C, 0x64, 0x64,
     0x64, 0x65, 0x65, 0xF2, 0x22, 0xF3, 0x22, 0x20
@@ -327,23 +286,13 @@ stream_parsing_classify_skip_block(
 
 // MARK: - The structural run's block classifier
 //
-// The same 64 bytes, asked the question `consumeStructuralBlocks` (JSONParserBlocks.swift) has:
-// where does the next *token* start, where are the string extents, and is there anything in here
-// the scalar ladder would judge differently. Whitespace is never read on that path -- it is
-// simply absent from `starts` -- and neither is the interior of a string, which the extent
-// between two `quote` bits settles whole.
-//
-// `starts` is the whole trick, and it is one word:
-//
-//     starts = (~in_string & ~ws & ~quote) | (quote & in_string)
-//
-// Outside a string, everything that is not whitespace and not a quote is a token-start candidate
-// (including the *interior* bytes of a token, which the walk clears when it advances its cursor
-// past them). The opening quote is the one byte that is `in_string` and a quote at once, so it is
-// added back; the closing quote is a quote *outside* the string and drops out, which is right --
-// the extent between the two is consumed by whoever visited the opening one. `trailingZeroBitCount`
-// on this mask is therefore "the next token start after the cursor", whitespace skipped for free.
+// The same 64 bytes, asked `consumeStructuralBlocks`'s question (JSONParserBlocks.swift): where the
+// next token starts, where the string extents are, and whether anything needs the scalar ladder.
 
+// `starts` is one word: `(~in_string & ~ws & ~quote) | (quote & in_string)`. Outside a string every
+// non-whitespace non-quote byte is a candidate, token interiors included (the walk clears them as
+// its cursor advances). The opening quote is the one byte that is both, so it is added back; the
+// closing quote drops out, its extent already consumed by whoever visited the opener.
 STREAM_PARSING_SIMD_SHIM stream_parsing_structural_classes
 stream_parsing_classify_structural_block(
   const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
@@ -373,11 +322,9 @@ stream_parsing_classify_structural_block(
   out.ends_odd = ends_odd_carry;
   out.non_ascii = vmaxvq_u8(vmaxq_u8(vmaxq_u8(v0, v1), vmaxq_u8(v2, v3))) >= 0x80;
 
-  // A block lying edge to edge inside a string needs only its flags and carries: there is no
-  // token start in it by construction. (With a zero carry in -- which is what the structural
-  // walk always passes, since it hands a string it cannot close in one block to the scalar path
-  // -- `in_string` can only be all ones if `quote` is nonzero, so this folds away there. It is
-  // kept for the carrying caller.)
+  // A block lying edge to edge inside a string needs only its flags and carries: by construction it
+  // holds no token start. (Folds away for the structural walk, which always passes a zero carry in;
+  // kept for a carrying caller.)
   if (quote == 0 && in_string == ~(uint64_t)0) {
     // Edge to edge inside a string: no byte of it is whitespace outside one, by construction.
     out.no_outer_whitespace = 1;
@@ -386,37 +333,10 @@ stream_parsing_classify_structural_block(
     return out;
   }
 
-  // The same two-table trick the skip classifier documents above, re-encoded. A bit is a
-  // rectangle (set of high nibble rows) x (set of low nibbles), and the shipped encoding is
-  // exactly full at eight, so two bits have to be *recovered* before whitespace can have one:
-  //   * row 5's accepted set {5B,5D} is the bracket rectangle's row-5 half, and row 7's
-  //     {70..7B,7D} is {70..7A} plus its row-7 half -- so row 5 needs no bit of its own once
-  //     "accepted" is tested as `c != 0` rather than `(c & 0x7F) != 0`, which is legal because
-  //     every bracket is an accepted byte. (It is also one instruction cheaper per vector:
-  //     `vtstq(c, c)` lowers to `cmeq #0` + `bic`.)
-  //   * rows 3 and 7 then share the residual low set {0..A} ({30..3A}, {70..7A}), so one
-  //     rectangle {3,7} x {0..A} serves both.
-  //
-  //   bit 0 0x01  WS3    {0}   x {9,A,D}     09 0A 0D      (whitespace minus space)
-  //   bit 1 0x02  ROW2   {2}   x {0,2,B,D,E} 20 22 2B 2D 2E
-  //   bit 2 0x04  COMMA  {2}   x {C}         2C
-  //   bit 3 0x08  COLON  {3}   x {A}         3A
-  //   bit 4 0x10  N37    {3,7} x {0..A}      30..3A 70..7A
-  //   bit 5 0x20  ROW6   {6}   x {1..F}      61..6F
-  //   bit 6 0x40  E45    {4}   x {5}         45
-  //   bit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D
-  //
-  // `\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and
-  // every byte >= 0x80 is in no class at all, which is what `needs_scalar` reads. The walk reads
-  // the four bracket bytes and the two operators it lands on out of the line the classifier just
-  // touched, so neither `brackets` nor `op` is computed here -- two movemasks the skip
-  // classifier's shape would have paid for.
-  //
-  // Space cannot get a ninth bit (the residual rows provably do not collapse into three
-  // rectangles), so whitespace costs one lookup of its own, deliberately *not* hung off `c`:
-  // indexed by the low nibble it is independent of the class chain and issues alongside it.
-  // Measured, twitter ns/block: this spelling 9.43, `(c & 0x01) | (v == 0x20)` 9.87, deriving the
-  // operators with compares instead of table bits 10.53.
+  // The same two-table trick the skip classifier documents above, re-encoded: a bit is a rectangle
+  // (high nibble rows) x (low nibbles), and eight bits is exactly full, so two are recovered by
+  // testing "accepted" as `c != 0` and by sharing one {3,7} x {0..A} rectangle; whitespace gets its
+  // own lookup off the low nibble. Measured (twitter ns/block): 9.43 here, 9.87 and 10.53 otherwise.
   const uint8x16_t lo_table = {
     0x12, 0x30, 0x32, 0x30, 0x30, 0x70, 0x30, 0x30,
     0x30, 0x31, 0x39, 0xA2, 0x24, 0xA3, 0x22, 0x20
@@ -478,14 +398,8 @@ static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
 
 // MARK: - x86: the AVX2 tier
 //
-// Defined in `AVX2.c`, not here. The kernels need `immintrin.h`, and a modular header that
-// includes it forces the toolchain to build the `_Builtin_intrinsics` module -- which some
-// x86-64 SDKs (Android's, for one) cannot do. The definitions carry `target("avx2")`, which
-// already barred Clang from inlining them into callers built without the feature, so an
-// out-of-line definition costs nothing that was not already being paid.
-//
-// `ptrdiff_t` rather than `long`: both import to Swift as `Int`, and only one of them is
-// 64 bits everywhere Swift runs -- `long` is 32 bits on Windows.
+// Defined in AVX2.c, not here: a modular header including `immintrin.h` forces `_Builtin_intrinsics`,
+// which some x86-64 SDKs cannot build. `ptrdiff_t` not `long`: `long` is 32 bits on Windows.
 #if defined(__x86_64__)
 
 #include <stddef.h>
@@ -511,11 +425,10 @@ ptrdiff_t stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdi
 // the string scanner. Resolved on first use and cached with the same probe.
 int stream_parsing_has_avx2_block_kernels(void);
 
-// The two 64-byte block classifiers, with the NEON kernels' names, signatures and results, so the
+// The two 64-byte block classifiers with the NEON kernels' names, signatures and results, so the
 // Swift walks are one source on both architectures. Out of line where NEON's are inlined: a
-// `target("avx2")` body cannot be inlined into Swift compiled for baseline x86-64. Every field
-// means what the NEON kernel's does; AVX2.c documents the encoding differences.
-// Precondition: `stream_parsing_has_avx2_block_kernels()`.
+// `target("avx2")` body cannot be inlined into Swift built for baseline x86-64. AVX2.c documents
+// the encoding differences. Precondition: `stream_parsing_has_avx2_block_kernels()`.
 stream_parsing_skip_classes stream_parsing_classify_skip_block(
     const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
 stream_parsing_structural_classes stream_parsing_classify_structural_block(
@@ -525,26 +438,18 @@ stream_parsing_structural_classes stream_parsing_classify_structural_block(
 
 #include <stddef.h>
 
-// Stage-1 window indexer for the windowed parse path (NEW_ARCHITECTURE.md, "Stage-1 extraction").
-// One pass over `len` bytes (at most 32 KB) in 64-byte blocks, writing to `indices` the
-// chunk-relative position of every byte a consuming walk must visit; returns how many. `needs_scan`
-// marks blocks holding a backslash or in-string control byte, `non_ascii` blocks holding a byte
-// >= 0x80.
-//
-// Preconditions: windows start at a token boundary outside any string (no carried state in);
-// `indices` needs `len + 8` slots, since extraction writes in unconditional groups of eight; the
-// bitmaps need `(len + 4095) / 4096` words each and are cleared here.
+// Stage-1 window indexer: one pass over `len` bytes in 64-byte blocks, writing to `indices` every
+// chunk-relative position a consuming walk must visit; returns how many. `needs_scan`/`non_ascii`
+// flag blocks holding a backslash or control byte / a byte >= 0x80. Requires len <= 32 KB starting
+// at a token boundary outside any string, len+8 slots in `indices`, (len+4095)/4096 words per bitmap.
 size_t stream_parsing_index_window(const uint8_t *p, size_t len, uint32_t base,
                                    uint32_t *indices, uint64_t *needs_scan,
                                    uint64_t *non_ascii);
 
-// A simple decimal of more than sixteen bytes, parsed in one pass from a known extent: one
-// vector classification (digits, dots) decides the shape -- optional '-', digits, at most one
-// interior '.', no exponent, no leading zero, at most 19 digits -- and the digits are then
-// accumulated with no per-block validation. Anything else returns 0 and the caller takes the
-// grammar walk. Reads 32 bytes from `p`; the caller guarantees they are mapped. Measured in
-// the number kernel lab (NEW_ARCHITECTURE.md): +24% on Canada's 18-digit floats and a loss on
-// anything short, which is why the caller gates it on length.
+// A simple decimal of more than sixteen bytes, parsed in one pass from a known extent: one vector
+// classification gates the shape (optional '-', digits, at most one interior '.', no exponent, no
+// leading zero, at most 19 digits) and the digits accumulate unvalidated; anything else returns 0.
+// Reads 32 bytes from `p`. Measured: +24% on Canada's long floats, a loss short -- hence the gate.
 STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_swar8(uint64_t w) {
   w -= 0x3030303030303030ULL;
   w = (w * 10) + (w >> 8);
@@ -553,12 +458,10 @@ STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_swar8(uint64_t w) {
   return w;
 }
 
-// Reads in eight-byte words, so the `count % 8 != 0` tail below loads up to seven bytes past
-// `q + count`. That is in bounds only because of the caller: `stream_parsing_decimal32` rejects
-// any token with `len > 21` and passes slices of the same `p`, so the furthest byte this can touch
-// is `p + 27` -- inside the 32 mapped bytes `stream_parsing_decimal32` documents as its
-// precondition (and which `JSONParserShapes.parseNumber` guarantees with `from &+ 32 <=
-// chunkEnd`). Loosening the `len <= 21` gate without revisiting this is an out-of-bounds read.
+// Reads in eight-byte words, so the `count % 8 != 0` tail loads up to seven bytes past `q + count`.
+// In bounds only because `stream_parsing_decimal32` rejects `len > 21` and passes slices of the same
+// `p`, so the furthest byte is `p + 27`, inside its 32 mapped bytes (`JSONParserShapes.parseNumber`
+// guarantees `from &+ 32 <= chunkEnd`). Loosening `len <= 21` without revisiting this reads OOB.
 STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_decimal_digits(const uint8_t *q, unsigned count) {
   static const uint64_t pow10[8] = {
     1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL
@@ -673,14 +576,10 @@ STREAM_PARSING_SIMD_SHIM const uint64_t *stream_parsing_pow10_128(void) {
 #define STREAM_PARSING_POW10_128_MIN_EXPONENT (-342)
 #define STREAM_PARSING_POW10_128_MAX_EXPONENT (308)
 
-// Exact `double` values of 10^q for q in 0 ... 22, defined in `Pow10_Double.c` and generated --
-// see the header comment there. Same reason as above for living in C: `.rodata` instead of a
-// lazily allocated Swift array global.
-//
-// Reached through an always-inlined accessor, not a `const double *const` global: a pointer
-// variable costs a dependent load before the load of the entry, where the accessor folds into the
-// caller as the `adrp`/`add` that materialises the address. The array is declared incomplete
-// because Swift imports a sized C array as a tuple of that many elements.
+// Exact `double` values of 10^q for q in 0 ... 22, generated into `Pow10_Double.c`; in C so it is
+// `.rodata` rather than a lazily allocated Swift array global. Reached through an always-inlined
+// accessor, not a `const double *const` global, so the address folds into the caller as `adrp`/`add`
+// instead of a dependent load. Declared incomplete: Swift imports a sized C array as a tuple.
 extern const double stream_parsing_pow10_double_storage[];
 
 STREAM_PARSING_SIMD_SHIM const double *stream_parsing_pow10_double(void) {
