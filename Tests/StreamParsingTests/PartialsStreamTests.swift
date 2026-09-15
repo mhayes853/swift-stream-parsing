@@ -147,6 +147,48 @@ struct `PartialsStream Tests` {
     expectNoDifference(try stream.finish(), [4, 5])
   }
 
+  // A sink rejection is a parser throw with a `streamFailure` left on the sink. The reset must
+  // clear it: left set, the next document's first token re-reports the stale failure.
+  @Test(arguments: [false, true])
+  func `Reset Recovers A Stream Whose Sink Rejected A Token`(byteFed: Bool) throws {
+    var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+    let error = #expect(throws: JSONParsingError.self) {
+      try feed(&stream, #"[1,"x",2]"#, byteFed: byteFed)
+    }
+    expectNoDifference(
+      error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
+    )
+    #expect(throws: StreamParsingError.parserThrows) {
+      try stream.next(UInt8(ascii: "]"))
+    }
+
+    stream.reset(to: StreamArray<Int>())
+    try feed(&stream, "[4,5]", byteFed: byteFed)
+    expectNoDifference(try stream.finishValue(resettingTo: StreamArray<Int>()), [4, 5])
+    try feed(&stream, "[6]", byteFed: byteFed)
+    expectNoDifference(try stream.finishValue(resettingTo: StreamArray<Int>()), [6])
+  }
+
+  // The same, with the rejected token only completed by `finishValue(resettingTo:)`, which throws
+  // rather than resetting.
+  @Test
+  func `Reset Recovers After Finish Value Resetting Reports A Sink Rejection`() throws {
+    var stream = PartialsStream(initialValue: Int8(0), from: .json())
+    try stream.next(Array("300".utf8))
+    let error = #expect(throws: JSONParsingError.self) {
+      _ = try stream.finishValue(resettingTo: 0)
+    }
+    expectNoDifference(
+      error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
+    )
+
+    stream.reset(to: 0)
+    try stream.next(Array("7".utf8))
+    expectNoDifference(try stream.finishValue(resettingTo: 0), 7)
+    try stream.next(Array("-8".utf8))
+    expectNoDifference(try stream.finishValue(resettingTo: 0), -8)
+  }
+
   @Test
   func `Reset Discards A Document Mid Parse`() throws {
     var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
@@ -191,4 +233,11 @@ struct `PartialsStream Tests` {
       expectNoDifference(error, .parserThrows)
     }
   }
+}
+
+private func feed<Value: StreamParseableRoot>(
+  _ stream: inout PartialsStream<Value>, _ json: String, byteFed: Bool
+) throws {
+  guard byteFed else { return try stream.next(Array(json.utf8)) }
+  for byte in json.utf8 { try stream.next(byte) }
 }
