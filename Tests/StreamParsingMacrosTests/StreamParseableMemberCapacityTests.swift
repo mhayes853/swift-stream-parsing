@@ -24,7 +24,6 @@ extension BaseTestSuite {
         struct Payload {
           @StreamParseableMember(initialCapacity: capacity)
           ┬────────────────────────────────────────────────
-          ├─ 🛑 @StreamParseableMember(initialCapacity:) requires a nonnegative integer literal.
           ╰─ 🛑 @StreamParseableMember(initialCapacity:) requires a nonnegative integer literal.
           var values: [Int]
         }
@@ -50,7 +49,6 @@ extension BaseTestSuite {
           @StreamParseableMember(initialCapacity: 16)
           @StreamParseableMember(initialCapacity: 32)
           ┬──────────────────────────────────────────
-          ├─ 🛑 @StreamParseableMember(initialCapacity:) can only be specified once per property.
           ╰─ 🛑 @StreamParseableMember(initialCapacity:) can only be specified once per property.
           var values: [Int]
         }

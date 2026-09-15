@@ -61,7 +61,9 @@ extension StreamParseableMacro {
     guard let parameterClause else { return [] }
     return parameterClause.parameters.enumerated().map { index, parameter in
       if let firstName = parameter.firstName, firstName.tokenKind != .wildcard {
-        return AssociatedValue(label: firstName.text, isLabeled: true, type: parameter.type)
+        return AssociatedValue(
+          label: StreamParseableMacro.unescaped(firstName), isLabeled: true, type: parameter.type
+        )
       }
       return AssociatedValue(label: "_\(index)", isLabeled: false, type: parameter.type)
     }
@@ -81,23 +83,11 @@ extension StreamParseableMacro {
     "Double", "Float"
   ]
 
-  // `stringLiteralValue` reports an empty literal as "not a literal", which is right where it is
-  // used for a *key* — naming a member's key `""` is a mistake worth catching — and wrong here,
-  // because `case none = ""` is an ordinary raw value that real schemas do use as a sentinel. The
-  // matcher already handles it: an empty candidate suppresses the empty-input guard, so zero
-  // accumulated bytes reach the exact-match switch and resolve to that case instead of declining.
-  static func enumRawStringValue(from expression: ExprSyntax) -> String? {
-    guard let literal = expression.as(StringLiteralExprSyntax.self) else { return nil }
-    return literal.segments
-      .compactMap { $0.as(StringSegmentSyntax.self)?.content.text }
-      .joined()
-  }
-
   static func enumRawKind(for declaration: EnumDeclSyntax) -> EnumRawKind {
     // Swift requires the raw type to lead the inheritance clause, so only the first entry can be
     // one. Everything after it is a protocol.
     guard let first = declaration.inheritanceClause?.inheritedTypes.first else { return .none }
-    let name = first.type.trimmedDescription
+    let name = Self.lastComponent(of: first.type)
     if name == "String" { return .string }
     if Self.scalarRawTypeNames.contains(name) { return .scalar(name) }
     return .none
@@ -106,10 +96,12 @@ extension StreamParseableMacro {
   static func enumCases(
     in declaration: EnumDeclSyntax,
     rawKind: EnumRawKind,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) -> [EnumCase] {
     var cases = [EnumCase]()
     var sawDefault = false
+    var seenMatchNames = Set<String>()
+    var seenPayloadTypes = Set<String>()
     for member in declaration.memberBlock.members {
       guard let caseDecl = member.decl.as(EnumCaseDeclSyntax.self) else { continue }
 
@@ -123,13 +115,14 @@ extension StreamParseableMacro {
 
       for element in caseDecl.elements {
         let associatedValues = Self.associatedValues(in: element.parameterClause)
-        let bareName = element.name.text
+        let bareName = StreamParseableMacro.unescaped(element.name)
         // The raw value, where one is written, is the string this case answers to. Where one is
         // not, the case name is — which is both Swift's own default for a `String` raw value and
         // the `CodingKey` `Codable` derives for the raw-less form, so one rule covers both.
         var defaultName = bareName
         if case .string = rawKind, let rawValue = element.rawValue?.value {
-          if let literal = Self.enumRawStringValue(from: rawValue) {
+          // `case none = ""` is an ordinary sentinel raw value, so an empty literal is kept.
+          if let literal = Self.stringLiteralValue(from: rawValue) {
             defaultName = literal
           } else {
             Self.diagnoseNonLiteralRawValue(in: element, context: context)
@@ -156,6 +149,42 @@ extension StreamParseableMacro {
           matchNames.insert(defaultName, at: 0)
         }
 
+        // A second case answering to a name already taken emits an unreachable arm, and two
+        // cases whose names differ only in case share one generated payload type.
+        for name in matchNames where !seenMatchNames.insert(name).inserted {
+          context.diagnose(
+            Self.error(element, "Name '\(name)' is already claimed by another case.")
+          )
+        }
+        if case .none = rawKind {
+          if bareName == "unresolved" || bareName == "ambiguous" {
+            context.diagnose(
+              Self.error(
+                element,
+                """
+                Case '\(bareName)' collides with the generated 'ResolvedView.\(bareName)' \
+                sentinel. Rename the case, or give it a key with @StreamParseableMember.
+                """
+              )
+            )
+          }
+          if !associatedValues.isEmpty,
+            !seenPayloadTypes.insert(Self.payloadTypeName(forCaseNamed: bareName)).inserted
+          {
+            context.diagnose(
+              Self.error(
+                element,
+                """
+                Case '\(bareName)' generates the payload type \
+                '\(Self.payloadTypeName(forCaseNamed: bareName))', which another case already \
+                generates. Case names that differ only in capitalisation cannot both carry a \
+                payload.
+                """
+              )
+            )
+          }
+        }
+
         cases.append(
           EnumCase(
             reference: element.name.trimmedDescription,
@@ -178,7 +207,7 @@ extension StreamParseableMacro {
   static func enumMemberExpansion(
     of node: AttributeSyntax,
     declaration: EnumDeclSyntax,
-    in context: some MacroExpansionContext
+    in context: DiagnosticSink
   ) throws -> [DeclSyntax] {
     guard !Self.hasExistingStreamPartialValue(in: declaration.memberBlock.members) else {
       return []
@@ -240,9 +269,12 @@ extension StreamParseableMacro {
   static func enumExtensionExpansion(
     of node: AttributeSyntax,
     declaration: EnumDeclSyntax,
-    in context: some MacroExpansionContext
+    type: some TypeSyntaxProtocol,
+    in context: DiagnosticSink
   ) throws -> [ExtensionDeclSyntax] {
-    let typeName = declaration.name.text
+    // The fully qualified name, so a nested enum extends `Outer.Inner`.
+    let typeName = type.trimmedDescription
+    let conformance = Self.conformanceClause(for: declaration)
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
     Self.diagnoseUnsupportedRawType(in: declaration, rawKind: rawKind, context: context)
@@ -270,13 +302,13 @@ extension StreamParseableMacro {
       // schema, view and all — from the member list. Nothing about the object form is special
       // enough to need its own generator.
       let properties = cases.map { enumCase -> StoredProperty in
-        let typeName =
+        let payloadName =
           enumCase.associatedValues.isEmpty
           ? "StreamParsingCore.StreamEmptyObject"
           : Self.payloadTypeName(for: enumCase)
         return StoredProperty(
-          name: Self.memberIdentifier(for: enumCase.bareName),
-          type: "\(raw: typeName)",
+          name: enumCase.bareName,
+          type: "\(raw: payloadName)",
           keyNames: enumCase.matchNames,
           initialCapacity: nil,
           isIgnored: false,
@@ -351,7 +383,7 @@ extension StreamParseableMacro {
     return [
       try ExtensionDeclSyntax(
         """
-        extension \(raw: typeName): StreamParsingCore.StreamParseable {
+        extension \(raw: typeName)\(raw: conformance) {
           \(raw: partialSection)
           \(raw: conversion)\(raw: valueOrInitial)
         }
@@ -704,7 +736,7 @@ extension StreamParseableMacro {
     let payloadTypeName = Self.payloadTypeName(for: enumCase)
     let properties = enumCase.associatedValues.map { value in
       StoredProperty(
-        name: Self.memberIdentifier(for: value.label),
+        name: value.label,
         type: value.type,
         keyNames: [value.label],
         initialCapacity: nil,
@@ -723,7 +755,7 @@ extension StreamParseableMacro {
       by: 2
     )
     let valueProperties = properties
-      .map { "    \(modifierPrefix)var \($0.name): \($0.type.trimmedDescription)" }
+      .map { "    \(modifierPrefix)var \($0.memberName): \($0.type.trimmedDescription)" }
       .joined(separator: "\n")
     // `conversionMembers`'s `_streamValue`/`_streamValueOrInitial` calls resolve through a
     // protocol extension on `StreamParseable` itself, so `Value` has to actually conform —
@@ -786,7 +818,7 @@ extension StreamParseableMacro {
       .map { index, enumCase in
         let member = Self.memberIdentifier(for: enumCase.bareName)
         return """
-              if self.storage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
+              if self._streamStorage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
           """
       }
       .joined(separator: "\n")
@@ -803,7 +835,7 @@ extension StreamParseableMacro {
         let payloadType = Self.payloadTypeName(for: enumCase)
         return """
               case \(index):
-                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self.storage.pointee.\(member))
+                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(member))
                 else { return .unresolved }
                 return _overrideLifetime(
                   .\(enumCase.reference)(\(payloadType).Partial.streamView(streamAddress)),
@@ -867,18 +899,24 @@ extension StreamParseableMacro {
   // put it where this can see it. Both spellings that do are accepted.
   static func namesAnInitialValue(in declaration: EnumDeclSyntax) -> Bool {
     let inherited = declaration.inheritanceClause?.inheritedTypes ?? []
-    if inherited.contains(where: { $0.type.trimmedDescription.hasSuffix("StreamInitializable") }) {
+    if inherited.contains(where: { Self.lastComponent(of: $0.type) == "StreamInitializable" }) {
       return true
     }
     return declaration.memberBlock.members.contains { member in
-      guard let function = member.decl.as(FunctionDeclSyntax.self) else { return false }
-      return function.name.text == "streamInitialValue"
+      guard let function = member.decl.as(FunctionDeclSyntax.self),
+        function.name.text == "streamInitialValue",
+        function.modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) }),
+        function.signature.parameterClause.parameters.isEmpty
+      else {
+        return false
+      }
+      return true
     }
   }
 
   static func diagnoseMissingDefaultCase(
     in declaration: EnumDeclSyntax,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     context.diagnose(
       Diagnostic(
@@ -899,7 +937,7 @@ extension StreamParseableMacro {
 extension StreamParseableMacro {
   static func diagnoseNonLiteralRawValue(
     in element: EnumCaseElementSyntax,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     context.diagnose(
       Diagnostic(
@@ -920,7 +958,7 @@ extension StreamParseableMacro {
   static func diagnoseUnsupportedRawType(
     in declaration: EnumDeclSyntax,
     rawKind: EnumRawKind,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     guard case .none = rawKind else { return }
     let hasRawValues = declaration.memberBlock.members.contains { member in
@@ -945,7 +983,7 @@ extension StreamParseableMacro {
 
   static func diagnoseAmbiguousDefaultCase(
     in caseDecl: EnumCaseDeclSyntax,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     context.diagnose(
       Diagnostic(
@@ -962,7 +1000,7 @@ extension StreamParseableMacro {
 
   static func diagnoseDuplicateDefaultCase(
     in caseDecl: EnumCaseDeclSyntax,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     context.diagnose(
       Diagnostic(
@@ -976,7 +1014,7 @@ extension StreamParseableMacro {
 
   static func diagnosePartialMembersOnEnum(
     in node: AttributeSyntax,
-    context: some MacroExpansionContext
+    context: DiagnosticSink
   ) {
     context.diagnose(
       Diagnostic(
