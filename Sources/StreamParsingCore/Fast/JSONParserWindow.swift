@@ -149,9 +149,11 @@ extension JSONParser {
     }
   }
 
-  // One iteration of the dispatcher's loop, verbatim, so the seam runs the same handlers the
-  // byte fed path runs.
+  // One iteration of the dispatcher's loop -- and `parseDispatching`'s loop body is a call to
+  // this, so the seam and the bulk loop cannot drift. Forced inline, not plain `@inlinable`:
+  // left to itself the bulk loop calls out once per iteration, which is what it exists to avoid.
   @inlinable
+  @inline(__always)
   mutating func dispatchOnce<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
     from: Int,

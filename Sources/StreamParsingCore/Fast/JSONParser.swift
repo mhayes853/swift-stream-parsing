@@ -355,36 +355,10 @@ public struct JSONParser: ~Copyable {
       i = try self.completePendingUTF8(base: base, count: n, into: &sink)
     }
 
+    // The thirteen-case switch lives once, in `dispatchOnce`; the windowed seam runs the same
+    // one. It is `@inline(__always)`, so this loop is the body it always was.
     while i < n {
-      switch self.state {
-      case .value, .firstValue, .afterValue, .key, .firstKey, .afterKey, .done:
-        i = try self.consumeStructuralRun(base: base, from: i, to: n, into: &sink)
-
-      case .inString:
-        i = try self.consumeStringRun(base: base, from: i, to: n, into: &sink)
-
-      case .inKey:
-        i = try self.consumeKeyRun(base: base, from: i, to: n, into: &sink)
-
-      case .escape:
-        let byte = base.load(fromByteOffset: i, as: UInt8.self)
-        i &+= 1
-        try self.consumeEscape(byte, at: i, into: &sink)
-
-      case .unicode:
-        let byte = base.load(fromByteOffset: i, as: UInt8.self)
-        i &+= 1
-        try self.consumeUnicodeDigit(byte, at: i, into: &sink)
-
-      case .number:
-        i = try self.consumeNumber(base: base, from: i, to: n, into: &sink)
-
-      case .literal:
-        i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
-
-      case .skipping, .skippingString, .skippingEscape:
-        i = try self.consumeSkipRun(base: base, from: i, to: n, into: &sink)
-      }
+      i = try self.dispatchOnce(base: base, from: i, to: n, into: &sink)
     }
   }
 
