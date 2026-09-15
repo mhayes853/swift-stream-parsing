@@ -4,7 +4,10 @@
 /// `@StreamParseable` macro to your struct and let it synthesize the conformance.
 public protocol StreamParseable {
   /// The partial representation exposed during parsing.
-  associatedtype Partial: StreamParseableRoot
+  ///
+  /// Defaults to `Self`, which is what every scalar whose partial is the value itself wants; the
+  /// `where Partial == Self` extension below then supplies all three members.
+  associatedtype Partial: StreamParseableRoot = Self
 
   /// The partial state that corresponds to the type’s incremental parsing representation.
   var streamPartialValue: Partial { get }

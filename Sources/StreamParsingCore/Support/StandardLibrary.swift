@@ -29,71 +29,54 @@ extension Array: StreamInitializable {
   public static func streamInitialValue() -> Self { [] }
 }
 
-extension Int: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
+// Every numeric initial value in this file is zero, so it is stated once. Not `@inlinable`, the
+// way none of these bodies is: a protocol extension default specialises for a concrete conformer
+// exactly as the per-type body did.
+extension StreamInitializable where Self: AdditiveArithmetic {
+  public static func streamInitialValue() -> Self { .zero }
 }
 
-extension Int8: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
+// Each one picks up the schema its conversion protocol implies, so a document that is a bare
+// scalar, an array or a dictionary parses into the same shapes a field would. `Partial` is left
+// to its `Self` default, which is what makes `StreamParseable` a bare conformance here: the
+// `where Partial == Self` extension supplies its three members.
 
-extension Int16: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension Int32: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension Int64: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension UInt: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension UInt8: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension UInt16: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension UInt32: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension UInt64: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension Double: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-extension Float: StreamNumberConvertible, StreamInitializable {
-  public static func streamInitialValue() -> Self { 0 }
-}
-
-// Root conformances. Each one picks up the schema its conversion protocol implies, so a document
-// that is a bare scalar, an array or a dictionary parses into the same shapes a field would.
-
+extension Int: StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable {}
+extension Int8:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension Int16:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension Int32:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension Int64:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension UInt:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension UInt8:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension UInt16:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension UInt32:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension UInt64:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension Double:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
+extension Float:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
 extension String: StreamParseableRoot {}
-extension Bool: StreamParseableRoot {}
-extension Int: StreamParseableRoot {}
-extension Int8: StreamParseableRoot {}
-extension Int16: StreamParseableRoot {}
-extension Int32: StreamParseableRoot {}
-extension Int64: StreamParseableRoot {}
-extension UInt: StreamParseableRoot {}
-extension UInt8: StreamParseableRoot {}
-extension UInt16: StreamParseableRoot {}
-extension UInt32: StreamParseableRoot {}
-extension UInt64: StreamParseableRoot {}
-extension Double: StreamParseableRoot {}
-extension Float: StreamParseableRoot {}
+extension Bool: StreamParseableRoot, StreamParseable {}
 
 // `Array` is a bridging destination rather than a parse target. Parsing into one means writing
 // elements through a raw pointer into a buffer other values can be sharing, which is what made
@@ -125,14 +108,14 @@ where Value: StreamParseableRoot {
 // bits. They re-scan instead, which only happens for tokens that actually need it.
 
 @available(StreamParsing128BitIntegers, *)
-extension Int128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
-  public static func streamInitialValue() -> Self { 0 }
-}
+extension Int128:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
 
 @available(StreamParsing128BitIntegers, *)
-extension UInt128: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
-  public static func streamInitialValue() -> Self { 0 }
-}
+extension UInt128:
+  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+{}
 
 // MARK: - String
 
@@ -153,98 +136,6 @@ extension String: StreamParseable {
   public static func streamValueOrInitial(from partial: StreamString) -> String {
     String(partial)
   }
-}
-
-// MARK: - Double
-
-extension Double: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Float
-
-extension Float: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Bool
-
-extension Bool: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int8
-
-extension Int8: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int16
-
-extension Int16: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int32
-
-extension Int32: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int64
-
-extension Int64: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int
-
-extension Int: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt8
-
-extension UInt8: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt16
-
-extension UInt16: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt32
-
-extension UInt32: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt64
-
-extension UInt64: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt
-
-extension UInt: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - Int128
-
-@available(StreamParsing128BitIntegers, *)
-extension Int128: StreamParseable {
-  public typealias Partial = Self
-}
-
-// MARK: - UInt128
-
-@available(StreamParsing128BitIntegers, *)
-extension UInt128: StreamParseable {
-  public typealias Partial = Self
 }
 
 // MARK: - Array

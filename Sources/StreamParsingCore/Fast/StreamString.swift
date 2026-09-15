@@ -475,6 +475,10 @@ extension StreamString {
 
 // MARK: - Scalar decoding
 
+// The shared cold read layer. `decodeScalar` and `scalarAlignedOffset` stay here rather than
+// moving to the protocol, for the reason recorded above `StreamInlineString.decodeScalar`.
+extension StreamString: _StreamUTF8Backed {}
+
 extension StreamString {
   // Decodes the scalar starting at `position`, repairing: a byte that does not begin a
   // well-formed sequence decodes as U+FFFD with length one, the same policy as the repairing
@@ -597,18 +601,7 @@ extension StreamString {
     }
 
     public func index(before index: Int) -> Int {
-      // Walk back over at most three continuation bytes. When the lead byte reached does not
-      // actually span back to `index`, the byte before `index` is ill-formed and stands alone as
-      // its own U+FFFD, which keeps backward and forward traversal visiting the same positions.
-      var candidate = index &- 1
-      var steps = 0
-      while steps < 3, candidate > 0, self.base.utf8Byte(at: candidate) & 0xC0 == 0x80 {
-        candidate &-= 1
-        steps &+= 1
-      }
-      return candidate &+ self.base.decodeScalar(at: candidate).length >= index
-        ? candidate
-        : index &- 1
+      self.base.scalarIndex(before: index)
     }
 
     public subscript(position: Int) -> Unicode.Scalar {
@@ -625,34 +618,8 @@ extension StreamString {
 
 // MARK: - Characters
 
-// Forward `String.Character` access without claiming that byte offsets are character indices.
-// Grapheme segmentation is not public API and its tables are not something this package should
-// carry, so the boundary question is delegated to `String`'s own breaker over a small decoded
-// window. The window grows while its first character fills it entirely; once that character ends
-// inside the window, the boundary is final.
+// `characterSpan(at:)` is shared; see `_StreamUTF8Backed`.
 extension StreamString {
-  @usableFromInline
-  func characterSpan(at offset: Int) -> (character: Character, end: Int) {
-    var windowEnd = self.scalarAlignedOffset(before: min(offset &+ 8, self.utf8Count))
-    if windowEnd <= offset { windowEnd = min(offset &+ 4, self.utf8Count) }
-    while true {
-      let window = self.decode(in: offset..<windowEnd)
-      let first = window.first ?? "\u{FFFD}"
-      // A decode that did not round-trip its byte count hit ill-formed bytes. Advance by the raw
-      // scalar length so iteration continues one ill-formed byte at a time.
-      guard window.utf8.count == windowEnd &- offset else {
-        return (first, offset &+ self.decodeScalar(at: offset).length)
-      }
-      let end = offset &+ first.utf8.count
-      if end < windowEnd || windowEnd == self.utf8Count { return (first, end) }
-      let grown = self.scalarAlignedOffset(
-        before: min(offset &+ (windowEnd &- offset) &* 2, self.utf8Count)
-      )
-      guard grown > windowEnd else { return (first, end) }
-      windowEnd = grown
-    }
-  }
-
   /// The accumulated text as the same forward sequence of extended grapheme clusters that a
   /// Swift `String` exposes as `Character` elements.
   public struct CharacterSequence: Sequence, IteratorProtocol {
@@ -789,13 +756,7 @@ extension StreamString: Equatable {
 // writes. Byte-wise like the homogeneous `==`, so the two cannot disagree. The optional overloads
 // exist because optional lifting only reaches the homogeneous operator.
 extension StreamString {
-  @usableFromInline
-  func utf8Equals(_ other: some StringProtocol) -> Bool {
-    var copy = String(other)
-    return copy.withUTF8 { buffer in
-      self.utf8Count == buffer.count && self.utf8Matches(buffer, at: 0)
-    }
-  }
+  // `utf8Equals(_:)` is shared; see `_StreamUTF8Backed`.
 
   // Whether `buffer` matches the accumulated bytes starting at byte `offset`. The one comparison
   // against foreign contiguous bytes, shared by `==`, `hasPrefix`, `hasSuffix` and `contains`:
@@ -872,10 +833,7 @@ public func != (lhs: some StringProtocol, rhs: StreamString?) -> Bool {
 extension StreamString {
   /// Whether the accumulated bytes start with `prefix`'s UTF-8, compared byte-wise.
   public func hasPrefix(_ prefix: some StringProtocol) -> Bool {
-    var copy = String(prefix)
-    return copy.withUTF8 { buffer in
-      self.utf8Matches(buffer, at: 0)
-    }
+    self.utf8HasPrefix(prefix)
   }
 
   /// Whether the accumulated bytes are a prefix of `text`'s UTF-8, compared byte-wise —
@@ -897,10 +855,7 @@ extension StreamString {
 
   /// Whether the accumulated bytes end with `suffix`'s UTF-8, compared byte-wise.
   public func hasSuffix(_ suffix: some StringProtocol) -> Bool {
-    var copy = String(suffix)
-    return copy.withUTF8 { buffer in
-      self.utf8Matches(buffer, at: self.utf8Count &- buffer.count)
-    }
+    self.utf8HasSuffix(suffix)
   }
 
   /// The byte range of the first occurrence of `needle`'s UTF-8 at or after `offset`,
@@ -918,21 +873,7 @@ extension StreamString {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamString byte offset out of range"
     )
-    var copy = String(needle)
-    return copy.withUTF8 { buffer in
-      guard !buffer.isEmpty else { return offset..<offset }
-      guard buffer.count <= self.utf8Count &- offset else { return nil }
-      let first = buffer[0]
-      let last = self.utf8Count &- buffer.count
-      var position = offset
-      while position <= last {
-        if self.utf8Byte(at: position) == first, self.utf8Matches(buffer, at: position) {
-          return position..<(position &+ buffer.count)
-        }
-        position &+= 1
-      }
-      return nil
-    }
+    return self.utf8Range(of: needle, from: offset)
   }
 
   /// Whether `other`'s UTF-8 occurs anywhere in the accumulated bytes, compared byte-wise.
