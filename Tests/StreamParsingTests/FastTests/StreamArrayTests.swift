@@ -167,9 +167,7 @@ struct `Stream array tests` {
     expectNoDifference(Array(array), [2, 4, 5])
   }
 
-  // Closed elements are never written again, so the parser keeps committing into the very block
-  // a copy holds: the slots it writes are above the count that copy captured, and so are not its
-  // elements. This is what removes the copy-on-write check from the commit path.
+  // A copy initially shares closed elements; subsequent commits must detach its filling block.
   @Test
   func `Elements Committed After A Copy Are Not The Copy's`() {
     var array = StreamArray<Int>()
@@ -179,6 +177,7 @@ struct `Stream array tests` {
     for value in 10..<40 { _ = array._openElement(value) }
 
     expectNoDifference(sharedBlock, true, "the copy shares the block the parser is filling")
+    expectNoDifference(array.tail === snapshot.tail, false, "commits detach the shared tail")
     expectNoDifference(Array(snapshot), Array(0..<10))
     expectNoDifference(Array(array), Array(0..<40))
   }
@@ -201,8 +200,7 @@ struct `Stream array tests` {
     }
   }
 
-  // Writing into an element the array already holds is the one case that copies, and it copies
-  // the one block that element is in.
+  // Writing into an element copies only the block that element is in.
   @Test
   func `Writing Into A Shared Element Copies One Block`() {
     var array = StreamArray<Int>()
@@ -254,21 +252,11 @@ private final class TrackedElement {
   deinit { TrackedElement.deinitCount += 1 }
 }
 
-// The two mechanisms design B rests on, each written so that it fails when the mechanism is
-// disabled -- checked by disabling it, not by assuming.
-//
-// They were both unguarded: making `View.tail` read the block's high-water mark, and making the
-// promotion of the small first tail move even when the block is shared, each left the whole suite
-// green. Ordinary parse-level tests cannot reach either, because both need a copy of an array to
-// outlive a write into the block it shares, at a specific point in the block's growth.
+// Sharing and ownership at specific points in the tail's growth.
 @Suite
 struct `Stream array sharing tests` {
-  // `tailCount` is why the freeze chain could be deleted: the filling array appends into a block a
-  // copy holds without any uniqueness check, because a copy captured its own count and every
-  // slot written afterwards is above it. The block's own `count` is the filling array's
-  // high-water mark and is *not* what a reader may use.
   @Test
-  func `A copy reads its own count, not the block's high-water mark`() {
+  func `Appending detaches a shared tail and preserves its view`() {
     var array = StreamArray<Int>()
     for value in 0..<5 { array.append(value) }
     array.drainPending()
@@ -277,9 +265,9 @@ struct `Stream array sharing tests` {
     for value in 5..<8 { array.append(value) }
     array.drainPending()
 
-    // The premise: one block, shared, whose header has run ahead of the snapshot.
-    expectNoDifference(snapshot.tail === array.tail, true, "the two must share one block")
-    expectNoDifference(array.tail?.count, 8, "the filling array advanced the header")
+    expectNoDifference(snapshot.tail === array.tail, false, "the writer detached its block")
+    expectNoDifference(array.tail?.count, 8)
+    expectNoDifference(snapshot.tail?.count, 5, "the shared header was not modified")
 
     var kept = snapshot
     withUnsafeMutablePointer(to: &kept) { storage in

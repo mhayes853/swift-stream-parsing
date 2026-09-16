@@ -36,7 +36,9 @@ rejected subscribers, copied iterators, and successful completion. This follows 
 
 ## Bugs for discussion
 
-1. **High: branching collection mutation overwrites shared storage.**
+1. **Resolved in the COW follow-up: branching collection mutation overwrites shared storage.**
+   Ordinary tail copy-on-write now protects appends. See [COW_EVALUATION.md](COW_EVALUATION.md)
+   for the implementation, concurrency checks and performance results. The original finding:
    `StreamArray.nextSlot()` assumes slots after this value's tail count are unused. After
    `var b = a`, both values can append into that same slot. For example, starting with `[1]`,
    append `2` to `a` and `3` to `b`: `a` becomes `[1, 3]`. `StreamDictionary` inherits this through
@@ -72,9 +74,10 @@ rejected subscribers, copied iterators, and successful completion. This follows 
    Consider checked public access with explicitly unchecked internal helpers; benchmark the
    inlined parser callers before choosing the split.
 
-The first three findings have executable expected-failure reproductions in
-`Tests/StreamParsingTests/GenericReviewTests.swift`. They are deliberately not silently fixed
-as part of the async lifecycle patch.
+The first three findings have executable reproductions in
+`Tests/StreamParsingTests/GenericReviewTests.swift`. The array and dictionary cases now pass as
+normal regression tests; the two Unicode cases remain expected failures. The validation below
+records the original async-only review; the subsequent COW results are in `COW_EVALUATION.md`.
 
 ## Suggested additions, in priority order
 
