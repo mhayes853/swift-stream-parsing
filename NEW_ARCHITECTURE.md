@@ -7182,6 +7182,13 @@ Not one block of CITM, Twitter, GitHub or GSoC is whitespace-free, so four strik
 them; Canada, Mesh, both Qwen payloads and Twitter escaped strike on essentially every block and are
 out of the walk within four.
 
+**A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes
+shape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather
+than by its first four blocks forever. `parsePastThreshold` counts the chunks: while a countdown is
+live the default `windowThreshold` drops to 4 KB so bulk chunks reach it, and the chunk that runs it
+out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15% at
+Mesh's per-block loss. A caller-set threshold is left alone.
+
 **Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.
 `GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free
 block; counting those up over its 13,343 blocks reached four and threw the win away (+18.1% →
