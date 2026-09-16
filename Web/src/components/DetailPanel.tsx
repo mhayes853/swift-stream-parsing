@@ -17,7 +17,7 @@ import { Recorded, RecordedDetail } from "./dates";
 import { Reaches } from "./FlowChart";
 import { Code } from "./highlight";
 import { useEscape } from "./hooks";
-import { Markdown, VerdictChip } from "./Markdown";
+import { inline, Markdown, VerdictChip } from "./Markdown";
 
 type Tab = "explanation" | "experiments" | "source" | "assembly";
 
@@ -122,6 +122,20 @@ function Explanation({
 }) {
   return (
     <>
+      {/* Words first: why the step is in the parse at all, then what it does. The chart and the
+          animation below are read against that, not the other way round. */}
+      <div className="md explain">
+        <h3 className="panel-rule first">Why this step exists</h3>
+        {node.why.map((p, i) => (
+          <p key={i} className={i === 0 ? "lede" : undefined}>
+            {inline(p, `w${i}`)}
+          </p>
+        ))}
+        <h3 className="panel-rule">How it works</h3>
+        {node.prose.map((p, i) => (
+          <p key={i}>{inline(p, `p${i}`)}</p>
+        ))}
+      </div>
       {/* The chart before the animation: the shape of the thing, then one run through it. */}
       <AlgorithmChart node={node} decls={decls} />
       {node.viz && (
@@ -129,13 +143,6 @@ function Explanation({
           <Visualization kind={node.viz} traces={traces} />
         </div>
       )}
-      <div className="md">
-        {node.prose.map((p, i) => (
-          <p key={i} className={i === 0 ? "lede" : undefined}>
-            {p}
-          </p>
-        ))}
-      </div>
       {/* The page chart's call card, for a screen that cannot hover to open it. */}
       {node.next.length > 0 && (
         <div className="reaches touch-only">

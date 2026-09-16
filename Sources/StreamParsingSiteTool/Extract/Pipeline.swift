@@ -22,6 +22,11 @@ struct Pipeline: Decodable {
     var stage: String
     var title: String
     var kicker: String
+    /// Why the step is in the parse at all -- what the rest of the algorithm would lose, or pay,
+    /// without it. Drawn first in the detail panel, above what the step does, because a reader
+    /// who knows why a step exists can place it in the whole; one who knows only what it does
+    /// cannot. Required.
+    var why: [String]
     var prose: [String]
     /// The animation this node drives, when it has one. Absent for nodes that are evidence only.
     var viz: String?
@@ -150,6 +155,9 @@ struct ReferenceReport {
       for symbol in node.evidence.asm where !asmSymbols.contains(symbol) {
         report.warnings.append(
           "\(at): no assembly snapshot for '\(symbol)'; run ./Web/generate asm")
+      }
+      if node.why.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+        report.errors.append("\(at): no 'why'; every node says why the step exists")
       }
       if node.prose.isEmpty { report.warnings.append("\(at): no teaching prose") }
       Self.validateSteps(node, sourceKeys: sourceKeys, into: &report)

@@ -49,10 +49,14 @@
       "title": "parse(_:into:)",
       "kicker": "entry",
       "viz": null,
+      "why": [
+        "Input arrives in pieces. An LLM streams a few bytes at a time and a socket hands over whatever has arrived, and a partial value has to be readable after every piece. So the parser cannot wait for the whole document and then walk it. Each call consumes the bytes it was given, emits everything those bytes finish, and leaves the parser in a state the next call can resume from.",
+        "This is where that contract is kept. Everything downstream works on one chunk, a base pointer and a count. `parse(_:into:)` decides how that chunk is walked, and makes sure the sink ends the call holding everything the chunk produced, including when the call throws."
+      ],
       "prose": [
-        "Everything starts here. A chunk of bytes goes in, tokens come out the other side into a sink, and the parser keeps whatever state is needed to resume mid-token when the chunk ends somewhere awkward — inside a string, halfway through a number, between the two halves of a surrogate pair.",
-        "The entry point itself does almost nothing: it picks a walk and wraps the loop in the handler that flushes to the sink before an error propagates. That ordering matters — everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence.",
-        "The chunk's address is never stored. It is threaded down into the walk and on into every emission, because the run loop already holds it in a register — and what the parser *does* store is laid out to a cache line, with everything a parse reads or writes in the first sixty-four bytes."
+        "There are three entry points. The buffer form does one length test to pick a walk, then wraps the loop in a handler that settles a pending `stringBegin` and commits the sink before an error propagates. `parse(byte:)` first tests for byte-fed input's most common shape, an ordinary ASCII byte inside a string value, and emits it as one `stringChunk` without entering the dispatcher. `finish(into:)` is the other end: a document that ends in a number only finds out the number is complete there, and an unclosed string or container is reported there.",
+        "The ordering in the error handler matters. Everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence.",
+        "The chunk's address is never stored. It is threaded down into the walk and on into every emission, because the run loop already holds it in a register. What the parser *does* store is laid out to a cache line, with everything a parse reads or writes in the first sixty-four bytes."
       ],
       "evidence": {
         "doc": [
@@ -235,6 +239,10 @@
       "title": "Chunk boundaries",
       "kicker": "resume",
       "viz": null,
+      "why": [
+        "A chunk boundary does not respect tokens. It can fall inside a string, halfway through a number, between the two halves of a `\\uD83D\\uDE00` surrogate pair, or inside a single multi-byte UTF-8 character. Every token class therefore has to be resumable, and the parser has to remember enough to finish what the previous chunk started.",
+        "Most of that memory is the `state` field, a few small counters (`literalIndex`, `unicodeRemaining`, `highSurrogate`) and the parser's buffer, which holds a key or a number the chunk cut. A cut UTF-8 character needs its own mechanism: spans handed to the sink end on a character boundary, so the leading bytes of a cut character can be neither emitted nor dropped."
+      ],
       "prose": [
         "A chunk boundary can land anywhere, including inside a UTF-8 sequence. The parser holds the incomplete tail in a single 64-bit field — little-endian, a byte per lane — rather than guessing, and completes it against the next chunk's first bytes before the main loop starts.",
         "This is the cost of streaming rather than batching, and it is kept to the edges: the resume path runs once per chunk, not once per byte, so the bulk loop never tests for it."
@@ -387,9 +395,13 @@
       "title": "The windowed walk",
       "kicker": "gated",
       "viz": null,
+      "why": [
+        "The dispatcher decides what to do one token at a time. In a document made of short tokens, such as canada.json's coordinate arrays or a mesh, a decision comes every few bytes. Finding every structural byte in a large window first, in one vectorised pass, lets the walk follow a precomputed index instead of making each of those decisions against the bytes.",
+        "The step is gated because the trade only pays on structurally dense input. Where strings are long or chunks are small, building the index costs more than it saves, so the parser has to be able to decline it up front and to stop indexing partway through a document when the windows turn sparse."
+      ],
       "prose": [
-        "A large enough chunk can be indexed ahead of the walk, simdjson style: find every structural byte in a 32 KB window first, then walk the index instead of the bytes. The parser will do this, but only above a threshold, and only while the windows stay dense enough to be worth it.",
-        "Measured across the full corpus, the windowed walk loses 4–36% on string-heavy and sub-window payloads: the index costs more to build than the walk saves whenever the document is not structurally dense. It is off by default and probes as it goes."
+        "Chunks of at least `windowThreshold` bytes take this path. The threshold defaults to `.max`, so the windowed walk is opt-in per parser. The block walk's re-probe also lowers it temporarily, to count bulk chunks through the same entry, and in that case the chunk is walked by the ordinary dispatcher.",
+        "Measured across the full corpus, the windowed walk loses 4–36% on string-heavy and sub-window payloads: the index costs more to build than the walk saves whenever the document is not structurally dense. It probes density per window and routes sparse windows back to the dispatcher."
       ],
       "evidence": {
         "doc": [
@@ -565,6 +577,10 @@
       "title": "parseDispatching",
       "kicker": "13 states",
       "viz": null,
+      "why": [
+        "A recursive descent parser keeps its place on the call stack, so being three objects deep inside a string is a chain of return addresses. When a chunk ends mid-document that position has to survive the return from `parse`, and a call stack cannot be suspended and resumed later. This parser keeps its place in data instead: a `state` enum, a `depth`, and a bitmask recording which open containers are objects.",
+        "Once the position is data, the parse loop is a switch over it. It reads the state, runs the handler for the token class that state names, and comes back. Every other step on the page chart is one of those handlers or something a handler calls."
+      ],
       "prose": [
         "The main loop is a switch over the parser's state that calls out to a handler per token class, and then re-enters. The switch is written once, in `dispatchOnce`, which is forced inline into the bulk loop and is also what `parse(byte:)` and the windowed walk's seam run, so the three cannot drift apart. Read on the release binary the dispatcher is a pure dispatcher with no SIMD in it: every token class is a separate function.",
         "Keeping it that way takes explicit attributes, because of register pressure: anything inlined here is paid for by every document, including ones that never execute it. The same state-ladder transformation that made the structural step faster was applied to this loop and measured worse."
@@ -774,11 +790,14 @@
       "title": "The structural run",
       "kicker": "containers: UInt64",
       "viz": "containers",
+      "why": [
+        "Between tokens the parser is in a structural state, expecting a value, a key, a comma, a colon or a close. Those bytes are where the grammar is checked and where container events come from, and in object-heavy JSON they come in runs: `},{\"`, `\":`, `[[`. If every structural byte went back through the dispatcher, each one would pay for a switch, a call and a return on top of its own work.",
+        "The run keeps the loop in one function for as long as the state stays structural, with the nesting held in registers. Everything else on the structural path starts from here: the 64-byte block walk when there is room ahead, the whitespace scan before each byte, and the in-run paths that finish short values without leaving."
+      ],
       "prose": [
-        "Structural bytes arrive in runs — `},{\"`, `\":`, `,\"`, `[[` — and paying a call, a return and a re-entry into the dispatch switch for each one was measurably the cost of a structural byte, not the byte's own work. So the loop stays inside one function while the state stays structural, turning a run into a single call.",
-        "The register trick is the part worth watching. Nesting is held in two values: `depth`, and a single `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. Sixty-four levels of JSON nesting, one register. Depth beyond that is rejected rather than spilled, which is why the ceiling exists at all.",
-        "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory — the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency.",
-        "On arm64, and on x86 with the AVX2 classifier, a structural boundary with 64 bytes ahead first enters a block walk. The scalar copy is still the edge path and the authority for anything the classifier declines. The two copies are one `@_transparent` body with a `blocks` literal at each call site, so the scalar copy compiles to the code it was before the walk existed; on x86 the block copy is a call rather than a second inlined body, because inlining both moved `self` out of its register and the scalar loop paid for it."
+        "Nesting is held in two values: `depth`, and a single `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. That is sixty-four levels of nesting in one register. Depth beyond that is rejected rather than spilled, which is why the ceiling exists.",
+        "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory: the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency.",
+        "On arm64, and on x86 with the AVX2 classifier, a structural boundary with 64 bytes ahead first enters a block walk. The scalar copy is still the edge path and the authority for anything the classifier declines. The two copies are one `@_transparent` body with a `blocks` literal at each call site, so the scalar copy compiles to the code it was before the walk existed. On x86 the block copy is a call rather than a second inlined body, because inlining both moved `self` out of its register and the scalar loop paid for it."
       ],
       "evidence": {
         "doc": [
@@ -979,6 +998,10 @@
       "title": "The structural block walk",
       "kicker": "64 bytes, moving grid",
       "viz": "structuralBlocks",
+      "why": [
+        "The scalar structural run still visits every byte between tokens: whitespace behind a compare, then a string scan per key and value. In pretty-printed or object-heavy JSON most of those bytes are not tokens. Classifying 64 bytes at once produces a mask of where each token starts, and the walk jumps from start to start with `trailingZeroBitCount` without looking at the bytes in between.",
+        "It sits in front of the scalar run and does not replace it. The scalar copy still handles the last bytes of a chunk, anything the classifier declines, and payloads where classifying does not remove enough work to pay for itself. That last case is why the walk counts strikes and can give up."
+      ],
       "prose": [
         "One classification replaces the whitespace scan before every token, the string scan before every in-place key or value, and the per-string high-bit reduction. `starts` contains the opening quote or first candidate byte of each token; `quote` pairs string extents; `backslash` decides whether an extent can stay in place. On arm64 the NEON kernel is inlined at the call site; on x86 the AVX2 twin is a call per block.",
         "The grid moves with completed tokens. If a long string or token crosses byte 64, its existing scanner finishes it and the next classification begins at that end rather than at the old fixed boundary. Every classification therefore starts with zero quote and escape carries, and long string interiors are not classified again.",
@@ -1180,6 +1203,10 @@
       "title": "The state ladder",
       "kicker": "@_transparent",
       "viz": null,
+      "why": [
+        "This is where JSON's grammar is enforced. After `{` only a key or `}` is legal, after a key only `:`, and after a value only a comma or the close that matches the innermost container. Each structural byte is checked against what the current state allows, and it moves `state`, `depth` and the container bitmask to where the next byte will be checked.",
+        "It is also where container events reach the sink, and where a byte that begins a value (a quote, a digit, the first letter of a literal) is recognised and routed to the code for that token."
+      ],
       "prose": [
         "One structural byte, folded into the run loop by force. The states are ordered so that \"is this still structural\" is a single unsigned compare, which is the only reason their numeric values matter.",
         "Two variants of this same code were measured and rejected: reordering the ladder by what the run actually sees, and peeling the colon out of it. A third — the byte ladder — removes strictly more work and is slower. What the four say together is that this function is limited by its size, not by how many times it iterates."
@@ -1400,9 +1427,13 @@
       "title": "Values finish in the run",
       "kicker": "+11.8% Twitter",
       "viz": null,
+      "why": [
+        "In object-heavy JSON most values are short: `\"id\": 42, \"verified\": false, \"lang\": \"en\"`. When each value left the structural run, it went through the dispatch switch into its own handler and then returned to start a new run for the comma after it. The token is usually complete in the chunk, so that round trip did no work.",
+        "This step finishes such a value inside the structural run, emits it, and keeps going. A value the chunk cuts still leaves the run through its ordinary state, because only that state can resume it in the next chunk."
+      ],
       "prose": [
-        "A short string value or a literal used to leave the structural run, get handled, and come back. Now they finish in place: the run recognises a complete string or literal and emits it without ever returning to the dispatcher.",
-        "Twitter gained 11.8%; GSoC lost 2.5%. The obvious fix for that loss was built, measured, and not kept, because it cost Twitter and the pretty-printed payload more than it recovered."
+        "When the ladder reads the first byte of a value, it tries to finish the token in place. A literal needs its four or five bytes in the chunk and is settled with one word compare. A number needs its terminator in the chunk, and is then scanned, parsed and emitted. A string needs its closing quote in the chunk: a clean one is emitted as one `string` call borrowing the input, and one with escapes is decoded without leaving the run. Keys that close in the chunk are read in place the same way.",
+        "Twitter gained 11.8% and GSoC lost 2.5%. The obvious fix for that loss was built and measured, and not kept, because it cost Twitter and the pretty-printed payload more than it recovered."
       ],
       "evidence": {
         "doc": [
@@ -1423,7 +1454,7 @@
           "to": "sink-protocol",
           "kind": "step",
           "label": "emit, then keep going",
-          "when": "A string that is complete and escape-free within this chunk, or a literal. One sink call, then the structural loop continues — no return, no re-entry into the dispatch switch. Twitter gained 11.8% from exactly this."
+          "when": "A literal, a number whose terminator is in this chunk, or a string whose closing quote is. One sink call, then the structural loop continues — no return, no re-entry into the dispatch switch. Twitter gained 11.8% from exactly this."
         }
       ],
       "invokes": "Emits the finished token itself and keeps the loop.",
@@ -1536,10 +1567,14 @@
       "title": "One compare, then out of line",
       "kicker": "≤ 0x20",
       "viz": "whitespace",
+      "why": [
+        "JSON allows whitespace between any two tokens, and the grammar only looks at the byte after it. So before each structural byte the parser has to find the next byte that is not whitespace. This runs more often than any other code on the structural path, and on many documents it finds nothing: canada.json has no whitespace, and llm_message's whitespace is all inside strings.",
+        "The step splits that work in two. A single compare, cheap enough to sit in the parse loop, settles the case with no whitespace. Only when it fails does the parser call the vector scan, which handles the runs that pretty-printed documents have."
+      ],
       "prose": [
-        "This runs before *every* structural byte, and how much whitespace there is to find is a property of the document rather than of JSON: canada has 0%, citm_catalog has 71%, and llm_message has 17% — none of it anywhere this scan can see it, because it is all inside string values.",
+        "How much whitespace there is to find is a property of the document rather than of JSON: canada has 0%, citm_catalog has 71%, and llm_message has 17%, all of it inside string values where this scan never looks.",
         "Every JSON whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20. So a single compare settles the no-whitespace case without touching a vector, and only what survives is scanned SIMD16 like every other class.",
-        "What the *inlined body* costs is the whole design constraint here, and it is not the scan. This is forced inline into the parse loop, so anything spelled in it is paid in register pressure by every document. Inlining the vector body gains citm 22% and costs twitterescaped 18% and the unicode-escape payload 35% — for code those documents never execute. Moving it out of line recovers both and keeps the wins."
+        "What the *inlined body* costs is the design constraint here, not the scan. This is forced inline into the parse loop, so anything spelled in it is paid in register pressure by every document. Inlining the vector body gains citm 22% and costs twitterescaped 18% and the unicode-escape payload 35%, for code those documents never execute. Moving it out of line recovers both and keeps the gains."
       ],
       "evidence": {
         "doc": [
@@ -1672,6 +1707,9 @@
       "title": "The run scan",
       "kicker": "SIMD16",
       "viz": "whitespaceTable",
+      "why": [
+        "Pretty-printed JSON puts a run of spaces and a newline in front of every key. citm_catalog is 71% whitespace, and 59% of its runs are 16 bytes or longer. Testing those a byte at a time was the last token class not scanned in vectors. The one-byte compare hands off to this scan when it finds a run."
+      ],
       "prose": [
         "What survives the compare is an actual run, and runs are scanned sixteen bytes at a time like every other token class. The vector body lives behind its own call precisely so the parse loop does not carry it.",
         "There is a width test in front, and it is not a tail guard: fed one byte at a time, `to - from` is 1 at every call, and routing that through the vector body splats four constants to scan a single byte — which cost byte-by-byte Twitter 20%."
@@ -1795,6 +1833,10 @@
       "title": "streamStringRun",
       "kicker": "3 compares, 16 bytes",
       "viz": "stringRun",
+      "why": [
+        "In most JSON documents the majority of bytes are string contents, and the cheapest thing to give a sink is a borrowed span of the input covering a run of them. To hand one over, the parser has to find where the run ends: the first byte it cannot pass through unchanged.",
+        "Three bytes end a run. A quote closes the string, a backslash starts an escape whose decoded bytes differ from the input, and a byte below 0x20 is illegal in a JSON string. The scan also has to say whether the run held any non-ASCII byte, because those need UTF-8 validation before a sink may treat the span as text. Keys and string values both go through a scan of this shape."
+      ],
       "prose": [
         "Sixteen bytes are loaded, compared against a quote, a backslash and the control-byte floor, and the three results are ORed into one mask. A string run ends at the first lane that hits any of the three; if none do, the block is clean and the scan moves on.",
         "SIMD16 was measured against the alternatives at four run lengths and is fastest at all of them. SWAR is worse than scalar below about 12 bytes and never beats SIMD16; SIMD32 loses on arm64 because NEON registers are 128 bits, so a 32-byte vector lowers to two operations plus a recombine.",
@@ -2003,6 +2045,9 @@
       "title": "Finding the lane",
       "kicker": "movemask",
       "viz": "movemask",
+      "why": [
+        "A vector compare answers whether any of 16 bytes matched, as a mask. The parser needs the position of the first match, because that is where the span handed to the sink ends and where the next token begins. Converting the mask to an index happens once per string, key and number scan, so how it is spelled affects every document."
+      ],
       "prose": [
         "Once a block hits, the scan needs to know *which* lane. The obvious spelling — loop over sixteen lanes and take the first set one — unrolls into sixteen test/branch pairs plus sixteen constant-materialising exit blocks: over a hundred bytes of branch ladder, walked once per string token and once per key, to produce an integer the machine was already holding.",
         "On arm64 the answer is `vshrn`, which Swift cannot express because its shift is an immediate, so it lives in a C shim. The form that landed fuses the bound check into the lane: an all-ones complement has 64 trailing zeros, which divides to lane 16, one past the block, so the bound check is the terminator test and nothing depends on the branch.",
@@ -2101,6 +2146,10 @@
       "title": "Escapes, decoded and coalesced",
       "kicker": "no Unicode.Scalar",
       "viz": "escapes",
+      "why": [
+        "An escape is the one place where the bytes in the JSON and the string's content differ. `\\n` is two bytes in the input and one in the value, and `\\u00e9` is six bytes in the input and two in UTF-8. The sink is promised decoded content, so from a string's first backslash on the parser can no longer hand over spans of the input. It has to write the decoded bytes somewhere and hand over those.",
+        "This step does the decoding and decides how the result is delivered. In real text escapes are short and frequent, so delivering each fragment as its own call would turn one string into dozens of sink calls. Coalescing into the parser's buffer keeps it to one call per buffer-full."
+      ],
       "prose": [
         "An escape ends the zero-copy string run. From a string value's first backslash on, `coalescedEscapedStringTail` decodes each escape into the parser's own buffer, copies the literal runs between them in behind it, and hands the sink one `stringChunk` per buffer-full rather than one per fragment. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
         "Every sink takes that path. The fragments an escape leaves are tiny — 57% of `llm_message`'s string chunks were a single byte — so an accumulating sink saves many times the copy in calls it no longer makes, while a sink whose calls are nearly free pays for the copy (`FastCountingSink` on LLM message reads ~11% slower). That was judged a better price than a second delivery mode: chunk boundaries were never promised.",
@@ -2347,6 +2396,10 @@
       "title": "UTF-8 validation",
       "kicker": "3 table lookups",
       "viz": "utf8",
+      "why": [
+        "JSON text has to be UTF-8, and the sink contract passes that guarantee on: keys arrive validated, and every span ends on a character boundary. A destination can then build a `String` or match a key without checking the bytes again. The parser is the only component that sees every byte, so this is where invalid input is rejected: an overlong encoding, a stray continuation byte, a surrogate encoded directly.",
+        "Validation runs only where it is needed. The string run already reports whether a span had any byte with the high bit set, and ASCII-only spans never reach this step."
+      ],
       "prose": [
         "Non-ASCII content is validated in vectors, using Keiser and Lemire's three-nibble-table construction: three table lookups ANDed together, XORed with a continuation requirement derived from leads two and three bytes back. Nonzero lanes are errors.",
         "The one operation Swift cannot express is the byte table lookup itself — on arm64 that is `tbl`, and it lives in a C shim as a leaf returning a vector. Composing the same kernel from Swift's SIMD primitives instead ran 2.6× slower, because Swift's SIMD operators are lane loops that LLVM re-vectorizes, and a compare feeding a fifteen-lane shift came out half vectorized with the last lanes patched one at a time.",
@@ -2511,9 +2564,13 @@
       "title": "The greedy scan",
       "kicker": "one pass",
       "viz": "numberTable",
+      "why": [
+        "A number has no closing delimiter. `12` might be the whole token or the start of `12.5e3`, and the parser only knows the token has ended when it reads a byte that cannot belong to a number. So the first job is finding that byte, and when the chunk ends before it, the token's bytes are buffered until the next chunk arrives.",
+        "The sink receives each number once, whole, with its digits already accumulated into a magnitude and a decimal exponent (`NumberInfo`). Scanning to the end first and classifying afterwards lets the parser choose a kernel by the token's length and shape, instead of testing for a sign, a dot and an exponent as each byte arrives."
+      ],
       "prose": [
-        "A number is the one token whose first byte belongs to the token itself, so the structural run hands the byte back rather than consuming it. From there the scan is greedy: take everything that could be part of a number, then decide what shape it was.",
-        "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most — floats gained 17.6%. It is also the row that pins the limit: one-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there."
+        "When the terminator is in the chunk, the structural run scans, parses and emits the number without leaving the run. The `.number` state handles the rest: a token the chunk cuts, which is buffered whole, and every number fed one byte at a time. A number is the one token whose first byte belongs to the token itself, so in those cases the run hands that byte back rather than consuming it.",
+        "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most: floats gained 17.6%. It is also the row that pins the limit. One-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there."
       ],
       "evidence": {
         "doc": [
@@ -2682,6 +2739,9 @@
       "title": "Eight bytes, backwards",
       "kicker": "SWAR",
       "viz": "number",
+      "why": [
+        "Most numbers in real JSON are small non-negative integers such as ids, counts and indices, and four of the seven corpus payloads are mostly made of them. The general path checks for a sign, a decimal point and an exponent, and accumulates digits one at a time. For a token of one to eight digits a single 64-bit load answers all of that: whether every byte is a digit, and what the value is."
+      ],
       "prose": [
         "An unsigned integer of one to eight digits is parsed whole, with no loop and no data-dependent branch. The digit test doubles as the shape test, so this *replaces* the structured walk's sign, dot and exponent checks for the tokens it accepts rather than adding to them.",
         "The load is the eight bytes *ending* at the token, not starting at it. Those bytes are behind the cursor — already-consumed input in the same buffer — so a single `end >= 8` test makes the read safe, where reading forward would need a bound the parser does not carry. Right alignment also removes the scaling step: the masked-off bytes below the token become leading zeros, so the digit tree's answer is already the value.",
@@ -2831,6 +2891,10 @@
       "title": "Floats without a String",
       "kicker": "3.15×",
       "viz": null,
+      "why": [
+        "The parser does not know what type a number is going to. It emits the digits as a 64-bit magnitude and a power-of-ten exponent, and the destination converts them. When the destination is a `Double` or a `Float`, the conversion has to produce the correctly rounded binary value, the same one `Double(\"…\")` would produce. In float-heavy payloads like canada.json it runs once per coordinate.",
+        "The conversion is tiered. When the magnitude and the power of ten are both exactly representable, one multiply or divide gives the exact answer. Past that, Eisel–Lemire computes the result with 128-bit arithmetic against a table of powers of ten. Only an input it cannot decide, or one with more than nineteen digits, falls back to parsing a `String`."
+      ],
       "prose": [
         "A census of canada.json found 91% of its numbers were building a Swift `String` per `Double` to parse them. Replacing that with Eisel-Lemire measured 3.15× on the path. The same census found the corpus contains zero exponents, which bounds what further work here can be worth.",
         "The power-of-ten table lives in C, not Swift. A Swift array global is not a constant expression, so every read routes through a lazy-initialisation accessor — a call, on a path that is otherwise branch-free. Moving the table into a C translation unit is what removed it.",
@@ -2999,6 +3063,10 @@
       "title": "StreamParseSink",
       "kicker": "borrowed spans",
       "viz": "sinkCalls",
+      "why": [
+        "The parser's job ends at tokens; what they become is the destination's business. A typed `@StreamParseable` struct, a counter in a benchmark and a hand-written sink that wants one field all consume the same token stream. The protocol is the boundary between them, so the parser can be specialised for any destination without knowing what it builds.",
+        "Streaming shapes it. A token's bytes live in the chunk being parsed and are invalid once `parse` returns, so the sink borrows them rather than receiving a copy, and `commit()` tells it when that memory is about to go away."
+      ],
       "prose": [
         "The parser's whole output surface: one method per token class, each carrying a borrowed `Span<UInt8>` that is invalid the moment the call returns. It is format-agnostic rather than JSON-specific, so another parser could drive the same sinks.",
         "No method throws. A check after every call sits on the hottest path — measured at 2–5% — so a sink records its failure and the parser polls it at token boundaries instead, reporting the failure at the token that provoked it. Sinks record a bool from their apply members rather than throwing, which is what distinguishes a key the destination doesn't have (ignored) from a field that cannot hold this kind of value (a type mismatch).",
@@ -3158,9 +3226,13 @@
       "title": "Skipping a subtree",
       "kicker": "+41% on misses",
       "viz": "dispositions",
+      "why": [
+        "A typed destination often wants only part of a document. An API response carries nested objects a struct may not declare. Without a way to say so, the parser would resolve every key inside them and emit every string, and the sink would discard each one.",
+        "A disposition lets the sink answer once, at the opening bracket. `PartialSink` answers `.skip` for a container under a key its schema does not have, and the parser switches to a walk whose only job is finding the matching close."
+      ],
       "prose": [
-        "Both container opens return a disposition. A sink with no use for a subtree's interior answers `.skip`, and the parser scans past it at structural speed — no keys resolved, no strings emitted, no values built.",
-        "The answer is advisory on purpose: a `.skip` may still be followed by the interior, but the matching close *always* arrives, so a sink can never be left with an unbalanced frame. A skipped interior is still validated as JSON — skipping is not the same as trusting.",
+        "Both container opens return a disposition. A sink with no use for a subtree's interior answers `.skip`, and the parser scans past it at structural speed: no keys resolved, no strings emitted, no values built.",
+        "The answer is advisory on purpose. A `.skip` may still be followed by the interior (the batching adapter's replay delivers it), but the matching close *always* arrives, so a sink is never left with an unbalanced frame. A skipped interior is validated structurally: brackets match by kind, strings terminate, control bytes and invalid UTF-8 are rejected, and the depth cap holds. Number grammar, escape selectors and comma and colon placement are not checked.",
         "On payloads whose subtrees the destination does not want, this measured +41% on nested misses."
       ],
       "evidence": {
@@ -3251,6 +3323,10 @@
       "title": "Keys, in place",
       "kicker": "no Dictionary",
       "viz": "keyMatch",
+      "why": [
+        "Every object member starts with a key, and the key is how a typed destination finds out which stored property the following value belongs to. That lookup runs once per member of every object in the document, so on object-heavy payloads it is one of the most frequent operations in the typed layer.",
+        "This is why the parser always delivers a key whole. A destination matching against a set of names needs the complete, unescaped bytes, not a first fragment it would have to reassemble."
+      ],
       "prose": [
         "A key is always delivered whole — unescaped, validated UTF-8 — and matching it against a schema's members does not use a `Dictionary`. Keys are compared as precomputed 64-bit words, which for the overwhelming majority of real keys means one or two compares.",
         "The read happens in place, out of the parser's buffer, using padding the buffer already had and nobody was reading. Where that read lives turned out to be the entire result: the same code in a different function could not hold the branch.",
@@ -3410,6 +3486,10 @@
       "title": "consumeSkipRun",
       "kicker": "structural speed",
       "viz": "skipRun",
+      "why": [
+        "After a sink answers `.skip`, the parser still has to get past the subtree. That means finding the bracket that closes it: tracking nesting, and knowing which brackets are inside strings and do not count. It has to do this across chunk boundaries like everything else, and still reject input that would leave the rest of the document unparseable, such as mismatched brackets or an unterminated string.",
+        "The ordinary states cannot do this, because they emit tokens and check the full grammar. This is a separate state machine that tracks only what finding the close requires."
+      ],
       "prose": [
         "The skip walk is its own state machine — three states, one of which exists only to carry a skipped string across a chunk boundary. They sit past `done` in the state enum on purpose, so that \"is this state structural\" stays a single unsigned compare for everyone else.",
         "On arm64, a skipped interior with a whole block ahead first classifies 64 bytes and visits only brackets outside strings. The scalar animation here is still the edge and resumption path; the block animation alongside it shows the path large skipped subtrees now take."
@@ -3617,6 +3697,9 @@
       "title": "The skipped-subtree block walk",
       "kicker": "brackets only",
       "viz": "skipBlocks",
+      "why": [
+        "Skipped subtrees are often large, such as a nested object with dozens of members or an array of them, and the scalar skip walk still visits every byte looking for brackets and string boundaries. Classifying 64 bytes at once yields the brackets outside strings as a mask. A block with none costs one classification, and a block with a few costs a few loop turns."
+      ],
       "prose": [
         "A 64-byte skipped block reduces to the brackets outside strings. String contents, escape selectors, numbers, literal letters, whitespace, commas and colons never enter the inner loop; the four bracket bytes spell open versus close and object versus array from their own bits.",
         "Quote parity and odd-backslash state carry across accepted blocks. At a handoff they become `.skippingString` or `.skippingEscape`, so the scalar edge resumes at the same byte and with the same validation obligations. Non-ASCII validation is deferred across adjacent blocks, then settled at an all-ASCII block or before the close/error that would overtake it.",
@@ -3755,6 +3838,10 @@
       "title": "Schemas, borrowed",
       "kicker": "unowned",
       "viz": "schemaRouting",
+      "why": [
+        "Tokens name members by string, while a Swift value is stored properties at byte offsets. Something has to connect the two for each type: which key goes to which property, what kind of value that property holds, and how to enter a nested object or an array element. It has to be available at runtime to a sink that is generic over the root type. `@StreamParseable` generates that description once per type, and the schema is that description.",
+        "The sink reads a schema at every container open and every key, so how it is held matters as much as what it contains."
+      ],
       "prose": [
         "A schema describes how a type's members map onto tokens. It is a reference rather than a value, and frames borrow it `unowned(unsafe)` — a retain and release per container open was showing up in the profile.",
         "Two rewrites were measured and rejected: replacing the closures with a witness metatype, and a family of alternative unowned spellings. What did work was narrower — a borrowed frame type, plus a tripwire to catch the lifetime assumption if it stops holding.",
@@ -3904,9 +3991,12 @@
       "title": "The field table",
       "kicker": "routes as data",
       "viz": "fieldTable",
+      "why": [
+        "Resolving a key has to produce something the sink can act on: where the member is stored and what kind of value it holds. When each member's route was a closure, every key cost a call through that closure. A table of entries turns routing into a match and a load, and lets a scalar member whose kind is known be written with no call at all."
+      ],
       "prose": [
-        "An object's routes used to be closures. Now the macro emits them as a table, and the sink resolves a key into an entry rather than calling through a closure per member.",
-        "The measurement that mattered was not the table itself but a retain it exposed, which was not the closure's and would have been mis-attributed without the disassembly."
+        "The macro emits one entry per member: the key's first word and length, the member's byte offset, its kind, and an index for the members that still need a closure (custom types and container entry). The sink matches the key against the top frame's table, by a scan up to `StreamFieldTable.indexThreshold` entries and through an index past it, then stores at `storage + offset` for every kind with a known layout.",
+        "The measurement that mattered was not the table itself but a retain it exposed, which was not the closure's and would have been misattributed without the disassembly."
       ],
       "evidence": {
         "doc": [
@@ -4025,6 +4115,10 @@
       "title": "PartialSink",
       "kicker": "frames",
       "viz": "frames",
+      "why": [
+        "The token stream is flat. `key`, `beginObject`, `number` and `endObject` carry no record of where in the document they sit. To build a nested Swift value, the destination has to keep that record itself, tracking which container it is in and which member the next value belongs to. It also has to write each token into the value as it arrives, so the partial value is readable after every chunk.",
+        "`PartialSink` keeps that record as a stack of frames, one per open container, each holding a pointer into the value being built and the schema that describes it. It is the `StreamParseSink` the typed layer ships. A hand-written sink implements the protocol directly and never goes through it."
+      ],
       "prose": [
         "The typed layer's sink: it keeps a spine of frames, each pointing into the partially built value, and turns tokens into stores. A container entry is now the frame itself — bits rather than references — and scalars whose kind is known at schema-build time are stored directly instead of going through a general applier.",
         "Six codegen traps are recorded against this file. Among them: a struct nested inside the generic sink lowers to a value-witness destroy; `init(rawValue:)` on a decoded enum is not free; and a `count <= 8` branch causes the scan behind it to unroll."
@@ -4198,6 +4292,9 @@
       "title": "StreamString",
       "kicker": "blocks double",
       "viz": "streamString",
+      "why": [
+        "A string member of a partial value grows while the document streams: an LLM's response text arrives a few bytes per chunk. Keeping that member as a Swift `String` would mean decoding the new bytes into it on every chunk, with growth that can reallocate and copy everything written so far. `StreamString` stores the bytes the parser already validated, and produces a `String` only when something reads one."
+      ],
       "prose": [
         "Bytes accumulate; producing a `String` is a read, not a side effect. Storage grows in blocks whose size doubles, so a long streamed string does not pay a reallocation per chunk.",
         "In the allocation census the block ramp was the smaller half of the cost. The larger sources were the bookkeeping array tracking the blocks and a tail reserve on the fragment-fed path. Fixing those measured +11.2% on the LLM message and +5.5% on GSoC.",
@@ -4382,6 +4479,10 @@
       "title": "Arrays and dictionaries",
       "kicker": "one table",
       "viz": "collections",
+      "why": [
+        "`PartialSink`'s frames point directly into the value being built. For an array that is sound: its buffer can only move on an append, and no append happens while an element is still open. For a `Dictionary` it is not, because an insert can relocate every value. `StreamDictionary` keeps values append-only so the array's rule holds for it as well, and it keeps insertion order.",
+        "Both collections also serve the partial value's readers. Closed elements live in blocks that a copy shares by retaining, so a snapshot taken mid-stream does not copy the elements that are already complete."
+      ],
       "prose": [
         "Streaming collections with their own storage. Closed elements live in uniform power-of-two blocks the value shares by retaining rather than copying, and the one element the parser is still writing lives inline, outside them.",
         "The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright. Both structural guesses made when designing that table turned out to be wrong, and one of them has since been reversed again — the values are blocked now.",
@@ -4532,6 +4633,10 @@
       "title": "Views and snapshots",
       "kicker": "zero-copy",
       "viz": "views",
+      "why": [
+        "The point of a streaming parser is reading the value before the document ends, and a reader usually wants one field: the text so far, or the latest element. Copying the whole partial value for each read would cost in proportion to everything parsed so far, on every read. A view lends the reader the value in place for the duration of a closure instead.",
+        "Snapshots remain for readers that need a value outliving the parser's next write, such as an async sequence yielding each partial."
+      ],
       "prose": [
         "Reading a partially parsed value costs what is read. Every parseable type has a `~Copyable`, `~Escapable` view — in practice a typed pointer into the value — that cannot outlive the call that lent it, so reading a field does not copy the document.",
         "Snapshots are the alternative: the async sequence conveniences take a full one per element, because an escaping value has to own its storage. The freeze-the-completed-prefix work is what reduced their cost."

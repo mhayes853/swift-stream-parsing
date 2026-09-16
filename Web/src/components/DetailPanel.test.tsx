@@ -32,6 +32,22 @@ describe("DetailPanel", () => {
     expect(screen.getByRole("img", { name: `Control flow inside ${busiest.title}. Select a step to read what it does.` })).toBeInTheDocument();
   });
 
+  it("says why the step exists before what it does, and both before the chart", () => {
+    open(busiest);
+    const body = document.querySelector(".panel-body")!;
+    const why = within(body as HTMLElement).getByRole("heading", { name: "Why this step exists" });
+    const how = within(body as HTMLElement).getByRole("heading", { name: "How it works" });
+    const chart = screen.getByRole("img", { name: /^Control flow inside/ });
+    expect(why.compareDocumentPosition(how) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(how.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Inline markdown is rendered, not shown as backticks.
+    expect(body.querySelector(".explain")!.textContent).not.toContain("`");
+  });
+
+  it("gives every node a reason to exist", () => {
+    for (const node of pipeline.nodes) expect(node.why.join("").trim(), node.id).not.toBe("");
+  });
+
   it("counts what is under each tab", () => {
     open(busiest);
     const experiments = busiest.evidence.doc.filter((p) => sections.get(p)?.verdict !== "neutral").length;

@@ -167,6 +167,8 @@ export interface PipelineNode {
   stage: string;
   title: string;
   kicker: string;
+  /** Why the step is in the parse at all: what would go wrong, or cost what, without it. */
+  why: string[];
   prose: string[];
   viz: VizKind | null;
   evidence: { doc: string[]; source: string[]; asm: string[] };

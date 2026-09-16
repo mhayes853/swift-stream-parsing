@@ -1636,6 +1636,9 @@ mark {
   color: var(--text-muted);
   margin: 28px 0 12px;
 }
+/* The explanation opens the panel, so its first rule has nothing above it to separate from. */
+.panel-rule.first { margin-top: 0; }
+.md.explain { margin-bottom: 28px; }
 /* The call card's content at the panel's reading size rather than the card's. */
 .reaches .flow-card-invokes { font-size: 14px; }
 .reaches .flow-card-head { font-size: 13.5px; }
