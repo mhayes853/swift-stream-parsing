@@ -27,18 +27,15 @@ public struct JSONParsingError: Error, Hashable, Sendable {
 // MARK: - JSONParser
 
 public struct JSONParser: ~Copyable {
-  // The structural states are declared first, and `done` is grouped with them rather than left at
-  // the end, so "is this still a structural state" is one unsigned compare. `consumeStructuralRun`
-  // asks it once per byte, which is the only reason the order matters; nothing depends on the
-  // numeric values otherwise.
+  // Structural states first, with `done` grouped among them, so `isStructural` is one unsigned
+  // compare. `consumeStructuralRun` asks it once per byte; nothing else reads the numeric values.
   @usableFromInline
   enum State: UInt8 {
     case value, firstValue, afterValue, key, firstKey, afterKey, done
     case inString, inKey, escape, unicode, number, literal
-    // A sink answered `.skip` at a container open: the subtree is being scanned structurally
-    // (JSONParserSkip.swift), with `skipEndDepth` naming where it ends. The string and escape
-    // twins carry a skipped string across a chunk boundary. Past `done` on purpose, so
-    // `isStructural` stays one compare.
+    // A sink answered `.skip` at a container open: the subtree is scanned structurally
+    // (JSONParserSkip.swift), `skipEndDepth` naming where it ends; the string and escape twins
+    // carry a skipped string across a chunk boundary. Past `done` so `isStructural` stays one compare.
     case skipping, skippingString, skippingEscape
 
     @inlinable
@@ -47,64 +44,46 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline static let maximumDepth = 64
 
-  // Field order is a cache-line decision, not a taste one. Everything the parse reads or writes
-  // lives in the first 64 bytes; the tail holds `ownsBuffer` (a deinit-only flag) and the window
-  // telemetry, which is dead for any parser that never crosses `windowThreshold` — the default.
-  // The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free
-  // on arm64 (`ldrb`/`ldrh` zero-extend), while packing per-byte state into shared words would
-  // turn plain stores into read-modify-writes on the string and unicode paths, and would break
-  // the store fusion the compiler already performs on the adjacent flags below (it emits one
-  // `strh` for `isKeyToken`/`keyContainsNonASCII`).
+  // Field order is a cache-line decision: everything a parse touches is in the first 64 bytes, the
+  // tail holds deinit-only and window state. Small fields are narrowed, not bit-packed -- packing
+  // would make plain stores read-modify-writes and break the fused `strh` for the two flags below.
   @usableFromInline var state = State.value
-  // Whether the string token being read is a key. The escape and unicode states are shared
-  // between keys and string values, so this has to be remembered rather than derived:
-  // `bufferCount > 0` cannot stand in for it, because a key whose first character is an escape
-  // has buffered nothing yet, and misrouting it emitted the decoded byte as string content.
+  // Whether the string being read is a key; the escape and unicode states are shared. `bufferCount
+  // > 0` cannot stand in: a key whose first character is an escape has buffered nothing yet.
   @usableFromInline var isKeyToken = false
   @usableFromInline var keyContainsNonASCII = false
-  // A string value's opening quote has been consumed and its `stringBegin` not yet recorded:
-  // the string loop records one whole `string` event if the string completes cleanly in the
-  // chunk, and `stringBegin` followed by chunks otherwise.
+  // A string value's opening quote is consumed and its `stringBegin` not yet recorded: the string
+  // loop records one whole `string` event if the string completes cleanly, chunks otherwise.
   @usableFromInline var stringBeginPending = false
   @usableFromInline var literalKind: UInt8 = 0
   @usableFromInline var literalIndex: UInt8 = 0
   @usableFromInline var pendingUTF8Count: UInt8 = 0
   @usableFromInline var unicodeRemaining: UInt8 = 0
-  // The depth the current skip ends at: a close that brings `depth` back to this emits the
-  // matching end call and leaves skip mode. Valid only while `state` is one of the skipping
-  // states. Bounded by `maximumDepth`, so a byte.
+  // The depth the current skip ends at; a close back to it leaves skip mode. Valid only while
+  // `state` is a skipping state, and bounded by `maximumDepth`, so a byte.
   @usableFromInline var skipEndDepth: UInt8 = 0
-  // Offset 9, between `skipEndDepth` and the two-byte-aligned `unicodeValue` below, is padding.
-  // It held a `stringBuffering` flag while escaped-string coalescing was a runtime mode; any new
-  // one-byte field belongs there. Anywhere earlier shifts `literalKind`/`literalIndex` from
-  // offset 4/5 to 5/6, and the fused halfword store the literal path emits for the pair stops
-  // being two-byte aligned: every `consumeStructuralRun` specialisation in the binary turned
-  // `strh` into `sturh`.
+  // Offset 9 is padding; any new one-byte field belongs there. Measured: anywhere earlier shifts
+  // `literalKind`/`literalIndex` to offset 5/6 and the literal path's fused halfword store stops
+  // being two-byte aligned -- every `consumeStructuralRun` specialisation turned `strh` into `sturh`.
 
   // Four hex digits and a surrogate half: sixteen bits each, exactly.
   @usableFromInline var unicodeValue: UInt16 = 0
   @usableFromInline var highSurrogate: UInt16 = 0
 
-  // The buffer, split out of `UnsafeMutableBufferPointer` so its capacity can sit next to the
-  // count the append guard compares it against: one 8-byte load answers both. Capacity is a
-  // `UInt32` because a parse scratch buffer is kilobytes, and `init(buffer:)` rejects anything
-  // that would not fit.
+  // Split out of `UnsafeMutableBufferPointer` so the capacity sits next to the count the append
+  // guard compares it against: one 8-byte load answers both. `init(buffer:)` rejects anything larger.
   @usableFromInline var bufferCount: UInt32 = 0
   @usableFromInline var bufferCapacity: UInt32
 
-  // 1 = object, 0 = array, indexed by depth. Kept adjacent to `depth` so the run loop's
-  // write-back is one `stp` and its entry one `ldp`. Depth beyond `maximumDepth` is rejected
-  // rather than spilled, which keeps container tracking to a single register.
+  // 1 = object, 0 = array, indexed by depth. Adjacent to `depth` so the run loop's write-back is
+  // one `stp` and its entry one `ldp`. Depth past `maximumDepth` is rejected rather than spilled.
   @usableFromInline var containers: UInt64 = 0
   @usableFromInline var depth = 0
 
   @usableFromInline var bufferBase: UnsafeMutablePointer<UInt8>
 
-  // A UTF-8 sequence straddling a chunk boundary, held little-endian a byte per lane. It used to
-  // live in the last eight bytes of the buffer, a full page away from everything else the parse
-  // touched and one `buffer.count` subtraction per access; the escape scratch that shared that
-  // reservation is now a local in the function that decodes it, because it never outlives the
-  // call that writes it. Nothing is reserved in the buffer any more.
+  // A UTF-8 sequence straddling a chunk boundary, held little-endian a byte per lane. Nothing is
+  // reserved in the buffer for it; the escape scratch is a local in the function that decodes it.
   @usableFromInline var pendingUTF8: UInt64 = 0
 
   @usableFromInline var consumedByteCount = 0
@@ -113,43 +92,27 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline var ownsBuffer: Bool
 
-  // The structural run's block path (JSONParserBlocks.swift), on by default. Turning it off makes
-  // the scalar ladder the whole run, which is the oracle `StructuralBlockWalkTests` holds the
-  // block path to.
-  //
-  // Declared here, immediately after the other deinit-only flag, and not for tidiness: the seven
-  // bytes between `ownsBuffer` and the eight-byte-aligned `windowThreshold` below are padding, so
-  // these fields cost the struct nothing. Anywhere else they grow `JSONParser`, and the parser is
-  // copied by value in `parse`'s prologue -- measured: two extra instructions in every `parse`
-  // specialisation, from a 16-byte pair copy splitting into a byte move plus pairs.
+  // The structural run's block path (JSONParserBlocks.swift), on by default; off makes the scalar
+  // ladder the whole run, which is the oracle `StructuralBlockWalkTests` holds it to. Declared here
+  // because the bytes after `ownsBuffer` are padding: anywhere else grows `JSONParser`, which
+  // `parse`'s prologue copies by value (measured: two instructions per specialisation).
   @usableFromInline package var blockWalkEnabled = true
 
-  // The walk's own verdict on this payload's shape, and the consecutive strikes behind it (the
-  // gate in JSONParserBlocks.swift). Written by the walk, read once per structural run.
-  //
-  // Packing the two into one byte, so the run's entry test would be a single load, was measured
-  // on the way here and is worse rather than better -- `Mesh - bulk` -4.0% against -8.8%,
-  // `Canada - bulk` -1.9% against -4.6%, interleaved and reproduced. Two plain `Bool` loads of
-  // two adjacent bytes cost less than one load plus the mask work, and the read-modify-write the
-  // walk would need to set a bit costs more still.
-  //
-  // On x86 the verdict also carries whether the walk can run at all: a CPU without the AVX2
-  // classifier (`streamHasAVX2BlockKernels`) starts every document already given up. The run's
-  // entry test is then the availability test too, with no third load on it -- and no read of the
-  // lazily initialised global on any parse path, which is what that global has cost before
-  // (StreamScanners.swift, `streamStringRun`).
+  // The walk's verdict on this payload and the consecutive strikes behind it (the gate in
+  // JSONParserBlocks.swift), initialised from `blockKernelsAvailable`, which `reset` restores. On
+  // x86 the verdict also carries "no AVX2 classifier", so the run's entry test is the availability
+  // test. Measured: one packed byte cost `Mesh - bulk` -4.0% against -8.8%; keep two adjacent bytes.
   #if arch(x86_64)
     @usableFromInline package var blockWalkGivenUp = !streamHasAVX2BlockKernels
-  #else
+  #elseif arch(arm64)
     @usableFromInline package var blockWalkGivenUp = false
+  #else
+    @usableFromInline package var blockWalkGivenUp = true
   #endif
   @usableFromInline package var blockWalkStrikes: UInt8 = 0
 
-  // Whether this CPU has the block classifiers, which both 64-byte block paths need (the one
-  // above, and the skip scanner's in JSONParserSkip.swift). On arm64 NEON is architectural, so
-  // it is the constant `true` and every test of it folds away; on x86 it is a byte in the same
-  // padding as the flags above, copied from the process-wide probe once per parser. It is what
-  // `reset` restores the gate to, and what the skip scanner tests before its block path.
+  // Whether this CPU has the block classifiers both 64-byte block paths need: the constant `true`
+  // on arm64, a byte copied from the process-wide probe once per parser on x86.
   #if arch(x86_64)
     @usableFromInline package var blockKernelsAvailable = streamHasAVX2BlockKernels
   #elseif arch(arm64)
@@ -158,10 +121,14 @@ public struct JSONParser: ~Copyable {
     @inlinable package var blockKernelsAvailable: Bool { false }
   #endif
 
-  // A chunk at least this long is parsed by the windowed path (JSONParserWindow.swift); shorter
-  // ones, and every byte fed one, go through the dispatcher below. The window scratch is
-  // allocated the first time the windowed path runs, so a parser that never sees a large
-  // chunk never pays for it.
+  // Kilobytes left before a given-up walk is re-armed (`probeBlockWalk`), zero while no re-probe
+  // is due (always, without the kernels); and whether the gate lowered the default `.max`
+  // `windowThreshold` so bulk chunks reach it. Both sit in the padding before `windowThreshold`.
+  @usableFromInline package var blockWalkProbeCountdown: UInt8 = 0
+  @usableFromInline var blockWalkProbeLowered = false
+
+  // A chunk at least this long takes the windowed path (JSONParserWindow.swift). The window
+  // scratch is allocated on first use, so a parser that never sees a large chunk never pays.
   @usableFromInline var windowThreshold: Int
   @usableFromInline var windowScratch: UnsafeMutableRawPointer? = nil
   // Entries per 64-byte block in the last indexed window, and how many windows since. Sparse
@@ -170,6 +137,12 @@ public struct JSONParser: ~Copyable {
   @usableFromInline var windowsSinceProbe: UInt32 = 0
 
   public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
+    // `bufferCapacity` is narrowed to `UInt32` below and `capacity &+ scratchByteCount` would wrap
+    // on a 32-bit `Int` target. Unsigned so the `Int(UInt32.max)` cannot itself overflow there.
+    precondition(
+      UInt(bufferCapacity) <= UInt(UInt32.max),
+      "JSONParser requires a buffer capacity smaller than 4 GB."
+    )
     let capacity = Swift.max(bufferCapacity, 64)
     self.bufferBase = .allocate(capacity: capacity &+ Self.scratchByteCount)
     self.bufferCapacity = UInt32(capacity)
@@ -182,9 +155,7 @@ public struct JSONParser: ~Copyable {
       buffer.count >= Self.minimumBufferByteCount,
       "JSONParser requires a caller-supplied buffer of at least \(Self.minimumBufferByteCount) bytes."
     )
-    // `Int(UInt32.max)` rather than a `UInt`-based comparison would overflow on any platform
-    // where `Int` is 32 bits (wasm32, and embedded 32-bit targets generally), since UInt32.max
-    // does not fit in a signed 32-bit `Int`.
+    // Unsigned: `Int(UInt32.max)` overflows wherever `Int` is 32 bits (wasm32, embedded targets).
     precondition(
       UInt(buffer.count) <= UInt(UInt32.max),
       "JSONParser requires a caller-supplied buffer smaller than 4 GB."
@@ -202,11 +173,8 @@ public struct JSONParser: ~Copyable {
 
   /// Rewinds the parser to its freshly initialized state while keeping its allocations.
   ///
-  /// The buffer and, if one was ever allocated, the window scratch survive: they are the whole
-  /// cost of constructing a parser, and a caller feeding many small documents through one
-  /// parser is exactly the caller for whom that cost dominates. Legal in any state, including
-  /// after a thrown parse — recovering from a malformed document and moving to the next one is
-  /// the expected use.
+  /// The buffer and the window scratch survive: they are the whole cost of constructing a parser.
+  /// Legal in any state, including after a thrown parse.
   public mutating func reset() {
     self.state = .value
     self.containers = 0
@@ -226,8 +194,10 @@ public struct JSONParser: ~Copyable {
     self.consumedByteCount = 0
     self.blockWalkGivenUp = !self.blockKernelsAvailable
     self.blockWalkStrikes = 0
-    // Adaptive window telemetry restarts too: it describes the previous document's shape, and
-    // the next document may not share it.
+    self.blockWalkProbeCountdown = 0
+    if self.blockWalkProbeLowered { self.windowThreshold = .max }
+    self.blockWalkProbeLowered = false
+    // Window telemetry describes the previous document's shape; the next may not share it.
     self.windowDensity = .max
     self.windowsSinceProbe = 0
   }
@@ -251,29 +221,10 @@ public struct JSONParser: ~Copyable {
     byte: UInt8,
     into sink: inout Sink
   ) throws(JSONParsingError) {
-    // One byte can never take the windowed path, so this drives the dispatcher's step directly
-    // rather than going through the bulk entry point: the gate's compare in front of every byte
-    // measured -3 to -6% on the byte fed rows, and moving the bulk loop out of `parse` into a
-    // shared function to dodge it measured -4% on canada bulk. `dispatchOnce` is the bulk
-    // loop's body, so the byte fed path runs the same handlers as before.
-    // The one shape byte fed input is mostly made of: an ordinary ASCII byte inside a string
-    // value. It produces exactly one `stringChunk` and nothing else, so it does not need the
-    // dispatcher, the scan, the scratch or `deliverEvents`' frame — it needs one `events` call
-    // with one record, which is the narrowest the single requirement allows. The record carries
-    // the byte itself, so there is no pointer to take and nothing to store either.
-    //
-    // Every condition here is one the general path would otherwise have to settle: a pending
-    // begin would have to be recorded first, a pending UTF-8 tail or a high surrogate would have
-    // to be joined, a non-empty scratch would have to be flushed in order, and a non-ASCII byte
-    // may be a truncated sequence that `trimmingIncompleteUTF8` holds back rather than emits.
-    // `"` and `\` end the run, and a byte below space is a grammar error. Anything that fails
-    // falls through to the dispatcher unchanged.
-    // Order matters, and it is two tests deep for everything that does not qualify. `state` is one
-    // load and rejects every structural, literal and escape byte. The byte's own range is next
-    // and rejects non-ASCII, which can only ever be the head or tail of a sequence the pending
-    // path has to join — reaching that verdict through the three state loads below instead cost
-    // `Fast Non-ASCII string - byte by byte` measurably. The remaining three are loads only the
-    // bytes that already look right ever pay for.
+    // Byte-fed input's one shape: an ordinary ASCII byte inside a string value, which produces
+    // exactly one `stringChunk`. Every condition is one the dispatcher would otherwise settle --
+    // pending begin, pending UTF-8, pending high surrogate, `"`, `\`, a control byte -- and
+    // anything failing falls through unchanged. Measured: `state` first, then the byte's own range.
     if self.state == .inString,
       byte &- .asciiSpace < 0x60, byte != .asciiQuote, byte != .asciiBackslash,
       !self.stringBeginPending, self.pendingUTF8Count == 0, self.highSurrogate == 0
@@ -312,15 +263,14 @@ public struct JSONParser: ~Copyable {
     let base = UnsafeRawPointer(start)
     let n = input.count
     if n >= self.windowThreshold {
-      try self.parseWindowed(base: base, count: n, into: &sink)
+      try self.parsePastThreshold(base: base, count: n, into: &sink)
       return
     }
     do throws(JSONParsingError) {
       try self.parseDispatching(base: base, count: n, into: &sink)
     } catch {
-      // The commit lands before the error propagates: everything emitted ahead of the error is
-      // the sink's, exactly as delivered events were, and a deferring sink's late rejection is
-      // earlier in the document than the grammar error and is what gets reported.
+      // The commit lands before the error propagates: everything ahead of the error is the sink's,
+      // and a deferring sink's late rejection is earlier in the document and is what gets reported.
       try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
       try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
@@ -329,8 +279,8 @@ public struct JSONParser: ~Copyable {
     self.consumedByteCount &+= n
   }
 
-  // The bulk loop, in its own function only so `parse` can wrap it in the flush-on-error
-  // handler; it is forced inline so the loop's layout is what it was when it lived in `parse`.
+  // The bulk loop, split out only so `parse` can wrap it in the flush-on-error handler; forced
+  // inline so its layout is what it was when it lived in `parse`.
   @inlinable
   @inline(__always)
   mutating func parseDispatching<Sink: StreamParseSink & ~Copyable>(
@@ -341,37 +291,38 @@ public struct JSONParser: ~Copyable {
       i = try self.completePendingUTF8(base: base, count: n, into: &sink)
     }
 
+    // The thirteen-case switch lives once, in `dispatchOnce`, which the windowed seam also runs.
     while i < n {
-      switch self.state {
-      case .value, .firstValue, .afterValue, .key, .firstKey, .afterKey, .done:
-        i = try self.consumeStructuralRun(base: base, from: i, to: n, into: &sink)
+      i = try self.dispatchOnce(base: base, from: i, to: n, into: &sink)
+    }
+  }
 
-      case .inString:
-        i = try self.consumeStringRun(base: base, from: i, to: n, into: &sink)
-
-      case .inKey:
-        i = try self.consumeKeyRun(base: base, from: i, to: n, into: &sink)
-
-      case .escape:
-        let byte = base.load(fromByteOffset: i, as: UInt8.self)
-        i &+= 1
-        try self.consumeEscape(byte, at: i, into: &sink)
-
-      case .unicode:
-        let byte = base.load(fromByteOffset: i, as: UInt8.self)
-        i &+= 1
-        try self.consumeUnicodeDigit(byte, at: i, into: &sink)
-
-      case .number:
-        i = try self.consumeNumber(base: base, from: i, to: n, into: &sink)
-
-      case .literal:
-        i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
-
-      case .skipping, .skippingString, .skippingEscape:
-        i = try self.consumeSkipRun(base: base, from: i, to: n, into: &sink)
+  // Every chunk `parse` sends past `windowThreshold`: the windowed path, or, while a block-walk
+  // re-probe is due, a chunk only the lowered threshold sent here -- counted, then parsed by
+  // `parse`'s own dispatcher branch, restated. Measured: a test of its own in `parse` stopped the
+  // benchmark chunk loops inlining `parse` and moved `consumeStructuralRun`'s frame.
+  @inlinable
+  @inline(never)
+  mutating func parsePastThreshold<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer, count n: Int, into sink: inout Sink
+  ) throws(JSONParsingError) {
+    if self.blockWalkProbeCountdown != 0 {
+      let lowered = self.blockWalkProbeLowered
+      if n >= Self.blockWalkProbeChunk { self.probeBlockWalk(count: n) }
+      if lowered {
+        do throws(JSONParsingError) {
+          try self.parseDispatching(base: base, count: n, into: &sink)
+        } catch {
+          try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+          try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
+        }
+        try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+        try self.commitSink(chunkEnd: n, into: &sink)
+        self.consumedByteCount &+= n
+        return
       }
     }
+    try self.parseWindowed(base: base, count: n, into: &sink)
   }
 
   @inlinable
@@ -394,7 +345,8 @@ public struct JSONParser: ~Copyable {
       break
     }
     // Everything is emitted; the lifetime signal goes out before the structural checks, which
-    // deliver nothing new to the sink.
+    // deliver nothing new. `.number` above moves to `.done` *before* these can throw, so a second
+    // `finish()` after a caught `unterminatedContainer` raises again rather than re-emitting.
     try self.commitSink(chunkEnd: 0, into: &sink)
     if self.depth > 0 { throw self.error(.unterminatedContainer, at: 0) }
     if self.pendingUTF8Count > 0 { throw self.error(.invalidUTF8, at: 0) }
@@ -402,48 +354,10 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Structural
 
-  // Structural bytes arrive in runs — `},{"`, `":`, `,"`, `[[` — and `parse` is a dispatcher that
-  // calls out once per token, so each byte of such a run used to cost a call, a return and a
-  // re-entry into the dispatch switch. Measured on the release build, `parse` is 1284 bytes with
-  // the handlers all out of line, so that round trip, not the byte's own work, is what a
-  // structural byte costs. The loop stays here while the state stays structural, which turns a run
-  // into one call.
-  //
-  // `checkSink` still runs per byte rather than per run: a sink that rejects a token has to stop
-  // the parse at the token it rejected, and where that surfaces is what `ErrorOffsetTests` pins.
-  // `fuseAfterValue` carries the other half of that guarantee, since it can move the cursor
-  // between a rejection and the check that reads it.
-  // Out of line by force, with `consumeStructural` folded into it by force: left alone the
-  // optimizer did exactly the inverse — it inlined this loop into `parse`, growing the dispatcher
-  // from 1284 to 1424 bytes, and still called `consumeStructural` once per byte, which is the call
-  // this exists to delete. `parse` stays a thin dispatcher and the run owns its own registers.
-  //
-  // The three fields the step reads and writes on every byte — `state`, `depth`, `containers` —
-  // are copied into locals for the run and written back on every exit, the throwing ones
-  // included. Left as fields they lived in memory: the release build stored `state` at the end
-  // of one byte and loaded it back at the start of the next, and that store-to-load round trip,
-  // not the switch, was the loop-carried dependency. A structural byte's work is a handful of
-  // compares on a register; it should not wait on a store buffer to deliver the previous byte's
-  // result.
-  // Two copies of the loop, and the reason is a measurement: sharing one loop between the block
-  // path and the scalar ladder costs the ladder registers even on the iterations that never take
-  // the branch. The `PartialSink` specialisation -- the typed layer, which is what `Mesh` and
-  // `Canada` measure -- went from 42 stack accesses to 52 with the branch merely *present*, and
-  // those ten accesses are -7.3% on `Mesh - bulk` and -4.0% on `Canada - bulk` (interleaved, three
-  // rounds, both reproduced within 0.4%) on payloads whose blocks the gate switches off after
-  // four. Split, the `blocks: false` copy compiles to the baseline's code exactly, and a payload
-  // the walk has given up on pays nothing at all for the walk's existence.
-  //
-  // `blocks` is a literal at both call sites, so each copy constant-folds its own branch away.
-  // The attribute on the body has to be `@_transparent`, and that is not a preference: measured
-  // with the block path statically dead, so that both spellings compile the *same* scalar loop,
-  // `@inline(__always)` still cost `Mesh - bulk` 4.0% and `Canada - bulk` 2.0% (the body is
-  // optimised once, then inlined, and the typed layer's register allocation comes out different),
-  // and plain `@inlinable` cost 7.4% and 4.7% (it is not inlined at all). `@_transparent` inlines
-  // in raw SIL, before the optimiser sees either copy, and measures +0.00% / +0.00% / +0.05% on
-  // `Mesh` / `Canada` / `Twitter` -- the refactor is then free, and what the rows below measure
-  // is the walk itself. The dispatch is one load and one compare per run call, off the per-token
-  // path entirely.
+  // The structural run: one call per run of structural bytes, `state`/`depth`/`containers` in
+  // locals written back on every exit; `checkEmission` still runs per token (`ErrorOffsetTests`).
+  // Two loop copies (`blocks` a literal at both sites), body `@_transparent`. Measured: one shared
+  // loop cost Mesh -7.3%, an `@inline(__always)` body -4.0% (NEW_ARCHITECTURE.md, "Two copies").
   @inlinable
   @inline(never)
   mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
@@ -457,18 +371,9 @@ public struct JSONParser: ~Copyable {
         return try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
       }
     #elseif arch(x86_64)
-      // On x86 `blockWalkGivenUp` also says the CPU lacks the AVX2 classifier, so this one test is
-      // the availability check as well.
-      //
-      // And the block copy is a call, not a second inlined body. On arm64 the two copies share
-      // this function and the scalar one still compiles to the baseline's code; on x86 they do
-      // not. With both inlined here the `PartialSink` specialisation's frame grew from 0xa0 to
-      // 0xc0 and `self` moved from `r14` to a stack slot, and the scalar loop -- which is where a
-      // payload the gate has turned the walk off for spends its whole parse -- paid for it:
-      // `Mesh - bulk` -7.8% against -2.5% split out, `Mesh - bulk discarding` -2.6% against
-      // +3.9% (layout-stabilised builds, best of three interleaved rounds). The call costs
-      // nothing measurable: a bulk parse enters the run once or twice per document (counted), and
-      // the block copy then holds it for the whole document.
+      // `blockWalkGivenUp` also says the CPU lacks the AVX2 classifier, so this is the
+      // availability check too. The block copy is a call, not a second inlined body -- measured:
+      // both inlined moved `self` out of `r14` and cost `Mesh - bulk` -7.8% against -2.5%.
       if self.blockWalkEnabled && !self.blockWalkGivenUp {
         return try self.consumeStructuralRunBlocks(base: base, from: from, to: to, into: &sink)
       }
@@ -511,18 +416,13 @@ public struct JSONParser: ~Copyable {
     while i < to {
       #if arch(arm64) || arch(x86_64)
         // The 64-byte block path (JSONParserBlocks.swift), tried at every token boundary because
-        // that is where it is re-entered: everything it will not judge -- a string it cannot
-        // close inside one block, a key with an escape, a cut number -- it hands back here, and
-        // once this loop has settled that one token the next block is available again.
-        //
-        // `state.isStructural` is not tested: the loop only reaches its own top in a structural
-        // state (the exits below break otherwise), and `parseDispatching` only enters in one.
+        // that is where it is re-entered: anything it will not judge comes back here, and the
+        // next block is available once this loop settles that token. `state.isStructural` is not
+        // tested -- the loop only reaches its own top in a structural state.
         if blocks, i &+ 64 <= to {
-          // The `inout`s are copies scoped to this branch, not the run's own locals, for the
-          // reason `consumeSkipRun` documents: taking the address of `depth` and `containers`
-          // themselves would make `var depth = self.depth` an address-taken initialisation, and
-          // the store it becomes lands in the entry block -- one more store on every byte-fed
-          // call that never reaches this branch.
+          // Copies scoped to this branch, not the run's own locals: taking the address of `depth`
+          // and `containers` makes `var depth = self.depth` address-taken, and the store it
+          // becomes lands in the entry block, on every byte-fed call that never gets here.
           var blockState = state
           var blockDepth = depth
           var blockContainers = containers
@@ -536,12 +436,8 @@ public struct JSONParser: ~Copyable {
             containers: &blockContainers, into: &sink
           )
           // A negative answer is the walk giving up on this payload's shape (the gate in
-          // JSONParserBlocks.swift); the index is its bitwise complement. Breaking is how the
-          // verdict is honoured without the loop holding anything mutable for it: the dispatcher
-          // re-enters this function on the very next turn -- `i < n` and a structural state is
-          // exactly its `consumeStructuralRun` case -- and the entry above reads the verdict once
-          // and never asks again. One extra call per parse, against the 17 to 119 stack accesses
-          // every mutable-local spelling of the same thing cost this loop.
+          // JSONParserBlocks.swift); the index is its bitwise complement. Breaking honours it
+          // without the loop holding anything mutable -- the dispatcher re-enters at once.
           if i < 0 {
             i = ~i
             break
@@ -551,9 +447,8 @@ public struct JSONParser: ~Copyable {
           if !blockState.isStructural { break }
         }
       #endif
-      // The scan hands back the byte it stopped on rather than just the index, so the dispatch
-      // below reads a register instead of loading the same address the scan's one-compare fast
-      // path just tested. Two L1 accesses per structural byte became one.
+      // The scan hands back the byte it stopped on, so the dispatch below reads a register instead
+      // of reloading the address the scan's one-compare fast path just tested.
       let scanned = streamWhitespaceEndByte(base: base, from: i, to: to)
       i = scanned.end
       if i == to { break }
@@ -586,37 +481,24 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Bool {
     let at = cursor &- 1
-    // A ladder over the raw value rather than a `switch`, which lowers to a jump table: a
-    // `leaq`, a `movslq` out of it and an indirect branch, per structural byte, with the table's
-    // base pinned in a register for the whole run loop. The `State` case order was chosen so the
-    // structural pairs are adjacent, which makes each rung one unsigned compare.
+    // A ladder over the raw value, not a `switch`, which lowers to a jump table and an indirect
+    // branch per structural byte. The `State` order makes each rung one unsigned compare.
     let raw = state.rawValue
-    // A quote in a value or key state is scanned here, once, before the ladder: the string
-    // scanner is the largest thing inlined into this function, and keys and string values share
-    // one copy of it rather than one per arm. A token whose closing quote is in this chunk, with
-    // no escape before it, is finished in place -- a key as a borrowed span, a value as one
-    // whole `string` record -- and the run carries on to the colon or comma. Only a token the chunk
-    // cuts, or one with an escape, sets the per-byte state and leaves. Before string values were
-    // read here, every value ended the run: `parse` re-dispatched, `consumeStringRun` paid a
-    // ten-register prologue, and `fuseAfterValue` handed the comma back, which measured ~25% of
-    // the instructions on `twitter` as transitions rather than token work.
+    // A quote in a value or key state is scanned here, once, ahead of the ladder: the string
+    // scanner is the largest thing inlined into this function and keys and string values share
+    // one copy. Only a cut token, or one with an escape, sets the per-byte state and leaves.
     if byte == .asciiQuote, raw <= State.firstKey.rawValue, raw != State.afterValue.rawValue {
       let run = streamStringRun(base: base, from: cursor, to: to)
       let closed = run.end < to && base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote
-      // A run that stops short of the closing quote -- on an escape, or at the chunk end --
-      // leaves the token to the per-byte path whole, which rescans from the opening quote. Handing
-      // the scanned prefix on instead was built and measured: it returned `gsoc-2018`'s long,
-      // escape-bearing descriptions their 2.5%, and cost `twitter` 2% and `Pretty printed users`
-      // 3-7% for the extra state it kept live through the emission -- see NEW_ARCHITECTURE.md.
+      // A run stopping short of the closing quote leaves the token whole to the per-byte path,
+      // which rescans from the opening quote. Measured: handing the scanned prefix on instead cost
+      // `twitter` 2% and `Pretty printed users` 3-7%; keep the rescan.
       if raw <= State.firstValue.rawValue {
         self.isKeyToken = false
         guard closed else {
-          // The scan stopped inside the chunk, so the byte it stopped on is a backslash (or a
-          // control byte, which is the same error either way): the token's escapes are decoded
-          // here rather than handing the token back to `parse` to be rescanned from its opening
-          // quote. `self.state` carries the verdict back -- `.afterValue` when the token
-          // finished, one of the per-byte states when it did not -- and the run either carries
-          // on to the comma or breaks on `isStructural`, exactly as it did before.
+          // The scan stopped inside the chunk, so the byte is a backslash (or a control byte,
+          // the same error either way): the escapes decode here rather than the token being
+          // handed back and rescanned. `self.state` carries the verdict back.
           if run.end < to {
             cursor = try self.consumeEscapedStringInRun(
               base: base, quoteAt: at, from: cursor, to: to, run: run, into: &sink
@@ -624,9 +506,8 @@ public struct JSONParser: ~Copyable {
             state = self.state
             return false
           }
-          // Cut by the chunk end: `consumeStringRun` records the `stringBegin` (or one whole
-          // `string`, if the token completes cleanly once it looks) and takes the token from the
-          // opening quote.
+          // Cut by the chunk end: `consumeStringRun` records the `stringBegin` and takes the token
+          // from the opening quote.
           self.stringBeginPending = true
           state = .inString
           return false
@@ -667,11 +548,9 @@ public struct JSONParser: ~Copyable {
       case .asciiObjectStart:
         let disposition = try self.recordContainerOpen(object: true, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
-        containers |= 1 &<< Self.shiftAmount(depth)
-        depth &+= 1
-        // A skip leaves the run: the loop's `isStructural` check breaks, and the dispatcher
-        // re-enters through the skip scanner. For a sink whose answer is the constant `.stream`
-        // the branch folds away in its specialization.
+        Self.pushContainer(object: true, depth: &depth, containers: &containers)
+        // A skip leaves the run: the loop's `isStructural` check breaks and the dispatcher
+        // re-enters through the skip scanner. For a constant-`.stream` sink the branch folds away.
         if disposition != .stream {
           self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
           state = .skipping
@@ -681,8 +560,7 @@ public struct JSONParser: ~Copyable {
       case .asciiArrayStart:
         let disposition = try self.recordContainerOpen(object: false, end: cursor, into: &sink)
         guard depth < Self.maximumDepth else { try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at) }
-        containers &= ~(1 &<< Self.shiftAmount(depth))
-        depth &+= 1
+        Self.pushContainer(object: false, depth: &depth, containers: &containers)
         if disposition != .stream {
           self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
           state = .skipping
@@ -698,9 +576,8 @@ public struct JSONParser: ~Copyable {
         state = depth == 0 ? .done : .afterValue
       // `"` was taken ahead of the ladder.
       case .asciiLowerT:
-        // A literal whole in the chunk is one word compare and an event, finished here so the
-        // run carries on to the comma. The per-byte `.literal` state remains for a literal the
-        // chunk cuts, which is every literal under byte-fed input.
+        // A literal whole in the chunk is one word compare and an event, so the run carries on to
+        // the comma. `.literal` remains for a literal the chunk cuts, which is every byte-fed one.
         if to &- at >= 4,
           UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))
             == 0x6575_7274
@@ -737,25 +614,14 @@ public struct JSONParser: ~Copyable {
         self.startLiteral(kind: 2)
         state = .literal
       case .asciiDash, .asciiZero ... .asciiNine:
-        // A number whose terminator is in this chunk is scanned, parsed and emitted here, and
-        // the run carries on to the comma — the same treatment strings and literals already get
-        // a few rungs up. What it deletes is the round trip: the run used to hand the byte back
-        // (`return true`), `parse` re-dispatched on `.number`, `consumeNumber` paid its own
-        // prologue to do the identical scan and emission, `fuseAfterValue` reached forward for
-        // the comma, and the next member re-entered the run through its ten-register prologue.
-        // On an object-heavy document every number paid all of it.
-        //
-        // `bufferCount` is zero here by construction — the buffer only ever holds a token a
-        // previous chunk cut, and such a token is resumed from `.number`, never from the run —
-        // so this is exactly the `bufferCount == 0` arm of `consumeNumber`, with `reportAt: end`
-        // giving a rejected number the same offset (the byte after the token) it reported when
-        // `recordNumber` was reached the long way round. `fuseAfterValue` is *not* called: the
-        // run is the fusion now.
+        // A number whose terminator is in this chunk is scanned, parsed and emitted here, so the
+        // run carries on to the comma. `bufferCount` is zero by construction -- the buffer only
+        // holds a token a previous chunk cut, and such a token resumes from `.number` -- so this
+        // is `consumeNumber`'s `bufferCount == 0` arm. The run is the fusion, so no fuse here.
         let end = streamNumberRunEnd(base: base, from: at, to: to)
         guard end < to else {
-          // The token may continue in the next chunk, so it goes to the per-byte path whole,
-          // which buffers it. This is also the path byte-fed input always takes, so everything
-          // resume and `finish()` depend on is reached exactly as before.
+          // The token may continue in the next chunk, so it goes to the per-byte path whole, which
+          // buffers it. This is also the path byte-fed input always takes.
           self.resetNumber()
           state = .number
           return true
@@ -817,35 +683,10 @@ public struct JSONParser: ~Copyable {
   }
 
 
-  // A value inside a container is followed by `,` and then the next value's first byte. Measured
-  // across the corpus there is never whitespace before the comma (166,449 of them, 100%) and 7-25
-  // bytes of it after, so this is a compare, the existing SIMD whitespace scan, and a dispatch on
-  // one byte.
-  //
-  // The point is not those bytes, it is that consuming *all* of them leaves nothing structural
-  // before the next value's content, so the `consumeStructuralRun` call for this member
-  // disappears entirely. That is the test a fusion has to pass to be worth anything here: fusing
-  // the colon after a key looked identical on paper and bought nothing, because the value's
-  // opening quote still followed it and the run had to happen anyway.
-  //
-  // Arrays are handled as well as objects, and not for symmetry: with only the object case, every
-  // comma in `canada` — 111,129 of them, all inside arrays of numbers — paid the test and got
-  // nothing, and it measured -3.8%.
-  //
-  // Inlined into the two value-end sites deliberately. Both are already out of line, so the
-  // duplication lands in `consumeStringRun` and `consumeNumber` rather than in `parse`.
-  //
-  // A sink that has already failed stops the fusion, which is a correctness requirement rather
-  // than an optimisation. `parse` reads the sink's failure once per token with the cursor as the
-  // offset, so a fusion that ran first moved that cursor past the comma and onto the *next*
-  // token before the rejection surfaced: `[1,2]` with a sink refusing numbers reported byte 3,
-  // the `2`, for a rejection of the `1`. It also delivered the next token's `stringBegin` to a
-  // sink that had already failed. Bailing here leaves the cursor at the token end, which is the
-  // offset the unfused path reports, so where a rejection surfaces no longer depends on whether
-  // the bytes after it happened to be fusable.
-  //
-  // The test is third, after the two register compares, and it reads the same field `checkSink`
-  // reads a few instructions later, so it is a load that was going to happen anyway.
+  // Takes the `,` after a value in a container and the next value's first byte, so that member's
+  // `consumeStructuralRun` call disappears; arrays too (objects only cost canada -3.8%). A failed
+  // sink stops the fusion -- correctness, not tuning: a fusion that ran first moved the failure
+  // offset onto the next token (`[1,2]` refusing numbers reported byte 3 for the `1`).
   @inlinable
   @inline(__always)
   mutating func fuseAfterValue<Sink: StreamParseSink & ~Copyable>(
@@ -886,11 +727,8 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Strings
 
-  // String values only. A key comes through here never: one read whole goes through the
-  // structural run in place, and one the chunk cut goes through `consumeKeyRun` below. Keeping
-  // the key's buffer bookkeeping out of this loop is deliberate — this is the byte fed path's
-  // per-byte call, and its register allocation sits on an edge where a live value more is a
-  // spill on every call.
+  // String values only; a key goes through the structural run in place or through `consumeKeyRun`.
+  // This is the byte-fed path's per-byte call, and one more live value is a spill on every call.
   @inlinable
   mutating func consumeStringRun<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
@@ -925,16 +763,9 @@ public struct JSONParser: ~Copyable {
     return try self.stringRunBody(base: base, from: i, to: to, run: run, into: &sink)
   }
 
-  // The string value body proper, split out of `consumeStringRun` so the structural run can
-  // enter it with a scan it already paid for. It is `@inline(__always)`, so `consumeStringRun`
-  // is byte for byte the function it was -- the split exists to give `consumeEscapedStringInRun`
-  // below a second entry, not to add a call.
-  //
-  // `run` is the scan covering `from`: the caller has already established where the first
-  // non-content byte is, and it is the only scan this body makes. The body used to be a loop
-  // that decoded an escape in place and rescanned after it; every escape now leaves for
-  // `coalescedEscapedStringTail` (or the per-byte states), so there is no second iteration --
-  // the zero-copy run up to the first non-content byte, then that byte's verdict.
+  // The string value body proper, split out of `consumeStringRun` so the structural run can enter
+  // it with a scan it already paid for; `@inline(__always)`, so `consumeStringRun` is byte for
+  // byte what it was. `run` is the only scan this body makes -- every escape leaves for the tail.
   @inlinable
   @inline(__always)
   mutating func stringRunBody<Sink: StreamParseSink & ~Copyable>(
@@ -977,21 +808,10 @@ public struct JSONParser: ~Copyable {
       self.state = .afterValue
       return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
     } else if byte == .asciiBackslash {
-      // The rest of this value is taken coalesced, out of line: the decode, the surrogate
-      // handling and the buffer bookkeeping all leave this function, which is the one thing the
-      // run body cannot afford to grow. This used to be one arm of two, chosen per
-      // specialisation by a static `Sink._streamCoalescesStringChunks`: the sinks answering
-      // `false` kept an inline `fusedEscapeEnd` here that decoded the escape into a fragment of
-      // its own and went back to scanning. Every sink coalesces now, so that inline decode is
-      // gone from the run body entirely.
-      //
-      // A backslash that is the chunk's last byte cannot fuse, and the tail would do nothing but
-      // fail `fusedEscapeEnd`'s own `from < to` guard and hand the escape to the per-byte states.
-      // Answering that here rather than in the callee is worth a compare: byte fed input reaches
-      // this arm with `i == to` for *every* escape it sees, and paying a call into a 1450
-      // instruction cold function each time measured -1.6% on `Twitter escaped - byte by byte`.
-      // Nothing is buffered yet on this edge -- the run above never buffers -- so there is
-      // nothing to flush before leaving.
+      // The rest of this value is taken coalesced, out of line: the decode, the surrogate handling
+      // and the buffer bookkeeping all leave this function, which cannot afford to grow. A
+      // backslash that is the chunk's last byte cannot fuse and is answered here -- measured: the
+      // call cost `Twitter escaped - byte by byte` -1.6%. Nothing is buffered yet on this edge.
       guard i < to else {
         self.state = .escape
         return i
@@ -1002,41 +822,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
-  // The remainder of a string value from its first escape, coalesced. An escape is what splits
-  // the zero-copy run, and the fragments it leaves are tiny: 57% of `llm_message`'s 26,076
-  // string chunks and 35% of `gsoc-2018`'s 39,810 are a single byte, one sink call each. From
-  // the first backslash on, content is copied into the parser's own buffer and handed over one
-  // chunk per buffer-full -- 26,076 chunks become 2,003 and 39,810 become 16,869 -- which is a
-  // copy an accumulating sink (`PartialSink`, appending into `StreamString`) pays for many times
-  // over in calls it no longer makes.
-  //
-  // Every sink takes this path. It began as an opt-in for the accumulating sinks behind a static
-  // `_streamCoalescesStringChunks`, with the rest handed the fragments zero-copy; a sink whose
-  // chunk calls are nearly free (counting, checksumming) now pays the copy of every post-escape
-  // byte for no call savings -- `FastCountingSink` on `LLM message - bulk` reads ~11% slower --
-  // which was judged a better price than a second delivery mode and the per-sink knob that
-  // selected it. Chunk boundaries were never promised, so what a sink can observe is only fewer,
-  // larger chunks and rejection points at the flushes.
-  //
-  // Out of line by force, and that is the whole point of the split: this loop spelled inside
-  // `stringRunBody` -- `@inline(__always)` into both `consumeStringRun` and
-  // `consumeEscapedStringInRun` -- measured `raw llm` -52%, `raw gsoc` -23% and `raw twitter`
-  // -15%, the last on a payload whose escapes it barely touches. The run body has to stay the
-  // size it is; moving the escape decode out of it makes it smaller than it was.
-  //
-  // Every exit that does not throw flushes, so a chunk that cuts the string resumes exactly where
-  // the fragment-by-fragment loop resumed -- only the chunk boundaries differ -- and the per-byte
-  // escape states the cut hands over to never find anything buffered.
-  //
-  // That the escapes decode into the buffer here, and into inline chunks everywhere else (the
-  // per-byte states, `consumeKeyRun`, the windowed walk), is a fact of the call path: this loop
-  // passes `coalescing: true` to `fusedEscapeEnd`, which is `@inline(__always)`, so the literal
-  // folds and no other caller carries the buffered arm. It used to be a runtime `stringBuffering`
-  // flag set around this loop and tested in `emitScratch`, which put a field load and a
-  // never-taken arm into every escape emitter in the binary -- including the ones inlined into
-  // the byte fed dispatcher `parse(_:)`, where anything placed in that arm re-laid out the
-  // per-escape blocks: an 8-byte store in `bufferStringScratch` cost `LLM message - byte by byte
-  // discarding` 4.9% through a branch that dispatcher never took.
+  // A string value from its first escape on, coalesced into the parser's buffer and handed over per
+  // buffer-full; every sink takes it (chunk boundaries were never promised) and every non-throwing
+  // exit flushes. Measured: inside `stringRunBody` raw llm -52%; the buffered arm selected by a
+  // runtime flag in `emitScratch` instead of the `coalescing: true` literal, LLM byte-fed -4.9%.
   @inlinable
   @inline(never)
   mutating func coalescedEscapedStringTail<Sink: StreamParseSink & ~Copyable>(
@@ -1105,55 +894,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
-  // A string value whose scan stopped on a backslash with the closing quote still inside the
-  // chunk. Before this existed the token left the structural run whole: `parse` re-dispatched on
-  // `.inString`, `consumeStringRun` paid its own prologue and *rescanned the prefix from the
-  // opening quote*, and `fuseAfterValue` had to hand the following comma back so the run could
-  // start again. On `twitter` that is 312 tokens per document and 10.6 KB of bytes scanned twice.
-  //
-  // Out of line by force: the escape decode, the surrogate handling and the UTF-8 hold are all
-  // dead weight inside `consumeStructuralRun`, which is the function whose size and register
-  // budget everything else in this file is arranged around. What is deleted is the round trip
-  // and the rescan, not the work, so the call is exactly the right place to pay for it.
-  //
-  // The emission sequence is `consumeStringRun`'s, byte for byte and offset for offset: the same
-  // `stringBegin` at the opening quote, the same chunks, the same `stringEnd`. Anything the loop
-  // cannot finish in the chunk -- a cut, an escape that straddles the end, a diagnostic that
-  // needs the per-byte states -- leaves `self.state` set exactly as the out-of-run path would
-  // have left it, and the caller copies it back into the run's register and breaks. So this is a
-  // shortcut through the same states, never a new one.
-  //
-  // What it must *not* do is `consumeStringRun`'s comma fusion. `fuseAfterValue` asks
-  // `self.depth` and `self.containers` whether the comma after the value separates array
-  // elements or object members, and the structural run -- this function's only caller, both the
-  // scalar ladder and the block walk -- holds the stack in registers and writes it back only when
-  // it returns. From here the fields are the stack as it stood when the run was *entered*. A bulk
-  // parse enters at depth zero, where the fusion declines, so nothing showed; a chunk that began
-  // inside an array the run then closed took the `,"t"` after `"s":"x\ny"` for an array comma,
-  // read the key as a string value and failed on its colon (`twitter` at 4096-byte chunks,
-  // `unexpectedToken` at 13,921). The opposite mix read an array element as a key, and an array's
-  // number arm accepted `{"s":"x\ny",1}`.
-  //
-  // Declining loses nothing: the caller *is* a structural run, and it takes the comma and
-  // whatever follows in place with the stack it actually has -- "the run is the fusion now", as
-  // `consumeStructural`'s number arm puts it. A fused element would only have ended the run to go
-  // round the dispatcher.
-  //
-  // It declines by zeroing `self.depth`, the fusion's first test, and that store is the entire
-  // fix. The field is dead until the run returns: nothing between here and the run's exit reads
-  // it except the fusion, and the run's `defer` overwrites it from its register on every exit,
-  // the throwing ones included. The two spellings that say the same thing more directly were both
-  // built, and both cost more than a store in a cold function:
-  //
-  // - Storing the run's registers to the fields before the call (and reloading them after, or
-  //   not) keeps the fusion alive and correct, but moves the run's own register allocation: the
-  //   sink pointer or `depth` trades a callee-saved register for a stack slot, and 10-27 static
-  //   stack accesses come and go across the four specialisations of the run and the walk -- the
-  //   loops everything else in this file is arranged to keep still.
-  // - A `fusing: Bool` literal threaded through `stringRunBody` and the coalescing tail leaves the
-  //   run byte for byte as it was, but flipped the library's `consumeStringRun<PartialSink>` from
-  //   calling `stringRunBody` to inlining it (frame 0x70 -> 0x140), and that copy is the one byte-
-  //   fed typed input enters on every escape: `LLM message - byte by byte discarding` -5%.
+  // A string value whose scan stopped on a backslash with the closing quote in the chunk, done
+  // here instead of handed back (out of line by force); what it cannot finish it leaves in
+  // `self.state` for the caller. It must NOT fuse the comma -- the fields hold the run's *entry*
+  // stack -- so it zeroes `self.depth`; direct spellings measured worse (byte-fed typed -5%).
   @inlinable
   @inline(never)
   mutating func consumeEscapedStringInRun<Sink: StreamParseSink & ~Copyable>(
@@ -1164,10 +908,8 @@ public struct JSONParser: ~Copyable {
     run: StreamStringRun,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
-    // The resting state for a token this chunk cuts. `consumeStringRun` is only ever entered
-    // with `.inString` already set and returns leaving it alone, so the body only ever writes
-    // the state when it *finishes* something; entering from the structural run means nobody has
-    // set it yet, and a chunk that ends mid-token would otherwise resume in a structural state.
+    // The resting state for a token this chunk cuts. Entering from the structural run means
+    // nobody has set it yet, and a chunk ending mid-token would otherwise resume structural.
     self.state = .inString
     // Declines `fuseAfterValue` -- see above. The run's write-back restores the real depth.
     self.depth = 0
@@ -1175,9 +917,8 @@ public struct JSONParser: ~Copyable {
     return try self.stringRunBody(base: base, from: from, to: to, run: run, into: &sink)
   }
 
-  // A key the structural run could not read in place — its closing quote was past the chunk,
-  // or an escape has to decode into it — buffered for contiguity and emitted whole at its
-  // closing quote. Byte fed input sends every key here; bulk input sends almost none.
+  // A key the structural run could not read in place -- closing quote past the chunk, or an escape
+  // to decode -- buffered and emitted whole at its closing quote. Byte-fed input sends every key here.
   @inlinable
   @inline(never)
   mutating func consumeKeyRun<Sink: StreamParseSink & ~Copyable>(
@@ -1223,21 +964,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
-  // The escape states are per byte: `\n` costs the dispatcher two iterations, `\uXXXX` five and a
-  // surrogate pair eleven, all to produce at most four bytes of content. When the whole escape is
-  // present in the chunk, decoding it here and returning its end lets `consumeStringRun` keep
-  // scanning without ever handing control back.
-  //
-  // Only escapes with no diagnostics attached are fused. A bad hex digit, a lone surrogate, an
-  // unrecognised escape character, a pending high surrogate, or an escape running past the end of
-  // the chunk all return nil and fall back to the per byte states. That is what keeps error offsets
-  // and resumption identical: this path never reports anything, so it cannot report it in the
-  // wrong place, and it commits nothing before it knows it can finish.
-  //
-  // `coalescing` is where the decoded bytes go: `true` only from `coalescedEscapedStringTail`,
-  // which appends them to the coalescing buffer; `false` everywhere else, where they are a key's
-  // buffered bytes or an inline chunk of their own (`emitScratch`). Always a literal at the call
-  // site, and this function is `@inline(__always)`, so each caller's copy holds one arm only.
+  // A whole escape present in the chunk, decoded here and its end returned, so the string scan
+  // never hands control back. Only escapes with no diagnostic attached fuse: a bad hex digit, a
+  // lone surrogate, an unrecognised selector, a pending high surrogate or an escape past the chunk
+  // end return nil for the per-byte states. `coalescing` is a literal at every call site.
   @inlinable
   @inline(__always)
   mutating func fusedEscapeEnd<Sink: StreamParseSink & ~Copyable>(
@@ -1253,22 +983,18 @@ public struct JSONParser: ~Copyable {
     }
     guard let decoded = streamDecodeSimpleEscape(selector) else { return nil }
     if coalescing {
-      try self.bufferStringScratch(UInt64(decoded), count: 1, into: &sink, reportAt: from)
+      // A flush here delivers what was buffered *before* the escape, so it reports one past that
+      // chunk's last content byte: the backslash, `from &- 1`.
+      try self.bufferStringScratch(UInt64(decoded), count: 1, into: &sink, reportAt: from &- 1)
     } else {
       try self.emitDecoded(byte: decoded, into: &sink, reportAt: from)
     }
     return from &+ 1
   }
 
-  // Out of line, and for the same reason the whitespace vector body is: this is inlined into
-  // `consumeStringRun`, and the hex decode plus the surrogate pair handling is dead weight in it
-  // for any document whose escapes are all one character. Spelling it inline alongside the simple
-  // escapes above cost `Fast Escaped string` — `a\nb\t` repeated, no `\u` in it at all — 18.5%,
-  // and every string heavy document 1-5%, while the documents it exists for kept their gain either
-  // way. A `\u` escape is five bytes of work and saves five dispatcher iterations, so it can
-  // afford the call; `\n` is one byte and cannot.
-  //
-  // Two out-of-line entries over one body, one per destination, because a literal passed to an
+  // Out of line: the hex decode and surrogate handling are dead weight in callers whose escapes
+  // are all one character. Measured: spelled inline alongside the simple escapes it cost `Fast
+  // Escaped string` 18.5%. Two entries over one body, since a literal passed to an
   // `@inline(never)` function is a runtime argument inside it.
   @inlinable
   @inline(never)
@@ -1298,9 +1024,8 @@ public struct JSONParser: ~Copyable {
     var end = from &+ 5
 
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
-      // A pair is twelve bytes and has to be complete and well formed to be fused; a high
-      // surrogate followed by anything else is a diagnostic, so it goes to the per byte path.
-      // The bounds test is first, so the halfword load below stays inside the chunk.
+      // A pair is twelve bytes and must be complete and well formed to fuse; anything else is a
+      // diagnostic for the per-byte path. The bounds test is first, so the load stays in the chunk.
       guard end &+ 6 <= to,
         UInt16(littleEndian: base.loadUnaligned(fromByteOffset: end, as: UInt16.self))
           == streamUnicodeEscapePrefix,
@@ -1319,10 +1044,14 @@ public struct JSONParser: ~Copyable {
     }
 
     if coalescing {
+      // A flush here delivers everything buffered ahead of this escape, so it reports one past
+      // that chunk's last content byte: the backslash, `from &- 1` (as `bufferStringRun` does).
       let encoded = Self.utf8Word(value)
-      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from)
+      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from &- 1)
     } else {
-      try self.emitScalar(value, into: &sink, reportAt: from)
+      // `emitScratch` reports at `reportAt &+ 1`, so `reportAt` must be the escape's *last* byte
+      // -- `end &- 1` for a single escape and a surrogate pair alike; `from` reported 4 (10) early.
+      try self.emitScalar(value, into: &sink, reportAt: end &- 1)
     }
     return end
   }
@@ -1339,8 +1068,8 @@ public struct JSONParser: ~Copyable {
       self.state = .unicode
       return
     }
-    // A high surrogate must be followed immediately by a low surrogate escape. Any other escape
-    // severs the pair, and severing it first is also what keeps the content in order around it.
+    // A high surrogate must be followed immediately by a low surrogate escape; any other escape
+    // severs the pair, and severing it first is what keeps the content in order around it.
     if self.highSurrogate != 0 {
       throw self.loneHighSurrogateError(reportAt: offset &- 1)
     }
@@ -1394,10 +1123,8 @@ public struct JSONParser: ~Copyable {
     self.state = self.stateAfterEscape
   }
 
-  // A high surrogate with no low surrogate after it. Every event that can follow one asks for
-  // this, and it is out of line and returns the error rather than throwing it so that the common
-  // path at each call site stays a compare against zero: two of the four callers are in
-  // `consumeStringRun`, once per literal run and once per closing quote.
+  // A high surrogate with no low surrogate after it. Out of line, and returning the error rather
+  // than throwing it, so the common path at each of the six call sites is a compare against zero.
   @inlinable
   @inline(never)
   func loneHighSurrogateError(reportAt: Int) -> JSONParsingError {
@@ -1416,11 +1143,8 @@ public struct JSONParser: ~Copyable {
     self.bufferCount = 0
   }
 
-  // The scan is greedy over the number byte class and the parse is one structured walk over
-  // the whole token at its end — sign, integer digits, fraction, exponent — so the per-byte
-  // state machine is gone and a number is reported exactly once, complete. The strategy table
-  // is in NEW_ARCHITECTURE.md: deferring the parse beat the fused per-byte accumulation on
-  // every corpus measured, and 8-digit blocks are 2.2x on 17-19 digit ids.
+  // The scan is greedy over the number byte class and the parse is one structured walk over the
+  // whole token at its end, so a number is reported exactly once, complete. See NEW_ARCHITECTURE.md.
   @inlinable
   mutating func consumeNumber<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,
@@ -1457,11 +1181,10 @@ public struct JSONParser: ~Copyable {
     self.bufferCount = 0
   }
 
-  // Parses and validates in the same walk: the grammar is the segment order itself, so a byte
-  // the grammar has no place for fails the final position check rather than a tracked flag.
-  // That is also what rejects doubled exponent signs, which the per-byte rules accepted.
-  // Forced inline: recording instead of calling the sink made this small enough for the
-  // optimizer to leave it out of line, at two call sites in `consumeNumber`.
+  // Parses and validates in the same walk: the grammar is the segment order, so a byte the grammar
+  // has no place for fails the final position check rather than a tracked flag. LOCKSTEP:
+  // `JSONParserShapes.parseNumber` is a deliberate copy of this and `emitGeneralNumber`, including
+  // the `to >= 8` guard below, which is what keeps `streamShortInteger`'s backward load in bounds.
   @inlinable
   @inline(__always)
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(
@@ -1472,9 +1195,8 @@ public struct JSONParser: ~Copyable {
     reportAt: Int
   ) throws(JSONParsingError) {
     // The shape four of the seven corpus payloads are mostly made of: an unsigned integer of one
-    // to eight digits, no sign, no dot, no exponent. The kernel's digit test doubles as the shape
-    // test, so this replaces the sign, leading zero, dot, exponent and final position checks
-    // below rather than adding to them. Anything it declines falls through unchanged.
+    // to eight digits. The kernel's digit test doubles as the shape test, so this replaces the
+    // checks below rather than adding to them.
     if to &- from <= 8, to >= 8,
       base.load(fromByteOffset: from, as: UInt8.self) != .asciiZero || to &- from == 1,
       let magnitude = streamShortInteger(base: base, from: from, end: to)
@@ -1495,20 +1217,10 @@ public struct JSONParser: ~Copyable {
     try self.emitGeneralNumber(base: base, from: from, to: to, into: &sink, reportAt: reportAt)
   }
 
-  // The rest of the walk — sign, leading zero, fraction, exponent, the final position check and
-  // the four error constructions those checks carry — split out of `emitNumber` and forced out
-  // of line. `consumeStructuralRun` now finishes a number whole in the run (see the number arm
-  // of `consumeStructural`), and the run's whole existence depends on `consumeStructural`
-  // staying folded into it: inlining the grammar walk at that site would put the widest function
-  // in the parser inside the loop's inliner budget and un-fold the step, which costs a `bl` per
-  // structural byte. Behind one call the run pays an argument setup and a `bl` on the shapes the
-  // eight-digit kernel declines, and the kernel — which is most numbers on most corpora — stays
-  // inline where the scan's result is already in registers.
-  //
-  // The old two call sites in `consumeNumber` are unaffected: `emitNumber` is still
-  // `@inline(__always)` there, so a general number there is the same call it would have been
-  // had the walk stayed inline (a `bl` instead of a fall-through), and `consumeNumber` is itself
-  // out of line, so nothing it gives up is charged to `parse`.
+  // The rest of the walk -- sign, leading zero, fraction, exponent, the final position check and
+  // their error constructions -- out of line. `consumeStructural` must stay folded into the
+  // structural run, and inlining the grammar walk there would exceed the loop's inliner budget and
+  // un-fold the step, costing a `bl` per structural byte. The eight-digit kernel stays inline.
   @inlinable
   @inline(never)
   mutating func emitGeneralNumber<Sink: StreamParseSink & ~Copyable>(
@@ -1650,19 +1362,10 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Coalesced string content
 
-  // A literal run of string content appended to the coalescing buffer. The buffer is flushed
-  // when the run does not fit, and a run at least as long as the whole buffer is handed to the
-  // sink in place: copying is worth it for the fragments an escape cuts, never for a run already
-  // big enough to be its own chunk.
-  //
-  // A run of at most sixteen bytes -- the fragment an escape cuts is almost always that: 57% of
-  // `llm_message`'s were a single byte -- is copied as one unaligned 16-byte load and store rather
-  // than through `copyMemory`, which is a call into libc `memmove` whose fixed cost is many times
-  // a few-byte copy. Both sides are checked for the slack: the source needs sixteen readable bytes
-  // before the chunk's end `to` (the input has no padding behind it), and the destination sixteen
-  // writable bytes before the end of the allocation, which is the buffer plus the reserved
-  // `scratchByteCount` behind it (dead while a value is being coalesced). The bytes written past
-  // `count` are garbage the count never covers.
+  // A run of string content appended to the coalescing buffer; one at least as long as the buffer
+  // goes to the sink in place. At most sixteen bytes is one unaligned 16-byte load and store, not
+  // a libc `memmove` call. Both slack checks bound it: sixteen readable bytes before `to` in the
+  // source, sixteen writable before the end of the allocation (buffer plus scratch) in the target.
   @inlinable
   mutating func bufferStringRun<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, count: Int, end: Int, to: Int, into sink: inout Sink
@@ -1691,17 +1394,10 @@ public struct JSONParser: ~Copyable {
     self.bufferCount &+= UInt32(count)
   }
 
-  // The decoded bytes of one escape, appended to the coalescing buffer: the whole scratch word in
-  // one unaligned 8-byte store, the shape `recordInlineChunk` uses for the same word. One to four
-  // bytes are meaningful; the rest land past `bufferCount`, where nothing reads them, and never
-  // past the allocation -- after the capacity check `bufferCount` is at most `capacity - 1`, and
-  // the reserved `scratchByteCount` (eight) sits behind the buffer, dead while a value is being
-  // coalesced. Only `coalescedEscapedStringTail` reaches this (by the `coalescing: true` literal),
-  // so the store is in no other function's code -- which is what made it affordable: spelled
-  // behind a runtime flag in `emitScratch`, the same store sat in a never-taken arm of the byte
-  // fed dispatcher and cost `LLM message - byte by byte discarding` 4.9%. The `for _ in
-  // 0..<count` byte loop it replaces (the shape `appendScratchToBuffer` keeps for keys) had cost
-  // `Fast Unicode escaped string - bulk` ~20% once every sink coalesced.
+  // One escape's decoded bytes: the whole scratch word in one unaligned 8-byte store. One to four
+  // bytes are meaningful; the rest land past `bufferCount` and never past the allocation, since
+  // after the capacity check `bufferCount` is at most `capacity - 1` and the reserved
+  // `scratchByteCount` sits behind the buffer. Reached only through the `coalescing: true` literal.
   @inlinable
   mutating func bufferStringScratch<Sink: StreamParseSink & ~Copyable>(
     _ word: UInt64, count: Int, into sink: inout Sink, reportAt: Int
@@ -1714,15 +1410,9 @@ public struct JSONParser: ~Copyable {
     self.bufferCount &+= UInt32(count)
   }
 
-  // Hands everything coalesced so far to the sink as one chunk. Rejection reports at `end`, the
-  // input offset the flush was reached at, which is where fragment-by-fragment delivery reported
-  // the last chunk before it.
-  //
-  // Left to the optimizer rather than forced inline: `@inline(__always)` on the wrapper the
-  // tail's exits used to call pulled this body into one of the three exits, growing the
-  // `PartialSink` specialisation of the tail from 726 to 756 instructions, and `Twitter full -
-  // bulk discarding` measured -1.8% p0 with it (Canada, Mesh, CITM, GSoC, LLM and Twitter escaped
-  // all flat, so it is the tail's size and placement, not its work).
+  // Hands everything coalesced so far to the sink as one chunk, reporting rejection at `end`.
+  // Measured: `@inline(__always)` pulled the body into one of the tail's exits and cost `Twitter
+  // full - bulk discarding` -1.8% p0; leave it to the optimizer.
   @inlinable
   mutating func flushStringBuffer<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink, end: Int
@@ -1736,10 +1426,8 @@ public struct JSONParser: ~Copyable {
     )
   }
 
-  // A key read whole out of the input: validated in place and handed to the sink as a borrow,
-  // with the document's own bytes behind it. No copy, no capacity check, no padding — every
-  // reader in the tree (`paddedWord`, the dictionary's hash and equality) reads within the span's
-  // count, which is the only contract a borrowed span can offer. The caller owns the state.
+  // A key read whole out of the input: validated in place and handed over as a borrow of the
+  // document's own bytes. Every reader stays within the span's count, which is the whole contract.
   @inlinable
   @inline(__always)
   mutating func emitKeyInPlace<Sink: StreamParseSink & ~Copyable>(
@@ -1773,13 +1461,9 @@ public struct JSONParser: ~Copyable {
 
   // MARK: UTF-8
 
-  // Forced inline for byte fed input: a one-byte chunk ends every string run at `to`, so the
-  // string body asks this on *every* content byte. Left to the optimizer, it was inlined into
-  // `consumeStringRun` only while `stringRunBody` was spelled as a `while true` loop; once the
-  // body became straight-line code (every escape leaves for the coalescing tail), the serialized
-  // `consumeStringRun<PartialSink>` that `parse(byte:)` reaches started calling it instead, and
-  // `LLM message - byte by byte discarding` lost 1.4%, every round. Forced, that copy is
-  // instruction for instruction what it was before.
+  // Forced inline for byte-fed input: a one-byte chunk ends every string run at `to`, so the string
+  // body asks this on every content byte. Measured: left to the optimizer, `consumeStringRun`
+  // called it and `LLM message - byte by byte discarding` lost 1.4% every round.
   @inlinable
   @inline(__always)
   mutating func trimmingIncompleteUTF8(
@@ -1809,7 +1493,7 @@ public struct JSONParser: ~Copyable {
     // An invalid lead can be rejected before anything is held, which leaves completion with only
     // the second byte constraints to check.
     let lead = base.load(fromByteOffset: from, as: UInt8.self)
-    guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else {
+    guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else {
       throw self.error(.invalidUTF8, at: from)
     }
     // Little-endian, a byte per lane: `completePendingUTF8` appends at lane `have` with a shift
@@ -1822,11 +1506,9 @@ public struct JSONParser: ~Copyable {
     self.pendingUTF8Count = UInt8(count)
   }
 
-  // Only continuation bytes are taken, and the reassembled sequence goes through the same
-  // validation a contiguous one would. Filling blindly swallowed whatever byte came next — a
-  // closing quote, structurally — and emitting without validating accepted overlongs, encoded
-  // surrogates and out of range leads whenever the split fell inside the sequence, which is
-  // every sequence when fed byte by byte.
+  // Only continuation bytes are taken, and the sequence goes through the same validation a
+  // contiguous one would: filling blindly swallowed the next byte, and emitting unvalidated
+  // accepted overlongs, encoded surrogates and out-of-range leads.
   @inlinable
   mutating func completePendingUTF8<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, count n: Int, into sink: inout Sink
@@ -1854,10 +1536,9 @@ public struct JSONParser: ~Copyable {
       throw self.error(.invalidUTF8, at: leadAt)
     }
     self.pendingUTF8Count = 0
-    // The fill loop admitted only continuation bytes and the hold rejected invalid leads, so the
-    // sequence is valid unless its second byte encodes an overlong, a surrogate or a scalar past
-    // U+10FFFF — the same second byte constraints the contiguous validator applies, without its
-    // ASCII prescan, which measured 32% of byte fed non-ASCII throughput.
+    // The fill loop admitted only continuation bytes and the hold rejected invalid leads, so only
+    // the second byte's constraints remain -- the contiguous validator's, without its ASCII
+    // prescan, which measured 32% of byte-fed non-ASCII throughput.
     if needed > 1 {
       let second = UInt8(truncatingIfNeeded: held &>> 8)
       switch lead {
@@ -1873,31 +1554,16 @@ public struct JSONParser: ~Copyable {
         break
       }
     }
-    // A sequence rejoined inside a skipped string is validated (above) and dropped: the skip
-    // delivers nothing, and this is the one emission its string scanner shares with the
-    // normal path.
+    // A sequence rejoined inside a skipped string is validated and dropped: the skip delivers
+    // nothing, and this is the one emission its string scanner shares with the normal path.
     if self.state == .skippingString { return i }
     try self.recordInlineChunk(held, count: needed, end: i, into: &sink)
     return i
   }
 
-  // The three lead thresholds counted rather than branched between. A lead's length is how many
-  // of `0xC0`, `0xE0`, `0xF0` it reaches, plus one, and the three tests are independent, so this
-  // is `cmp`/`adc` three times with nothing to predict -- where the four-compare ladder it
-  // replaces was four branches choosing between four constants. A continuation byte reaches none
-  // of them and answers 1, which is what the ladder's leading `lead < 0x80` arm answered for it,
-  // so the two agree on all 256 bytes; `LookupTableTests` holds this to the ladder exhaustively.
-  //
-  // A packed nibble table -- one length per nibble of `0x4322_1111_1111_1111`, indexed by
-  // `lead >> 4` -- is fewer operations still and was measured first. It lost, by 2 to 4% across
-  // the whole corpus including payloads with no non-ASCII byte in them at all, because its
-  // 64-bit immediate is ten bytes of `movabs` at every site this inlines into, and one of those
-  // sites is `completePendingUTF8`, which inlines into `parse`. Nothing here is hot enough to
-  // pay for growing the dispatcher: the branches this removes were never taken on those payloads
-  // in the first place. The counting form is the same size as the ladder and wins where the
-  // ladder was actually walked -- `Twitter` +1.4%, `Twitter escaped` +2.0%, `LLM message` +1.8%
-  // -- at the cost of `Canada` -3.7%, which is the same dispatcher-layout effect in the other
-  // direction on a payload with no strings to speak of.
+  // A lead's length is how many of 0xC0, 0xE0 and 0xF0 it reaches, plus one: three independent
+  // `cmp`/`adc` with nothing to predict. A continuation byte reaches none and answers 1, so this
+  // agrees with the four-compare ladder on all 256 bytes; `LookupTableTests` pins that.
   @inlinable
   package static func sequenceLength(_ lead: UInt8) -> Int {
     var length = 1
@@ -1907,10 +1573,8 @@ public struct JSONParser: ~Copyable {
     return length
   }
 
-  // The two guards inline at every call site and settle every ASCII run; a run with a high bit
-  // goes out of line to the vector validator, and only an invalid one reaches the scalar walk
-  // behind it, which exists now to name the byte. The split is what keeps the string loop's
-  // code where it was: with the validator call inlined there too, the byte fed rows paid 2-5%.
+  // The two guards inline everywhere and settle every ASCII run; a run with a high bit goes out of
+  // line to the vector validator. Measured: inlining the validator here too cost byte-fed 2-5%.
   @inlinable
   @inline(__always)
   mutating func validateUTF8IfNeeded(
@@ -1940,7 +1604,7 @@ public struct JSONParser: ~Copyable {
         i &+= 1
         continue
       }
-      guard lead >= .utf8TwoByteMinimum, lead <= .utf8LeadCeiling else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
+      guard lead >= .utf8TwoByteMinimum, lead <= .utf8MaximumLead else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       let needed = Self.sequenceLength(lead)
       guard i &+ needed <= to else { throw self.error(.invalidUTF8, at: reportAt ?? i) }
       for offset in 1..<needed {
@@ -1968,22 +1632,16 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Emission helpers
 
-  // Eight bytes past `bufferCapacity`, reserved so a decoded escape has an address that is
-  // stable and *already in memory*. Giving the scratch word its address from a local instead --
-  // `withUnsafeBytes(of: &word)` -- measured -10.1% on Twitter escaped bulk, -10.6% on its 16KB
-  // rows and -14.2% on LLM message byte by byte against this shape, because the closure both
-  // materialises the word to a fresh stack slot on every escaped byte and captures the sink
-  // `inout` across a call boundary. Four bytes is the most any escape or rejoined UTF-8 sequence
-  // needs; eight keeps the region a single aligned word.
+  // Eight bytes past `bufferCapacity`, reserved so a decoded escape has a stable address already in
+  // memory; four bytes is the most any escape or rejoined sequence needs. Measured: taking the
+  // address from a local via `withUnsafeBytes(of:)` cost Twitter escaped -10.1% and LLM -14.2%.
   @usableFromInline static let scratchByteCount = 8
 
-  // A caller-supplied buffer donates its tail to the scratch above, so this floor is the scratch
-  // plus enough left over for a buffered key or number to be worth having.
+  // A caller-supplied buffer donates its tail to the scratch above, hence this floor.
   @usableFromInline static let minimumBufferByteCount = 16
 
-  // The scratch's address. It sits in the parser's own allocation rather than in the struct, so
-  // reading it costs one `ldr` of an already-hot field and, unlike a stack local, it never lands
-  // in the caller's frame -- which is what kept `consumeStringRun`'s register budget intact.
+  // The scratch's address. It sits in the parser's own allocation rather than in the struct, so it
+  // is one `ldr` of a hot field and, unlike a stack local, never lands in the caller's frame.
   @inlinable
   @inline(__always)
   var scratchBase: UnsafeMutablePointer<UInt8> {
@@ -1998,8 +1656,7 @@ public struct JSONParser: ~Copyable {
     try self.emitScratch(encoded.word, count: encoded.count, into: &sink, reportAt: reportAt)
   }
 
-  // A scalar's UTF-8 encoding, assembled little-endian in a register instead of stored to the
-  // buffer's tail page: the low `count` bytes of `word`.
+  // A scalar's UTF-8 encoding assembled little-endian in a register: the low `count` bytes.
   @inlinable
   @inline(__always)
   static func utf8Word(_ value: UInt32) -> (word: UInt64, count: Int) {
@@ -2046,15 +1703,13 @@ public struct JSONParser: ~Copyable {
       try self.appendScratchToBuffer(word, count: count, reportAt: reportAt)
       return
     }
-    // A string value's escape outside `coalescedEscapedStringTail` -- the per-byte escape
-    // states, the windowed walk's `scanStringValue` -- is its own inline chunk. The tail's
-    // escapes never come through here: it asks `fusedEscapeEnd` for the buffered arm by literal.
+    // A string value's escape outside `coalescedEscapedStringTail` is its own inline chunk. The
+    // tail's escapes never come through here: it asks `fusedEscapeEnd` for the buffered arm by literal.
     try self.recordInlineChunk(word, count: count, end: reportAt &+ 1, into: &sink)
   }
 
-  // The scratch word's low `count` bytes, appended to a key being reassembled. Spelled as byte
-  // stores rather than a `copyMemory` from a stack slot: `count` is one to four, and the word is
-  // already in a register.
+  // The scratch word's low `count` bytes appended to a key being reassembled. Byte stores rather
+  // than a `copyMemory` from a stack slot: `count` is one to four and the word is in a register.
   @inlinable
   mutating func appendScratchToBuffer(
     _ word: UInt64, count: Int, reportAt: Int
@@ -2080,13 +1735,19 @@ public struct JSONParser: ~Copyable {
     Self.topIsObject(depth: self.depth, containers: self.containers)
   }
 
-  // `depth` as a shift amount. The conversion is truncating rather than checked because
-  // `UInt64(depth)` is a *trapping* conversion -- `depth` is an `Int` and a negative one has no
-  // `UInt64` -- and the optimiser cannot prove the parser never makes it negative, so it planted
-  // `test`/`js` and a `ud2` block at both container pushes, the two hottest structural bytes in
-  // any document. `depth` is bounded to `0 ..< maximumDepth` by the guard immediately above each
-  // use, so nothing is being reinterpreted here; the trap edge was pure tax, and a trap edge in
-  // the middle of a block also stops the surrounding compares from being if-converted.
+  // Set the depth's bit (1 = object, 0 = array) and descend. `@_transparent` for the reason
+  // `structuralRun` records; the `depth < maximumDepth` guard stays at each call site.
+  @_transparent
+  @usableFromInline
+  static func pushContainer(object: Bool, depth: inout Int, containers: inout UInt64) {
+    let bit: UInt64 = 1 &<< Self.shiftAmount(depth)
+    if object { containers |= bit } else { containers &= ~bit }
+    depth &+= 1
+  }
+
+  // Truncating, not checked: `UInt64(depth)` traps and the optimiser cannot prove `depth` is never
+  // negative, so it planted `test`/`js` and a `ud2` block at both container pushes, which also
+  // stops the surrounding compares being if-converted. The guard above each use bounds `depth`.
   @inlinable
   @inline(__always)
   static func shiftAmount(_ depth: Int) -> UInt64 {
@@ -2103,28 +1764,17 @@ public struct JSONParser: ~Copyable {
 
   // MARK: Diagnostics
 
-  // Every error reports the absolute offset of the byte it was detected at, so the position a
-  // document fails at does not depend on how it was chunked. Errors detected at a token's
-  // completion — a key validated whole, a number parsed whole — name the token's final byte.
+  // Every error reports the absolute offset of the byte it was detected at, so where a document
+  // fails does not depend on chunking. Errors found at a token's completion name its final byte.
   @inlinable
   func error(_ reason: JSONParsingError.Reason, at offset: Int) -> JSONParsingError {
     JSONParsingError(reason: reason, byteOffset: self.consumedByteCount &+ offset)
   }
 
-  // The throw itself, out of line. A typed `throw` is not the two stores it looks like: the
-  // release build expands each one into the error's construction, an OS version test for the
-  // weakly linked `swift_willThrowTypedImpl` hook, and the call to it — 25 instructions, and
-  // nine of them sat inline in `consumeStructuralRun`, 231 of its 859 instructions, on paths a
-  // valid document never takes. Behind a call that returns `Never` a site is the argument moves
-  // and a `bl`; the offset arithmetic and the hook go with it. The inliner's budget for the run
-  // is what the size buys back: `consumeStructural` must stay folded into the run (see the
-  // comment on `consumeStructuralRun`), and every instruction the cold paths give up is one the
-  // hot paths can spend.
-  //
-  // Static, and handed the absolute offset, rather than a method: as a method the first build
-  // copied all 160 bytes of `self` onto the stack at every site to pass it borrowed while the
-  // run's `inout self` had its write-back pending — thirteen copies, a 2 KB frame, and the run
-  // no smaller than before. A static call is the reason, an add and a `bl`.
+  // The throw itself, out of line. A typed `throw` expands to the error's construction, an OS
+  // version test for the weakly linked `swift_willThrowTypedImpl` hook and the call -- 25
+  // instructions, nine of them inline in `consumeStructuralRun`. Static, not a method -- measured:
+  // as a method every site copied all 160 bytes of `self` onto the stack.
   @inlinable
   @inline(never)
   static func fail(_ reason: JSONParsingError.Reason, byteOffset: Int) throws(JSONParsingError) -> Never {
@@ -2135,17 +1785,6 @@ public struct JSONParser: ~Copyable {
   @inline(never)
   static func fail(_ error: JSONParsingError) throws(JSONParsingError) -> Never {
     throw error
-  }
-
-  @inlinable
-  mutating func checkSink<Sink: StreamParseSink & ~Copyable>(
-    _ sink: inout Sink, at offset: Int
-  ) throws(JSONParsingError) {
-    if let failure = sink.streamFailure {
-      throw JSONParsingError(
-        reason: .sinkRejectedToken(failure), byteOffset: self.consumedByteCount &+ offset
-      )
-    }
   }
 
   @inlinable

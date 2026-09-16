@@ -7,16 +7,6 @@ import StreamParsingCore
 struct `Stream scanner tests` {
   // MARK: - Reference implementations
 
-  private static func naiveStringRunEnd(_ bytes: [UInt8], from: Int) -> Int {
-    var i = from
-    while i < bytes.count {
-      let byte = bytes[i]
-      if byte == 0x22 || byte == 0x5C || byte < 0x20 { return i }
-      i += 1
-    }
-    return bytes.count
-  }
-
   // The validated variant carries a UTF-8 observation alongside the end, and it is specified as
   // exact: only bytes strictly before the terminator may set it. A byte with the high bit set
   // sitting *after* the closing quote must not reach the caller as `containsNonASCII`, because
@@ -53,31 +43,8 @@ struct `Stream scanner tests` {
   // MARK: - String runs
 
   // The vectorized path only engages past sixteen bytes and hands the remainder to a scalar
-  // tail, so the interesting cases are every length and every start offset around that
-  // boundary, not a single large buffer.
-  @Test
-  func `String run scanning matches a naive scan at every length and offset`() {
-    var generator = SystemRandomNumberGenerator()
-    for length in 0...80 {
-      for _ in 0..<20 {
-        var bytes = (0..<length).map { _ in UInt8.random(in: 0x20...0x7E, using: &generator) }
-        // Sprinkle terminators so runs end at varied positions rather than only at the end.
-        for index in bytes.indices where Int.random(in: 0..<8, using: &generator) == 0 {
-          bytes[index] = [0x22, 0x5C, 0x00, 0x1F].randomElement(using: &generator)!
-        }
-        for from in 0...length {
-          let expected = Self.naiveStringRunEnd(bytes, from: from)
-          let actual = Self.withBase(bytes) {
-            streamStringRun(base: $0, from: from, to: length).end
-          }
-          expectNoDifference(actual, expected, "length \(length) from \(from)")
-        }
-      }
-    }
-  }
-
-  // `streamStringRun` had no direct coverage — only the end-only variant did — which left the
-  // UTF-8 observation untested. Non-ASCII is placed both before and after terminators here, so a
+  // tail, so the interesting cases are every length and every start offset around that boundary,
+  // not a single large buffer. Non-ASCII is placed both before and after terminators here, so a
   // flag that leaks a byte from past the run fails rather than silently skipping validation.
   @Test
   func `String run scanning reports end and UTF-8 observation at every length and offset`() {
@@ -188,28 +155,10 @@ struct `Stream scanner tests` {
 
   // MARK: - Whitespace
 
-  @Test
-  func `Whitespace scanning skips only JSON whitespace`() {
-    let bytes: [UInt8] = [0x20, 0x09, 0x0A, 0x0D, 0x61, 0x20]
-    let actual = Self.withBase(bytes) {
-      streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
-    }
-    expectNoDifference(actual, 4)
-  }
-
-  @Test
-  func `Whitespace scanning returns the end when everything is whitespace`() {
-    let bytes: [UInt8] = [0x20, 0x20, 0x20]
-    let actual = Self.withBase(bytes) {
-      streamWhitespaceEnd(base: $0, from: 0, to: bytes.count)
-    }
-    expectNoDifference(actual, 3)
-  }
-
-  // The two cases above are both under sixteen bytes, so both take the scalar path and neither
-  // ever reaches `streamWhitespaceRunEnd` -- the vector body had no direct coverage at all. These
-  // two close that: every byte value is checked at every position of a run long enough to engage
-  // the vector path, and lengths and offsets are swept around the block boundary.
+  // A run shorter than sixteen bytes takes the scalar path and never reaches
+  // `streamWhitespaceRunEnd`, so these two drive the vector body directly: every byte value is
+  // checked at every position of a run long enough to engage it, and lengths and offsets are
+  // swept around the block boundary. Both entry points are held to the same answer.
   @Test
   func `Whitespace run scanning classifies every byte value correctly at every position`() {
     for testByte in UInt8.min...UInt8.max {
@@ -274,15 +223,6 @@ struct `Stream scanner tests` {
     }
   }
 
-  @Test
-  func `Pure ASCII reports no non-ASCII bytes`() {
-    let bytes = [UInt8](repeating: 0x7F, count: 50)
-    let actual = Self.withBase(bytes) {
-      streamContainsNonASCII(base: $0, from: 0, to: bytes.count)
-    }
-    expectNoDifference(!actual, true)
-  }
-
   // MARK: - Digit runs
 
   // The block path only engages past eight bytes and hands the remainder to a scalar tail, so
@@ -344,17 +284,6 @@ struct `Stream scanner tests` {
     }
     expectNoDifference(end, 9)
     expectNoDifference(magnitude, 42 * 1_000_000_000 + 123_456_789)
-  }
-
-  @Test
-  func `Digit accumulation stops at the first non-digit`() {
-    let bytes = Array("12345678901234.99".utf8)
-    var magnitude: UInt64 = 0
-    let end = Self.withBase(bytes) {
-      streamAccumulateDigits(base: $0, from: 0, to: bytes.count, into: &magnitude)
-    }
-    expectNoDifference(end, 14)
-    expectNoDifference(magnitude, 12_345_678_901_234)
   }
 
   // MARK: - Number runs

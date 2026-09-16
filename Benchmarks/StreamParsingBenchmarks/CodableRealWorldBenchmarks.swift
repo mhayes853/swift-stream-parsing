@@ -71,6 +71,36 @@ extension BenchmarkGitHubPayload {
   }
 }
 
+// `entities.media` is present on only a minority of statuses in the corpus, and every other
+// member of the `BenchmarkTwitterFull` tree is either always present or already optional, so this
+// is the one place the tree needs a default-on-missing decode.
+extension BenchmarkTwitterEntities {
+  private enum CodingKeys: String, CodingKey {
+    case hashtags, symbols, urls, user_mentions, media
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      hashtags: try container.decodeDefault(
+        [BenchmarkTwitterHashtag].self, forKey: .hashtags, default: []
+      ),
+      symbols: try container.decodeDefault(
+        [BenchmarkTwitterHashtag].self, forKey: .symbols, default: []
+      ),
+      urls: try container.decodeDefault(
+        [BenchmarkTwitterURLEntity].self, forKey: .urls, default: []
+      ),
+      user_mentions: try container.decodeDefault(
+        [BenchmarkTwitterUserMention].self, forKey: .user_mentions, default: []
+      ),
+      media: try container.decodeDefault(
+        [BenchmarkTwitterMedia].self, forKey: .media, default: []
+      )
+    )
+  }
+}
+
 extension BenchmarkContentBlock {
   private enum CodingKeys: String, CodingKey {
     case type, text, name
@@ -160,6 +190,20 @@ private func addCodableRows<Value: Decodable>(_ row: CodableRealWorldRow<Value>)
   }
 }
 
+private func addFoundationCodableRow<Value: Decodable>(_ row: CodableRealWorldRow<Value>) {
+  let data = Data(row.payload)
+  let foundationDecoder = JSONDecoder()
+
+  Benchmark("Real \(row.name) - JSONDecoder Codable", configuration: payloadConfiguration) {
+    benchmark in
+    measurePayloadThroughput(benchmark, payload: row.payload) {
+      blackHole(expectParses {
+        try decodeWithFoundation(data, as: row.type, decoder: foundationDecoder)
+      })
+    }
+  }
+}
+
 private func validateCodableRealWorldModels() {
   let foundation = JSONDecoder()
   let yyjson = YYJSONDecoder()
@@ -176,6 +220,12 @@ private func validateCodableRealWorldModels() {
   check(CodableRealWorldRow(
     name: "Twitter escaped", payload: Payloads.twitterEscaped, type: BenchmarkTwitterMatched.self
   ))
+  let twitterFullData = Data(Payloads.twitter)
+  blackHole(
+    expectParses {
+      try decodeWithFoundation(twitterFullData, as: BenchmarkTwitterFull.self, decoder: foundation)
+    }
+  )
   check(CodableRealWorldRow(
     name: "Canada", payload: Payloads.canada, type: BenchmarkCanada.self
   ))
@@ -219,6 +269,11 @@ func addRealWorldCodableRows() {
   ))
   addCodableRows(CodableRealWorldRow(
     name: "Twitter escaped", payload: Payloads.twitterEscaped, type: BenchmarkTwitterMatched.self
+  ))
+  // The 26-field model, Foundation only: it is the comparator for `Real Twitter full - bulk
+  // discarding`, and the yyjson half of the pair buys nothing the matched model does not.
+  addFoundationCodableRow(CodableRealWorldRow(
+    name: "Twitter full", payload: Payloads.twitter, type: BenchmarkTwitterFull.self
   ))
   addCodableRows(CodableRealWorldRow(
     name: "Canada", payload: Payloads.canada, type: BenchmarkCanada.self

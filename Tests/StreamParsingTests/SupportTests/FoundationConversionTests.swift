@@ -238,6 +238,18 @@
       expectNoDifference(Self.matchField(key.uppercased()), -1)
     }
 
+    // A near miss that keeps both the length and the leading word, which is everything the
+    // matcher looked at before it grew the trailing word conditions the macro emits.
+    @Test(
+      arguments: [
+        "familyNaZZ", "givenNamZ", "middleNaXY", "namePrefZZ", "nameSuffZZ",
+        "phoneticZZZZZZZZZZZZZZ", "phoneticRepresentatioZ"
+      ]
+    )
+    func `A same length key sharing the leading word does not match`(key: String) {
+      expectNoDifference(Self.matchField(key), -1)
+    }
+
     private static func matchField(_ key: String) -> Int32 {
       let bytes = Array(key.utf8)
       return bytes.withUnsafeBufferPointer {

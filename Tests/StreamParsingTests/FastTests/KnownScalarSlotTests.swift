@@ -51,16 +51,7 @@ struct KnownScalarSlotTests {
   private func failure<Root: StreamParseableRoot>(
     _ json: String, as type: Root.Type
   ) -> StreamSinkFailure.Reason? {
-    var value = Root.streamInitialValue()
-    do {
-      try parsePartial(json, into: &value)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    streamFailureReason(json, as: type)
   }
 
   @Test(arguments: [Int.max, 5, 1])

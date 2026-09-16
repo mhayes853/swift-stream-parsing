@@ -1,12 +1,8 @@
-// Generated: 128-bit truncated powers of ten for the Eisel-Lemire float parser.
-// Extent: 10^-342 ... 10^308 (651 entries, 10,416 bytes).
-// Each entry is the top 128 bits of 10^q, truncated, normalised so bit 127 is set, stored
-// high word first. Regenerate with `Scripts/generate_pow10_128.py`; do not edit by hand.
-//
-// Storage lives here rather than in Swift because a Swift `[UInt64]` global is a heap
-// allocation behind a lazy `swift_once` reached through an addressor, with a bounds check per
-// access -- the same reason `streamSimpleEscapeTable` is a `StaticString`. A C array is
-// `.rodata`, costs no startup work, and stays inside the Embedded subset.
+// Generated: 128-bit truncated powers of ten for the Eisel-Lemire float parser, 10^-342 ... 10^308
+// (651 entries, 10,416 bytes). Each entry is the top 128 bits of 10^q, truncated, normalised so
+// bit 127 is set, stored high word first. Regenerate with `Scripts/generate_pow10_128.py`.
+// In C because a Swift `[UInt64]` global is a lazy heap allocation with a bounds check per access;
+// a C array is `.rodata`, costs no startup work, and stays inside the Embedded subset.
 #include "StreamParsingShims.h"
 
 const uint64_t stream_parsing_pow10_128_storage[] = {

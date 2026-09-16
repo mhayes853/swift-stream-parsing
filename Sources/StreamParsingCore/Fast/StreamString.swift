@@ -1,36 +1,12 @@
-// String storage the parser can append to without materializing a `String` per chunk.
-//
-// `String.streamAppend` is `self += String(decoding:)`: a whole intermediate `String` built and
-// destroyed per chunk, re-validating UTF-8 the parser already validated. Bulk pays it once per
-// escape-delimited run — every escape splits the run, so escaped markdown pays it every ~80
-// bytes — and a byte fed stream pays it per content byte, ~61 ns each measured in
-// `StringAppendBenchmarks`. Accumulating raw bytes and decoding once at read was the floor those
-// measurements found, ~7x under the append path at small chunks; this is that accumulation.
-//
-// Values up to 64 UTF-8 bytes live inline. That covers the short keys and values which previously
-// fit `String`'s small representation, without charging every non-empty partial string a tail
-// allocation. Once the inline buffer overflows, storage takes `StreamArray`'s shape for the same
-// snapshot reasons:
-//
-// - **Sealed bytes live in power-of-two blocks that double as the value grows.** The first block
-//   is 512 bytes (or larger, when a reservation made before promotion privately selects so), and
-//   each sealed block doubles the last up to the 8 KiB cap. Growth is what keeps a long unhinted
-//   value from paying one allocation per 512 bytes — the measured majority of the typed layer's
-//   cost on string-heavy documents — while a short promoted value still allocates only a small
-//   tail. The schedule is a pure function of the first block's shift and the block index, so
-//   locating a byte stays closed form (one `clz`) rather than a search over prefix sums. Once a
-//   block fills it is never written again, so a snapshot shares it forever and an append after a
-//   snapshot copies at most the tail, not the accumulated string.
-// - **Blocks are `ContiguousArray` rather than a class wrapping one.** A single refcounted
-//   pointer each, copy on write for the shared tail comes for free, and every stored property
-//   stays a value type, which is what lets `Sendable` be checked rather than asserted.
-//
-// Physical layout can differ between hinted, unhinted and differently-fed values. Every physical
-// block boundary is a multiple of 512, so reads, equality, ordering and hashing retain canonical
-// 512-byte logical windows across layouts.
+// String storage the parser appends raw UTF-8 to, decoding once at read instead of building a
+// `String` per chunk (~7x under `String.streamAppend`, `StringAppendBenchmarks`). Up to 64 bytes
+// live inline; past that, sealed blocks double from 512 bytes (or a size known at promotion) to an
+// 8 KiB cap and are never written again, so a snapshot shares them and an append copies at most
+// the tail. Every block boundary is a multiple of 512, so reads, equality, ordering and hashing
+// walk canonical 512-byte windows whatever the physical layout.
 public struct StreamString {
   @usableFromInline
-  struct InlineBuffer: Hashable, Sendable {
+  struct InlineBuffer: Sendable {
     @usableFromInline var word0: UInt64 = 0
     @usableFromInline var word1: UInt64 = 0
     @usableFromInline var word2: UInt64 = 0
@@ -44,32 +20,24 @@ public struct StreamString {
     init() {}
   }
 
-  // Kept directly in the value. A copied short string copies these bytes, so snapshots need no
-  // reference counting and a short append needs no allocation.
+  // Held in the value: a copied short string needs no refcount, a short append no allocation.
   @usableFromInline var inlineBytes: InlineBuffer
-  // The low byte is the inline count (0...64); bits 8..15 hold the *first* physical block's
-  // shift, from which every later block derives: block `k` holds `1 << min(shift + k, 13)`
-  // bytes. Bits 16..23 cache the shift of the block the tail is currently filling — always
-  // `min(first + blocks.count, 13)` — so the append hot path reads one word it already loads
-  // instead of chasing the blocks array's count behind its pointer (measured -6..-17% on
-  // byte-fed rows without the cache). Packing the policy here keeps the value layout unchanged.
+  // Low byte: the inline count (0...64). Bits 8..15: the first block's shift (block `k` holds
+  // `1 << min(shift + k, 13)` bytes). Bits 16..23: the tail block's shift, `min(first +
+  // blocks.count, 13)`, cached so the append path reads a word it already loads. Measured: reading
+  // `blocks.count` instead cost -6..-17% on the byte-fed rows.
   @usableFromInline var storageBits: Int
 
-  // Sealed and never written again. Block `k` holds exactly `1 << min(startBlockShift + k,
-  // maximumBlockShift)` bytes — the doubling schedule — which keeps indexing closed form (see
-  // `sealedPosition(of:)`) rather than a search over prefix sums.
+  // Sealed and never written again; sizes follow the schedule, see `sealedPosition(of:)`.
   @usableFromInline var blocks: [ContiguousArray<UInt8>]
 
-  // The filling block. The only allocated storage an append can touch, and so the most a
-  // snapshot-sharing append ever copies after the inline representation overflows.
+  // The filling block: the only allocated storage an append touches, so the most it can copy.
   @usableFromInline var tail: ContiguousArray<UInt8>
 
   @usableFromInline static var inlineCapacity: Int { 64 }
 
-  // 512 bytes is both the unhinted first physical block and the canonical logical window. Blocks
-  // double from there up to 8 KiB — large enough to collapse malloc traffic while bounding the
-  // tail a snapshot can force an append to copy; a hint can start the schedule at any size in
-  // that range directly.
+  // 512 bytes: the unhinted first block and the canonical logical window. The 8 KiB cap bounds the
+  // tail a snapshot can force an append to copy; a hint may start the schedule anywhere in range.
   @usableFromInline static var blockShift: Int { 9 }
   @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
   @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
@@ -90,9 +58,8 @@ public struct StreamString {
   @usableFromInline
   var tailBlockCapacity: Int { 1 &<< ((self.storageBits &>> 16) & 0xFF) }
 
-  // (Re)starts the schedule at `shift`: both the first block's shift and the tail cache, only
-  // ever while no bytes are blocked, which is what keeps the two fields consistent with
-  // `blocks.count == 0`.
+  // (Re)starts the schedule and the tail cache at `shift`. Only called while no bytes are blocked,
+  // which keeps both consistent with `blocks.count == 0`.
   @inlinable
   mutating func setStartBlockShift(_ shift: Int) {
     self.storageBits = (shift &<< 16) | (shift &<< 8) | self.inlineCount
@@ -108,9 +75,8 @@ public struct StreamString {
       &+ ((block &- ramp) &<< Self.maximumBlockShift)
   }
 
-  // Locates the sealed block holding byte `position`, inverting `sealedPrefix`: inside the
-  // doubling ramp the block index is `log2((position >> s) + 1)` — one `clz` — and past the ramp
-  // it is a shift and a mask, exactly the uniform layout this generalizes.
+  // Inverts `sealedPrefix`: inside the doubling ramp the block is `log2((position >> s) + 1)`, one
+  // `clz`; past it, a shift and a mask.
   @inlinable
   func sealedPosition(of position: Int) -> (block: Int, offset: Int) {
     let shift = self.startBlockShift
@@ -139,8 +105,12 @@ public struct StreamString {
     copy.withUTF8 { self.append(utf8: $0) }
   }
 
-  @usableFromInline var usesInlineStorage: Bool { self.blocks.isEmpty && self.tail.isEmpty }
-  @usableFromInline var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
+  // `@inlinable` because `append(utf8:)` and `utf8Count` are: out of line, a client specialisation
+  // copied the whole value to the stack and called out per append to read two counts. `|`, not
+  // `&&`: the short-circuit's extra block tipped `streamAppend` over the inliner's threshold and
+  // outlined it at 33 sites, `PartialSink.stringChunk` among them.
+  @inlinable var usesInlineStorage: Bool { self.blocks.count | self.tail.count == 0 }
+  @inlinable var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
 
   /// The number of UTF-8 bytes accumulated so far.
   @inlinable
@@ -174,23 +144,10 @@ public struct StreamString {
     self.appendBlocked(buffer)
   }
 
-  // The first overflow append sizes the schedule's start, the way a reservation does but from the
-  // *whole* byte count in hand rather than half of it: a value that arrives as one big span (an
-  // unescaped long string parsed in bulk) lands in a single block instead of sealing a half-sized
-  // one and walking the doubling ramp, while a fragment-fed value keeps the 512-byte start and
-  // lets the ramp absorb growth. Never lowers a shift a reservation already raised, and never
-  // runs once bytes are blocked.
-  //
-  // The whole size rather than half is measured, not tidiness: it is what took `Real LLM message
-  // - bulk discarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6 (on top of chunk
-  // coalescing, which is +37.6%/+7.6% of that on its own), with total mallocs on the LLM row
-  // 2,069 -> 576. It costs no memory either -- `promoteInlineStorage`'s empty-tail arm reserves
-  // `min(needed, blockCapacity)` exactly, so a larger block means one seal fewer, not a larger
-  // allocation.
-  //
-  // Outlined: promotion happens once per value, and its body inlined into every `stringChunk`
-  // call site is exactly the kind of growth that flips the parse loop's inlining (the byte-fed
-  // rows pay double digits when it does — see the parse-inlining-cliff history).
+  // The first overflow append sizes the schedule from the *whole* byte count in hand (a reservation
+  // uses half), so one big span lands in one block. Never lowers a reserved shift. Measured: LLM
+  // bulk +73.7%, GSoC +11.6%; `@inline(never)` because inlined into every `stringChunk` site it
+  // flips the parse loop's inlining. See NEW_ARCHITECTURE.md.
   @inlinable
   @inline(never)
   mutating func promoteSizedInlineStorage(reserving needed: Int) {
@@ -230,18 +187,9 @@ public struct StreamString {
       let take = min(blockCapacity &- self.tail.count, buffer.count &- offset)
       let needed = self.tail.count &+ take
       if self.tail.capacity < needed {
-        // An empty tail reserves only what the fragment in hand needs, so a value that promotes
-        // and then stops short does not take a whole block for eighty bytes. That is right for
-        // the *first* block and wrong for every one after it: a seal empties the tail, so a
-        // fragment-fed value was re-entering this arm at every block and growing 512 bytes in
-        // steps, paying a reallocation per block. Escape-split values are exactly the ones that
-        // arrive in fragments, which is why the string-heavy corpora pay it and the one-span
-        // rows do not.
-        //
-        // "Has a block already sealed" is answered from `storageBits` alone — the tail's shift
-        // has moved past the start's — so this asks nothing of `blocks` and adds no dependent
-        // load to the append path. Once the schedule is capped the two shifts stop diverging, and
-        // a value that reached the cap is long by construction.
+        // An empty tail reserves only the fragment in hand, but only for the *first* block: after
+        // a seal a fragment-fed value would reallocate its way up every block. "A block has sealed"
+        // comes from `storageBits`, so it adds no dependent load on `blocks`.
         let provenLong =
           blockCapacity != self.startBlockCapacity
           || blockCapacity == 1 &<< Self.maximumBlockShift
@@ -250,21 +198,13 @@ public struct StreamString {
       self.tail.append(contentsOf: UnsafeBufferPointer(start: base + offset, count: take))
       offset &+= take
       guard self.tail.count == blockCapacity else { continue }
-      // `blocks` grows by doubling from its first append, so a three-block value paid two array
-      // reallocations on top of its three buffers — a quarter to a third of the census's
-      // `StreamString` mallocs. Reserving at the first seal makes that one allocation for
-      // anything up to four blocks (7,680 bytes on the unhinted schedule), and the load is free
-      // here because the append below touches the same array.
-      //
-      // Keyed on `capacity`, not `isEmpty`: `streamReserve` already sizes this array to the exact
-      // block count the hint implies, and reserving 4 over a hint that asked for 2 reallocates it
-      // — measured as +163 mallocs on hinted GSoC and +91 on hinted LLM message before this read
-      // was narrowed to "nobody has reserved anything yet".
+      // Reserved at the first seal: doubling from one cost a three-block value two reallocations.
+      // Measured: keyed on `capacity`, not `isEmpty` -- `streamReserve` already sizes this array,
+      // and reserving 4 over a hint of 2 cost +163 mallocs on hinted GSoC.
       if self.blocks.capacity == 0 { self.blocks.reserveCapacity(4) }
       self.blocks.append(self.tail)
       self.tail = ContiguousArray<UInt8>()
-      // A seal moves the schedule to the next block, doubling until the cap; the cached shift
-      // in `storageBits` moves with it so the next append call reloads it for free.
+      // The schedule doubles until the cap, and the cached tail shift moves with it.
       if blockCapacity < 1 &<< Self.maximumBlockShift {
         self.storageBits &+= 1 &<< 16
         blockCapacity &<<= 1
@@ -274,7 +214,7 @@ public struct StreamString {
 
   // MARK: Reading
 
-  @usableFromInline
+  @inlinable
   func withInlineBuffer<R>(_ body: (UnsafeBufferPointer<UInt8>) throws -> R) rethrows -> R {
     try withUnsafeBytes(of: self.inlineBytes) { source in
       try body(
@@ -285,9 +225,7 @@ public struct StreamString {
     }
   }
 
-  // Copies `range` into `destination`. Inline values are one memcpy. Blocked values use one
-  // memcpy per block they touch, plus one for the tail — the floor for storage which can share
-  // sealed bytes across snapshots without relocating them on growth.
+  // One memcpy inline; blocked, one per block touched plus one for the tail.
   @usableFromInline
   func copyBytes(in range: Range<Int>, to destination: UnsafeMutableBufferPointer<UInt8>) {
     guard let base = destination.baseAddress, !range.isEmpty else { return }
@@ -332,8 +270,7 @@ public struct StreamString {
         )
       }
     }
-    // A range in the allocated tail or inside one sealed block is contiguous, so both decode in
-    // place with no gathering copy.
+    // A range in the tail or inside one sealed block is contiguous and decodes in place.
     if self.blocks.isEmpty {
       return self.tail.withUnsafeBufferPointer { buffer in
         String(
@@ -366,12 +303,14 @@ public struct StreamString {
 // MARK: - Byte access
 
 extension StreamString {
-  // The one byte read every view routes through: an inline offset, a shift and mask into a sealed
-  // block, or an offset into the tail.
+  // The byte read every view routes through.
   @inlinable
   func utf8Byte(at position: Int) -> UInt8 {
     if self.usesInlineStorage {
-      precondition(position < self.inlineCount, "StreamString byte offset out of range")
+      // Both bounds: past this arm `UnsafeBufferPointer.subscript` checks only in debug.
+      precondition(
+        position >= 0 && position < self.inlineCount, "StreamString byte offset out of range"
+      )
       return self.withInlineBuffer { $0[position] }
     }
     let sealed = self.sealedCount
@@ -384,13 +323,22 @@ extension StreamString {
     return self.tail[offset]
   }
 
-  // Runs `body` over the contiguous bytes at `[position, position + count)`, which must not
-  // cross a 512-byte window. An inline value is entirely one window; block seals and the tail are
-  // 512-aligned after promotion.
+  // Runs `body` over `[position, position + count)`, which must not cross a 512-byte window: seals
+  // and the tail are 512-aligned after promotion, and an inline value is one window.
   @usableFromInline
   func withWindow<R>(
     at position: Int, count: Int, _ body: (UnsafeBufferPointer<UInt8>) -> R
   ) -> R {
+    // Unchecked in release: callers derive `count` from the 512 mask, safe only because
+    // `startBlockShift >= 9` (`init`, and `setStartBlockShift`'s callers only raise it).
+    assert(
+      count >= 0 && position >= 0 && position &+ count <= self.utf8Count,
+      "StreamString window out of range"
+    )
+    assert(
+      self.usesInlineStorage || count <= 512 &- (position & 511),
+      "StreamString window crosses a physical block boundary"
+    )
     if self.usesInlineStorage {
       return self.withInlineBuffer { buffer in
         body(UnsafeBufferPointer(start: buffer.baseAddress! + position, count: count))
@@ -411,29 +359,23 @@ extension StreamString {
 
 // MARK: - Key words
 
-// The read side of the same encoding `Span<UInt8>.paddedWord(at:)` produces, so a generated
-// matcher can compare an accumulated value against a compile-time literal with the identical
-// codegen it already uses for object keys — a switch on the leading word, then a count check and
-// any remaining words. That symmetry is the point: `@StreamParseable` on a `String`-raw enum
-// emits the same shape of matcher for a case name that it emits for a member key, rather than
-// materializing a `String` per conversion and running string equality.
+// The read side of `Span<UInt8>.paddedWord(at:)`'s encoding, so a generated `String`-raw enum
+// matcher compares a value against a literal with the same codegen it uses for object keys, and
+// never materializes a `String`.
 extension StreamString {
   /// The accumulated UTF-8 bytes `start..<start + 8`, little-endian, zero-padded past
   /// ``utf8Count``.
   ///
-  /// The padding is why a matcher must still test ``utf8Count``: an accumulated value may hold a
-  /// decoded NUL, which is otherwise indistinguishable from the padding.
-  ///
-  /// `start` is expected to be a multiple of eight, which every generated matcher uses. Any
-  /// eight-byte window at such an offset lies inside one contiguous 512-byte block, so this
-  /// never has to stitch a word across a block seam.
+  /// A matcher must still test ``utf8Count``: a value may hold a decoded NUL, which the padding is
+  /// otherwise indistinguishable from. `start` must be a multiple of eight, so the word never
+  /// crosses a 512-byte block.
   @inlinable
   public func paddedWord(at start: Int) -> UInt64 {
+    // Debug only: a `precondition` would land on the generated enum matcher path.
+    assert(start & 7 == 0, "StreamString.paddedWord(at:) requires an eight-byte aligned start")
     let count = self.utf8Count
     guard start >= 0, start < count else { return 0 }
-    // Clamped rather than overread: unlike a key span, whose bytes are a borrow into the
-    // document with more document behind them, an accumulated value's last block ends where the
-    // value does and there is nothing legal past it.
+    // Clamped rather than overread: unlike a key span, a value's last block ends where it does.
     let available = min(8, count &- start)
     return self.withWindow(at: start, count: available) { buffer in
       streamPaddedWord(
@@ -455,11 +397,14 @@ extension StreamString {
 
 // MARK: - Scalar decoding
 
+// The shared cold read layer; `decodeScalar` and `scalarAlignedOffset` stay per type, see
+// `StreamInlineString.decodeScalar`.
+extension StreamString: _StreamUTF8Backed {}
+
 extension StreamString {
-  // Decodes the scalar starting at `position`, repairing: a byte that does not begin a
-  // well-formed sequence decodes as U+FFFD with length one, the same policy as the repairing
-  // `String` decode, so the two views tell one story about invalid bytes. The narrowed
-  // second-byte ranges are what reject overlong forms and surrogates.
+  // Decodes the scalar at `position`, repairing: a byte that does not begin a well-formed sequence
+  // is U+FFFD of length one, matching the `String` decode. The narrowed second-byte ranges reject
+  // overlong forms and surrogates.
   @usableFromInline
   func decodeScalar(at position: Int) -> (scalar: Unicode.Scalar, length: Int) {
     let lead = self.utf8Byte(at: position)
@@ -496,9 +441,8 @@ extension StreamString {
     return (Unicode.Scalar(value).unsafelyUnwrapped, length)
   }
 
-  // The largest scalar-aligned offset at or before `limit`: backs off over at most three
-  // continuation bytes, so a window cut never tears a scalar. `limit` itself is aligned when
-  // the byte at it starts a sequence, or when it is the end of the string.
+  // The largest scalar-aligned offset at or before `limit`, backing off over at most three
+  // continuation bytes, so a window cut never tears a scalar.
   @usableFromInline
   func scalarAlignedOffset(before limit: Int) -> Int {
     var end = limit
@@ -577,18 +521,7 @@ extension StreamString {
     }
 
     public func index(before index: Int) -> Int {
-      // Walk back over at most three continuation bytes. When the lead byte reached does not
-      // actually span back to `index`, the byte before `index` is ill-formed and stands alone as
-      // its own U+FFFD, which keeps backward and forward traversal visiting the same positions.
-      var candidate = index &- 1
-      var steps = 0
-      while steps < 3, candidate > 0, self.base.utf8Byte(at: candidate) & 0xC0 == 0x80 {
-        candidate &-= 1
-        steps &+= 1
-      }
-      return candidate &+ self.base.decodeScalar(at: candidate).length >= index
-        ? candidate
-        : index &- 1
+      self.base.scalarIndex(before: index)
     }
 
     public subscript(position: Int) -> Unicode.Scalar {
@@ -605,34 +538,8 @@ extension StreamString {
 
 // MARK: - Characters
 
-// Forward `String.Character` access without claiming that byte offsets are character indices.
-// Grapheme segmentation is not public API and its tables are not something this package should
-// carry, so the boundary question is delegated to `String`'s own breaker over a small decoded
-// window. The window grows while its first character fills it entirely; once that character ends
-// inside the window, the boundary is final.
+// `characterSpan(at:)` is shared; see `_StreamUTF8Backed`.
 extension StreamString {
-  @usableFromInline
-  func characterSpan(at offset: Int) -> (character: Character, end: Int) {
-    var windowEnd = self.scalarAlignedOffset(before: min(offset &+ 8, self.utf8Count))
-    if windowEnd <= offset { windowEnd = min(offset &+ 4, self.utf8Count) }
-    while true {
-      let window = self.decode(in: offset..<windowEnd)
-      let first = window.first ?? "\u{FFFD}"
-      // A decode that did not round-trip its byte count hit ill-formed bytes. Advance by the raw
-      // scalar length so iteration continues one ill-formed byte at a time.
-      guard window.utf8.count == windowEnd &- offset else {
-        return (first, offset &+ self.decodeScalar(at: offset).length)
-      }
-      let end = offset &+ first.utf8.count
-      if end < windowEnd || windowEnd == self.utf8Count { return (first, end) }
-      let grown = self.scalarAlignedOffset(
-        before: min(offset &+ (windowEnd &- offset) &* 2, self.utf8Count)
-      )
-      guard grown > windowEnd else { return (first, end) }
-      windowEnd = grown
-    }
-  }
-
   /// The accumulated text as the same forward sequence of extended grapheme clusters that a
   /// Swift `String` exposes as `Character` elements.
   public struct CharacterSequence: Sequence, IteratorProtocol {
@@ -676,11 +583,9 @@ extension String {
   }
 }
 
-// The `StringProtocol` bridge. `StreamString` cannot conform itself — the protocol requires
-// `String.Index` positions and `Character` elements, neither of which block storage can vend,
-// and only `String` and `Substring` are valid conformers by the standard library's own contract.
-// A `Substring` over one decode is the next best thing: one materialization, then the full
-// `String` API, accepted by anything generic over `StringProtocol`.
+// `StreamString` cannot conform to `StringProtocol` (it requires `String.Index` positions and
+// `Character` elements, and the stdlib admits only `String` and `Substring`), so this bridges:
+// one decode, then the full `String` API.
 extension Substring {
   /// Decodes the accumulated bytes into a `Substring`, repairing any ill-formed UTF-8.
   public init(_ streamString: StreamString) {
@@ -701,8 +606,7 @@ extension StreamString: ExpressibleByStringInterpolation {
     self.init(value)
   }
 
-  // A custom interpolation rather than `DefaultStringInterpolation`, so the segments append as
-  // bytes directly instead of assembling a whole `String` and converting it.
+  // Custom, so segments append as bytes instead of assembling a `String` first.
   public struct StringInterpolation: StringInterpolationProtocol {
     @usableFromInline var value: StreamString
 
@@ -728,8 +632,7 @@ extension StreamString: ExpressibleByStringInterpolation {
     }
 
     #if !hasFeature(Embedded)
-      // The catch-all goes through `String(describing:)`, which is reflection and outside the
-      // embedded subset; the typed overloads above are what embedded interpolation gets.
+      // `String(describing:)` is reflection, outside the Embedded subset.
       public mutating func appendInterpolation<T>(_ item: T) {
         self.value.append(String(describing: item))
       }
@@ -741,10 +644,8 @@ extension StreamString: ExpressibleByStringInterpolation {
   }
 }
 
-// Byte-wise, which for decoded JSON text means scalar-wise: the parser has already resolved
-// escapes, so equal documents produce equal bytes. This is stricter than `String`'s canonical
-// equivalence — NFC and NFD spellings of the same characters compare unequal here, as they do
-// in the JSON grammar itself.
+// Byte-wise, which for decoded JSON text is scalar-wise: stricter than `String`'s canonical
+// equivalence, so NFC and NFD spellings compare unequal, as in the JSON grammar.
 extension StreamString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
     let count = lhs.utf8Count
@@ -764,22 +665,14 @@ extension StreamString: Equatable {
   }
 }
 
-// Comparison against `String` directly, because a partial's string fields are optional
-// `StreamString`s and `partial.title == expected` is the single most common comparison a client
-// writes. Byte-wise like the homogeneous `==`, so the two cannot disagree. The optional overloads
-// exist because optional lifting only reaches the homogeneous operator.
+// Against `String` directly, because `partial.title == expected` is the commonest client
+// comparison. Byte-wise like `==`; the optional overloads exist because optional lifting only
+// reaches the homogeneous operator.
 extension StreamString {
-  @usableFromInline
-  func utf8Equals(_ other: some StringProtocol) -> Bool {
-    var copy = String(other)
-    return copy.withUTF8 { buffer in
-      self.utf8Count == buffer.count && self.utf8Matches(buffer, at: 0)
-    }
-  }
+  // `utf8Equals(_:)` is shared; see `_StreamUTF8Backed`.
 
-  // Whether `buffer` matches the accumulated bytes starting at byte `offset`. The one comparison
-  // against foreign contiguous bytes, shared by `==`, `hasPrefix`, `hasSuffix` and `contains`:
-  // one `streamBytesEqual` per contiguous window the match touches.
+  // Whether `buffer` matches the bytes at `offset`: one `streamBytesEqual` per window touched.
+  // Shared by `==`, `hasPrefix`, `hasSuffix` and `contains`.
   @usableFromInline
   func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool {
     guard offset >= 0, offset &+ buffer.count <= self.utf8Count else { return false }
@@ -821,8 +714,7 @@ extension StreamString {
 
 }
 
-// Free functions rather than members, because a member operator must take `StreamString`
-// itself somewhere and these take it wrapped.
+// Free functions: a member operator must take `StreamString` itself somewhere.
 
 @inlinable
 public func == (lhs: StreamString?, rhs: some StringProtocol) -> Bool {
@@ -846,26 +738,19 @@ public func != (lhs: some StringProtocol, rhs: StreamString?) -> Bool {
 
 // MARK: - Searching
 
-// Byte-wise, like `==`: for decoded JSON text these answer the scalar-exact question and never
-// materialize, where going through `String.hasPrefix` would cost a whole decode to answer a
-// canonical-equivalence one.
+// Byte-wise, like `==`: the scalar-exact answer with no decode.
 extension StreamString {
   /// Whether the accumulated bytes start with `prefix`'s UTF-8, compared byte-wise.
   public func hasPrefix(_ prefix: some StringProtocol) -> Bool {
-    var copy = String(prefix)
-    return copy.withUTF8 { buffer in
-      self.utf8Matches(buffer, at: 0)
-    }
+    self.utf8HasPrefix(prefix)
   }
 
   /// Whether the accumulated bytes are a prefix of `text`'s UTF-8, compared byte-wise —
   /// including when they are all of it.
   ///
-  /// The mirror of ``hasPrefix(_:)``, and the direction a *streaming* match needs: the question
-  /// is whether what has arrived so far is still consistent with `text`, not whether `text` has
-  /// already arrived. A generated enum matcher walks its cases shortest-first asking this, so the
-  /// first case still consistent with the bytes in hand is the shortest one — which is the
-  /// documented resolution rule when the value may yet grow.
+  /// The direction a *streaming* match needs: whether what has arrived so far is still consistent
+  /// with `text`. A generated enum matcher walks its cases shortest-first asking this, so the
+  /// first case still consistent with the bytes in hand is the shortest one.
   public func isPrefix(of text: some StringProtocol) -> Bool {
     var copy = String(text)
     return copy.withUTF8 { buffer in
@@ -877,42 +762,20 @@ extension StreamString {
 
   /// Whether the accumulated bytes end with `suffix`'s UTF-8, compared byte-wise.
   public func hasSuffix(_ suffix: some StringProtocol) -> Bool {
-    var copy = String(suffix)
-    return copy.withUTF8 { buffer in
-      self.utf8Matches(buffer, at: self.utf8Count &- buffer.count)
-    }
+    self.utf8HasSuffix(suffix)
   }
 
-  /// The byte range of the first occurrence of `needle`'s UTF-8 at or after `offset`,
-  /// compared byte-wise.
+  /// The byte range of the first occurrence of `needle`'s UTF-8 at or after `offset`, compared
+  /// byte-wise.
   ///
-  /// The bounds are byte offsets, the currency every other door accepts: `utf8[range]`,
-  /// `String(_:)` and `Substring(_:)` of the slice. A match of well-formed text in well-formed
-  /// text is always scalar-aligned — UTF-8 self-synchronizes — but not necessarily grapheme-
-  /// cluster-aligned: searching for `"e"` finds the `e` inside a decomposed `"é"`. An empty
-  /// needle matches emptily at `offset`.
-  ///
-  /// A first-byte scan with a full match at each candidate — worst case is quadratic, which a
-  /// field-sized string never notices and a pathological one pays only when asked.
+  /// The bounds are byte offsets. A match in well-formed text is scalar-aligned but not
+  /// necessarily grapheme-aligned: `"e"` matches inside a decomposed `"é"`. An empty needle matches
+  /// emptily at `offset`. The worst case is quadratic.
   public func range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamString byte offset out of range"
     )
-    var copy = String(needle)
-    return copy.withUTF8 { buffer in
-      guard !buffer.isEmpty else { return offset..<offset }
-      guard buffer.count <= self.utf8Count &- offset else { return nil }
-      let first = buffer[0]
-      let last = self.utf8Count &- buffer.count
-      var position = offset
-      while position <= last {
-        if self.utf8Byte(at: position) == first, self.utf8Matches(buffer, at: position) {
-          return position..<(position &+ buffer.count)
-        }
-        position &+= 1
-      }
-      return nil
-    }
+    return self.utf8Range(of: needle, from: offset)
   }
 
   /// Whether `other`'s UTF-8 occurs anywhere in the accumulated bytes, compared byte-wise.
@@ -942,8 +805,7 @@ extension StreamString {
       self.promoteInlineStorage(reserving: utf8ByteCount)
     }
     self.tail.reserveCapacity(min(utf8ByteCount, self.tailBlockCapacity))
-    // The schedule makes the block count for a byte count exact rather than a shift: the block
-    // holding the last byte, plus one.
+    // The block holding the last byte, plus one.
     self.blocks.reserveCapacity(self.sealedPosition(of: utf8ByteCount &- 1).block &+ 1)
   }
 
@@ -992,8 +854,7 @@ extension StreamString {
   }
 }
 
-// An accumulator is an output stream: `print(x, to: &value)` appends, which is the type's
-// native operation.
+// `print(x, to: &value)` appends.
 extension StreamString: TextOutputStream {
   public mutating func write(_ string: String) {
     self.append(string)
@@ -1001,8 +862,7 @@ extension StreamString: TextOutputStream {
 }
 
 extension StreamString: TextOutputStreamable {
-  // Block-at-a-time, with each cut backed off to a scalar boundary so no chunk decodes a torn
-  // character — the whole value is never materialized at once.
+  // Block-at-a-time, each cut backed off to a scalar boundary; never materializes the whole value.
   public func write<Target: TextOutputStream>(to target: inout Target) {
     var position = 0
     while position < self.utf8Count {
@@ -1023,8 +883,7 @@ extension StreamString: Hashable {
       self.withInlineBuffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
       return
     }
-    // Physical blocks can adapt to a reservation hint. Hash through canonical 512-byte logical
-    // windows so equal hinted and unhinted values still make the same sequence of combines.
+    // Through canonical 512-byte windows, so equal hinted and unhinted values combine identically.
     var position = 0
     while position < self.utf8Count {
       let take = min(Self.blockCapacity, self.utf8Count &- position)
@@ -1036,11 +895,8 @@ extension StreamString: Hashable {
   }
 }
 
-// Byte-wise lexicographic, which for UTF-8 is Unicode scalar-value order: a deterministic,
-// table-free ordering that differs from `String`'s canonical ordering exactly the way `==`
-// already differs. Equal-length 512-byte windows pair up in one buffer on each side — block
-// seals are 512-aligned and the tail starts 512-aligned — so `streamCompareBytes` can find the
-// first unequal byte in one SIMD-backed pass.
+// Byte-wise lexicographic, which for UTF-8 is scalar-value order. Equal-length 512-byte windows
+// pair up, so `streamCompareBytes` finds the first unequal byte in one SIMD pass per window.
 extension StreamString: Comparable {
   public static func < (lhs: Self, rhs: Self) -> Bool {
     let common = min(lhs.utf8Count, rhs.utf8Count)
@@ -1066,8 +922,7 @@ extension StreamString: Comparable {
   }
 }
 
-// Checked rather than `@unchecked`: every stored property is a value type, so the compiler can
-// see that sharing a copy shares nothing mutable.
+// Checked, not `@unchecked`: every stored property is a value type.
 extension StreamString: Sendable {}
 
 extension StreamString: CustomStringConvertible {
@@ -1083,17 +938,14 @@ extension StreamString: CustomDebugStringConvertible {
 }
 
 #if !hasFeature(Embedded)
-  // Without this a reflecting printer walks the blocks and the tail, which puts the internals
-  // into every custom dump and every recorded snapshot.
+  // Otherwise a reflecting printer dumps the blocks and the tail.
   extension StreamString: CustomReflectable {
     public var customMirror: Mirror {
       Mirror(reflecting: String(self))
     }
   }
 
-  // As a single value, so a partial encodes the way the string it stands in for would. Both
-  // sides are outside the embedded subset, which is why they are guarded rather than
-  // unconditional.
+  // A single value, encoding as the string it stands in for. Outside the Embedded subset.
   extension StreamString: Encodable {
     public func encode(to encoder: any Encoder) throws {
       var container = encoder.singleValueContainer()
@@ -1122,8 +974,7 @@ extension StreamString: StreamStringConvertible {
     bytes.withUnsafeBufferPointer { buffer in
       self.append(utf8: buffer)
     }
-    // Storage grows to fit, so there is no capacity to exceed. The constant result folds away
-    // once the schema closure specializes on `StreamString`.
+    // Storage grows to fit; the constant folds away once the schema closure specializes.
     return .applied
   }
 }

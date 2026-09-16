@@ -14,20 +14,8 @@ import StreamParsingCore
 @Suite
 struct `Buffer capacity tests` {
   private static func parse(_ json: String, capacity: Int, chunk: Int) throws {
-    var parser = JSONParser(bufferCapacity: capacity)
     var sink = CountingConformanceSink()
-    let bytes = Array(json.utf8)
-    try bytes.withUnsafeBufferPointer { input in
-      var offset = 0
-      while offset < input.count {
-        let count = Swift.min(chunk, input.count - offset)
-        try parser.parse(
-          UnsafeBufferPointer(start: input.baseAddress! + offset, count: count), into: &sink
-        )
-        offset += count
-      }
-    }
-    try parser.finish(into: &sink)
+    try feed(Array(json.utf8), chunk: chunk, into: &sink, bufferCapacity: capacity)
   }
 
   private static func failure(_ json: String, capacity: Int, chunk: Int) -> JSONParsingError? {

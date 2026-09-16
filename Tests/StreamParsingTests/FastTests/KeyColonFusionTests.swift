@@ -15,27 +15,14 @@ import StreamParsingCore
 @Suite
 struct `Key colon fusion tests` {
   private static func tree(_ bytes: [UInt8], splitAt: Int) throws -> TreeSink.Node? {
-    var parser = JSONParser()
     var sink = TreeSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
-      let second = UnsafeBufferPointer(
-        start: buffer.baseAddress! + splitAt, count: buffer.count &- splitAt
-      )
-      if !first.isEmpty { try parser.parse(first, into: &sink) }
-      if !second.isEmpty { try parser.parse(second, into: &sink) }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, splitAt: splitAt, into: &sink)
     return sink.value
   }
 
   private static func treeBytewise(_ bytes: [UInt8]) throws -> TreeSink.Node? {
-    var parser = JSONParser()
     var sink = TreeSink()
-    for byte in bytes {
-      try parser.parse(byte: byte, into: &sink)
-    }
-    try parser.finish(into: &sink)
+    try feedByByte(bytes, into: &sink)
     return sink.value
   }
 

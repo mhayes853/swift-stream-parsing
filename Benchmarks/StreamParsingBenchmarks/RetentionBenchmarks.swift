@@ -106,7 +106,7 @@ func retentionBenchmarks() {
       }
     }
 
-    Benchmark("Dictionary \(count) keys - snapshot per byte") { benchmark in
+    Benchmark("Dictionary \(count) keys - keep all") { benchmark in
       for _ in benchmark.scaledIterations {
         blackHole(try streamSnapshottingAll(payload, as: BenchmarkCounts.Partial.self))
       }

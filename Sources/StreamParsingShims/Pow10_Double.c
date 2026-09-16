@@ -1,12 +1,8 @@
-// Generated: the exact `Double` values 10^0 ... 10^22. These are the powers of ten whose odd
-// factor, 5^q, fits Double's 53-bit significand; 10^23 and above are rounded values and cannot be
-// used as an exact scale without risking a one-ULP error in the final result.
-//
-// Storage lives here for the same reason `Pow10_128.c` does: a Swift `[Double]` global is a heap
-// allocation behind a lazy `swift_once` reached through an addressor, with a bounds check per
-// access. A C array is `.rodata`, costs no startup work, and stays inside the Embedded subset.
-// The call site only asks for `abs(exponent)`, so a positive table also makes the bounds check the
-// exactness check and indexes directly without a bias.
+// Generated: the exact `Double` values 10^0 ... 10^22 -- the powers of ten whose odd factor 5^q
+// fits Double's 53-bit significand. 10^23 and above are rounded and cannot be an exact scale.
+// In C for the same reason `Pow10_128.c` is: `.rodata` rather than a lazy heap allocation. The
+// table is positive because the call site asks for `abs(exponent)`, which makes the bounds check
+// the exactness check and needs no bias to index.
 #include "StreamParsingShims.h"
 
 const double stream_parsing_pow10_double_storage[] = {

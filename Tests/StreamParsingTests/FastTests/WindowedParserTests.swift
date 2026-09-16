@@ -55,12 +55,7 @@ struct `Windowed parser tests` {
       return .stream
     }
     mutating func endArray() { self.record(.endArray, kind: "endArray") }
-    private static func copy(_ span: Span<UInt8>) -> [UInt8] {
-      var out = [UInt8]()
-      out.reserveCapacity(span.count)
-      for i in span.indices { out.append(span[i]) }
-      return out
-    }
+    private static func copy(_ span: Span<UInt8>) -> [UInt8] { streamCopy(span) }
 
     mutating func key(_ bytes: Span<UInt8>) { self.record(.key(Self.copy(bytes)), kind: "key") }
     mutating func stringBegin() { self.record(.stringBegin, kind: "stringBegin") }

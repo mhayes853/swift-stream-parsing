@@ -43,7 +43,6 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 3, 8, 64, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `Chunking does not change the accumulated string`(chunk: Int) {
     let content = "inline content that fits"
     let (value, result) = self.accumulated(
@@ -323,20 +322,11 @@ struct `Stream inline string tests` {
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   private func failure(_ json: String, chunk: Int = .max) -> StreamSinkFailure.Reason? {
     var value = InlineFieldModel.Partial()
-    do {
-      try parsePartial(json, into: &value, chunk: chunk)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    return streamFailureReason(json, into: &value, chunk: chunk)
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 4, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `A parsed field accumulates through the schema`(chunk: Int) throws {
     var value = InlineFieldModel.Partial()
     try parsePartial(#"{"title":"hello","body":"world"}"#, into: &value, chunk: chunk)
@@ -346,7 +336,6 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 4, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `A field overflowing its capacity fails the parse`(chunk: Int) {
     expectNoDifference(
       self.failure(#"{"title":"far more than sixteen bytes of title"}"#, chunk: chunk),
@@ -365,7 +354,6 @@ struct `Stream inline string tests` {
   // takes that route is exercised here.
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 4, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `A bare root takes the erased route`(chunk: Int) throws {
     var value = StreamInlineString<32>()
     try parsePartial(#""root string""#, into: &value, chunk: chunk)
@@ -374,7 +362,6 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 4, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `Array elements take the erased route`(chunk: Int) throws {
     var value = StreamArray<StreamInlineString<16>>()
     try parsePartial(#"["one","two","three"]"#, into: &value, chunk: chunk)
@@ -385,7 +372,6 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [1, 4, Int.max])
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   func `Dictionary values take the erased route`(chunk: Int) throws {
     var value = StreamDictionary<StreamInlineString<16>>()
     try parsePartial(#"{"a":"first","b":"second"}"#, into: &value, chunk: chunk)

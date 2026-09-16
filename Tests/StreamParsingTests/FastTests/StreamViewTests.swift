@@ -135,18 +135,6 @@ struct `Stream view tests` {
 
   // MARK: - Zero-copy container access
 
-  // `StreamArray.View.subscript(index:)` and `StreamDictionary.View.subscript(key:)` are not
-  // exercised by an automated test here — every structural attempt (direct chaining, `if let`,
-  // `guard let`, `switch`-bound locals, and file scope helper functions in every combination)
-  // either tripped the lifetime checker ("lifetime-dependent value escapes its scope") or crashed
-  // the compiler outright (a SIL ownership-verifier assertion), consistently and only when the
-  // call crossed from `StreamArray`/`StreamDictionary`'s *generic* `View` — never on
-  // `StreamString`/`StreamPointerView` or the macro's own concrete, non-generic `View` types,
-  // where the identical shapes compile fine (see `A nested object yields another view` above).
-  // Both subscripts were validated by hand (compiled and run against a throwaway generic stand-in
-  // outside this package) during development; this is a toolchain limitation on generic
-  // `~Escapable` types, not a logic issue in either subscript. `sealedBlock(_:)`/`tail`, below,
-  // return `Span`, not a generic `~Escapable` view, and are unaffected.
   // 259 elements crosses one full sealed block into the tail. `scores` is `[Int]`, whose
   // default block holds 256 (a trivial eight-byte element is blocked by bytes, not by the
   // 32-element count a non-trivial one keeps).
@@ -179,6 +167,62 @@ struct `Stream view tests` {
     let stream = try self.stream(#"{"counts":{"a":1,"b":2}}"#)
     stream.withView { profile in
       expectNoDifference(countsCount(profile), 2)
+    }
+  }
+
+  // The container subscripts are read through a `borrowing` view parameter (the helpers below).
+  // On Swift 6.4 (swiftlang-6.4.0.25.4) two shapes still fail the lifetime checker ("lifetime-
+  // dependent value escapes its scope"): subscripting a view bound by `case .some(let v)` off a
+  // parent view, and `?.` chained through a subscript into a member view.
+  @Test
+  func `An array view subscript reads sealed, tail and out of range elements`() throws {
+    let elements = (0..<259).map(String.init).joined(separator: ",")
+    let stream = try self.stream(#"{"scores":["# + elements + "]}")
+    let cases: [(Int, Int?)] = [(0, 0), (255, 255), (256, 256), (258, 258), (259, nil), (-1, nil)]
+    stream.withView { profile in
+      for (index, expected) in cases {
+        expectNoDifference(scoresElement(profile, at: index), expected, "index \(index)")
+      }
+    }
+  }
+
+  // The open element lives in `pending`, outside the blocks; the subscript reaches it as the last.
+  @Test
+  func `An array view subscript reaches the open element`() throws {
+    var stream = PartialsStream(initialValue: StreamArray<ViewAddress.Partial>(), from: .json())
+    try stream.next(Array(#"[{"city":"A"},{"city":"Br"#.utf8))
+    let cases: [(Int, String?)] = [(0, "A"), (1, "Br"), (2, nil)]
+    stream.withView { view in
+      for (index, expected) in cases {
+        expectNoDifference(addressCity(view, at: index), expected, "index \(index)")
+      }
+    }
+  }
+
+  @Test
+  func `A dictionary view subscript reads present and absent keys`() throws {
+    let stream = try self.stream(#"{"counts":{"a":1,"b":2}}"#)
+    let cases: [(String, Int?)] = [("a", 1), ("b", 2), ("c", nil)]
+    stream.withView { profile in
+      for (key, expected) in cases {
+        expectNoDifference(countsValue(profile, key), expected, "key \(key)")
+      }
+    }
+  }
+
+  // A repeated key resumes in `pendingValue` while its stored slot still holds the old value;
+  // the subscript must read the live one.
+  @Test
+  func `A dictionary view subscript reads a resumed key's live value`() throws {
+    var stream = PartialsStream(
+      initialValue: StreamDictionary<ViewAddress.Partial>(), from: .json()
+    )
+    try stream.next(Array(#"{"x":{"city":"A"},"y":{"city":"B"},"x":{"postalCode":"1"#.utf8))
+    let cases: [(String, [String?])] = [("x", ["A", "1"]), ("y", ["B", nil]), ("z", [nil, nil])]
+    stream.withView { view in
+      for (key, expected) in cases {
+        expectNoDifference(keyedAddress(view, key), expected, "key \(key)")
+      }
     }
   }
 
@@ -254,5 +298,51 @@ private func countsCount(_ profile: borrowing ViewProfile.Partial.View) -> Int? 
   switch profile.counts {
   case .some(let counts): return counts.count
   case .none: return nil
+  }
+}
+
+// The container subscripts, each on a `borrowing` parameter; see `An array view subscript reads
+// sealed, tail and out of range elements` for the shapes that do not compile.
+private func arrayElement(_ view: borrowing StreamArray<Int>.View, at index: Int) -> Int? {
+  view[index]?.value
+}
+
+private func dictionaryValue(_ view: borrowing StreamDictionary<Int>.View, _ key: String) -> Int? {
+  view[key]?.value
+}
+
+private func scoresElement(_ profile: borrowing ViewProfile.Partial.View, at index: Int) -> Int? {
+  switch profile.scores {
+  case .some(let scores): return arrayElement(scores, at: index)
+  case .none: return nil
+  }
+}
+
+private func countsValue(_ profile: borrowing ViewProfile.Partial.View, _ key: String) -> Int? {
+  switch profile.counts {
+  case .some(let counts): return dictionaryValue(counts, key)
+  case .none: return nil
+  }
+}
+
+private func addressFields(_ address: borrowing ViewAddress.Partial.View) -> [String?] {
+  [(address.city?.value).map(String.init), (address.postalCode?.value).map(String.init)]
+}
+
+private func addressCity(
+  _ view: borrowing StreamArray<ViewAddress.Partial>.View, at index: Int
+) -> String? {
+  switch view[index] {
+  case .some(let element): return addressFields(element)[0]
+  case .none: return nil
+  }
+}
+
+private func keyedAddress(
+  _ view: borrowing StreamDictionary<ViewAddress.Partial>.View, _ key: String
+) -> [String?] {
+  switch view[key] {
+  case .some(let value): return addressFields(value)
+  case .none: return [nil, nil]
   }
 }

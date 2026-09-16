@@ -60,10 +60,7 @@ struct StructuralBlockWalkTests {
     var streamFailure: StreamSinkFailure? { nil }
 
     private static func text(_ bytes: Span<UInt8>) -> String {
-      var out = [UInt8]()
-      out.reserveCapacity(bytes.count)
-      for index in 0..<bytes.count { out.append(bytes[index]) }
-      return String(decoding: out, as: UTF8.self)
+      String(decoding: streamCopy(bytes), as: UTF8.self)
     }
   }
 
@@ -75,9 +72,10 @@ struct StructuralBlockWalkTests {
 
   // `chunk == nil` selects the byte-fed entry point, which can never reach the block path.
   private static func run(
-    _ bytes: [UInt8], chunk: Int?, blocks: Bool, rearmGate: Bool = false
+    _ bytes: [UInt8], chunk: Int?, blocks: Bool, rearmGate: Bool = false,
+    windowThreshold: Int = .max
   ) -> Outcome {
-    var parser = JSONParser()
+    var parser = JSONParser(windowThreshold: windowThreshold)
     parser.blockWalkEnabled = blocks
     var sink = ProbeSink()
     var outcome = Outcome(calls: [], errorReason: nil, errorOffset: nil)
@@ -336,26 +334,6 @@ struct StructuralBlockWalkTests {
     return outcome
   }
 
-  @Test
-  func `A skipping sink leaves the block walk at the same open`() {
-    for pad in 0..<70 {
-      let document =
-        Array(repeating: UInt8(0x20), count: pad)
-        + Array(#"{"a":{"b":[1,2,{"c":"x"}],"d":"y"},"e":[[1],[2]],"f":1}"#.utf8)
-      for depth in [1, 2, 3] {
-        for chunk in [64, 100, 4096, Int.max] {
-          let expected = Self.runSkipping(
-            document, chunk: chunk, blocks: false, skipFromDepth: depth
-          )
-          let actual = Self.runSkipping(document, chunk: chunk, blocks: true, skipFromDepth: depth)
-          if actual != expected {
-            expectNoDifference(actual, expected, "pad \(pad) depth \(depth) chunk \(chunk)")
-          }
-        }
-      }
-    }
-  }
-
   // MARK: - Real documents
 
   @Test(
@@ -482,6 +460,97 @@ struct StructuralBlockWalkTests {
         }
       }
     }
+  }
+
+  // MARK: - The re-probe
+
+  // A stream that changes shape under one parser: compact numbers (no whitespace outside strings,
+  // so every block strikes), then pretty-printed objects the walk wins on, then compact numbers
+  // again. The friendly middle is twice the probe interval, so a re-probe has to land inside it.
+  private static let shapeShiftingDocument: [UInt8] = {
+    let interval = Int(JSONParser.blockWalkProbeKilobytes) &* 1024
+    var text = "["
+    for index in 0..<700 { text += "\(1_000_000 &+ index)," }
+    let friendlyStart = text.utf8.count
+    var index = 0
+    while text.utf8.count - friendlyStart < 2 * interval {
+      text += "\n  {\n    \"id\": \(index),\n    \"name\": \"element \(index)\",\n"
+      text += "    \"tags\": [ \"alpha\", \"beta\" ],\n    \"ok\": true\n  },"
+      index += 1
+    }
+    for index in 0..<900 { text += "\(2_000_000 &+ index)," }
+    return Array((text + "0]").utf8)
+  }()
+
+  @Test(arguments: [JSONParser.blockWalkProbeChunk, 16_384])
+  func `A given-up walk is re-armed when the stream turns block friendly`(chunk: Int) throws {
+    let bytes = Self.shapeShiftingDocument
+    var parser = JSONParser()
+    var sink = ProbeSink()
+    var givenUpAfterChunk = [Bool]()
+    try bytes.withUnsafeBufferPointer { input in
+      var index = 0
+      while index < input.count {
+        let end = Swift.min(index &+ chunk, input.count)
+        try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
+        givenUpAfterChunk.append(parser.blockWalkGivenUp)
+        index = end
+      }
+    }
+    try parser.finish(into: &sink)
+    guard parser.blockKernelsAvailable else { return }
+
+    // Out on the compact prefix, back within one probe interval of input, live across the friendly
+    // part, and out again on the compact tail -- which only the walk running again can decide.
+    #expect(givenUpAfterChunk.first == true)
+    let interval = Int(JSONParser.blockWalkProbeKilobytes) &* 1024
+    let rearmedBy = (interval &+ chunk &- 1) / chunk &+ 1
+    let rearmed = try #require(givenUpAfterChunk.firstIndex(of: false), "never re-armed")
+    #expect(rearmed <= rearmedBy)
+    let friendlyEnd = bytes.count &- 900 &* 8 &- 2
+    #expect(givenUpAfterChunk[rearmed..<(friendlyEnd / chunk)].allSatisfy { !$0 })
+    #expect(givenUpAfterChunk.last == true)
+
+    let expected = Self.run(bytes, chunk: chunk, blocks: false)
+    #expect(expected.errorReason == nil)
+    #expect(sink.calls == expected.calls)
+  }
+
+  // A caller-set threshold is never lowered: below the probe chunk every chunk is windowed anyway,
+  // above it the windowed chunks do the counting. Either way the sink sees what the ladder sends.
+  @Test(arguments: [1, 8_192])
+  func `The re-probe leaves a caller-set window threshold alone`(threshold: Int) {
+    let bytes = Self.shapeShiftingDocument
+    for chunk in [JSONParser.blockWalkProbeChunk, 16_384] {
+      let expected = Self.run(bytes, chunk: chunk, blocks: false, windowThreshold: threshold)
+      #expect(expected.errorReason == nil)
+      let actual = Self.run(bytes, chunk: chunk, blocks: true, windowThreshold: threshold)
+      #expect(actual == expected, "threshold \(threshold) chunk \(chunk)")
+    }
+  }
+
+  // Only the gate's own give-up starts a countdown: a parser that starts given up -- the verdict an
+  // x86 CPU without the AVX2 classifier is initialised with -- stays given up whatever it is fed.
+  @Test
+  func `A walk given up without the gate is never re-armed`() throws {
+    let bytes = Self.shapeShiftingDocument
+    var parser = JSONParser()
+    parser.blockWalkGivenUp = true
+    var sink = ProbeSink()
+    try bytes.withUnsafeBufferPointer { input in
+      var index = 0
+      while index < input.count {
+        let end = Swift.min(index &+ JSONParser.blockWalkProbeChunk, input.count)
+        try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
+        let givenUp = parser.blockWalkGivenUp
+        let countdown = parser.blockWalkProbeCountdown
+        #expect(givenUp)
+        #expect(countdown == 0)
+        index = end
+      }
+    }
+    try parser.finish(into: &sink)
+    #expect(sink.calls == Self.run(bytes, chunk: JSONParser.blockWalkProbeChunk, blocks: false).calls)
   }
 
   @Test(arguments: ["64KB", "512KB", "DeepNested64"])

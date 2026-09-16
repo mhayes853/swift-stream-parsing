@@ -16,26 +16,13 @@ private let esc = "\u{5C}"
 @Suite
 struct `Adversarial conformance tests` {
   private static func parse(_ bytes: [UInt8], splitAt: Int) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
-      let second = UnsafeBufferPointer(
-        start: buffer.baseAddress! + splitAt, count: buffer.count - splitAt
-      )
-      if !first.isEmpty { try parser.parse(first, into: &sink) }
-      if !second.isEmpty { try parser.parse(second, into: &sink) }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, splitAt: splitAt, into: &sink)
   }
 
   private static func parseBytewise(_ bytes: [UInt8]) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    for byte in bytes {
-      try parser.parse(byte: byte, into: &sink)
-    }
-    try parser.finish(into: &sink)
+    try feedByByte(bytes, into: &sink)
   }
 
   private static func expectRejectedAtEverySplit(
@@ -202,7 +189,7 @@ private struct StringCollectingSink: StreamParseSink {
   mutating func key(_ bytes: Span<UInt8>) {}
   mutating func stringBegin() { self.strings.append([]) }
   mutating func stringChunk(_ bytes: Span<UInt8>) {
-    for i in 0..<bytes.count { self.strings[self.strings.count - 1].append(bytes[i]) }
+    self.strings[self.strings.count - 1].append(contentsOf: streamCopy(bytes))
   }
   mutating func stringEnd() {}
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {}

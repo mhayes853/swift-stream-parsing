@@ -16,9 +16,23 @@ let package = Package(
     .package(url: "https://github.com/mattt/swift-yyjson.git", from: "0.6.0")
   ],
   targets: [
+    // Models parsed from `StreamParsingBenchmarks` across a module boundary, the way a library
+    // user's models are. See `CrossModuleModels.swift`.
+    .target(
+      name: "StreamParsingBenchmarkModels",
+      dependencies: [
+        .product(name: "StreamParsing", package: "swift-stream-parsing")
+      ],
+      path: "StreamParsingBenchmarkModels",
+      swiftSettings: [
+        .enableExperimentalFeature("Lifetimes"),
+        .enableExperimentalFeature("AddressableTypes")
+      ]
+    ),
     .executableTarget(
       name: "StreamParsingBenchmarks",
       dependencies: [
+        "StreamParsingBenchmarkModels",
         .product(name: "StreamParsing", package: "swift-stream-parsing"),
         .product(name: "StreamParsingCore", package: "swift-stream-parsing"),
         .product(name: "Benchmark", package: "benchmark"),

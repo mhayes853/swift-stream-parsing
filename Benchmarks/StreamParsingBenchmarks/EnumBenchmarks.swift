@@ -30,6 +30,17 @@ enum BenchmarkObjectEnum: Equatable {
   case finished
 }
 
+// The four-case enums above resolve in four member tests; this one prices the same resolve where
+// the case count is what costs, which is what a discriminator has to beat.
+@StreamParseable
+enum BenchmarkWideObjectEnum: Equatable {
+  @StreamParseableDefault
+  case unknown
+  case created, queued, scheduled, starting, running, pausing, paused, resuming
+  case draining, stopping, stopped, finished, failed, cancelled, expired, retrying
+  case archiving, archived, restoring, restored, migrating, migrated, deleted
+}
+
 @StreamParseable
 struct BenchmarkEnumText: Equatable {
   var body: String = ""
@@ -63,6 +74,11 @@ struct BenchmarkAssociatedEnumDocument: Equatable {
   var values: [BenchmarkAssociatedEnum] = []
 }
 
+@StreamParseable
+struct BenchmarkWideObjectEnumDocument: Equatable {
+  var values: [BenchmarkWideObjectEnum] = []
+}
+
 // The payloads keep the enum case distribution mixed so conversion cannot specialize to one
 // case. They are generated before registration, outside every measured region.
 enum EnumBenchmarkPayloads {
@@ -91,6 +107,16 @@ enum EnumBenchmarkPayloads {
     }
     return "{\"\(key)\":{}}"
   }
+
+  static let wideObject = makeArray(count: 20_000) { index in
+    "{\"\(wideObjectKeys[index % wideObjectKeys.count])\":{}}"
+  }
+
+  static let wideObjectKeys = [
+    "created", "queued", "scheduled", "starting", "running", "pausing", "paused", "resuming",
+    "draining", "stopping", "stopped", "finished", "failed", "cancelled", "expired", "retrying",
+    "archiving", "archived", "restoring", "restored", "migrating", "migrated", "deleted",
+  ]
 
   static let associated = makeArray(count: 20_000) { index in
     switch index % 3 {
@@ -162,6 +188,11 @@ private func validateEnumBenchmarks() {
   }
   precondition(objects.values.count == 20_000 && objects.values[3] == .unknown)
 
+  let wide = expectParses {
+    try parseEnumPayload(EnumBenchmarkPayloads.wideObject, as: BenchmarkWideObjectEnumDocument.self)
+  }
+  precondition(wide.values.count == 20_000 && wide.values[22] == .deleted)
+
   let associated = expectParses {
     try parseEnumPayload(
       EnumBenchmarkPayloads.associated,
@@ -190,6 +221,10 @@ func enumBenchmarks() {
   addEnumBenchmark(
     "Raw-less object", payload: EnumBenchmarkPayloads.object,
     as: BenchmarkObjectEnumDocument.self
+  )
+  addEnumBenchmark(
+    "Raw-less object wide", payload: EnumBenchmarkPayloads.wideObject,
+    as: BenchmarkWideObjectEnumDocument.self
   )
   addEnumBenchmark(
     "Associated values", payload: EnumBenchmarkPayloads.associated,

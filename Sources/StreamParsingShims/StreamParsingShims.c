@@ -3,20 +3,15 @@
 #include <string.h>
 
 
-// The header's `static inline` functions are what the Swift side inlines; this file holds the
-// one out-of-line kernel, the stage-1 window indexer. Its three block algorithms are simdjson's
-// stage 1 restated: the paper's odd-backslash-run escape finder, quote parity as a prefix XOR
-// (carryless multiply by all ones), and the nibble-table character classifier. The entry
-// definition and the per-block flags are pinned by `StageOneIndexTests` against a scalar
-// reference. The measurement that chose this shape is in NEW_ARCHITECTURE.md.
+// The one out-of-line kernel: the stage-1 window indexer (everything Swift inlines is `static
+// inline` in the header). Its three block algorithms are simdjson's stage 1 restated -- the
+// odd-backslash-run escape finder, quote parity as a prefix XOR, and the nibble-table classifier.
+// `StageOneIndexTests` pins it against a scalar reference.
 
-// Classification tables. A byte is in a class iff
-// (lo_table[b & 0xF] & hi_table[b >> 4]) has the class bit set:
-//   0x01 comma, 0x02 colon, 0x04 brackets/braces  -> structural = v & 0x07
-//   0x08 space, 0x10 tab/LF/CR                    -> whitespace = v & 0x18
-// hi_table[0] carries only the 0x10 bit so that NUL, whose low nibble shares space's row,
-// falls through as a scalar and is rejected by the walk; simdjson's table classifies it as
-// whitespace.
+// Classification tables. A byte is in a class iff (lo_table[b & 0xF] & hi_table[b >> 4]) has the
+// class bit set: 0x01 comma, 0x02 colon, 0x04 brackets (structural = v & 0x07); 0x08 space,
+// 0x10 tab/LF/CR (whitespace = v & 0x18). hi_table[0] carries only 0x10 so NUL, whose low nibble
+// shares space's row, falls through as a scalar and is rejected; simdjson calls it whitespace.
 static const uint8_t stream_parsing_index_lo_table[16] = {
   0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x12, 0x04, 0x01, 0x14, 0, 0
 };
@@ -39,11 +34,10 @@ typedef struct {
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
 
-// The block classifier is in two speeds. The quote and backslash masks come first and are all
-// the in-string parity needs; a block that turns out to lie entirely inside a string — most
-// of every block on the string-heavy corpora — gets its two flags from reduces on the raw
-// vectors and never runs the table lookups, the structural and whitespace movemasks, or the
-// extraction. A block with any structure gets the full classification.
+// The block classifier is in two speeds: the quote and backslash masks come first and are all the
+// in-string parity needs, so a block lying entirely inside a string -- most of every block on the
+// string-heavy corpora -- gets its two flags from reduces on the raw vectors and never runs the
+// table lookups, the two movemasks or the extraction. A block with any structure gets the rest.
 typedef struct {
   uint8x16_t v0, v1, v2, v3;
 } stream_parsing_block_vectors;
@@ -188,12 +182,10 @@ static inline uint64_t stream_parsing_index_block(
     return 0;
   }
   stream_parsing_classify_rest(&v, &c);
-  // `in_string` covers the opening quote through the byte before the closing quote, so it
-  // masks structural bytes inside string content. A number or literal is indexed only when
-  // whitespace precedes it; one that directly follows a structural byte sits at the walk's
-  // cursor and is found there. Together that makes every gap between the cursor and the next
-  // entry that *begins* with whitespace pure whitespace, so the walk never scans one
-  // (NEW_ARCHITECTURE.md, "Dropping the pseudo-structurals").
+  // `in_string` covers the opening quote through the byte before the closing quote, so it masks
+  // structural bytes inside string content. A number or literal is indexed only when whitespace
+  // precedes it; one directly following a structural byte sits at the walk's cursor. So every gap
+  // that begins with whitespace is pure whitespace and the walk never scans one.
   uint64_t scalar = ~(c.structural | c.whitespace | c.quote) & ~in_string;
   uint64_t after_whitespace = (c.whitespace << 1) | carry->prev_whitespace;
   carry->prev_whitespace = c.whitespace >> 63;

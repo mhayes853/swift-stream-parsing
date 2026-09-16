@@ -11,17 +11,8 @@ import StreamParsingCore
 @Suite
 struct `Error offset tests` {
   private static func parse(_ bytes: [UInt8], splitAt: Int) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      let first = UnsafeBufferPointer(start: buffer.baseAddress, count: splitAt)
-      let second = UnsafeBufferPointer(
-        start: buffer.baseAddress! + splitAt, count: buffer.count - splitAt
-      )
-      if !first.isEmpty { try parser.parse(first, into: &sink) }
-      if !second.isEmpty { try parser.parse(second, into: &sink) }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, splitAt: splitAt, into: &sink)
   }
 
   private static func failure(_ bytes: [UInt8], splitAt: Int) -> JSONParsingError? {
@@ -36,13 +27,9 @@ struct `Error offset tests` {
   }
 
   private static func bytewiseFailure(_ bytes: [UInt8]) -> JSONParsingError? {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
     do {
-      for byte in bytes {
-        try parser.parse(byte: byte, into: &sink)
-      }
-      try parser.finish(into: &sink)
+      try feedByByte(bytes, into: &sink)
       return nil
     } catch {
       return error
@@ -150,9 +137,9 @@ struct `Error offset tests` {
   // MARK: - Sink rejections
 
   // A sink rejection is the one error the parser does not detect itself, so its offset comes
-  // entirely from where the cursor happens to be when `checkSink` reads the failure. That made it
-  // the one error `fuseAfterValue` could move: fusing consumed the comma and the next token's
-  // first byte before the check ran, so a rejected `1` in `[1,2]` reported byte 3.
+  // entirely from where the cursor happens to be when `checkEmission` reads the failure. That
+  // made it the one error `fuseAfterValue` could move: fusing consumed the comma and the next
+  // token's first byte before the check ran, so a rejected `1` in `[1,2]` reported byte 3.
   //
   // Both rows below are values whose successor is fusable — a comma then a value — which is the
   // only shape where the two paths could ever have disagreed.
@@ -171,6 +158,45 @@ struct `Error offset tests` {
         if !first.isEmpty { try parser.parse(first, into: &sink) }
         if !second.isEmpty { try parser.parse(second, into: &sink) }
       }
+      try parser.finish(into: &sink)
+      return nil
+    } catch let error as JSONParsingError {
+      return error
+    } catch {
+      return nil
+    }
+  }
+
+  // The same feed, one byte at a time through the dispatcher's per byte states.
+  private static func bytewiseSinkFailure<S: StreamParseSink>(
+    _ json: String, sink: consuming S
+  ) -> JSONParsingError? {
+    var parser = JSONParser()
+    var sink = sink
+    do {
+      for byte in Array(json.utf8) { try parser.parse(byte: byte, into: &sink) }
+      try parser.finish(into: &sink)
+      return nil
+    } catch let error as JSONParsingError {
+      return error
+    } catch {
+      return nil
+    }
+  }
+
+  // The same feed through the windowed walk: a one byte `windowThreshold` sends every chunk to
+  // `parseWindowed`, which is the only production caller of the `coalescing: false` escape
+  // decoder for a string *value* (`JSONParserWindow.scanStringValue`). It is driven the way
+  // `WindowedParserTests` drives it rather than with a 32 KB chunk, so the offsets under test are
+  // the document's own and do not have to be read through a pad.
+  private static func windowedSinkFailure<S: StreamParseSink>(
+    _ json: String, sink: consuming S
+  ) -> JSONParsingError? {
+    var parser = JSONParser(windowThreshold: 1)
+    var sink = sink
+    let bytes = Array(json.utf8)
+    do {
+      try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
       try parser.finish(into: &sink)
       return nil
     } catch let error as JSONParsingError {
@@ -233,6 +259,82 @@ struct `Error offset tests` {
     expectNoDifference(sink.startedStrings, 0)
   }
 
+  // MARK: - Fused `\u` escapes
+
+  // A `\uXXXX` is six bytes and a surrogate pair twelve, and every path that decodes one whole
+  // hands the sink the decoded scalar as one string chunk. That chunk is the escape, so its
+  // rejection reports the byte *after* the escape — the offset the per byte escape states report
+  // from `consumeEscape`, and the offset a plain string chunk reports from its own last byte.
+  //
+  // `fusedUnicodeEscapeEnd` used to report at the escape's *selector* instead, which is the first
+  // hex digit once `emitScratch` adds one: four bytes early for `\u0041`, ten for a pair. Only
+  // the windowed walk reaches that entry for a string value, and no row here had a `\u` in it,
+  // which is why it survived.
+  @Test(arguments: [
+    (Self.simpleEscape, 8),  // `["\u0041x"]`: the escape ends at byte 7
+    (Self.pairEscape, 14),  // `["\uD83D\uDE00x"]`: the pair ends at byte 13
+  ])
+  func `Reports a rejected unicode escape after the escape, not at its first hex digit`(
+    json: String, offset: Int
+  ) {
+    let rejection = StreamSinkFailure(reason: .typeMismatch)
+
+    let bytewise = Self.bytewiseSinkFailure(json, sink: RejectingSink(rejecting: .stringChunk))
+    expectNoDifference(bytewise?.reason, .sinkRejectedToken(rejection))
+    expectNoDifference(bytewise?.byteOffset, offset, "byte by byte")
+
+    let windowed = Self.windowedSinkFailure(json, sink: RejectingSink(rejecting: .stringChunk))
+    expectNoDifference(windowed, bytewise, "windowed")
+
+    // Feeding the escape across a chunk boundary puts it back on the per byte states inside a
+    // bulk parse, so the bulk dispatcher reports the same offset there too.
+    for split in 3...7 {
+      let cut = Self.sinkFailure(json, sink: RejectingSink(rejecting: .stringChunk), splitAt: split)
+      expectNoDifference(cut, bytewise, "bulk split at \(split)")
+    }
+  }
+
+  // The bulk dispatcher is the one path that does *not* deliver the escape on its own: from the
+  // first escape on it coalesces the whole value into its buffer and flushes one chunk at the
+  // closing quote (`coalescedEscapedStringTail`). Chunk boundaries carry no meaning, so this is
+  // not a disagreement about where an error is — every path reports one past the last input byte
+  // of the chunk it actually rejected, which is the closing quote here. Pinned so a change that
+  // moves the coalesced flush's offset has to come through this test.
+  @Test(arguments: [
+    (Self.simpleEscape, 9),  // the whole value `Ax`, flushed at the closing quote
+    (Self.pairEscape, 15),
+  ])
+  func `Reports a rejected coalesced escape chunk at the value's end`(json: String, offset: Int) {
+    let error = Self.sinkFailure(
+      json, sink: RejectingSink(rejecting: .stringChunk), splitAt: Array(json.utf8).count
+    )
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.byteOffset, offset)
+  }
+
+  // A coalescing flush forced by an escape delivers the bytes buffered *before* it, so a rejection
+  // reports one past that chunk's last content byte: the escape's backslash (71 here), not its
+  // selector. Both the simple-escape and the `\u` arms flush through the same path.
+  @Test(arguments: ["\u{5C}n", "\u{5C}u0042"])
+  func `Reports a rejected coalescing flush at the escape's backslash`(escape: String) {
+    let json = "[\"\u{5C}u0041" + String(repeating: "b", count: 63) + escape + "x\"]"
+    var parser = JSONParser(bufferCapacity: 64)
+    var sink = RejectingSink(rejecting: .stringChunk)
+    let bytes = Array(json.utf8)
+    var error: JSONParsingError?
+    do {
+      try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    } catch let caught as JSONParsingError {
+      error = caught
+    } catch {}
+    expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
+    expectNoDifference(error?.byteOffset, 71)
+  }
+
+  // Spelled with `\u{5C}` so the backslash is unambiguous next to the `u` the parser reads.
+  private static let simpleEscape = "[\"\u{5C}u0041x\"]"
+  private static let pairEscape = "[\"\u{5C}uD83D\u{5C}uDE00x\"]"
+
   // The parse has to stop at the rejection, not carry on into the next token's events.
   @Test
   func `Delivers no further tokens after a rejection`() {
@@ -247,7 +349,7 @@ struct `Error offset tests` {
 // Fails on the first token of one kind, and records how many string tokens it was told about, so
 // a fusion that ran past a rejection shows up as an event count as well as an offset.
 private struct RejectingSink: StreamParseSink {
-  enum Kind { case number, string, key }
+  enum Kind { case number, string, key, stringChunk }
 
   let rejecting: Kind
   var streamFailure: StreamSinkFailure?
@@ -272,7 +374,9 @@ private struct RejectingSink: StreamParseSink {
     self.startedStrings &+= 1
     if self.rejecting == .string { self.fail() }
   }
-  mutating func stringChunk(_ bytes: Span<UInt8>) {}
+  mutating func stringChunk(_ bytes: Span<UInt8>) {
+    if self.rejecting == .stringChunk { self.fail() }
+  }
   mutating func stringEnd() {}
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
     if self.rejecting == .number { self.fail() }

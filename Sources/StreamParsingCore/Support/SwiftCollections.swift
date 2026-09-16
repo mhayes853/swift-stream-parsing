@@ -6,9 +6,8 @@
 
   // MARK: - Conversion protocols
 
-  // These are destinations to convert into, not members to parse into. The schema generator
-  // reads a member's shape from syntax, so only `[T]` and `[String: T]` route as containers,
-  // and none of these conform to StreamParseable. Declaring one as a member of a parseable
+  // Destinations to convert into, not members to parse into: only `[T]` and `[String: T]` route as
+  // containers, and none of these is `StreamParseable`, so declaring one as a member of a parseable
   // type is a compile error rather than a value that silently stays empty.
 
   extension Deque: StreamInitializable {

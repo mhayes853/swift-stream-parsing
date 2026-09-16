@@ -504,28 +504,9 @@ struct BenchmarkCITMArea: Equatable, Codable {
 
 // MARK: - Twitter
 
-@StreamParseable
-struct BenchmarkTwitter: Equatable {
-  var statuses: [BenchmarkTweet] = []
-}
-
-@StreamParseable
-struct BenchmarkTweet: Equatable {
-  var id: Int = 0
-  var text: String = ""
-  var user: BenchmarkTwitterUser = BenchmarkTwitterUser()
-}
-
-@StreamParseable
-struct BenchmarkTwitterUser: Equatable {
-  var name: String = ""
-  var screenName: String = ""
-  var followersCount: Int = 0
-}
-
-// `BenchmarkTwitterUser.screenName` and `.followersCount` never match the payload's snake_case
-// keys, so that benchmark measures more of the discard path than it appears to. This variant
-// declares the keys the payload actually contains, keeping the write path measured alongside it.
+// A five-member view of a tweet that declares the keys the payload actually contains, so the
+// write path is measured rather than the discard path. (An earlier camelCase twin of this model
+// matched none of the payload's snake_case keys and has been deleted.)
 @StreamParseable
 struct BenchmarkTwitterMatched: Equatable, Codable {
   var statuses: [BenchmarkTweetMatched] = []
@@ -555,12 +536,12 @@ struct BenchmarkTwitterUserMatched: Equatable, Codable {
 // tweet's 76 nested keys (~7%); this model is the fair comparator for the typed/raw ratio, since
 // everything else in the real-world suite mirrors close to its full payload shape.
 @StreamParseable
-struct BenchmarkTwitterFull: Equatable {
+struct BenchmarkTwitterFull: Equatable, Codable {
   var statuses: [BenchmarkTweetFull] = []
 }
 
 @StreamParseable
-struct BenchmarkTweetFull: Equatable {
+struct BenchmarkTweetFull: Equatable, Codable {
   var metadata: BenchmarkTwitterMetadata = BenchmarkTwitterMetadata()
   var created_at: String = ""
   var id: Int = 0
@@ -591,7 +572,7 @@ struct BenchmarkTweetFull: Equatable {
 // One level of `retweeted_status` nesting — the corpus never nests a second level, so this omits
 // the field itself rather than modeling unbounded recursion nothing in the data exercises.
 @StreamParseable
-struct BenchmarkRetweetedStatusFull: Equatable {
+struct BenchmarkRetweetedStatusFull: Equatable, Codable {
   var metadata: BenchmarkTwitterMetadata = BenchmarkTwitterMetadata()
   var created_at: String = ""
   var id: Int = 0
@@ -619,13 +600,13 @@ struct BenchmarkRetweetedStatusFull: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterMetadata: Equatable {
+struct BenchmarkTwitterMetadata: Equatable, Codable {
   var result_type: String = ""
   var iso_language_code: String = ""
 }
 
 @StreamParseable
-struct BenchmarkTwitterUserFull: Equatable {
+struct BenchmarkTwitterUserFull: Equatable, Codable {
   var id: Int = 0
   var id_str: String = ""
   var name: String = ""
@@ -669,18 +650,18 @@ struct BenchmarkTwitterUserFull: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterUserEntities: Equatable {
+struct BenchmarkTwitterUserEntities: Equatable, Codable {
   var description: BenchmarkTwitterURLList = BenchmarkTwitterURLList()
   var url: BenchmarkTwitterURLList? = nil
 }
 
 @StreamParseable
-struct BenchmarkTwitterURLList: Equatable {
+struct BenchmarkTwitterURLList: Equatable, Codable {
   var urls: [BenchmarkTwitterURLEntity] = []
 }
 
 @StreamParseable
-struct BenchmarkTwitterURLEntity: Equatable {
+struct BenchmarkTwitterURLEntity: Equatable, Codable {
   var url: String = ""
   var expanded_url: String = ""
   var display_url: String = ""
@@ -688,7 +669,7 @@ struct BenchmarkTwitterURLEntity: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterEntities: Equatable {
+struct BenchmarkTwitterEntities: Equatable, Codable {
   var hashtags: [BenchmarkTwitterHashtag] = []
   var symbols: [BenchmarkTwitterHashtag] = []
   var urls: [BenchmarkTwitterURLEntity] = []
@@ -697,13 +678,13 @@ struct BenchmarkTwitterEntities: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterHashtag: Equatable {
+struct BenchmarkTwitterHashtag: Equatable, Codable {
   var text: String = ""
   var indices: [Int] = []
 }
 
 @StreamParseable
-struct BenchmarkTwitterUserMention: Equatable {
+struct BenchmarkTwitterUserMention: Equatable, Codable {
   var screen_name: String = ""
   var name: String = ""
   var id: Int = 0
@@ -712,7 +693,7 @@ struct BenchmarkTwitterUserMention: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterMedia: Equatable {
+struct BenchmarkTwitterMedia: Equatable, Codable {
   var id: Int = 0
   var id_str: String = ""
   var indices: [Int] = []
@@ -728,7 +709,7 @@ struct BenchmarkTwitterMedia: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterMediaSizes: Equatable {
+struct BenchmarkTwitterMediaSizes: Equatable, Codable {
   var thumb: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
   var small: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
   var medium: BenchmarkTwitterMediaSize = BenchmarkTwitterMediaSize()
@@ -736,7 +717,7 @@ struct BenchmarkTwitterMediaSizes: Equatable {
 }
 
 @StreamParseable
-struct BenchmarkTwitterMediaSize: Equatable {
+struct BenchmarkTwitterMediaSize: Equatable, Codable {
   var w: Int = 0
   var h: Int = 0
   var resize: String = ""

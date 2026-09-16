@@ -3,41 +3,15 @@
 /// Generates a ``StreamParseable`` conformance and `Partial` helper for a struct or enum.
 ///
 /// ```swift
-/// @StreamParseable
-/// struct Payload {
-///   var id: Int
-///   var body: String
-/// }
+/// @StreamParseable struct Payload { var id: Int }
 /// ```
 ///
-/// ## Enums
-///
-/// An enum is lowered by how it is spelled, and each form parses what `Codable` produces for the
-/// same declaration:
-///
-/// | spelling | JSON | `Partial` |
-/// | --- | --- | --- |
-/// | `enum S: String` | `"live"` | `StreamString` |
-/// | `enum S: Int` | `5` | `Int` |
-/// | `enum S` (no raw type) | `{"live":{}}` | a generated struct |
-///
-/// Every enum must name the case a total conversion falls back to, with
-/// ``StreamParseableDefault()`` or by conforming to `StreamInitializable`.
-///
-/// Only `String` and the standard integer and floating point types are recognised as raw types;
-/// an enum with any other raw type is diagnosed rather than silently given the object form. A
-/// raw-value enum cannot declare associated values — Swift itself forbids that combination.
-///
-/// A `String`-raw case resolves from a *partial* value as the shortest case those bytes are still
-/// a prefix of, because a string arrives in pieces and carries no end signal. A case can
-/// therefore be superseded as more bytes land — `live` becoming `livestream` — where a number or
-/// an object key, both of which arrive whole, cannot.
-///
-/// A case with associated values gets a payload type of its own, generated from the labels it
-/// declares (or, unlabelled, a positional `_0`, `_1`, ... — the same key `Codable`'s own
-/// synthesis uses). `Partial.View` also gains a `resolved` property: a borrowed, mid-stream read
-/// of whichever case's key has arrived so far, for a case with associated values wrapping that
-/// case's own zero-copy view.
+/// An enum parses what `Codable` produces: `enum S: String` from `"live"`, `enum S: Int` from `5`,
+/// and `enum S` from `{"live":{}}`, associated values keyed by label or `_0`, `_1`, .... Raw types
+/// other than `String`, integers and floating point are diagnosed. Each enum names a fallback case
+/// with ``StreamParseableDefault()`` or `StreamInitializable`. A partial `String`-raw value resolves
+/// to the shortest case it prefixes (`live` may become `livestream`); `Partial.View.resolved` reads
+/// whichever case has arrived so far.
 @attached(
   extension,
   conformances: StreamParseable,
@@ -83,8 +57,7 @@ public macro StreamParseableMember(keyNames: [String], initialCapacity: Int? = n
 public macro StreamParseableMember(initialCapacity: Int) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
-/// Names the enum case a partial falls back to when the stream produced no value the enum can
-/// represent.
+/// Names the enum case a partial falls back to when the stream produced no representable value.
 ///
 /// ```swift
 /// @StreamParseable
@@ -95,10 +68,7 @@ public macro StreamParseableMember(initialCapacity: Int) =
 /// }
 /// ```
 ///
-/// This is what supplies ``StreamParseable/streamValueOrInitial(from:)`` — the total conversion —
-/// for an enum. Without it the enum must conform to ``StreamInitializable`` instead, which names
-/// the same fallback in longhand. The strict conversion still declines: only the total one
-/// substitutes the default.
+/// Supplies an enum's total ``StreamParseable/streamValueOrInitial(from:)``; strict still declines.
 @attached(peer)
 public macro StreamParseableDefault() =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableDefaultMacro")
@@ -118,10 +88,13 @@ public macro StreamParseableIgnored() =
 // MARK: - Helpers
 
 /// Controls how the generated partial struct initializes its properties.
-public struct PartialMembersMode: Sendable {
+///
+/// The macro reads the argument's spelling (`.optional`, `.streamInitialValue`), never its value,
+/// so it must be written as one of the two cases.
+public enum PartialMembersMode: Hashable, Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
-  public static let optional = Self()
+  case optional
 
   /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
-  public static let streamInitialValue = Self()
+  case streamInitialValue
 }

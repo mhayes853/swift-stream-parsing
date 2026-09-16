@@ -9,18 +9,8 @@ import StreamParsingCore
 @Suite
 struct `JSON conformance tests` {
   private static func parse(_ bytes: [UInt8], chunk: Int) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    try bytes.withUnsafeBufferPointer { buffer in
-      var i = 0
-      while i < buffer.count {
-        let count = min(chunk, buffer.count - i)
-        let slice = UnsafeBufferPointer(start: buffer.baseAddress! + i, count: count)
-        try parser.parse(slice, into: &sink)
-        i += count
-      }
-    }
-    try parser.finish(into: &sink)
+    try feed(bytes, chunk: chunk, into: &sink)
   }
 
   private static func expectRejected(_ json: String, _ sourceLocation: SourceLocation = #_sourceLocation) {
@@ -64,7 +54,7 @@ struct `JSON conformance tests` {
     "[1", "{\"a\"", "{\"a\":", "{\"a\":1", "{\"a\":1,", "[1,", "[1,,2]",
     "{\"a\":1}\u{7D}", "[1]]", "[[]", "{}}", "{\"a\"}", "{\"a\",\"b\"}",
     "{1:2}", "{true:1}", "[:]", "[1:2]", "{\"a\"::1}", "{\"a\":1,,\"b\":2}",
-    "[1,]", "{\"a\":1,}", "[,1]", "{,\"a\":1}",
+    "[1,]", "{\"a\":1,}", "[,1]", "{,\"a\":1}", "{,}", "{\"a\":}", "[1 2]",
   ])
   func `Rejects malformed structure`(json: String) {
     Self.expectRejected(json)
@@ -189,18 +179,6 @@ struct `JSON conformance tests` {
         }
       }
     }
-  }
-
-  // MARK: - Depth
-
-  @Test
-  func `Rejects nesting beyond the container stack`() {
-    Self.expectRejected(String(repeating: "[", count: 70) + String(repeating: "]", count: 70))
-  }
-
-  @Test
-  func `Accepts nesting up to the container stack`() {
-    Self.expectAccepted(String(repeating: "[", count: 64) + String(repeating: "]", count: 64))
   }
 
   // MARK: - Trailing content

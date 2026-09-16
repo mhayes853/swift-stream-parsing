@@ -105,7 +105,7 @@ case "$cmd" in
     trap 'rm -rf "$work"; rmdir "$BLOCK" 2>/dev/null' EXIT
 
     # The names these filters select. `--command list` ignores --filter (it always prints all
-    # 481), so the whole-match is applied here, with the same semantics BenchmarkTool uses
+    # ~375), so the whole-match is applied here, with the same semantics BenchmarkTool uses
     # (Swift's `wholeMatch(of:)`; bash ERE anchored at both ends agrees for these patterns).
     run_tool quiet "$work/list" list
     grep -v -e '^$' -e "^Target '" "$work/list" > "$work/names" || true

@@ -3,8 +3,7 @@
 
   // MARK: - Conversion protocols
 
-  // CGFloat is not LosslessStringConvertible, so it cannot pick up the shared floating point
-  // conversion and goes through Double, which is what the registration based path did too.
+  // `CGFloat` is not `LosslessStringConvertible`, so it converts through `Double`.
   extension CGFloat: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
     public static func streamInitialValue() -> Self { 0 }
 

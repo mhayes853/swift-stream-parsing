@@ -62,6 +62,24 @@ struct `Stream array tests` {
     expectNoDifference(Array(array), [1])
   }
 
+  // A smaller late hint used to re-pick the schedule while refusing to replace the tail the
+  // larger hint had already allocated, leaving a 512-slot block under a 256-slot `blockCapacity`.
+  // `nextSlot` fills against the block, `prepareSlot` grows against the schedule, and the move
+  // out ran 512 elements into 256 slots.
+  @Test
+  func `A Smaller Late Reservation Does Not Shrink The Schedule Under An Allocated Tail`() {
+    var array = StreamArray<Int>()
+    array.reserveCapacity(100_000)
+    let hinted = array.currentBlockCapacity
+    array.reserveCapacity(10)
+
+    expectNoDifference(array.currentBlockCapacity, hinted)
+    expectNoDifference(array.currentBlockCapacity >= (array.tail?.slotCapacity ?? 0), true)
+
+    for value in 0..<600 { array.append(value) }
+    expectNoDifference(Array(array), Array(0..<600))
+  }
+
   @Test(arguments: [2_049, 4_097, 8_193, 32_769])
   func `Every Adaptive Block Size Survives Boundary Mutations`(hint: Int) {
     var array = StreamArray<Int>(initialCapacity: hint)
