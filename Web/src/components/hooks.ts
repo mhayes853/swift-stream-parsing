@@ -1,4 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { loadContent, loadTraces } from "../data";
+import { formatRoute, parseRoute, type Route } from "../lib/route";
+import type { ContentBundle, TraceBundle } from "../types";
 
 export function useInnerWidth<T extends HTMLElement>(initial: number) {
   const ref = useRef<T>(null);
@@ -39,4 +42,58 @@ export function useEscape(action: () => void) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [action]);
+}
+
+export function useBundles() {
+  const [content, setContent] = useState<ContentBundle | null>(null);
+  const [traces, setTraces] = useState<TraceBundle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    loadContent().then(setContent, (e) => setError(String(e)));
+    loadTraces().then(setTraces, (e) => setError(String(e)));
+  }, []);
+  return { content, traces, error };
+}
+
+export function useTheme() {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? "dark");
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
+  return [theme, toggle] as const;
+}
+
+export function useRoute(nodeIds: ReadonlySet<string>) {
+  const read = useCallback(() => parseRoute(window.location.hash, nodeIds), [nodeIds]);
+  const [route, setRoute] = useState(read);
+
+  useEffect(() => {
+    const sync = () => setRoute(read());
+    window.addEventListener("popstate", sync);
+    window.addEventListener("hashchange", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("hashchange", sync);
+    };
+  }, [read]);
+
+  const go = useCallback((next: Route) => {
+    const hash = formatRoute(next);
+    if (hash === window.location.hash) return;
+    // Marked so closing a panel this page opened steps back rather than pushing another entry.
+    window.history.pushState({ opened: next.node !== null }, "", hash);
+    setRoute(next);
+  }, []);
+
+  const closeNode = useCallback(() => {
+    if (window.history.state?.opened) {
+      window.history.back();
+    } else {
+      window.history.replaceState(null, "", formatRoute({ view: "flow", node: null }));
+      setRoute({ view: "flow", node: null });
+    }
+  }, []);
+
+  return { route, go, closeNode };
 }

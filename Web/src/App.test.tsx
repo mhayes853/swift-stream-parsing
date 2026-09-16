@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
@@ -21,8 +21,32 @@ describe("App", () => {
     const node = pipeline.nodes[3];
     await user.click(screen.getByRole("button", { name: new RegExp(`^${node.title.replace(/[()]/g, ".")} — `) }));
     expect(screen.getByRole("dialog", { name: node.title })).toBeInTheDocument();
+    expect(window.location.hash).toBe(`#/flow/${node.id}`);
     await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(window.location.hash).not.toContain(node.id);
+  });
+
+  it("opens the node a link names, and closes it without leaving the page", async () => {
+    const node = pipeline.nodes[5];
+    window.history.replaceState(null, "", `#/flow/${node.id}`);
+    serveGenerated();
+    render(<App />);
+    expect(screen.getByRole("dialog", { name: node.title })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.hash).toBe("#/flow");
+  });
+
+  it("follows the back button between views", async () => {
+    const user = userEvent.setup();
+    serveGenerated();
+    render(<App />);
+    await screen.findByText(String(content.stats.sectionCount));
+    await user.click(screen.getByRole("button", { name: "Payloads" }));
+    expect(window.location.hash).toBe("#/payloads");
+    act(() => window.history.back());
+    await screen.findByRole("heading", { name: "The parse path" });
   });
 
   it("switches between the three views", async () => {

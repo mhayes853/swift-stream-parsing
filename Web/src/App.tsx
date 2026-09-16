@@ -1,39 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import pipelineData from "../content/pipeline.json";
 import { DetailPanel } from "./components/DetailPanel";
 import { FlowChart } from "./components/FlowChart";
 import { Graveyard } from "./components/Graveyard";
 import { Payloads } from "./components/Payloads";
-import { loadContent, loadTraces } from "./data";
+import { useBundles, useRoute, useTheme } from "./components/hooks";
 import { span } from "./lib/dates";
 import { experimentTotal, sectionsByPath } from "./lib/evidence";
-import type { ContentBundle, Pipeline, PipelineNode, TraceBundle } from "./types";
+import { VIEWS } from "./lib/route";
+import type { Pipeline, PipelineNode } from "./types";
 
 const pipeline = pipelineData as Pipeline;
-
-const VIEWS = [
-  { id: "flow", label: "Parse path" },
-  { id: "graveyard", label: "Experiments" },
-  { id: "payloads", label: "Payloads" }
-] as const;
-type View = (typeof VIEWS)[number]["id"];
+const nodeIds = new Set(pipeline.nodes.map((n) => n.id));
 
 export function App() {
-  const [content, setContent] = useState<ContentBundle | null>(null);
-  const [traces, setTraces] = useState<TraceBundle | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PipelineNode | null>(null);
-  const [view, setView] = useState<View>("flow");
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? "dark");
-
-  useEffect(() => {
-    loadContent().then(setContent, (e) => setError(String(e)));
-    loadTraces().then(setTraces, (e) => setError(String(e)));
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  const { content, traces, error } = useBundles();
+  const [theme, toggleTheme] = useTheme();
+  const { route, go, closeNode } = useRoute(nodeIds);
+  const { view } = route;
+  const selected = pipeline.nodes.find((n) => n.id === route.node) ?? null;
 
   useEffect(() => {
     // Braced: `scrollTo` returns a promise in some browsers, and an effect may only return a cleanup.
@@ -43,7 +28,7 @@ export function App() {
   const sectionList = content?.doc.sections;
   const sections = useMemo(() => sectionsByPath(sectionList ?? []), [sectionList]);
   const titleOf = useCallback((id: string) => pipeline.nodes.find((n) => n.id === id)?.title, []);
-  const close = useCallback(() => setSelected(null), []);
+  const select = useCallback((node: PipelineNode) => go({ view: "flow", node: node.id }), [go]);
 
   if (error) {
     return (
@@ -66,12 +51,12 @@ export function App() {
         </div>
         <nav className="tabs">
           {VIEWS.map((v) => (
-            <button key={v.id} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
+            <button key={v.id} aria-pressed={view === v.id} onClick={() => go({ view: v.id, node: null })}>
               {v.label}
             </button>
           ))}
         </nav>
-        <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle colour scheme">
+        <button onClick={toggleTheme} aria-label="Toggle colour scheme">
           {theme === "dark" ? "☾" : "☀"}
         </button>
       </header>
@@ -109,7 +94,7 @@ export function App() {
               <FlowLegend />
             </section>
 
-            <FlowChart pipeline={pipeline} sections={sections} selected={selected} onSelect={setSelected} />
+            <FlowChart pipeline={pipeline} sections={sections} selected={selected} onSelect={select} />
 
             <p className="viz-note">
               Generated from <code>NEW_ARCHITECTURE.md</code> and the source comments by{" "}
@@ -133,7 +118,7 @@ export function App() {
           sections={sections}
           traces={traces}
           titleOf={titleOf}
-          onClose={close}
+          onClose={closeNode}
         />
       )}
     </>

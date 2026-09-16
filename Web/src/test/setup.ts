@@ -9,6 +9,7 @@ afterEach(() => {
   media.clear();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  window.history.replaceState(null, "", "/");
 });
 
 export const media = new Set<string>();
