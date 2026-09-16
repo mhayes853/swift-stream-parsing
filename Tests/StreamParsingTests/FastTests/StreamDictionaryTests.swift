@@ -1,4 +1,5 @@
 import CustomDump
+import Foundation
 import Testing
 
 @testable import StreamParsingCore
@@ -10,9 +11,16 @@ struct `Stream dictionary tests` {
     var dictionary = StreamDictionary<Int>(initialCapacity: 100)
 
     expectNoDifference(dictionary.entries.capacity >= 100, true)
-    expectNoDifference(dictionary.storedValues.blocks.capacity >= 3, true)
-    expectNoDifference(dictionary.storedValues.tail?.slotCapacity, 32)
-    expectNoDifference(dictionary.table?.count, 256)
+    expectNoDifference(
+      dictionary.storedValues.blocks.capacity
+        >= 100 / StreamArray<Int>.defaultBlockCapacity,
+      true
+    )
+    expectNoDifference(
+      dictionary.storedValues.tail?.slotCapacity,
+      Swift.min(100, StreamArray<Int>.defaultBlockCapacity)
+    )
+    expectNoDifference(dictionary.table.count, 256)
     for value in 0..<100 { dictionary.updateValue(value, forKey: "key\(value)") }
     expectNoDifference(dictionary.count, 100)
     for value in 0..<100 { expectNoDifference(dictionary["key\(value)"], value) }
@@ -21,9 +29,9 @@ struct `Stream dictionary tests` {
   @Test
   func `Small Initial Capacity Keeps Linear Lookup`() {
     var dictionary = StreamDictionary<Int>(initialCapacity: 8)
-    expectNoDifference(dictionary.table, nil)
+    expectNoDifference(dictionary.table.isEmpty, true)
     for value in 0..<12 { dictionary.updateValue(value, forKey: "key\(value)") }
-    expectNoDifference(dictionary.table?.count, 32)
+    expectNoDifference(dictionary.table.count, 32)
   }
 
   @Test
@@ -158,7 +166,7 @@ struct `Stream dictionary tests` {
 
     expectNoDifference(dictionary.entries.count, 9)
     expectNoDifference(dictionary.storedValues.count, 8)
-    expectNoDifference(dictionary.table?.count, 32)
+    expectNoDifference(dictionary.table.count, 32)
     expectNoDifference(dictionary["key_8"], 80)
 
     dictionary.updateValue(9, forKey: "key_9")
@@ -194,8 +202,116 @@ struct `Stream dictionary tests` {
       ).assumingMemoryBound(to: Int.self).pointee = 100
     }
 
-    expectNoDifference(dictionary.table?[10], 10)
+    expectNoDifference(dictionary.table[10], 10)
     expectNoDifference(dictionary[keys[10]], 100)
+  }
+}
+
+extension `Stream dictionary tests` {
+  // The same shrink, reached through the value storage `reserveCapacity` forwards to.
+  @Test
+  func `A Smaller Late Reservation Does Not Shrink The Value Storage Schedule`() {
+    var dictionary = StreamDictionary<Int>(initialCapacity: 100_000)
+    let hinted = dictionary.storedValues.currentBlockCapacity
+    dictionary.reserveCapacity(10)
+
+    expectNoDifference(dictionary.storedValues.currentBlockCapacity, hinted)
+    for value in 0..<600 { dictionary.updateValue(value, forKey: "key\(value)") }
+    expectNoDifference(dictionary.count, 600)
+    expectNoDifference(dictionary["key599"], 599)
+    expectNoDifference(dictionary["key512"], 512)
+  }
+}
+
+// MARK: - Conformances
+
+extension `Stream dictionary tests` {
+  // A dictionary whose last entry is still open, as the parser leaves one mid-value.
+  private func withOpenEntry() -> StreamDictionary<Int> {
+    var dictionary: StreamDictionary<Int> = ["b": 2]
+    Array("a".utf8).withUnsafeBufferPointer { buffer in
+      dictionary._openValue(forKey: Span(_unsafeElements: buffer), initial: 0)
+        .assumingMemoryBound(to: Int.self).pointee = 1
+    }
+    return dictionary
+  }
+
+  @Test
+  func `Reflects as its key-value pairs in insertion order`() {
+    let mirror = Mirror(reflecting: self.withOpenEntry())
+    expectNoDifference(mirror.displayStyle, .dictionary)
+    let pairs = mirror.children.map { $0.value as! (key: String, value: Int) }
+    expectNoDifference(pairs.map(\.key), ["b", "a"])
+    expectNoDifference(pairs.map(\.value), [2, 1])
+
+    var dumped = ""
+    dump(self.withOpenEntry(), to: &dumped)
+    #expect(dumped.contains(#"key: "a""#))
+    #expect(!dumped.contains("storedValues") && !dumped.contains("pendingValue"))
+  }
+
+  @Test
+  func `Encodes as a JSON object with string keys`() throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    expectNoDifference(
+      String(decoding: try encoder.encode(self.withOpenEntry()), as: UTF8.self),
+      #"{"a":1,"b":2}"#
+    )
+    let nested: StreamDictionary<StreamArray<StreamString>> = ["k": ["x", "y"], "1": []]
+    expectNoDifference(
+      try encoder.encode(nested),
+      try encoder.encode(["k": ["x", "y"], "1": [String]()])
+    )
+  }
+
+  @Test
+  func `Decodes a JSON object with its keys in sorted order`() throws {
+    let decoded = try JSONDecoder().decode(
+      StreamDictionary<Int>.self, from: Data(#"{"zebra":1,"apple":2,"mango":3}"#.utf8)
+    )
+    expectNoDifference(decoded.keys, ["apple", "mango", "zebra"])
+    expectNoDifference(decoded.values, [2, 3, 1])
+
+    let nested = try JSONDecoder().decode(
+      StreamDictionary<StreamDictionary<StreamString>?>.self,
+      from: Data(#"{"a":{"x":"y"},"b":null}"#.utf8)
+    )
+    expectNoDifference(nested["a"]??["x"], "y")
+    expectNoDifference(nested["b"], .some(nil))
+
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(StreamDictionary<Int>.self, from: Data("[1]".utf8))
+    }
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(StreamDictionary<Int>.self, from: Data(#"{"a":"x"}"#.utf8))
+    }
+  }
+
+  @Test
+  func `Codable round trips a sorted dictionary`() throws {
+    let value: StreamDictionary<Int> = ["a": 1, "b": 2, "c": 3]
+    let decoded = try JSONDecoder().decode(
+      StreamDictionary<Int>.self, from: try JSONEncoder().encode(value)
+    )
+    expectNoDifference(decoded, value)
+  }
+
+  @Test
+  func `Hashes consistently with equality`() {
+    // Equal however they were built: literal, repeated key, open entry.
+    var updated: StreamDictionary<Int> = ["b": 0, "a": 1]
+    updated.updateValue(2, forKey: "b")
+    let values = [self.withOpenEntry(), ["b": 2, "a": 1], updated]
+    for value in values {
+      expectNoDifference(value, values[0])
+      expectNoDifference(value.hashValue, values[0].hashValue)
+    }
+
+    // Order sensitive, like `==`.
+    let reordered: StreamDictionary<Int> = ["a": 1, "b": 2]
+    #expect(reordered != values[0])
+    expectNoDifference(Set(values + [reordered]).count, 2)
   }
 }
 

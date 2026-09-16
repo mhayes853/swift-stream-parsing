@@ -2,11 +2,6 @@ extension Sequence where Element == UInt8 {
   /// Incrementally parses bytes as a value.
   ///
   /// ```swift
-  /// @StreamParseable
-  /// struct MyModel {
-  ///   // ...
-  /// }
-  ///
   /// let partials = try bytes.partials(of: MyModel.self, from: .json())
   /// print(partials.last)
   /// ```
@@ -33,6 +28,7 @@ extension Sequence where Element == UInt8 {
   ///   - type: The value type to collect partials for.
   ///   - format: The format describing the parser that produces the value states.
   /// - Returns: The values observed after each byte and at completion.
+  @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat
@@ -85,6 +81,7 @@ extension Sequence where Element: Sequence<UInt8> {
   ///   - type: The value type being parsed.
   ///   - format: The format describing the parser that consumes the nested sequences.
   /// - Returns: The value states observed after each collection and at completion.
+  @_disfavoredOverload
   public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat

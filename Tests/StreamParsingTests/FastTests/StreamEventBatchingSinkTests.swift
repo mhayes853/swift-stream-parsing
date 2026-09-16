@@ -47,6 +47,38 @@ private struct PartialReplayConsumer: StreamEventBatchConsumer, ~Copyable {
   }
 }
 
+// A self-recursive object: `child` re-enters the same storage through the same schema, so a
+// document of nested `child` keys pushes an unbounded number of *real* frames onto the sink.
+// That is the only way to reach the sink's own depth overflow -- `JSONParser` rejects the depth
+// one container earlier -- and it is exactly the shape the overflow has to get right.
+// At file scope so `enterField` can name the schema it is part of; a `static let` referencing
+// itself inside its own initializer cannot be type checked.
+private let depthNodeSchema = StreamSchema(
+  shape: .object,
+  matchField: { key in
+    let bytes = key.withUnsafeBufferPointer { Array($0) }
+    if bytes == Array("name".utf8) { return 0 }
+    if bytes == Array("child".utf8) { return 1 }
+    return -1
+  },
+  applyString: { storage, field, bytes in
+    guard field == 0 else { return .unsupported }
+    return storage.assumingMemoryBound(to: DepthNode.self).pointee.name.streamAppend(utf8: bytes)
+  },
+  enterField: { storage, field in
+    guard field == 1 else { return nil }
+    return StreamFrame(storage: storage, schema: depthNodeSchema)
+  }
+)
+
+private struct DepthNode: StreamInitializable, StreamParseableObject {
+  var name = StreamString()
+
+  static func streamInitialValue() -> Self { Self() }
+
+  static var streamSchema: StreamSchema { depthNodeSchema }
+}
+
 @Suite
 struct StreamEventBatchingSinkTests {
   // Partials are not Equatable; the comparison is over plain copies of every field the
@@ -200,8 +232,103 @@ struct StreamEventBatchingSinkTests {
     var parser = JSONParser()
     try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
     try parser.finish(into: &sink)
-    // beginArray + 1000 numbers + endArray = 1002 events: three full batches and the tail.
-    expectNoDifference(sink.consumer.sizes, [256, 256, 256, 234])
+    // beginArray + 1000 numbers + endArray = 1002 events. The batch capacity is a tuning choice,
+    // so this pins the invariant rather than the exact cadence: every event arrives, as equal
+    // full batches followed by the commit's remainder at end of input.
+    let sizes = sink.consumer.sizes
+    expectNoDifference(sizes.reduce(0, +), 1002)
+    #expect(sizes.count > 1 && sizes.count < 10)
+    #expect(sizes.dropLast().allSatisfy { $0 == sizes.first })
+    #expect((sizes.last ?? 0) <= (sizes.first ?? 0))
+  }
+
+  // Past the sink's frame capacity there is no slot for a real frame, and the entry points that
+  // route a key or a scalar have no depth test -- that test would sit on the hot path. The
+  // overflow therefore has to push the ignored frame, or the over-deep subtree's keys are matched
+  // against whatever frame is still on top and written into it.
+  //
+  // Both drivers are run. The batching adapter is the deferred-rejection case: its `replay` stops
+  // at the first record that records a failure, so the over-deep interior is *dropped* on the way
+  // in and the parent is safe for a second reason. The direct feed is the case the routing has to
+  // carry on its own -- any driver that keeps feeding after a recorded failure, which the sink's
+  // contract permits -- and it is what actually exercises the overflow frame.
+  @Test
+  func `A subtree past the depth cap does not write into the frame below it`() {
+    // 200 nested `child` objects: well past the frames the sink has room for, and past a batch,
+    // so the batched run also crosses a flush boundary inside the over-deep subtree.
+    let depth = 200
+    let json = Array(
+      (String(repeating: #"{"child":"#, count: depth)
+        + #"{"name":"leaked"}"#
+        + String(repeating: "}", count: depth)).utf8
+    )
+
+    let batched = Self.withDepthNode { storage in
+      var sink = StreamEventBatchingSink(
+        consumer: PartialReplayConsumer(sink: PartialSink(root: storage))
+      )
+      json.withUnsafeBufferPointer { Self.feed($0, into: &sink) }
+      return sink.streamFailure?.reason
+    }
+    expectNoDifference(batched.failure, .depthExceeded)
+    expectNoDifference(batched.name, "")
+
+    let direct = Self.withDepthNode { storage in
+      var sink = PartialSink(root: storage)
+      json.withUnsafeBufferPointer { Self.feed($0, into: &sink) }
+      return sink.streamFailure?.reason
+    }
+    expectNoDifference(direct.failure, .depthExceeded)
+    expectNoDifference(direct.name, "")
+  }
+
+  private static func withDepthNode(
+    _ body: (UnsafeMutablePointer<DepthNode>) -> StreamSinkFailure.Reason?
+  ) -> (failure: StreamSinkFailure.Reason?, name: String) {
+    let storage = UnsafeMutablePointer<DepthNode>.allocate(capacity: 1)
+    storage.initialize(to: DepthNode.streamInitialValue())
+    defer {
+      storage.deinitialize(count: 1)
+      storage.deallocate()
+    }
+    let failure = body(storage)
+    return (failure, String(storage.pointee.name))
+  }
+
+  // The sink is fed directly rather than through `JSONParser`: the parser rejects the depth one
+  // container before the sink can overflow, so its cap would hide the case under test. Only the
+  // token shapes this one document contains are recognised, and `streamFailure` is deliberately
+  // not polled -- that is the driver shape this is about.
+  private static func feed<Sink: StreamParseSink & ~Copyable>(
+    _ json: UnsafeBufferPointer<UInt8>, into sink: inout Sink
+  ) {
+    let quote = UInt8(ascii: "\"")
+    var index = 0
+    while index < json.count {
+      switch json[index] {
+      case UInt8(ascii: "{"):
+        _ = sink.beginObject()
+        index += 1
+      case UInt8(ascii: "}"):
+        sink.endObject()
+        index += 1
+      case quote:
+        var end = index + 1
+        while json[end] != quote { end += 1 }
+        let body = UnsafeBufferPointer(
+          start: json.baseAddress! + index + 1, count: end - index - 1
+        )
+        if end + 1 < json.count, json[end + 1] == UInt8(ascii: ":") {
+          sink.key(Span(_unsafeElements: body))
+        } else {
+          sink.string(Span(_unsafeElements: body))
+        }
+        index = end + 1
+      default:
+        index += 1
+      }
+    }
+    sink.commit()
   }
 
   @Test

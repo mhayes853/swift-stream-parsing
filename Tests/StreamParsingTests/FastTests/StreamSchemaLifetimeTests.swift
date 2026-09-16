@@ -1,7 +1,11 @@
+import StreamParsing
 import Testing
 
-import StreamParsing
 @testable import StreamParsingCore
+
+#if canImport(Dispatch)
+  import Dispatch
+#endif
 
 // A container root's schema is a *computed* property (a generic type cannot hold a stored
 // static), and `PartialsStream.init` reads it. Two things followed from that and are pinned here:
@@ -9,6 +13,20 @@ import StreamParsing
 // the whole schema -- field table, closure contexts, template -- used to be rebuilt per init.
 @Suite
 struct `Stream Schema Lifetime Tests` {
+  #if canImport(Dispatch) && !hasFeature(Embedded)
+    @Test
+    func `Stream Lock Protects Generic State Across Threads`() {
+      let iterations = 10_000
+      let value = _StreamLock(0)
+
+      DispatchQueue.concurrentPerform(iterations: iterations) { _ in
+        value.withLock { $0 += 1 }
+      }
+
+      #expect(value.withLock { $0 } == iterations)
+    }
+  #endif
+
   @Test
   func `Container Root Schema Is Built Once Per Element Type`() {
     #expect(StreamArray<Int>.streamSchema === StreamArray<Int>.streamSchema)
@@ -22,26 +40,31 @@ struct `Stream Schema Lifetime Tests` {
     #expect(StreamArray<Int>.streamSchema !== StreamDictionary<Int>.streamSchema)
   }
 
-  @Test
-  func `Stream Init Reuses The Cached Schema`() throws {
-    let schema = StreamArray<Int>.streamSchema
-    // Warms every other allocation the first stream makes, so the count below covers the loop.
-    _ = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
-    let before = _streamTemplateStorageCounts.total
+  #if DEBUG && !hasFeature(Embedded)
+    @Test
+    func `Stream Init Reuses The Cached Schema`() throws {
+      let schema = StreamArray<Int>.streamSchema
+      // Warms every other allocation the first stream makes, so the count below covers the loop.
+      _ = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+      let before = _streamTemplateStorageCounts.total
 
-    let iterations = 200
-    for _ in 0..<iterations {
-      var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
-      try stream.next(Array("[1,2,3]".utf8))
-      _ = try stream.finish()
+      let iterations = 200
+      for _ in 0..<iterations {
+        var stream = PartialsStream(initialValue: StreamArray<Int>(), from: .json())
+        try stream.next(Array("[1,2,3]".utf8))
+        _ = try stream.finish()
+      }
+
+      #expect(StreamArray<Int>.streamSchema === schema)
+      // Other suites run concurrently and each new element type they touch allocates one template,
+      // so this is a growth-rate assertion rather than an equality: one per init would be 200.
+      let allocated = _streamTemplateStorageCounts.total - before
+      #expect(
+        allocated * 20 < iterations,
+        "allocated \(allocated) templates over \(iterations) inits"
+      )
     }
-
-    #expect(StreamArray<Int>.streamSchema === schema)
-    // Other suites run concurrently and each new element type they touch allocates one template,
-    // so this is a growth-rate assertion rather than an equality: one per init would be 200.
-    let allocated = _streamTemplateStorageCounts.total - before
-    #expect(allocated * 20 < iterations, "allocated \(allocated) templates over \(iterations) inits")
-  }
+  #endif
 
   @Test
   func `Array Schema Frees Its Template When Released`() {

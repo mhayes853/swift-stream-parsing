@@ -1,21 +1,115 @@
 import Benchmark
 import Foundation
 import StreamParsing
-@_spi(Benchmarks) import StreamParsingCore
+import StreamParsingCore
 
 // The typed path decomposed by shape: the same payload parsed twice, once with a counting sink
 // that recognizes every token and stores nothing, and once into the declared model through
 // `PartialSink`. The pair's delta is what routing and storing a value costs on that shape, with
 // the lexing held identical -- which is the only way to tell a parser cost from a sink cost.
 //
-// Same payloads as the replay rows in PartialSinkReplayBenchmarks.swift, so the two tables
-// compose: the sink alone there, the sink behind the real parser here.
-//
 // These rows began as the fused-slice experiment's control halves (NEW_ARCHITECTURE.md, "The
 // fused slice"). The slice is gone -- its findings shipped in the fusion series -- and what it
 // leaves behind is this decomposition, which is worth keeping on its own terms: the four shapes
 // isolate a homogeneous number run, a matched object member, a missed object member and a
 // skipped subtree, and no real-world row separates those.
+
+// MARK: - Synthetic shapes, one route each
+
+// Each payload exercises one of `PartialSink`'s routes and as little else as it can, so the rows
+// read as a cost per event for that route. Sizes are chosen to land near the corpus documents
+// (300–700 KB) so the MB/s column sits on the same scale.
+enum SinkReplayPayloads {
+  // A matched key followed by an integer: `matchField`, then `applyNumber` into a field.
+  static let intFields = Array(Self.makeRows(count: 8_000) { row in
+    (0..<8).map { field in "\"\(Self.fieldNames[field])\":\(row &* 8 &+ field)" }.joined(separator: ",")
+  }.utf8)
+
+  // Every value is a run of doubles into `[Double]`: the bulk `appendNumbers` route, long runs.
+  static let doubleArray = Array(
+    "{\"values\":[\(Self.makeDoubles(count: 40_000).joined(separator: ","))]}".utf8
+  )
+
+  // A declared scalar next to an undeclared *subtree* per row: the `.skip` disposition's
+  // payload. Most of the document's bytes sit inside containers the model has no field for, so
+  // the delta between this row's raw and partial-sink forms is what a skipped interior costs —
+  // structural scan against full streaming.
+  static let nestedMiss = Array(Self.makeRows(count: 6_000) { row in
+    "\"alpha\":\(row),"
+      + "\"extra\":{\"a\":[\(row),\(row &+ 1),\(row &+ 2)],"
+      + "\"b\":\"tail_\(row)_some_padding_text\","
+      + "\"c\":{\"d\":true,\"e\":null,\"f\":\(row).5}}"
+  }.utf8)
+
+  private static let fieldNames = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]
+
+  private static func makeRows(count: Int, _ body: (Int) -> String) -> String {
+    "{\"rows\":[\((0..<count).map { "{\(body($0))}" }.joined(separator: ","))]}"
+  }
+
+  // Sixteen to eighteen significant digits with a fraction, which is what canada carries.
+  private static func makeDoubles(count: Int) -> [String] {
+    (0..<count).map { index in
+      let sign = index % 3 == 0 ? "-" : ""
+      let whole = 40 + index % 60
+      let fraction = String(1_000_000_000_000 + (index &* 7_919) % 999_999_999_999)
+      return "\(sign)\(whole).\(fraction)"
+    }
+  }
+}
+
+@StreamParseable
+struct SinkIntRow: Equatable {
+  var alpha: Int = 0
+  var bravo: Int = 0
+  var charlie: Int = 0
+  var delta: Int = 0
+  var echo: Int = 0
+  var foxtrot: Int = 0
+  var golf: Int = 0
+  var hotel: Int = 0
+}
+
+@StreamParseable
+struct SinkIntRows: Equatable {
+  var rows: [SinkIntRow] = []
+}
+
+// The int rows' spine with no key that matches: every member takes the ignore route.
+@StreamParseable
+struct SinkMissRow: Equatable {
+  var absent0: Int = 0
+  var absent1: Int = 0
+  var absent2: Int = 0
+  var absent3: Int = 0
+  var absent4: Int = 0
+  var absent5: Int = 0
+  var absent6: Int = 0
+  var absent7: Int = 0
+}
+
+@StreamParseable
+struct SinkMissRows: Equatable {
+  var rows: [SinkMissRow] = []
+}
+
+// One declared field; everything else in a `nestedMiss` row is a skipped subtree.
+@StreamParseable
+struct SinkSkipRow: Equatable {
+  var alpha: Int = 0
+}
+
+@StreamParseable
+struct SinkSkipRows: Equatable {
+  var rows: [SinkSkipRow] = []
+}
+
+@StreamParseable
+struct SinkDoubles: Equatable {
+  var values: [Double] = []
+}
+
+// MARK: - Runners
 
 private func runTypedParse<Value: StreamParseableRoot>(
   _ payload: [UInt8], as type: Value.Type
@@ -53,35 +147,29 @@ private func addTypedShapePair<Value: StreamParseableRoot>(
   }
 }
 
-// The models must build the value the rows claim before either side is worth timing.
+// The models must build the value the rows claim before either side is worth timing. A second
+// copy of `runTypedParse` used to live here only to run these; `streamBulkDiscarding` returns the
+// value, so the copy is gone.
 private func validateTypedShapes() {
-  var doubles = SinkDoubles.Partial.streamInitialValue()
-  expectParses { try parseInto(&doubles, SinkReplayPayloads.doubleArray) }
+  let doubles = expectParses {
+    try streamBulkDiscarding(SinkReplayPayloads.doubleArray, as: SinkDoubles.Partial.self)
+  }
   precondition(doubles.values?.count == 40_000)
 
-  var ints = SinkIntRows.Partial.streamInitialValue()
-  expectParses { try parseInto(&ints, SinkReplayPayloads.intFields) }
+  let ints = expectParses {
+    try streamBulkDiscarding(SinkReplayPayloads.intFields, as: SinkIntRows.Partial.self)
+  }
   precondition(ints.rows?.count == 8_000 && ints.rows?[7_999].hotel == 63_999)
 
-  var missed = SinkMissRows.Partial.streamInitialValue()
-  expectParses { try parseInto(&missed, SinkReplayPayloads.intFields) }
+  let missed = expectParses {
+    try streamBulkDiscarding(SinkReplayPayloads.intFields, as: SinkMissRows.Partial.self)
+  }
   precondition(missed.rows?.count == 8_000 && missed.rows?[0].absent0 == nil)
 
-  var skipped = SinkSkipRows.Partial.streamInitialValue()
-  expectParses { try parseInto(&skipped, SinkReplayPayloads.nestedMiss) }
-  precondition(skipped.rows?.count == 6_000 && skipped.rows?[5_999].alpha == 5_999)
-}
-
-private func parseInto<Value: StreamParseableRoot>(
-  _ value: inout Value, _ payload: [UInt8]
-) throws {
-  try withUnsafeMutablePointer(to: &value) { pointer in
-    var parser = JSONParser()
-    var sink = PartialSink(root: pointer)
-    try payload.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-    try parser.finish(into: &sink)
-    precondition(sink.streamFailure == nil)
+  let skipped = expectParses {
+    try streamBulkDiscarding(SinkReplayPayloads.nestedMiss, as: SinkSkipRows.Partial.self)
   }
+  precondition(skipped.rows?.count == 6_000 && skipped.rows?[5_999].alpha == 5_999)
 }
 
 func typedShapeBenchmarks() {

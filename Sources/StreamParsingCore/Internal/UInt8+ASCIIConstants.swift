@@ -6,7 +6,6 @@ extension UInt8 {
   @usableFromInline static let utf8TwoByteMinimum: UInt8 = 0xC2
   @usableFromInline static let utf8ThreeByteFloor: UInt8 = 0xE0
   @usableFromInline static let utf8FourByteFloor: UInt8 = 0xF0
-  @usableFromInline static let utf8LeadCeiling: UInt8 = 0xF4
   @usableFromInline static let utf8MaximumSecond: UInt8 = 0x8F
   @usableFromInline static let utf8MaximumLead: UInt8 = 0xF4
   @usableFromInline static let utf8FourByteLowerBound: UInt8 = 0x90

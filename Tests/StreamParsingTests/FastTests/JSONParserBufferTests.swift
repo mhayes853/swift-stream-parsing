@@ -36,18 +36,12 @@ private func parse<Sink: StreamParseSink>(
   chunk: Int = .max,
   buffer: UnsafeMutableBufferPointer<UInt8>? = nil
 ) throws {
-  var parser = buffer.map { JSONParser(buffer: $0) } ?? JSONParser()
   let bytes = Array(json.utf8)
-  try bytes.withUnsafeBufferPointer { input in
-    var i = 0
-    while i < input.count {
-      let count = min(chunk, input.count - i)
-      let slice = UnsafeBufferPointer(start: input.baseAddress! + i, count: count)
-      try parser.parse(slice, into: &sink)
-      i += count
-    }
+  if let buffer {
+    try feed(bytes, chunk: chunk, into: &sink, buffer: buffer)
+  } else {
+    try feed(bytes, chunk: chunk, into: &sink)
   }
-  try parser.finish(into: &sink)
 }
 
 @Suite

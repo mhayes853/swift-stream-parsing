@@ -1,85 +1,72 @@
-// Array storage the parser can hold a pointer into, and that a snapshot can copy without copying
-// the elements.
-//
-// Everything left of the parse cursor is immutable: once an element is closed it never changes.
-// `Array` cannot express that, because any divergence from a shared buffer copies all of it, so
-// keeping a value while parsing continues costs a full rebuild per snapshot.
-//
-// Three pieces make that cheap here:
-//
-// - **The open element lives inline, in `pending`.** It is the one piece of storage the parser
-//   writes that a snapshot taken mid-element also reads, so it is the one piece that has to
-//   diverge -- and holding it inline makes a plain value copy diverge it, for free, with no
-//   allocation and no bookkeeping. Holding it in the storage instead means buying that
-//   divergence back with a heap block per retained snapshot, which is what the frozen-tail
-//   chain that used to be here did. The inline slot costs one whole-element move per element
-//   (the closed one, into its slot, when the next opens); the chain cost a malloc per snapshot
-//   and could not be made to cost less.
-// - **Closed elements live in uniform power-of-two blocks, and a shared block is written past,
-//   not copied.** Each array holds its own `tailCount`, captured by value when the array is
-//   copied, so a snapshot's elements are a prefix of the filling block's. The parser appends
-//   above that prefix -- memory no snapshot reads -- so there is no copy-on-write check on the
-//   commit path at all, at any block size. Only a write *into* the prefix (the checked
-//   subscript, a repeated dictionary key in a sealed block) copies, and copies one block.
-// - **The parser's write target never moves.** `pending` is at a fixed offset in the value, and
-//   the value sits in storage the stream owns for its lifetime, so the address the sink is
-//   handed when an element opens stays correct however the blocks behind it grow, seal or are
-//   copied. That is what lets the sink resolve a destination once per element rather than
-//   re-derive it per parse call.
-//
-// A plain value copy is therefore already a correct snapshot, which is why nothing here has a
-// `streamSnapshot()`.
+// Array storage the parser can hold a pointer into, and that a snapshot copies without copying
+// the elements. The open element lives inline in `pending`, so a value copy diverges it for free;
+// closed elements live in power-of-two blocks that are written past, never copied, because each
+// array captures its own `tailCount`; and `pending`'s address never moves while blocks seal. A
+// plain copy is therefore a correct snapshot. See NEW_ARCHITECTURE.md, "The open element moves
+// into the storage".
 public struct StreamArray<Element> {
-  // Sealed and never written again except through the checked subscript, which copies the block
-  // it writes when anything else can see it. Every block in an instance holds its chosen
-  // capacity, which keeps indexing a shift and a mask rather than a search over prefix sums.
+  // Sealed; written again only through the checked subscript, which copies a shared block first.
+  // Every block holds the chosen capacity, so indexing is a shift and a mask.
   @usableFromInline var blocks: [StreamBlock<Element>]
 
-  // The filling block. Nil until the first element, so an empty array allocates nothing and
-  // copies nothing. Its first allocation is deliberately smaller than the chosen block capacity;
-  // it grows once if needed, while every tail after the first sealed block starts at full size.
-  // A full tail is sealed when the *next* element is committed rather than when it fills.
+  // The filling block, nil until the first element. The first allocation is smaller than the block
+  // capacity and grows once; later tails start full size. A full tail seals when the *next* element
+  // commits, not when it fills.
   @usableFromInline var tail: StreamBlock<Element>?
 
-  // The open element: the one the parser is inside, held outside the blocks so that copying the
-  // array diverges it. Logically the last element -- index `sealedCount + tailCount` -- for
-  // every read, including a view's. Nil between parses and for an array nothing is parsing into.
+  // The open element, held outside the blocks so copying the array diverges it. Logically element
+  // `sealedCount + tailCount` for every read; nil when nothing is parsing into this array.
   @usableFromInline var pending: Element?
 
-  // This array's own elements in `tail`, as opposed to the block's high-water mark, which
-  // belongs to whichever array is filling it and may be ahead of this one. Copied by value with
-  // the array, which is what makes appending into a shared block safe: see `StreamBlockHeader`.
+  // This array's own count in `tail`, not the block's high-water mark, which belongs to whichever
+  // array is filling it. Copied with the array, which makes appending into a shared block safe.
   @usableFromInline var tailCount: Int
 
-  // Capacity hints choose this while the array is empty. Keeping it as a shift makes the count and
-  // index arithmetic independent of division, while the default path remains the same immediate
-  // shift and mask used before adaptive blocks were introduced.
+  // Chosen by capacity hints while the array is empty; a shift, so indexing needs no division.
   @usableFromInline var blockShiftBits: UInt8
 
-  // Cached separately because the open path needs the capacity for every element, whereas the
-  // shift is only needed when a block seals or an element is indexed. This avoids reconstructing
-  // the value with a variable shift in the append hot path. The maximum adaptive capacity fits in
-  // UInt16.
+  // Cached apart from the shift: the open path needs the capacity per element.
   @usableFromInline var blockCapacityBits: UInt16
 
-  // A power of two, so the sealed count is `blocks.count << blockShift` and needs no stored field.
+  // Block capacities are powers of two, so the sealed count is `blocks.count << blockShift`.
   @usableFromInline static var initialTailCapacity: Int { 8 }
   @usableFromInline static var blockShift: Int { 5 }
-  @usableFromInline static var blockCapacity: Int { 1 &<< Self.blockShift }
-  @usableFromInline static var blockMask: Int { Self.blockCapacity &- 1 }
 
-  // A block is what a write into a shared block copies, so its size in bytes is bounded: no cap
-  // while an element is at most 512 bytes, then a shift that keeps a block near 16 KB. Blocks of
-  // two are the floor. Folds to a constant per element type.
-  @usableFromInline static var strideBlockShiftCap: Int {
+  // The ceiling every shift is clamped to: past 512 elements a block is a large allocation to copy.
+  @usableFromInline static var maximumBlockShift: Int { 9 }
+
+  // ceil(log2(stride)), so a byte budget divided by it is a bound. `stride == 1` is spelled out
+  // rather than relying on `(0).leadingZeroBitCount` cancelling the subtraction.
+  @usableFromInline static var strideShift: Int {
     let stride = MemoryLayout<Element>.stride
-    guard stride > 512 else { return 9 }
-    let strideShift = Int.bitWidth &- (stride &- 1).leadingZeroBitCount  // ceil(log2(stride))
-    return Swift.max(14 &- strideShift, 1)
+    return stride == 1 ? 0 : Int.bitWidth &- (stride &- 1).leadingZeroBitCount
   }
 
+  // Bounds what a write into a shared block copies: uncapped up to 512-byte elements, then near
+  // 16 KB per block, never below two elements.
+  @usableFromInline static var strideBlockShiftCap: Int {
+    guard MemoryLayout<Element>.stride > 512 else { return Self.maximumBlockShift }
+    return Swift.max(14 &- Self.strideShift, 1)
+  }
+
+  // The byte target (2 KB) a small trivial element's block aims at instead of 32 elements: `Double`
+  // gets 256-element blocks, `SIMD2<Double>` 128. Measured: at 32, `prepareSlot` was 4.0% of typed
+  // Mesh; a 64-byte element ceiling instead of 16 cost CITM 1.2%. See NEW_ARCHITECTURE.md.
+  @usableFromInline static var blockByteShift: Int { 11 }
+
+  @usableFromInline static var defaultBlockCapacity: Int { 1 &<< Self.defaultBlockShift }
+
   @usableFromInline static var defaultBlockShift: Int {
-    Swift.min(Self.blockShift, Self.strideBlockShiftCap)
+    let base = Swift.min(Self.blockShift, Self.strideBlockShiftCap)
+    let stride = MemoryLayout<Element>.stride
+    // Non-trivial elements keep the default: their destroy loop dwarfs the malloc saved.
+    guard _isPOD(Element.self), stride > 0, stride <= 16 else { return base }
+    return Swift.max(
+      base,
+      Swift.min(
+        Self.maximumBlockShift, Self.strideBlockShiftCap, Self.blockByteShift &- Self.strideShift
+      )
+    )
   }
 
   public init() {
@@ -92,9 +79,8 @@ public struct StreamArray<Element> {
     self.blockCapacityBits = UInt16(1 &<< shift)
   }
 
-  /// Creates an empty streaming array with storage reserved for at least the expected number of
-  /// elements. The blocked representation remains an implementation detail: this is a hint that
-  /// avoids growth of the block spine and lets large arrays use fewer internal allocations.
+  /// Creates an empty streaming array with storage reserved for at least `initialCapacity`
+  /// elements, so large arrays use fewer internal allocations.
   public init(initialCapacity: Int) {
     self.init()
     self.reserveCapacity(initialCapacity)
@@ -105,39 +91,46 @@ public struct StreamArray<Element> {
     for element in elements { self.append(element) }
   }
 
-  @usableFromInline var currentBlockCapacity: Int { Int(self.blockCapacityBits) }
+  @inlinable var currentBlockCapacity: Int { Int(self.blockCapacityBits) }
 
-  @usableFromInline
+  // `@inlinable`, not `@usableFromInline`: `StreamDictionary.drainPending` specialises in the
+  // client module, and otherwise called this generic getter once per key through runtime metadata.
+  @inlinable
   var sealedCount: Int {
-    if _fastPath(self.blockShiftBits == UInt8(Self.blockShift)) {
-      return self.blocks.count &<< Self.blockShift
+    // Against the *default* shift: a per-element-type constant, carried by every unhinted array.
+    if _fastPath(self.blockShiftBits == UInt8(Self.defaultBlockShift)) {
+      return self.blocks.count &<< Self.defaultBlockShift
     }
     return self.blocks.count &<< Int(self.blockShiftBits)
   }
 
-  // The elements that are in blocks. The open one is not among them.
-  @usableFromInline
+  // The elements in blocks; the open one is not among them.
+  @inlinable
   var closedCount: Int { self.sealedCount &+ self.tailCount }
 
   @usableFromInline
   static func adaptiveBlockShift(for minimumCapacity: Int) -> UInt8 {
-    // Aim for roughly 64 sealed allocations. The clamps retain the established snapshot
-    // granularity for ordinary arrays and bound the amount copied by a write into a shared
-    // block. `minimumCapacity / 64` avoids overflowing for capacities near Int.max.
+    // Aims for roughly 64 sealed allocations, clamped to bound what a write into a shared block
+    // copies. `minimumCapacity / 64` cannot overflow near `Int.max`.
     let desired = minimumCapacity / 64 + (minimumCapacity % 64 == 0 ? 0 : 1)
-    guard desired > Self.blockCapacity else { return UInt8(Self.defaultBlockShift) }
+    // The floor below makes every `desired` up to the default capacity answer the default anyway.
+    guard desired > Self.defaultBlockCapacity else { return UInt8(Self.defaultBlockShift) }
     let roundedShift = Int.bitWidth &- (desired &- 1).leadingZeroBitCount
-    return UInt8(Swift.min(9, roundedShift, Self.strideBlockShiftCap))
+    // Never below the default: a hint says the array will be large, and a small element's default
+    // block is already chosen for that.
+    return UInt8(
+      Swift.max(
+        Self.defaultBlockShift,
+        Swift.min(Self.maximumBlockShift, roundedShift, Self.strideBlockShiftCap)
+      )
+    )
   }
 
   // MARK: Slots
 
-  // The address the next closed element is initialised at, with the tail made ready for it:
-  // sealed if full, grown if it is the small first tail, allocated if there is none. The common
-  // case -- a tail with room -- is two loads and a compare.
-  //
-  // No uniqueness check: the slot is above this array's own count, so no copy of this array can
-  // reach it. See the note on `StreamBlockHeader.count`.
+  // The address the next closed element is initialised at, sealing, growing or allocating the tail
+  // as needed; two loads and a compare when the tail has room. No uniqueness check: the slot is
+  // above this array's own count, so no copy can reach it (see `StreamBlockHeader.count`).
   @inlinable
   @inline(__always)
   mutating func nextSlot() -> UnsafeMutablePointer<Element> {
@@ -158,9 +151,8 @@ public struct StreamArray<Element> {
         self.tail = nil
         self.tailCount = 0
       } else {
-        // The small first tail, promoted to a full block. Moved when nothing else holds it,
-        // copied when something does -- asked before the block is bound to a local, since a
-        // bound reference is a second owner and the check would answer "shared" every time.
+        // The small first tail, promoted to a full block: moved when unique, copied when shared.
+        // Asked before binding the block to a local, which would be a second owner.
         let unique = isKnownUniquelyReferenced(&self.tail)
         let old = self.tail.unsafelyUnwrapped
         let count = self.tailCount
@@ -179,7 +171,7 @@ public struct StreamArray<Element> {
     return self.tail.unsafelyUnwrapped.base + self.tailCount
   }
 
-  // Records a slot written by `nextSlot` as this array's, and as initialised in the block.
+  // Counts a slot written by `nextSlot` as this array's, and as initialised in the block.
   @inlinable
   @inline(__always)
   mutating func advance() {
@@ -187,9 +179,8 @@ public struct StreamArray<Element> {
     self.tail.unsafelyUnwrapped.count = self.tailCount
   }
 
-  // Appends in place. Forced inline: left to the optimizer this inlines into the small bulk
-  // number appender but stays an outlined call inside larger loops -- the fused slice measured
-  // that call hiding two-thirds of the double-array win (+6% observed where +22% was real).
+  // Forced inline. Measured: otherwise it stays an outlined call inside larger loops, which hid
+  // two-thirds of the double-array win. See NEW_ARCHITECTURE.md.
   @inlinable
   @inline(__always)
   mutating func commit(_ element: Element) {
@@ -198,9 +189,8 @@ public struct StreamArray<Element> {
     self.advance()
   }
 
-  // Moves the open element into its slot, leaving no open element. One whole-element move, and
-  // the optional's tag is written once here rather than per element -- `_openElement` fuses this
-  // with the next open and leaves the tag alone.
+  // Moves the open element into its slot. The optional's tag is written once here, not per
+  // element: `_openElement(copying:)` fuses this with the next open and leaves the tag alone.
   @inlinable
   @inline(__always)
   mutating func drainPending() {
@@ -211,17 +201,18 @@ public struct StreamArray<Element> {
         from: UnsafeMutableRawPointer(box).assumingMemoryBound(to: Element.self),
         count: 1
       )
-      // The payload has been moved out; this re-marks the slot empty without destroying it a
-      // second time. A single-payload enum keeps its payload at offset zero, so `.some`'s bits
-      // are the element's bits.
+      // Re-marks the box empty without destroying the moved-out payload again; a single-payload
+      // enum keeps its payload at offset zero.
       box.initialize(to: nil)
     }
     self.advance()
   }
 
-  // Appends past the open element, which is what every path other than the parser wants: a user
-  // appending to a parsed array adds after it rather than replacing it.
+  // Appends past the open element, which every caller but the parser wants. Measured:
+  // `@inline(__always)` for `_appendClosed` -- outlined, a `bl` and a frame per element cost more
+  // than the `_openElement` round trip that route replaced.
   @inlinable
+  @inline(__always)
   mutating func appendSealed(_ element: Element) {
     self.drainPending()
     self.commit(element)
@@ -229,8 +220,7 @@ public struct StreamArray<Element> {
 
   // MARK: Uniqueness
 
-  // Writes into elements this array already has go through here, copying the one block they
-  // land in when anything else can see it and leaving every other block alone.
+  // Writes into existing elements copy the one block they land in when it is shared.
   @inlinable
   mutating func uniqueBlock(_ index: Int) -> StreamBlock<Element> {
     if !isKnownUniquelyReferenced(&self.blocks[index]) {
@@ -240,8 +230,7 @@ public struct StreamArray<Element> {
     return self.blocks[index]
   }
 
-  // The same for the filling block. Only a write into an element this array already holds needs
-  // it; appending never does.
+  // The same for the filling block; only writes into held elements need it, never appends.
   @inlinable
   mutating func ensureUniqueTail() {
     guard self.tail != nil, !isKnownUniquelyReferenced(&self.tail) else { return }
@@ -251,8 +240,7 @@ public struct StreamArray<Element> {
 
   // MARK: Locating
 
-  // The address of element `position`, with the block holding it made unique first: where the
-  // parser writes a value that already exists (a dictionary's repeated key).
+  // The address of element `position`, its block made unique first: a dictionary's repeated key.
   @inlinable
   mutating func uniqueSlotAddress(_ position: Int) -> UnsafeMutableRawPointer {
     let sealed = self.sealedCount
@@ -271,8 +259,8 @@ public struct StreamArray<Element> {
     return UnsafeMutableRawPointer(self.tail.unsafelyUnwrapped.base + offset)
   }
 
-  // The address of element `position` for reading: no copy, whatever shares the block. Mutating
-  // only because the open element's address is a projection of `pending`.
+  // The address of element `position` for reading, with no copy; mutating only because the open
+  // element's address is a projection of `pending`.
   @inlinable
   mutating func elementAddress(_ position: Int) -> UnsafeMutableRawPointer {
     let sealed = self.sealedCount
@@ -302,6 +290,9 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
     self.closedCount &+ (self.pending == nil ? 0 : 1)
   }
 
+  // `@inlinable` so a client-module specialisation (a repeated dictionary key resuming its value)
+  // reads the element directly instead of through the generic getter.
+  @inlinable
   public subscript(position: Int) -> Element {
     get {
       let sealed = self.sealedCount
@@ -323,9 +314,7 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
 }
 
 extension StreamArray: RangeReplaceableCollection {
-  // Rebuilt from a flat buffer, because a general splice cannot preserve the fixed block length
-  // the subscript relies on. Nothing calls this while parsing; `append` is the one that matters
-  // and it stays O(1) amortised.
+  // Rebuilt from a flat buffer: a splice cannot keep the fixed block length. Never parse-time.
   public mutating func replaceSubrange(
     _ subrange: Range<Int>,
     with newElements: some Collection<Element>
@@ -368,14 +357,19 @@ extension StreamArray: RangeReplaceableCollection {
 
   public mutating func reserveCapacity(_ minimumCapacity: Int) {
     precondition(minimumCapacity >= 0, "StreamArray capacity must not be negative")
+    // Only ever raises: an empty array can still own a `tail` from a larger earlier hint, and
+    // dropping the schedule under it lets `moved(count:capacity:)` receive a count larger than its
+    // destination block -- a heap overflow.
     if self.isEmpty {
-      self.blockShiftBits = Self.adaptiveBlockShift(for: minimumCapacity)
-      self.blockCapacityBits = UInt16(1 &<< Int(self.blockShiftBits))
+      let shift = Self.adaptiveBlockShift(for: minimumCapacity)
+      if 1 &<< Int(shift) >= (self.tail?.slotCapacity ?? 0) {
+        self.blockShiftBits = shift
+        self.blockCapacityBits = UInt16(1 &<< Int(shift))
+      }
     }
     let shift = Int(self.blockShiftBits)
     let blockCapacity = Int(self.blockCapacityBits)
-    // Only complete blocks enter the spine; the remainder belongs to `tail`. Rounding up would
-    // make a small exact hint allocate a spine buffer that can never be used.
+    // Only complete blocks enter the spine; rounding up wastes a spine on a small hint.
     self.blocks.reserveCapacity(minimumCapacity &>> shift)
     if self.blocks.isEmpty && self.tail == nil && minimumCapacity > 0 {
       self.tail = StreamBlock.make(capacity: Swift.min(minimumCapacity, blockCapacity))
@@ -391,11 +385,10 @@ extension StreamArray: ExpressibleByArrayLiteral {
   }
 }
 
-// Element wise, not structural: two arrays holding the same elements can differ in where the
-// block boundaries fall, and they are the same array.
+// Element-wise: arrays with the same elements are equal wherever their block boundaries fall.
 extension StreamArray: Equatable where Element: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.count == rhs.count && lhs.elementsEqual(rhs)
+    lhs.elementsEqual(rhs)
   }
 }
 
@@ -406,28 +399,26 @@ extension StreamArray: Hashable where Element: Hashable {
   }
 }
 
-// Asserted rather than checked, because the blocks are objects: what makes sharing one safe is
-// the rule that a block is only ever written above the count every sharer captured (see the note
-// at the top), not the type system.
+// Asserted, not checked: sharing a block is safe by the rule that it is only written above the
+// count every sharer captured, which the type system cannot see.
 extension StreamArray: @unchecked Sendable where Element: Sendable {}
 
-extension StreamArray: CustomStringConvertible {
-  public var description: String {
-    "[" + self.map { "\($0)" }.joined(separator: ", ") + "]"
-  }
-}
-
 #if !hasFeature(Embedded)
-  // Without this a reflecting printer walks the blocks, the tail and the pending slot, which puts
-  // the internals into every custom dump and every recorded snapshot.
+  // Interpolating an unconstrained `Element` is reflection, outside the Embedded subset.
+  extension StreamArray: CustomStringConvertible {
+    public var description: String {
+      "[" + self.map { "\($0)" }.joined(separator: ", ") + "]"
+    }
+  }
+
+  // Otherwise a reflecting printer dumps the blocks, the tail and the pending slot.
   extension StreamArray: CustomReflectable {
     public var customMirror: Mirror {
       Mirror(self, unlabeledChildren: Array(self), displayStyle: .collection)
     }
   }
 
-  // As an unkeyed container, so a partial encodes the way the array it stands in for would. Both
-  // sides are outside the embedded subset, which is why they are guarded rather than unconditional.
+  // An unkeyed container, encoding as the array it stands in for. Outside the Embedded subset.
   extension StreamArray: Encodable where Element: Encodable {
     public func encode(to encoder: any Encoder) throws {
       var container = encoder.unkeyedContainer()
@@ -463,19 +454,10 @@ extension StreamArray: StreamInitializable {
 
 extension StreamArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
-  // `@inlinable` so a client that roots a parse at `StreamArray<Element>` builds the schema --
-  // and therefore the `appendElement` closure inside it -- in its own module, where `Element` is
-  // concrete and the closure body specialises. Without it the whole body is emitted once here,
-  // generically: every `_openElement` in the closure goes through `Element`'s value witnesses and
-  // `Optional<Element>`'s runtime-instantiated metadata. Measured on a root `StreamDictionary`
-  // (the same shape, below): ~2.9% of the parse in `swift_getGenericMetadata`/`getCache` alone,
-  // plus a generic single-payload-enum `assignWithTake` per key. A macro-generated partial never
-  // hit this because its container schemas are built at the use site already.
-  //
-  // Cached per element type (`_streamCachedSchema`), because this is a *computed* property and
-  // `PartialsStream.init` reads it: every stream rooted at an array rebuilt the whole schema,
-  // template allocation included. The `@inlinable` stays -- the closure handed to the cache is
-  // formed here, at the use site, so it still specialises; only the probe is out of line.
+  // `@inlinable` so a client rooting a parse here builds the schema, and the `appendElement`
+  // closure in it, where `Element` is concrete. Measured: generic, ~2.9% of the parse in
+  // `swift_getGenericMetadata`. Cached because `PartialsStream.init` reads this computed property;
+  // the closure still forms at the use site. See NEW_ARCHITECTURE.md.
   @inlinable
   public static var streamSchema: StreamSchema {
     _streamCachedSchema(for: Self.self) {
@@ -483,19 +465,17 @@ where Element: StreamParseableRoot {
     }
   }
 
-  // Generic types cannot hold a stored static, so `streamInitialValue()` above is a real `Self()`
-  // every time rather than a load from a cached template the way a macro-generated partial's is,
-  // and forming `Array<Element>` for the empty spine goes through the runtime's locking
-  // generic-metadata cache. A container holding these as elements should hoist.
+  // A generic type cannot hold a stored static, so `streamInitialValue()` is a real `Self()` that
+  // forms `Array<Element>` metadata through the runtime's locking cache: containers holding these
+  // should hoist a template. See NEW_ARCHITECTURE.md.
   @inlinable
   public static var _streamInitialValueIsExpensive: Bool { true }
 
-  /// A borrowed window onto the array, for reading elements or spans of elements without
-  /// copying the whole array or any element in it.
+  /// A borrowed window onto the array, for reading elements or spans of elements without copying
+  /// the array or any element in it.
   ///
-  /// The closed elements live in blocks, so `sealedBlock(_:)` and `tail` read them through a
-  /// `Span` built the same way `Array.span` builds its own. The open element is not in either;
-  /// the subscript reaches it as the last element.
+  /// Closed elements are read through `sealedBlock(_:)` and `tail`; the open element is in neither,
+  /// and the subscript reaches it as the last element.
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamArray<Element>>
 
@@ -509,9 +489,8 @@ where Element: StreamParseableRoot {
     @inlinable
     public var count: Int { self.storage.pointee.count }
 
-    /// A copy of the whole array, for callers that want an escaping snapshot rather than
-    /// zero-copy access. The blocks are retained, not copied; the open element is copied, which
-    /// is what makes the copy stable while parsing continues.
+    /// A copy of the whole array, for an escaping snapshot. The blocks are retained, not copied;
+    /// the open element is copied, so the copy stays stable while parsing continues.
     @inlinable
     public var value: StreamArray<Element> { self.storage.pointee }
 
@@ -550,10 +529,8 @@ where Element: StreamParseableRoot {
     public subscript(index: Int) -> Element.View? {
       @_lifetime(borrow self)
       get {
-        // Address first, view once. See the note on `StreamDictionary.View.subscript(_:)`:
-        // forming an `Element.View` per dispatch branch crashes
-        // PredictableDeadAllocationElimination on Swift 6.3 (fixed in 6.4), so every branch
-        // yields a plain escapable address and the single exit turns it into a view.
+        // Address first, view once: a view per branch crashes PredictableDeadAllocationElimination
+        // on Swift 6.3 (fixed in 6.4). See `StreamDictionary.View.subscript(_:)`.
         let address: UnsafeMutableRawPointer? =
           index < 0 || index >= self.count ? nil : self.storage.pointee.elementAddress(index)
         guard let address else { return nil }
@@ -580,9 +557,8 @@ extension StreamArray {
   /// Commits the open element and opens a new one holding `initial`, returning the address of
   /// its slot.
   ///
-  /// Underscored because only the frame entry helpers have a reason to call it. The returned
-  /// pointer stays valid until the next call, which is what the sink guarantees by resolving an
-  /// element's destination once per element rather than once per token.
+  /// For the frame entry helpers. The pointer stays valid until the next call; the sink resolves
+  /// an element's destination once per element.
   @inlinable
   @inline(__always)
   @discardableResult
@@ -592,24 +568,17 @@ extension StreamArray {
     return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 
-  /// The same, copy-initialising the new element from `template`.
-  ///
-  /// Two whole-element copies and nothing else: the closed element moves into its slot, and the
-  /// new one is copy-initialised into the space it vacated. Neither is materialised anywhere
-  /// else -- a template passed or returned by value would be a third copy per element, and for a
-  /// partial of a few kilobytes that is worth measuring. The optional's tag is not touched: it
-  /// says `.some` on the way in and on the way out, so there is no enum injection on this path
-  /// and the payload is uninitialised only between the two statements below, which nothing can
-  /// observe and nothing between them can throw. The template must outlive every call; the
-  /// schema builders allocate theirs once per schema and never free it.
+  /// Moves the closed element into its slot and copy-initialises the template into the space it
+  /// vacated: two whole-element copies (a by-value template would be a third). The optional's tag
+  /// says `.some` throughout, and nothing between the two statements can observe or throw. The
+  /// template must outlive every call; the schema builders allocate one per schema, never freed.
   @inlinable
   @inline(__always)
   public mutating func _openElement(
     copying template: UnsafePointer<Element>
   ) -> UnsafeMutableRawPointer {
     guard self.pending != nil else {
-      // First element of this array, or the first after a public append: the tag has to be
-      // written, so this is the one open that goes through the optional.
+      // The first open, or the first after a public append: the tag must be written.
       self.pending = template.pointee
       return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
     }
@@ -638,15 +607,6 @@ extension StreamArray {
     self.advance()
   }
 
-  /// The address of the open element, or nil when there is none.
-  ///
-  /// It never moves, so this is a projection of `pending` and nothing more.
-  @inlinable
-  public mutating func _openElementAddress() -> UnsafeMutableRawPointer? {
-    guard self.pending != nil else { return nil }
-    return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
-  }
-
   /// The address of element `position`, with the block holding it made unique first. For a
   /// value that is written again where it already is: a dictionary's repeated key.
   @inlinable
@@ -658,5 +618,20 @@ extension StreamArray {
   @inlinable
   public mutating func _elementAddress(_ position: Int) -> UnsafeMutableRawPointer {
     self.elementAddress(position)
+  }
+}
+
+// MARK: - Closed appends
+
+extension StreamArray {
+  /// Appends a whole value, for the whole-value routes: a number is delivered once and entire
+  /// (`emitBufferedNumber` holds one straddling a chunk), so no snapshot can see it half-written,
+  /// which is all `pending` buys. The `drainPending` inside keeps order after a hand-made append.
+  /// Measured: the `_openElement` round trip cost four stores and a load-compare where this is one.
+  @inlinable
+  @inline(__always)
+  public mutating func _appendClosed(_ element: Element) {
+    // `appendSealed` is `@inline(__always)` for this call site; see its note.
+    self.appendSealed(element)
   }
 }

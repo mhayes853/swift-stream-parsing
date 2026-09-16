@@ -12,16 +12,18 @@ struct `Pow 10 table tests` {
   func `Every Entry Is The Correctly Rounded Power Of Ten`() {
     for exponent in 0...22 {
       let expected = Double("1e\(exponent)")!
-      let actual = digitPow10Value(exponent)
-      #expect(actual?.bitPattern == expected.bitPattern, "10^\(exponent)")
+      let actual = streamExactPow10(exponent)
+      #expect(actual.bitPattern == expected.bitPattern, "10^\(exponent)")
     }
   }
 
+  // The callers bound the index against this count rather than being handed an optional, so the
+  // count is what has to be right: one past the last exact entry, `10^22`.
   @Test
-  func `Exponents Outside The Table Decline`() {
-    #expect(digitPow10Value(23) == nil)
-    #expect(digitPow10Value(-1) == nil)
-    #expect(digitPow10Value(Int.max) == nil)
-    #expect(digitPow10Value(Int.min) == nil)
+  func `The Table Stops At The Last Exact Power Of Ten`() {
+    #expect(streamExactPow10Count == 23)
+    #expect(streamExactPow10(streamExactPow10Count - 1).bitPattern == Double("1e22")!.bitPattern)
+    #expect(streamMaxExactPow10(Double.self) == 22)
+    #expect(streamMaxExactPow10(Float.self) == 10)
   }
 }

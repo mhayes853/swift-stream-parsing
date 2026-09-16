@@ -5,20 +5,21 @@ import StreamParsingCore
 // What the convenience layer costs, measured against the parse it sits on.
 //
 // Every other row in the suite measures one tier: `Fast ...` drives a counting sink, `Stream ...`
-// and `Real ... discarding` drive a `PartialsStream`, and the two sets do not agree on payloads,
-// chunk sizes or models, so no pair of them subtracts. These do: one payload, one chunking, one
-// configuration, four sinks, so the difference between two rows is the tier and nothing else.
+// and `Real ... discarding` drive a `PartialsStream`, and outside the counting tier the two sets
+// do not agree on payloads, chunk sizes or models, so no pair of them subtracts. These do: one
+// payload, one chunking, one configuration, so the difference between two rows is the tier and
+// nothing else.
 //
 //   null sink      the parser with its events thrown away — the floor a sink is measured against
-//   counting sink  `FastCountingSink`, the sink every `Fast ...` row uses: a token count, a span
-//                  length, and one padded word per key
 //   partial sink   `JSONParser` + `PartialSink` directly, routing every token into a real value
 //   stream         `PartialsStream`, which is `PartialSink` plus the wrapper's owned storage,
 //                  throw latch and `Sequence` entry point
 //
-// partial sink − counting sink is what routing a token into a value costs. stream − partial sink
-// is what the wrapper around it costs. Both are only readable against null sink, which says how
-// much of the wall clock was ever the parse.
+// partial sink − null sink is what routing a token into a value costs. stream − partial sink is
+// what the wrapper around it costs. A counting-sink tier used to sit between them; it drove
+// `FastCountingSink` through the same `JSONParser(bufferCapacity: 4096)` the `Fast ...` and
+// `Real ...` rows use, so all sixteen of its rows were re-measurements of rows that already
+// exist. Read that tier off `Fast <shape> - ...` / `Real <corpus> - ...` instead.
 
 // MARK: - Null sink
 
@@ -93,12 +94,6 @@ func runLayerNullSink(_ payload: [UInt8], _ mode: LayerFeed) throws {
   blackHole(sink.streamFailure)
 }
 
-func runLayerCountingSink(_ payload: [UInt8], _ mode: LayerFeed) throws -> UInt64 {
-  var sink = FastCountingSink()
-  try feed(payload, mode, into: &sink)
-  return sink.checksum
-}
-
 // `PartialSink` without the stream around it: the same allocated root storage a `PartialsStream`
 // owns, but fed from the parser directly, so the wrapper's per call cost is not in this row.
 func runLayerPartialSink<Value: StreamParseableRoot>(
@@ -160,13 +155,6 @@ private func addLayerRows<Value: StreamParseableRoot>(
       benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         blackHole(expectParses { try runLayerNullSink(payload, mode) })
-      }
-    }
-
-    Benchmark("Layer \(name) \(mode.name) - counting sink", configuration: payloadConfiguration) {
-      benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runLayerCountingSink(payload, mode) })
       }
     }
 

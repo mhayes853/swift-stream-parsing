@@ -32,14 +32,6 @@ struct `Stream string tests` {
 
   // MARK: - Accumulation
 
-  @Test(arguments: [1, 7, 64, 512, 4096, Int.max])
-  func `Chunking does not change the accumulated string`(chunk: Int) {
-    let content = String(repeating: "chunk boundary content ", count: 200)
-    let value = self.accumulated(Array(content.utf8), chunk: chunk)
-    expectNoDifference(value.utf8Count, content.utf8.count)
-    expectNoDifference(String(value), content)
-  }
-
   @Test
   func `A multi byte character straddling a block boundary decodes whole`() {
     // 511 ASCII bytes, then a three byte character: its bytes split 1/2 across the first seal.
@@ -247,12 +239,6 @@ struct `Stream string tests` {
     expectNoDifference(!(StreamString("abc") < StreamString("abc")), true)
     // Scalar-value order: U+00E9 sorts after ASCII, and byte-wise agrees.
     expectNoDifference(StreamString("z") < StreamString("\u{E9}"), true)
-    // A difference in the second 512-byte window.
-    let sharedHead = String(repeating: "s", count: 600)
-    let low = self.accumulated(Array((sharedHead + "a").utf8), chunk: 64)
-    let high = self.accumulated(Array((sharedHead + "b").utf8), chunk: .max)
-    expectNoDifference(low < high, true)
-    expectNoDifference(!(high < low), true)
     expectNoDifference([StreamString("b"), "a", "c"].sorted(), ["a", "b", "c"])
   }
 

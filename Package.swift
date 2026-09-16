@@ -83,8 +83,10 @@ let package = Package(
           condition: .when(traits: ["StreamParsingTagged"])
         )
       ],
-      swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
-        + suppressedAssociatedTypes + lifetimes + addressableTypes
+      swiftSettings: [
+          .enableExperimentalFeature(streamParsing128BitIntegers),
+          .treatWarning("EmbeddedRestrictions", as: .warning)
+      ] + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
     // The algorithm explorer's content pipeline. This lives in the root package rather than
     // beside `Web/` because the trace recorder calls the shipped scanner kernels directly, and

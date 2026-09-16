@@ -36,15 +36,7 @@ struct `InlineArray parsing tests` {
     _ json: String,
     as type: Root.Type
   ) -> StreamSinkFailure.Reason? {
-    do {
-      _ = try self.parse(json, as: type)
-      return nil
-    } catch let error as JSONParsingError {
-      guard case .sinkRejectedToken(let failure) = error.reason else { return nil }
-      return failure.reason
-    } catch {
-      return nil
-    }
+    streamFailureReason(json, as: type)
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -139,6 +131,36 @@ struct `InlineArray parsing tests` {
   @Test(arguments: ["[]", "[1]", "[1,true]", #"[1,"two"]"#, "[1,[]]"])
   func `Short arity and wrong element shapes are rejected`(json: String) {
     expectNoDifference(self.failure(json, as: InlineArray<2, Int>.self), .typeMismatch)
+  }
+
+  // The container frame carries the element's inline capacity: without it every inline string in
+  // an `InlineArray` is refused with `.capacityExceeded` on its first non-empty chunk.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: [Int.max, 7, 1])
+  func `Inline string elements use the element's capacity`(chunk: Int) throws {
+    let strings = try self.parse(
+      #"["ab","cd"]"#, as: InlineArray<2, StreamInlineString<16>>.self, chunk: chunk
+    )
+    expectNoDifference(String(strings[0]), "ab")
+    expectNoDifference(String(strings[1]), "cd")
+  }
+
+  // The same capacity is what places an optional element's nil tag after the payload rather than
+  // on top of its first byte.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: [Int.max, 7, 1])
+  func `Optional inline string elements round trip a null`(chunk: Int) throws {
+    let strings = try self.parse(
+      #"["ab",null]"#, as: InlineArray<2, StreamInlineString<16>?>.self, chunk: chunk
+    )
+    expectNoDifference(strings[0].map(String.init), "ab")
+    expectNoDifference(strings[1].map(String.init), nil)
+
+    let reversed = try self.parse(
+      #"[null,"cd"]"#, as: InlineArray<2, StreamInlineString<16>?>.self, chunk: chunk
+    )
+    expectNoDifference(reversed[0].map(String.init), nil)
+    expectNoDifference(reversed[1].map(String.init), "cd")
   }
 
   // More elements than the arity is bounded storage overflowing, the same failure an inline

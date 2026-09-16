@@ -6945,7 +6945,12 @@ remaining gap is block buffers the census says a perfect hint would only cut by 
 larger remaining term on these rows is not allocation at all: it is the per-fragment append
 itself, which is where the earlier `StreamString` census left it.
 
-## The open element in the storage: `StreamBlock` landed, the in-place open rejected
+## The open element moves into the storage
+
+> **Correction.** The frozen-tail chain under *Snapshots after the move* (`previous`/`previousTotal`
+> links, compaction, the `spare` block) is not what shipped: the open element lives inline in
+> `StreamArray.pending`, so a plain value copy is the snapshot. See "Correction: the frozen-tail
+> chain is not what shipped" under "Design notes relocated from source comments".
 
 Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of
 raw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was
@@ -6968,7 +6973,7 @@ commit into the tail, the template copy into `pending`, and tail growth. Eight m
 traffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,
 which is why that idea was set aside in favour of this one.
 
-### The protocol that was built
+### The protocol
 
 The element is copy-initialised **in place**, from a template, at the end of the tail block, and
 the sink is handed that slot's address. No `pending`, no move at close. Three things had to
@@ -7088,44 +7093,895 @@ cycle (an element copy the old design also paid, plus a block and the reseat) is
 byte. The realistic shape, the latest state held while chunks arrive, sits between the two: the
 harness table above, -16% at 64-byte chunks.
 
-### Rejected: the revert, and the two thirds of it that stayed
+## Design notes relocated from source comments
 
-The bulk table above is real and so is the streaming one, and the streaming one decides it. A
-retained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does
-not, and no form of the freeze/compact chain got that below a heap block per retained snapshot:
-the first froze by copying the tail, the second by sealing into the spine, the third by chaining
-behind a fresh tail with a spare kept for reuse -- and the spare is only reusable while nothing
-holds it, which is exactly the condition the `Retention` and `Dictionary` rows break by design.
-So the open element went back to `pending`, held inline in the value, where a plain struct copy
-diverges it for free: no allocation, no epoch, no reseat walk, and `PartialSink`'s frames go back
-to being valid because the address they hold is at a fixed offset in storage the stream owns.
+These notes were the rationale in the source comments at their call sites, moved here when those
+comments were condensed to the relevant details. Each site keeps a one-line pointer, so grep for
+the function or type name it mentions; numbers are arm64 (M1 Pro) unless stated.
 
-What the experiment leaves behind is the half of it that never depended on where the element
-lives:
+### Raw parser (`JSONParser*.swift`)
 
-- **`StreamBlock`.** The blocks are a `ManagedBuffer` with the elements tail-allocated rather
-  than a `ContiguousArray`, and they keep every property the in-place design needed them for:
-  one allocation per block, a stored capacity, a header read through its pointer, and no
-  genericity in the header. What they buy now is different and larger than the open element ever
-  was. Because the block owns its capacity, each array can hold its *own* count of the elements
-  in the filling block, captured by value when the array is copied -- so a snapshot's elements
-  are a prefix of the filling block's, the parser appends above that prefix, and **there is no
-  copy-on-write check on the commit path at all**, at any block size. The old rule ("the first
-  commit after a snapshot copies one block") is gone; only a write *into* the prefix copies.
-- **The template pointer.** One leaked template per schema, copied straight into the element's
-  slot by `_streamCopyInitialize`, replacing the two-form initial-value closure the hoist
-  experiment left behind. The size threshold in it is the one the in-place work measured:
-  `initialize(to:)` below 1 KB, `initialize(from:count:)` above, because the counted form is
-  `swift_arrayInitWithCopy` and the single-value form stages a large loadable value on the stack.
-- **The dictionary's values, blocked.** `storedValues` is a `StreamArray` now, which reverses the
-  older finding that blocking a dictionary's storage cost 2x on the discarding path -- that
-  measurement had no snapshot row in front of it, and a flat `[Value]` makes a snapshot-per-byte
-  parse copy the whole value array per byte. The dictionary keeps its own open value rather than
-  borrowing the array's, because a repeated key's open value is an element the array already
-  holds, and unlike an append a write into one of those is a write a kept state can see.
+#### The structural block walk
 
-The `memmove` profile that opened this chapter is therefore still unanswered for the largest
-partials: `BenchmarkTweetFull.Partial`'s eleven kilobytes still move once per open and once per
-close. What this settles is that moving them is cheaper than the bookkeeping required to stop
-moving them, for every shape that keeps a snapshot -- which is the shape the streaming API is
-for.
+The structural run's 64-byte block path (`JSONParserBlocks.swift`) performs the same walk
+`consumeStructural` performs one byte at a time, driven by three masks from
+`stream_parsing_classify_structural_block` — the NEON kernel in `StreamParsingShims.h`, inlined at
+the call site; on x86 the AVX2 twin in `AVX2.c`, called once per block because it cannot be
+inlined. (The kernel's class encoding is in "The structural block classifier's two-table
+encoding" below.)
+
+Per block it deletes three things. The whitespace scan that precedes every token: whitespace is
+simply absent from the `starts` mask, so "the next token" is one `rbit`/`clz`. The string scan that
+precedes every key and string value: the extent is the pair of quote bits, and "does it contain an
+escape" is an AND against the backslash mask. And the per-string high-bit reduction:
+`containsNonASCII` becomes the block's own flag, so the ~99% of blocks with no high byte never call
+the validator at all.
+
+Nothing observable changes. Every arm restates the corresponding arm of `consumeStructural` — same
+events, same spans, same failure checks at the same offsets, same error reasons at the same bytes.
+Anything the masks cannot settle (a string whose closing quote is in the next block, a key with an
+escape, a literal that does not match whole, a number the chunk cuts, any byte the ladder would
+judge differently) is handed back to the scalar loop at the byte where it starts with the parser
+state untouched, so the code that reports it today is still the code that reports it.
+
+**The grid moves with the tokens, and the carries are therefore always zero.** The walk only
+consumes tokens that finish inside the block it is looking at, so the byte after the last one is
+outside every string and every backslash run, and the next block can be classified with nothing
+carried in. When a token ends past the block that started it — a string, a long number, a literal on
+the edge — the grid re-anchors at the token's end, which costs one classification and preserves the
+invariant.
+
+The anchored alternative (fixed grid, real carries, a cursor masking off the bits it had passed) was
+built and measured. It is much worse where it matters, because it classifies the interior of every
+long string — 91% of `GSoC 2018` and 99% of `LLM message`. Those two went from +15% / −3% to −9% /
+−20%. Re-anchoring skips those bytes entirely and gives up only the tail of the block the token ran
+out of.
+
+A string that does not close inside its block is the one shape that cannot be re-anchored onto, so
+it goes back to the scalar loop whole — but only after the block's own scan. Handing the token back
+to the scalar loop instead was measured and is what the long-string corpora lost to (`Qwen 3
+workspace edit` −26%, `LLM message` −3%): the block that found the opening quote was classified and
+thrown away once per string, and the walk was re-entered per token.
+
+The walk is `@inline(never)`, exactly as `consumeSkipBlocks` is and for the same reason (see "The
+skip block scanner" below): it is where the classifier's two tables and four splats get hoisted,
+and hoisting into `d8` puts a save/restore pair in the prologue of whatever function owns the loop.
+`consumeStructuralRun`'s prologue is the one every byte-fed token pays and must not grow.
+
+#### The block walk's gate: whitespace outside strings
+
+The classifier does not pay on every payload, so the walk gates itself off. Two signals, one strike
+each, counted per classified block; four consecutive strikes and the walk is done with that parser
+(`blockWalkGivenUp`, reset by `reset()`). Both signals were chosen off a census of the classifier's
+own masks over the corpus, in bytes per classified block:
+
+| corpus | raw delta | ws outside strings | in-string | starts |
+| --- | --- | --- | --- | --- |
+| CITM catalog | +37.9% | 46.3 | 8.5 | 9.4 |
+| GitHub events | +31.8% | 17.0 | 39.7 | 7.9 |
+| Twitter | +24.2% | 21.9 | 32.2 | 10.5 |
+| GSoC 2018 | +15.2% | 19.0 | 39.9 | 5.7 |
+| LLM message | −0.1% | 0.0 | 53.6 | 11.4 |
+| Twitter escaped | −4.1% | 0.0 | 49.5 | 15.3 |
+| Canada | −5.7% | 0.0 | 0.0 | 64.0 |
+| Qwen workspace | (−25.8% typed) | 0.0 | 56.9 | 8.1 |
+| Qwen structured | (−11.5% typed) | 0.0 | 54.6 | 10.0 |
+| Mesh | −26.4% | 6.7 | 0.0 | 57.3 |
+
+The split is total: every corpus the walk wins on has 17 or more whitespace bytes per block
+*outside* its strings, and every corpus it loses on has none. That is the whole mechanism — the
+ladder's whitespace scan is a SIMD loop entered once per token, and replacing it with a `tzcnt` is
+what the classifier is actually buying. With no whitespace to skip there is nothing left to buy: the
+walk re-reads the same byte the ladder would have, through 139 more instructions per block. A dense
+`starts` mask catches the one shape that has whitespace but still nothing to skip — `Mesh`, a run of
+numbers — and is kept as a second strike for it. (The same split showed in "Cheap first tiers: one
+of three landed, and the census said which": the whitespace peel's flat documents were the ones
+with almost no whitespace outside strings.)
+
+Not one block of CITM, Twitter, GitHub or GSoC is whitespace-free, so four strikes never fire on
+them; Canada, Mesh, both Qwen payloads and Twitter escaped strike on essentially every block and are
+out of the walk within four.
+
+**A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes
+shape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather
+than by its first four blocks forever. `parsePastThreshold` counts the chunks: while a countdown is
+live the default `windowThreshold` drops to 4 KB so bulk chunks reach it, and the chunk that runs it
+out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15% at
+Mesh's per-block loss. A caller-set threshold is left alone.
+
+**Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.
+`GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free
+block; counting those up over its 13,343 blocks reached four and threw the win away (+18.1% →
+−0.8%).
+
+On x86 the kernel hands the verdict back whole (a `strike` field). Baseline x86-64 has no `popcnt`,
+so computing `starts.nonzeroBitCount` in Swift was a 17-instruction bit-twiddling sequence on every
+block of every payload the walk wins on — those always have whitespace and so never short-circuit
+past it. On x86 the same flag also carries whether the CPU has the AVX2 classifier at all
+(`streamHasAVX2BlockKernels`): a machine without it starts every document already given up, which
+makes the run's entry test the availability test too, with no third load and no read of the lazily
+initialised global on any parse path.
+
+**Verdict and strike count are two adjacent bytes, not one packed byte.** Packing them so the run's
+entry test would be a single load was measured and is worse: `Mesh - bulk` −4.0% against −8.8% and
+`Canada - bulk` −1.9% against −4.6%, interleaved and reproduced. Two plain `Bool` loads cost less
+than one load plus the mask, and the read-modify-write the walk needs to set a bit costs more still.
+
+#### Skipping a subtree inside the block walk (built, measured, rejected)
+
+When a sink answers `.skip` at a container open the block walk returns and the dispatcher re-enters
+through the skip scanner. Doing the skip *in place* instead — walking the rest of the block's
+`starts` bits, pairing strings off with the quote mask, matching brackets, delivering the close when
+it lands in the same block — was built, tested against the scalar ladder at every alignment, and
+measured.
+
+It is a real win where the subtrees are small (`Twitter - bulk discarding` +3.5% against +2.6%,
+`GitHub events` +3.1%) and a loss where they are not: `CITM catalog - bulk discarding` −3.7% against
+−1.8%, `LLM message - bulk` −1.4% against +1.5%. A subtree that outlives its block leaves the walk
+re-reading bytes the skip scanner's own 64-byte kernel would have taken whole. Sweep mean +4.07%
+against +5.24%, so it is not in the tree.
+
+#### The skip block scanner
+
+`JSONParserSkip.swift` runs between a container open whose sink answered `.skip` and its matching
+close. What it still validates, and the token-interior trade it makes, are in "Stage 5: container
+dispositions — skipped subtrees run at structural speed". It delivers exactly one thing: the
+matching `endObject`/`endArray`, at the close bracket, with the same failure-check offset the
+streaming path uses, so a `PartialSink` pops the ignored frame it pushed at the open.
+
+On arm64, and on x86 with AVX2, the interior is scanned 64 bytes at a time
+(`stream_parsing_classify_skip_block`). Only the brackets outside strings are visited; every other
+byte — string content, escape selectors, numbers, literals, whitespace, commas, colons — is settled
+by the masks and never read. The per-byte loop remains as the reference `SkipBlockScanTests` holds
+the block path to, and as the fallback for every byte the block path will not judge, which is what
+keeps error offsets byte-identical to a byte-fed parse.
+
+**The block loop is out of line, and not by inheritance from its caller.** It is where the
+classifier's two tables, four splats and carryless-multiply operand get hoisted, and hoisting into
+`d8` puts a save/restore pair and a bigger frame in the prologue of whoever owns the loop. Inlined
+into `consumeSkipRun`, that prologue is paid by every byte-fed call that lands in a skipped subtree —
+calls that can never execute a block: `Real Twitter escaped - byte by byte discarding` −5.1% p0.
+For the same reason the `inout` copies handed to the block loop are locals scoped to the branch
+rather than the run's own `depth`/`containers`: taking the address of those makes
+`var depth = self.depth` an address-taken initialisation, and the resulting store lands in the entry
+block, on every byte-fed call that never reaches the branch.
+
+**UTF-8 validation is deferred across blocks.** The scanner remembers the start of the first block
+since the last settlement that held a non-ASCII byte, and settles at the first all-ASCII block.
+Settling per block would call the validator on every string; settling never would validate the whole
+subtree at its close, far out of cache. Settling at the first all-ASCII block is both short-ranged
+and safe, because a sequence cannot straddle a block with no high bit in it. The marker is passed by
+value rather than `inout`: taking its address spills it out of its register for the whole block loop.
+
+**Bracket kinds come from the byte, not from more masks.** The four bracket bytes spell their own
+kinds — `[` (0x5B) and `{` (0x7B) carry bit 1 and the closers do not, and the braces carry bit 5
+where the square brackets do not. One byte load out of a line the classifier just read beats two more
+movemasks over the whole block. Likewise the depth cap is checked per open, exactly where the scalar
+loop checks it so it reports at the bracket that breaches it; deriving the same verdict per block
+takes a popcount, which is a general-register value crossing to the vector unit and back — four
+instructions on every block to save one predicted compare on the brackets that are actually there.
+
+#### Two copies of the structural run, and why the body must be `@_transparent`
+
+`structuralRun` takes a `blocks: Bool` that is a literal at both call sites, so each copy
+constant-folds its own branch away. Sharing one loop between the block path and the scalar ladder
+costs the ladder registers even on iterations that never take the branch: the `PartialSink`
+specialisation went from 42 stack accesses to 52 with the branch merely *present*, and those ten
+accesses are −7.3% on `Mesh - bulk` and −4.0% on `Canada - bulk` (interleaved, three rounds, both
+reproduced within 0.4%) — payloads whose blocks the gate switches off after four. Split, the
+`blocks: false` copy compiles to the baseline's code exactly, and a payload the walk has given up on
+pays nothing for the walk's existence.
+
+The attribute on the shared body has to be `@_transparent`, and that is a maintenance rule rather
+than a preference. Measured with the block path statically dead, so both spellings compile the *same*
+scalar loop: `@inline(__always)` still cost `Mesh - bulk` 4.0% and `Canada - bulk` 2.0% (the body is
+optimised once and then inlined, and the typed layer's register allocation comes out different), and
+plain `@inlinable` cost 7.4% and 4.7% (it is not inlined at all). `@_transparent` inlines in raw SIL,
+before the optimiser sees either copy, and measures +0.00% / +0.00% / +0.05% on Mesh / Canada /
+Twitter — the refactor is free, and the block-walk rows measure the walk itself.
+
+**On x86 the block copy is a call, not a second inlined body.** On arm64 the two copies share the
+function and the scalar one still compiles to the baseline's code; on x86 they do not. With both
+inlined, the `PartialSink` specialisation's frame grew from 0xa0 to 0xc0 and `self` moved from `r14`
+to a stack slot, and the scalar loop — where a payload the gate turned the walk off for spends its
+whole parse — paid for it: `Mesh - bulk` −7.8% against −2.5% split out, `Mesh - bulk discarding`
+−2.6% against +3.9% (layout-stabilised builds, best of three interleaved rounds). The call costs
+nothing measurable: a bulk parse enters the run once or twice per document, and the block copy then
+holds it for the whole document.
+
+The walk's "gave up" verdict is returned as `~i` and honoured by breaking out of the run rather than
+by holding anything mutable for it: the dispatcher re-enters on the very next turn, and the entry
+test reads the verdict once. That costs one extra call per parse, against the 17 to 119 static stack
+accesses every mutable-local spelling of the same thing cost the loop.
+
+#### Reading an escaped string value inside the structural run
+
+A string value whose scan stops on a backslash with the closing quote still inside the chunk is
+finished by `consumeEscapedStringInRun` rather than handed back. Before it existed the token left the
+run whole — the rescan "String values and literals finish inside the structural run" records as the
+GSoC loss: `parse` re-dispatched on `.inString`, `consumeStringRun` paid its own prologue and
+*rescanned the prefix from the opening quote*, and `fuseAfterValue` had to hand the following comma
+back so the run could start again. On `twitter` that is 312 tokens per document and 10.6 KB of bytes
+scanned twice. It is out of line by force: the escape decode, the surrogate handling and the UTF-8
+hold are dead weight inside `consumeStructuralRun`, and what is deleted is the round trip and the
+rescan, not the work.
+
+**It must not fuse the comma, and the way it declines is a store to `self.depth`.** `fuseAfterValue`
+asks `self.depth` and `self.containers` whether the comma separates array elements or object members,
+and the structural run — this function's only caller, both the scalar ladder and the block walk —
+holds the container stack in registers and writes it back only on return. From inside the callee the
+fields describe the stack as it stood when the run was *entered*. A bulk parse enters at depth zero,
+where the fusion declines, so nothing showed; a chunk that began inside an array the run then closed
+took the `,"t"` after `"s":"x\ny"` for an array comma, read the key as a string value and failed on
+its colon (`twitter` at 4096-byte chunks, `unexpectedToken` at 13,921). The opposite mix read an
+array element as a key, and an array's number arm accepted `{"s":"x\ny",1}`.
+
+Declining loses nothing, because the caller *is* a structural run and takes the comma in place with
+the stack it actually has. Zeroing `self.depth` is the whole fix: the field is dead until the run
+returns — nothing between reads it except the fusion — and the run's `defer` overwrites it from its
+register on every exit, throwing ones included. The two more direct spellings were both built and
+both cost more than a store in a cold function:
+
+- Storing the run's registers to the fields before the call (and reloading after, or not) keeps the
+  fusion alive and correct but moves the run's register allocation: the sink pointer or `depth`
+  trades a callee-saved register for a stack slot, and 10–27 static stack accesses come and go across
+  the four specialisations of the run and the walk.
+- A `fusing: Bool` literal threaded through `stringRunBody` and the coalescing tail leaves the run
+  byte for byte as it was, but flipped the library's `consumeStringRun<PartialSink>` from calling
+  `stringRunBody` to inlining it (frame 0x70 → 0x140) — and that copy is the one byte-fed typed input
+  enters on every escape: `LLM message - byte by byte discarding` −5%.
+
+#### The escape scratch: a reserved region, not a stack local
+
+Eight bytes are reserved past `bufferCapacity` in the parser's own allocation so that a decoded
+escape has an address that is stable and *already in memory*. Four bytes is the most any escape or
+rejoined UTF-8 sequence needs; eight keeps the region a single aligned word. Reading its address is
+one `ldr` of an already-hot field, and unlike a stack local it never lands in the caller's frame.
+
+Giving the scratch word its address from a local instead — `withUnsafeBytes(of: &word)` — measured
+−10.1% on `Twitter escaped - bulk`, −10.6% on its 16 KB rows and −14.2% on `LLM message - byte by
+byte`, because the closure both materialises the word to a fresh stack slot on every escaped byte and
+captures the sink `inout` across a call boundary.
+
+With the local gone, `recordInlineChunk` went back to `@inline(__always)` — the reason it had been
+forced out of line (the spilled stack slot landing in `consumeStringRun`'s frame, taking it from 41
+stack accesses to 73) no longer exists.
+
+**It stores the whole word unconditionally.** Storing only the low `count` bytes with a
+`while at < count` loop measured worse by a wide margin on escape-dense corpora: `Twitter escaped`
+bulk 1289 → 1374 MB/s and its 16 KB rows 1284 → 1379, `GSoC 2018` bulk 4225 → 4338 — a −2.2%
+regression against the pre-layout parser became a +4.3% win. The mechanism is *not* call-site code
+size: every `consumeStringRun` specialisation is byte-identical between the two forms (6,679
+instructions, 472 stack accesses either way) and the only function that changes is this one, 46 → 38
+instructions. The loop is simply not worth its branches once per escape.
+
+#### Coalescing escaped string content
+
+An escape splits the zero-copy string run, and the fragments it leaves are tiny: 57% of
+`llm_message`'s 26,076 string chunks and 35% of `gsoc-2018`'s 39,810 are a single byte, one sink call
+each. From the first backslash on, `coalescedEscapedStringTail` copies content into the parser's own
+buffer and hands it over one chunk per buffer-full — 26,076 chunks become 2,003 and 39,810 become
+16,869 — a copy an accumulating sink (`PartialSink`, appending into `StreamString`) pays for many
+times over in calls it no longer makes.
+
+**Every sink takes this path, and that is a decision rather than an omission.** It began as an opt-in
+behind a static `_streamCoalescesStringChunks`, with the remaining sinks handed the fragments
+zero-copy. A sink whose chunk calls are nearly free (counting, checksumming) now pays the copy of
+every post-escape byte for no call savings: `FastCountingSink` on `LLM message - bulk` reads ~11%
+slower. That was judged a better price than a second delivery mode and the per-sink knob selecting
+it. Chunk boundaries were never promised, so what a sink can observe is only fewer, larger chunks and
+rejection points at the flushes. Every non-throwing exit flushes, so a chunk that cuts the string
+resumes exactly where the fragment-by-fragment loop resumed.
+
+**The tail is `@inline(never)`, and that split is the whole point.** Spelled inside `stringRunBody` —
+`@inline(__always)` into both `consumeStringRun` and `consumeEscapedStringInRun` — it measured `raw
+llm` −52%, `raw gsoc` −23% and `raw twitter` −15%, the last on a payload whose escapes it barely
+touches. The run body has to stay the size it is.
+
+**Where decoded escape bytes go is a compile-time fact, not a runtime flag.** The tail passes
+`coalescing: true` to `fusedEscapeEnd`, which is `@inline(__always)`, so the literal folds and no
+other caller carries the buffered arm. The earlier spelling was a `stringBuffering` field set around
+the loop and tested in `emitScratch`, which put a field load and a never-taken arm into every escape
+emitter in the binary — including the copies inlined into `parse(byte:)`, where anything placed in
+that arm re-laid out the per-escape blocks: an 8-byte store in `bufferStringScratch` cost `LLM
+message - byte by byte discarding` 4.9% through a branch that dispatcher never took.
+
+**Both buffer appends are wide stores under explicit bounds arguments.** `bufferStringRun` copies a
+run of at most sixteen bytes as one unaligned 16-byte load/store rather than through `copyMemory`,
+which is a call into libc `memmove` whose fixed cost is many times a few-byte copy; both sides are
+checked for slack, the source needing sixteen readable bytes before the chunk end (the input has no
+padding behind it) and the destination sixteen writable bytes before the end of the allocation, which
+is the buffer plus the reserved scratch behind it. `bufferStringScratch` stores the whole decoded
+scratch word in one unaligned 8-byte store; one to four bytes are meaningful and the rest land past
+`bufferCount`, never past the allocation, because after the capacity check `bufferCount` is at most
+`capacity - 1` and the reserved eight scratch bytes sit behind the buffer, dead while a value is being
+coalesced. The `for _ in 0..<count` byte loop it replaces — the shape `appendScratchToBuffer` keeps
+for keys — had cost `Fast Unicode escaped string - bulk` ~20% once every sink coalesced.
+
+`flushStringBuffer` is deliberately left to the optimizer rather than forced inline: `@inline(__always)`
+on it pulled the body into one of the tail's three exits, growing the `PartialSink` specialisation of
+the tail from 726 to 756 instructions, and `Twitter full - bulk discarding` measured −1.8% p0 with it
+(every other corpus flat, so it is the tail's size and placement, not its work).
+
+#### `parse(byte:)`'s one-shape fast path
+
+`parse(byte:)` drives `dispatchOnce` directly rather than going through the bulk entry point, for
+the reasons measured in "The windowed walk: first pass" (the gate's compare in front of every byte,
+and the shared-loop alternative's cost on `canada`).
+
+Ahead of the dispatcher sits the one shape byte-fed input is mostly made of: an ordinary ASCII byte
+inside a string value. It produces exactly one `stringChunk` and nothing else, so it needs neither
+the dispatcher, the scan, the scratch nor a frame — one `stringChunk` call carrying the byte itself,
+with no pointer to take and nothing to store.
+
+Every condition on it is one the general path would otherwise have to settle: a pending `stringBegin`
+would have to be recorded first, a pending UTF-8 tail or a high surrogate would have to be joined, a
+non-empty scratch would have to be flushed in order, a non-ASCII byte may be a truncated sequence
+`trimmingIncompleteUTF8` holds back, `"` and `\` end the run, and a byte below space is a grammar
+error. Anything that fails falls through unchanged.
+
+**The order of the conditions was measured.** It is two tests deep for everything that does not
+qualify: `state` is one load and rejects every structural, literal and escape byte; the byte's own
+range is next and rejects non-ASCII, which can only ever be the head or tail of a sequence the
+pending path must join — reaching that verdict through the three state loads instead cost `Fast
+Non-ASCII string - byte by byte` measurably. The remaining three are loads only bytes that already
+look right ever pay for.
+
+`deliverStringByte` behind it is `@inline(never)` for the standing reason: `parse(byte:)` is the
+dispatcher every byte-fed document walks once per byte, and its inlining is the least stable thing in
+the parser.
+
+#### `trimmingIncompleteUTF8` must be forced inline
+
+A one-byte chunk ends every string run at `to`, so the string body asks `trimmingIncompleteUTF8` on
+*every* content byte of byte-fed input. Left to the optimizer, it was inlined into `consumeStringRun`
+only while `stringRunBody` was spelled as a `while true` loop; once the body became straight-line
+code (every escape leaves for the coalescing tail), the serialized `consumeStringRun<PartialSink>`
+that `parse(byte:)` reaches started calling it instead and `LLM message - byte by byte discarding`
+lost 1.4%, every round. Forced, that copy is instruction for instruction what it was.
+
+#### `sequenceLength`: counted, not branched, and not a nibble table
+
+A UTF-8 lead's length is how many of `0xC0`, `0xE0`, `0xF0` it reaches, plus one. The three tests are
+independent, so the counting form is `cmp`/`adc` three times with nothing to predict, where the
+four-compare ladder it replaces was four branches choosing between four constants. A continuation
+byte reaches none of them and answers 1, which is what the ladder's leading `lead < 0x80` arm
+answered, so the two agree on all 256 bytes; `LookupTableTests` pins that exhaustively.
+
+A packed nibble table — one length per nibble of `0x4322_1111_1111_1111`, indexed by `lead >> 4` — is
+fewer operations still and was measured first. It lost by 2 to 4% across the whole corpus, including
+payloads with no non-ASCII byte in them at all, because its 64-bit immediate is ten bytes of `movabs`
+at every site it inlines into, and one of those sites is `completePendingUTF8`, which inlines into
+`parse`. Nothing here is hot enough to pay for growing the dispatcher. The counting form is the same
+size as the ladder and wins where the ladder was actually walked — `Twitter` +1.4%, `Twitter escaped`
++2.0%, `LLM message` +1.8% — at the cost of `Canada` −3.7%, which is the same dispatcher-layout effect
+in the other direction on a payload with no strings to speak of.
+
+#### `JSONParser`'s field order is a cache-line decision
+
+Everything a parse reads or writes lives in the first 64 bytes; the tail holds `ownsBuffer` (a
+deinit-only flag) and the window telemetry, dead for any parser that never crosses `windowThreshold`.
+The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free on arm64
+(`ldrb`/`ldrh` zero-extend), while packing per-byte state into shared words would turn plain stores
+into read-modify-writes on the string and unicode paths and would break the store fusion the compiler
+already performs on adjacent flags (it emits one `strh` for `isKeyToken`/`keyContainsNonASCII`).
+
+Offset 9 is padding, and new one-byte fields belong there. Anywhere earlier shifts
+`literalKind`/`literalIndex` from offsets 4/5 to 5/6, and the fused halfword store the literal path
+emits for the pair stops being two-byte aligned: every `consumeStructuralRun` specialisation in the
+binary turned `strh` into `sturh`.
+
+The block-walk knobs (`blockWalkEnabled`, the verdict, the strike count, `blockKernelsAvailable` on
+x86) live immediately after `ownsBuffer` for the same reason: the seven bytes between it and the
+eight-byte-aligned `windowThreshold` are padding, so they cost the struct nothing. Anywhere else they
+grow `JSONParser`, and the parser is copied by value in `parse`'s prologue — two extra instructions
+in every `parse` specialisation, from a 16-byte pair copy splitting into a byte move plus pairs.
+
+### Scanners and C shims (`StreamScanners.swift`, `StreamParsingShims`)
+
+#### The structural block classifier's two-table encoding
+
+In `StreamParsingShims.h`, a byte is in a class iff `lo_table[b & 0xF] & hi_table[b >> 4]` has the
+class bit set; each bit is a rectangle (set of high-nibble rows) x (set of low nibbles). The shipped
+encoding is exactly full at eight bits, so two had to be *recovered* before whitespace could have
+one:
+
+* Row 5's accepted set {5B,5D} is the bracket rectangle's row-5 half, and row 7's {70..7B,7D} is
+  {70..7A} plus its row-7 half — so row 5 needs no bit of its own once "accepted" is tested as
+  `c != 0` rather than `(c & 0x7F) != 0`. That is legal because every bracket is an accepted byte,
+  and it is one instruction cheaper per vector (`vtstq(c, c)` lowers to `cmeq #0` + `bic`).
+* Rows 3 and 7 then share the residual low set {0..A} ({30..3A}, {70..7A}), so one rectangle
+  {3,7} x {0..A} serves both.
+
+```
+bit 0 0x01  WS3    {0}   x {9,A,D}     09 0A 0D      (whitespace minus space)
+bit 1 0x02  ROW2   {2}   x {0,2,B,D,E} 20 22 2B 2D 2E
+bit 2 0x04  COMMA  {2}   x {C}         2C
+bit 3 0x08  COLON  {3}   x {A}         3A
+bit 4 0x10  N37    {3,7} x {0..A}      30..3A 70..7A
+bit 5 0x20  ROW6   {6}   x {1..F}      61..6F
+bit 6 0x40  E45    {4}   x {5}         45
+bit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D
+```
+
+`\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and every byte
+>= 0x80 is in no class at all, which is what `needs_scalar` reads. Neither `brackets` nor `op` is
+computed here: the walk reads the four bracket bytes and the two operators it lands on out of the
+line the classifier just touched — two movemasks the skip classifier's shape pays for and this one
+does not.
+
+Space cannot get a ninth bit (the residual rows provably do not collapse into three rectangles), so
+whitespace costs one lookup of its own, deliberately *not* hung off `c`: indexed by the low nibble
+it is independent of the class chain and issues alongside it. The low nibbles of 09, 0A, 0D and 20
+are distinct, so one table indexed by the low nibble holds "the whitespace byte with this low
+nibble" and one compare against the raw byte answers it.
+
+Measured, twitter ns/block: this spelling **9.43**, `(c & 0x01) | (v == 0x20)` **9.87**, deriving
+the operators with compares instead of table bits **10.53**.
+
+#### `find_escaped` stays scalar
+
+The escape finder (`stream_parsing_find_escaped`, `StreamParsingShims.h`) turns a backslash bitmap
+into "which bytes follow an odd-length backslash run", and it is thirteen scalar integer operations
+sitting inside two otherwise fully vector 64-byte block classifiers. It was measured as a NEON
+candidate (2026-09-11) and deliberately left scalar.
+
+The irreducible step is `bs_bits + starts`. The 64-bit adder's carry chain is a one-cycle prefix
+scan that broadcasts each run's start parity to the byte past its end, and **NEON has no segmented
+scan**: a lane-wise version needs six log-steps of `ext`/`and`/`orr` over four vectors — about 70
+vector operations to replace 13 integer ones. The classifiers are already vector-issue-bound (~130
+vector ops per block against ~25 integer ops), so the scalar step runs for free on idle integer
+ports. Carryless multiply (`pmull`, which `prefix_xor` uses) gives a prefix XOR, which is
+*unsegmented* and cannot recover run-start parity, so it is not a substitute.
+
+Two NEON shapes that kept the carry in a `d` register measured **+7 to +31% slower per block**,
+because LLVM split the 64-bit lane chain across register domains and paid six `fmov`s. A
+`bs_bits == 0` early-out was **+0.7 to +17.6% slower per block** — a late-resolving branch off an
+`fmov` — and flat end to end. Deleting the step outright bounds any possible reformulation at ~15%
+of the kernel, which is invisible in the parse.
+
+#### The x86 escalation bound in `streamStringRun`
+
+On x86-64 the string scanner runs two SIMD16 blocks inline and escalates to an AVX2 tier
+(`streamStringRunWide`) for anything longer. Two spellings of that bound were measured, and both
+losers cost documents that never escalate at all.
+
+**A per-iteration counter** — incremented and tested inside the vector loop — cost `CITM catalog`
+**-2.6%** and the 564-byte `Qwen 3 search tool call` **-5.0%**, both made of short keys that never
+reach the wide tier. Folding the limit into the loop bound instead (`narrowLimit`) adds one `min` at
+entry and one compare after the loop, and `to` is what the bound was already compared against, so
+the loop shape is unchanged.
+
+**Folding the availability check into the bound** — gating `narrowLimit` on `streamHasAVX2` — was
+measured and reverted. `streamHasAVX2` (`StreamUTF8Validation.swift`) is a lazily initialised
+global: its initializer calls a C function, so it is not a constant expression, and the x86_64
+object carries a one-time-initialization token and a guarded addressor, so every read is a token
+compare and then a load. Inside a function that is `@inline(__always)` into the parse loop that
+guarded read sits at the entry of every scan, and disassembly showed it there; it cost
+`CITM catalog` **-9.9%**, `Twitter` **-6.1%** and even `Canada` **-1.7%** against untouched code.
+The availability check belongs behind `@inline(never)`, which is where `streamStringRunWide` keeps
+it.
+
+The reason the bound cannot be an entry-width test is structural: `to` is the *chunk* end, not the
+run end, so nothing at entry can distinguish a short run from a long one. Surviving two blocks
+without a terminator is the only available evidence that a run is long.
+
+#### The first-hit lane: a branchless combination, because x86 un-does `cmov`
+
+`streamFirstHitLane` (`StreamScanners.swift`) is the portable spelling of the movemask idiom. The
+mask's bytes are 0xFF or 0x00, so reading them as two 64-bit words puts each lane in its own byte
+and the lane index is the trailing zero count over eight.
+
+It replaced `for lane in 0 ..< 16 where hit[lane]`, which unrolls into sixteen `test`/`js` pairs
+plus sixteen constant-materialising exit blocks — over a hundred bytes of branch ladder, walked to
+the terminator's lane, once per string token and once per key. Worse, the block above it had already
+computed `pmovmskb` for its own `any(hit)` test and threw the answer away: the lane is `tzcnt` of a
+value the machine was holding.
+
+**The two halves are combined arithmetically rather than selected.** Written as
+`low != 0 ? ... : ...` the intent was a `cmov`, and on arm64 that is what it would be — but LLVM's
+`X86CmovConverterPass` converts a `cmov` back into a branch whenever it judges the condition
+predictable and the value on a critical path, so x86 got two branches and a jump-around instead.
+`trailingZeroBitCount` is 64 for an empty word, so bit 6 of the low word's count *is* "the low word
+had no hit", and masking the high word's contribution by it gives the same answer with nothing to
+predict:
+
+| | lane |
+| --- | --- |
+| low has a hit | `lowCount / 8` (0 ... 7, mask is 0) |
+| low is empty | `8 + highCount / 8` (8 ... 16, mask is all ones) |
+
+Two zero words give `8 + 8 == 16`, one past the block, so "is there a hit" and "where" stay the same
+value. Both counts are computed either way, which is the point: no branch to mispredict on a
+terminator whose lane is, by nature, unpredictable.
+
+#### `streamHashBytes`: FNV's shape, not its arithmetic
+
+The key hash was FNV-1a walked one byte at a time (chosen in "Next: StreamDictionary", which also
+argues its hash-flooding bound). FNV's cost is not its arithmetic but its dependency shape: every
+byte's multiply depends on the previous byte's, so a twelve-byte key is a chain of twelve multiply
+latencies that no amount of instruction-level parallelism can overlap. `key_number_42` is thirteen
+bytes, which is what a counts-style document is made of.
+
+Two accumulators fed from one SIMD16 load break that chain in half: the whole 16-byte block costs
+one vector load, one vector xor and two multiplies that issue together. The tail is a bounded word
+ladder rather than a masked vector, for the reason `streamPaddedWord` documents — NEON has no masked
+load, so a partial vector cannot be read without either overreading or a per-lane loop. Keys shorter
+than sixteen bytes, which is most of them, skip the block loop entirely and cost at most two bounded
+loads.
+
+Nothing here is serialised, so the word order only has to agree with itself: a key of a given length
+always takes the same path, and both entry points hash through this one function.
+
+### Typed layer (`PartialSink`, schemas, sinks, conversions)
+
+#### `PartialSink`'s frame stack: a fixed allocation, two slots of headroom, and the overflow frame
+
+The frame stack is one allocation of `JSONParser.maximumDepth + 2` `BorrowedFrame`s rather than an
+`Array`. The parser caps depth and rejects anything past it, so the stack has a known bound and
+never grows. What the fixed allocation buys is not the allocation (there was one either way) but
+the bookkeeping `Array` charges to be resizable: a uniqueness check on every mutation and a bounds
+check on every read, both of which `key(_:)` paid per key when it read the top frame out, edited it
+and wrote it back. A key now edits the top frame where it sits.
+
+`frameCapacity` is the cap plus one because the cap is checked *after* the sink hears about the
+container: `consumeStructural` calls `beginObject` and then pushes, so the frame for the rejected
+depth arrives before the parse throws. `overflowCapacity` adds one more slot, reserved for the
+ignored frame that absorbs an over-deep subtree; nothing the parser feeds reaches it, so it costs
+one 24-byte frame in an allocation that already exists.
+
+Overflow must stay *balanced*, not merely not crash once: a caller that catches the depth error
+and keeps feeding sends more `beginObject` calls, and a container that could not be pushed must not
+pop one that could. `pushOverflowFrame` (outlined, so the depth check in `pushFrame` is a
+predicted-not-taken branch over a call) records `depthExceeded`, pushes `ignoredFrame` into the
+reserved slot for the *first* overflow, and only counts containers deeper than that in
+`droppedFrameCount`. The first version counted the first overflow too, which left the top frame
+pointing at the *parent*. `key(_:)` and the scalar entry points deliberately have no depth test —
+it would sit on the hot path — so an over-deep key was matched against the parent's field table and
+its value written into the parent.
+
+#### The SIMD lane store bypasses the known-slot resolution
+
+`PartialSink.storeSIMDDoubleLane` is the store for a `SIMD2/3/4<Double>` frame, the shape of
+`canada.json`'s coordinate pairs. `applyKnownNumber` reaches the same store (see "Known scalar
+kinds: elements, values, lanes and slots as typed stores"), but only after `knownScalarSlot` has
+asked the frame's kind, its shape and whether its route uses the element cursor, and then through
+`storeNumber(_:optional:at:_:_:)`'s twelve-way switch over the field kind — a jump table whose other
+eleven arms are dead here. The three `arraySIMD*Double` routes exist only on a schema whose element
+kind is `.double`, whose stride is `Double`'s and whose elements are never optional, so all three
+facts are constants at the call and the resolution collapses to a bounds check on the cursor and a
+scaled store. (`storeNumber` itself stays `@inline(__always)`: outlined, it cost this lane path 3%
+against the direct store it replaced.)
+
+The cursor is bumped *before* the conversion, so a token the conversion refuses leaves the frame
+exactly where the closure path would: `knownScalarSlot` bumps it too, then hands the slot to a
+`storeNumber` that may still answer `.unsupported`.
+
+#### Three `init(exactly:)` calls, and what they actually lowered to
+
+The generic float conversion (`BinaryFloatingPoint where Self: LosslessStringConvertible`,
+`StreamConvertible.swift`) used to fold `Self.self == Double.self` and jump to a separate
+non-generic body, on the theory that the generic spelling was charging every type for conversions
+that ought to be identities or constant folds. Reading the release binary showed the cost was **not
+genericity**. All three were `init(exactly:)`:
+
+- `Self(exactly: info.magnitude)` stayed an out-of-line `bl` to `Double.init<UInt64>(exactly:)` —
+  a `ucvtf`, an `fcmp` against 2^64, an `fcvtzu` back and a compare — executed for *every* number
+  and discarded for the 91% of `canada.json` whose significand exceeds 2^53. `Self(_:)` on the same
+  operand is a bare `ucvtf`, and the range question is already answered by the
+  `magnitude <= 2^(significandBitCount + 1)` compare that has to happen anyway: a magnitude above
+  that bound is unusable by the exact path even when it is representable.
+- `Self(exactly: scale)` on a `.rodata` power of ten emitted `fcmp d1, d1; b.vs` — a NaN test on a
+  compile-time-constant table entry — and was doing duty as the type-dependent Clinger window.
+  `streamMaxExactPow10(Self.self)` is that window as a constant.
+- `Self(exactly: value)` on Eisel-Lemire's result emitted an infinity/NaN test on a kernel that
+  returns neither.
+
+With those three gone the `Double` specialisation is the straight-line kernel the special case used
+to provide, and `Float` gets the same three tiers instead of exact-or-`String`. The non-generic
+`Double` body was deleted rather than kept.
+
+The sign is applied to the significand before the scale rather than to the finished result: a power
+of ten is positive, so multiplying or dividing carries the sign through unchanged (zero included),
+at the same two instructions (`fneg`/`fcsel`) the old `Double`-only body spent OR-ing the sign bit
+into a bit pattern — while staying expressible for a `Self` whose bit pattern the extension cannot
+name.
+
+#### `streamEiselLemireAny`: a guarded bridge, not `.map`
+
+The same generic float conversion is an extension constrained on protocols this package does not own
+(`BinaryFloatingPoint`, `LosslessStringConvertible`), so it cannot require the `StreamBinaryFormat`
+conformance the Eisel-Lemire kernel needs. `streamEiselLemireAny` asks with a type test
+(`T.self == Double.self`, `T.self == Float.self`), both of which fold to constants on
+specialisation, and bridges the kernel's result back with an `unsafeBitCast` that is a no-op on the
+only branch that can reach it. A type with no format declines and takes the `String` fallback.
+
+The bridge is spelled `guard let ... else { return nil }` on purpose. Spelled with `.map`, the
+unspecialised generic formed a real closure, reached through
+`__swift_instantiateConcreteTypeFromMangledNameV2` and three partial-apply forwarders.
+
+#### Initial-value templates for generic containers, and when a hoist pays
+
+A macro-generated partial caches its initial value as a stored static (853de07), so opening a
+container of them is a template copy. **A generic type cannot hold a stored static** (the same
+restriction "Review round: state that outlived its token, an offset a fusion moved, and a schema per
+`[`" hit for schemas), so `StreamArray<E>` and `StreamDictionary<V>` cannot: their
+`streamInitialValue()` is a real `Self()`, and forming the empty `Array<E>` spine goes through the
+runtime's *locking* generic-metadata cache (`swift_getGenericMetadata`, `MetadataCacheKey`) once per
+container open.
+
+The fix is to resolve the template once per schema instead of per open. Two landed commits:
+
+- **7a21472, `_streamOptionalContainerPrepare` (`StreamSchemaBuilders.swift`).** The optional
+  member's template and the wrapped type's own prepare are hoisted into the builder, which runs once
+  per schema. CITM catalog discarding **+39.6%**, Qwen search 16KB/windowed/reused +8.9..11.8%,
+  Twitter full +5.9%, Qwen structured +7.3%, GSoC string capacity hint +3.5%; every raw row flat.
+- **05bace4, the container schema builders (`StreamSchema.swift`).** The same hoist for
+  `appendElement`/`enterKey`. Applied to every element type it was **not** a win, and it split
+  exactly by element type:
+
+| blanket hoist | Δ |
+| --- | ---: |
+| Canada capacity hint / dynamic coordinates - discarding | +20..27% wall |
+| Mesh capacity hint / dynamic influences - discarding | +9.7..12.2% |
+| CITM catalog, Twitter full - discarding | **-5.4..-7.8%** |
+| `Schema 48 members` first/last/undeclared | **-18..-22%** |
+
+**A hoist has to pay for the closure context it creates.** The un-hoisted closures captured nothing,
+and a closure without a context is a call and nothing else. Removing a metadata probe is worth one
+context load; removing a static-template load is not, so for a concrete element the hoist is a
+straight loss. The builders therefore choose between the two closure forms once, at schema build,
+on `_streamInitialValueIsExpensive` (a `StreamParseableRoot` requirement, default `false`, `true` on
+the `StreamArray` and `StreamDictionary` conformances). The wins were kept in full, CITM returned
+to flat, and `Schema 48 members` to exactly +0.0% — the concrete path emits the identical closure.
+
+The template is owned, not leaked. `_streamFieldRoute` runs once, from the macro's `streamFields`
+static, but the container builders are reached through `streamSchema`, a *computed* property that
+can be re-evaluated, so a leaked template there — the "allocate one template per schema and leak
+it" of "The open element moves into the storage" — leaks per evaluation. `_streamOwnedTemplate` puts
+the value in a `_StreamTemplateStorage` box that the closure captures purely for its lifetime
+(`StreamFieldPrepare` is a bare closure type, so the context is the only place the table can hold
+it); the body reads the raw `UnsafePointer` bound before the closure and never touches the box, so
+there is no retain, release or load per call. The box is named inside the body (`_ = owner`) only
+so Swift keeps the capture. The template is stored as the optional already `.some` and
+copy-initialised over the member's `nil`, which owns nothing, rather than assigned — assignment
+would destroy the `nil` first and read the payload through a temporary.
+
+#### `StreamEventBatchingSink`: the third looser contract, and the flush's borrow discipline
+
+The two looser contracts (bytes copied, a rejection surfaced at the next flush) are in Stage 2 of
+"The fusion series: per-token emission lands, the recorder is deleted", and the adapter's discarded
+dispositions in "Stage 5: container dispositions — skipped subtrees run at structural speed". What
+those leave out: the reported offset of a deferred rejection is the token current *at the flush*,
+not the one refused, and `StreamEventRecord.end` is not populated — it was a chunk offset only the
+parser's own recorder could know. And since `beginObject`/`beginArray` always answer `.stream`, a
+subtree the far-side sink would have skipped is parsed, grammar-checked and delivered in full on
+this path; the advisory disposition contract is what makes that legal.
+
+`flush` calls the consumer *outside* every array borrow. Calling the mutating `consumer.events`
+from inside three nested `withUnsafeBufferPointer` borrows of the adapter's own stored properties
+was legal only because the accesses were to disjoint properties, and one re-entrancy away from a
+bug: a consumer that fed bytes back into the same sink would mutate the arrays the live
+`StreamEventBatch` points into. The bases are taken first and the array values held across the call
+with `withExtendedLifetime`, which keeps the pointers valid — a re-entrant append copies on write
+rather than reallocating under the batch — with no overlapping exclusive access. It runs once per
+256 events, so the shape costs nothing that matters.
+
+### Streaming collections (`StreamArray`, `StreamDictionary`, `StreamString`, `StreamBlock`)
+
+#### Correction: the frozen-tail chain is not what shipped
+
+"The open element moves into the storage" describes, under *Snapshots after the move*, a tail that
+is "frozen in place and chained behind a fresh tail" through `previous` / `previousTotal` header
+links, compacted into full sealed blocks once the chain holds a block's worth, with a `spare` block
+kept for reuse across repeated snapshots inside one open element. **None of that is in the code,
+and the two throughput tables in that section that describe it should be read as history rather
+than as the current design.** `StreamBlockHeader` has exactly two fields, `count` and `capacity`;
+there is no `previous`, no `previousTotal`, no `spare`, and no compaction pass anywhere in
+`StreamBlock` or `StreamArray`.
+
+What the code does instead is keep the open element **inline, in `StreamArray.pending`**, an
+`Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a
+correct snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element
+snapshot has to diverge from is the one piece held by value. Closed elements still live in uniform
+power-of-two `StreamBlock`s, and a block a snapshot shares is still *written past* rather than
+copied, because each array carries its own `tailCount` and the parser only ever appends above the
+prefix every sharer captured (`StreamBlockHeader.count` is the filling array's high-water mark and
+nothing else reads it). The three headline properties of the section — storage owns its capacity,
+the template is a pointer rather than a closure, uniqueness is settled per container — are all
+still accurate; only the freeze/compact/spare chain was replaced.
+
+The trade recorded against the chain was that it cost a malloc per retained snapshot and could not
+be made to cost less. The inline slot costs one whole-element move per element instead — the
+closed element moving into its block slot when the next one opens — which is the cost
+`_openElement(copying:)` and `_appendClosed` are shaped around (see "`_appendClosed`: the
+whole-value route skips the open element" below). The claim at the end of that section that "the
+stale element is destroyed by a specialised move rather than `swift_arrayDestroy`" is also inverted
+by what `StreamBlock` does today; see "Block teardown" below.
+
+#### Block teardown: `deinitialize(count:)`, not a `move()` loop
+
+`StreamBlock.deinit` on a generic class is emitted **once, generically** — the binary holds
+`StreamParsingCore.StreamBlock.deinit` and no per-element-type copy of it — so whatever its body
+does, it does through `Element`'s value witnesses. The "specialised destroy" the teardown path was
+assumed to reach never existed.
+
+The body used to be a loop of `(elements + index).move()`. That is `load [take]`, and unspecialised
+IRGen lowers it to an `alloca` of the element's stride, an `initializeWithTake` witness call into
+it, and only then the destroy witness on the copy: every element was memmoved onto the stack purely
+to be torn down there. On Twitter full (11.9 KB partial, 100 elements) that was **1.19 MB of
+`memmove` per parse**, charged to the discard.
+
+The counted form is one `swift_arrayDestroy`, which walks the elements in place and calls the
+destroy witness on each. It had been avoided for consulting the element's metadata first — but
+unspecialised the function has already loaded that metadata (the `_isPOD` guard reads it), and the
+per-element form pays an out-of-line `UnsafeMutablePointer.deinitialize` call *plus*
+`swift_arrayDestroy` per element rather than once per block. The `_isPOD` guard in front of it is
+itself load-bearing: destroying unconditionally **cost the homogeneous double array 10%** for
+40,000 doubles that need no destroy at all.
+
+#### StreamArray block sizing for small trivial elements
+
+The default block is 32 elements, which is the granularity the snapshot semantics were designed
+around: a block is what a write into a shared block copies and what a half-filled tail wastes. That
+is the wrong unit for a *small* element. A block is one malloc and one out-of-line `prepareSlot`
+call, and a block of 32 doubles is 256 bytes, so a flat array of ten thousand numbers paid a malloc
+every 256 bytes of payload. Profiles put `prepareSlot` at **4.0% of typed Mesh and 3.0% of typed
+Canada**, all of it under the number-array and SIMD-pair element opens.
+
+So for a *trivial* element of at most sixteen bytes the block aims at a byte target — 2 KB,
+spelled as `blockByteShift` — instead of at 32 elements. `Double` and `Int` get 256-element
+blocks, `SIMD2<Double>` 128-element ones, and every other element type keeps exactly the size it
+had. Everything in the expression is a compile-time property of `Element`, so it folds to a
+constant per instantiation.
+
+The sixteen-byte ceiling is measured, not arithmetic. Raising it to 64 bytes pulled in small POD
+*partials* too — a dictionary's value blocks, for instance — and **cost CITM 1.2% for no gain
+anywhere**: those containers hold tens of elements, not thousands, so a larger block is a 2 KB
+allocation they never fill rather than a malloc they never repeat. Sixteen bytes is exactly the
+width of the elements that arrive in their thousands (a number, a coordinate pair), which is where
+the malloc traffic actually was. Non-trivial elements are excluded outright: their blocks carry a
+destroy loop that dwarfs the malloc the larger block would save.
+
+#### `_appendClosed`: the whole-value route skips the open element
+
+Number and other whole-token routes deliver their value to the sink exactly once and entire — the
+parser buffers a number straddling a chunk boundary and emits it at the closing byte
+(`emitBufferedNumber`) — so there is no window in which a snapshot could observe a half-written
+element, which is the only thing `pending` buys. `_appendClosed` therefore commits straight into
+the block slot.
+
+Going through `_openElement` instead cost, per element: a whole-element move out of `pending` into
+the slot, the `nil` tag written over the vacated payload, and the new value plus its `.some` tag
+written back into `pending` — four stores and a load-compare where this route has one store.
+
+`appendSealed` (the `drainPending` + `commit` pair `_appendClosed` calls) is `@inline(__always)`
+*for this call site*: left outlined it costs a `bl` and a stack frame per element, and that measured
+**worse than the `_openElement` round trip it was replacing**. Why `commit` itself is forced inline
+is trap 2 of "The fused slice: the seam priced before the protocol is touched" (one outlined call
+hid two-thirds of the double-array win), repeated in Stage 3 of the fusion series.
+
+#### `StreamArray.streamSchema` must be `@inlinable`, and cached
+
+`StreamArray`'s (and `StreamDictionary`'s) `streamSchema` is `@inlinable` so that a client rooting
+a parse at `StreamArray<Element>` builds the schema — and therefore the `appendElement` closure
+inside it — in its own module, where `Element` is concrete and the closure body specialises.
+Without it the whole body is emitted once in the core, generically: every `_openElement` in the
+closure goes through `Element`'s value witnesses and `Optional<Element>`'s runtime-instantiated
+metadata. Measured on a root `StreamDictionary`: **~2.9% of the parse in
+`swift_getGenericMetadata`/`getCache` alone**, plus a generic single-payload-enum `assignWithTake`
+per key. A macro-generated partial never hit this, because its container schemas are already built
+at the use site. (`PartialsStream.init(initialValue:from:)` has to be `@inlinable` for the same
+reason; see "`PartialsStream`'s entry points must stay `@inlinable`" below.)
+
+`streamSchema` is a *computed* property and `PartialsStream.init` reads it, so every stream rooted
+at a container rebuilt the whole schema, template allocation included. It is cached per element
+type (`_streamCachedSchema`); the `@inlinable` stays, because the closure handed to the cache is
+still formed at the use site and still specialises — only the cache probe is out of line.
+
+Related: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because
+`StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a
+`@usableFromInline` body does not travel with it. At b01cfd6 the specialised `drainPending` called
+the unspecialised generic `sealedCount` getter once per dictionary key — a runtime-metadata call to
+read `blocks.count`, and a barrier the surrounding loads could not be folded across.
+
+#### `StreamDictionary._openValue`: three shapes, each measured
+
+`_openValue` looks redundant three ways over. Each one was tried and each one lost.
+
+**`drainPending()` is not fused into the open.** `StreamArray._openElement(copying:)` fuses its
+pair; doing the same here is **32% slower on the dictionary discarding rows**. Two
+`withUnsafeMutablePointer(to: &self.pendingValue)` projections in one body, with real work in the
+second, stop the compiler addressing the box in place, so it stages a copy of `Value?` and destroys
+it: an outlined init-with-copy and an outlined destroy, twice each, or four retain/release pairs
+per key (16 retains for a 128-key parse became 528). A projection whose closure is trivial, or one
+that is alone in its own function, folds to direct addressing instead. That is what the separate
+call buys, and it is worth more than the two tag writes it costs. The same rule is why the two
+projections inside `_openValue` sit on mutually exclusive returns rather than in one body.
+
+**The two `_openValue` overloads are not folded into one body.** Folding them into a shared helper
+that reported back what the caller still had to write — an `inout Bool` and an optional payload
+pointer — stopped the specialiser cold: the `Swift.Int`, `StreamString` and CITM-partial
+specialisations of the function disappeared from the binary and every `Value` operation went
+through its value witness, which **cost the dictionary rows two thirds of their throughput and GSoC
+20%**. Checked with `nm | swift demangle | grep "generic specialization"`, which is faster than
+measuring it.
+
+**The template is `UnsafePointer<Value?>`, not `UnsafePointer<Value>`.** `self.pendingValue =
+template.pointee` is an *assignment* into `Value?`, and for a partial of any size that is not one
+copy but five. Measured on the GSoC partial (1,056 bytes) at b01cfd6, per new key, from the
+disassembly of the specialised body: `memcpy 1056` (template → stack) twice, an `outlined enum tag
+store of Partial?` to mark the staged copy `.some`, `memcpy 1056` (old `pendingValue` → stack) so
+the assignment can destroy what it overwrote, an `outlined init with copy of Partial` (a sixth
+pass, with the retains), an `outlined destroy of Partial?` of the `nil` it had just staged, and
+finally `memcpy 1056` (stack → `pendingValue`) — a 6,400-byte stack frame entered through
+`__chkstk_darwin`. None of it is needed: `drainPending()` leaves `pendingValue` holding `.none`,
+which owns nothing, so the whole optional — payload *and* tag — is copy-initialised over it in a
+single `initializeWithCopy`. A `Value?` template is what makes that expressible, because the tag
+travels in the template's bytes instead of being injected afterwards, and no branch has to know
+whether `Value?` spends a spare bit or a trailing byte on it.
+
+#### `StreamDictionary.slot` is force-inlined to avoid staging `self`
+
+`slot(entries:table:forKey:hash:vacantBucket:)` is `@inline(__always)`, which is worth more than
+the code it costs. It is a *non-mutating* method called from inside `_openValue`'s `inout self`,
+and `Self` is loadable but large — **2,164 bytes for the GSoC partial's dictionary**, most of it the
+open value. Out of line, `self` arrives `@in_guaranteed` and the nested read cannot share the
+address the outer inout access already holds, so the caller stages the whole struct:
+`memcpy(sp, self, 2164)` per key, *twice* over (once per key-span branch), for a body that reads
+exactly two words of it — `entries` and `table`. Inlined there is no second access and no copy at
+all. Visible in the disassembly of `_openValue` as `mov w2, #0x874 ; bl memcpy` before every
+`bl ...slot...`.
+
+#### `StreamString`: the first overflow append sizes the schedule from the whole byte count
+
+"StreamString adaptive block growth — the allocator leaves the string-heavy typed path" introduced
+this sizing at half the byte count, and records why `promoteSizedInlineStorage` is
+`@inline(never)`. It now raises the block schedule's start shift from the *whole* count in hand,
+where a `streamReserve` hint uses half: a value that arrives as one big span — an unescaped long string parsed in bulk — lands in a single block instead
+of sealing a half-sized one and walking the doubling ramp; a fragment-fed value keeps the 512-byte
+start and lets the ramp absorb growth.
+
+Whole size rather than half is measured, not tidiness. It took **`Real LLM message - bulk
+discarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6** (on top of chunk coalescing, which is
++37.6%/+7.6% of that on its own), with total mallocs on the LLM row **2,069 → 576**. It costs no
+memory either: `promoteInlineStorage`'s empty-tail arm reserves `min(needed, blockCapacity)`
+exactly, so a larger block means one seal fewer rather than a larger allocation.
+
+### Public API
+
+#### `PartialsStream`'s entry points must stay `@inlinable`
+
+Two attributes on `PartialsStream` carry measured weight and look like decoration.
+
+- **`init(initialValue:from:)`.** The root schema has to be built in the client module, where
+  `Value` is concrete. Emitted in the core, a `StreamArray` or `StreamDictionary` root reaches
+  `_openElement`/`_openValue` through value witnesses and instantiates `Optional<Element>` metadata
+  per open — **~2.9% of a `StreamDictionary<GSoCProject.Partial>` parse**, the cost recorded
+  above for `streamSchema` itself ("`StreamArray.streamSchema` must be `@inlinable`, and cached").
+- **`next(_:)`.** `JSONParser.parse` is generic over the sink and specialises into its caller, and a
+  caller in another module cannot specialise what it cannot see. Left opaque, the byte entry point
+  was **half the wall clock of every byte-fed row** (`LayerOverheadBenchmarks`) and 3% of the bulk
+  rows.
+
+#### Address first, view once: the Swift 6.3 PDAE crash
+
+Swift 6.3 (every 6.3.x, fixed in 6.4) crashes in the mandatory SIL pass
+`PredictableDeadAllocationElimination` on a **generic** function whose result is
+`Optional<T.View>` with `T.View` an opaque `~Escapable` associated type. Both halves are needed: a
+non-generic function returning `Optional<ConcreteView>`, or a generic one returning a non-optional
+`T.View`, compiles. Building a view per branch of a dispatch and returning it from there is
+equivalent in meaning but leaves several `Optional<Value.View>` stack slots for the pass to merge,
+which is the crashing shape.
+
+Disabling the `Lifetimes` experimental feature on 6.3 is not a workaround: every `~Escapable`
+initializer and accessor in the library then fails to compile, and `@_unsafeNonescapableResult`
+does not substitute.
+
+The shape that avoids it: every branch yields a plain, escapable `UnsafeMutableRawPointer?`, and a
+single exit forms the one view with `_overrideLifetime(T.streamView(address), borrowing: self)`.
+`_streamMemberAddress` (`StreamFrameEntry.swift`, which replaced `_streamMemberView`) and the
+`StreamArray.View` / `StreamDictionary.View` subscripts all use it. The caller pays one
+`_overrideLifetime`, because raw pointers carry no provenance for `@_lifetime(borrow storage)` to
+chain through two hops. New `View`-returning generic APIs should keep this shape until 6.3 is
+dropped.

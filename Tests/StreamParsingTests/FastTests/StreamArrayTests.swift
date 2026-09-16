@@ -9,19 +9,25 @@ struct `Stream array tests` {
   func `Initial Capacity Reserves The Spine And First Tail`() {
     let array = StreamArray<Int>(initialCapacity: 1_000)
 
-    expectNoDifference(array.blocks.capacity >= 31, true)
-    expectNoDifference((array.tail?.slotCapacity ?? 0) >= StreamArray<Int>.blockCapacity, true)
+    expectNoDifference(array.blocks.capacity >= 1_000 / StreamArray<Int>.defaultBlockCapacity, true)
+    expectNoDifference(
+      (array.tail?.slotCapacity ?? 0) >= Swift.min(1_000, StreamArray<Int>.defaultBlockCapacity),
+      true
+    )
     expectNoDifference(array.isEmpty, true)
   }
 
   @Test
   func `Large Capacity Hints Adapt The Block Size`() {
-    expectNoDifference(StreamArray<Int>().currentBlockCapacity, 32)
-    expectNoDifference(StreamArray<Int>(initialCapacity: 2_048).currentBlockCapacity, 32)
-    expectNoDifference(StreamArray<Int>(initialCapacity: 3_600).currentBlockCapacity, 64)
-    expectNoDifference(StreamArray<Int>(initialCapacity: 7_200).currentBlockCapacity, 128)
+    // `Int` is trivial and eight bytes, so its default block is the byte target, not 32
+    // elements; a hint never asks for less than that. A non-trivial element keeps 32.
+    expectNoDifference(StreamArray<Int>().currentBlockCapacity, 256)
+    expectNoDifference(StreamArray<String>().currentBlockCapacity, 32)
+    expectNoDifference(StreamArray<Int>(initialCapacity: 2_048).currentBlockCapacity, 256)
     expectNoDifference(StreamArray<Int>(initialCapacity: 10_800).currentBlockCapacity, 256)
     expectNoDifference(StreamArray<Int>(initialCapacity: 33_408).currentBlockCapacity, 512)
+    expectNoDifference(StreamArray<String>(initialCapacity: 3_600).currentBlockCapacity, 64)
+    expectNoDifference(StreamArray<String>(initialCapacity: 7_200).currentBlockCapacity, 128)
     expectNoDifference(StreamArray<Int>.adaptiveBlockShift(for: .max), 9)
   }
 
@@ -52,8 +58,26 @@ struct `Stream array tests` {
     array.append(1)
     array.reserveCapacity(33_408)
 
-    expectNoDifference(array.currentBlockCapacity, 32)
+    expectNoDifference(array.currentBlockCapacity, StreamArray<Int>.defaultBlockCapacity)
     expectNoDifference(Array(array), [1])
+  }
+
+  // A smaller late hint used to re-pick the schedule while refusing to replace the tail the
+  // larger hint had already allocated, leaving a 512-slot block under a 256-slot `blockCapacity`.
+  // `nextSlot` fills against the block, `prepareSlot` grows against the schedule, and the move
+  // out ran 512 elements into 256 slots.
+  @Test
+  func `A Smaller Late Reservation Does Not Shrink The Schedule Under An Allocated Tail`() {
+    var array = StreamArray<Int>()
+    array.reserveCapacity(100_000)
+    let hinted = array.currentBlockCapacity
+    array.reserveCapacity(10)
+
+    expectNoDifference(array.currentBlockCapacity, hinted)
+    expectNoDifference(array.currentBlockCapacity >= (array.tail?.slotCapacity ?? 0), true)
+
+    for value in 0..<600 { array.append(value) }
+    expectNoDifference(Array(array), Array(0..<600))
   }
 
   @Test(arguments: [2_049, 4_097, 8_193, 32_769])
@@ -83,10 +107,12 @@ struct `Stream array tests` {
 
   // The open element is not in a block: it sits in the array's inline slot until the next one
   // opens and moves it into place. So the first tail is allocated by the *second* open, holds
-  // eight, is promoted to a full block when a ninth closes into it, and seals when a
-  // thirty-third does.
+  // eight, is promoted to a full block when a ninth closes into it, and seals when the block
+  // capacity is exceeded. `Int`'s default block capacity is the byte target rather than 32, so
+  // the boundaries are written in terms of it.
   @Test
   func `Tail Grows From Eight To Block Capacity`() {
+    let capacity = StreamArray<Int>.defaultBlockCapacity
     var array = StreamArray<Int>()
 
     expectNoDifference(array.tail == nil, true)
@@ -105,17 +131,17 @@ struct `Stream array tests` {
 
     _ = array._openElement(9)
     expectNoDifference(array.tailCount, 9)
-    expectNoDifference(array.tail?.slotCapacity, StreamArray<Int>.blockCapacity)
+    expectNoDifference(array.tail?.slotCapacity, capacity)
 
-    for value in 10...32 { _ = array._openElement(value) }
+    for value in 10...capacity { _ = array._openElement(value) }
     expectNoDifference(array.blocks.count, 0)
-    expectNoDifference(array.tailCount, 32)
+    expectNoDifference(array.tailCount, capacity)
 
-    _ = array._openElement(33)
+    _ = array._openElement(capacity + 1)
     expectNoDifference(array.blocks.count, 1)
     expectNoDifference(array.tailCount, 1)
-    expectNoDifference(array.tail?.slotCapacity, StreamArray<Int>.blockCapacity)
-    expectNoDifference(Array(array), Array(0...33))
+    expectNoDifference(array.tail?.slotCapacity, capacity)
+    expectNoDifference(Array(array), Array(0...(capacity + 1)))
   }
 
   // The open element is the one piece of storage the parser writes that a copy taken mid-element
@@ -168,7 +194,7 @@ struct `Stream array tests` {
     }
     expectNoDifference(Array(array), Array(0..<200))
     expectNoDifference(
-      array.blocks.count * StreamArray<Int>.blockCapacity + array.tailCount + 1, 200
+      array.blocks.count * StreamArray<Int>.defaultBlockCapacity + array.tailCount + 1, 200
     )
     for (index, snapshot) in kept.enumerated() {
       expectNoDifference(Array(snapshot), Array(0...index), "snapshot \(index)")

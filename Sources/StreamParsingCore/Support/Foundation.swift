@@ -3,9 +3,7 @@
 
   // MARK: - Data
 
-  // Appends the bytes it is handed. The registration based path rebuilt a String from the whole
-  // accumulated value on every write and re-encoded it, which made a long base64 payload
-  // quadratic.
+  // Appends the bytes it is handed; a `String` rebuilt per write made long base64 quadratic.
   extension Data: StreamStringConvertible, StreamParseableRoot {
     public static func streamInitialValue() -> Self { Data() }
 
@@ -18,15 +16,13 @@
 
   // MARK: - Decimal
 
-  // Built from the accumulated magnitude and decimal exponent, which is what Decimal already
-  // stores, so a token inside its range converts exactly. The registration based path went
-  // through Double and a hand rolled mantissa loop, losing anything Double could not hold.
+  // Built from the accumulated magnitude and decimal exponent, which is what `Decimal` stores, so a
+  // token inside its range converts exactly rather than through `Double`.
   extension Decimal: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
     public static func streamInitialValue() -> Self { Decimal() }
 
     public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-      // Decimal's exponent is an Int8 in practice; out of range yields NaN rather than failing,
-      // so the bound is checked here instead.
+      // `Decimal`'s exponent is effectively `Int8`; out of range yields NaN rather than failing.
       guard !info.flags.contains(.overflowed),
         info.exponent >= -128, info.exponent <= 127
       else {
@@ -56,22 +52,10 @@
 
   // MARK: - PersonNameComponents
 
-  // The one support type that is an object rather than a scalar, so it carries the first hand
-  // written schema. The key words are checked against the keys they encode in
-  // `Foundation conversion tests`, because writing them by hand is exactly what produced four
-  // wrong literals out of nine before the macro took the job over.
-  //
-  // PersonNameComponents is eight bytes on Darwin, a single handle to a bridged reference, so
-  // every one of its properties is computed. Taking the address of one yields a stack temporary
-  // that dies when the inout scope ends, so each string write is a get, modify and set through
-  // the bridge rather than an append. That is quadratic in the length of a name streamed byte by
-  // byte, which is the tradeoff for a type that offers no storage to accumulate into.
-  //
-  // `phoneticRepresentation` is entered rather than skipped, and the same absence of storage is
-  // what decides how. A frame needs an address that outlives the call that produced it, which no
-  // property here can give, so the frame points at the *parent* carrying a schema that reaches
-  // the field through the bridge on every write. Same shape as `Tagged`, which applies its raw
-  // value's schema to a pointer to the `Tagged` itself.
+  // The one object-shaped support type, with a hand-written schema; `Foundation conversion tests`
+  // check its key words, since four of nine were wrong when written by hand. It is one bridged
+  // handle on Darwin, so properties are computed and each string write is a get/modify/set through
+  // the bridge; `phoneticRepresentation` is entered with the frame on the parent, like `Tagged`.
   extension PersonNameComponents: StreamInitializable, StreamParseableObject {
     public static func streamInitialValue() -> Self { Self() }
 
@@ -128,13 +112,11 @@
     }
   }
 
-  // Reached through the parent's storage, so every write reads the field out, changes one name
-  // and puts it back. Built once rather than per entry, since it captures nothing and the parent
-  // hands out the same one every time.
+  // Reached through the parent's storage: each write reads the field out, changes one name and puts
+  // it back. Built once, since it captures nothing.
   private let personNamePhoneticSchema = StreamSchema(
     shape: .object,
-    // Foundation ignores a phonetic representation's own phonetic representation, so the key is
-    // not matched here and falls through as an unknown one.
+    // Foundation ignores a phonetic representation's own, so the key falls through as unknown.
     matchField: { key in
       let field = streamMatchPersonNameField(key)
       return field == PersonNameComponents.StreamField.phoneticRepresentation ? -1 : field
@@ -151,14 +133,30 @@
 
   private func streamMatchPersonNameField(_ key: Span<UInt8>) -> Int32 {
     typealias StreamField = PersonNameComponents.StreamField
+    // The trailing word conditions `StreamParseableMacro.keyMatchGuard` emits for keys past eight
+    // bytes. Without them a same-length key sharing the leading word is misrouted, and
+    // `phoneticRepresentation` (8 of 22 bytes checked) enters a nested frame.
     switch key.paddedLeadingWord() {
-    case 0x614E_796C_696D_6166 where key.count == 10: return StreamField.familyName
-    case 0x6D61_4E6E_6576_6967 where key.count == 9: return StreamField.givenName
-    case 0x614E_656C_6464_696D where key.count == 10: return StreamField.middleName
-    case 0x6665_7250_656D_616E where key.count == 10: return StreamField.namePrefix
-    case 0x6666_7553_656D_616E where key.count == 10: return StreamField.nameSuffix
+    case 0x614E_796C_696D_6166
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_656D:
+      return StreamField.familyName
+    case 0x6D61_4E6E_6576_6967
+    where key.count == 9 && key.paddedWord(at: 8) == 0x0000_0000_0000_0065:
+      return StreamField.givenName
+    case 0x614E_656C_6464_696D
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_656D:
+      return StreamField.middleName
+    case 0x6665_7250_656D_616E
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_7869:
+      return StreamField.namePrefix
+    case 0x6666_7553_656D_616E
+    where key.count == 10 && key.paddedWord(at: 8) == 0x0000_0000_0000_7869:
+      return StreamField.nameSuffix
     case 0x656D_616E_6B63_696E where key.count == 8: return StreamField.nickname
-    case 0x6369_7465_6E6F_6870 where key.count == 22: return StreamField.phoneticRepresentation
+    case 0x6369_7465_6E6F_6870
+    where key.count == 22 && key.paddedWord(at: 8) == 0x6E65_7365_7270_6552
+      && key.paddedWord(at: 16) == 0x0000_6E6F_6974_6174:
+      return StreamField.phoneticRepresentation
     default: return -1
     }
   }

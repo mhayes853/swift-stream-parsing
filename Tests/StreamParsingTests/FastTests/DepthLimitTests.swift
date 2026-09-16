@@ -13,18 +13,8 @@ import StreamParsingCore
 @Suite
 struct `Depth limit tests` {
   private static func parse(_ json: String, chunk: Int = .max) throws {
-    var parser = JSONParser()
     var sink = CountingConformanceSink()
-    let bytes = Array(json.utf8)
-    try bytes.withUnsafeBufferPointer { input in
-      var i = 0
-      while i < input.count {
-        let count = Swift.min(chunk, input.count - i)
-        try parser.parse(UnsafeBufferPointer(start: input.baseAddress! + i, count: count), into: &sink)
-        i += count
-      }
-    }
-    try parser.finish(into: &sink)
+    try feed(Array(json.utf8), chunk: chunk, into: &sink)
   }
 
   private static func failure(_ json: String, chunk: Int = .max) -> JSONParsingError? {

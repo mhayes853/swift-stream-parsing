@@ -53,6 +53,23 @@ private struct AuditDurable: StreamInitializable, StreamParseableObject {
   )
 }
 
+// A nested schema with a durable owner the test can drop on purpose, between documents.
+nonisolated(unsafe) private var auditReleasableSchema: StreamSchema? = StreamSchema(shape: .object)
+
+private struct AuditReleasable: StreamInitializable, StreamParseableObject {
+  var nested = AuditNested()
+
+  static func streamInitialValue() -> Self { Self() }
+
+  static let streamSchema = StreamSchema(
+    shape: .object,
+    matchField: { key in key.count == 6 ? 0 : -1 },
+    enterField: { storage, _ in
+      StreamFrame(storage: storage, schema: auditReleasableSchema.unsafelyUnwrapped)
+    }
+  )
+}
+
 private func parse<Root: StreamParseableRoot>(_ json: String, as type: Root.Type) throws {
   let storage = UnsafeMutablePointer<Root>.allocate(capacity: 1)
   storage.initialize(to: Root.streamInitialValue())
@@ -85,5 +102,27 @@ struct SchemaBorrowAuditTests {
   @Test("A schema with a durable owner does not trip the audit")
   func durableSchemaPasses() throws {
     try parse(#"{"nested":{"value":1}}"#, as: AuditDurable.self)
+  }
+
+  // `reset()` ends the document, and with it every borrow recorded for it. A schema that was
+  // borrowed by the first document and legitimately released afterwards must not trip the
+  // tripwire during the second — a false positive, but a `preconditionFailure` all the same.
+  @Test("reset clears the borrows the previous document recorded")
+  func resetClearsBorrows() async throws {
+    await #expect(processExitsWith: .success) {
+      let storage = UnsafeMutablePointer<AuditReleasable>.allocate(capacity: 1)
+      storage.initialize(to: AuditReleasable.streamInitialValue())
+      var sink = PartialSink(root: storage)
+      var first = JSONParser()
+      try Array(#"{"nested":{"value":1}}"#.utf8).withUnsafeBufferPointer {
+        try first.parse($0, into: &sink)
+      }
+      try first.finish(into: &sink)
+      sink.reset()
+      auditReleasableSchema = nil
+      var second = JSONParser()
+      try Array("{}".utf8).withUnsafeBufferPointer { try second.parse($0, into: &sink) }
+      try second.finish(into: &sink)
+    }
   }
 }

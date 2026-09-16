@@ -86,6 +86,10 @@ private enum KeyShape: CaseIterable {
   }
 }
 
+// The two ends of `Payloads.keyCounts`. The key tables are settled, so the 32 and 128 points
+// were interpolation between rows that already bracket them.
+private let keyLookupCounts = [8, 512]
+
 func keyLookupBenchmarks() {
   var configuration = Benchmark.defaultConfiguration
   configuration.maxDuration = .seconds(1)
@@ -94,7 +98,7 @@ func keyLookupBenchmarks() {
   // seen, so a "miss" on this route is an insert and `build` already measures it. The two rows
   // here are the two things it actually does — fill a table, and resume a key already in it.
   for shape in KeyShape.allCases {
-    for count in Payloads.keyCounts {
+    for count in keyLookupCounts {
       let present = keyPointers(shape.keys(count))
       var built = buildBySpan(present)
 
@@ -117,7 +121,7 @@ func keyLookupBenchmarks() {
   // The public subscript, which a consumer reads a parsed dictionary through. Swept on diverse
   // keys only: the span rows above already carry the prefix-collision axis, and this route pays
   // for a `String` on every lookup regardless of key shape.
-  for count in Payloads.keyCounts {
+  for count in keyLookupCounts {
     let present = keyPointers(KeyShape.diverse.keys(count))
     let absent = keyPointers(KeyShape.diverse.absentKeys(count))
     let built = buildByString(present)

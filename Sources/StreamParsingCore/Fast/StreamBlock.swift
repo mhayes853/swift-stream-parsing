@@ -1,31 +1,12 @@
-// A block of elements a `StreamArray` fills and seals.
-//
-// `ContiguousArray` was the block type until the open element moved out of it. It could not
-// stay: an array never exposes its spare capacity, so committing an element meant handing it to
-// `append` and letting the array copy it in, and a shared array copies *all* of its elements
-// before the first of those writes. This owns its capacity outright, so the parser writes the
-// element into the slot it will live in, and a block a snapshot shares is written past rather
-// than copied (see `StreamArray`).
-//
-// A `ManagedBuffer` rather than a class holding a pointer: the elements are tail-allocated with
-// the object, so a block is one allocation, not two. That is not a nicety -- the two-allocation
-// form doubled the malloc count of every number-heavy corpus (Canada 2,659 -> 5,109, a
-// capacity-hinted Canada 58 K -> 116 K) and cost them 10-28%.
-//
-// A reference type so that a copy of the containing `StreamArray` is one retain per block and a
-// snapshot shares the blocks instead of copying them.
-//
-// Not generic over the element: a generic header makes the header's size, and so the elements'
-// offset, a question for the type's metadata wherever the block is reached unspecialized, which
-// cost GitHub and GSoC 7-8%.
+// A block of elements a `StreamArray` fills and seals. A `ManagedBuffer`, so one allocation, not
+// two; a reference type, so copying the array is one retain per block; and a non-generic header,
+// which would otherwise make the element offset a metadata lookup wherever the block is reached
+// unspecialized. See NEW_ARCHITECTURE.md, "The open element moves into the storage".
 @usableFromInline
 struct StreamBlockHeader {
-  // The high-water mark of initialised slots, always a prefix of the capacity, and the count
-  // `deinit` destroys. Written only by the array that fills the block, and read by nothing else
-  // -- an array holding the block reads its *own* `tailCount`, which is a prefix of this one.
-  // That is what lets the filling array keep appending into a block a snapshot shares: the
-  // snapshot's count was captured when it was taken, so the slots past it are not its elements
-  // and this field going up is not a change it can observe.
+  // The high-water mark of initialised slots and the count `deinit` destroys. Written only by the
+  // filling array and read by nothing else: a holder reads its own `tailCount`, a prefix of this,
+  // so appending into a block a snapshot shares changes nothing the snapshot can observe.
   @usableFromInline var count: Int
   // Stored rather than read back from `malloc_size` the way `ManagedBuffer.capacity` does.
   @usableFromInline let capacity: Int
@@ -41,8 +22,10 @@ struct StreamBlockHeader {
 final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   @inlinable
   static func make(capacity: Int) -> StreamBlock<Element> {
-    let buffer = Self.create(minimumCapacity: Swift.max(capacity, 1)) { _ in
-      StreamBlockHeader(count: 0, capacity: capacity)
+    // At least one slot is allocated, so the header records what was allocated, not what was asked.
+    let slots = Swift.max(capacity, 1)
+    let buffer = Self.create(minimumCapacity: slots) { _ in
+      StreamBlockHeader(count: 0, capacity: slots)
     }
     return unsafeDowncast(buffer, to: StreamBlock<Element>.self)
   }
@@ -53,34 +36,26 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
     }
   }
 
-  // Element by element rather than `deinitialize(count:)`: the counted form is
-  // `swift_arrayDestroy`, a runtime call that consults the element's metadata first. Moving the
-  // value out lets the specialised destroy run on it.
+  // Destroys the elements in place. A generic class's `deinit` is emitted once, generically, so
+  // this runs through value witnesses however it is written. Measured: a `move()` loop lowered to
+  // an alloca + take + destroy per element, 1.19 MB of memmove per Twitter full parse; keep the
+  // counted form (one `swift_arrayDestroy`). See NEW_ARCHITECTURE.md.
   @inlinable
   static func destroy(_ elements: UnsafeMutablePointer<Element>, count: Int) {
-    // Nothing to do for a trivial element, and the loop below is not free for 40,000 doubles:
-    // it cost the homogeneous double array 10% when it ran unconditionally.
+    // Measured: destroying unconditionally cost the homogeneous double array 10%.
     guard !_isPOD(Element.self) else { return }
-    var index = 0
-    while index < count {
-      _ = (elements + index).move()
-      index &+= 1
-    }
+    elements.deinitialize(count: count)
   }
 
-  // The element storage. `ManagedBuffer` hands it out through a closure; the address is a fixed
-  // offset from the object and stays valid for the object's lifetime, which is the property the
-  // parser's frames rely on.
+  // The element storage: a fixed offset from the object for its lifetime, as the frames require.
   @inlinable
   var base: UnsafeMutablePointer<Element> {
     self.withUnsafeMutablePointerToElements { $0 }
   }
 
-  // The header through its pointer rather than `ManagedBuffer.header`: that property is a
-  // stored class property, and a stored class property read from outside its module is guarded
-  // by a dynamic `swift_beginAccess` call even in release builds -- in the middle of what is
-  // otherwise a load, a compare and a copy. The pointer is the same fixed offset from the object
-  // as `base` is, and the closure folds to that arithmetic.
+  // Through the pointer, not `ManagedBuffer.header`: a stored class property read from outside its
+  // module pays a dynamic `swift_beginAccess` even in release. The closure folds to the same fixed
+  // offset arithmetic as `base`.
   @inlinable
   var headerPointer: UnsafeMutablePointer<StreamBlockHeader> {
     self.withUnsafeMutablePointerToHeader { $0 }
@@ -96,11 +71,9 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   @inlinable
   var slotCapacity: Int { self.headerPointer.pointee.capacity }
 
-  /// A block holding copies of this block's first `count` elements, with room for `capacity` of
-  /// them: what a write into a block someone else can see goes through instead.
-  ///
-  /// The count is passed in rather than read from the header because the header's is the filling
-  /// array's high-water mark, which can be ahead of the copying array's own.
+  /// A block holding copies of this block's first `count` elements, with room for `capacity`: the
+  /// path a write into a shared block takes. `count` is passed in because the header's is the
+  /// filling array's high-water mark, which can be ahead of the copier's own.
   @inlinable
   func copy(count: Int, capacity: Int) -> StreamBlock<Element> {
     let copied = StreamBlock<Element>.make(capacity: capacity)
@@ -121,7 +94,6 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   }
 }
 
-// A block below the filling array's count is immutable, and the slots above it belong to that
-// array alone; see the note on `count`. `StreamArray` asserts `Sendable` for the same reason and
-// on the same condition.
+// Below the filling array's count a block is immutable, and the slots above belong to that array
+// alone (see `count`). `StreamArray` asserts `Sendable` on the same grounds.
 extension StreamBlock: @unchecked Sendable where Element: Sendable {}

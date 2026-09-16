@@ -1,11 +1,8 @@
 /// The default ``StreamParseableRoot/View`` for a type with nothing to project — a scalar, or any
 /// other type that hands its whole value back rather than a member-by-member window onto it.
 ///
-/// Reading it still costs one dereference (``value``), same as the old `View == Self` default
-/// did implicitly. What changes is that the dereference is deferred to the read rather than
-/// happening the moment the view is built, and the view itself is `~Escapable`: the compiler
-/// ties it to the call that produced it, the same way every other ``StreamParseableRoot/View``
-/// is tied to its `storage`, instead of trusting a caller not to move it elsewhere.
+/// The dereference is deferred to the read, and the view is `~Escapable` so the compiler ties it
+/// to the storage it was built from rather than trusting the caller.
 public struct StreamPointerView<Value>: ~Copyable, ~Escapable {
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 

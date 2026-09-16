@@ -6,24 +6,16 @@ public protocol StreamInitializable: SendableMetatype {
 }
 
 public protocol StreamStringConvertible: StreamInitializable {
-  // Returns whether the bytes were taken. Unbounded storage answers `.applied` unconditionally
-  // and the result folds away on specialization; bounded storage is the reason the result exists,
-  // and answers `.capacityExceeded` without taking any of the bytes, so a value holds exactly
+  // Whether the bytes were taken. Unbounded storage answers `.applied` (folded on specialization);
+  // bounded storage answers `.capacityExceeded` without taking any bytes, so a value holds exactly
   // what it accumulated up to the last append that fit.
   @discardableResult
   mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
 
-  // How a schema recognizes fixed-capacity inline storage without being able to name it.
-  //
-  // `_streamStringSchema` is generic over the destination and cannot spell
-  // `StreamInlineString<capacity>` for a capacity it does not know, and an existential metatype
-  // cast to ask the question would not survive into Embedded Swift. A static requirement with a
-  // default answers it instead: it is read once when a schema is built, never per token, and
-  // specializes to a constant that folds the branch away for every type that leaves it zero.
-  //
-  // Zero means "not inline storage". A non-zero value is a promise about layout, checked in
-  // `_streamStringSchema`: `_streamInlineByteOffset` bytes of header, then exactly that many
-  // bytes of UTF-8 storage, which is what lets `PartialSink` append to it without naming it.
+  // How a schema recognizes inline storage it cannot name: a static requirement, not a metatype
+  // cast (`_streamStringSchema` cannot spell `StreamInlineString<capacity>`, and an existential
+  // cast would not survive Embedded). Zero means not inline; non-zero promises (checked in
+  // `_streamStringSchema`) `_streamInlineByteOffset` header bytes, then that many UTF-8 bytes.
   static var _streamInlineCapacity: Int { get }
   static var _streamInlineByteOffset: Int { get }
 }
@@ -50,10 +42,9 @@ public protocol StreamNullable: SendableMetatype {
 // MARK: - Integers
 
 extension FixedWidthInteger {
-  // A token carrying an exponent is rejected rather than scaled, matching prior behaviour.
-  // Inlinable so a generic caller specialised for a concrete integer gets a specialised
-  // conversion: reached through the protocol witness alone this ran unspecialised, with a
-  // metadata lookup per number, and the batch appender measured Mesh at half speed.
+  // A token carrying an exponent is rejected rather than scaled. Inlinable so a specialised caller
+  // gets a specialised conversion: through the protocol witness alone it paid a metadata lookup
+  // per number, Mesh at half speed.
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
     guard !info.flags.contains(.fraction), info.exponent == 0 else { return nil }
@@ -69,8 +60,9 @@ extension FixedWidthInteger {
 
     if info.flags.contains(.negative) {
       guard Self.isSigned else { return nil }
-      // The bound is expressed in Self.Magnitude rather than UInt64, because widening the
-      // other way traps for types wider than 64 bits.
+      // Integer-to-integer `init?(exactly:)` folds to a range compare, so the objection the
+      // floating-point path below raises against `init(exactly:)` does not apply here. The bound is
+      // in `Self.Magnitude`, not `UInt64`: widening the other way traps past 64 bits.
       guard let magnitude = Self.Magnitude(exactly: info.magnitude),
         magnitude <= Self.min.magnitude
       else { return nil }
@@ -90,20 +82,17 @@ extension FixedWidthInteger {
 // MARK: - Floating point
 
 extension BinaryFloatingPoint where Self: LosslessStringConvertible {
-  // Accumulation rather than a string round trip. Both operands of the scale are exact when the
-  // significand fits the mantissa and the power of ten is in the exactly representable range,
-  // so a single rounding gives the correctly rounded result. Multiplication is used for a
-  // positive exponent and division for a negative one, because a negative power of ten is not
-  // itself exact.
-  //
-  // Anything outside that range falls back to the standard library's parser, which is slow but
-  // correct.
-  //
-  // For types narrower than Double, `Self(exactly: scale)` narrows the usable exponent window to
-  // the powers that type can itself represent exactly; the arithmetic still rounds only once.
+  // Accumulation, not a string round trip, in three generic tiers: Clinger's exact path (bounds
+  // fold per `Self`, 2^53 / 10^22 for `Double`), Eisel-Lemire on `Self`'s format (91.2% of canada),
+  // then the standard library for declines and wrapped 20+ digit magnitudes. No `init(exactly:)`:
+  // each lowered to redundant work (NEW_ARCHITECTURE.md, "Three `init(exactly:)` calls").
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard !info.flags.contains(.overflowed) else {
+    // Raw-bit tests, so the pair is a `tbnz` on a held register rather than two `OptionSet` calls;
+    // the masks are the flags' computed `@inlinable` statics, which fold to immediates.
+    let flags = info.flags.rawValue
+    guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else {
+      // More than nineteen digits: `magnitude` has wrapped, so nothing below may look at it.
       guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
         return nil
       }
@@ -111,44 +100,38 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
       return
     }
 
-    if let significand = Self(exactly: info.magnitude) {
-      if info.exponent == 0 {
-        self = info.flags.contains(.negative) ? -significand : significand
+    let magnitude = info.magnitude
+    let exponent = Int(info.exponent)
+    let negative = flags & NumberInfo.Flags.negative.rawValue != 0
+
+    if magnitude <= streamMaxExactMagnitude(Self.self) {
+      let unsigned = Self(magnitude)
+      let significand = negative ? -unsigned : unsigned
+      if exponent == 0 {
+        self = significand
         return
       }
-
-      let exponent = Int(info.exponent)
-      if info.magnitude <= (1 << 53),
-        let scale = digitPow10Value(abs(exponent)),
-        let typedScale = Self(exactly: scale)
-      {
-        let scaled = exponent >= 0 ? significand * typedScale : significand / typedScale
-        self = info.flags.contains(.negative) ? -scaled : scaled
+      let index = exponent < 0 ? -exponent : exponent
+      if index <= streamMaxExactPow10(Self.self) {
+        let scale = Self(streamExactPow10(index))
+        // Split rather than written as one `?:` so a corpus whose exponents all have one sign
+        // pays a predicted branch instead of an unconditional `fdiv` it throws away.
+        if exponent >= 0 {
+          self = significand * scale
+          return
+        }
+        self = significand / scale
         return
       }
     }
 
-    // Everything the two exact paths above could not reach, which is where `canada.json` sent
-    // 91.2% of its tokens: a significand past the mantissa, or a power of ten beyond 10^22.
-    // 10^22 is the last power whose factor of five fits Double's 53-bit significand; using the
-    // rounded Double value of 10^23 or above as a scale can miss the correctly rounded result by
-    // one ULP. Eisel-Lemire answers values inside its table bit-exactly and declines rather than
-    // guessing, leaving the existing fallback to handle exponents outside that table.
-    //
-    // `Double`'s alone, deliberately. The kernel computes in `Double`, so a narrower `Self` would
-    // round twice -- once into `Double`, once into `Self` -- which is *worse* than the fallback
-    // those cases take today, and a wider one would lose bits outright. The metatype comparison
-    // folds away when the generic specialises, so `Double` pays nothing for the check and the
-    // other types keep exactly the behaviour they had.
-    if Self.self == Double.self,
-      let value = streamEiselLemire(
-        magnitude: info.magnitude,
-        exponent: Int(info.exponent),
-        negative: info.flags.contains(.negative)
-      ),
-      let typed = Self(exactly: value)
-    {
-      self = typed
+    if let value = streamEiselLemireAny(
+      magnitude: magnitude,
+      exponent: exponent,
+      negative: negative,
+      as: Self.self
+    ) {
+      self = value
       return
     }
 
@@ -157,6 +140,32 @@ extension BinaryFloatingPoint where Self: LosslessStringConvertible {
     }
     self = fallback
   }
+}
+
+// Eisel-Lemire for the formats with a `StreamBinaryFormat`, a decline for any other type. The
+// extension above cannot require the conformance, so a type test asks (folded on specialisation).
+// `Float` is *not* narrowed from `Double`: decimal -> `Double` -> `Float` rounds twice and is not
+// correctly rounded in general (`7.038531e-26`).
+@inlinable
+@inline(__always)
+func streamEiselLemireAny<T: BinaryFloatingPoint>(
+  magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
+) -> T? {
+  // The type test guards the `unsafeBitCast`, a no-op on the only branch reaching it. Measured:
+  // with `.map` the unspecialised generic formed a real closure (a metadata instantiation and three
+  // partial-apply forwarders); keep the `guard`.
+  @inline(__always)
+  func bridge<F: StreamBinaryFormat>(_ format: F.Type) -> T? {
+    guard
+      let value = streamEiselLemire(
+        magnitude: magnitude, exponent: exponent, negative: negative, as: F.self
+      )
+    else { return nil }
+    return unsafeBitCast(value, to: T.self)
+  }
+  if T.self == Double.self { return bridge(Double.self) }
+  if T.self == Float.self { return bridge(Float.self) }
+  return nil
 }
 
 @usableFromInline

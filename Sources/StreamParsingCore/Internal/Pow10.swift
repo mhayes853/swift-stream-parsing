@@ -1,32 +1,43 @@
 import StreamParsingShims
 
-// 10^exponent as an exact `Double`, or `nil` outside 0 ... 22.
-//
-// The table is `stream_parsing_pow10_double_storage` in `Pow10_Double.c`: 23 contiguous `.rodata`
-// entries indexed directly by the positive exponent. 10^22 is the last exact entry because its
-// odd factor, 5^22, is the largest that fits Double's 53-bit significand.
-//
-// It used to be two Swift `[Double]` globals. What that cost, read off the release binary rather
-// than assumed: the optimizer does fold an array literal of constants into a statically
-// initialized array object, so no `swift_once` ran at the use site -- but the objects landed in
-// `__DATA` behind a 0x28-byte array header, the addressor and one-time-initialization functions
-// were still emitted (and a build that does not get that fold, including a debug or Embedded one,
-// really does pay them), and the two tables meant the sign of the exponent had to be branched on
-// before either could be indexed, each with its own signed bounds check. The function stayed out
-// of line and handed back an `Optional<Double>` in a register pair, which the caller then had to
-// take apart.
-//
-// One `.rodata` table plus `@inline(__always)` collapses all of that. At the only call site the
-// exponent arrives as `abs(exponent)`, so one unsigned compare simultaneously proves the table
-// index and the exactness precondition before the direct indexed load.
+// The exact powers of ten 10^0 ... 10^22 as `Double` (5^22 is the largest odd factor that fits 53
+// bits): `stream_parsing_pow10_double_storage` in `Pow10_Double.c`. Must stay a C `.rodata` table,
+// not a Swift `[Double]` global, which costs an addressor, one-time init and signed bounds checks.
+// See NEW_ARCHITECTURE.md, "The power-of-ten table".
+
+// 23: `10^0 ... 10^22`.
 @inlinable
 @inline(__always)
-func digitPow10Value(_ exponent: Int) -> Double? {
-  // One unsigned compare covers both ends: a negative exponent wraps to a huge `UInt`.
-  let count = UInt(UInt32(bitPattern: STREAM_PARSING_POW10_DOUBLE_COUNT))
-  guard UInt(bitPattern: exponent) < count else { return nil }
-  // The accessor is `static inline` in C and imports as an implicitly unwrapped pointer; the
-  // unsafe unwrap is what keeps a null check out of the inlined copy. It can never be null --
-  // it returns the address of a `.rodata` array.
-  return stream_parsing_pow10_double().unsafelyUnwrapped[exponent]
+var streamExactPow10Count: Int { Int(STREAM_PARSING_POW10_DOUBLE_COUNT) }
+
+// 10^exponent with no bounds check: the caller owes `0 <= exponent < streamExactPow10Count`, proven
+// by the same compare that proves exactness. The unsafe unwrap keeps a null check out of the
+// inlined copy; the accessor returns a `.rodata` address.
+@inlinable
+@inline(__always)
+func streamExactPow10(_ exponent: Int) -> Double {
+  stream_parsing_pow10_double().unsafelyUnwrapped[exponent]
+}
+
+// The largest `k` with `10^k` exact in `T`, clamped to the table. Exact when `5^k` fits the
+// significand, `k <= (significandBitCount + 1) * log(2)/log(5)` (28225/65536): 22 for `Double`, 10
+// for `Float`. The second term keeps `10^k` finite, `k <= emax * log10(2)` (19728/65536); it binds
+// for no standard type but folds to a constant.
+@inlinable
+@inline(__always)
+func streamMaxExactPow10<T: BinaryFloatingPoint>(_ type: T.Type) -> Int {
+  let byMantissa = ((T.significandBitCount &+ 1) &* 28225) >> 16
+  // Explicit `Int`: inferred, the Embedded (wasm) toolchain typed this `Int128` and rejected `min`.
+  let emax: Int = (1 << (T.exponentBitCount &- 1)) &- 1
+  let byExponent = (emax &* 19728) >> 16
+  return min(min(byMantissa, byExponent), streamExactPow10Count &- 1)
+}
+
+// The largest integer magnitude `T` holds exactly, `2^(significandBitCount + 1)`, as the
+// accumulator's `UInt64`; saturates for `Float80`, whose significand is that wide.
+@inlinable
+@inline(__always)
+func streamMaxExactMagnitude<T: BinaryFloatingPoint>(_ type: T.Type) -> UInt64 {
+  let bits = T.significandBitCount &+ 1
+  return bits >= 64 ? UInt64.max : (1 << UInt64(bits))
 }

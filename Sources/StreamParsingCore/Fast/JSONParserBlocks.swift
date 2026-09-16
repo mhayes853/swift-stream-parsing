@@ -1,41 +1,16 @@
-#if arch(arm64)
+#if arch(arm64) || arch(x86_64)
   import StreamParsingShims
 
-  // The structural run's 64-byte block path: the same walk `consumeStructural` performs one byte
-  // at a time, driven by three masks instead of a whitespace scan and a per-byte ladder
-  // (`stream_parsing_classify_structural_block`, StreamParsingShims.h).
-  //
-  // What it deletes, per block, is: the whitespace scan that precedes every token (whitespace is
-  // simply absent from `starts`, so "the next token" is one `rbit`/`clz`), the string scan that
-  // precedes every key and string value (the extent is the pair of quote bits, and the escape
-  // test is an AND over the backslash mask), and the per-string high-bit reduction
-  // (`containsNonASCII` becomes the block's own flag, and the ~99% of blocks with no high byte in
-  // them never call the validator at all).
-  //
-  // What it does *not* change is anything observable. Every arm below restates the corresponding
-  // arm of `consumeStructural`: the same events with the same spans, the same failure checks at
-  // the same offsets, the same error reasons at the same bytes. Anything the masks cannot settle
-  // -- a string whose closing quote is in the next block, a key with an escape in it, a literal
-  // that does not match whole, a number the chunk cuts, a block holding any byte the ladder would
-  // judge differently -- is handed back to the scalar loop at the byte where it starts, with the
-  // parser state untouched, so the code that reports it today is still the code that reports it.
-  //
-  // Out of line by force, exactly as `consumeSkipBlocks` is and for the same measured reason:
-  // this is where the classifier's two tables and four splats get hoisted, and hoisting into
-  // `d8` puts a save/restore pair in the prologue of whatever function owns the loop.
-  // `consumeStructuralRun`'s prologue is the one every byte-fed token pays, and it must not grow.
+  // The structural run's 64-byte block path: `consumeStructural`'s walk driven by the three masks
+  // of `stream_parsing_classify_structural_block` (NEON inlined; the AVX2 twin is a call per
+  // block). Every arm restates its `consumeStructural` arm -- same events, spans, failure offsets
+  // and error reasons; anything the masks cannot settle goes back to the scalar loop at the byte it
+  // starts on. See NEW_ARCHITECTURE.md, "The structural block walk".
   extension JSONParser {
-    // Entered from the top of `consumeStructuralRun`'s loop with a structural state, no token in
-    // flight and at least one whole block ahead. Returns the index where the scalar loop resumes,
-    // with `state`, `depth` and `containers` written back through the `inout`s.
-    //
-    // Every block is classified with *zero* carries, which is what makes the grid free to move:
-    // the walk only ever consumes tokens that finish inside the block it is looking at, so the
-    // byte after the last one is outside any string and outside any backslash run. When a token
-    // ends past the block's end -- a number or a literal spanning the edge -- the grid simply
-    // realigns to the token's end and carries on, which costs one classification and keeps the
-    // carry invariant. A string that does not close inside its block is the one shape that cannot
-    // be realigned onto, so it goes back to the scalar loop whole.
+    // Entered with a structural state, no token in flight and a whole block ahead. Returns where
+    // the scalar loop resumes (`~p` once the gate gives up), `state`/`depth`/`containers` written
+    // back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
+    // save/restore in the prologue of `consumeStructuralRun`, which every byte-fed token pays.
     @inlinable
     @inline(never)
     mutating func consumeStructuralBlocks<Sink: StreamParseSink & ~Copyable>(
@@ -48,17 +23,9 @@
       into sink: inout Sink
     ) throws(JSONParsingError) -> Int {
       var p = from
-      // The grid moves with the tokens rather than staying anchored to `from`, and the carries
-      // are therefore always zero: the walk finishes every token it starts, so the byte after the
-      // last one is outside every string and every backslash run, and a block may be classified
-      // from there with nothing carried in. When a token ends past the block that started it --
-      // a string, a long number, a literal on the edge -- the grid re-anchors at its end.
-      //
-      // The anchored alternative (fixed grid, real carries, a cursor masking off the bits it had
-      // passed) was built and measured, and it is much worse where it matters: it classifies the
-      // interior of every long string, which is 91% of `GSoC 2018` and 99% of `LLM message` --
-      // +15%/-3% became -9%/-20% on those two. Re-anchoring skips those bytes entirely, and the
-      // only thing it gives up is the tail of the block the token ran out of.
+      // The grid moves with the tokens, so carries are always zero: the walk only consumes tokens
+      // that finish in the block, and re-anchors at the end of one that runs past it. Measured: a
+      // fixed grid with real carries classifies every long string's interior, GSoC/LLM -9%/-20%.
       outer: while p &+ 64 <= to {
         let classes = stream_parsing_classify_structural_block(
           base.advanced(by: p).assumingMemoryBound(to: UInt8.self), 0, 0
@@ -66,45 +33,32 @@
         // Anything unusual is the scalar loop's, from this block's first byte, so the byte an
         // error names is the byte the scalar loop names.
         if classes.needs_scalar != 0 { return p }
-        // The gate, and the whole answer to "when does the classifier not pay". Two signals, one
-        // strike each, counted per classified block; four strikes and the walk is done with this
-        // parser. Both were chosen off a census of the classifier's own masks over every corpus
-        // (blocks actually classified, per block):
-        //
-        //   corpus            raw delta   ws outside strings   in-string   starts
-        //   CITM catalog        +37.9%           46.3             8.5        9.4
-        //   GitHub events       +31.8%           17.0            39.7        7.9
-        //   Twitter             +24.2%           21.9            32.2       10.5
-        //   GSoC 2018           +15.2%           19.0            39.9        5.7
-        //   LLM message          -0.1%            0.0            53.6       11.4
-        //   Twitter escaped      -4.1%            0.0            49.5       15.3
-        //   Canada               -5.7%            0.0             0.0       64.0
-        //   Qwen workspace      (-25.8% typed)    0.0            56.9        8.1
-        //   Qwen structured     (-11.5% typed)    0.0            54.6       10.0
-        //   Mesh                -26.4%            6.7             0.0       57.3
-        //
-        // The split is total: every corpus the walk wins on has 17 or more whitespace bytes per
-        // block *outside* its strings, and every corpus it loses on has none. That is the whole
-        // mechanism -- the ladder's own whitespace scan is a SIMD loop entered once per token,
-        // and replacing it with a `tzcnt` is what the classifier is actually buying. With no
-        // whitespace to skip there is nothing left to buy: the walk re-reads the same byte the
-        // ladder would have, through 139 more instructions per block. `starts` catches the one
-        // shape that has whitespace but still nothing to skip -- `Mesh`, a run of numbers -- and
-        // is kept as a second strike for it.
-        //
-        // Not one block of `CITM`, `Twitter`, `GitHub` or `GSoC` is whitespace-free, so four
-        // strikes never fire on them; `Canada`, `Mesh`, both Qwen payloads and `Twitter escaped`
-        // strike on essentially every block and are out of the walk within four of them.
-        if classes.no_outer_whitespace != 0 || classes.starts.nonzeroBitCount >= 48 {
+        // The gate: a block strikes with no whitespace outside strings (nothing for the `tzcnt` to
+        // buy over the ladder's scan) or dense `starts` (Mesh); four in a row give the walk up
+        // until `probeBlockWalk` re-arms it. Census in NEW_ARCHITECTURE.md. x86 gets the verdict
+        // whole from the kernel: baseline x86-64 has no `popcnt` (`nonzeroBitCount` was 17
+        // instructions a block).
+        #if arch(x86_64)
+          let strike = classes.strike != 0
+        #else
+          let strike =
+            classes.no_outer_whitespace != 0
+            || classes.starts.nonzeroBitCount >= Int(STREAM_PARSING_BLOCK_WALK_DENSE_STARTS)
+        #endif
+        if strike {
           self.blockWalkStrikes &+= 1
           if self.blockWalkStrikes >= 4 {
             self.blockWalkGivenUp = true
+            self.blockWalkProbeCountdown = Self.blockWalkProbeKilobytes
+            if self.windowThreshold == .max {
+              self.windowThreshold = Self.blockWalkProbeChunk
+              self.blockWalkProbeLowered = true
+            }
             return ~p
           }
         } else if self.blockWalkStrikes != 0 {
-          // Consecutive, not cumulative. `GSoC 2018` averages 19 whitespace bytes per block and
-          // wins 18%, but it does hold the odd whitespace-free one, and counting those up over
-          // 13343 blocks reached four and threw the win away (+18.1% -> -0.8%, measured).
+          // Consecutive, not cumulative. Measured: counting GSoC's odd whitespace-free blocks up
+          // reached four and threw its win away (+18.1% -> -0.8%).
           self.blockWalkStrikes = 0
         }
         let containsNonASCII = classes.non_ascii != 0
@@ -126,11 +80,8 @@
             // right answer there (nothing lies above byte 63).
             let consumed = ((UInt64(1) &<< UInt64(bit)) &<< 1) &- 1
             let closers = classes.quote & ~consumed
-            // No closing quote in this block: the extent is not a pair of bits, so this is the
-            // scalar arm's own scan, restated. Handing the token back to the scalar loop instead
-            // was measured, and it is what the long-string corpora lost to (`Qwen 3 workspace
-            // edit` -26%, `LLM message` -3%): the block that found the opening quote was
-            // classified and thrown away once per string, and the walk was re-entered per token.
+            // No closing quote in this block: the scalar arm's scan, restated. Measured: handing
+            // the token back re-classified the block per string (Qwen workspace -26%, LLM -3%).
             guard closers != 0 else {
               let run = streamStringRun(base: base, from: at &+ 1, to: to)
               let closed =
@@ -203,19 +154,16 @@
               // A key with an escape in it is rare enough not to be worth a second decoder here;
               // the scalar loop buffers it through `consumeKeyRun` as it does today.
               guard raw <= State.firstValue.rawValue else { return at }
-              // A string value with an escape: the existing decoder, entered exactly as the
-              // scalar run enters it -- the scan from the byte after the opening quote (which
-              // stops at that first backslash), then `consumeEscapedStringInRun`, which owns the
-              // `stringBegin`, the chunks, the `stringEnd` and the comma fusion.
+              // A string value with an escape, decoded as the scalar run decodes it. It does not
+              // fuse the following comma (the fields do not hold this walk's container stack), so
+              // a finished token comes back `.afterValue` and the walk takes the comma itself.
               self.isKeyToken = false
               let run = streamStringRun(base: base, from: at &+ 1, to: to)
               let next = try self.consumeEscapedStringInRun(
                 base: base, quoteAt: at, from: at &+ 1, to: to, run: run, into: &sink
               )
               state = self.state
-              // `fuseAfterValue` may have left a per-byte state behind (or the token may have
-              // been cut); either way the run's own `isStructural` check is what decides, and the
-              // caller's copy of `state` has just been told.
+              // A token the chunk cut, or an escape left to the per-byte states, is non-structural.
               if !state.isStructural { return next }
               if next &- p >= 64 {
                 p = next
@@ -268,19 +216,10 @@
               guard depth < Self.maximumDepth else {
                 try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
               }
-              containers |= 1 &<< Self.shiftAmount(depth)
-              depth &+= 1
-              // The skip scanner owns the subtree from here; the dispatcher re-enters it.
-              //
-              // Skipping it *in place* instead -- walking the rest of the block's `starts` bits,
-              // pairing strings off with the quote mask, matching brackets, delivering the close
-              // when it lands in the same block -- was built, tested against the scalar ladder at
-              // every alignment, and measured. It is a real win where the subtrees are small
-              // (`Twitter - bulk discarding` +3.5% against +2.6%, `GitHub events` +3.1%), and a
-              // loss where they are not: `CITM catalog - bulk discarding` -3.7% against -1.8% and
-              // `LLM message - bulk` -1.4% against +1.5%, because a subtree that outlives its
-              // block leaves the walk to re-read bytes the skip scanner's own kernel would have
-              // taken 64 at a time. Sweep mean +4.07% against +5.24%, so it is not here.
+              Self.pushContainer(object: true, depth: &depth, containers: &containers)
+              // The skip scanner owns the subtree from here; the dispatcher re-enters it. Measured:
+              // skipping in place here lost where subtrees outlive the block (sweep mean +4.07% vs
+              // +5.24%) -- see NEW_ARCHITECTURE.md, "Skipping a subtree inside the block walk".
               if disposition != .stream {
                 self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
                 state = .skipping
@@ -294,8 +233,7 @@
               guard depth < Self.maximumDepth else {
                 try Self.fail(.depthExceeded, byteOffset: self.consumedByteCount &+ at)
               }
-              containers &= ~(1 &<< Self.shiftAmount(depth))
-              depth &+= 1
+              Self.pushContainer(object: false, depth: &depth, containers: &containers)
               if disposition != .stream {
                 self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
                 state = .skipping
@@ -456,12 +394,43 @@
           mask &= mask &- 1
         }
 
-        // The mask is exhausted, so everything left in the block is whitespace: every string it
-        // held was finished (in place, or by the scan above), so nothing is open at the edge and
-        // the next block is classifiable with nothing carried in.
+        // Mask exhausted: the rest of the block is whitespace and every string in it was finished,
+        // so the next block is classifiable with nothing carried in.
         p &+= 64
       }
       return p
     }
   }
 #endif
+
+// The re-probe: a given-up walk is re-armed once `blockWalkProbeKilobytes` of chunks of at least
+// `blockWalkProbeChunk` bytes have gone by, so a stream that changes shape is judged again. A
+// failed probe is at most four blocks walked per 64 KB, ~0.15% at Mesh's per-block loss (-26.4%).
+// Smaller chunks keep the verdict; a caller-set `windowThreshold` is left alone, its chunks count.
+extension JSONParser {
+  @inlinable package static var blockWalkProbeKilobytes: UInt8 { 64 }
+  @inlinable package static var blockWalkProbeChunk: Int { 4096 }
+
+  // While a re-probe is due the default `windowThreshold` is lowered to `blockWalkProbeChunk`, so
+  // `parsePastThreshold` gets every bulk-sized chunk and counts it here before parsing it: the one
+  // that runs the countdown out is walked from its first block. Only the gate's give-up starts a
+  // countdown, and the gate only runs with the kernels.
+  @usableFromInline
+  @inline(never)
+  mutating func probeBlockWalk(count n: Int) {
+    let kilobytes = n &>> 10
+    if kilobytes < Int(self.blockWalkProbeCountdown) {
+      self.blockWalkProbeCountdown &-= UInt8(truncatingIfNeeded: kilobytes)
+      return
+    }
+    self.blockWalkProbeCountdown = 0
+    if self.blockWalkProbeLowered {
+      self.windowThreshold = .max
+      self.blockWalkProbeLowered = false
+    }
+    if self.blockKernelsAvailable {
+      self.blockWalkGivenUp = false
+      self.blockWalkStrikes = 0
+    }
+  }
+}

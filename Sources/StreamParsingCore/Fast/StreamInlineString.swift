@@ -1,58 +1,27 @@
-// String storage with a compile-time capacity and no heap behind it.
-//
-// `StreamString` grows to fit whatever arrives, which costs it two refcounted stored properties
-// and a branch on every read between the inline buffer and the block list. A field whose length
-// the schema already bounds -- an identifier, an enum-ish value, a key echoed back by a model --
-// does not need either. `StreamInlineString<32>` is `count` plus 32 bytes, `BitwiseCopyable`,
-// and therefore:
-//
-// - **A copy is a memcpy.** A partial tree built from these has no refcounted fields at all, so
-//   emitting a partial retains nothing and a snapshot shares nothing.
-// - **An append is a bounds check and a memcpy.** No uniqueness check, no block seal, no branch
-//   between representations, because there is only one representation.
-// - **There is no allocator.** Which is what makes it usable where `StreamString` is not: above
-//   64 bytes that type takes a heap block.
-//
-// The cost is the mirror image and it is not small: a copy is O(capacity), not O(count). At
-// capacity 32 that beats two retains; at capacity 4096 it loses badly to them. This type is for
-// *bounded* fields. A field whose length the document decides still wants `StreamString`.
-//
-// Overflow is a parse failure, not a truncation. `streamAppend` answers `.capacityExceeded`
-// without taking any of the bytes, so a rejected value holds exactly what it accumulated through
-// the last append that fit, and the sink turns that answer into
-// `StreamSinkFailure.Reason.capacityExceeded` at the byte offset where the overflow happened.
-//
-// Availability matches `InlineArray`'s: generic type metadata carrying a value argument needs a
-// runtime that can instantiate it. Nothing in `PartialSink` names this type -- the fast path
-// reaches it through a layout-erased route -- so the gate stops here rather than spreading into
-// the core.
+// String storage with a compile-time capacity and no heap: `count` plus `capacity` bytes,
+// `BitwiseCopyable`, so a copy is a memcpy and a partial built from these has no refcounted
+// fields. A copy is O(capacity), not O(count), so this is for *bounded* fields. Overflow is a
+// parse failure, not a truncation: `streamAppend` refuses the whole chunk. Availability matches
+// `InlineArray`'s; `PartialSink` reaches it through a layout-erased route (end of file), so the
+// gate stays out of the core.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
-  // Layout is a contract, not an implementation detail: `_streamStringSchema` asserts these
-  // offsets and the sink appends through them without knowing `capacity` statically. `count`
-  // leads at offset 0 as an `Int32` -- the width the schema and frame already speak -- and the
-  // bytes follow at offset 4, with `InlineArray<capacity, UInt8>` contributing alignment 1 so
-  // nothing pads between them.
+  // A contract: `_streamStringSchema` asserts these offsets and the sink appends through them
+  // without knowing `capacity`. `count` is an `Int32` at offset 0 (the width the schema and frame
+  // speak), the bytes at offset 4; `InlineArray<capacity, UInt8>` has alignment 1, so no padding.
   @usableFromInline var _count: Int32
   @usableFromInline var _bytes: InlineArray<capacity, UInt8>
 
   public init() {
     self._count = 0
-    // Zeroed rather than uninitialized: the type is `BitwiseCopyable`, so a copy of a
-    // partially-filled value copies the unused tail too, and unused bytes that are always zero
-    // keep that copy deterministic rather than leaking whatever the slot held before.
+    // Zeroed: a `BitwiseCopyable` copy copies the unused tail too, and zeros keep it deterministic.
     self._bytes = InlineArray<capacity, UInt8>(repeating: 0)
   }
 
   /// Creates a value holding `string`'s UTF-8, or `nil` when those bytes do not fit `capacity`.
   ///
-  /// Failable because overflow is this type's defining failure and silently truncating a caller's
-  /// text would contradict what the parser does with the same overflow.
-  ///
-  /// A *literal* argument does not reach this initializer: `StreamInlineString<8>("too long")`
-  /// resolves to the literal path and traps. That split is the intended one -- a literal too long
-  /// for its capacity is a programmer error, while text arriving at runtime is a value to
-  /// reject -- but it means `Self(someString)` and `Self("someString")` fail differently.
+  /// A *literal* argument does not reach here: `StreamInlineString<8>("too long")` resolves to the
+  /// literal initializer and traps.
   public init?(_ string: some StringProtocol) {
     self.init()
     var copy = String(string)
@@ -80,10 +49,8 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
 
   // MARK: Append
 
-  // The whole write path. A chunk that does not fit is refused entire rather than partially
-  // taken: a partial take would leave a torn UTF-8 sequence in a value the parser is about to
-  // fail anyway, and "holds everything through the last append that fit" is a simpler rule to
-  // reason about than "holds a prefix of some chunk".
+  // The whole write path. A chunk that does not fit is refused entire, so the value never holds a
+  // torn UTF-8 sequence, only everything through the last append that fit.
   @inlinable
   @discardableResult
   mutating func appendUTF8(_ buffer: UnsafeBufferPointer<UInt8>) -> StreamApplyResult {
@@ -122,7 +89,7 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
 
   /// Removes every accumulated byte, keeping the capacity.
   public mutating func removeAll() {
-    // The tail is rezeroed rather than merely forgotten, for the same reason `init` zeroes it.
+    // Rezeroed, for the same reason `init` zeroes.
     let count = Int(self._count)
     _ = withUnsafeMutableBytes(of: &self._bytes) { destination in
       destination.baseAddress!.initializeMemory(as: UInt8.self, repeating: 0, count: count)
@@ -132,8 +99,7 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
 
   // MARK: Reading
 
-  // Every read goes through here. One contiguous window, always -- which is the entire reason
-  // this type's read layer is a fraction of `StreamString`'s.
+  // Every read goes through here: one contiguous window, always.
   @inlinable
   public func withUTF8Buffer<R>(_ body: (UnsafeBufferPointer<UInt8>) throws -> R) rethrows -> R {
     try withUnsafeBytes(of: self._bytes) { source in
@@ -153,8 +119,7 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
     return self.withUTF8Buffer { $0[position] }
   }
 
-  // Decodes `range`, repairing rather than validating, exactly as `StreamString` does: a
-  // repairing decode cannot fail, which is what lets this be a plain `String` read.
+  // Repairing rather than validating, as `StreamString` does, so the read cannot fail.
   @usableFromInline
   func decode(in range: Range<Int>) -> String {
     guard !range.isEmpty else { return "" }
@@ -169,11 +134,12 @@ public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
 
 // MARK: - Scalar decoding
 
-// The same repairing policy as `StreamString`: a byte that does not begin a well-formed sequence
-// decodes as U+FFFD with length one, so the scalar view and the `String` decode tell one story
-// about invalid bytes. Duplicated rather than shared with `StreamString`, deliberately: that
-// type reaches its bytes through a block dispatch and this one through a contiguous buffer, and
-// a shared abstraction over both would put a call where each currently has a load.
+// The same repairing scalar policy as `StreamString`. Duplicated deliberately: that type reaches
+// bytes through a block dispatch and this one through a buffer, and a shared abstraction would
+// put a call where each has a load. Everything built on top is shared via `_StreamUTF8Backed`.
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+extension StreamInlineString: _StreamUTF8Backed {}
+
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString {
   @usableFromInline
@@ -211,8 +177,7 @@ extension StreamInlineString {
     return (Unicode.Scalar(value).unsafelyUnwrapped, length)
   }
 
-  // The largest scalar-aligned offset at or before `limit`: backs off over at most three
-  // continuation bytes, so a window cut never tears a scalar.
+  // The largest scalar-aligned offset at or before `limit`, over at most three continuations.
   @usableFromInline
   func scalarAlignedOffset(before limit: Int) -> Int {
     var end = limit
@@ -292,18 +257,7 @@ extension StreamInlineString {
     }
 
     public func index(before index: Int) -> Int {
-      // Walk back over at most three continuation bytes. When the lead byte reached does not
-      // actually span back to `index`, the byte before `index` is ill-formed and stands alone as
-      // its own U+FFFD, which keeps backward and forward traversal visiting the same positions.
-      var candidate = index &- 1
-      var steps = 0
-      while steps < 3, candidate > 0, self.base.utf8Byte(at: candidate) & 0xC0 == 0x80 {
-        candidate &-= 1
-        steps &+= 1
-      }
-      return candidate &+ self.base.decodeScalar(at: candidate).length >= index
-        ? candidate
-        : index &- 1
+      self.base.scalarIndex(before: index)
     }
 
     public subscript(position: Int) -> Unicode.Scalar {
@@ -320,32 +274,9 @@ extension StreamInlineString {
 
 // MARK: - Characters
 
-// Grapheme segmentation is delegated to `String`'s own breaker over a small decoded window, for
-// the reason `StreamString` gives: the tables are not something this package should carry.
+// `characterSpan(at:)` is shared; see `_StreamUTF8Backed`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString {
-  @usableFromInline
-  func characterSpan(at offset: Int) -> (character: Character, end: Int) {
-    var windowEnd = self.scalarAlignedOffset(before: min(offset &+ 8, self.utf8Count))
-    if windowEnd <= offset { windowEnd = min(offset &+ 4, self.utf8Count) }
-    while true {
-      let window = self.decode(in: offset..<windowEnd)
-      let first = window.first ?? "\u{FFFD}"
-      // A decode that did not round-trip its byte count hit ill-formed bytes. Advance by the raw
-      // scalar length so iteration continues one ill-formed byte at a time.
-      guard window.utf8.count == windowEnd &- offset else {
-        return (first, offset &+ self.decodeScalar(at: offset).length)
-      }
-      let end = offset &+ first.utf8.count
-      if end < windowEnd || windowEnd == self.utf8Count { return (first, end) }
-      let grown = self.scalarAlignedOffset(
-        before: min(offset &+ (windowEnd &- offset) &* 2, self.utf8Count)
-      )
-      guard grown > windowEnd else { return (first, end) }
-      windowEnd = grown
-    }
-  }
-
   /// The accumulated text as the same forward sequence of extended grapheme clusters that a
   /// Swift `String` exposes as `Character` elements.
   public struct CharacterSequence: Sequence, IteratorProtocol {
@@ -405,11 +336,8 @@ extension Substring {
 
 // MARK: - Literals
 
-// The literal conformances are the one place this type cannot answer an overflow the way the
-// parser does. `ExpressibleByStringLiteral` requires a total initializer, so a literal that does
-// not fit its capacity traps: it is a programmer error visible at the first execution of the
-// line that wrote it, not a document the parser has to survive. Runtime text goes through the
-// failable `init?(_:)` instead.
+// A literal that does not fit traps: `ExpressibleByStringLiteral` requires a total initializer,
+// and it is a programmer error rather than a document to survive. Runtime text uses `init?(_:)`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: ExpressibleByStringInterpolation {
   public init(stringLiteral value: String) {
@@ -422,12 +350,10 @@ extension StreamInlineString: ExpressibleByStringInterpolation {
     self = parsed
   }
 
-  // A custom interpolation rather than `DefaultStringInterpolation`, so segments append as bytes
-  // instead of assembling a whole `String` first.
+  // Custom, so segments append as bytes instead of assembling a `String` first.
   public struct StringInterpolation: StringInterpolationProtocol {
     @usableFromInline var value: StreamInlineString
-    // Overflow cannot be reported out of `appendLiteral`, whose signature returns nothing, so it
-    // is recorded and raised once the finished value is demanded.
+    // `appendLiteral` cannot report overflow, so it is recorded and raised at the finished value.
     @usableFromInline var overflowed = false
 
     public init(literalCapacity: Int, interpolationCount: Int) {
@@ -460,8 +386,7 @@ extension StreamInlineString: ExpressibleByStringInterpolation {
     }
 
     #if !hasFeature(Embedded)
-      // The catch-all goes through `String(describing:)`, which is reflection and outside the
-      // embedded subset; the typed overloads above are what embedded interpolation gets.
+      // `String(describing:)` is reflection, outside the Embedded subset.
       public mutating func appendInterpolation<T>(_ item: T) {
         self.take(self.value.append(String(describing: item)))
       }
@@ -479,13 +404,9 @@ extension StreamInlineString: ExpressibleByStringInterpolation {
 
 // MARK: - Equality, ordering, hashing
 
-// Byte-wise, like `StreamString`: for decoded JSON text the parser has already resolved escapes,
-// so equal documents produce equal bytes. Stricter than `String`'s canonical equivalence -- NFC
-// and NFD spellings compare unequal here, as they do in the JSON grammar itself.
-//
-// Capacity is not part of the value. Two accumulations of the same bytes are equal whatever room
-// they were declared with, which is why the cross-capacity operators exist and why hashing feeds
-// only the used bytes.
+// Byte-wise, like `StreamString`, so NFC and NFD spellings compare unequal. Capacity is not part
+// of the value: equal bytes are equal at any capacity, hence the cross-capacity operators and
+// hashing only the used bytes.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
@@ -507,16 +428,13 @@ extension StreamInlineString: Equatable {
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Hashable {
   public func hash(into hasher: inout Hasher) {
-    // Count then bytes, and never the capacity, so a value equal to one of another capacity
-    // hashes equal to it. This is also `StreamString`'s scheme for values under one 512-byte
-    // window, which keeps a future bridge between the two types open.
+    // Count then bytes, never the capacity; also `StreamString`'s scheme under one 512-byte window.
     hasher.combine(self.utf8Count)
     self.withUTF8Buffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
   }
 }
 
-// Byte-wise lexicographic, which for UTF-8 is Unicode scalar-value order: deterministic and
-// table-free, differing from `String`'s canonical ordering exactly the way `==` already does.
+// Byte-wise lexicographic, which for UTF-8 is scalar-value order.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Comparable {
   public static func < (lhs: Self, rhs: Self) -> Bool {
@@ -538,9 +456,8 @@ extension StreamInlineString: Comparable {
   }
 }
 
-// Cross-capacity comparison. `Equatable` and `Comparable` can only relate a type to itself, so
-// these are the spellings that let `StreamInlineString<32>` and `StreamInlineString<64>` holding
-// the same bytes compare equal -- which they must, since hashing already says they are.
+// Cross-capacity comparison: `Equatable` and `Comparable` only relate a type to itself, and equal
+// bytes at different capacities must compare equal, since they hash equal.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 @inlinable
 public func == <let lhsCapacity: Int, let rhsCapacity: Int>(
@@ -567,20 +484,12 @@ public func < <let lhsCapacity: Int, let rhsCapacity: Int>(
 
 // MARK: - Comparison against String
 
-// The same convenience `StreamString` offers, and for the same reason: a partial's string fields
-// are optional, and `partial.title == expected` is the most common comparison a client writes.
+// As on `StreamString`: `partial.title == expected` is the commonest client comparison.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString {
-  @usableFromInline
-  func utf8Equals(_ other: some StringProtocol) -> Bool {
-    var copy = String(other)
-    return copy.withUTF8 { buffer in
-      self.utf8Count == buffer.count && self.utf8Matches(buffer, at: 0)
-    }
-  }
+  // `utf8Equals(_:)` against `StringProtocol` is shared; see `_StreamUTF8Backed`.
 
-  // Whether `buffer` matches the accumulated bytes starting at byte `offset`. One
-  // `streamBytesEqual` over one window, shared by `==`, `hasPrefix`, `hasSuffix` and `contains`.
+  // Whether `buffer` matches the bytes at `offset`; shared by `==` and the searchers.
   @usableFromInline
   func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool {
     guard offset >= 0, offset &+ buffer.count <= self.utf8Count else { return false }
@@ -613,16 +522,14 @@ extension StreamInlineString {
   }
 }
 
-// Free functions rather than members, because a member operator must take the type itself
-// somewhere and these take it wrapped.
+// Free functions: a member operator must take the type itself somewhere.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 @inlinable
 public func == <let capacity: Int>(
   lhs: StreamInlineString<capacity>?, rhs: some StringProtocol
 ) -> Bool {
-  // Written as an explicit unwrap rather than `lhs?.utf8Equals(rhs) ?? false`: optional chaining
-  // through a value-generic value crashes SILGen in 6.4-snapshot-2026-08-01 ("Can only bind plus
-  // one values"). Same meaning, and it sidesteps the bug.
+  // An explicit unwrap, not `lhs?.utf8Equals(rhs) ?? false`: optional chaining through a
+  // value-generic value crashes SILGen in 6.4-snapshot-2026-08-01.
   guard let lhs else { return false }
   return lhs.utf8Equals(rhs)
 }
@@ -660,43 +567,24 @@ public func != <let capacity: Int>(
 extension StreamInlineString {
   /// Whether the accumulated bytes start with `prefix`'s UTF-8, compared byte-wise.
   public func hasPrefix(_ prefix: some StringProtocol) -> Bool {
-    var copy = String(prefix)
-    return copy.withUTF8 { self.utf8Matches($0, at: 0) }
+    self.utf8HasPrefix(prefix)
   }
 
   /// Whether the accumulated bytes end with `suffix`'s UTF-8, compared byte-wise.
   public func hasSuffix(_ suffix: some StringProtocol) -> Bool {
-    var copy = String(suffix)
-    return copy.withUTF8 { buffer in
-      self.utf8Matches(buffer, at: self.utf8Count &- buffer.count)
-    }
+    self.utf8HasSuffix(suffix)
   }
 
   /// The byte range of the first occurrence of `needle`'s UTF-8 at or after `offset`, compared
   /// byte-wise.
   ///
-  /// The bounds are byte offsets, the currency every other door accepts. A match of well-formed
-  /// text in well-formed text is always scalar-aligned -- UTF-8 self-synchronizes -- but not
-  /// necessarily grapheme-cluster-aligned. An empty needle matches emptily at `offset`.
+  /// The bounds are byte offsets. A match in well-formed text is scalar-aligned but not necessarily
+  /// grapheme-aligned. An empty needle matches emptily at `offset`.
   public func range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamInlineString byte offset out of range"
     )
-    var copy = String(needle)
-    return copy.withUTF8 { buffer in
-      guard !buffer.isEmpty else { return offset..<offset }
-      guard buffer.count <= self.utf8Count &- offset else { return nil }
-      let first = buffer[0]
-      let last = self.utf8Count &- buffer.count
-      var position = offset
-      while position <= last {
-        if self.utf8Byte(at: position) == first, self.utf8Matches(buffer, at: position) {
-          return position..<(position &+ buffer.count)
-        }
-        position &+= 1
-      }
-      return nil
-    }
+    return self.utf8Range(of: needle, from: offset)
   }
 
   /// Whether `other`'s UTF-8 occurs anywhere in the accumulated bytes, compared byte-wise.
@@ -714,7 +602,7 @@ extension StreamInlineString: TextOutputStreamable {
   }
 }
 
-// Checked rather than `@unchecked`: the value is `BitwiseCopyable`, so there is nothing to share.
+// Checked, not `@unchecked`: the value is `BitwiseCopyable`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Sendable {}
 
@@ -733,8 +621,7 @@ extension StreamInlineString: CustomDebugStringConvertible {
 }
 
 #if !hasFeature(Embedded)
-  // Without this a reflecting printer walks the whole inline buffer, putting `capacity` bytes of
-  // storage into every custom dump and recorded snapshot.
+  // Otherwise a reflecting printer dumps all `capacity` bytes of the buffer.
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   extension StreamInlineString: CustomReflectable {
     public var customMirror: Mirror {
@@ -752,8 +639,7 @@ extension StreamInlineString: CustomDebugStringConvertible {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   extension StreamInlineString: Decodable {
-    // Decoding is the one direction with an error to report rather than a trap: the bytes come
-    // from a document, exactly like the parser's, so they fail the decode rather than the process.
+    // Throws rather than traps: the bytes come from a document, like the parser's.
     public init(from decoder: any Decoder) throws {
       let container = try decoder.singleValueContainer()
       let text = try container.decode(String.self)
@@ -787,8 +673,8 @@ extension StreamInlineString: StreamStringConvertible {
     }
   }
 
-  // What `_streamStringSchema` reads to recognize this type without naming it, and the layout it
-  // then promises the sink. Both are compile-time constants once the schema builder specializes.
+  // How `_streamStringSchema` recognizes this type without naming it, and the layout it promises
+  // the sink; both fold to constants once the schema builder specializes.
   @inlinable
   public static var _streamInlineCapacity: Int { capacity }
   @inlinable
@@ -805,37 +691,26 @@ extension StreamInlineString: StreamParseable {
 
 // MARK: - The layout-erased append
 
-// Everything below is deliberately *not* availability-gated, because none of it names
-// `StreamInlineString`. That is the whole point of erasing the layout: `PartialSink` appends to
-// an inline string through a raw pointer and a capacity read off the schema, so the parser core
-// stays buildable on every platform this package supports while the type itself is gated.
-//
-// The contract these two halves share:
-//
-// - offset 0: `Int32` count of accumulated UTF-8 bytes
-// - offset `_streamInlineStringByteOffset`: exactly `capacity` bytes of storage
-//
-// `_streamStringSchema` checks it against `MemoryLayout` before ever emitting the route, so a
-// layout that drifts fails when the schema is built rather than corrupting memory later.
+// Not availability-gated, because none of this names `StreamInlineString`: `PartialSink` appends
+// through a raw pointer and a capacity read off the schema. `_streamStringSchema` checks the
+// shared layout (`Int32` count at 0, `capacity` bytes at `_streamInlineStringByteOffset`) against
+// `MemoryLayout` before emitting the route.
 
 @usableFromInline
 let _streamInlineStringByteOffset = 4
 
-// The append the string hot path reaches for a bounded destination: a compare, a memcpy and a
-// store. No closure call, no generic dispatch, no branch between representations -- the shape
-// `StreamString`'s own append cannot have, because it has two representations to choose between.
+// The bounded string append: a compare, a memcpy and a store, with no closure, generic dispatch
+// or representation branch.
 @inlinable
 @inline(__always)
 func _streamInlineStringAppend(
   _ storage: UnsafeMutableRawPointer, capacity: Int32, _ bytes: Span<UInt8>
 ) -> StreamApplyResult {
-  // Widened rather than narrowed: `Int32(bytes.count)` emits an overflow trap check ahead of the
-  // capacity compare, and the comparison it feeds is the same one done in `Int`. The store back
-  // truncates without a check because the guard has already proved the sum is at most `capacity`,
-  // which `_streamStringSchema` has already proved fits `Int32`.
+  // Widened, not narrowed: `Int32(bytes.count)` emits an overflow trap ahead of the compare. The
+  // store truncates unchecked: the guard proves the sum <= `capacity`, which fits `Int32`.
   let count = Int(storage.load(as: Int32.self))
   let take = bytes.count
-  // Refused entire rather than partially taken, matching `StreamInlineString.appendUTF8`.
+  // Refused entire, matching `StreamInlineString.appendUTF8`.
   guard take <= Int(capacity) &- count else { return .capacityExceeded }
   guard take > 0 else { return .applied }
   bytes.withUnsafeBufferPointer { buffer in

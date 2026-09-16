@@ -1,39 +1,34 @@
 // The x86-64 AVX2 tier, out of line.
 //
-// This lives in a `.c` file rather than in `StreamParsingShims.h` because the header is an
-// umbrella header for a Clang module, and `#include <immintrin.h>` from a modular header forces
-// the toolchain to build the `_Builtin_intrinsics` module -- every x86 intrinsic header compiled
-// at once, with no target features enabled. That fails outright on some x86-64 SDKs (the Android
-// x86-64 SDK cannot build the MMX header that way), so the module must not see `immintrin.h` at
-// all. Nothing is lost: every function here already carried `__attribute__((target("avx2")))`,
-// and Clang refuses to inline such a function into a caller compiled without the feature, so
-// these were never inlined into the Swift callers even when they were spelled in the header.
-// The entry points are declared in `StreamParsingShims.h` and are external here.
+// `immintrin.h` must not be reachable from the umbrella header: from a modular header it forces
+// `_Builtin_intrinsics`, which some x86-64 SDKs cannot build. Nothing is lost -- every function
+// here carries `target("avx2")`, which already bars inlining into a baseline caller.
 #include "include/StreamParsingShims.h"
 
 // MARK: - x86: the UTF-8 validator
 //
-// Keiser and Lemire's lookup kernel at 32 bytes a block, with AVX2's `vpshufb`. This is the same
-// algorithm `stream_parsing_utf8_block_errors` runs above with `tbl`, and the same one
-// `streamValidateUTF8Scalar` recomputes with range compares everywhere else -- three spellings of
-// one set of error classes.
-//
-// **AVX2 or nothing.** There is deliberately no SSSE3 or SSE2 twin: a machine without AVX2 keeps
-// the portable Swift validator, which is already correct and already pinned against the standard
-// library's decoder. Carrying narrower C tiers would mean carrying their differential tests too,
-// for hardware this library is not being tuned for.
-//
-// Unlike the arm64 shims in the header these are **not** `always_inline`. Clang will not
-// force-inline a function carrying a target attribute into a caller compiled without that
-// feature -- it is a hard LLVM `report_fatal_error`, not a diagnostic -- so the inliner has to be
-// left free to decline. That costs nothing here: `streamValidateUTF8` is already `@inline(never)`
-// on the Swift side and already runs once per non-ASCII string run, so the call that was there is
-// the call that is here.
+// Keiser and Lemire's lookup kernel at 32 bytes a block with `vpshufb`; AVX2 or nothing. Never
+// `always_inline`: force-inlining one into a baseline caller is a hard LLVM `report_fatal_error`.
 #if defined(__x86_64__)
 
 #include <immintrin.h>
 #include <stddef.h>
 #include <string.h>
+
+// C11 atomics, for the feature cache near the bottom of the file only. A freestanding or
+// pre-C11 toolchain that defines `__STDC_NO_ATOMICS__` keeps the plain `int` this used to be:
+// the race is benign in practice on every x86 this compiles for, and losing the tier over a
+// missing header would not be.
+#if defined(__STDC_NO_ATOMICS__)
+#define STREAM_PARSING_ATOMIC_INT int
+#define STREAM_PARSING_RELAXED_LOAD(p) (*(p))
+#define STREAM_PARSING_RELAXED_STORE(p, v) (*(p) = (v))
+#else
+#include <stdatomic.h>
+#define STREAM_PARSING_ATOMIC_INT _Atomic int
+#define STREAM_PARSING_RELAXED_LOAD(p) atomic_load_explicit(p, memory_order_relaxed)
+#define STREAM_PARSING_RELAXED_STORE(p, v) atomic_store_explicit(p, v, memory_order_relaxed)
+#endif
 
 // Storage class included deliberately: these are file-static, and `static` has to sit
 // alongside the target attribute rather than be spelled separately at each definition.
@@ -109,9 +104,8 @@ static const uint8_t stream_parsing_utf8_current_high[16] = {
 };
 
 // A run's first block, and any run shorter than one, is validated out of a zeroed scratch: zero
-// reads as ASCII, which is exactly what lies before a run (a quote, an escape, a chunk boundary
-// `completePendingUTF8` already settled) and what must follow it. Layout mirrors
-// `streamValidateUTF8Scalar`'s, widened for the 32 byte block: [0,3) the three bytes before, then
+// reads as ASCII, which is exactly what lies before and after a run. Layout mirrors
+// `streamValidateUTF8Scalar`'s, widened to the 32 byte block: [0,3) the three bytes before,
 // [3,35) the block, then zero.
 #define STREAM_PARSING_UTF8_PROLOGUE 3
 
@@ -214,19 +208,8 @@ stream_parsing_utf8_validate_avx2(const unsigned char *p, ptrdiff_t from, ptrdif
 
 // MARK: - x86: the string run scanner, wide tier
 //
-// The escalation tier behind `streamStringRun`. Swift scans the first two 16 byte blocks inline;
-// a run that survives both is long by definition, and only then does it reach this. On the corpus
-// that is 9.7% of twitter's runs (43.7% of its string bytes), 25.4% of github_events' and 1.0% of
-// citm's -- so a document made of short keys pays the escalation test and nothing else.
-//
-// `containsNonASCII` comes out cheaper here than the Swift SIMD16 path computes it. That path
-// builds a lane index mask, selects the bytes before the terminator with `replacing(with:where:)`,
-// ORs them into the accumulator and reduces -- five vector ops on the hit path. `vpmovmskb` of the
-// raw block *is* the per byte high bit, so masking off the bytes at and after the terminator is
-// one AND against `(1 << lane) - 1`.
-//
-// The flag stays exact, which the parser depends on: a validated ASCII run skips UTF-8 validation
-// entirely, so a false negative would let invalid UTF-8 through.
+// The escalation tier behind `streamStringRun`; Swift scans the first two 16-byte blocks inline, so
+// a run reaching here is long. `containsNonASCII` must stay exact: an ASCII run skips validation.
 __attribute__((target("avx2"))) ptrdiff_t
 stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdiff_t to,
                                int *out_non_ascii) {
@@ -263,13 +246,202 @@ stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdiff_t to,
   return i;
 }
 
+// MARK: - x86: the 64-byte block classifiers
+//
+// The two NEON kernels in StreamParsingShims.h restated for AVX2 bit for bit. `vpshufb` zeroes any
+// lane whose index byte has its high bit set, so the low-nibble tables take the raw byte.
+#define STREAM_PARSING_BLOCK_FN __attribute__((target("avx2,pclmul,popcnt")))
+
+// A 16-entry table in both 128-bit halves. From a `static const` array, as the validator's are,
+// so the table is one `vbroadcasti128` from read-only data rather than a 32-byte literal.
+#define STREAM_PARSING_BLOCK_TABLE(table) \
+  _mm256_broadcastsi128_si256(_mm_loadu_si128((const __m128i *)(table)))
+
+// One bit per byte of the 64-byte block, ascending: the low register's 32 lanes, then the high
+// register's.
+STREAM_PARSING_BLOCK_FN static inline uint64_t
+stream_parsing_block_mask(__m256i low, __m256i high) {
+  return (uint64_t)(uint32_t)_mm256_movemask_epi8(low)
+      | ((uint64_t)(uint32_t)_mm256_movemask_epi8(high) << 32);
+}
+
+// Bit i becomes the XOR of bits 0...i: one carryless multiply by all ones.
+STREAM_PARSING_BLOCK_FN static inline uint64_t
+stream_parsing_block_prefix_xor(uint64_t bitmask) {
+  __m128i product = _mm_clmulepi64_si128(
+      _mm_cvtsi64_si128((long long)bitmask), _mm_set1_epi8((char)0xFF), 0);
+  return (uint64_t)_mm_cvtsi128_si64(product);
+}
+
+// Lanes holding a byte below 0x20. Unsigned: `vpcmpgtb` is signed and would count every byte
+// >= 0x80 as "below", which inside a string is a valid UTF-8 byte, not a control byte.
+STREAM_PARSING_BLOCK_FN static inline __m256i
+stream_parsing_block_control(__m256i v) {
+  return _mm256_cmpeq_epi8(_mm256_min_epu8(v, _mm256_set1_epi8(0x1F)), v);
+}
+
+// Whether any byte of the block is below 0x20, for the in-string early outs: one reduction over
+// the pair instead of a movemask per register.
+STREAM_PARSING_BLOCK_FN static inline uint32_t
+stream_parsing_block_any_control(__m256i v0, __m256i v1) {
+  return _mm256_movemask_epi8(stream_parsing_block_control(_mm256_min_epu8(v0, v1))) != 0;
+}
+
+// The skip classifier's tables: StreamParsingShims.h documents the encoding (bits 0...6 accepted
+// by row, bit 7 the bracket rectangle). Byte for byte the NEON kernel's.
+static const uint8_t stream_parsing_skip_lo_table[16] = {
+  0x46, 0x64, 0x66, 0x64, 0x64, 0x6C, 0x64, 0x64,
+  0x64, 0x65, 0x65, 0xF2, 0x22, 0xF3, 0x22, 0x20
+};
+static const uint8_t stream_parsing_skip_hi_table[16] = {
+  0x01, 0x00, 0x02, 0x04, 0x08, 0x90, 0x20, 0xC0,
+  0, 0, 0, 0, 0, 0, 0, 0
+};
+
+STREAM_PARSING_BLOCK_FN stream_parsing_skip_classes
+stream_parsing_classify_skip_block(
+  const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
+) {
+  const __m256i v0 = _mm256_loadu_si256((const __m256i *)p);
+  const __m256i v1 = _mm256_loadu_si256((const __m256i *)(p + 32));
+
+  const __m256i backslash_byte = _mm256_set1_epi8('\\');
+  const __m256i quote_byte = _mm256_set1_epi8('"');
+  uint64_t backslash = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(v0, backslash_byte), _mm256_cmpeq_epi8(v1, backslash_byte));
+  uint64_t quote = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(v0, quote_byte), _mm256_cmpeq_epi8(v1, quote_byte));
+  quote &= ~stream_parsing_find_escaped(backslash, &ends_odd_carry);
+  uint64_t in_string = stream_parsing_block_prefix_xor(quote) ^ in_string_carry;
+
+  stream_parsing_skip_classes out;
+  out.in_string = (uint64_t)((int64_t)in_string >> 63);
+  out.ends_odd = ends_odd_carry;
+  // The high bit of every byte is what `vpmovmskb` reads, so "any byte >= 0x80" is one OR and
+  // one movemask -- NEON needs a `umaxv` reduction for it.
+  out.non_ascii = _mm256_movemask_epi8(_mm256_or_si256(v0, v1)) != 0;
+
+  // Edge to edge inside a string: no brackets by construction, only the control test.
+  if (quote == 0 && in_string == ~(uint64_t)0) {
+    out.brackets = 0;
+    out.needs_scalar = stream_parsing_block_any_control(v0, v1);
+    return out;
+  }
+
+  const __m256i lo_table = STREAM_PARSING_BLOCK_TABLE(stream_parsing_skip_lo_table);
+  const __m256i hi_table = STREAM_PARSING_BLOCK_TABLE(stream_parsing_skip_hi_table);
+  const __m256i low_nibble = _mm256_set1_epi8(0x0F);
+  const __m256i accepted_bits = _mm256_set1_epi8(0x7F);
+  const __m256i zero = _mm256_setzero_si256();
+
+  // Raw-byte index into the low table (see the section comment); masked high nibble into the
+  // high one.
+  __m256i c0 = _mm256_and_si256(
+      _mm256_shuffle_epi8(lo_table, v0),
+      _mm256_shuffle_epi8(hi_table, _mm256_and_si256(_mm256_srli_epi16(v0, 4), low_nibble)));
+  __m256i c1 = _mm256_and_si256(
+      _mm256_shuffle_epi8(lo_table, v1),
+      _mm256_shuffle_epi8(hi_table, _mm256_and_si256(_mm256_srli_epi16(v1, 4), low_nibble)));
+
+  uint64_t unaccepted = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(_mm256_and_si256(c0, accepted_bits), zero),
+      _mm256_cmpeq_epi8(_mm256_and_si256(c1, accepted_bits), zero));
+  // The bracket class is bit 7, and bit 7 is the bit `vpmovmskb` reads: the brackets are the
+  // class vectors' own movemask, no test against a splat.
+  uint64_t brackets = stream_parsing_block_mask(c0, c1);
+  uint64_t control = stream_parsing_block_mask(
+      stream_parsing_block_control(v0), stream_parsing_block_control(v1));
+
+  out.brackets = brackets & ~in_string;
+  out.needs_scalar = ((control & in_string) | (unaccepted & ~in_string)) != 0;
+  return out;
+}
+
+// The structural classifier's tables: StreamParsingShims.h documents the encoding (eight class
+// bits, whitespace on a separate lookup). Byte for byte the NEON kernel's. The whitespace table's
+// fillers need no change for raw-byte indexing: 0xFF equals no byte below 0x80, and row F's 0x00
+// equals no byte with a low nibble of F.
+static const uint8_t stream_parsing_structural_lo_table[16] = {
+  0x12, 0x30, 0x32, 0x30, 0x30, 0x70, 0x30, 0x30,
+  0x30, 0x31, 0x39, 0xA2, 0x24, 0xA3, 0x22, 0x20
+};
+static const uint8_t stream_parsing_structural_hi_table[16] = {
+  0x01, 0x00, 0x06, 0x18, 0x40, 0x80, 0x20, 0x90,
+  0, 0, 0, 0, 0, 0, 0, 0
+};
+static const uint8_t stream_parsing_structural_ws_table[16] = {
+  0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+  0xFF, 0x09, 0x0A, 0xFF, 0xFF, 0x0D, 0xFF, 0x00
+};
+
+STREAM_PARSING_BLOCK_FN stream_parsing_structural_classes
+stream_parsing_classify_structural_block(
+  const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry
+) {
+  const __m256i v0 = _mm256_loadu_si256((const __m256i *)p);
+  const __m256i v1 = _mm256_loadu_si256((const __m256i *)(p + 32));
+
+  const __m256i backslash_byte = _mm256_set1_epi8('\\');
+  const __m256i quote_byte = _mm256_set1_epi8('"');
+  uint64_t backslash = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(v0, backslash_byte), _mm256_cmpeq_epi8(v1, backslash_byte));
+  uint64_t quote = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(v0, quote_byte), _mm256_cmpeq_epi8(v1, quote_byte));
+  quote &= ~stream_parsing_find_escaped(backslash, &ends_odd_carry);
+  uint64_t in_string = stream_parsing_block_prefix_xor(quote) ^ in_string_carry;
+
+  stream_parsing_structural_classes out;
+  out.quote = quote;
+  out.backslash = backslash;
+  out.in_string = (uint64_t)((int64_t)in_string >> 63);
+  out.ends_odd = ends_odd_carry;
+  out.non_ascii = _mm256_movemask_epi8(_mm256_or_si256(v0, v1)) != 0;
+
+  // Edge to edge inside a string. Dead for the structural walk, which always passes zero carries
+  // (see the NEON kernel); kept so the two spellings answer every input alike.
+  if (quote == 0 && in_string == ~(uint64_t)0) {
+    out.no_outer_whitespace = 1;
+    out.strike = 1;
+    out.starts = 0;
+    out.needs_scalar = stream_parsing_block_any_control(v0, v1);
+    return out;
+  }
+
+  const __m256i lo_table = STREAM_PARSING_BLOCK_TABLE(stream_parsing_structural_lo_table);
+  const __m256i hi_table = STREAM_PARSING_BLOCK_TABLE(stream_parsing_structural_hi_table);
+  const __m256i ws_table = STREAM_PARSING_BLOCK_TABLE(stream_parsing_structural_ws_table);
+  const __m256i low_nibble = _mm256_set1_epi8(0x0F);
+  const __m256i zero = _mm256_setzero_si256();
+
+  __m256i c0 = _mm256_and_si256(
+      _mm256_shuffle_epi8(lo_table, v0),
+      _mm256_shuffle_epi8(hi_table, _mm256_and_si256(_mm256_srli_epi16(v0, 4), low_nibble)));
+  __m256i c1 = _mm256_and_si256(
+      _mm256_shuffle_epi8(lo_table, v1),
+      _mm256_shuffle_epi8(hi_table, _mm256_and_si256(_mm256_srli_epi16(v1, 4), low_nibble)));
+
+  // Every class bit counts as "accepted" here (NEON's `vtstq(c, c)`), for the reason the NEON
+  // kernel gives: every bracket is an accepted byte.
+  uint64_t unaccepted = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(c0, zero), _mm256_cmpeq_epi8(c1, zero));
+  uint64_t whitespace = stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(v0, _mm256_shuffle_epi8(ws_table, v0)),
+      _mm256_cmpeq_epi8(v1, _mm256_shuffle_epi8(ws_table, v1)));
+  uint64_t control = stream_parsing_block_mask(
+      stream_parsing_block_control(v0), stream_parsing_block_control(v1));
+
+  out.no_outer_whitespace = (whitespace & ~in_string) == 0;
+  out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
+  out.strike = out.no_outer_whitespace
+      | (__builtin_popcountll(out.starts) >= STREAM_PARSING_BLOCK_WALK_DENSE_STARTS);
+  out.needs_scalar = ((control & in_string) | (unaccepted & ~in_string)) != 0;
+  return out;
+}
+
 // MARK: - x86: feature detection
 //
-// `cpuid` by hand rather than `__builtin_cpu_supports("avx2")`. That builtin lowers to loads from
-// `__cpu_model` plus a call to `__cpu_indicator_init`, both of which live in the compiler runtime
-// (libgcc / compiler-rt builtins) -- and the Windows toolchain does not link that runtime into a
-// Swift package, so the builtin is a pair of undefined symbols at link time. `cpuid` is the same
-// data one level down, with no runtime to link against.
+// `cpuid` by hand, not `__builtin_cpu_supports`: that builtin needs compiler-runtime symbols the
+// Windows toolchain does not link into a Swift package. `cpuid` needs no runtime.
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <intrin.h>
 static void stream_parsing_cpuid(int regs[4], int leaf, int subleaf) {
@@ -282,12 +454,10 @@ static void stream_parsing_cpuid(int regs[4], int leaf, int subleaf) {
 }
 #endif
 
-// `xgetbv` reports which register state the *OS* has agreed to save across a context switch.
-// AVX2 being present in the silicon is not enough: without XMM (bit 1) and YMM (bit 2) in XCR0 a
-// `vmovdqu` would lose its upper half at the first preemption. The target attribute is what makes
-// the builtin legal to call here -- the feature is not on for the file -- and this function is
-// only reached once `cpuid` has already reported OSXSAVE, which is what makes the instruction
-// itself legal to execute.
+// `xgetbv` reports which register state the *OS* has agreed to save across a context switch: without
+// XMM and YMM in XCR0 a `vmovdqu` would lose its upper half at the first preemption. The target
+// attribute is what makes the builtin legal to call (the feature is not on for the file); `cpuid`
+// having already reported OSXSAVE is what makes the instruction legal to execute.
 #if __has_builtin(__builtin_ia32_xgetbv)
 __attribute__((target("xsave"))) static unsigned long long stream_parsing_xcr0(void) {
   return (unsigned long long)__builtin_ia32_xgetbv(0);
@@ -295,19 +465,30 @@ __attribute__((target("xsave"))) static unsigned long long stream_parsing_xcr0(v
 #define STREAM_PARSING_HAS_XCR0 1
 #endif
 
-// Whether the AVX2 kernels above may be called at all. Resolved on first use and cached; every
-// later call is a load and a predicted branch. Read once per run from an out-of-line Swift
-// function, never from an inlined scan loop.
-int stream_parsing_has_avx2(void) {
-  enum { STREAM_UTF8_UNKNOWN = 0, STREAM_UTF8_NONE = 1, STREAM_UTF8_AVX2 = 2 };
-  static int tier = STREAM_UTF8_UNKNOWN;
-  int cached = tier;
-  if (__builtin_expect(cached == STREAM_UTF8_UNKNOWN, 0)) {
-    int supported = 0;
+// The feature word both probes below read: `PROBED` once resolved, plus one bit per tier.
+enum {
+  STREAM_X86_PROBED = 1 << 0,
+  STREAM_X86_AVX2 = 1 << 1,
+  STREAM_X86_BLOCK_KERNELS = 1 << 2
+};
+
+// Resolved on first use and cached; every later call is a relaxed load and a predicted branch.
+// `_Atomic` relaxed rather than a plain `int`: racing threads all compute the same value, so no
+// ordering is needed, but a plain object written from several threads is a C11 data race -- and a
+// load the compiler may split or repeat. Relaxed costs nothing on x86 (a plain `mov` either way).
+static int stream_parsing_x86_features(void) {
+  static STREAM_PARSING_ATOMIC_INT features = 0;
+  int cached = STREAM_PARSING_RELAXED_LOAD(&features);
+  if (__builtin_expect(cached == 0, 0)) {
+    int avx2 = 0;
+    int clmul = 0;
+    int popcnt = 0;
     int regs[4] = { 0, 0, 0, 0 };
     stream_parsing_cpuid(regs, 0, 0);
     if (regs[0] >= 7) {  // leaf 7, where the AVX2 bit lives, has to exist at all
       stream_parsing_cpuid(regs, 1, 0);
+      clmul = (regs[2] >> 1) & 1;    // ECX bit 1 = PCLMULQDQ
+      popcnt = (regs[2] >> 23) & 1;  // ECX bit 23 = POPCNT
       const int osxsave = (regs[2] >> 27) & 1;
       const int avx = (regs[2] >> 28) & 1;
 #if defined(STREAM_PARSING_HAS_XCR0)
@@ -318,33 +499,42 @@ int stream_parsing_has_avx2(void) {
 #endif
       if (avx && os_saves_ymm) {
         stream_parsing_cpuid(regs, 7, 0);
-        supported = (regs[1] >> 5) & 1;  // EBX bit 5 = AVX2
+        avx2 = (regs[1] >> 5) & 1;  // EBX bit 5 = AVX2
       }
     }
-    cached = supported ? STREAM_UTF8_AVX2 : STREAM_UTF8_NONE;
-    // Benign race: every thread computes the same value, and the write is a single aligned int.
-    tier = cached;
+    cached = STREAM_X86_PROBED | (avx2 ? STREAM_X86_AVX2 : 0)
+        | (avx2 && clmul && popcnt ? STREAM_X86_BLOCK_KERNELS : 0);
+    // Racy by design: every thread computes the same value, so the last writer wins with nothing
+    // to order against. See the note on the declaration for why it is still spelled atomically.
+    STREAM_PARSING_RELAXED_STORE(&features, cached);
   }
-  return cached == STREAM_UTF8_AVX2;
+  return cached;
 }
 
-// 1 = valid, 0 = invalid. `from`/`to` bound the run; nothing before `from` is part of a sequence
-// and no sequence may run past `to`, matching `streamValidateUTF8Scalar`.
-// Precondition: `stream_parsing_has_avx2()`.
-// `ptrdiff_t` rather than `long`: both import to Swift as `Int`, and only one of them is
-// 64 bits everywhere Swift runs -- `long` is 32 bits on Windows.
+// Whether the validator and string-scanner kernels above may be called at all. Read once per
+// run from an out-of-line Swift function, never from an inlined scan loop.
+int stream_parsing_has_avx2(void) {
+  return (stream_parsing_x86_features() & STREAM_X86_AVX2) != 0;
+}
+
+// Whether the block classifiers may be called. Read once per parser, into `JSONParser`'s own
+// flags, never per block.
+int stream_parsing_has_avx2_block_kernels(void) {
+  return (stream_parsing_x86_features() & STREAM_X86_BLOCK_KERNELS) != 0;
+}
+
+// 1 = valid, 0 = invalid. `from`/`to` bound the run; nothing before `from` is part of a sequence and
+// no sequence may run past `to`, matching `streamValidateUTF8Scalar`. `ptrdiff_t` not `long`:
+// `long` is 32 bits on Windows. Precondition: `stream_parsing_has_avx2()`.
 int stream_parsing_utf8_validate(const void *base, ptrdiff_t from, ptrdiff_t to) {
   const unsigned char *p = (const unsigned char *)base;
   ptrdiff_t count = to - from;
   if (count <= 0) return 1;
 
-  // A sequence cut by the end of the run. The block test sees the lead and never the missing
-  // continuation, so the last three bytes are checked against what may legally sit there.
-  // Identical to `streamValidateUTF8Scalar`'s prologue.
-  //
-  // 0xC0, not 0x80: a run may legally *end* on a continuation byte -- that is what the last byte
-  // of every multi-byte scalar is. What cannot sit there is a lead whose continuations the run
-  // does not contain. These are `utf8TwoByteFloor` / `utf8ThreeByteFloor` / `utf8FourByteFloor`.
+  // A sequence cut by the end of the run: the block test sees the lead and never the missing
+  // continuation, so the last three bytes are checked against what may legally sit there. Identical
+  // to `streamValidateUTF8Scalar`'s prologue. 0xC0, not 0x80: a run may legally end on a
+  // continuation byte; what cannot sit there is a lead whose continuations the run does not contain.
   if (p[to - 1] >= 0xC0) return 0;
   if (count >= 2 && p[to - 2] >= 0xE0) return 0;
   if (count >= 3 && p[to - 3] >= 0xF0) return 0;
