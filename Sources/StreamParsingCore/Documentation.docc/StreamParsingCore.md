@@ -52,6 +52,31 @@ for partial in partials {
 // Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
+To consume synchronous input lazily instead of retaining every snapshot, use
+``PartialIterator``:
+
+```swift
+var updates = json.utf8.partialIterator(of: Profile.self, from: .json())
+while let update = try updates.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+The iterator is noncopyable and emits after each byte (or chunk), followed by one
+completed update after EOF validation. Further calls return `nil` after completion
+or an error. `isComplete` describes document validation, not model-field presence.
+
+To read without a whole-value snapshot, use a scoped view:
+
+```swift
+try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view, isComplete in
+  print(view.name?.value, isComplete)
+}
+```
+
+A view cannot escape the callback. Members read through it can be copied and retained.
+The final callback also uses a view, via ``PartialsStream/finishWithView(_:)``.
+
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
 
 ```swift

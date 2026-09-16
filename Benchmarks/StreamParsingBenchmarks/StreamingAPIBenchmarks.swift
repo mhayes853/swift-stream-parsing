@@ -84,6 +84,31 @@ private func addPartialsStreamRows<Value: StreamParseableRoot>(
   read: @escaping (borrowing Value.View) -> Void
 ) {
   for chunk in chunkSizes {
+    let input = chunks(payload, size: chunk)
+    Benchmark(
+      "API PartialIterator \(name) - \(chunk)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        expectParses {
+          var iterator = input.partialIterator(of: Value.self, from: .json())
+          while let update = try iterator.next() { blackHole(update) }
+        }
+      }
+    }
+    Benchmark(
+      "API ScopedViews \(name) - \(chunk)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        expectParses {
+          try input.withPartialViews(of: Value.self, from: .json()) { view, final in
+            read(view)
+            blackHole(final)
+          }
+        }
+      }
+    }
     Benchmark(
       "API PartialsStream \(name) - discard per \(chunk)B chunk",
       configuration: payloadConfiguration
