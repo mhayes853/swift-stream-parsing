@@ -110,9 +110,9 @@ Field completion is separate from validated document EOF. A string can finish be
 object closes, and a completed object can still have absent model members. Observers support
 direct stored fields on object roots with schema field tables; configure them before reading
 input. ``ObservedFieldPath`` validates a reusable selection, including schema key aliases.
-Key-path reflection requires macOS 11.3, iOS/tvOS 14.5, or watchOS 7.4; older runtimes throw
-``FieldObservationError/reflectionUnavailable`` during setup. The selectors are unavailable
-in Embedded Swift. Ordinary value projection needs no field-state tracking.
+The macro generates `streamObservationFields` for validation without reflection SPI. Custom
+roots opt in by listing all direct stored members in that property. The selectors are
+unavailable in Embedded Swift. Ordinary value projection needs no field-state tracking.
 
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
 

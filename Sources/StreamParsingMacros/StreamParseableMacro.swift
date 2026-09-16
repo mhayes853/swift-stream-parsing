@@ -273,6 +273,8 @@ extension StreamParseableMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
+    let observationPaths = properties.filter { !$0.isIgnored }
+      .map { "\\.\($0.memberName)" }.joined(separator: ", ")
     let schemaLines = Self.partialStructSchema(
       from: properties,
       modifierPrefix: modifierPrefix,
@@ -304,6 +306,12 @@ extension StreamParseableMacro {
         \(raw: inline)\(raw: modifierPrefix)static func streamInitialValue() -> Self {
           Self._streamInitialValueTemplate
         }
+
+        #if !hasFeature(Embedded)
+        \(raw: modifierPrefix)static var streamObservationFields: [PartialKeyPath<Self>] {
+          [\(raw: observationPaths)]
+        }
+        #endif
 
         \(raw: viewLines)
 

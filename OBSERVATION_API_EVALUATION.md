@@ -71,9 +71,10 @@ The implementation uses a forwarding `FieldObservationSink` only for opt-in obse
 constant-size tracker lives outside ordinary partial storage. Number/literal starts are read
 from the parser's lexical state after a chunk because those tokens emit only upon completion.
 The existing scanner, ordinary `PartialSink`, schemas, and generated partial layouts are untouched.
-`ObservedFieldPath` uses Swift reflection SPI at setup to validate a direct stored field, checks
+`ObservedFieldPath` initially used Swift reflection SPI at setup to validate a direct stored field, checks
 its schema offset/optionality, and rejects overlapping storage. The slot read is typed by the
-validated key path; the root is never snapshotted to extract it. Reflection is availability-guarded.
+validated key path; the root is never snapshotted to extract it. That initial reflection approach
+was availability-guarded; the review revision below replaces it with generated key paths.
 
 Release assembly inspection found **195 common numeric/structural symbols with unchanged sizes**
 versus the original pre-API binary (not a claim of instruction-by-instruction identity). The new
@@ -170,3 +171,74 @@ synchronous search/structured/workspace measured 35/52/57 MB/s, and async measur
 The confirmation used the same seven bulk filters plus
 `API (ObservedField|AsyncObservedField) .* - 64B chunks`. The direct benchmark command
 also supplied `--baseline-storage-path /tmp/ssp-api-baselines`.
+
+
+## Review revision: shared boxing and generated field selection
+
+Replaced the observer's extra box with `AsyncPartialsSequence.Box<State>`: ordinary iterators
+use `Void`, and field observers use `FieldObservationState`, stored after the existing box
+fields. Copies still share the cursor,
+termination, subscription identity, and tracking state. Every async `observeField` overload
+now documents examples, parameters, result types, completion, and errors.
+
+Removed the reflection SPI and its availability error. The macro generates
+`streamObservationFields`, and custom roots opt in by listing all direct stored members.
+Validation still checks key-path identity, unique offsets, and schema registration/optionality.
+Neither the packed field table nor partial storage layouts changed. The protocol requirement
+and generated computed property are used at selection setup, outside the parsing loop.
+
+Validation: **811 tests in 80 suites passed**, with the same two known Unicode issues, using
+`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`.
+Updated 16 macro snapshots and added a custom-root opt-in regression test. Existing tests
+cover iterator-copy tracking, subscriptions, aliases, invalid paths, and overlapping fields.
+The release benchmark product also built successfully.
+
+Measurements used Swift 6.3.3 on x86_64 Linux, comparing the saved `e169dfd5` release executable
+with this revision. Each row reports the benchmark's median (three-second default runs).
+All builds/tests had stopped before measurement. MB/s is rounded by the benchmark; percentage
+changes use the underlying wall-clock medians. ARM performance remains unmeasured.
+
+| Benchmark | Before MB/s | After MB/s | Throughput change |
+| --- | ---: | ---: | ---: |
+| API AsyncObservedField Qwen 3 search tool call - 64B chunks | 22 | 23 | +2.1% |
+| API AsyncObservedField Qwen 3 structured response - 64B chunks | 41 | 39 | -2.8% |
+| API AsyncObservedField Qwen 3 workspace edit tool call - 64B chunks | 41 | 43 | +3.6% |
+| API AsyncSequence Qwen 3 search tool call - 64B chunks | 35 | 34 | -1.7% |
+| API AsyncSequence Qwen 3 structured response - 64B chunks | 63 | 64 | +0.9% |
+| API AsyncSequence Qwen 3 workspace edit tool call - 64B chunks | 63 | 64 | +1.3% |
+| API ObservedField Qwen 3 search tool call - 64B chunks | 35 | 34 | -3.3% |
+| API ObservedField Qwen 3 structured response - 64B chunks | 52 | 51 | -2.7% |
+| API ObservedField Qwen 3 workspace edit tool call - 64B chunks | 58 | 55 | -4.7% |
+| Real CITM catalog - bulk discarding | 636 | 616 | -3.1% |
+| Real Canada - bulk discarding | 333 | 341 | +2.3% |
+| Real GSoC 2018 - bulk discarding | 954 | 955 | +0.2% |
+| Real GitHub events - bulk discarding | 900 | 902 | +0.4% |
+| Real LLM message - bulk discarding | 1484 | 1500 | +1.1% |
+| Real Mesh - bulk discarding | 299 | 289 | -3.5% |
+| Real Twitter full - bulk discarding | 465 | 460 | -1.0% |
+
+The async observer's allocation counts fell by exactly one in each workload: search 32→31,
+structured response 109→108, and workspace edit 131→130. Ordinary async partial counts stayed
+29, 105, and 128 respectively.
+
+Assembly inspection found all **197 common numeric/structural parser symbols unchanged in
+size** (not a claim of byte-for-byte identity). Observer construction now calls the shared
+box allocator; the separate observer-box allocator is gone. The generic ordinary iterator
+factory grew from 283 to 312 bytes, and the observer factory from 270 to 463 bytes because it
+now constructs the stream directly instead of wrapping an existing iterator. These sizes
+alone do not predict throughput; the end-to-end results above include iterator construction.
+
+Benchmark filters:
+
+```text
+Real (Twitter full|Canada|Mesh|CITM catalog|GSoC 2018|GitHub events|LLM message) - bulk discarding
+API (ObservedField|AsyncObservedField|AsyncSequence) .* - 64B chunks
+```
+
+The first layout put state before the existing fields and showed ordinary async slowdowns
+around 3% on a reverse-order repeat. Moving it after those fields brought the final ordinary
+async results to −1.7% / +0.9% / +1.3% for search / structured / workspace relative to the initial
+baseline. Final async observation changed +2.1% / −2.8% / +3.6%. The allocation reduction is
+consistent; these timings do not establish a throughput improvement. Sync observation was
+2.7–4.7% slower in this final sweep; bulk controls ranged from −3.5% to +2.3%. Treat these small
+mixed differences as measurements on this machine, not a cross-platform performance guarantee.

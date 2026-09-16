@@ -27,6 +27,7 @@ extension ObservedModel.Partial {
 }
 
 private struct CustomObservedRoot: StreamParseableRoot {
+  static var streamObservationFields: [PartialKeyPath<Self>] { [\.registered, \.ignored] }
   var registered: Int?
   var ignored: Int?
   static func streamInitialValue() -> Self { Self() }
@@ -46,6 +47,7 @@ private struct CustomObservedRoot: StreamParseableRoot {
 }
 
 private struct OverlappingObservedRoot: StreamParseableRoot {
+  static var streamObservationFields: [PartialKeyPath<Self>] { [\.first, \.second] }
   var first = StreamEmptyObject()
   var second = StreamEmptyObject()
   static func streamInitialValue() -> Self { Self() }
@@ -63,7 +65,28 @@ private struct OverlappingObservedRoot: StreamParseableRoot {
   )
 }
 
+// A custom schema alone does not opt a root into key-path observation.
+private struct UnregisteredObservationRoot: StreamParseableRoot {
+  var value: Int?
+  static func streamInitialValue() -> Self { Self() }
+  static let streamSchema = StreamSchema(
+    shape: .object,
+    fields: [
+      StreamField(
+        key: "value", index: 0, kind: .custom, optional: true,
+        offset: MemoryLayout<Self>.offset(of: \.value)!
+      )
+    ]
+  )
+}
+
 @Suite struct ObservedFieldTests {
+  @Test func customRootMustOptIntoFieldObservation() throws {
+    #expect(throws: FieldObservationError.unsupportedField) {
+      _ = try ObservedFieldPath<UnregisteredObservationRoot, Int>(\.value)
+    }
+  }
+
   @Test func stringLifecycleAndDocumentCompletion() throws {
     let chunks = ["{", #""title""#, ":", #"""#, "Hi", #"""#, "}"].map { Array($0.utf8) }
     var iterator = try chunks.partialIterator(of: ObservedModel.self, from: .json())

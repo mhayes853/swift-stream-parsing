@@ -127,18 +127,20 @@ public struct AsyncPartialsSequence<
   let format: JSONStreamFormat
   let initialValue: Element
   let bytes: @Sendable (Base.Element) -> Seq
-  private let subscription = AsyncPartialsSubscription()
+  let subscription = AsyncPartialsSubscription()
 
   // Iterators must be copyable; the box makes copies share the base iterator and the stream.
-  final class Box {
+  final class Box<State> {
     let base: Base
     let subscriber = AsyncPartialsSubscriber()
     var baseIterator: Base.AsyncIterator?
     var stream: PartialsStream<Element>
     var hasClaimedSubscription: Bool?
     var hasTerminated = false
+    var state: State
 
-    init(base: Base, stream: consuming PartialsStream<Element>) {
+    init(base: Base, stream: consuming PartialsStream<Element>, state: State) {
+      self.state = state
       self.base = base
       self.stream = stream
     }
@@ -152,7 +154,7 @@ public struct AsyncPartialsSequence<
   }
 
   public struct AsyncIterator: AsyncIteratorProtocol {
-    let box: Box
+    let box: Box<Void>
     let subscription: AsyncPartialsSubscription
     let bytes: @Sendable (Base.Element) -> Seq
 
@@ -184,7 +186,8 @@ public struct AsyncPartialsSequence<
     AsyncIterator(
       box: Box(
         base: self.base,
-        stream: PartialsStream(initialValue: self.initialValue, from: self.format)
+        stream: PartialsStream(initialValue: self.initialValue, from: self.format),
+        state: ()
       ),
       subscription: self.subscription,
       bytes: self.bytes

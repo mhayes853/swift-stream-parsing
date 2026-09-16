@@ -129,7 +129,6 @@ Configure observation before consuming input. The first version supports direct 
 fields on object roots with a field table, including both generated partial-member modes.
 Schema key aliases work automatically, including escaped JSON keys. Computed, nested,
 ignored, or ambiguous overlapping field paths throw `FieldObservationError.unsupportedField`.
-Unavailable or partially stripped field reflection metadata also makes selection unsupported.
 Nested values can be observed as a whole by selecting their containing field. Duplicate
 keys retain the parser's existing semantics (for example, strings concatenate and containers
 resume), while the state follows the latest token. Parser errors and upstream errors terminate
@@ -142,11 +141,19 @@ let title = try ObservedFieldPath<Response.Partial, StreamString>(\.title)
 // Reuse `title` with `.observeField(title)` for each document.
 ```
 
-Selection uses Swift's reflection SPI once, verifies the direct key path and schema offset,
-and then snapshots only the selected slot. Key-path reflection requires macOS 11.3,
-iOS/tvOS 14.5, or watchOS 7.4 (or a supported non-Apple runtime). Older runtimes throw
-`reflectionUnavailable` at setup. Field selectors are excluded from Embedded Swift,
-which does not support key paths. The enum itself remains available.
+Selection validates against the macro-generated `streamObservationFields` key paths and the
+schema's field table, then snapshots only the selected slot. No reflection SPI is used.
+Custom `StreamParseableRoot` implementations opt in by listing **all direct stored members**,
+including schema-ignored members so overlapping storage can be rejected:
+
+```swift
+static var streamObservationFields: [PartialKeyPath<Self>] { [\.title, \.count] }
+```
+
+The default list is empty, which disables field selection for custom roots. Field selectors
+are excluded from Embedded Swift, which does not support key paths; the enum remains available.
+Async observers reuse the partial sequence's iterator box, with the field tracker as its state.
+Ordinary async partials use an empty state and carry no field tracker.
 
 Tracking is opt-in: a forwarding sink tracks one field in constant space and reads the
 parser's lexical state after each chunk for unfinished numbers/literals. Ordinary partial

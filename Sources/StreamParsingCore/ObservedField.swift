@@ -15,23 +15,19 @@ extension ObservedField: Sendable where Value: Sendable {}
 public enum FieldObservationError: Error, Equatable, Sendable {
   /// Select a direct stored member registered in an object root's field table.
   case unsupportedField
-  /// The runtime does not provide key-path reflection.
-  case reflectionUnavailable
   /// Observation must be installed before any input has been parsed.
   case alreadyStarted
   /// A custom schema accepted a non-null token but did not populate the selected member.
   case unavailableValue
 }
 
-// Key paths and reflection are not supported by Embedded Swift. The event tracker below has
+// Key paths are not supported by Embedded Swift. The event tracker below has
 // no such dependency; only the typed selection and its public drivers need this gate.
 #if !hasFeature(Embedded)
-  @_spi(Reflection) import Swift
-
   /// A validated, reusable selection of one direct stored object field.
   /// Key aliases are resolved by the schema, not the Swift property name. Computed/nested paths,
   /// ignored members, and roots without a field table throw `unsupportedField`.
-  /// Validation uses reflection once; reuse a path when parsing many documents of the same type.
+  /// Validation uses `Root.streamObservationFields`; reuse a path across documents.
   public struct ObservedFieldPath<Root: StreamParseableRoot, Value: StreamParseableRoot>: Sendable {
     let offset: Int
     let optional: Bool
@@ -50,29 +46,20 @@ public enum FieldObservationError: Error, Equatable, Sendable {
     private static func validate(_ path: PartialKeyPath<Root>, optional: Bool) throws -> Int {
       // An offset alone is insufficient: a nested stored key path can have the same offset as
       // its containing field. Check identity against the root's direct stored paths first.
-      guard #available(macOS 11.3, iOS 14.5, tvOS 14.5, watchOS 7.4, *) else {
-        throw FieldObservationError.reflectionUnavailable
-      }
       let schema = Root.streamSchema
       guard let offset = MemoryLayout<Root>.offset(of: path),
         schema.shape == .object, let entries = schema.fieldEntries
       else {
         throw FieldObservationError.unsupportedField
       }
-      var direct = false
-      var matchingOffsets = 0
-      let fullyReflected = _forEachFieldWithKeyPath(of: Root.self) { _, candidate in
-        if candidate == path {
-          direct = true
-        }
-        if MemoryLayout<Root>.offset(of: candidate) == offset {
-          // Zero-sized members can even have equal key paths. Count all fields at this offset,
-          // not just unequal paths: the schema table cannot distinguish overlapping members.
-          matchingOffsets += 1
-        }
-        return true
+      let fields = Root.streamObservationFields
+      guard fields.contains(path),
+        fields.lazy.filter({ MemoryLayout<Root>.offset(of: $0) == offset }).count == 1
+      else {
+        // Zero-sized members can have equal offsets and even equal key paths. The schema
+        // cannot distinguish these overlapping members, so reject them during setup.
+        throw FieldObservationError.unsupportedField
       }
-      guard fullyReflected, direct, matchingOffsets == 1 else { throw FieldObservationError.unsupportedField }
       for index in 0..<schema.fieldCount {
         if Int(entries[index].offset) == offset, entries[index].isOptional == optional {
           return offset

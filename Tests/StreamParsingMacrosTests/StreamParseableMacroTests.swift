@@ -15,7 +15,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
           var age: Int
@@ -53,6 +53,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name, \.age]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -226,7 +232,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -244,7 +250,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
           var nickname: String
@@ -282,6 +288,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name, \.nickname]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -469,7 +481,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -615,7 +627,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
           var age: Int?
@@ -653,6 +665,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name, \.age]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -826,7 +844,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
       assertMacro {
         """
@@ -836,7 +854,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var nickname: Optional<String>
 
@@ -869,6 +887,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.nickname]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -1009,7 +1033,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -1028,7 +1052,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var stored: String
           static var name: String
@@ -1066,6 +1090,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.stored]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -1206,7 +1236,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -1398,7 +1428,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         enum Figure {
           @StreamParseableDefault
           case circle
@@ -1433,6 +1463,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.circle]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -1609,7 +1645,7 @@ extension BaseTestSuite {
             Self(streamPartial: partial) ?? .circle
           }
         }
-        """
+        """#
       }
     }
 
@@ -1692,7 +1728,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         enum Note {
           case `default`(String)
           @StreamParseableDefault
@@ -1733,6 +1769,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.`default`, \.`class`]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -1942,6 +1984,12 @@ extension BaseTestSuite {
                   Self._streamInitialValueTemplate
                 }
 
+                #if !hasFeature(Embedded)
+                static var streamObservationFields: [PartialKeyPath<Self>] {
+                  [\._0]
+                }
+                #endif
+
                 struct View: ~Copyable, ~Escapable {
                   let _streamStorage: UnsafeMutablePointer<Partial>
 
@@ -2132,7 +2180,7 @@ extension BaseTestSuite {
             Self(streamPartial: partial) ?? .`class`
           }
         }
-        """
+        """#
       }
     }
 
@@ -2256,7 +2304,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Person {
           var name: String
 
@@ -2287,6 +2335,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -2427,7 +2481,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -2441,7 +2495,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           public var name: String
 
@@ -2474,6 +2528,12 @@ extension BaseTestSuite {
             @inlinable public static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            public static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name]
+            }
+            #endif
 
             @frozen public struct View: ~Copyable, ~Escapable {
               public let _streamStorage: UnsafeMutablePointer<Partial>
@@ -2616,7 +2676,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
       assertMacro {
         """
@@ -2626,7 +2686,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         private struct Person {
           var name: String
 
@@ -2659,6 +2719,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -2799,7 +2865,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
       assertMacro {
         """
@@ -2809,7 +2875,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         fileprivate struct Person {
           var name: String
 
@@ -2842,6 +2908,12 @@ extension BaseTestSuite {
             fileprivate static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            fileprivate static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name]
+            }
+            #endif
 
             fileprivate struct View: ~Copyable, ~Escapable {
               fileprivate let _streamStorage: UnsafeMutablePointer<Partial>
@@ -2982,7 +3054,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -2999,7 +3071,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           public var name: String
           var age: Int
@@ -3038,6 +3110,12 @@ extension BaseTestSuite {
               Self._streamInitialValueTemplate
             }
 
+            #if !hasFeature(Embedded)
+            public static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name, \.age]
+            }
+            #endif
+
             @frozen public struct View: ~Copyable, ~Escapable {
               public let _streamStorage: UnsafeMutablePointer<Partial>
 
@@ -3214,7 +3292,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -3230,7 +3308,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public struct Person {
           @usableFromInline var name: String
           public private(set) var age: Int
@@ -3269,6 +3347,12 @@ extension BaseTestSuite {
               Self._streamInitialValueTemplate
             }
 
+            #if !hasFeature(Embedded)
+            public static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.name, \.age]
+            }
+            #endif
+
             @frozen public struct View: ~Copyable, ~Escapable {
               public let _streamStorage: UnsafeMutablePointer<Partial>
 
@@ -3445,7 +3529,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
@@ -3534,7 +3618,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         public enum Shape {
           @StreamParseableDefault
           case circle
@@ -3575,6 +3659,12 @@ extension BaseTestSuite {
             @inlinable public static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            public static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.circle, \.square]
+            }
+            #endif
 
             @frozen public struct View: ~Copyable, ~Escapable {
               public let _streamStorage: UnsafeMutablePointer<Partial>
@@ -3795,7 +3885,7 @@ extension BaseTestSuite {
             Self(streamPartial: partial) ?? .circle
           }
         }
-        """
+        """#
       }
     }
 
@@ -3849,6 +3939,12 @@ extension BaseTestSuite {
             static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.items, \.index]
+            }
+            #endif
 
             struct View: ~Copyable, ~Escapable {
               let _streamStorage: UnsafeMutablePointer<Partial>
@@ -4048,7 +4144,7 @@ extension BaseTestSuite {
         }
         """
       } expansion: {
-        """
+        #"""
         struct Outer {
           package struct Inner {
             package var `class`, storage: Int
@@ -4094,6 +4190,12 @@ extension BaseTestSuite {
             @inlinable package static func streamInitialValue() -> Self {
               Self._streamInitialValueTemplate
             }
+
+            #if !hasFeature(Embedded)
+            package static var streamObservationFields: [PartialKeyPath<Self>] {
+              [\.`class`, \.storage, \.x]
+            }
+            #endif
 
             @frozen package struct View: ~Copyable, ~Escapable {
               package let _streamStorage: UnsafeMutablePointer<Partial>
@@ -4308,7 +4410,7 @@ extension BaseTestSuite {
             Self(orInitial: partial)
           }
         }
-        """
+        """#
       }
     }
 
