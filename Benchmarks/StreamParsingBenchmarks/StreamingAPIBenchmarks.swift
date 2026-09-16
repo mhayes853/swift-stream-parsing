@@ -150,10 +150,64 @@ private func addAsyncSequenceRows<Value: StreamParseableRoot & Sendable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
-  chunkSizes: [Int]
+  chunkSizes: [Int],
+  project: @escaping @Sendable (borrowing Value.View) -> StreamString?,
+  field: ObservedFieldPath<Value, StreamString>
 ) {
   for chunkSize in chunkSizes {
     let input = chunks(payload, size: chunkSize)
+    Benchmark(
+      "API ObservedField \(name) - \(chunkSize)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        expectParses {
+          var iterator = try input.partialIterator(of: Value.self, from: .json())
+            .observeField(field).removeDuplicateUpdates()
+          while let update = try iterator.next() { blackHole(update) }
+        }
+      }
+    }
+    Benchmark(
+      "API AsyncObservedField \(name) - \(chunkSize)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      await measurePayloadThroughputAsync(benchmark, payload: payload) {
+        await expectParsesAsync {
+          for try await update in ImmediateAsyncChunks(chunks: input)
+            .partials(of: Value.self, from: .json()).observeField(field).removeDuplicateUpdates()
+          {
+            blackHole(update)
+          }
+        }
+      }
+    }
+    Benchmark(
+      "API Projected \(name) - \(chunkSize)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        expectParses {
+          var iterator = input.partialIterator(of: Value.self, from: .json())
+            .project(project).removeDuplicateUpdates()
+          while let update = try iterator.next() { blackHole(update) }
+        }
+      }
+    }
+    Benchmark(
+      "API AsyncProjected \(name) - \(chunkSize)B chunks",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      await measurePayloadThroughputAsync(benchmark, payload: payload) {
+        await expectParsesAsync {
+          for try await update in ImmediateAsyncChunks(chunks: input)
+            .partials(of: Value.self, from: .json()).project(project).removeDuplicateUpdates()
+          {
+            blackHole(update)
+          }
+        }
+      }
+    }
     Benchmark(
       "API AsyncSequence \(name) - \(chunkSize)B chunks",
       configuration: payloadConfiguration
@@ -180,7 +234,9 @@ func streamingAPIBenchmarks() {
     "Qwen 3 search tool call",
     payload: Payloads.qwen3SearchToolCall,
     as: BenchmarkQwen3ToolCall.Partial.self,
-    chunkSizes: [16, 64, 256]
+    chunkSizes: [16, 64, 256],
+    project: { $0.name?.value },
+    field: expectParses { try ObservedFieldPath(\BenchmarkQwen3ToolCall.Partial.name) }
   )
 
   addPartialsStreamRows(
@@ -193,7 +249,9 @@ func streamingAPIBenchmarks() {
     "Qwen 3 workspace edit tool call",
     payload: Payloads.qwen3WorkspaceEditToolCall,
     as: BenchmarkQwen3ToolCall.Partial.self,
-    chunkSizes: [64, 1_400, 16_384]
+    chunkSizes: [64, 1_400, 16_384],
+    project: { $0.name?.value },
+    field: expectParses { try ObservedFieldPath(\BenchmarkQwen3ToolCall.Partial.name) }
   )
 
   addPartialsStreamRows(
@@ -206,6 +264,8 @@ func streamingAPIBenchmarks() {
     "Qwen 3 structured response",
     payload: Payloads.qwen3StructuredResponse,
     as: BenchmarkQwen3StructuredResponse.Partial.self,
-    chunkSizes: [64, 1_400, 16_384]
+    chunkSizes: [64, 1_400, 16_384],
+    project: { $0.summary?.value },
+    field: expectParses { try ObservedFieldPath(\BenchmarkQwen3StructuredResponse.Partial.summary) }
   )
 }

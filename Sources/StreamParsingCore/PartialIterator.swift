@@ -22,9 +22,13 @@ public struct PartialIterator<
   Base: IteratorProtocol,
   Bytes: Sequence<UInt8>
 >: ~Copyable {
+  @usableFromInline
   var base: Base
+  @usableFromInline
   var stream: PartialsStream<Value>
+  @usableFromInline
   let bytes: (Base.Element) -> Bytes
+  @usableFromInline
   var terminated = false
 
   init(

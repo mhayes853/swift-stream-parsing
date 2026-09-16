@@ -81,6 +81,13 @@ records the original async-only review; the subsequent COW results are in `COW_E
 
 ## Suggested additions, in priority order
 
+Follow-up: items 1 and 3 now have implementations. See [STREAM_OBSERVATION.md](STREAM_OBSERVATION.md)
+for synchronous iteration, scoped views, projection and duplicate filtering, and
+[OBSERVATION_API_EVALUATION.md](OBSERVATION_API_EVALUATION.md) for validation. Projection preserves
+available field values and carries document completion separately. Opt-in `observeField`
+adds missing/null/incomplete/complete states for direct stored fields without changing ordinary
+typed storage; nested/computed path selection is explicitly unsupported in this first version.
+
 1. **Lazy synchronous partials and scoped view consumption.** Add a sequence/iterator counterpart
    to the eager `[Value]`-returning `Sequence.partials`, plus a callback-based driver that lends a
    view after each chunk. This bounds retained state and lets callers avoid whole-tree snapshots.

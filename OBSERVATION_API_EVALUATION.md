@@ -43,3 +43,130 @@ No scanner, sink, storage, or existing parser fast path was edited. The new
 `finishWithView` follows the existing EOF guards/validation and calls the view callback
 without copying the root. As a release-code check, all 183 number-appender symbols have
 unchanged sizes versus baseline; this is not a claim of instruction-by-instruction identity.
+
+## Selective observation
+
+`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`:
+788 tests in 79 suites passed; the same two known issues remain acknowledged.
+Twelve new tests cover field projection, unrelated-field suppression, optional outputs,
+independent snapshots, custom/full-value filtering, completion with identical values,
+projection/upstream/EOF errors, copied async iterators, and rejected subscribers.
+
+The initial release implementation called `withView` on chunk updates and
+`finishWithView` at EOF, with no root snapshot. Its generic adapter overhead nevertheless
+made projection/filtering slower than plain snapshots in the first sweep. The synchronous
+adapter chain and generic duplicate filter now expose their bodies for client specialization.
+The final table below measures that version, including the opt-in field tracker.
+
+## Field parsing states and final validation
+
+The final serial run passed **810 tests in 80 suites**, including 22 field-observation tests.
+The two pre-existing Unicode issues remain acknowledged. Coverage includes missing/null,
+string/number/literal/container progress, field completion versus document EOF, aliases and
+escaped keys, repeated keys, seeded values, both generated partial-member modes, nested and
+skipped subtrees, all two-chunk split points for escaped UTF-8 with both window thresholds,
+noncontiguous/byte input, invalid selections and custom schemas, and async lifecycle failures.
+
+The implementation uses a forwarding `FieldObservationSink` only for opt-in observers. Its
+constant-size tracker lives outside ordinary partial storage. Number/literal starts are read
+from the parser's lexical state after a chunk because those tokens emit only upon completion.
+The existing scanner, ordinary `PartialSink`, schemas, and generated partial layouts are untouched.
+`ObservedFieldPath` uses Swift reflection SPI at setup to validate a direct stored field, checks
+its schema offset/optionality, and rejects overlapping storage. The slot read is typed by the
+validated key path; the root is never snapshotted to extract it. Reflection is availability-guarded.
+
+Release assembly inspection found **195 common numeric/structural symbols with unchanged sizes**
+versus the original pre-API binary (not a claim of instruction-by-instruction identity). The new
+observing sink has separate structural specializations: 4,293 bytes for `consumeStructuralRun`
+and 4,678 bytes for `consumeStructuralRunBlocks`. The observed block loop calls the existing
+scalar operations directly for several event kinds, with tracking checks inline; some key and
+container wrappers remain outlined. There are no direct tracking allocation/retain/release calls
+in that inspected loop. Code size alone does not establish throughput; measurements follow.
+
+The final sweep covers seven real-world bulk controls and nine Qwen payload/chunk combinations
+through seven APIs (70 rows). Field selection is validated outside the timed region using a
+reusable `ObservedFieldPath`; parser/iterator construction remains timed. Observed and projected
+rows include duplicate filtering; ordinary snapshot and scoped-view rows do not. The payloads
+and chunk boundaries match, but emission semantics and observation work intentionally differ.
+
+| Bulk payload | Pre-API MB/s | Observation build MB/s | Throughput change |
+|---|---:|---:|---:|
+| CITM catalog | 636 | 639 | +0.3% |
+| Canada | 326 | 334 | +2.2% |
+| GSoC 2018 | 947 | 943 | -0.4% |
+| GitHub events | 905 | 903 | -0.3% |
+| LLM message | 1491 | 1459 | -2.2% |
+| Mesh | 286 | 299 | +4.6% |
+| Twitter full | 454 | 466 | +2.6% |
+
+| Synchronous payload/chunk | Whole snapshots | Scoped views | Project + filter | Field state + filter |
+|---|---:|---:|---:|---:|
+| Qwen 3 search tool call - 16B chunks | 25 | 38 | 33 | 14 |
+| Qwen 3 search tool call - 256B chunks | 71 | 83 | 75 | 53 |
+| Qwen 3 search tool call - 64B chunks | 52 | 66 | 63 | 35 |
+| Qwen 3 structured response - 1400B chunks | 250 | 269 | 262 | 217 |
+| Qwen 3 structured response - 16384B chunks | 293 | 300 | 296 | 273 |
+| Qwen 3 structured response - 64B chunks | 83 | 122 | 109 | 52 |
+| Qwen 3 workspace edit tool call - 1400B chunks | 309 | 336 | 331 | 267 |
+| Qwen 3 workspace edit tool call - 16384B chunks | 346 | 368 | 365 | 337 |
+| Qwen 3 workspace edit tool call - 64B chunks | 84 | 133 | 125 | 57 |
+
+| Async payload/chunk | Whole snapshots | Project + filter | Field state + filter |
+|---|---:|---:|---:|
+| Qwen 3 search tool call - 16B chunks | 16 | 12 | 9 |
+| Qwen 3 search tool call - 256B chunks | 47 | 36 | 33 |
+| Qwen 3 search tool call - 64B chunks | 33 | 27 | 23 |
+| Qwen 3 structured response - 1400B chunks | 225 | 202 | 192 |
+| Qwen 3 structured response - 16384B chunks | 265 | 248 | 246 |
+| Qwen 3 structured response - 64B chunks | 61 | 50 | 37 |
+| Qwen 3 workspace edit tool call - 1400B chunks | 287 | 258 | 241 |
+| Qwen 3 workspace edit tool call - 16384B chunks | 344 | 328 | 313 |
+| Qwen 3 workspace edit tool call - 64B chunks | 61 | 51 | 43 |
+
+API table entries are payload MB/s. On these workloads, synchronous value projection benefits
+from avoiding whole-tree snapshots. Rich field tracking costs appreciably more than projection,
+and the async adapter pipelines remain slower than plain async snapshots with a trivial consumer.
+Reducing renderer work may offset those costs in an application; that is not measured here.
+The first synchronous API build's apparent Canada/Mesh gains vary across builds/sweeps and should
+not be interpreted as parser optimizations. No scanner optimization was made.
+
+The final setup-only hardening also rejects a partially reflected root; a fresh focused test run
+and real-payload confirmation follow below. This validation occurs outside the timed region in
+these benchmarks. The existing seven bulk controls and six 64-byte field-observation rows are
+rechecked after that guard.
+
+Benchmark whole-name filters for the 70-row sweep:
+
+```text
+Real (Twitter full|Canada|Mesh|CITM catalog|GSoC 2018|GitHub events|LLM message) - bulk discarding
+API (PartialIterator|ScopedViews|Projected|AsyncProjected|ObservedField|AsyncObservedField|AsyncSequence) .*
+```
+
+Build with `swift build --package-path Benchmarks -c release --product StreamParsingBenchmarks`.
+The Linux runs used `Benchmarks/.build/x86_64-unknown-linux-gnu/debug/BenchmarkTool-tool`
+with `--benchmark-executable-paths` pointing to the saved release executable, `--command run`,
+`--format markdown`, `--grouping benchmark`, `--no-progress`, `--time-units nanoseconds`,
+and one `--filter` per expression above. Baseline binaries were saved alongside the release
+runtime libraries; moving them to `/tmp` without those libraries does not work.
+
+### Final setup-guard confirmation
+
+All 22 observer tests passed again after requiring complete field reflection. The final
+release build then completed all 13 requested confirmation rows, with no tests/builds
+running during measurement. The rich-observation cost remained: at 64-byte chunks,
+synchronous search/structured/workspace measured 35/52/57 MB/s, and async measured
+23/39/41 MB/s. Bulk controls below remained close to the original baseline.
+
+| Bulk payload | Final confirmation MB/s |
+|---|---:|
+| CITM catalog | 639 |
+| Canada | 334 |
+| GSoC 2018 | 963 |
+| GitHub events | 918 |
+| LLM message | 1487 |
+| Mesh | 299 |
+| Twitter full | 465 |
+
+The confirmation used the same seven bulk filters plus
+`API (ObservedField|AsyncObservedField) .* - 64B chunks`. The direct benchmark command
+also supplied `--baseline-storage-path /tmp/ssp-api-baselines`.

@@ -77,6 +77,43 @@ try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view, isComple
 A view cannot escape the callback. Members read through it can be copied and retained.
 The final callback also uses a view, via ``PartialsStream/finishWithView(_:)``.
 
+Observe one field through a borrowed view and suppress unchanged values:
+
+```swift
+var names = json.utf8.partialIterator(of: Profile.self, from: .json())
+  .project { $0.name?.value }
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Async partial sequences support the same `project` and `removeDuplicateUpdates`
+operators. Projection happens before copying the root value. Filtering retains one
+previously emitted value and always forwards document completion, even if the selected
+field is unchanged. Both APIs can also filter whole snapshots without a projection.
+Use `by:` to supply a custom equivalence predicate.
+
+Projection preserves the selected representation. To distinguish missing, null, incomplete,
+and complete fields, opt into ``ObservedField`` instead:
+
+```swift
+var names = try json.utf8.partialIterator(of: Profile.self, from: .json())
+  .observeField(\.name)
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Field completion is separate from validated document EOF. A string can finish before its
+object closes, and a completed object can still have absent model members. Observers support
+direct stored fields on object roots with schema field tables; configure them before reading
+input. ``ObservedFieldPath`` validates a reusable selection, including schema key aliases.
+Key-path reflection requires macOS 11.3, iOS/tvOS 14.5, or watchOS 7.4; older runtimes throw
+``FieldObservationError/reflectionUnavailable`` during setup. The selectors are unavailable
+in Embedded Swift. Ordinary value projection needs no field-state tracking.
+
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
 
 ```swift
