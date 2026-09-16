@@ -17,7 +17,6 @@ function open(node: PipelineNode, onClose = vi.fn()) {
 
 const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
 
-/** The node with the most experiments, so the tabs have something in them. */
 const busiest = [...pipeline.nodes].sort(
   (a, b) =>
     b.evidence.doc.filter((p) => sections.get(p)?.verdict !== "neutral").length -
@@ -40,7 +39,6 @@ describe("DetailPanel", () => {
     const chart = screen.getByRole("img", { name: /^Control flow inside/ });
     expect(why.compareDocumentPosition(how) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(how.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Inline markdown is rendered, not shown as backticks.
     expect(body.querySelector(".explain")!.textContent).not.toContain("`");
   });
 
@@ -91,8 +89,7 @@ describe("DetailPanel", () => {
   });
 
   it("writes out where the node goes next, for a screen that cannot hover", () => {
-    // Shown only under `(hover: none)` by the stylesheet, which jsdom does not apply; what is tested
-    // here is that the content is there and marked as the touch-only copy.
+    // jsdom ignores the `(hover: none)` rule, so this only checks the content is there.
     const node = pipeline.nodes.find((n) => n.next.length > 1)!;
     open(node);
     const reaches = document.querySelector(".reaches")!;

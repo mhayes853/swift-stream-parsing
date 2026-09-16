@@ -18,7 +18,6 @@ describe("Markdown", () => {
     expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["payload", "Δ"]);
     expect(within(table).getByText("+4.7%")).toHaveClass("num", "delta", "pos");
     expect(within(table).getByText("−2.1%")).toHaveClass("delta", "neg");
-    // It scrolls in its own box rather than widening the page.
     expect(table.parentElement).toHaveClass("table-scroll");
   });
 

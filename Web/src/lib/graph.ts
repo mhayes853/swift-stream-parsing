@@ -1,11 +1,3 @@
-// Geometry shared by the two charts on this site: the pipeline graph on the page, and the
-// algorithm graph inside every detail panel.
-//
-// They draw the same language deliberately — same four edge kinds, same dashing, same rule that
-// an arrow carries its label — because they are the same claim at two scales: which functions
-// reach which, and what one function does. Sharing the routing is what keeps them from drifting
-// into two dialects.
-
 import type { EdgeKind } from "../types";
 
 export type Point = [number, number];
@@ -15,7 +7,6 @@ export function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
 }
 
-/** Cubic bezier at t. Used to slide a label along its own edge when it collides with another. */
 export function at([p0, p1, p2, p3]: Curve, t: number): Point {
   const u = 1 - t;
   const a = u * u * u;
@@ -28,13 +19,6 @@ export function at([p0, p1, p2, p3]: Curve, t: number): Point {
   ];
 }
 
-/**
- * Greedy wrap to at most `maxLines`.
- *
- * Anything past the last line is appended to it rather than dropped: a silently truncated label is
- * worse than one that runs a little wide, and `Strings and escapes` losing its third word looked
- * exactly like a rendering bug.
- */
 export function wrap(text: string, perLine = 26, maxLines = 2): string[] {
   const words = text.split(" ");
   const lines: string[] = [];
@@ -51,12 +35,10 @@ export function wrap(text: string, perLine = 26, maxLines = 2): string[] {
   return lines;
 }
 
-/** SVG `<text>` has nowhere to put a `<code>` span, so the drawn form just drops the marks. */
 export function plain(text: string): string {
   return text.replace(/`/g, "");
 }
 
-/** The SVG path for a routed cubic. */
 export function pathOf([p0, p1, p2, p3]: Curve): string {
   return `M ${p0[0]} ${p0[1]} C ${p1[0]} ${p1[1]}, ${p2[0]} ${p2[1]}, ${p3[0]} ${p3[1]}`;
 }
@@ -88,17 +70,6 @@ export interface Box {
   row: number;
 }
 
-/**
- * Edge routing.
- *
- * Down a row: a vertical bezier between the facing edges. Along a row: a shallow arc between the
- * near sides. Back up a row: out to the left and around so a return path is never mistaken for
- * forward progress.
- *
- * `spread` separates back edges that would otherwise be drawn on top of each other. Two returns
- * between the same pair of rows produce identical curves, and a loop body with three exits back to
- * its head is exactly the shape the algorithm charts are full of.
- */
 export function route(
   a: Box,
   b: Box,
@@ -125,9 +96,7 @@ export function route(
     const forward = bx > ax;
     const x1 = ax + (forward ? nodeW / 2 : -nodeW / 2);
     const x2 = bx + (forward ? -nodeW / 2 : nodeW / 2);
-    // The apex has to clear the top of the node by enough to seat a label; for a cubic with both
-    // controls at `cy - lift` the apex is at `cy - 0.75 * lift`, hence the division. At lift 30 the
-    // arc cut straight across the boxes it was passing over.
+    // The apex of a cubic with both controls at `cy - lift` is at `cy - 0.75 * lift`.
     const lift = (nodeH / 2 + 24 + spread * 14) / 0.75;
     return [
       [x1, a.cy],
@@ -137,7 +106,6 @@ export function route(
     ];
   }
 
-  // Backwards: leave and re-enter on the left, bowing further out the more rows it spans.
   const bow = 34 + (a.row - b.row) * 26 + spread * 20;
   const x1 = ax - nodeW / 2;
   const x2 = bx - nodeW / 2;
@@ -156,19 +124,7 @@ export interface Labelled {
   my: number;
 }
 
-/**
- * Keep the labels legible.
- *
- * A label wants the midpoint of its own edge, but edges converge -- three arrows into
- * `parseDispatching` put their midpoints within a few pixels of each other, and the three labels
- * land on top of one another. So each is tried at the midpoint first and then slid along its own
- * curve, with a vertical nudge as the last resort. Sliding is preferred over nudging because a
- * label that has moved along its edge is still unambiguously *that* edge's label.
- *
- * Text is measured by character count rather than by `getBBox`, since this runs during layout with
- * nothing in the DOM yet. 5.4px per character at 10.5px is an over-estimate for this font, which is
- * the safe direction to be wrong in.
- */
+// Text is measured by character count because this runs before anything is in the DOM.
 export function placeLabels(
   edges: Labelled[],
   nodes: Box[],
@@ -177,7 +133,6 @@ export function placeLabels(
   perChar = 5.4
 ): void {
   const H = 13;
-  // Seeded with the node boxes: a label over a node title is worse than a label off its midpoint.
   const taken = nodes.map((n) => ({ x: n.cx, y: n.cy, w: nodeW, h: nodeH }));
   const hits = (x: number, y: number, w: number) =>
     taken.some(
@@ -199,7 +154,6 @@ export function placeLabels(
         }
       }
     }
-    // Nothing free: leave it at the midpoint rather than flinging it somewhere unrelated.
     const [x, y] = best ?? [edge.mx, edge.my];
     edge.mx = x;
     edge.my = y;
@@ -207,14 +161,6 @@ export function placeLabels(
   }
 }
 
-/**
- * Row assignment for a graph that has loops in it.
- *
- * Every one of these kernels is a loop, so a plain longest-path rank does not terminate. The back
- * edges are found first, by DFS from the entry -- an edge into a step already on the stack is one --
- * and the rank is the longest path over what is left. That puts a loop's head above its body, which
- * is what makes the returning arrow read as a return.
- */
 export function rankGraph(
   ids: string[],
   next: (id: string) => string[]
@@ -236,12 +182,9 @@ export function rankGraph(
     done.add(id);
   };
   visit(ids[0]);
-  // A step the entry cannot reach is a build error, but the chart still has to draw something.
   for (const id of ids) if (!done.has(id)) visit(id);
 
   const rank = new Map<string, number>(ids.map((id) => [id, 0]));
-  // Longest path by relaxation. Bounded by the step count because the graph is acyclic once the
-  // back edges are out.
   for (let pass = 0; pass < ids.length; pass += 1) {
     let moved = false;
     for (const id of ids) {
@@ -259,10 +202,6 @@ export function rankGraph(
   return rank;
 }
 
-/**
- * The active node and everything one edge away from it, in either direction. A chart dims the
- * rest, so what the active node touches reads without anything having to be selected first.
- */
 export function neighbours(active: string | null, edges: [from: string, to: string][]): Set<string> {
   const set = new Set<string>();
   if (active === null) return set;

@@ -5,19 +5,6 @@ import { glyph, hex } from "../lib/viz";
 import type { EscapeTrace } from "../types";
 import { Choices, InputTape, StepBar, StepNote, useSteps, VerifiedNote } from "./common";
 
-/**
- * `streamSimpleEscapeTable` — the smallest lookup in the parser, and the one whose *sentinel* is
- * the interesting part.
- *
- * A direct 128-byte map from the character after the backslash to the byte it decodes to. Zero
- * means "not a simple escape", and that costs nothing extra because no valid simple escape decodes
- * to NUL — so one table answers both "is this legal" and "what is it".
- *
- * Three steps, because there are exactly three: read the byte after the backslash, index the map
- * with it, and either write the entry out or fail. The whole map is drawn, and the eight lit cells
- * are all of it — the recorder asked the shipped decoder about all 128 indices, so a ninth escape
- * added to the parser would light a ninth cell here without anyone editing this file.
- */
 const OPS = [
   { op: "ldrb", label: "read the byte after the backslash" },
   { op: "ldrb", label: "index the map with it — one load, no compares" },
@@ -97,7 +84,6 @@ export function EscapeViz({ trace }: { trace: EscapeTrace }) {
         }
       />
 
-      {/* The whole table, four rows of thirty-two. The lit cells are its entire content. */}
       <div className="escape-map-wrap">
         <div className="table-head">
           <strong>streamSimpleEscapeTable</strong>

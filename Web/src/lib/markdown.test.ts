@@ -66,8 +66,6 @@ describe("parseBlocks", () => {
   });
 
   it("parses every section of the log without losing a fence", () => {
-    // A fence that never closes would swallow the rest of its section into one code block, so the
-    // number of code blocks parsed has to match what the extractor counted.
     for (const section of content.doc.sections) {
       const fences = parseBlocks(section.markdown).filter((b) => b.kind === "code").length;
       expect(fences, section.path).toBe(section.codeBlocks.length);

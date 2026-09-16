@@ -5,7 +5,6 @@ import { parseBlocks, parseTable, tokenizeInline } from "../lib/markdown";
 import type { Verdict } from "../types";
 import { Code } from "./highlight";
 
-/** Inline markdown — code, bold, emphasis, links — as React nodes. */
 export function inline(text: string, keyPrefix = "i"): ReactNode[] {
   return tokenizeInline(text).map((token, i) => {
     const key = `${keyPrefix}-${i}`;
@@ -28,11 +27,8 @@ export function inline(text: string, keyPrefix = "i"): ReactNode[] {
   });
 }
 
-/** A markdown table, right-aligning numeric columns and colouring signed deltas. */
 function MarkdownTable({ rows }: { rows: string[] }) {
   const table = parseTable(rows);
-  // Wrapped so a wide table scrolls inside its own box. Reflowing a measurement table would break
-  // its columns apart, and letting it overflow widens the whole panel on a phone.
   return (
     <div className="table-scroll">
       <table>
@@ -101,6 +97,5 @@ const VERDICT_LABEL: Record<Verdict, string> = {
 };
 
 export function VerdictChip({ verdict }: { verdict: Verdict }) {
-  // The written word is always present: the status hue never carries the meaning on its own.
   return <span className={`verdict ${verdict}`}>{VERDICT_LABEL[verdict]}</span>;
 }

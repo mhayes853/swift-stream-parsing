@@ -2,13 +2,6 @@ import { KIND_GLYPH, KIND_WORD } from "../lib/graph";
 import type { PipelineEdge } from "../types";
 import { inline } from "./Markdown";
 
-/**
- * The arrows leaving a node, written out: label, target and the condition each is taken under.
- *
- * The page chart's call card and the panel chart's step card both end in this list, because they
- * are the same claim at two scales. Where the order is real the arrows are numbered; otherwise the
- * marker is the edge kind's glyph, and the kind is written out beside the condition.
- */
 export function EdgeList({
   edges,
   ordered,
@@ -18,7 +11,6 @@ export function EdgeList({
   edges: PipelineEdge[];
   ordered: boolean;
   titleOf: (id: string) => string | undefined;
-  /** The rule over a list of one: "Reaches one node:", "Leads to one step:". */
   single: string;
 }) {
   const numbered = ordered && edges.length > 1;

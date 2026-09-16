@@ -4,10 +4,6 @@ import { pipeline, traces } from "../test/fixtures";
 import type { VizKind } from "../types";
 import { Visualization } from ".";
 
-// Every animation, driven by the committed traces: it has to draw, step to its end and back, and
-// report its trace as verified — a drifted mirror fails `./Web/generate traces`, so a warning here
-// would mean the bundle and the site disagree.
-
 const kinds = [...new Set(pipeline.nodes.map((n) => n.viz).filter((v): v is VizKind => !!v))];
 
 describe("Visualization", () => {

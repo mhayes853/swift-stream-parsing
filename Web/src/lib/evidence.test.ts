@@ -34,8 +34,6 @@ describe("nodeEvidence", () => {
   });
 
   it("resolves every reference in the real pipeline", () => {
-    // The extractor fails the build on a dangling doc slug; this is the same promise, kept by the
-    // bundle the site actually loads.
     const all = sectionsByPath(content.doc.sections);
     for (const n of pipeline.nodes) {
       const { experiments, explanations } = nodeEvidence(n, all);

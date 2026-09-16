@@ -4,7 +4,6 @@ import { instant, span, spanOf, stamp, wasRewritten } from "./dates";
 
 describe("stamp", () => {
   it("keeps the author's clock rather than converting to the reader's", () => {
-    // 15:41 in Los Angeles is 22:41 UTC; the log records when somebody was working, so it is 15:41.
     expect(stamp("2026-08-29T15:41:07-07:00")).toBe("29 Aug 2026, 15:41");
     expect(stamp("2026-08-29T15:41:07-07:00", false)).toBe("29 Aug 2026");
   });

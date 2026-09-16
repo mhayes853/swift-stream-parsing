@@ -16,22 +16,11 @@ import { EdgeList } from "./EdgeList";
 import { useInnerWidth } from "./hooks";
 import { inline } from "./Markdown";
 
-// The same chart as the page's, one scale down: the pipeline graph says which functions reach
-// which, and this says what one of them does. Every node has one, because a step whose branches
-// are not written down is exactly the step somebody re-derives from the assembly later.
-//
-// It is the same drawing language on purpose — `step`, `branch`, `return`, `detail`, every arrow
-// carrying its label, ordered fan-outs numbered — so that moving between the two charts does not
-// mean learning a second notation. The layout is in `lib/algorithmLayout.ts`.
-//
-// State is per node: the panel keys this by node id, so a different node starts at its entry.
-
 export function AlgorithmChart({
   node,
   decls
 }: {
   node: PipelineNode;
-  /** Resolved declarations, so a step can say where its source is without a second fetch. */
   decls: Record<string, SourceDecl[]> | null;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -42,7 +31,6 @@ export function AlgorithmChart({
     [node, available]
   );
 
-  // The entry step is the default reading, so opening a panel already says something.
   const entry = node.steps[0];
   const open = selected ?? entry.id;
   const active = hovered ?? open;
@@ -151,8 +139,6 @@ export function AlgorithmChart({
                   stroke={isOpen ? "var(--series-1)" : "var(--grid)"}
                   strokeWidth={isOpen ? 2 : 1}
                 />
-                {/* The entry and the exits are marked, because "where does this start" and "how
-                    does it get out" are the two questions a loop drawing has to answer. */}
                 {(isEntry || isExit) && (
                   <rect
                     x={left}
@@ -196,7 +182,6 @@ export function AlgorithmChart({
   );
 }
 
-/** What the selected step does, what it cites, and what leaves it. */
 function StepCard({
   step,
   node,

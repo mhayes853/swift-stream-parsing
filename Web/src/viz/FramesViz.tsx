@@ -4,13 +4,6 @@ import { phaseOf, readUpTo } from "../lib/viz";
 import type { FrameTrace } from "../types";
 import { DriftedInline, Facts, InputTape, StepBar, StepNote, useSteps } from "./common";
 
-// The frame stack, and what borrows what.
-//
-// Both animations below step the same recording: a sink that forwards every call to a real
-// `PartialSink` and then reads the sink's own `frames` and `frameCount` back out. Nothing here is
-// reconstructed from the event stream — it is the stack the sink kept, and the value it produced
-// is printed underneath so the whole thing is checkable rather than merely plausible.
-
 const CALL_NOTE: Record<string, string> = {
   beginObject: "A container opens: a frame is pushed over the member's address.",
   beginArray: "A container opens: a frame is pushed over the member's address.",
@@ -26,7 +19,6 @@ const CALL_NOTE: Record<string, string> = {
   null: "A null: the member is cleared, or refused if it is not optional."
 };
 
-/** The root value's storage, one box per declared member, with the one being written marked. */
 function Storage({
   trace,
   writing,
@@ -34,8 +26,7 @@ function Storage({
 }: {
   trace: FrameTrace;
   writing?: string | null;
-  /** Storage offsets of the frames above the root. The root's own frame stands over the whole
-      value, not over its first member, so including it would ring `id` at offset 0. */
+  // Excludes the root frame, which would otherwise ring the member at offset 0.
   frameOffsets: (number | null | undefined)[];
 }) {
   const members = trace.members.filter((m) => m.schema === 0);
@@ -84,14 +75,6 @@ function Storage({
   );
 }
 
-/**
- * `PartialSink`, one call at a time.
- *
- * The stack is one fixed allocation rather than an `Array`, because the parser caps depth and so
- * the bound is known: what that buys is not the allocation but the bookkeeping an `Array` charges
- * to be resizable — a uniqueness check on every mutation and a bounds check on every read, both of
- * which a key used to pay per key.
- */
 export function FramesViz({ trace }: { trace: FrameTrace }) {
   const steps = trace.steps;
   const player = useSteps(steps.length, 950);
@@ -122,7 +105,6 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
       <InputTape bytes={trace.bytes} marks={marks} blockSize={0} label="the document" />
 
       <div className="frames-split">
-        {/* Top of stack at the top, because that is where the parser is. */}
         <div className="frame-stack">
           <span className="frame-stack-label">
             frames · {step.frames.length}
@@ -189,14 +171,6 @@ export function FramesViz({ trace }: { trace: FrameTrace }) {
   );
 }
 
-/**
- * The schemas the frames point at.
- *
- * A schema is built once, before any parsing, and every frame over it borrows it
- * `unowned(unsafe)`. That is the claim; this steps a real parse and counts. The schema objects do
- * not change and are never allocated again, while frames come and go — and a frame carrying a
- * schema is a store rather than a retain, which is what makes pushing one a store and a decrement.
- */
 export function SchemaRoutingViz({ trace }: { trace: FrameTrace }) {
   const steps = trace.steps;
   const player = useSteps(steps.length, 900);

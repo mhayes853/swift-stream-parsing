@@ -4,8 +4,6 @@ import { cx } from "../lib/cx";
 import type { Cell, RowPhase, TapeMark } from "../lib/viz";
 import { glyph, hex, tapeKindAt } from "../lib/viz";
 
-// MARK: - The step player
-
 export interface Player {
   index: number;
   count: number;
@@ -17,15 +15,7 @@ export interface Player {
 const prefersReducedMotion = () =>
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-/**
- * Step player shared by every visualization: a scrubber, a play/pause, and autoplay that stops at
- * the end rather than looping. Honours `prefers-reduced-motion` by stepping once per press instead
- * of autoplaying.
- *
- * It rewinds whenever `count` or `resetKey` changes — a different case, a different table — and it
- * does so during render rather than in an effect, so the first frame of the new case is its first
- * step rather than the old case's index applied to new data.
- */
+// Rewinds during render, not in an effect, so a new case never shows the old case's index.
 export function useSteps(count: number, intervalMs = 1100, resetKey: unknown = null): Player {
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -81,12 +71,6 @@ export function StepBar({ player, label }: { player: Player; label: string }) {
   );
 }
 
-/**
- * The name of the step currently on screen, and what it did.
- *
- * Every stepped visual carries one of these directly under its controls, because "what changed"
- * has to be readable, not only visible.
- */
 export function StepNote({ op, children }: { op: string; children: ReactNode }) {
   return (
     <p className="step-note">
@@ -96,7 +80,6 @@ export function StepNote({ op, children }: { op: string; children: ReactNode }) 
   );
 }
 
-/** A row of chips choosing which case a visualization steps through. */
 export function Choices<T>({
   items,
   selected,
@@ -126,7 +109,6 @@ export function Choices<T>({
   );
 }
 
-/** A secondary part of a chip's label, in the muted colour. */
 export function ChipNote({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>{children}</span>;
 }
@@ -144,7 +126,6 @@ export function Legend({ items }: { items: { color: string; label: string }[] })
   );
 }
 
-/** What a trace's own verification says, when it failed: the animation has drifted from the code. */
 export function Drifted({ children }: { children: ReactNode }) {
   return (
     <p className="viz-note" style={{ color: "var(--warning)" }}>
@@ -153,7 +134,6 @@ export function Drifted({ children }: { children: ReactNode }) {
   );
 }
 
-/** The same, inline at the end of a note that says something else first. */
 export function DriftedInline({ children }: { children: ReactNode }) {
   return <strong style={{ color: "var(--warning)" }}> ⚠ {children}</strong>;
 }
@@ -172,20 +152,6 @@ export function VerifiedNote({ verified }: { verified: boolean }) {
   );
 }
 
-// MARK: - The input tape
-//
-// Every kernel here is reading *the same thing*: bytes out of the caller's buffer. The animations
-// used to start at the register, which left the reader with no idea which part of the input a
-// given block or call site was looking at. The tape puts the whole sample on screen once and lets
-// each step say, in the input's own coordinates, what it is touching: the 16 bytes a vector load
-// covers, the single lane a lookup resolves, the bytes already behind the cursor.
-
-/**
- * The sample bytes, with whatever the current step is touching marked.
- *
- * `blockSize` draws a rule every *n* bytes, which is how the 16-byte vector boundary becomes
- * visible without anyone having to count lanes.
- */
 export function InputTape({
   bytes,
   marks,
@@ -227,27 +193,7 @@ export function InputTape({
   );
 }
 
-// MARK: - SIMD register rendering
-//
-// Every vector operation in the parser is sixteen lanes wide, and the point of these visuals is
-// that the reader should *see* that: one row per register, the operation that produced it named on
-// the left, and lanes that line up vertically from one row to the next. A value only ever moves
-// down a column, which is what a lane is.
-//
-// The rows are also a *timeline* (see `phaseOf`): the row a step produces animates its lanes in
-// left to right, which is the only motion in the visual and therefore reads as "this is what
-// changed".
-
-/**
- * One 16-lane register.
- *
- * `op` is the instruction-ish label; `note` is the register's role. Both sit in a fixed-width
- * gutter so the lanes align across every row of a stack.
- *
- * `epoch` is mixed into the lane keys so that a row whose *contents* change between steps — the
- * accumulator, the SWAR word — remounts and replays its animation; without it React reuses the
- * nodes and the change happens invisibly.
- */
+// `epoch` is in the lane keys so a row whose contents change remounts and replays its animation.
 export function VectorRow({
   op,
   note,
@@ -259,7 +205,6 @@ export function VectorRow({
   op: string;
   note?: string;
   cells: Cell[];
-  /** `bytes` for data, `mask` for an all-ones/all-zeros compare result. */
   kind?: "bytes" | "mask";
   phase?: RowPhase;
   epoch?: number;
@@ -302,7 +247,6 @@ export function VectorRow({
   );
 }
 
-/** The operator between two register rows: `&`, `|`, `^`, `==`. */
 export function VectorOp({
   symbol,
   label,
@@ -323,14 +267,12 @@ export function VectorOp({
   );
 }
 
-/** The lane under the pointer in a `.vec-stack`, by its position in its row. */
 export function laneUnder(event: MouseEvent): number | null {
   const lane = (event.target as HTMLElement).closest(".vec-lane");
   const row = lane?.parentElement;
   return lane && row ? Array.prototype.indexOf.call(row.children, lane) : null;
 }
 
-/** A bit field rendered low bit first, with the labels the kernel's comment gives them. */
 export function Bits({ value, labels }: { value: number; labels: string[] }) {
   return (
     <span className="bits" title={labels.map((l, i) => ((value >> i) & 1 ? `✓ ${l}` : `· ${l}`)).join("\n")}>
@@ -341,16 +283,6 @@ export function Bits({ value, labels }: { value: number; labels: string[] }) {
   );
 }
 
-/**
- * The 16-entry table itself, with the entry a lane is currently reading highlighted.
- *
- * Drawn as a row of sixteen so it reads as the same shape as the register it indexes into — which
- * it is: `tbl` takes a vector of indices and returns a vector of entries.
- *
- * `touched` is the set of entries the current block reads at all. Lighting those is what turns the
- * table from a legend into a step: a sixteen-lane lookup is sixteen *simultaneous* reads, and the
- * spread of the hits across the table is the reason indexing beats comparing.
- */
 export function TableStrip({
   table,
   active,
@@ -393,11 +325,6 @@ export function TableStrip({
   );
 }
 
-/**
- * The parser's container state: one bit per open container, 1 for an object and 0 for an array,
- * low bit (depth 1) on the left. The bit a step moved pulses; `ringed` marks the depth that
- * matters to the reader — the top of the stack, or the close a skip is waiting for.
- */
 export function NestingRegister({
   bits,
   depthBefore,
@@ -445,7 +372,6 @@ export function NestingRegister({
   );
 }
 
-/** A labelled key/value pair for the small fact rows these visuals all need. */
 export function Facts({ items }: { items: [string, ReactNode][] }) {
   return (
     <dl className="facts">

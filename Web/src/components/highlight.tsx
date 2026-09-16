@@ -1,10 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
 import { tokenize, type Language } from "../lib/highlight";
 
-/**
- * A highlighted block. The tokenizers are in `lib/highlight.ts`; a `text` block draws as one plain
- * run with no classes.
- */
 export function Code({
   children,
   language,
@@ -14,8 +10,6 @@ export function Code({
   language: Language;
   style?: CSSProperties;
 }) {
-  // Memoised on the text: an assembly listing is six hundred lines and the panel re-renders on
-  // every tab change.
   const tokens = useMemo(() => tokenize(children, language), [children, language]);
   return (
     <pre style={style}>

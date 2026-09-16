@@ -15,28 +15,12 @@ import {
   VerifiedNote
 } from "./common";
 
-/**
- * A membership test answered by indexing a table with part of the byte.
- *
- * Two kernels have this shape and the visual is shared: the whitespace scan (one table, indexed by
- * the low nibble, then a compare) and the number scan (two, one per nibble, ANDed). What both are
- * really demonstrating is why a table exists at all — `tbl` indexes sixteen entries with a whole
- * vector of indices in one instruction, so a question that needs four or six compares per lane
- * collapses to one or two lookups for the entire block.
- *
- * Stepped, the lookup stops being a static mapping and becomes an event: the index vector appears,
- * then the entries it fetched appear, and the table lights up in *both* directions — the sixteen
- * entries this one block reads, all at the same instant, which is the thing a per-lane compare
- * ladder cannot do.
- */
 export function TableViz({ trace }: { trace: TableTrace }) {
   const [hover, setHover] = useState<number | null>(null);
-  // One step to load, two per table (index, then lookup), one to combine.
   const steps = 2 + trace.tables.length * 2;
   const player = useSteps(steps, 1150);
   const { index } = player;
   const at = (stage: number) => phaseOf(stage, index);
-  /** Which table the current step is working on, or -1 outside the lookup steps. */
   const workingTable = index >= 1 && index <= trace.tables.length * 2 ? Math.floor((index - 1) / 2) : -1;
 
   const active = hover === null ? null : trace.lanes[hover];
@@ -77,7 +61,6 @@ export function TableViz({ trace }: { trace: TableTrace }) {
 
   const firstMiss = trace.lanes.find((l) => !l.hit);
 
-  // Every entry the block reads from a given table — sixteen simultaneous reads, one instruction.
   const touched = (which: number) => new Set(trace.lanes.map((l) => l.indices[which]));
 
   const marks: TapeMark[] = [{ from: 0, to: 16, kind: "window" }];

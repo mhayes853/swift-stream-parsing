@@ -31,16 +31,13 @@ export interface DocCodeBlock {
   code: string;
 }
 
-/** When a section was written and last rewritten, recovered from the log's git history. */
 export interface DocHistory {
-  /** ISO 8601 author date, kept with the offset it was written at. */
   recorded: string;
   recordedCommit: string;
   recordedSubject: string;
   revised: string;
   revisedCommit: string;
   revisedSubject: string;
-  /** Commits that changed this section's body, the one that introduced it included. */
   revisions: number;
 }
 
@@ -95,8 +92,6 @@ export interface SourceBundle {
   sources: Record<string, SourceDecl[]>;
 }
 
-// MARK: - Pipeline
-
 export interface PipelineStage {
   id: string;
   title: string;
@@ -126,37 +121,20 @@ export type VizKind =
   | "collections"
   | "views";
 
-/**
- * How to read an arrow. `step` runs unconditionally and is numbered by its position in `next`;
- * `branch` is taken only when `when` holds; `return` hands control back to a node that already
- * ran; `detail` zooms into the same work rather than moving through it.
- */
 export type EdgeKind = "step" | "branch" | "return" | "detail";
 
 export interface PipelineEdge {
   to: string;
   kind: EdgeKind;
-  /** Drawn on the arrow. The extractor rejects an empty one. */
   label: string;
-  /** The full circumstance, shown when the source node is hovered or open. */
   when?: string;
 }
 
-/**
- * One step of a node's own algorithm — an instruction, a test, or a call it makes.
- *
- * The pipeline graph says which functions reach which. This says what the one function does, and
- * it is the only place a branch *inside* a kernel is written down. The extractor holds it to the
- * same standard as the pipeline graph: every arrow labelled, every step reachable from the first,
- * and at least one step that ends the algorithm.
- */
 export interface AlgorithmStep {
   id: string;
   title: string;
-  /** The short label under the title — a width, a cost, an attribute. */
   kicker?: string;
   detail: string;
-  /** `File.swift:symbol`, and required to be one the node already lists as evidence. */
   source?: string;
   ordering?: "ordered" | "unordered";
   next: PipelineEdge[];
@@ -167,17 +145,13 @@ export interface PipelineNode {
   stage: string;
   title: string;
   kicker: string;
-  /** Why the step is in the parse at all: what would go wrong, or cost what, without it. */
   why: string[];
   prose: string[];
   viz: VizKind | null;
   evidence: { doc: string[]; source: string[]; asm: string[] };
-  /** One sentence on how this node reaches what it calls. */
   invokes?: string;
-  /** `ordered` means `next` is written in the order the source runs or tests them. */
   ordering?: "ordered" | "unordered";
   next: PipelineEdge[];
-  /** The control flow inside this node. The first entry is the entry point. */
   steps: AlgorithmStep[];
 }
 
@@ -186,8 +160,6 @@ export interface Pipeline {
   stages: PipelineStage[];
   nodes: PipelineNode[];
 }
-
-// MARK: - Traces
 
 export interface StringRunBlock {
   offset: number;
@@ -233,7 +205,6 @@ export interface ContainerStep {
   index: number;
   event: string;
   text?: string;
-  /** The token's byte range in the sample, from the parser's own spans where it hands one over. */
   offset: number;
   length: number;
   depthBefore: number;
@@ -305,7 +276,6 @@ export interface NumberCase {
   verified: boolean;
 }
 
-/** A table-driven membership test: index with part of the byte, combine what comes back. */
 export interface LookupTable {
   name: string;
   indexedBy: string;
@@ -328,7 +298,6 @@ export interface TableTrace {
   summary: string;
   replaces: string;
   sample: string;
-  /** The sample's bytes; the lanes cover the first sixteen of them. */
   bytes: number[];
   tables: LookupTable[];
   lanes: TableLane[];
@@ -362,16 +331,9 @@ export interface UTF8Trace {
 
 export interface EscapeTrace {
   entries: { byte: number; source: string; decoded?: number; meaning: string }[];
-  /** The whole 128-byte map, recovered by probing the shipped decoder at every index. */
   map: number[];
   verified: boolean;
 }
-
-// MARK: - The sink boundary onwards
-//
-// These are not kernels, so they are not registers: a call log, two frame stacks, storage growing
-// a block at a time. Each is recorded by running the shipped thing and reading its own state back
-// out — see the note above `SinkCallTrace` in `Trace/TraceModel.swift`.
 
 export interface SinkCall {
   index: number;
@@ -398,7 +360,6 @@ export interface DispositionTrace {
   skippedKey: string;
   streamed: SinkCall[];
   skipped: SinkCall[];
-  /** Parallel to `streamed`: whether the skipping run received that call too. */
   delivered: boolean[];
   skipFrom: number;
   skipTo: number;
@@ -578,25 +539,20 @@ export interface StreamStringTrace {
 
 export interface CollectionTrace {
   array: {
-    /** The element type the fill was recorded with, and its default block capacity. */
     elementType: string;
     blockCapacity: number;
-    /** A small trivial element's schedule, which aims at a byte budget rather than a slot count. */
     trivialElementType: string;
     trivialBlockCapacity: number;
     initialTailCapacity: number;
-    /** The element after which a snapshot was taken and held for the rest of the fill. */
     snapshotAfter: number;
     steps: {
       index: number;
       value: number;
       blocks: number[];
-      /** This array's own elements in the filling block, not the block's high-water mark. */
       tailCount: number;
       tailCapacity: number;
       pending?: number | null;
       count: number;
-      /** Whether the filling block is still the object the held snapshot captured. */
       sharedTail: boolean;
       event: "open" | "commit" | "seal" | "grow";
     }[];

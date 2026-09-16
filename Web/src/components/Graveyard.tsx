@@ -14,20 +14,12 @@ const FILTERS: { id: Verdict | "all"; label: string }[] = [
   { id: "all", label: "Everything with a verdict" }
 ];
 
-/** The query marked up inside a piece of text, so a title hit is as legible as a body one. */
 function Highlighted({ text, terms }: { text: string; terms: string[] }) {
   return markTerms(text, terms).map((run, i) =>
     run.marked ? <mark key={i}>{run.text}</mark> : <Fragment key={i}>{run.text}</Fragment>
   );
 }
 
-/**
- * Every experiment that reached a verdict, rejections first.
- *
- * This is the view the repository has no other form of: the log records failures as carefully as
- * wins, but they are scattered across sixty chapters ordered by when they happened. The search is
- * in `lib/search.ts`.
- */
 export function Graveyard({ sections }: { sections: DocSection[] }) {
   const [filter, setFilter] = useState<Verdict | "all">("rejected");
   const [query, setQuery] = useState("");
@@ -60,8 +52,6 @@ export function Graveyard({ sections }: { sections: DocSection[] }) {
         )}
       </p>
 
-      {/* The search is the first control rather than the last, because the question a reader
-          arrives with is a symptom or a number, and almost none of those are in a title. */}
       <div className="search">
         <svg className="search-icon" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -133,17 +123,12 @@ export function Graveyard({ sections }: { sections: DocSection[] }) {
 
       {hits.map((entry, i) => {
         const section = entry.section;
-        // A day rule, drawn when the list moves off one. Several of these were tried in the same
-        // sitting, and that is a fact about them worth being able to see.
         const day = stamp(section.history?.recorded, false);
         const newDay = day !== "—" && day !== stamp(hits[i - 1]?.section.history?.recorded, false);
         return (
           <Fragment key={section.path}>
             {newDay && <h3 className="day-rule">{day}</h3>}
             <details className="evidence-item">
-              {/* The snippet lives in the summary rather than the body: a closed row is the state
-                  a search result is read in, and a body hit that only says "it matched" is not
-                  worth returning. */}
               <summary>
                 <span className="summary-head">
                   <span style={{ flex: 1 }}>

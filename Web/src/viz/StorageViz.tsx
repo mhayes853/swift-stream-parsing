@@ -3,13 +3,6 @@ import { cx } from "../lib/cx";
 import type { CollectionTrace, StreamStringTrace, ViewTrace } from "../types";
 import { Choices, Drifted, Facts, StepBar, StepNote, useSteps } from "./common";
 
-// Storage: what these values look like while they fill.
-//
-// Every number below was read off a real value after a real append — the block capacities, the
-// tail's reservation, the slot table, the threshold each type switches strategy at. Where a
-// constant could have been written down here it is read off the shipped type instead, so editing
-// it in the parser moves the animation with it.
-
 const EVENT: Record<string, string> = {
   inline: "Inside the value. No allocation, no reference count — a copy of this string copies these bytes.",
   promote: "The inline bytes overflowed. Everything accumulated so far moves into the tail, once.",
@@ -17,7 +10,6 @@ const EVENT: Record<string, string> = {
   seal: "The tail filled: it is sealed as a block and never written again, and the next one is twice the size."
 };
 
-/** A block that sealed, drawn full and to scale; `fresh` pulses the one that sealed this step. */
 function SealedBlock({ position, grow, fresh, meta }: { position: number; grow: number; fresh: boolean; meta: string }) {
   return (
     <div className={cx("block sealed", fresh && "chg")} style={{ flexGrow: grow }}>
@@ -30,14 +22,6 @@ function SealedBlock({ position, grow, fresh, meta }: { position: number; grow: 
   );
 }
 
-/**
- * `StreamString` filling.
- *
- * Up to 64 bytes live in the value itself. Past that the bytes move into a tail that seals into
- * blocks, and the blocks double — which is what keeps the number of allocations logarithmic in the
- * length while bounding how much a snapshot-sharing append has to copy. A sealed block is never
- * written again, so a snapshot shares it forever.
- */
 export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
   const steps = trace.steps;
   const player = useSteps(steps.length, 1000);
@@ -46,8 +30,6 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
   const previous = steps[index - 1];
   if (!step) return null;
 
-  // Blocks are drawn to scale against the largest thing on screen, because the doubling is the
-  // point: a schedule drawn with equal boxes is a schedule you cannot see.
   const scale = Math.max(
     trace.inlineCapacity,
     ...steps.flatMap((s) => [...s.blocks, s.tailCapacity])
@@ -198,14 +180,6 @@ export function StreamStringViz({ trace }: { trace: StreamStringTrace }) {
   );
 }
 
-/**
- * `StreamArray` and `StreamDictionary`.
- *
- * Two containers with the same requirement — the parser holds a pointer into them while a value
- * streams in, so nothing may relocate — and two different answers, because they are measured
- * differently. Blocking the array's storage is free; blocking the dictionary's cost 2×, because a
- * dictionary reads its storage back on every lookup where an array never reads at all.
- */
 export function CollectionsViz({ trace }: { trace: CollectionTrace }) {
   const [which, setWhich] = useState(0);
   const array = which === 0;
@@ -240,8 +214,6 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
   const previous = steps[index - 1];
   if (!step) return null;
   const scale = Math.max(trace.array.blockCapacity, step.tailCapacity, 1);
-  // The step the held snapshot was taken at: its own `tailCount` is the prefix of the filling
-  // block that belongs to it, and every append above that one is what `sharedTail` is about.
   const held = steps[trace.array.snapshotAfter];
 
   return (
@@ -293,9 +265,6 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
           style={{ flexGrow: Math.max(step.tailCapacity, 8) / scale }}
         >
           <div className="block-track">
-            {/* Two fills, not one: the prefix a held snapshot counted, and this array's own
-                elements above it. They are the same block object — that is the point — so the
-                second is drawn over the first rather than beside it. */}
             <div
               className="block-fill"
               style={{
@@ -314,8 +283,7 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
             )}
           </div>
           <span className="block-label">{step.sharedTail ? "tail — shared" : "tail"}</span>
-          {/* A tail that has just sealed holds a fresh, unreserved buffer: its capacity really is
-              zero until the next commit reserves the block. Say that rather than print `0/0`. */}
+          {/* A just-sealed tail has capacity 0 until the next commit reserves a block. */}
           <span className="block-meta">
             {step.tailCapacity === 0
               ? "unreserved"
@@ -475,16 +443,7 @@ function DictionaryPanel({ trace, index }: { trace: CollectionTrace; index: numb
   );
 }
 
-/**
- * Reading a value that is still being parsed.
- *
- * A view is a pointer at the storage the parser is writing through, so reading one member copies
- * that member and nothing else. A snapshot copies the value. The offsets below are the schema's
- * own field offsets and the sizes are `MemoryLayout`'s, both from the same parse the frame
- * animation steps through.
- */
 export function ViewsViz({ trace }: { trace: ViewTrace }) {
-  // One step per member, then the snapshot.
   const steps = trace.members.length + 1;
   const player = useSteps(steps, 1000);
   const { index } = player;

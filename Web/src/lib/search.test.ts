@@ -58,7 +58,6 @@ describe("hit", () => {
     expect(found.snippet?.match).toBe("shrn");
     expect(found.snippet?.before.startsWith("…")).toBe(true);
     expect(found.snippet?.after.endsWith("…")).toBe(true);
-    // Never opens or closes mid-word: every word in the widened window is whole.
     expect(found.snippet?.before.slice(1).split(" ").every((w) => w === "" || w === "word" || w === "the")).toBe(true);
   });
 

@@ -5,17 +5,6 @@ import { glyph, hex } from "../lib/viz";
 import type { FieldMatchTrace, FieldProbe, FieldTable } from "../types";
 import { ChipNote, Choices, DriftedInline, Facts, StepBar, StepNote, VectorRow, useSteps } from "./common";
 
-// The key match, at two scales.
-//
-// `keyMatch` is about how a key becomes something comparable: eight bytes in one load, zero
-// padded, compared as a word against the length beside it. `fieldTable` is about how the entry is
-// *found* — a walk over a handful of entries, or a probe into a slot table once there are enough
-// of them for the walk to stop being free.
-//
-// Both step over the same recorded probes, and every probe's answer was checked against the
-// shipped matcher over the same table.
-
-/** The eight lanes of a padded leading word, with the zero padding past the key's end marked. */
 function wordCells(bytes: number[], wordBytes: number[]): Cell[] {
   return wordBytes.map((byte, lane) => ({
     text: hex(byte),
@@ -35,21 +24,12 @@ function probeOutcome(probe: FieldProbe, table: FieldTable): string {
   return `${entry.key} · ${entry.kind} at +${entry.offset}`;
 }
 
-/**
- * How a key is compared.
- *
- * The key's first eight bytes are one unaligned load, zero padded past its end, and the compare is
- * that word against the entry's plus a two-byte length. Nothing is hashed and nothing is
- * allocated; a key longer than a word verifies its tail only once the first word has already
- * matched, which is a call that almost never runs.
- */
 export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
   const probes = trace.tables.flatMap((table) =>
     table.probes.map((probe) => ({ probe, table }))
   );
   const [choice, setChoice] = useState(0);
   const selected = probes[choice];
-  // One step to build the word, then one per entry the matcher looked at.
   const player = useSteps((selected?.probe.steps.length ?? 0) + 1, 1000, choice);
   const { index } = player;
   if (!selected) return null;
@@ -60,8 +40,6 @@ export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
 
   return (
     <div className="viz">
-      {/* The table is named on each chip too: both tables are probed with a key they do not
-          have, and two chips reading only `"missing"` would be the same chip twice. */}
       <Choices
         items={probes}
         selected={choice}
@@ -188,15 +166,6 @@ export function KeyMatchViz({ trace }: { trace: FieldMatchTrace }) {
   );
 }
 
-/**
- * How the entry is found.
- *
- * Below the threshold the match is a walk: a few compares against forty-byte strides the
- * prefetcher already has, which is the same compares the generated `switch` it replaced made as a
- * chain. Above it the table carries an open-addressed index and the walk becomes a probe. Both
- * tables here are real — built by the shipped `StreamFieldTable.init` — and the threshold is read
- * off the type rather than written down.
- */
 export function FieldTableViz({ trace }: { trace: FieldMatchTrace }) {
   const [which, setWhich] = useState(0);
   const [probeIndex, setProbeIndex] = useState(0);

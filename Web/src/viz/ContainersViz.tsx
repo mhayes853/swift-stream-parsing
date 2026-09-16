@@ -5,19 +5,6 @@ import { InputTape, NestingRegister, StepBar, StepNote, useSteps } from "./commo
 const OPEN = new Set(["beginObject", "beginArray"]);
 const CLOSE = new Set(["endObject", "endArray"]);
 
-/**
- * The nesting register, driven by a real parse.
- *
- * `depth` plus one `UInt64` is the whole of the parser's container state: bit *n* is 1 when the
- * container at depth *n* is an object and 0 when it is an array. The token stream here is the
- * parser's actual output; the bits are re-derived from it by the parser's own documented rule,
- * because the fields themselves are internal to the module.
- *
- * Each step marks the token's own bytes in the document. Those offsets are the parser's: they come
- * from the spans it hands the sink, cross-checked against a cursor that skips whitespace with the
- * shipped scanner. Without them the animation shows a register changing and leaves the reader to
- * guess which part of the input did it.
- */
 export function ContainersViz({ trace }: { trace: ContainerTrace }) {
   const steps = trace.steps;
   const player = useSteps(steps.length, 900);
@@ -82,7 +69,6 @@ export function ContainersViz({ trace }: { trace: ContainerTrace }) {
         </span>
       </div>
 
-      {/* The register. One cell per bit, low bit (depth 1) on the left. */}
       <NestingRegister
         bits={16}
         depthBefore={step.depthBefore}

@@ -3,20 +3,6 @@ import { blockStep, firstHitLane, phaseOf, wordHex } from "../lib/viz";
 import type { StringRunTrace } from "../types";
 import { InputTape, StepBar, StepNote, useSteps, VectorRow } from "./common";
 
-/**
- * `streamFirstHitLane` — getting a lane index out of a vector.
- *
- * This is the step every first-hit problem in the scanners runs into: the compare has already
- * answered "which lanes", in a vector register, and the scalar code needs "which is the first", in
- * a general register. The portable spelling reads the mask's own storage as two 64-bit words and
- * counts trailing zeros; the arm64 spelling narrows each lane to a nibble with `shrn` and counts
- * once. Both are shown because both ship, and they are stepped in sequence so the second reads as
- * a different spelling of the same question rather than as an extra stage.
- *
- * The arithmetic at the end is the branchless combination, and it is the point of the whole
- * function: a terminator's lane is unpredictable by nature, so there is nothing here to predict.
- */
-
 const OPS = [
   { op: "mask", note: "the fold from the compares, still in a vector register" },
   { op: "tzcnt", note: "read the low half as a 64-bit word and count trailing zeros" },
@@ -33,15 +19,12 @@ export function MovemaskViz({ trace }: { trace: StringRunTrace }) {
   if (!block) return null;
   const at = (stage: number) => phaseOf(stage, op);
 
-  // The mask's storage read as two little-endian 64-bit words puts each lane in its own byte,
-  // which is why the lane index is a trailing-zero count over eight.
   const { low, high, lowCount, highCount, lowEmpty, lane, nibbles } = firstHitLane(block.hit);
 
   const cells: Cell[] = block.hit.map((on, i) => ({
     text: on ? "FF" : "00",
     sub: String(i),
     on,
-    // The half under the current count is the one being read; the other recedes.
     dim: (op === 1 && i >= 8) || (op === 2 && i < 8),
     marked: op >= 4 && i === block.hitLane
   }));

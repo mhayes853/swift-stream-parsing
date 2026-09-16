@@ -8,19 +8,6 @@ import { EdgeList } from "./EdgeList";
 import { useInnerWidth, useMediaQuery } from "./hooks";
 import { inline } from "./Markdown";
 
-// A directed graph of the parse path, laid out in stage rows. The edges are `next` in
-// pipeline.json -- the real control flow, including the ones that go backwards: the whitespace
-// scan returns to the structural run, which calls it again before the next structural byte.
-//
-// Every arrow carries its label, because an unlabelled arrow between two functions says only that
-// one reaches the other, which is the least interesting thing about it. `dispatcher` has four, and
-// the four are not steps: they are the arms of a `switch` on `self.state`, exactly one of which
-// runs per iteration. That distinction is `kind`, and it is drawn -- branches get their condition,
-// a `return` is dashed, a `detail` is dotted. Where the order is real (a switch's arms are tested
-// in the order they are written) `ordering` is `ordered` and the arrows are numbered.
-//
-// The layout is in `lib/flowLayout.ts`; this draws it.
-
 export function FlowChart({
   pipeline,
   sections,
@@ -33,12 +20,8 @@ export function FlowChart({
   onSelect: (node: PipelineNode) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
-  // The call card opens on hover, and a touch screen has none to open it with: a tap fires the
-  // emulated `mouseenter` and then the click that opens the panel over it, so the card would only
-  // ever be seen for a frame. Without hover there is no card, and no rail reserved for one.
+  // A tap fires `mouseenter` then the click that opens the panel, so touch screens get no card.
   const canHover = useMediaQuery("(hover: hover)");
-  // The card's height is content-dependent and only known after layout; it is measured back up to
-  // here because the leader line has to start at an edge of the real box.
   const [cardHeight, setCardHeight] = useState(0);
   const [scrollRef, available] = useInnerWidth<HTMLDivElement>(1100);
 
@@ -49,7 +32,6 @@ export function FlowChart({
   const { placed, byId, edges, geo, width, height } = layout;
   const nodeW = geo.nodeW;
 
-  // An edge is lit when either end is the node under the cursor or the open one.
   const active = hovered ?? selected?.id ?? null;
   const activeNode = active ? byId.get(active) : undefined;
   const card =
@@ -245,7 +227,6 @@ function FlowNode({
           ▶
         </text>
       )}
-      {/* Counts are written, not colour-coded alone. */}
       <text x={right - 12} y={bottom - 11} className="flow-node-counts">
         {p.landed > 0 && <tspan className="landed">{p.landed}↑ </tspan>}
         {p.rejected > 0 && <tspan className="rejected">{p.rejected}✕</tspan>}
@@ -254,10 +235,6 @@ function FlowNode({
   );
 }
 
-/**
- * What the node does with the arrows leaving it. The chart can show that `parseDispatching` reaches
- * four functions; only this can say that it reaches exactly one of them per iteration, and on what.
- */
 function CallCard({
   node,
   titleOf,
@@ -275,8 +252,6 @@ function CallCard({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Report the rendered height so the parent can face the card at its node and draw the leader to
-  // a real edge. Measured every render because the content changes with the node.
   useLayoutEffect(() => {
     if (ref.current) onMeasure(ref.current.offsetHeight);
   });
@@ -289,10 +264,6 @@ function CallCard({
   );
 }
 
-/**
- * The body of the call card, without the card. The detail panel draws it too on a touch screen,
- * where there is no hover to open the card with and no rail beside the chart to put it in.
- */
 export function Reaches({
   node,
   titleOf

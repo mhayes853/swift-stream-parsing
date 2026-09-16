@@ -4,14 +4,6 @@ import { phaseOf, readUpTo } from "../lib/viz";
 import type { DispositionTrace, SinkCall, SinkCallTrace } from "../types";
 import { Drifted, Facts, InputTape, StepBar, StepNote, useSteps } from "./common";
 
-// The two animations of the boundary itself: what the parser calls, and what it stops calling
-// when the sink says it does not want a subtree.
-//
-// Neither is a kernel, so neither is drawn as registers. What matters here is a *sequence of
-// calls* and, for each one, which bytes of the input the span it carries is pointing at — because
-// "the span is invalid once the call returns" is a claim about those bytes, and it is the whole
-// reason the surface is zero-copy.
-
 const GROUP_LABEL: Record<SinkCall["group"], string> = {
   structure: "structure",
   key: "key",
@@ -19,7 +11,6 @@ const GROUP_LABEL: Record<SinkCall["group"], string> = {
   chunked: "chunked string"
 };
 
-/** One row of a call log. A future row keeps its box and shows nothing, so nothing reflows. */
 function CallRow({
   call,
   phase,
@@ -53,16 +44,6 @@ function CallRow({
   );
 }
 
-/**
- * The call log: every method the parser called, in order, with the span it passed.
- *
- * These are not reconstructed events — a sink recorded them while a real parse ran, and each span
- * offset is the parser's own answer to "which bytes is this", checked against the bytes the call
- * reports. The one call here whose span reports *no* offset is the chunk after the escape: from a
- * string value's first escape on, the parser copies the decoded escape and the content behind it into
- * its own buffer and hands that over, so those bytes no longer point into the document, which is
- * exactly the case the borrow rule exists for.
- */
 export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
   const calls = trace.calls;
   const player = useSteps(calls.length, 850);
@@ -168,14 +149,6 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
   );
 }
 
-/**
- * The same document, delivered to two sinks.
- *
- * Both runs below are real parses of the same bytes; the only difference is what one sink answered
- * when a container opened. The interior calls do not arrive late or arrive empty — they do not
- * happen, and the parser scanned those bytes structurally instead. The matching close still
- * arrives, which is the half of the contract that lets a `PartialSink` pop the frame it pushed.
- */
 export function DispositionsViz({ trace }: { trace: DispositionTrace }) {
   const steps = trace.streamed;
   const player = useSteps(steps.length, 800);

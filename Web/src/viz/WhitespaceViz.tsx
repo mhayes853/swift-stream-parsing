@@ -3,16 +3,7 @@ import { glyph, hex } from "../lib/viz";
 import type { TableTrace, WhitespaceTrace } from "../types";
 import { InputTape, Legend, StepBar, StepNote, TableStrip, useSteps } from "./common";
 
-/**
- * `streamWhitespaceEnd` at each of the call sites the parser makes it.
- *
- * The point of this one is the *branch*, not the scan: a single compare against 0x20 settles the
- * no-whitespace case, and the vector body lives behind a call so its register pressure never
- * reaches the parse loop. So the animation gives that compare a step of its own — most call sites
- * end there, and watching the timeline spend most of its length on one instruction is the finding.
- */
 export function WhitespaceViz({ trace, table }: { trace: WhitespaceTrace; table: TableTrace }) {
-  // Two steps at a call site that scans, one at a call site the compare settles.
   const script = trace.calls.flatMap((call, i) =>
     call.earlyOut ? [{ call: i, stage: 0 }] : [{ call: i, stage: 0 }, { call: i, stage: 1 }]
   );
@@ -30,8 +21,6 @@ export function WhitespaceViz({ trace, table }: { trace: WhitespaceTrace; table:
     marks.push({ from: call.from, to: call.end, kind: "cursor" });
     marks.push({ from: call.end, to: call.end + 1, kind: "next" });
   } else {
-    // The early-out returns *at* the byte it tested, so the byte the call reads and the byte the
-    // parser resumes at are the same one; drawing it twice would only make it look like two.
     marks.push({ from: call.from, to: call.from + 1, kind: "cursor" });
   }
 

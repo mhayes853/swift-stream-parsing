@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import { media } from "../test/setup";
 import { Choices, InputTape, StepBar, useSteps } from "./common";
 
-/** A player over `count` steps, with a second case to switch to. */
 function Player({ count = 3, interval = 100 }: { count?: number; interval?: number }) {
   const [which, setWhich] = useState(0);
   const player = useSteps(count, interval, which);

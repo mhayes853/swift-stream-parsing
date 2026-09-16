@@ -3,18 +3,10 @@ import { deltaRows, divergingBar, payloadCounts, payloadName, rowsFor } from "..
 import type { DocSection } from "../types";
 import { FilterButton } from "./FilterButton";
 
-/**
- * Every delta ever recorded against one payload.
- *
- * Diverging encoding: a gain and a loss are opposite polarities around a true zero, so the bar
- * takes the blue/red pair with a neutral midpoint rather than a sequential ramp. The signed number
- * is printed beside every bar, so polarity never rests on hue alone.
- */
 export function Payloads({ sections }: { sections: DocSection[] }) {
   const rows = useMemo(() => deltaRows(sections), [sections]);
   const payloads = useMemo(() => payloadCounts(rows), [rows]);
-  // Derived rather than initialised from the first render: the content arrives after the view
-  // mounts, and a default captured from an empty list would never be revisited.
+  // Derived, not initial state: the content arrives after mount.
   const [chosen, setChosen] = useState<string | null>(null);
   const selected = chosen ?? payloads[0]?.[0] ?? "canada";
   const mine = useMemo(() => rowsFor(rows, selected), [rows, selected]);

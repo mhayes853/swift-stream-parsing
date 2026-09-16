@@ -35,8 +35,6 @@ export function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // A view opens at its top. The page is one document, so without this the Experiments view opened
-  // at whatever depth the flow chart had been scrolled to -- on a phone, mid-list with no heading.
   useEffect(() => {
     // Braced: `scrollTo` returns a promise in some browsers, and an effect may only return a cleanup.
     window.scrollTo({ top: 0, behavior: "instant" });

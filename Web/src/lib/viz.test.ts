@@ -137,8 +137,6 @@ describe("firstHitLane", () => {
   });
 
   it("agrees with the lane the shipped kernel reported, on every recorded block", () => {
-    // The movemask animation re-derives the lane rather than reading it, so it is held to the same
-    // footing as the trace mirrors: it has to land where `streamFirstHitLane` did.
     for (const block of traces.stringRun.blocks) {
       expect(firstHitLane(block.hit).lane).toBe(block.anyHit ? block.hitLane : 16);
     }

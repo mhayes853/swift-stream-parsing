@@ -4,9 +4,6 @@ import { TITLE_PER_CHAR, TITLE_SIZE, balanced, fit, layoutAlgorithm, layoutFor a
 import { sectionsByPath } from "./evidence";
 import { NODE_H, cardBox, layoutFlow, layoutFor as flowLayoutFor, leaderPath } from "./flowLayout";
 
-// Both charts are laid out from measurements rather than drawn by hand, so their layouts are
-// checked against every node the site actually draws — at a desktop panel's width and a phone's.
-
 const PANEL_WIDTHS = [630, 347];
 const PAGE_WIDTHS = [1130, 361];
 
@@ -48,7 +45,6 @@ describe("algorithm chart layout", () => {
       const geo = algoLayoutFor(width, 5);
       expect(geo.nodeW).toBeGreaterThanOrEqual(104);
       if (geo.colGap < 14) expect(geo.nodeW, `${width}px`).toBe(104);
-      // Five arms fit whenever they can at the smallest gap that still reads as two boxes.
       if (width >= 5 * 104 + 4 * 9 + 16) expect(geo.width, `${width}px`).toBeLessThanOrEqual(width);
     }
   });
@@ -60,7 +56,6 @@ describe("algorithm chart layout", () => {
         expect(layout.placed.length, node.id).toBe(node.steps.length);
         expect(layout.edges.length, node.id).toBe(node.steps.reduce((n, s) => n + s.next.length, 0));
 
-        // The entry is alone on the top row, and nothing is drawn outside the view box.
         const entry = layout.placed.find((p) => p.step.id === node.steps[0].id)!;
         expect(entry.row, node.id).toBe(0);
         for (const p of layout.placed) {
@@ -68,7 +63,6 @@ describe("algorithm chart layout", () => {
           expect(p.cx + layout.geo.nodeW / 2, node.id).toBeLessThanOrEqual(layout.view.left + layout.view.width);
         }
 
-        // Shrunk by at most 12%, and only when it would otherwise scroll.
         expect(layout.scale, node.id).toBeGreaterThanOrEqual(0.88);
         expect(layout.scale, node.id).toBeLessThanOrEqual(1);
       }
@@ -119,7 +113,6 @@ describe("page chart layout", () => {
       expect(box.top + box.height).toBeLessThanOrEqual(layout.height - 8 + 0.001);
       expect(box.left).toBeGreaterThan(layout.geo.graphWidth);
     }
-    // A card no taller than a node sits level with it.
     const middle = layout.placed[Math.floor(layout.placed.length / 2)];
     expect(cardBox(middle, NODE_H, layout).top).toBe(middle.cy - NODE_H / 2);
   });

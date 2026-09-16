@@ -1,18 +1,8 @@
-// A deliberately small parser for the subset NEW_ARCHITECTURE.md actually uses: paragraphs, fenced
-// code, tables, bullet lists, block quotes and inline emphasis. Pulling in a markdown library to
-// render one authored document would be more surface area than the document has features.
-//
-// Parsing and rendering are separate so the grammar can be tested without a DOM: this file turns
-// text into blocks and tokens, and `components/Markdown.tsx` draws them.
-
 export type InlineToken =
   | { kind: "text" | "code" | "strong" | "em"; text: string }
   | { kind: "link"; text: string; href: string };
 
-// `code` first so emphasis markers inside a span of code are left alone, and `**` before `*` so a
-// bold run is not read as two empty emphases. The single-star form is the one the log reaches for
-// most (221 occurrences against 642 bold ones) and it used to render as literal asterisks, which
-// is the one way a renderer can be worse than no renderer.
+// `code` first so emphasis inside code is left alone; `**` before `*`.
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\[[^\]]+\]\([^)]+\))/g;
 
 export function tokenizeInline(text: string): InlineToken[] {
@@ -50,7 +40,6 @@ export function parseBlocks(markdown: string): Block[] {
   const out: Block[] = [];
   const lines = markdown.split("\n");
   let i = 0;
-  /** The run of lines from `i` that satisfy `test`, consumed. */
   const run = (test: (line: string) => boolean) => {
     const body: string[] = [];
     while (i < lines.length && test(lines[i])) body.push(lines[i++]);
@@ -62,14 +51,13 @@ export function parseBlocks(markdown: string): Block[] {
     if (isFence(line)) {
       i++;
       const code = run((l) => !isFence(l)).join("\n");
-      i++; // the closing fence
+      i++;
       out.push({ kind: "code", code, language: line.slice(3).trim() });
     } else if (!line.trim()) {
       i++;
     } else if (isTableRow(line)) {
       out.push({ kind: "table", rows: run(isTableRow) });
     } else if (isBullet(line)) {
-      // A wrapped bullet is an indented line that continues the previous item.
       const items: string[] = [];
       for (const l of run((l) => isBullet(l) || (l.startsWith("  ") && !!l.trim()))) {
         if (isBullet(l)) items.push(l.replace(BULLET, ""));
@@ -90,11 +78,8 @@ export function parseBlocks(markdown: string): Block[] {
 
 export interface TableCell {
   text: string;
-  /** A number in a column past the label column, right-aligned in tabular figures. */
   numeric: boolean;
-  /** The whole cell was bold in the source — usually the row a result is about. */
   strong: boolean;
-  /** A signed percentage, which is drawn in the diverging pair by its sign. */
   delta: "pos" | "neg" | null;
 }
 
@@ -132,11 +117,6 @@ export function parseTable(rows: string[]): Table {
   };
 }
 
-/**
- * The text a reader sees, on one line: fences, link targets and emphasis marks removed. Used by the
- * search, so an excerpt reads as prose rather than as source and a query can span a span of code —
- * "shrn movemask" is two words in the log with a backtick between them.
- */
 export function flatten(markdown: string): string {
   return markdown
     .replace(/```[a-z]*\n?/g, "")

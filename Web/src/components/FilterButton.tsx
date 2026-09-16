@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-/** A toggle in a `.filters` row, with the number of things it would show beside its label. */
 export function FilterButton({
   active,
   count,

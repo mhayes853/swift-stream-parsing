@@ -1,7 +1,6 @@
 import { commitURL, stamp, wasRewritten } from "../lib/dates";
 import type { DocHistory } from "../types";
 
-/** One line of provenance: when the section was written, and whether it was rewritten afterwards. */
 export function Recorded({ history }: { history?: DocHistory }) {
   if (!history) return null;
   return (
@@ -24,7 +23,6 @@ export function Recorded({ history }: { history?: DocHistory }) {
   );
 }
 
-/** The same, with the commits as links. Used where there is room for them. */
 export function RecordedDetail({ history }: { history?: DocHistory }) {
   if (!history) return null;
   return (

@@ -19,15 +19,6 @@ const ACTION: Record<string, { word: string; note: string }> = {
   done: { word: "the matching close", note: "Depth is back where the skip began. This is the one call the sink gets." }
 };
 
-/**
- * The skip scanner, walking one subtree.
- *
- * `consumeSkipRun`'s intermediates cannot be seen from outside it, so the walk drawn here is
- * mirrored with the same `package` scanners the shipped loop calls, in the same order — and then
- * the shipped function is run over the same bytes from the same state. The two have to land on
- * the same cursor or `./Web/generate traces` fails, which is the same footing every kernel mirror
- * on this site stands on.
- */
 export function SkipRunViz({ trace }: { trace: SkipRunTrace }) {
   const steps = trace.steps;
   const player = useSteps(steps.length, 850);
@@ -68,8 +59,6 @@ export function SkipRunViz({ trace }: { trace: SkipRunTrace }) {
         }
       />
 
-      {/* The two registers the skip keeps. Same pair as the structural run, which is why a `[`
-          closed by a `}` is still rejected inside a subtree nobody is delivering. */}
       <div className="skip-regs">
         <div>
           <span className="skip-reg-label">depth</span>

@@ -4,17 +4,6 @@ import { diff, glyph, hex } from "../lib/viz";
 import type { NumberCase } from "../types";
 import { Choices, InputTape, StepBar, StepNote, useSteps, VectorRow, VerifiedNote } from "./common";
 
-/**
- * `streamShortInteger` — eight bytes, backwards.
- *
- * The word is shown in memory order (little-endian storage, which is the order the digits sit in),
- * so the mask visibly clears the junk *below* the token and the bias only ever touches kept lanes.
- *
- * This kernel is the one place where the *same* register is rewritten by every step rather than a
- * new one being produced, so the animation marks the lanes each stage changed. That is the whole
- * reading of it: the mask changes only the junk, the bias changes only the digits, and the two
- * multiply-adds collapse eight lanes to four to two to one.
- */
 export function NumberViz({ cases }: { cases: NumberCase[] }) {
   const [which, setWhich] = useState(0);
   const active = cases[which];
@@ -25,8 +14,6 @@ export function NumberViz({ cases }: { cases: NumberCase[] }) {
   if (!active) return null;
   const step = steps[index];
 
-  // The input as the kernel sees it: the hostile prefix the tests pad with, then the token. The
-  // load is the eight bytes *ending* at the token, so it reaches back into the prefix.
   const text = active.prefix + active.text;
   const bytes = Array.from(new TextEncoder().encode(text));
   const tokenStart = active.prefix.length;
@@ -122,11 +109,9 @@ export function NumberViz({ cases }: { cases: NumberCase[] }) {
   );
 }
 
-/** One SWAR lane per byte of the word, with the token's lanes lit and the changed ones pulsed. */
 function wordCells(now: number[], before: number[] | undefined, digitCount: number): Cell[] {
   const changed = diff(now, before);
   return now.map((byte, i) => ({
-    // The token occupies the highest-addressed `digitCount` bytes of the word.
     text: hex(byte),
     sub: glyph(byte),
     on: i >= 8 - digitCount,

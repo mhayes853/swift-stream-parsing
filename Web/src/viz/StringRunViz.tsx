@@ -3,21 +3,6 @@ import { blockStep, diff, glyph, hex, phaseOf, splat } from "../lib/viz";
 import type { StringRunTrace } from "../types";
 import { InputTape, StepBar, StepNote, useSteps, VectorOp, VectorRow, VerifiedNote } from "./common";
 
-/**
- * `streamStringRun`, block by block, as the vector pipeline it is.
- *
- * Two things are being shown at once and they are deliberately coupled. The stack is the kernel:
- * three compares against splatted constants produce three separate 16-lane registers, and one OR
- * folds them. The tape above it is the caller's buffer, so every step can also say *which* bytes it
- * is looking at — a vector load is sixteen bytes of the input, and the reader should be able to
- * point at them.
- *
- * Stepping is per operation rather than per block. A block drawn all at once shows the answer but
- * not the work; drawn one instruction at a time, the register that appears is exactly what that
- * instruction produced.
- */
-
-/** The kernel's instructions, in issue order. One step each, repeated for every block. */
 const OPS = [
   { op: "ldr", note: "load sixteen bytes of the caller's buffer into a register" },
   { op: "cmeq", note: "compare all sixteen against a splatted 0x22" },
@@ -32,7 +17,6 @@ export function StringRunViz({ trace }: { trace: StringRunTrace }) {
   const { block: which, op } = blockStep(player.index, OPS.length);
   const block = trace.blocks[which];
   if (!block) return null;
-  /** Where a row sits on the timeline: produced by this step, already produced, or not yet. */
   const at = (stage: number) => phaseOf(stage, op);
 
   const bytes: Cell[] = block.bytes.map((byte, lane) => ({
@@ -59,9 +43,6 @@ export function StringRunViz({ trace }: { trace: StringRunTrace }) {
     dim: block.anyHit && lane > block.hitLane
   }));
 
-  // The accumulator is the one register that is *updated* rather than produced, so its changed
-  // lanes are pulsed against its previous value — which for the first block is the zero it starts
-  // at, so the lanes the first OR filled in pulse too.
   const before =
     which > 0 ? trace.blocks[which - 1].scannedAfter : new Array(block.scannedAfter.length).fill(0);
   const changed = diff(block.scannedAfter, before);
@@ -168,7 +149,6 @@ export function StringRunViz({ trace }: { trace: StringRunTrace }) {
   );
 }
 
-/** What the step on screen just did, in the kernel's terms rather than the picture's. */
 function caption(block: StringRunTrace["blocks"][number], op: number, which: number) {
   switch (op) {
     case 0:

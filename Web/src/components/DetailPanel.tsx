@@ -21,10 +21,6 @@ import { inline, Markdown, VerdictChip } from "./Markdown";
 
 type Tab = "explanation" | "experiments" | "source" | "assembly";
 
-/**
- * Everything under one node: its chart and animation, the experiments that settled it, the source
- * and the assembly. Keyed by node id where it is used, so each node opens on its explanation.
- */
 export function DetailPanel({
   node,
   sections,
@@ -35,7 +31,6 @@ export function DetailPanel({
   node: PipelineNode;
   sections: Map<string, DocSection>;
   traces: TraceBundle | null;
-  /** Another node's title by id, for the arrows leaving this one. */
   titleOf: (id: string) => string | undefined;
   onClose: () => void;
 }) {
@@ -94,8 +89,6 @@ interface Sources {
   error: string | null;
 }
 
-/** The declaration bundle: the Source tab lists it, and the algorithm chart resolves a step's file
- *  and line out of it. Loaded once and shared (see `loadSources`). */
 function useSources(): Sources {
   const [sources, setSources] = useState<Sources>({ value: null, error: null });
   useEffect(() => {
@@ -122,8 +115,6 @@ function Explanation({
 }) {
   return (
     <>
-      {/* Words first: why the step is in the parse at all, then what it does. The chart and the
-          animation below are read against that, not the other way round. */}
       <div className="md explain">
         <h3 className="panel-rule first">Why this step exists</h3>
         {node.why.map((p, i) => (
@@ -136,14 +127,12 @@ function Explanation({
           <p key={i}>{inline(p, `p${i}`)}</p>
         ))}
       </div>
-      {/* The chart before the animation: the shape of the thing, then one run through it. */}
       <AlgorithmChart node={node} decls={decls} />
       {node.viz && (
         <div style={{ marginBottom: 20 }}>
           <Visualization kind={node.viz} traces={traces} />
         </div>
       )}
-      {/* The page chart's call card, for a screen that cannot hover to open it. */}
       {node.next.length > 0 && (
         <div className="reaches touch-only">
           <h3 className="panel-rule">Where it goes next</h3>

@@ -7,7 +7,6 @@ describe("wrap", () => {
   });
 
   it("appends what does not fit to the last line rather than dropping it", () => {
-    // A silently truncated label looked exactly like a rendering bug.
     expect(wrap("Strings and escapes", 10, 2)).toEqual(["Strings", "and escapes"]);
   });
 
@@ -54,7 +53,6 @@ describe("route", () => {
     const [start, c1, , end] = route(box(0, 100), box(0, 300), 80, 40);
     expect(start).toEqual([140, 50]);
     expect(end).toEqual([260, 50]);
-    // The apex clears the top of the boxes (cy - 20) by enough to seat a label.
     expect(at([start, c1, [c1[0], c1[1]], end], 0.5)[1]).toBeLessThan(50 - 20);
   });
 
@@ -82,7 +80,6 @@ describe("pathOf", () => {
 
 describe("placeLabels", () => {
   it("slides converging labels apart rather than stacking them", () => {
-    // Three edges into one node, with midpoints within a few pixels of each other.
     const target = { row: 1, cx: 200, cy: 150 };
     const edges = [150, 200, 250].map((cx) => {
       const cp = route({ row: 0, cx, cy: 50 }, target, 60, 30);

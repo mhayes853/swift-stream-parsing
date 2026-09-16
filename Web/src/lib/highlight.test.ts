@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { sources } from "../test/fixtures";
 import { languageOf, tokenize } from "./highlight";
 
-/** The tokens of a given class, as text. */
 const of = (code: string, language: Parameters<typeof tokenize>[1], cls: string) =>
   tokenize(code, language)
     .filter((t) => t.cls === cls)
@@ -21,7 +20,6 @@ describe("languageOf", () => {
 
 describe("tokenize", () => {
   it("never loses or reorders a character", () => {
-    // Highlighting is a view: whatever it does, the text it draws has to be the text it was given.
     const decls = Object.values(sources.sources).flat();
     for (const decl of decls.slice(0, 200)) {
       const language = decl.kind.startsWith("c-") ? "c" : "swift";

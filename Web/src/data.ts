@@ -1,13 +1,6 @@
 import type { ContentBundle, SourceBundle, TraceBundle } from "./types";
 
-// The generated bundles are served as static files beside index.html (vite `publicDir:
-// "generated"`), not bundled into the JS: content.json alone is 1.7 MB.
-//
-// They are addressed **relative to the document**, not to a configured base path. A hard-coded
-// absolute base only resolves when the site is served from that exact prefix, so a build made for
-// a GitHub Pages subpath 404s everything the moment it is opened from a local static server, a
-// preview host, or a different repository name. `document.baseURI` is whatever the page was
-// actually loaded from, so the same build works from all of them.
+// Relative to the document, not a base path, so one build works from any host or subpath.
 function assetURL(name: string): string {
   return new URL(name, document.baseURI).href;
 }
@@ -23,13 +16,7 @@ async function json<T>(name: string): Promise<T> {
 export const loadContent = () => json<ContentBundle>("content.json");
 export const loadTraces = () => json<TraceBundle>("traces.json");
 
-/**
- * Deferred until a Source tab is opened, then shared by every later one.
- *
- * Only a *fulfilled* promise is cached. Memoizing the rejection too would mean one transient
- * failure leaves the Source tab permanently broken for the rest of the session with no way to
- * retry, which is precisely the case a reader hits and cannot diagnose.
- */
+// Only a fulfilled promise is cached, so a failed load can be retried.
 let sourcesPromise: Promise<SourceBundle> | null = null;
 export function loadSources(): Promise<SourceBundle> {
   sourcesPromise ??= json<SourceBundle>("sources.json").catch((error) => {

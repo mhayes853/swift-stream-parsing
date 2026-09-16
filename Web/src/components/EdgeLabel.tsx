@@ -1,13 +1,8 @@
 import { cx } from "../lib/cx";
 import { plain } from "../lib/graph";
 
-/**
- * An arrow's label, drawn over the edges so a crossing line never runs through the text.
- *
- * The halo is a stroke behind the glyphs rather than a rect, so nothing has to measure the text,
- * and the two copies must match exactly — the ordinal's `tspan` is mono and bold, so a plain-string
- * halo measures narrower and a centred pair renders as doubled text.
- */
+// The halo must be the same markup as the text: a plain-string halo measures narrower than the
+// mono `tspan` and renders as doubled text.
 export function EdgeLabel({
   x,
   y,

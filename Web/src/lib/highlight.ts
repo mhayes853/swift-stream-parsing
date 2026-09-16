@@ -1,20 +1,3 @@
-// Syntax highlighting for the three languages the evidence is actually written in: Swift, the C
-// of `StreamParsingShims`, and arm64/x86 disassembly.
-//
-// Hand-written for the same reason the markdown renderer is: a highlighter that ships grammars for
-// two hundred languages is more surface area than a site with three. It is also the only way the
-// assembly gets highlighted at all — a listing from `llvm-objdump` is not a language any of them
-// have a grammar for, and it is the one place here where colour genuinely helps, because picking a
-// register out of six hundred lines of operands is the whole activity.
-//
-// Colour carries nothing the text does not: a keyword is still spelled out, so what governs the
-// palette is text contrast rather than the categorical separation the chart lanes need. Every
-// token colour clears 4.5:1 against `--surface-2` in both themes; the values and their ratios are
-// in `styles.css` next to the variables.
-//
-// A fence with no language is drawn plain rather than guessed at. Several of the unlabelled ones
-// in the log are compiler errors and throughput tables, and a guess would colour them wrong.
-
 export type TokenClass =
   | "com"
   | "str"
@@ -33,7 +16,6 @@ export interface Token {
   cls: TokenClass;
 }
 
-/** An output list that merges adjacent tokens of one class, so the DOM gets one span per run. */
 function collector() {
   const out: Token[] = [];
   const push = (text: string, cls: TokenClass) => {
@@ -46,7 +28,6 @@ function collector() {
 
 export type Language = "swift" | "c" | "asm" | "text";
 
-/** A fence's info string, mapped onto the three grammars. Anything else draws plain. */
 export function languageOf(fence: string | undefined): Language {
   switch ((fence ?? "").toLowerCase()) {
     case "swift":
@@ -87,7 +68,6 @@ const IDENT_START = /[A-Za-z_$]/;
 const IDENT_BODY = /[A-Za-z0-9_$]/;
 const DIGIT = /[0-9]/;
 
-/** Swift, including the pieces this codebase leans on: raw strings, `#if`, and `@_attributes`. */
 function swift(code: string): Token[] {
   const { out, push } = collector();
   let i = 0;
@@ -144,7 +124,6 @@ function swift(code: string): Token[] {
       i = j;
       continue;
     }
-    // `@inline(__always)` and `#if compiler(>=6.2)` read as one mark on the declaration.
     if (c === "@" || (c === "#" && IDENT_START.test(code[i + 1] ?? ""))) {
       let j = i + 1;
       while (j < code.length && IDENT_BODY.test(code[j])) j += 1;
@@ -154,12 +133,10 @@ function swift(code: string): Token[] {
     }
     if (DIGIT.test(c) || (c === "." && DIGIT.test(code[i + 1] ?? ""))) {
       let j = i;
-      // Hex digits only after `0x`: in a decimal literal an `e` is the exponent, and reading it as
-      // a digit left the exponent test below unreachable, so `1.5e-3` drew as `1.5e`, `-`, `3`.
+      // Hex digits only after `0x`, or the `e` in `1.5e-3` is read as a digit.
       const hex = c === "0" && /[xX]/.test(code[i + 1] ?? "");
       const body = hex ? /[0-9a-fA-FxX_.]/ : /[0-9oObB_.]/;
       while (j < code.length && body.test(code[j])) {
-        // An exponent's sign is part of the literal; a `.` that starts a member access is not.
         if (code[j] === "." && !DIGIT.test(code[j + 1] ?? "")) break;
         j += 1;
       }
@@ -186,7 +163,6 @@ function swift(code: string): Token[] {
   return out;
 }
 
-/** C, with the shim's uppercase macros treated the way Swift's attributes are. */
 function cLanguage(code: string): Token[] {
   const { out, push } = collector();
   let i = 0;
@@ -209,7 +185,6 @@ function cLanguage(code: string): Token[] {
       i = stop;
       continue;
     }
-    // A directive runs to the end of the line, continuations included.
     if (c === "#" && atLineStart) {
       let j = i;
       while (j < code.length) {
@@ -260,19 +235,10 @@ function cLanguage(code: string): Token[] {
   return out;
 }
 
-// `100210080:` from a pinned listing, and the colon-less `be3a0` the log quotes inline. A word
-// has to be four hex digits before it counts, which is what keeps `before` and `after` out.
+// At least four hex digits, so words like `before` are not addresses.
 const ASM_ADDRESS = /^\s*[0-9a-f]{4,16}:?(?=\s)/;
 const REGISTER = /^(?:[xwqvdshb]\d+|%[a-z0-9]+|sp|lr|pc|wzr|xzr|fp)(?:\.\d*[a-z]+)?$/i;
 
-/**
- * A pinned `llvm-objdump` listing.
- *
- * Line oriented, because that is what the format is: a `;` header the extractor wrote, then
- * address, mnemonic, operands, and a `<symbol+0x…>` on anything that branches. The mnemonic is
- * marked separately from its operands so a scan down the left edge reads as the instruction
- * sequence, which is how these listings actually get read.
- */
 function asm(code: string): Token[] {
   const out: Token[] = [];
   for (const line of code.split("\n")) {
@@ -286,14 +252,12 @@ function asm(code: string): Token[] {
       out.push({ text: address[0], cls: "addr" });
       rest = line.slice(address[0].length);
     }
-    // A trailing `; …` is a note the log wrote next to an instruction, not an operand.
     let note = "";
     const semicolon = rest.indexOf(";");
     if (semicolon !== -1) {
       note = rest.slice(semicolon);
       rest = rest.slice(0, semicolon);
     }
-    // The first word of the instruction is the mnemonic; everything after it is operands.
     const mnemonic = /^(\s*)([a-z][a-z0-9._]*)(?=\s|$)/.exec(rest);
     if (mnemonic) {
       out.push({ text: mnemonic[1], cls: "plain" });

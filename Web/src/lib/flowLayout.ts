@@ -3,42 +3,20 @@ import { nodeTally } from "./evidence";
 import type { Curve } from "./graph";
 import { at, clamp, pathOf, placeLabels, plain, route } from "./graph";
 
-// Layout for the page chart: the parse path, one row per stage, with a rail to the right that the
-// hover card lives in.
-//
-// Only the vertical measurements are fixed. Everything horizontal is derived from the width the
-// container actually has, because a hard-coded width is a promise the page cannot keep: at 202px
-// per node the chart overflowed and scrolled sideways, and narrowing the constants until it fit at
-// one viewport just moved the overflow to the next one.
-
 export const NODE_H = 66;
-const ROW_GAP = 104; // Deep enough that a vertical edge has room for its label at the midpoint.
+const ROW_GAP = 104;
 export const PAD = 16;
 const COL_GAP = 20;
 const RAIL_GAP = 18;
-// Row 0's same-row arcs rise above their nodes like every other row's, so the first row needs
-// headroom the others get for free from the row above.
 export const TOP = 52;
 
-/** Floors below which shrinking stops being legible and the chart scrolls sideways instead. */
 const MIN_NODE_W = 146;
 const MAX_NODE_W = 210;
 const MIN_RAIL_W = 250;
 const MAX_RAIL_W = 320;
-// Wide enough for the longest single word in a stage title -- `dispatcher` and `Whitespace` are ten
-// characters at 12.5px and cannot be wrapped, so anything narrower paints them under the first node.
 const MIN_LANE_W = 112;
 const MAX_LANE_W = 132;
 
-/**
- * Horizontal geometry for a given amount of room.
- *
- * The rail is taken off the top, since the card has to go somewhere that is not on top of the node
- * it describes; what is left pays for the lane gutter and then splits between the columns. The
- * node width is the only slack in the system, so it absorbs the difference and the chart fits.
- * With no hover there is no card to put in the rail, and on a phone its 250px were a third of the
- * sideways scroll.
- */
 export function layoutFor(available: number, columns: number, rail: boolean) {
   // Rounded: a fractional node width puts every rect edge and centred label on a half pixel.
   const railW = rail ? Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W)) : 0;
@@ -64,13 +42,10 @@ export interface FlowEdge {
   from: PlacedNode;
   to: PlacedNode;
   spec: PipelineEdge;
-  /** 1-based position, or null when the node makes no ordering claim. */
   ordinal: number | null;
   d: string;
   cp: Curve;
-  /** The drawn form, measured by `placeLabels` before anything is in the DOM. */
   text: string;
-  /** Where the label ended up, after the de-collision pass. */
   mx: number;
   my: number;
 }
@@ -83,9 +58,6 @@ export interface FlowLayout {
   geo: ReturnType<typeof layoutFor>;
   width: number;
   height: number;
-  /** Characters per line in a node title and a stage title. Derived from the box they have to fit
-   *  in rather than fixed: at a narrow layout `The dispatcher` used to run out under the first node
-   *  and get painted over by it, which reads as a truncated label. */
   titleChars: number;
   laneChars: number;
 }
@@ -153,16 +125,10 @@ export function layoutFlow(
   };
 }
 
-/** Where a row's separator runs: halfway through the gap above the row. */
 export function rowRuleY(row: { y: number }): number {
   return row.y - ROW_GAP / 2 + NODE_H / 2;
 }
 
-/**
- * The hover card's box: pinned in the rail and slid vertically to face its node, clamped so it
- * stays on the canvas. `.flow-scroll` clips vertically, so a card taller than the room below its
- * node would otherwise lose its last entries off the bottom.
- */
 export function cardBox(node: PlacedNode, cardHeight: number, layout: FlowLayout) {
   const h = cardHeight || NODE_H;
   return {
@@ -173,12 +139,6 @@ export function cardBox(node: PlacedNode, cardHeight: number, layout: FlowLayout
   };
 }
 
-/**
- * The dashed line from the card back to the node it describes.
- *
- * It leaves the card's left edge and enters the node on the side that faces the rail, bowing
- * horizontally so it reads as an annotation crossing the chart rather than as another edge in it.
- */
 export function leaderPath(node: PlacedNode, cardLeft: number, cardY: number, nodeW: number): string {
   const x2 = node.cx + nodeW / 2;
   const bend = Math.max(28, (cardLeft - x2) * 0.4);

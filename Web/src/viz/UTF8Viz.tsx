@@ -33,7 +33,6 @@ const ROLE_LABEL: Record<string, string> = {
   invalid: "invalid"
 };
 
-/** The validator's instructions, in issue order. */
 const OPS = [
   { op: "ldr", label: "load the block" },
   { op: "ldr", label: "load the same block one byte earlier" },
@@ -45,20 +44,6 @@ const OPS = [
   { op: "eor", label: "fold the structural fact into the lookups" }
 ] as const;
 
-/**
- * Keiser and Lemire's lookup validator, one block wide.
- *
- * The claim it rests on is that every UTF-8 error is visible in a window of two adjacent bytes —
- * so instead of walking sequences, three nibbles index three tables of error classes, the three
- * results are ANDed, and a lane is wrong exactly when something survives. The one fact that
- * *cannot* be seen in two adjacent bytes — a three or four byte lead requires a continuation two or
- * three lanes later — is XORed in from saturating subtractions on the shifted views.
- *
- * That XOR is the part worth watching, and it is why this one is stepped: it both raises errors the
- * lookups missed and cancels ones the lookups raised. In this sample lane 5 comes out of the AND
- * flagged and out of the XOR clean, which is only legible if the two registers appear one after the
- * other rather than together.
- */
 export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
   const [lane, setLane] = useState<number | null>(null);
   const player = useSteps(OPS.length, 1250);
@@ -76,7 +61,6 @@ export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
     if (hovered !== null) setLane(hovered);
   };
 
-  // The two-byte window the whole method rests on: the lane, and the byte before it.
   const marks: TapeMark[] = [{ from: 0, to: 16, kind: "window" }];
   if (active) {
     if (active.lane > 0) marks.push({ from: active.lane - 1, to: active.lane, kind: "next" });
@@ -194,7 +178,6 @@ export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
             sub: String(l.lane),
             on: l.error !== 0,
             tone: "var(--critical)",
-            // Where the XOR changed the verdict the lookups had reached.
             changed: l.error !== l.special
           }))}
           kind="mask"
@@ -263,7 +246,6 @@ export function UTF8Viz({ trace }: { trace: UTF8Trace }) {
   );
 }
 
-/** What the instruction on screen produced, said in terms of this block's actual values. */
 function stepNote(trace: UTF8Trace, index: number, active: UTF8Trace["lanes"][number] | null) {
   const cancelled = trace.lanes.filter((l) => l.special !== 0 && l.error === 0);
   switch (index) {
