@@ -43,7 +43,7 @@ function CallRow({
           {call.text != null && <span className="call-arg">{JSON.stringify(call.text)}</span>}
           {call.takesSpan && (
             <span className="call-span">
-              {call.offset == null ? "span → scratch" : `span @ ${call.offset}+${call.length}`}
+              {call.offset == null ? "span → buffer" : `span @ ${call.offset}+${call.length}`}
             </span>
           )}
           <span className="call-depth">d{call.depthAfter}</span>
@@ -58,9 +58,10 @@ function CallRow({
  *
  * These are not reconstructed events — a sink recorded them while a real parse ran, and each span
  * offset is the parser's own answer to "which bytes is this", checked against the bytes the call
- * reports. The one call here whose span reports *no* offset is the escape: those bytes were
- * unescaped into scratch storage and no longer point into the document, which is exactly the case
- * the borrow rule exists for.
+ * reports. The one call here whose span reports *no* offset is the chunk after the escape: from a
+ * string value's first escape on, the parser copies the decoded escape and the content behind it into
+ * its own buffer and hands that over, so those bytes no longer point into the document, which is
+ * exactly the case the borrow rule exists for.
  */
 export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
   const calls = trace.calls;
@@ -85,7 +86,7 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
       <StepNote op={call.method}>
         {call.takesSpan
           ? scratch
-            ? "The span points at the parser's scratch storage, not at the document: this chunk is a decoded escape, so there are no input bytes to point at."
+            ? "The span points at the parser's own buffer, not at the document: from this string's first escape on, the decoded escape and the content after it are coalesced there and handed over as one chunk, so there are no input bytes to point at."
             : `A borrowed span over bytes ${start}–${(start ?? 0) + (call.length ?? 1) - 1}. Valid until this call returns, and not one byte longer.`
           : call.group === "structure"
             ? `No span, no argument: the call itself is the token. Depth is now ${call.depthAfter}.`
@@ -139,7 +140,9 @@ export function SinkCallsViz({ trace }: { trace: SinkCallTrace }) {
           <>
             The fallback form. A string that carries an escape cannot be one borrow of the input,
             so it arrives as <code>stringBegin</code>, chunks, <code>stringEnd</code> — and a sink
-            that ignores these is wrong on chunked input rather than merely slower.
+            that ignores these is wrong on chunked input rather than merely slower. Chunk boundaries
+            carry no meaning: after the first escape the parser coalesces content into its buffer
+            and delivers one chunk per buffer-full, so a sink sees fewer, larger chunks.
           </>
         ) : call.group === "whole" && call.method === "string" ? (
           <>

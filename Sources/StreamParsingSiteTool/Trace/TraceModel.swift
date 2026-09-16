@@ -533,7 +533,11 @@ struct CollectionTrace: Encodable {
   var verified: Bool
 
   struct ArrayTrace: Encodable {
+    var elementType: String
     var blockCapacity: Int
+    /// A small trivial element's schedule, which aims at a byte budget rather than a slot count.
+    var trivialElementType: String
+    var trivialBlockCapacity: Int
     var initialTailCapacity: Int
     var snapshotAfter: Int
     var steps: [ArrayStep]

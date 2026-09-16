@@ -21069,10 +21069,10 @@
           "recorded" : "2026-08-27T00:43:40-07:00",
           "recordedCommit" : "310478bb5",
           "recordedSubject" : "Move Double power-of-ten table into C shims",
-          "revised" : "2026-09-09T19:50:37-07:00",
-          "revisedCommit" : "428b83ec0",
+          "revised" : "2026-09-16T12:25:55-07:00",
+          "revisedCommit" : "dbe9c1bb3",
           "revisedSubject" : "Merge remote-tracking branch 'origin/new-architecture' into t3code/build-parser-architecture-explorer",
-          "revisions" : 4
+          "revisions" : 6
         },
         "level" : 2,
         "line" : 4008,
@@ -23786,10 +23786,10 @@
           "recorded" : "2026-08-28T21:46:09-07:00",
           "recordedCommit" : "c5027137c",
           "recordedSubject" : "Fuse whitespace end-byte load",
-          "revised" : "2026-09-09T19:50:37-07:00",
-          "revisedCommit" : "428b83ec0",
+          "revised" : "2026-09-16T12:25:55-07:00",
+          "revisedCommit" : "dbe9c1bb3",
           "revisedSubject" : "Merge remote-tracking branch 'origin/new-architecture' into t3code/build-parser-architecture-explorer",
-          "revisions" : 5
+          "revisions" : 7
         },
         "level" : 2,
         "line" : 4459,
@@ -46886,27 +46886,27 @@
         "verdict" : "neutral"
       },
       {
-        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "chapter" : "The open element moves into the storage",
         "codeBlocks" : [
 
         ],
         "history" : {
-          "recorded" : "2026-09-09T20:06:41-07:00",
-          "recordedCommit" : "bf88dea51",
-          "recordedSubject" : "Update the explorer for the merged parser",
-          "revised" : "2026-09-09T20:06:41-07:00",
-          "revisedCommit" : "bf88dea51",
-          "revisedSubject" : "Update the explorer for the merged parser",
-          "revisions" : 1
+          "recorded" : "2026-09-08T19:48:40-07:00",
+          "recordedCommit" : "58782b45f",
+          "recordedSubject" : "WIP: open the element in place (StreamBlock, freeze/compact chain, reseat)",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 2
         },
         "level" : 2,
         "line" : 6948,
-        "markdown" : "Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of\nraw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was\nwhere the two-thirds went. A profile of the Twitter full parse (standalone `-O` harness, 4,242\nsamples, top of stack) answered it, and the answer was not the sink:\n\n| where | share of wall |\n|---|---:|\n| `memmove` and struct copy/destroy witnesses | ~39% |\n| parser (structural run, numbers, strings, UTF-8) | ~32% |\n| every `PartialSink` method together | ~8% |\n| malloc/free | ~3.5% |\n| long-key tail compare | ~2.6% |\n\nEvery one of those `memmove`s sat under `_streamArraySchema`'s element open. `MemoryLayout` put\n`BenchmarkTweetFull.Partial` at **11,904 bytes** -- `retweeted_status?` 5,952, `user` 2,446,\n`entities` 2,180 -- against 289 for the three-field model, and the open-element protocol moved\nthat struct about six times per tweet: the `drainPending` swap (three moves), the move out, the\ncommit into the tail, the template copy into `pending`, and tail growth. Eight megabytes of\ntraffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,\nwhich is why that idea was set aside in favour of this one.",
+        "markdown" : "> **Correction.** The frozen-tail chain under *Snapshots after the move* (`previous`/`previousTotal`\n> links, compaction, the `spare` block) is not what shipped: the open element lives inline in\n> `StreamArray.pending`, so a plain value copy is the snapshot. See \"Correction: the frozen-tail\n> chain is not what shipped\" under \"Design notes relocated from source comments\".\n\nEvery typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of\nraw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was\nwhere the two-thirds went. A profile of the Twitter full parse (standalone `-O` harness, 4,242\nsamples, top of stack) answered it, and the answer was not the sink:\n\n| where | share of wall |\n|---|---:|\n| `memmove` and struct copy/destroy witnesses | ~39% |\n| parser (structural run, numbers, strings, UTF-8) | ~32% |\n| every `PartialSink` method together | ~8% |\n| malloc/free | ~3.5% |\n| long-key tail compare | ~2.6% |\n\nEvery one of those `memmove`s sat under `_streamArraySchema`'s element open. `MemoryLayout` put\n`BenchmarkTweetFull.Partial` at **11,904 bytes** -- `retweeted_status?` 5,952, `user` 2,446,\n`entities` 2,180 -- against 289 for the three-field model, and the open-element protocol moved\nthat struct about six times per tweet: the `drainPending` swap (three moves), the move out, the\ncommit into the tail, the template copy into `pending`, and tail growth. Eight megabytes of\ntraffic per 631 KB document. The 8% sink slice is the whole ceiling of a generated per-type sink,\nwhich is why that idea was set aside in favour of this one.",
         "measurements" : [
 
         ],
-        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
-        "slug" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
+        "path" : "the-open-element-moves-into-the-storage",
+        "slug" : "the-open-element-moves-into-the-storage",
         "summary" : "Every typed row above 0.5 of raw had one thing in common: small partials. The rows at a third of raw -- Twitter full, GSoC, LLM message -- parse into partials of kilobytes, and the question was where the two-thirds went. A profile of the Twitter full parse…",
         "tables" : [
           {
@@ -46979,61 +46979,61 @@
             ]
           }
         ],
-        "title" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
-        "verdict" : "mixed"
+        "title" : "The open element moves into the storage",
+        "verdict" : "neutral"
       },
       {
-        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "chapter" : "The open element moves into the storage",
         "codeBlocks" : [
 
         ],
         "history" : {
-          "recorded" : "2026-09-09T20:06:41-07:00",
-          "recordedCommit" : "bf88dea51",
-          "recordedSubject" : "Update the explorer for the merged parser",
-          "revised" : "2026-09-09T20:06:41-07:00",
-          "revisedCommit" : "bf88dea51",
-          "revisedSubject" : "Update the explorer for the merged parser",
-          "revisions" : 1
+          "recorded" : "2026-09-08T19:48:40-07:00",
+          "recordedCommit" : "58782b45f",
+          "recordedSubject" : "WIP: open the element in place (StreamBlock, freeze/compact chain, reseat)",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 2
         },
         "level" : 3,
-        "line" : 6971,
+        "line" : 6976,
         "markdown" : "The element is copy-initialised **in place**, from a template, at the end of the tail block, and\nthe sink is handed that slot's address. No `pending`, no move at close. Three things had to\nchange for that to be sound:\n\n- **Storage owns its capacity.** `ContiguousArray` never exposes spare capacity, so the tail is a\n  `StreamBlock`: a `ManagedBuffer` with the elements tail-allocated (one allocation per block;\n  the two-allocation form doubled the malloc count on every number corpus and cost Canada 10%\n  and Mesh 27%). Its header is read through the pointer, not the property -- a stored class\n  property read from outside its module is a dynamic `swift_beginAccess` per access, two per\n  open -- and it is not generic over the element, because a generic header made the element\n  offset a metadata lookup on the paths that reach the block unspecialised (GitHub and GSoC each\n  lost 8% of their gain to that alone).\n- **The template is a pointer, not a closure.** A maker returning the element by value stages it\n  in a temporary, a second whole-element copy. The schema builders allocate one template per\n  schema and leak it, and `_openElement(copying:)` copies from that address. The copy itself is\n  `initialize(to:)` below 1 KB and `initialize(from:count:)` above: the counted form is\n  `swift_arrayInitWithCopy`, a runtime detour worth 7% on CITM's thousands of small elements,\n  and the single-value form stages anything loadable on the stack, three 6.6 KB memcpys per\n  tweet.\n- **Uniqueness is settled per container, not per element.** A snapshot is a struct copy that\n  retains the blocks, so a write through the old pointer would reach it. The sink makes the\n  block it is about to write unique once when it enters a container (`prepareWrites`) and once\n  at the start of any parse call after a value may have been copied (`PartialSink.reseat()`,\n  O(depth)), and never in between, because nothing but the parser touches the value inside a\n  parse call. A per-element `isKnownUniquelyReferenced` cost the homogeneous double array 29%.\n  Copies are detected with a process-wide epoch (`_streamValueCopied`, a relaxed C atomic --\n  the deployment floor predates `Synchronization`) bumped by `current` and by the container\n  views' `value` accessors; scalars read off a view declare that they cannot share storage and\n  skip it, so a view read per byte costs nothing extra.\n\nThe dictionary's values took the same shape: `storedValues` is a `StreamArray`, a repeated key\nresumes in place through `_uniqueSlotAddress`, and the pending value and its round trip are gone.",
         "measurements" : [
 
         ],
-        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
-        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/the-protocol-that-was-built",
-        "slug" : "the-protocol-that-was-built",
+        "parentPath" : "the-open-element-moves-into-the-storage",
+        "path" : "the-open-element-moves-into-the-storage/the-protocol",
+        "slug" : "the-protocol",
         "summary" : "The element is copy-initialised in place, from a template, at the end of the tail block, and the sink is handed that slot's address. No pending, no move at close. Three things had to change for that to be sound:",
         "tables" : [
 
         ],
-        "title" : "The protocol that was built",
+        "title" : "The protocol",
         "verdict" : "neutral"
       },
       {
-        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "chapter" : "The open element moves into the storage",
         "codeBlocks" : [
 
         ],
         "history" : {
-          "recorded" : "2026-09-09T20:06:41-07:00",
-          "recordedCommit" : "bf88dea51",
-          "recordedSubject" : "Update the explorer for the merged parser",
-          "revised" : "2026-09-09T20:06:41-07:00",
-          "revisedCommit" : "bf88dea51",
-          "revisedSubject" : "Update the explorer for the merged parser",
-          "revisions" : 1
+          "recorded" : "2026-09-08T19:48:40-07:00",
+          "recordedCommit" : "58782b45f",
+          "recordedSubject" : "WIP: open the element in place (StreamBlock, freeze/compact chain, reseat)",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 2
         },
         "level" : 3,
-        "line" : 7006,
+        "line" : 7011,
         "markdown" : "With the open element inside a block, a snapshot taken mid-element shares the block the parser\nis writing. The first form copied the tail block on the next write; that made a retained\nsnapshot per byte pay a block copy per byte, and on `Retention 100 users` cost 90%. The second\nform froze the tail as a short sealed block in the spine and copied only the open element out --\nand the spine is shared with the snapshot too, so every freeze copy-on-wrote the whole spine:\n`Retention Mesh - window 16` went quadratic (793 K mallocs). The form that shipped:\n\n- A shared tail is **frozen in place and chained behind a fresh tail** through its header\n  (`previous`, `previousTotal`); the open element alone is copied into the fresh tail. Nothing\n  touches the spine.\n- Once the chain holds a block's worth of elements it is **compacted** into full sealed blocks,\n  so the spine stays uniform, indexing stays a shift and a mask, and a chain is never longer\n  than a block (which also bounds the recursion that releases it).\n- A snapshot taken repeatedly inside one open element -- a state kept per chunk, the streaming\n  shape -- interrupts a tail holding nothing but that element. That tail is kept as the fresh\n  tail's `spare` and reused the next time round once the snapshot that held it is gone, so with\n  the latest state retained the two blocks alternate and no allocation happens per snapshot.\n  The links are retained raw bits rather than `AnyObject` (which retains through the\n  Objective-C-aware slow path) and the stale element is destroyed by a specialised move rather\n  than `swift_arrayDestroy`.\n\nWhat remains per retained-snapshot cycle is the element copy (which the old design paid at\nsnapshot time instead), the freeze bookkeeping and the reseat walk. On the three-field Twitter\nmodel, feeding chunks with the latest state held (standalone harness):\n\n| chunk | before | after |\n|---|---:|---:|\n| 64 B | 319 MB/s | 268 MB/s |\n| 16 B | 132 MB/s | 98 MB/s |\n| 4 B | 41 MB/s | 28 MB/s |\n\nThat is the trade this design makes, and it is the one row family that lost: a retained\nsnapshot inside an open element costs a fixed ~40 ns per cycle that the inline pending slot did\nnot. Snapshots that are not retained, and every view read, gained -- see the table below.",
         "measurements" : [
 
         ],
-        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
-        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/snapshots-after-the-move",
+        "parentPath" : "the-open-element-moves-into-the-storage",
+        "path" : "the-open-element-moves-into-the-storage/snapshots-after-the-move",
         "slug" : "snapshots-after-the-move",
         "summary" : "With the open element inside a block, a snapshot taken mid-element shares the block the parser is writing. The first form copied the tail block on the next write; that made a retained snapshot per byte pay a block copy per byte, and on Retention 100 users…",
         "tables" : [
@@ -47120,21 +47120,21 @@
         "verdict" : "neutral"
       },
       {
-        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "chapter" : "The open element moves into the storage",
         "codeBlocks" : [
 
         ],
         "history" : {
-          "recorded" : "2026-09-09T20:06:41-07:00",
-          "recordedCommit" : "bf88dea51",
-          "recordedSubject" : "Update the explorer for the merged parser",
-          "revised" : "2026-09-09T20:06:41-07:00",
-          "revisedCommit" : "bf88dea51",
-          "revisedSubject" : "Update the explorer for the merged parser",
-          "revisions" : 1
+          "recorded" : "2026-09-08T19:48:40-07:00",
+          "recordedCommit" : "58782b45f",
+          "recordedSubject" : "WIP: open the element in place (StreamBlock, freeze/compact chain, reseat)",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 2
         },
         "level" : 3,
-        "line" : 7043,
+        "line" : 7048,
         "markdown" : "Typed corpus rows, the raw `- bulk` controls all within ±2%:\n\n| row | base p0 | cand p0 | Δp0 | Δp50 | mallocs |\n|---|---:|---:|---:|---:|---|\n| Real Twitter full - bulk discarding | 576 | 791 | **+37.3%** | +37.1% | 1,078 → 1,266 |\n| Real GitHub events - bulk discarding | 844 | 1052 | **+24.6%** | +25.3% | 63 → 80 |\n| Real GSoC 2018 - bulk discarding | 943 | 1099 | **+16.5%** | +17.1% | 9,519 → 9,676 |\n| Real Qwen 3 structured response - bulk discarding | 400 | 437 | +9.3% | +10.4% | 81 → 81 |\n| Real Mesh - bulk discarding | 481 | 525 | +9.1% | +9.0% | 2,231 → 2,233 |\n| Typed shape synthetic double array - typed parse | 752 | 817 | +8.6% | +7.9% | 1,264 → 1,264 |\n| Real Qwen 3 workspace edit tool call - bulk discarding | 528 | 557 | +5.5% | +6.5% | 105 → 107 |\n| Real Canada - bulk discarding | 543 | 565 | +4.1% | +3.8% | 2,659 → 2,671 |\n| Real LLM message - bulk discarding | 1286 | 1306 | +1.6% | +1.5% | 2,069 → 2,069 |\n| Real Twitter - bulk discarding | 1584 | 1592 | +0.5% | +0.2% | 114 → 114 |\n| Real CITM catalog - bulk discarding | 943 | 927 | -1.7% | -0.8% | 2,281 → 2,403 |\n\nThe size of the win tracks the size of the partial: the three-field Twitter model, whose\nelement is 289 bytes, is flat; the full model, whose element was 11,904 bytes and is 6,608 now\n(the `pending` slot inside every nested `StreamArray` is gone, so the parent no longer carries an\nempty element per array field), gains a third. CITM's cost is the dictionary machinery, which\nthis did not touch.\n\nStreaming and snapshots:\n\n| row | Δp0 | Δp50 |\n|---|---:|---:|\n| Stream Array of structs - snapshot per byte | +331% | +332% |\n| Scaling 400 users - snapshot per byte | +333% | +331% |\n| Stream Array of structs - snapshot per 64B chunk | +30% | +30% |\n| API PartialsStream Qwen 3 structured response - snapshot per 64B chunk | +38% | +38% |\n| API PartialsStream Qwen 3 workspace edit - snapshot per 64B chunk | +23% | +23% |\n| Stream Array of structs - view read per byte | +4% | +4% |\n| Real * - byte by byte discarding | -2..+7% | |\n| Retention 100 users - window 4 / 16 / 64 | -59% | -59% |\n| Retention 100 users - keep all | -71% | -72% |\n| Dictionary 8..512 keys - snapshot per byte / window 16 | -58..-72% | |\n| Retention Mesh - window 16 | -21% | -21% |\n\nA snapshot is now a retain rather than a copy of the open element, which is the +330% on the\nper-byte snapshot rows and the +23..+38% on the per-chunk ones; those rows drop each snapshot\nbefore the next byte. The `Retention` and `Dictionary` rows keep them -- every one, or a window\nof four or more -- so the spare is never unique, every cycle allocates, and the fixed cost per\ncycle (an element copy the old design also paid, plus a block and the reseat) is charged per\nbyte. The realistic shape, the latest state held while chunks arrive, sits between the two: the\nharness table above, -16% at 64-byte chunks.",
         "measurements" : [
           {
@@ -47566,8 +47566,8 @@
             "value" : -21
           }
         ],
-        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
-        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/measured-3-interleaved-rounds-against-7229235-best-of-3-p0-median-p50",
+        "parentPath" : "the-open-element-moves-into-the-storage",
+        "path" : "the-open-element-moves-into-the-storage/measured-3-interleaved-rounds-against-7229235-best-of-3-p0-median-p50",
         "slug" : "measured-3-interleaved-rounds-against-7229235-best-of-3-p0-median-p50",
         "summary" : "Typed corpus rows, the raw - bulk controls all within ±2%:",
         "tables" : [
@@ -48262,56 +48262,1888 @@
         "verdict" : "neutral"
       },
       {
-        "chapter" : "The open element in the storage: `StreamBlock` landed, the in-place open rejected",
+        "chapter" : "Design notes relocated from source comments",
         "codeBlocks" : [
 
         ],
         "history" : {
-          "recorded" : "2026-09-09T20:06:41-07:00",
-          "recordedCommit" : "bf88dea51",
-          "recordedSubject" : "Update the explorer for the merged parser",
-          "revised" : "2026-09-09T20:06:41-07:00",
-          "revisedCommit" : "bf88dea51",
-          "revisedSubject" : "Update the explorer for the merged parser",
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
           "revisions" : 1
         },
-        "level" : 3,
-        "line" : 7091,
-        "markdown" : "The bulk table above is real and so is the streaming one, and the streaming one decides it. A\nretained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does\nnot, and no form of the freeze/compact chain got that below a heap block per retained snapshot:\nthe first froze by copying the tail, the second by sealing into the spine, the third by chaining\nbehind a fresh tail with a spare kept for reuse -- and the spare is only reusable while nothing\nholds it, which is exactly the condition the `Retention` and `Dictionary` rows break by design.\nSo the open element went back to `pending`, held inline in the value, where a plain struct copy\ndiverges it for free: no allocation, no epoch, no reseat walk, and `PartialSink`'s frames go back\nto being valid because the address they hold is at a fixed offset in storage the stream owns.\n\nWhat the experiment leaves behind is the half of it that never depended on where the element\nlives:\n\n- **`StreamBlock`.** The blocks are a `ManagedBuffer` with the elements tail-allocated rather\n  than a `ContiguousArray`, and they keep every property the in-place design needed them for:\n  one allocation per block, a stored capacity, a header read through its pointer, and no\n  genericity in the header. What they buy now is different and larger than the open element ever\n  was. Because the block owns its capacity, each array can hold its *own* count of the elements\n  in the filling block, captured by value when the array is copied -- so a snapshot's elements\n  are a prefix of the filling block's, the parser appends above that prefix, and **there is no\n  copy-on-write check on the commit path at all**, at any block size. The old rule (\"the first\n  commit after a snapshot copies one block\") is gone; only a write *into* the prefix copies.\n- **The template pointer.** One leaked template per schema, copied straight into the element's\n  slot by `_streamCopyInitialize`, replacing the two-form initial-value closure the hoist\n  experiment left behind. The size threshold in it is the one the in-place work measured:\n  `initialize(to:)` below 1 KB, `initialize(from:count:)` above, because the counted form is\n  `swift_arrayInitWithCopy` and the single-value form stages a large loadable value on the stack.\n- **The dictionary's values, blocked.** `storedValues` is a `StreamArray` now, which reverses the\n  older finding that blocking a dictionary's storage cost 2x on the discarding path -- that\n  measurement had no snapshot row in front of it, and a flat `[Value]` makes a snapshot-per-byte\n  parse copy the whole value array per byte. The dictionary keeps its own open value rather than\n  borrowing the array's, because a repeated key's open value is an element the array already\n  holds, and unlike an append a write into one of those is a write a kept state can see.\n\nThe `memmove` profile that opened this chapter is therefore still unanswered for the largest\npartials: `BenchmarkTweetFull.Partial`'s eleven kilobytes still move once per open and once per\nclose. What this settles is that moving them is cheaper than the bookkeeping required to stop\nmoving them, for every shape that keeps a snapshot -- which is the shape the streaming API is\nfor.",
+        "level" : 2,
+        "line" : 7096,
+        "markdown" : "These notes were the rationale in the source comments at their call sites, moved here when those\ncomments were condensed to the relevant details. Each site keeps a one-line pointer, so grep for\nthe function or type name it mentions; numbers are arm64 (M1 Pro) unless stated.",
         "measurements" : [
 
         ],
-        "parentPath" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected",
-        "path" : "the-open-element-in-the-storage-streamblock-landed-the-in-place-open-rejected/rejected-the-revert-and-the-two-thirds-of-it-that-stayed",
-        "slug" : "rejected-the-revert-and-the-two-thirds-of-it-that-stayed",
-        "summary" : "The bulk table above is real and so is the streaming one, and the streaming one decides it. A retained snapshot inside an open element costs a fixed ~40 ns per cycle that an inline slot does not, and no form of the freeze/compact chain got that below a heap…",
+        "path" : "design-notes-relocated-from-source-comments",
+        "slug" : "design-notes-relocated-from-source-comments",
+        "summary" : "These notes were the rationale in the source comments at their call sites, moved here when those comments were condensed to the relevant details. Each site keeps a one-line pointer, so grep for the function or type name it mentions; numbers are arm64 (M1 Pro)…",
         "tables" : [
 
         ],
-        "title" : "Rejected: the revert, and the two thirds of it that stayed",
+        "title" : "Design notes relocated from source comments",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 3,
+        "line" : 7102,
+        "markdown" : "",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "slug" : "raw-parser-jsonparser-swift",
+        "summary" : "",
+        "tables" : [
+
+        ],
+        "title" : "Raw parser (`JSONParser*.swift`)",
         "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7104,
+        "markdown" : "The structural run's 64-byte block path (`JSONParserBlocks.swift`) performs the same walk\n`consumeStructural` performs one byte at a time, driven by three masks from\n`stream_parsing_classify_structural_block` — the NEON kernel in `StreamParsingShims.h`, inlined at\nthe call site; on x86 the AVX2 twin in `AVX2.c`, called once per block because it cannot be\ninlined. (The kernel's class encoding is in \"The structural block classifier's two-table\nencoding\" below.)\n\nPer block it deletes three things. The whitespace scan that precedes every token: whitespace is\nsimply absent from the `starts` mask, so \"the next token\" is one `rbit`/`clz`. The string scan that\nprecedes every key and string value: the extent is the pair of quote bits, and \"does it contain an\nescape\" is an AND against the backslash mask. And the per-string high-bit reduction:\n`containsNonASCII` becomes the block's own flag, so the ~99% of blocks with no high byte never call\nthe validator at all.\n\nNothing observable changes. Every arm restates the corresponding arm of `consumeStructural` — same\nevents, same spans, same failure checks at the same offsets, same error reasons at the same bytes.\nAnything the masks cannot settle (a string whose closing quote is in the next block, a key with an\nescape, a literal that does not match whole, a number the chunk cuts, any byte the ladder would\njudge differently) is handed back to the scalar loop at the byte where it starts with the parser\nstate untouched, so the code that reports it today is still the code that reports it.\n\n**The grid moves with the tokens, and the carries are therefore always zero.** The walk only\nconsumes tokens that finish inside the block it is looking at, so the byte after the last one is\noutside every string and every backslash run, and the next block can be classified with nothing\ncarried in. When a token ends past the block that started it — a string, a long number, a literal on\nthe edge — the grid re-anchors at the token's end, which costs one classification and preserves the\ninvariant.\n\nThe anchored alternative (fixed grid, real carries, a cursor masking off the bits it had passed) was\nbuilt and measured. It is much worse where it matters, because it classifies the interior of every\nlong string — 91% of `GSoC 2018` and 99% of `LLM message`. Those two went from +15% / −3% to −9% /\n−20%. Re-anchoring skips those bytes entirely and gives up only the tail of the block the token ran\nout of.\n\nA string that does not close inside its block is the one shape that cannot be re-anchored onto, so\nit goes back to the scalar loop whole — but only after the block's own scan. Handing the token back\nto the scalar loop instead was measured and is what the long-string corpora lost to (`Qwen 3\nworkspace edit` −26%, `LLM message` −3%): the block that found the opening quote was classified and\nthrown away once per string, and the walk was re-entered per token.\n\nThe walk is `@inline(never)`, exactly as `consumeSkipBlocks` is and for the same reason (see \"The\nskip block scanner\" below): it is where the classifier's two tables and four splats get hoisted,\nand hoisting into `d8` puts a save/restore pair in the prologue of whatever function owns the loop.\n`consumeStructuralRun`'s prologue is the one every byte-fed token pays and must not grow.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-structural-block-walk",
+        "slug" : "the-structural-block-walk",
+        "summary" : "The structural run's 64-byte block path (JSONParserBlocks.swift) performs the same walk consumeStructural performs one byte at a time, driven by three masks from stream_parsing_classify_structural_block — the NEON kernel in StreamParsingShims.h, inlined at…",
+        "tables" : [
+
+        ],
+        "title" : "The structural block walk",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T17:49:47-07:00",
+          "revisedCommit" : "bb3663214",
+          "revisedSubject" : "Document the block-walk re-probe",
+          "revisions" : 2
+        },
+        "level" : 4,
+        "line" : 7151,
+        "markdown" : "The classifier does not pay on every payload, so the walk gates itself off. Two signals, one strike\neach, counted per classified block; four consecutive strikes and the walk is done with that parser\n(`blockWalkGivenUp`, reset by `reset()`). Both signals were chosen off a census of the classifier's\nown masks over the corpus, in bytes per classified block:\n\n| corpus | raw delta | ws outside strings | in-string | starts |\n| --- | --- | --- | --- | --- |\n| CITM catalog | +37.9% | 46.3 | 8.5 | 9.4 |\n| GitHub events | +31.8% | 17.0 | 39.7 | 7.9 |\n| Twitter | +24.2% | 21.9 | 32.2 | 10.5 |\n| GSoC 2018 | +15.2% | 19.0 | 39.9 | 5.7 |\n| LLM message | −0.1% | 0.0 | 53.6 | 11.4 |\n| Twitter escaped | −4.1% | 0.0 | 49.5 | 15.3 |\n| Canada | −5.7% | 0.0 | 0.0 | 64.0 |\n| Qwen workspace | (−25.8% typed) | 0.0 | 56.9 | 8.1 |\n| Qwen structured | (−11.5% typed) | 0.0 | 54.6 | 10.0 |\n| Mesh | −26.4% | 6.7 | 0.0 | 57.3 |\n\nThe split is total: every corpus the walk wins on has 17 or more whitespace bytes per block\n*outside* its strings, and every corpus it loses on has none. That is the whole mechanism — the\nladder's whitespace scan is a SIMD loop entered once per token, and replacing it with a `tzcnt` is\nwhat the classifier is actually buying. With no whitespace to skip there is nothing left to buy: the\nwalk re-reads the same byte the ladder would have, through 139 more instructions per block. A dense\n`starts` mask catches the one shape that has whitespace but still nothing to skip — `Mesh`, a run of\nnumbers — and is kept as a second strike for it. (The same split showed in \"Cheap first tiers: one\nof three landed, and the census said which\": the whitespace peel's flat documents were the ones\nwith almost no whitespace outside strings.)\n\nNot one block of CITM, Twitter, GitHub or GSoC is whitespace-free, so four strikes never fire on\nthem; Canada, Mesh, both Qwen payloads and Twitter escaped strike on essentially every block and are\nout of the walk within four.\n\n**A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes\nshape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather\nthan by its first four blocks forever. `parsePastThreshold` counts the chunks: while a countdown is\nlive the default `windowThreshold` drops to 4 KB so bulk chunks reach it, and the chunk that runs it\nout is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15% at\nMesh's per-block loss. A caller-set threshold is left alone.\n\n**Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.\n`GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free\nblock; counting those up over its 13,343 blocks reached four and threw the win away (+18.1% →\n−0.8%).\n\nOn x86 the kernel hands the verdict back whole (a `strike` field). Baseline x86-64 has no `popcnt`,\nso computing `starts.nonzeroBitCount` in Swift was a 17-instruction bit-twiddling sequence on every\nblock of every payload the walk wins on — those always have whitespace and so never short-circuit\npast it. On x86 the same flag also carries whether the CPU has the AVX2 classifier at all\n(`streamHasAVX2BlockKernels`): a machine without it starts every document already given up, which\nmakes the run's entry test the availability test too, with no third load and no read of the lazily\ninitialised global on any parse path.\n\n**Verdict and strike count are two adjacent bytes, not one packed byte.** Packing them so the run's\nentry test would be a single load was measured and is worse: `Mesh - bulk` −4.0% against −8.8% and\n`Canada - bulk` −1.9% against −4.6%, interleaved and reproduced. Two plain `Bool` loads cost less\nthan one load plus the mask, and the read-modify-write the walk needs to set a bit costs more still.",
+        "measurements" : [
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "unit" : "%",
+            "value" : 37.9
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "value" : 46.3
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "value" : 8.5
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "citm_catalog",
+            "rowLabel" : "CITM catalog",
+            "value" : 9.4
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "unit" : "%",
+            "value" : 31.8
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "value" : 17
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "value" : 39.7
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "GitHub events",
+            "value" : 7.9
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "unit" : "%",
+            "value" : 24.2
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "value" : 21.9
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "value" : 32.2
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Twitter",
+            "value" : 10.5
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "unit" : "%",
+            "value" : 15.2
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "value" : 19
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "value" : 39.9
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "gsoc-2018",
+            "rowLabel" : "GSoC 2018",
+            "value" : 5.7
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "unit" : "%",
+            "value" : -0.1
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "value" : 0
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "value" : 53.6
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "llm_message",
+            "rowLabel" : "LLM message",
+            "value" : 11.4
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "unit" : "%",
+            "value" : -4.1
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "value" : 0
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "value" : 49.5
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "twitterescaped",
+            "rowLabel" : "Twitter escaped",
+            "value" : 15.3
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "unit" : "%",
+            "value" : -5.7
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "value" : 0
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "value" : 0
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Canada",
+            "value" : 64
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen workspace",
+            "value" : 0
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen workspace",
+            "value" : 56.9
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen workspace",
+            "value" : 8.1
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen structured",
+            "value" : 0
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen structured",
+            "value" : 54.6
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "qwen",
+            "rowLabel" : "Qwen structured",
+            "value" : 10
+          },
+          {
+            "column" : "raw delta",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "unit" : "%",
+            "value" : -26.4
+          },
+          {
+            "column" : "ws outside strings",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "value" : 6.7
+          },
+          {
+            "column" : "in-string",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "value" : 0
+          },
+          {
+            "column" : "starts",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Mesh",
+            "value" : 57.3
+          }
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-block-walk-s-gate-whitespace-outside-strings",
+        "slug" : "the-block-walk-s-gate-whitespace-outside-strings",
+        "summary" : "The classifier does not pay on every payload, so the walk gates itself off. Two signals, one strike each, counted per classified block; four consecutive strikes and the walk is done with that parser (blockWalkGivenUp, reset by reset()). Both signals were…",
+        "tables" : [
+          {
+            "headers" : [
+              "corpus",
+              "raw delta",
+              "ws outside strings",
+              "in-string",
+              "starts"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+37.9%",
+                  "unit" : "%",
+                  "value" : 37.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "46.3",
+                  "value" : 46.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8.5",
+                  "value" : 8.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "9.4",
+                  "value" : 9.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GitHub events"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+31.8%",
+                  "unit" : "%",
+                  "value" : 31.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "17.0",
+                  "value" : 17
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "39.7",
+                  "value" : 39.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "7.9",
+                  "value" : 7.9
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+24.2%",
+                  "unit" : "%",
+                  "value" : 24.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "21.9",
+                  "value" : 21.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "32.2",
+                  "value" : 32.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "10.5",
+                  "value" : 10.5
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "GSoC 2018"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+15.2%",
+                  "unit" : "%",
+                  "value" : 15.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "19.0",
+                  "value" : 19
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "39.9",
+                  "value" : 39.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "5.7",
+                  "value" : 5.7
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "LLM message"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "−0.1%",
+                  "unit" : "%",
+                  "value" : -0.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "53.6",
+                  "value" : 53.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "11.4",
+                  "value" : 11.4
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Twitter escaped"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "−4.1%",
+                  "unit" : "%",
+                  "value" : -4.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "49.5",
+                  "value" : 49.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "15.3",
+                  "value" : 15.3
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "−5.7%",
+                  "unit" : "%",
+                  "value" : -5.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "64.0",
+                  "value" : 64
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen workspace"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "(−25.8% typed)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "56.9",
+                  "value" : 56.9
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8.1",
+                  "value" : 8.1
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Qwen structured"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "(−11.5% typed)"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "54.6",
+                  "value" : 54.6
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "10.0",
+                  "value" : 10
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "−26.4%",
+                  "unit" : "%",
+                  "value" : -26.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "6.7",
+                  "value" : 6.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "0.0",
+                  "value" : 0
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "57.3",
+                  "value" : 57.3
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "The block walk's gate: whitespace outside strings",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7210,
+        "markdown" : "When a sink answers `.skip` at a container open the block walk returns and the dispatcher re-enters\nthrough the skip scanner. Doing the skip *in place* instead — walking the rest of the block's\n`starts` bits, pairing strings off with the quote mask, matching brackets, delivering the close when\nit lands in the same block — was built, tested against the scalar ladder at every alignment, and\nmeasured.\n\nIt is a real win where the subtrees are small (`Twitter - bulk discarding` +3.5% against +2.6%,\n`GitHub events` +3.1%) and a loss where they are not: `CITM catalog - bulk discarding` −3.7% against\n−1.8%, `LLM message - bulk` −1.4% against +1.5%. A subtree that outlives its block leaves the walk\nre-reading bytes the skip scanner's own 64-byte kernel would have taken whole. Sweep mean +4.07%\nagainst +5.24%, so it is not in the tree.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/skipping-a-subtree-inside-the-block-walk-built-measured-rejected",
+        "slug" : "skipping-a-subtree-inside-the-block-walk-built-measured-rejected",
+        "summary" : "When a sink answers .skip at a container open the block walk returns and the dispatcher re-enters through the skip scanner. Doing the skip in place instead — walking the rest of the block's starts bits, pairing strings off with the quote mask, matching…",
+        "tables" : [
+
+        ],
+        "title" : "Skipping a subtree inside the block walk (built, measured, rejected)",
+        "verdict" : "rejected"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7224,
+        "markdown" : "`JSONParserSkip.swift` runs between a container open whose sink answered `.skip` and its matching\nclose. What it still validates, and the token-interior trade it makes, are in \"Stage 5: container\ndispositions — skipped subtrees run at structural speed\". It delivers exactly one thing: the\nmatching `endObject`/`endArray`, at the close bracket, with the same failure-check offset the\nstreaming path uses, so a `PartialSink` pops the ignored frame it pushed at the open.\n\nOn arm64, and on x86 with AVX2, the interior is scanned 64 bytes at a time\n(`stream_parsing_classify_skip_block`). Only the brackets outside strings are visited; every other\nbyte — string content, escape selectors, numbers, literals, whitespace, commas, colons — is settled\nby the masks and never read. The per-byte loop remains as the reference `SkipBlockScanTests` holds\nthe block path to, and as the fallback for every byte the block path will not judge, which is what\nkeeps error offsets byte-identical to a byte-fed parse.\n\n**The block loop is out of line, and not by inheritance from its caller.** It is where the\nclassifier's two tables, four splats and carryless-multiply operand get hoisted, and hoisting into\n`d8` puts a save/restore pair and a bigger frame in the prologue of whoever owns the loop. Inlined\ninto `consumeSkipRun`, that prologue is paid by every byte-fed call that lands in a skipped subtree —\ncalls that can never execute a block: `Real Twitter escaped - byte by byte discarding` −5.1% p0.\nFor the same reason the `inout` copies handed to the block loop are locals scoped to the branch\nrather than the run's own `depth`/`containers`: taking the address of those makes\n`var depth = self.depth` an address-taken initialisation, and the resulting store lands in the entry\nblock, on every byte-fed call that never reaches the branch.\n\n**UTF-8 validation is deferred across blocks.** The scanner remembers the start of the first block\nsince the last settlement that held a non-ASCII byte, and settles at the first all-ASCII block.\nSettling per block would call the validator on every string; settling never would validate the whole\nsubtree at its close, far out of cache. Settling at the first all-ASCII block is both short-ranged\nand safe, because a sequence cannot straddle a block with no high bit in it. The marker is passed by\nvalue rather than `inout`: taking its address spills it out of its register for the whole block loop.\n\n**Bracket kinds come from the byte, not from more masks.** The four bracket bytes spell their own\nkinds — `[` (0x5B) and `{` (0x7B) carry bit 1 and the closers do not, and the braces carry bit 5\nwhere the square brackets do not. One byte load out of a line the classifier just read beats two more\nmovemasks over the whole block. Likewise the depth cap is checked per open, exactly where the scalar\nloop checks it so it reports at the bracket that breaches it; deriving the same verdict per block\ntakes a popcount, which is a general-register value crossing to the vector unit and back — four\ninstructions on every block to save one predicted compare on the brackets that are actually there.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-skip-block-scanner",
+        "slug" : "the-skip-block-scanner",
+        "summary" : "JSONParserSkip.swift runs between a container open whose sink answered .skip and its matching close. What it still validates, and the token-interior trade it makes, are in \"Stage 5: container dispositions — skipped subtrees run at structural speed\". It…",
+        "tables" : [
+
+        ],
+        "title" : "The skip block scanner",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7264,
+        "markdown" : "`structuralRun` takes a `blocks: Bool` that is a literal at both call sites, so each copy\nconstant-folds its own branch away. Sharing one loop between the block path and the scalar ladder\ncosts the ladder registers even on iterations that never take the branch: the `PartialSink`\nspecialisation went from 42 stack accesses to 52 with the branch merely *present*, and those ten\naccesses are −7.3% on `Mesh - bulk` and −4.0% on `Canada - bulk` (interleaved, three rounds, both\nreproduced within 0.4%) — payloads whose blocks the gate switches off after four. Split, the\n`blocks: false` copy compiles to the baseline's code exactly, and a payload the walk has given up on\npays nothing for the walk's existence.\n\nThe attribute on the shared body has to be `@_transparent`, and that is a maintenance rule rather\nthan a preference. Measured with the block path statically dead, so both spellings compile the *same*\nscalar loop: `@inline(__always)` still cost `Mesh - bulk` 4.0% and `Canada - bulk` 2.0% (the body is\noptimised once and then inlined, and the typed layer's register allocation comes out different), and\nplain `@inlinable` cost 7.4% and 4.7% (it is not inlined at all). `@_transparent` inlines in raw SIL,\nbefore the optimiser sees either copy, and measures +0.00% / +0.00% / +0.05% on Mesh / Canada /\nTwitter — the refactor is free, and the block-walk rows measure the walk itself.\n\n**On x86 the block copy is a call, not a second inlined body.** On arm64 the two copies share the\nfunction and the scalar one still compiles to the baseline's code; on x86 they do not. With both\ninlined, the `PartialSink` specialisation's frame grew from 0xa0 to 0xc0 and `self` moved from `r14`\nto a stack slot, and the scalar loop — where a payload the gate turned the walk off for spends its\nwhole parse — paid for it: `Mesh - bulk` −7.8% against −2.5% split out, `Mesh - bulk discarding`\n−2.6% against +3.9% (layout-stabilised builds, best of three interleaved rounds). The call costs\nnothing measurable: a bulk parse enters the run once or twice per document, and the block copy then\nholds it for the whole document.\n\nThe walk's \"gave up\" verdict is returned as `~i` and honoured by breaking out of the run rather than\nby holding anything mutable for it: the dispatcher re-enters on the very next turn, and the entry\ntest reads the verdict once. That costs one extra call per parse, against the 17 to 119 static stack\naccesses every mutable-local spelling of the same thing cost the loop.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/two-copies-of-the-structural-run-and-why-the-body-must-be-_transparent",
+        "slug" : "two-copies-of-the-structural-run-and-why-the-body-must-be-_transparent",
+        "summary" : "structuralRun takes a blocks: Bool that is a literal at both call sites, so each copy constant-folds its own branch away. Sharing one loop between the block path and the scalar ladder costs the ladder registers even on iterations that never take the branch:…",
+        "tables" : [
+
+        ],
+        "title" : "Two copies of the structural run, and why the body must be `@_transparent`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7297,
+        "markdown" : "A string value whose scan stops on a backslash with the closing quote still inside the chunk is\nfinished by `consumeEscapedStringInRun` rather than handed back. Before it existed the token left the\nrun whole — the rescan \"String values and literals finish inside the structural run\" records as the\nGSoC loss: `parse` re-dispatched on `.inString`, `consumeStringRun` paid its own prologue and\n*rescanned the prefix from the opening quote*, and `fuseAfterValue` had to hand the following comma\nback so the run could start again. On `twitter` that is 312 tokens per document and 10.6 KB of bytes\nscanned twice. It is out of line by force: the escape decode, the surrogate handling and the UTF-8\nhold are dead weight inside `consumeStructuralRun`, and what is deleted is the round trip and the\nrescan, not the work.\n\n**It must not fuse the comma, and the way it declines is a store to `self.depth`.** `fuseAfterValue`\nasks `self.depth` and `self.containers` whether the comma separates array elements or object members,\nand the structural run — this function's only caller, both the scalar ladder and the block walk —\nholds the container stack in registers and writes it back only on return. From inside the callee the\nfields describe the stack as it stood when the run was *entered*. A bulk parse enters at depth zero,\nwhere the fusion declines, so nothing showed; a chunk that began inside an array the run then closed\ntook the `,\"t\"` after `\"s\":\"x\\ny\"` for an array comma, read the key as a string value and failed on\nits colon (`twitter` at 4096-byte chunks, `unexpectedToken` at 13,921). The opposite mix read an\narray element as a key, and an array's number arm accepted `{\"s\":\"x\\ny\",1}`.\n\nDeclining loses nothing, because the caller *is* a structural run and takes the comma in place with\nthe stack it actually has. Zeroing `self.depth` is the whole fix: the field is dead until the run\nreturns — nothing between reads it except the fusion — and the run's `defer` overwrites it from its\nregister on every exit, throwing ones included. The two more direct spellings were both built and\nboth cost more than a store in a cold function:\n\n- Storing the run's registers to the fields before the call (and reloading after, or not) keeps the\n  fusion alive and correct but moves the run's register allocation: the sink pointer or `depth`\n  trades a callee-saved register for a stack slot, and 10–27 static stack accesses come and go across\n  the four specialisations of the run and the walk.\n- A `fusing: Bool` literal threaded through `stringRunBody` and the coalescing tail leaves the run\n  byte for byte as it was, but flipped the library's `consumeStringRun<PartialSink>` from calling\n  `stringRunBody` to inlining it (frame 0x70 → 0x140) — and that copy is the one byte-fed typed input\n  enters on every escape: `LLM message - byte by byte discarding` −5%.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/reading-an-escaped-string-value-inside-the-structural-run",
+        "slug" : "reading-an-escaped-string-value-inside-the-structural-run",
+        "summary" : "A string value whose scan stops on a backslash with the closing quote still inside the chunk is finished by consumeEscapedStringInRun rather than handed back. Before it existed the token left the run whole — the rescan \"String values and literals finish…",
+        "tables" : [
+
+        ],
+        "title" : "Reading an escaped string value inside the structural run",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7334,
+        "markdown" : "Eight bytes are reserved past `bufferCapacity` in the parser's own allocation so that a decoded\nescape has an address that is stable and *already in memory*. Four bytes is the most any escape or\nrejoined UTF-8 sequence needs; eight keeps the region a single aligned word. Reading its address is\none `ldr` of an already-hot field, and unlike a stack local it never lands in the caller's frame.\n\nGiving the scratch word its address from a local instead — `withUnsafeBytes(of: &word)` — measured\n−10.1% on `Twitter escaped - bulk`, −10.6% on its 16 KB rows and −14.2% on `LLM message - byte by\nbyte`, because the closure both materialises the word to a fresh stack slot on every escaped byte and\ncaptures the sink `inout` across a call boundary.\n\nWith the local gone, `recordInlineChunk` went back to `@inline(__always)` — the reason it had been\nforced out of line (the spilled stack slot landing in `consumeStringRun`'s frame, taking it from 41\nstack accesses to 73) no longer exists.\n\n**It stores the whole word unconditionally.** Storing only the low `count` bytes with a\n`while at < count` loop measured worse by a wide margin on escape-dense corpora: `Twitter escaped`\nbulk 1289 → 1374 MB/s and its 16 KB rows 1284 → 1379, `GSoC 2018` bulk 4225 → 4338 — a −2.2%\nregression against the pre-layout parser became a +4.3% win. The mechanism is *not* call-site code\nsize: every `consumeStringRun` specialisation is byte-identical between the two forms (6,679\ninstructions, 472 stack accesses either way) and the only function that changes is this one, 46 → 38\ninstructions. The loop is simply not worth its branches once per escape.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-escape-scratch-a-reserved-region-not-a-stack-local",
+        "slug" : "the-escape-scratch-a-reserved-region-not-a-stack-local",
+        "summary" : "Eight bytes are reserved past bufferCapacity in the parser's own allocation so that a decoded escape has an address that is stable and already in memory. Four bytes is the most any escape or rejoined UTF-8 sequence needs; eight keeps the region a single…",
+        "tables" : [
+
+        ],
+        "title" : "The escape scratch: a reserved region, not a stack local",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7358,
+        "markdown" : "An escape splits the zero-copy string run, and the fragments it leaves are tiny: 57% of\n`llm_message`'s 26,076 string chunks and 35% of `gsoc-2018`'s 39,810 are a single byte, one sink call\neach. From the first backslash on, `coalescedEscapedStringTail` copies content into the parser's own\nbuffer and hands it over one chunk per buffer-full — 26,076 chunks become 2,003 and 39,810 become\n16,869 — a copy an accumulating sink (`PartialSink`, appending into `StreamString`) pays for many\ntimes over in calls it no longer makes.\n\n**Every sink takes this path, and that is a decision rather than an omission.** It began as an opt-in\nbehind a static `_streamCoalescesStringChunks`, with the remaining sinks handed the fragments\nzero-copy. A sink whose chunk calls are nearly free (counting, checksumming) now pays the copy of\nevery post-escape byte for no call savings: `FastCountingSink` on `LLM message - bulk` reads ~11%\nslower. That was judged a better price than a second delivery mode and the per-sink knob selecting\nit. Chunk boundaries were never promised, so what a sink can observe is only fewer, larger chunks and\nrejection points at the flushes. Every non-throwing exit flushes, so a chunk that cuts the string\nresumes exactly where the fragment-by-fragment loop resumed.\n\n**The tail is `@inline(never)`, and that split is the whole point.** Spelled inside `stringRunBody` —\n`@inline(__always)` into both `consumeStringRun` and `consumeEscapedStringInRun` — it measured `raw\nllm` −52%, `raw gsoc` −23% and `raw twitter` −15%, the last on a payload whose escapes it barely\ntouches. The run body has to stay the size it is.\n\n**Where decoded escape bytes go is a compile-time fact, not a runtime flag.** The tail passes\n`coalescing: true` to `fusedEscapeEnd`, which is `@inline(__always)`, so the literal folds and no\nother caller carries the buffered arm. The earlier spelling was a `stringBuffering` field set around\nthe loop and tested in `emitScratch`, which put a field load and a never-taken arm into every escape\nemitter in the binary — including the copies inlined into `parse(byte:)`, where anything placed in\nthat arm re-laid out the per-escape blocks: an 8-byte store in `bufferStringScratch` cost `LLM\nmessage - byte by byte discarding` 4.9% through a branch that dispatcher never took.\n\n**Both buffer appends are wide stores under explicit bounds arguments.** `bufferStringRun` copies a\nrun of at most sixteen bytes as one unaligned 16-byte load/store rather than through `copyMemory`,\nwhich is a call into libc `memmove` whose fixed cost is many times a few-byte copy; both sides are\nchecked for slack, the source needing sixteen readable bytes before the chunk end (the input has no\npadding behind it) and the destination sixteen writable bytes before the end of the allocation, which\nis the buffer plus the reserved scratch behind it. `bufferStringScratch` stores the whole decoded\nscratch word in one unaligned 8-byte store; one to four bytes are meaningful and the rest land past\n`bufferCount`, never past the allocation, because after the capacity check `bufferCount` is at most\n`capacity - 1` and the reserved eight scratch bytes sit behind the buffer, dead while a value is being\ncoalesced. The `for _ in 0..<count` byte loop it replaces — the shape `appendScratchToBuffer` keeps\nfor keys — had cost `Fast Unicode escaped string - bulk` ~20% once every sink coalesced.\n\n`flushStringBuffer` is deliberately left to the optimizer rather than forced inline: `@inline(__always)`\non it pulled the body into one of the tail's three exits, growing the `PartialSink` specialisation of\nthe tail from 726 to 756 instructions, and `Twitter full - bulk discarding` measured −1.8% p0 with it\n(every other corpus flat, so it is the tail's size and placement, not its work).",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/coalescing-escaped-string-content",
+        "slug" : "coalescing-escaped-string-content",
+        "summary" : "An escape splits the zero-copy string run, and the fragments it leaves are tiny: 57% of llm_message's 26,076 string chunks and 35% of gsoc-2018's 39,810 are a single byte, one sink call each. From the first backslash on, coalescedEscapedStringTail copies…",
+        "tables" : [
+
+        ],
+        "title" : "Coalescing escaped string content",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7406,
+        "markdown" : "`parse(byte:)` drives `dispatchOnce` directly rather than going through the bulk entry point, for\nthe reasons measured in \"The windowed walk: first pass\" (the gate's compare in front of every byte,\nand the shared-loop alternative's cost on `canada`).\n\nAhead of the dispatcher sits the one shape byte-fed input is mostly made of: an ordinary ASCII byte\ninside a string value. It produces exactly one `stringChunk` and nothing else, so it needs neither\nthe dispatcher, the scan, the scratch nor a frame — one `stringChunk` call carrying the byte itself,\nwith no pointer to take and nothing to store.\n\nEvery condition on it is one the general path would otherwise have to settle: a pending `stringBegin`\nwould have to be recorded first, a pending UTF-8 tail or a high surrogate would have to be joined, a\nnon-empty scratch would have to be flushed in order, a non-ASCII byte may be a truncated sequence\n`trimmingIncompleteUTF8` holds back, `\"` and `\\` end the run, and a byte below space is a grammar\nerror. Anything that fails falls through unchanged.\n\n**The order of the conditions was measured.** It is two tests deep for everything that does not\nqualify: `state` is one load and rejects every structural, literal and escape byte; the byte's own\nrange is next and rejects non-ASCII, which can only ever be the head or tail of a sequence the\npending path must join — reaching that verdict through the three state loads instead cost `Fast\nNon-ASCII string - byte by byte` measurably. The remaining three are loads only bytes that already\nlook right ever pay for.\n\n`deliverStringByte` behind it is `@inline(never)` for the standing reason: `parse(byte:)` is the\ndispatcher every byte-fed document walks once per byte, and its inlining is the least stable thing in\nthe parser.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/parse-byte-s-one-shape-fast-path",
+        "slug" : "parse-byte-s-one-shape-fast-path",
+        "summary" : "parse(byte:) drives dispatchOnce directly rather than going through the bulk entry point, for the reasons measured in \"The windowed walk: first pass\" (the gate's compare in front of every byte, and the shared-loop alternative's cost on canada).",
+        "tables" : [
+
+        ],
+        "title" : "`parse(byte:)`'s one-shape fast path",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7434,
+        "markdown" : "A one-byte chunk ends every string run at `to`, so the string body asks `trimmingIncompleteUTF8` on\n*every* content byte of byte-fed input. Left to the optimizer, it was inlined into `consumeStringRun`\nonly while `stringRunBody` was spelled as a `while true` loop; once the body became straight-line\ncode (every escape leaves for the coalescing tail), the serialized `consumeStringRun<PartialSink>`\nthat `parse(byte:)` reaches started calling it instead and `LLM message - byte by byte discarding`\nlost 1.4%, every round. Forced, that copy is instruction for instruction what it was.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/trimmingincompleteutf8-must-be-forced-inline",
+        "slug" : "trimmingincompleteutf8-must-be-forced-inline",
+        "summary" : "A one-byte chunk ends every string run at to, so the string body asks trimmingIncompleteUTF8 on",
+        "tables" : [
+
+        ],
+        "title" : "`trimmingIncompleteUTF8` must be forced inline",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7443,
+        "markdown" : "A UTF-8 lead's length is how many of `0xC0`, `0xE0`, `0xF0` it reaches, plus one. The three tests are\nindependent, so the counting form is `cmp`/`adc` three times with nothing to predict, where the\nfour-compare ladder it replaces was four branches choosing between four constants. A continuation\nbyte reaches none of them and answers 1, which is what the ladder's leading `lead < 0x80` arm\nanswered, so the two agree on all 256 bytes; `LookupTableTests` pins that exhaustively.\n\nA packed nibble table — one length per nibble of `0x4322_1111_1111_1111`, indexed by `lead >> 4` — is\nfewer operations still and was measured first. It lost by 2 to 4% across the whole corpus, including\npayloads with no non-ASCII byte in them at all, because its 64-bit immediate is ten bytes of `movabs`\nat every site it inlines into, and one of those sites is `completePendingUTF8`, which inlines into\n`parse`. Nothing here is hot enough to pay for growing the dispatcher. The counting form is the same\nsize as the ladder and wins where the ladder was actually walked — `Twitter` +1.4%, `Twitter escaped`\n+2.0%, `LLM message` +1.8% — at the cost of `Canada` −3.7%, which is the same dispatcher-layout effect\nin the other direction on a payload with no strings to speak of.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/sequencelength-counted-not-branched-and-not-a-nibble-table",
+        "slug" : "sequencelength-counted-not-branched-and-not-a-nibble-table",
+        "summary" : "A UTF-8 lead's length is how many of 0xC0, 0xE0, 0xF0 it reaches, plus one. The three tests are independent, so the counting form is cmp/adc three times with nothing to predict, where the four-compare ladder it replaces was four branches choosing between four…",
+        "tables" : [
+
+        ],
+        "title" : "`sequenceLength`: counted, not branched, and not a nibble table",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7460,
+        "markdown" : "Everything a parse reads or writes lives in the first 64 bytes; the tail holds `ownsBuffer` (a\ndeinit-only flag) and the window telemetry, dead for any parser that never crosses `windowThreshold`.\nThe small fields are narrowed to their real ranges rather than bit-packed: narrowing is free on arm64\n(`ldrb`/`ldrh` zero-extend), while packing per-byte state into shared words would turn plain stores\ninto read-modify-writes on the string and unicode paths and would break the store fusion the compiler\nalready performs on adjacent flags (it emits one `strh` for `isKeyToken`/`keyContainsNonASCII`).\n\nOffset 9 is padding, and new one-byte fields belong there. Anywhere earlier shifts\n`literalKind`/`literalIndex` from offsets 4/5 to 5/6, and the fused halfword store the literal path\nemits for the pair stops being two-byte aligned: every `consumeStructuralRun` specialisation in the\nbinary turned `strh` into `sturh`.\n\nThe block-walk knobs (`blockWalkEnabled`, the verdict, the strike count, `blockKernelsAvailable` on\nx86) live immediately after `ownsBuffer` for the same reason: the seven bytes between it and the\neight-byte-aligned `windowThreshold` are padding, so they cost the struct nothing. Anywhere else they\ngrow `JSONParser`, and the parser is copied by value in `parse`'s prologue — two extra instructions\nin every `parse` specialisation, from a 16-byte pair copy splitting into a byte move plus pairs.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift",
+        "path" : "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/jsonparser-s-field-order-is-a-cache-line-decision",
+        "slug" : "jsonparser-s-field-order-is-a-cache-line-decision",
+        "summary" : "Everything a parse reads or writes lives in the first 64 bytes; the tail holds ownsBuffer (a deinit-only flag) and the window telemetry, dead for any parser that never crosses windowThreshold. The small fields are narrowed to their real ranges rather than…",
+        "tables" : [
+
+        ],
+        "title" : "`JSONParser`'s field order is a cache-line decision",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 3,
+        "line" : 7480,
+        "markdown" : "",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "slug" : "scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "summary" : "",
+        "tables" : [
+
+        ],
+        "title" : "Scanners and C shims (`StreamScanners.swift`, `StreamParsingShims`)",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+          {
+            "code" : "bit 0 0x01  WS3    {0}   x {9,A,D}     09 0A 0D      (whitespace minus space)\nbit 1 0x02  ROW2   {2}   x {0,2,B,D,E} 20 22 2B 2D 2E\nbit 2 0x04  COMMA  {2}   x {C}         2C\nbit 3 0x08  COLON  {3}   x {A}         3A\nbit 4 0x10  N37    {3,7} x {0..A}      30..3A 70..7A\nbit 5 0x20  ROW6   {6}   x {1..F}      61..6F\nbit 6 0x40  E45    {4}   x {5}         45\nbit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D",
+            "language" : "text"
+          }
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7482,
+        "markdown" : "In `StreamParsingShims.h`, a byte is in a class iff `lo_table[b & 0xF] & hi_table[b >> 4]` has the\nclass bit set; each bit is a rectangle (set of high-nibble rows) x (set of low nibbles). The shipped\nencoding is exactly full at eight bits, so two had to be *recovered* before whitespace could have\none:\n\n* Row 5's accepted set {5B,5D} is the bracket rectangle's row-5 half, and row 7's {70..7B,7D} is\n  {70..7A} plus its row-7 half — so row 5 needs no bit of its own once \"accepted\" is tested as\n  `c != 0` rather than `(c & 0x7F) != 0`. That is legal because every bracket is an accepted byte,\n  and it is one instruction cheaper per vector (`vtstq(c, c)` lowers to `cmeq #0` + `bic`).\n* Rows 3 and 7 then share the residual low set {0..A} ({30..3A}, {70..7A}), so one rectangle\n  {3,7} x {0..A} serves both.\n\n```\nbit 0 0x01  WS3    {0}   x {9,A,D}     09 0A 0D      (whitespace minus space)\nbit 1 0x02  ROW2   {2}   x {0,2,B,D,E} 20 22 2B 2D 2E\nbit 2 0x04  COMMA  {2}   x {C}         2C\nbit 3 0x08  COLON  {3}   x {A}         3A\nbit 4 0x10  N37    {3,7} x {0..A}      30..3A 70..7A\nbit 5 0x20  ROW6   {6}   x {1..F}      61..6F\nbit 6 0x40  E45    {4}   x {5}         45\nbit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D\n```\n\n`\\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and every byte\n>= 0x80 is in no class at all, which is what `needs_scalar` reads. Neither `brackets` nor `op` is\ncomputed here: the walk reads the four bracket bytes and the two operators it lands on out of the\nline the classifier just touched — two movemasks the skip classifier's shape pays for and this one\ndoes not.\n\nSpace cannot get a ninth bit (the residual rows provably do not collapse into three rectangles), so\nwhitespace costs one lookup of its own, deliberately *not* hung off `c`: indexed by the low nibble\nit is independent of the class chain and issues alongside it. The low nibbles of 09, 0A, 0D and 20\nare distinct, so one table indexed by the low nibble holds \"the whitespace byte with this low\nnibble\" and one compare against the raw byte answers it.\n\nMeasured, twitter ns/block: this spelling **9.43**, `(c & 0x01) | (v == 0x20)` **9.87**, deriving\nthe operators with compares instead of table bits **10.53**.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-structural-block-classifier-s-two-table-encoding",
+        "slug" : "the-structural-block-classifier-s-two-table-encoding",
+        "summary" : "In StreamParsingShims.h, a byte is in a class iff lo_table[b & 0xF] & hi_table[b >> 4] has the class bit set; each bit is a rectangle (set of high-nibble rows) x (set of low nibbles). The shipped encoding is exactly full at eight bits, so two had to be…",
+        "tables" : [
+
+        ],
+        "title" : "The structural block classifier's two-table encoding",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7522,
+        "markdown" : "The escape finder (`stream_parsing_find_escaped`, `StreamParsingShims.h`) turns a backslash bitmap\ninto \"which bytes follow an odd-length backslash run\", and it is thirteen scalar integer operations\nsitting inside two otherwise fully vector 64-byte block classifiers. It was measured as a NEON\ncandidate (2026-09-11) and deliberately left scalar.\n\nThe irreducible step is `bs_bits + starts`. The 64-bit adder's carry chain is a one-cycle prefix\nscan that broadcasts each run's start parity to the byte past its end, and **NEON has no segmented\nscan**: a lane-wise version needs six log-steps of `ext`/`and`/`orr` over four vectors — about 70\nvector operations to replace 13 integer ones. The classifiers are already vector-issue-bound (~130\nvector ops per block against ~25 integer ops), so the scalar step runs for free on idle integer\nports. Carryless multiply (`pmull`, which `prefix_xor` uses) gives a prefix XOR, which is\n*unsegmented* and cannot recover run-start parity, so it is not a substitute.\n\nTwo NEON shapes that kept the carry in a `d` register measured **+7 to +31% slower per block**,\nbecause LLVM split the 64-bit lane chain across register domains and paid six `fmov`s. A\n`bs_bits == 0` early-out was **+0.7 to +17.6% slower per block** — a late-resolving branch off an\n`fmov` — and flat end to end. Deleting the step outright bounds any possible reformulation at ~15%\nof the kernel, which is invisible in the parse.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/find_escaped-stays-scalar",
+        "slug" : "find_escaped-stays-scalar",
+        "summary" : "The escape finder (stream_parsing_find_escaped, StreamParsingShims.h) turns a backslash bitmap into \"which bytes follow an odd-length backslash run\", and it is thirteen scalar integer operations sitting inside two otherwise fully vector 64-byte block…",
+        "tables" : [
+
+        ],
+        "title" : "`find_escaped` stays scalar",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7543,
+        "markdown" : "On x86-64 the string scanner runs two SIMD16 blocks inline and escalates to an AVX2 tier\n(`streamStringRunWide`) for anything longer. Two spellings of that bound were measured, and both\nlosers cost documents that never escalate at all.\n\n**A per-iteration counter** — incremented and tested inside the vector loop — cost `CITM catalog`\n**-2.6%** and the 564-byte `Qwen 3 search tool call` **-5.0%**, both made of short keys that never\nreach the wide tier. Folding the limit into the loop bound instead (`narrowLimit`) adds one `min` at\nentry and one compare after the loop, and `to` is what the bound was already compared against, so\nthe loop shape is unchanged.\n\n**Folding the availability check into the bound** — gating `narrowLimit` on `streamHasAVX2` — was\nmeasured and reverted. `streamHasAVX2` (`StreamUTF8Validation.swift`) is a lazily initialised\nglobal: its initializer calls a C function, so it is not a constant expression, and the x86_64\nobject carries a one-time-initialization token and a guarded addressor, so every read is a token\ncompare and then a load. Inside a function that is `@inline(__always)` into the parse loop that\nguarded read sits at the entry of every scan, and disassembly showed it there; it cost\n`CITM catalog` **-9.9%**, `Twitter` **-6.1%** and even `Canada` **-1.7%** against untouched code.\nThe availability check belongs behind `@inline(never)`, which is where `streamStringRunWide` keeps\nit.\n\nThe reason the bound cannot be an entry-width test is structural: `to` is the *chunk* end, not the\nrun end, so nothing at entry can distinguish a short run from a long one. Surviving two blocks\nwithout a terminator is the only available evidence that a run is long.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-x86-escalation-bound-in-streamstringrun",
+        "slug" : "the-x86-escalation-bound-in-streamstringrun",
+        "summary" : "On x86-64 the string scanner runs two SIMD16 blocks inline and escalates to an AVX2 tier (streamStringRunWide) for anything longer. Two spellings of that bound were measured, and both losers cost documents that never escalate at all.",
+        "tables" : [
+
+        ],
+        "title" : "The x86 escalation bound in `streamStringRun`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7569,
+        "markdown" : "`streamFirstHitLane` (`StreamScanners.swift`) is the portable spelling of the movemask idiom. The\nmask's bytes are 0xFF or 0x00, so reading them as two 64-bit words puts each lane in its own byte\nand the lane index is the trailing zero count over eight.\n\nIt replaced `for lane in 0 ..< 16 where hit[lane]`, which unrolls into sixteen `test`/`js` pairs\nplus sixteen constant-materialising exit blocks — over a hundred bytes of branch ladder, walked to\nthe terminator's lane, once per string token and once per key. Worse, the block above it had already\ncomputed `pmovmskb` for its own `any(hit)` test and threw the answer away: the lane is `tzcnt` of a\nvalue the machine was holding.\n\n**The two halves are combined arithmetically rather than selected.** Written as\n`low != 0 ? ... : ...` the intent was a `cmov`, and on arm64 that is what it would be — but LLVM's\n`X86CmovConverterPass` converts a `cmov` back into a branch whenever it judges the condition\npredictable and the value on a critical path, so x86 got two branches and a jump-around instead.\n`trailingZeroBitCount` is 64 for an empty word, so bit 6 of the low word's count *is* \"the low word\nhad no hit\", and masking the high word's contribution by it gives the same answer with nothing to\npredict:\n\n| | lane |\n| --- | --- |\n| low has a hit | `lowCount / 8` (0 ... 7, mask is 0) |\n| low is empty | `8 + highCount / 8` (8 ... 16, mask is all ones) |\n\nTwo zero words give `8 + 8 == 16`, one past the block, so \"is there a hit\" and \"where\" stay the same\nvalue. Both counts are computed either way, which is the point: no branch to mispredict on a\nterminator whose lane is, by nature, unpredictable.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-first-hit-lane-a-branchless-combination-because-x86-un-does-cmov",
+        "slug" : "the-first-hit-lane-a-branchless-combination-because-x86-un-does-cmov",
+        "summary" : "streamFirstHitLane (StreamScanners.swift) is the portable spelling of the movemask idiom. The mask's bytes are 0xFF or 0x00, so reading them as two 64-bit words puts each lane in its own byte and the lane index is the trailing zero count over eight.",
+        "tables" : [
+          {
+            "headers" : [
+              "",
+              "lane"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "low has a hit"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "lowCount / 8 (0 ... 7, mask is 0)"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "low is empty"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "8 + highCount / 8 (8 ... 16, mask is all ones)",
+                  "unit" : "+ highCount / 8 (8 ... 16, mask is all ones)",
+                  "value" : 8
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "The first-hit lane: a branchless combination, because x86 un-does `cmov`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7598,
+        "markdown" : "The key hash was FNV-1a walked one byte at a time (chosen in \"Next: StreamDictionary\", which also\nargues its hash-flooding bound). FNV's cost is not its arithmetic but its dependency shape: every\nbyte's multiply depends on the previous byte's, so a twelve-byte key is a chain of twelve multiply\nlatencies that no amount of instruction-level parallelism can overlap. `key_number_42` is thirteen\nbytes, which is what a counts-style document is made of.\n\nTwo accumulators fed from one SIMD16 load break that chain in half: the whole 16-byte block costs\none vector load, one vector xor and two multiplies that issue together. The tail is a bounded word\nladder rather than a masked vector, for the reason `streamPaddedWord` documents — NEON has no masked\nload, so a partial vector cannot be read without either overreading or a per-lane loop. Keys shorter\nthan sixteen bytes, which is most of them, skip the block loop entirely and cost at most two bounded\nloads.\n\nNothing here is serialised, so the word order only has to agree with itself: a key of a given length\nalways takes the same path, and both entry points hash through this one function.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims",
+        "path" : "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/streamhashbytes-fnv-s-shape-not-its-arithmetic",
+        "slug" : "streamhashbytes-fnv-s-shape-not-its-arithmetic",
+        "summary" : "The key hash was FNV-1a walked one byte at a time (chosen in \"Next: StreamDictionary\", which also argues its hash-flooding bound). FNV's cost is not its arithmetic but its dependency shape: every byte's multiply depends on the previous byte's, so a…",
+        "tables" : [
+
+        ],
+        "title" : "`streamHashBytes`: FNV's shape, not its arithmetic",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 3,
+        "line" : 7616,
+        "markdown" : "",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "slug" : "typed-layer-partialsink-schemas-sinks-conversions",
+        "summary" : "",
+        "tables" : [
+
+        ],
+        "title" : "Typed layer (`PartialSink`, schemas, sinks, conversions)",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7618,
+        "markdown" : "The frame stack is one allocation of `JSONParser.maximumDepth + 2` `BorrowedFrame`s rather than an\n`Array`. The parser caps depth and rejects anything past it, so the stack has a known bound and\nnever grows. What the fixed allocation buys is not the allocation (there was one either way) but\nthe bookkeeping `Array` charges to be resizable: a uniqueness check on every mutation and a bounds\ncheck on every read, both of which `key(_:)` paid per key when it read the top frame out, edited it\nand wrote it back. A key now edits the top frame where it sits.\n\n`frameCapacity` is the cap plus one because the cap is checked *after* the sink hears about the\ncontainer: `consumeStructural` calls `beginObject` and then pushes, so the frame for the rejected\ndepth arrives before the parse throws. `overflowCapacity` adds one more slot, reserved for the\nignored frame that absorbs an over-deep subtree; nothing the parser feeds reaches it, so it costs\none 24-byte frame in an allocation that already exists.\n\nOverflow must stay *balanced*, not merely not crash once: a caller that catches the depth error\nand keeps feeding sends more `beginObject` calls, and a container that could not be pushed must not\npop one that could. `pushOverflowFrame` (outlined, so the depth check in `pushFrame` is a\npredicted-not-taken branch over a call) records `depthExceeded`, pushes `ignoredFrame` into the\nreserved slot for the *first* overflow, and only counts containers deeper than that in\n`droppedFrameCount`. The first version counted the first overflow too, which left the top frame\npointing at the *parent*. `key(_:)` and the scalar entry points deliberately have no depth test —\nit would sit on the hot path — so an over-deep key was matched against the parent's field table and\nits value written into the parent.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/partialsink-s-frame-stack-a-fixed-allocation-two-slots-of-headroom-and-the-overflow-frame",
+        "slug" : "partialsink-s-frame-stack-a-fixed-allocation-two-slots-of-headroom-and-the-overflow-frame",
+        "summary" : "The frame stack is one allocation of JSONParser.maximumDepth + 2 BorrowedFrames rather than an Array. The parser caps depth and rejects anything past it, so the stack has a known bound and never grows. What the fixed allocation buys is not the allocation…",
+        "tables" : [
+
+        ],
+        "title" : "`PartialSink`'s frame stack: a fixed allocation, two slots of headroom, and the overflow frame",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7643,
+        "markdown" : "`PartialSink.storeSIMDDoubleLane` is the store for a `SIMD2/3/4<Double>` frame, the shape of\n`canada.json`'s coordinate pairs. `applyKnownNumber` reaches the same store (see \"Known scalar\nkinds: elements, values, lanes and slots as typed stores\"), but only after `knownScalarSlot` has\nasked the frame's kind, its shape and whether its route uses the element cursor, and then through\n`storeNumber(_:optional:at:_:_:)`'s twelve-way switch over the field kind — a jump table whose other\neleven arms are dead here. The three `arraySIMD*Double` routes exist only on a schema whose element\nkind is `.double`, whose stride is `Double`'s and whose elements are never optional, so all three\nfacts are constants at the call and the resolution collapses to a bounds check on the cursor and a\nscaled store. (`storeNumber` itself stays `@inline(__always)`: outlined, it cost this lane path 3%\nagainst the direct store it replaced.)\n\nThe cursor is bumped *before* the conversion, so a token the conversion refuses leaves the frame\nexactly where the closure path would: `knownScalarSlot` bumps it too, then hands the slot to a\n`storeNumber` that may still answer `.unsupported`.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/the-simd-lane-store-bypasses-the-known-slot-resolution",
+        "slug" : "the-simd-lane-store-bypasses-the-known-slot-resolution",
+        "summary" : "PartialSink.storeSIMDDoubleLane is the store for a SIMD2/3/4<Double> frame, the shape of canada.json's coordinate pairs. applyKnownNumber reaches the same store (see \"Known scalar kinds: elements, values, lanes and slots as typed stores\"), but only after…",
+        "tables" : [
+
+        ],
+        "title" : "The SIMD lane store bypasses the known-slot resolution",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7660,
+        "markdown" : "The generic float conversion (`BinaryFloatingPoint where Self: LosslessStringConvertible`,\n`StreamConvertible.swift`) used to fold `Self.self == Double.self` and jump to a separate\nnon-generic body, on the theory that the generic spelling was charging every type for conversions\nthat ought to be identities or constant folds. Reading the release binary showed the cost was **not\ngenericity**. All three were `init(exactly:)`:\n\n- `Self(exactly: info.magnitude)` stayed an out-of-line `bl` to `Double.init<UInt64>(exactly:)` —\n  a `ucvtf`, an `fcmp` against 2^64, an `fcvtzu` back and a compare — executed for *every* number\n  and discarded for the 91% of `canada.json` whose significand exceeds 2^53. `Self(_:)` on the same\n  operand is a bare `ucvtf`, and the range question is already answered by the\n  `magnitude <= 2^(significandBitCount + 1)` compare that has to happen anyway: a magnitude above\n  that bound is unusable by the exact path even when it is representable.\n- `Self(exactly: scale)` on a `.rodata` power of ten emitted `fcmp d1, d1; b.vs` — a NaN test on a\n  compile-time-constant table entry — and was doing duty as the type-dependent Clinger window.\n  `streamMaxExactPow10(Self.self)` is that window as a constant.\n- `Self(exactly: value)` on Eisel-Lemire's result emitted an infinity/NaN test on a kernel that\n  returns neither.\n\nWith those three gone the `Double` specialisation is the straight-line kernel the special case used\nto provide, and `Float` gets the same three tiers instead of exact-or-`String`. The non-generic\n`Double` body was deleted rather than kept.\n\nThe sign is applied to the significand before the scale rather than to the finished result: a power\nof ten is positive, so multiplying or dividing carries the sign through unchanged (zero included),\nat the same two instructions (`fneg`/`fcsel`) the old `Double`-only body spent OR-ing the sign bit\ninto a bit pattern — while staying expressible for a `Self` whose bit pattern the extension cannot\nname.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/three-init-exactly-calls-and-what-they-actually-lowered-to",
+        "slug" : "three-init-exactly-calls-and-what-they-actually-lowered-to",
+        "summary" : "The generic float conversion (BinaryFloatingPoint where Self: LosslessStringConvertible, StreamConvertible.swift) used to fold Self.self == Double.self and jump to a separate non-generic body, on the theory that the generic spelling was charging every type…",
+        "tables" : [
+
+        ],
+        "title" : "Three `init(exactly:)` calls, and what they actually lowered to",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7690,
+        "markdown" : "The same generic float conversion is an extension constrained on protocols this package does not own\n(`BinaryFloatingPoint`, `LosslessStringConvertible`), so it cannot require the `StreamBinaryFormat`\nconformance the Eisel-Lemire kernel needs. `streamEiselLemireAny` asks with a type test\n(`T.self == Double.self`, `T.self == Float.self`), both of which fold to constants on\nspecialisation, and bridges the kernel's result back with an `unsafeBitCast` that is a no-op on the\nonly branch that can reach it. A type with no format declines and takes the `String` fallback.\n\nThe bridge is spelled `guard let ... else { return nil }` on purpose. Spelled with `.map`, the\nunspecialised generic formed a real closure, reached through\n`__swift_instantiateConcreteTypeFromMangledNameV2` and three partial-apply forwarders.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/streameisellemireany-a-guarded-bridge-not-map",
+        "slug" : "streameisellemireany-a-guarded-bridge-not-map",
+        "summary" : "The same generic float conversion is an extension constrained on protocols this package does not own (BinaryFloatingPoint, LosslessStringConvertible), so it cannot require the StreamBinaryFormat conformance the Eisel-Lemire kernel needs. streamEiselLemireAny…",
+        "tables" : [
+
+        ],
+        "title" : "`streamEiselLemireAny`: a guarded bridge, not `.map`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7703,
+        "markdown" : "A macro-generated partial caches its initial value as a stored static (853de07), so opening a\ncontainer of them is a template copy. **A generic type cannot hold a stored static** (the same\nrestriction \"Review round: state that outlived its token, an offset a fusion moved, and a schema per\n`[`\" hit for schemas), so `StreamArray<E>` and `StreamDictionary<V>` cannot: their\n`streamInitialValue()` is a real `Self()`, and forming the empty `Array<E>` spine goes through the\nruntime's *locking* generic-metadata cache (`swift_getGenericMetadata`, `MetadataCacheKey`) once per\ncontainer open.\n\nThe fix is to resolve the template once per schema instead of per open. Two landed commits:\n\n- **7a21472, `_streamOptionalContainerPrepare` (`StreamSchemaBuilders.swift`).** The optional\n  member's template and the wrapped type's own prepare are hoisted into the builder, which runs once\n  per schema. CITM catalog discarding **+39.6%**, Qwen search 16KB/windowed/reused +8.9..11.8%,\n  Twitter full +5.9%, Qwen structured +7.3%, GSoC string capacity hint +3.5%; every raw row flat.\n- **05bace4, the container schema builders (`StreamSchema.swift`).** The same hoist for\n  `appendElement`/`enterKey`. Applied to every element type it was **not** a win, and it split\n  exactly by element type:\n\n| blanket hoist | Δ |\n| --- | ---: |\n| Canada capacity hint / dynamic coordinates - discarding | +20..27% wall |\n| Mesh capacity hint / dynamic influences - discarding | +9.7..12.2% |\n| CITM catalog, Twitter full - discarding | **-5.4..-7.8%** |\n| `Schema 48 members` first/last/undeclared | **-18..-22%** |\n\n**A hoist has to pay for the closure context it creates.** The un-hoisted closures captured nothing,\nand a closure without a context is a call and nothing else. Removing a metadata probe is worth one\ncontext load; removing a static-template load is not, so for a concrete element the hoist is a\nstraight loss. The builders therefore choose between the two closure forms once, at schema build,\non `_streamInitialValueIsExpensive` (a `StreamParseableRoot` requirement, default `false`, `true` on\nthe `StreamArray` and `StreamDictionary` conformances). The wins were kept in full, CITM returned\nto flat, and `Schema 48 members` to exactly +0.0% — the concrete path emits the identical closure.\n\nThe template is owned, not leaked. `_streamFieldRoute` runs once, from the macro's `streamFields`\nstatic, but the container builders are reached through `streamSchema`, a *computed* property that\ncan be re-evaluated, so a leaked template there — the \"allocate one template per schema and leak\nit\" of \"The open element moves into the storage\" — leaks per evaluation. `_streamOwnedTemplate` puts\nthe value in a `_StreamTemplateStorage` box that the closure captures purely for its lifetime\n(`StreamFieldPrepare` is a bare closure type, so the context is the only place the table can hold\nit); the body reads the raw `UnsafePointer` bound before the closure and never touches the box, so\nthere is no retain, release or load per call. The box is named inside the body (`_ = owner`) only\nso Swift keeps the capture. The template is stored as the optional already `.some` and\ncopy-initialised over the member's `nil`, which owns nothing, rather than assigned — assignment\nwould destroy the `nil` first and read the payload through a temporary.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/initial-value-templates-for-generic-containers-and-when-a-hoist-pays",
+        "slug" : "initial-value-templates-for-generic-containers-and-when-a-hoist-pays",
+        "summary" : "A macro-generated partial caches its initial value as a stored static (853de07), so opening a container of them is a template copy. A generic type cannot hold a stored static (the same restriction \"Review round: state that outlived its token, an offset a…",
+        "tables" : [
+          {
+            "headers" : [
+              "blanket hoist",
+              "Δ"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Canada capacity hint / dynamic coordinates - discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "+20..27% wall"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Mesh capacity hint / dynamic influences - discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "+9.7..12.2%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "CITM catalog, Twitter full - discarding"
+                },
+                {
+                  "bold" : true,
+                  "isDelta" : false,
+                  "text" : "-5.4..-7.8%"
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Schema 48 members first/last/undeclared"
+                },
+                {
+                  "bold" : true,
+                  "isDelta" : false,
+                  "text" : "-18..-22%"
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Initial-value templates for generic containers, and when a hoist pays",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7750,
+        "markdown" : "The two looser contracts (bytes copied, a rejection surfaced at the next flush) are in Stage 2 of\n\"The fusion series: per-token emission lands, the recorder is deleted\", and the adapter's discarded\ndispositions in \"Stage 5: container dispositions — skipped subtrees run at structural speed\". What\nthose leave out: the reported offset of a deferred rejection is the token current *at the flush*,\nnot the one refused, and `StreamEventRecord.end` is not populated — it was a chunk offset only the\nparser's own recorder could know. And since `beginObject`/`beginArray` always answer `.stream`, a\nsubtree the far-side sink would have skipped is parsed, grammar-checked and delivered in full on\nthis path; the advisory disposition contract is what makes that legal.\n\n`flush` calls the consumer *outside* every array borrow. Calling the mutating `consumer.events`\nfrom inside three nested `withUnsafeBufferPointer` borrows of the adapter's own stored properties\nwas legal only because the accesses were to disjoint properties, and one re-entrancy away from a\nbug: a consumer that fed bytes back into the same sink would mutate the arrays the live\n`StreamEventBatch` points into. The bases are taken first and the array values held across the call\nwith `withExtendedLifetime`, which keeps the pointers valid — a re-entrant append copies on write\nrather than reallocating under the batch — with no overlapping exclusive access. It runs once per\n256 events, so the shape costs nothing that matters.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions",
+        "path" : "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/streameventbatchingsink-the-third-looser-contract-and-the-flush-s-borrow-discipline",
+        "slug" : "streameventbatchingsink-the-third-looser-contract-and-the-flush-s-borrow-discipline",
+        "summary" : "The two looser contracts (bytes copied, a rejection surfaced at the next flush) are in Stage 2 of \"The fusion series: per-token emission lands, the recorder is deleted\", and the adapter's discarded dispositions in \"Stage 5: container dispositions — skipped…",
+        "tables" : [
+
+        ],
+        "title" : "`StreamEventBatchingSink`: the third looser contract, and the flush's borrow discipline",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 3,
+        "line" : 7770,
+        "markdown" : "",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "slug" : "streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "summary" : "",
+        "tables" : [
+
+        ],
+        "title" : "Streaming collections (`StreamArray`, `StreamDictionary`, `StreamString`, `StreamBlock`)",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7772,
+        "markdown" : "\"The open element moves into the storage\" describes, under *Snapshots after the move*, a tail that\nis \"frozen in place and chained behind a fresh tail\" through `previous` / `previousTotal` header\nlinks, compacted into full sealed blocks once the chain holds a block's worth, with a `spare` block\nkept for reuse across repeated snapshots inside one open element. **None of that is in the code,\nand the two throughput tables in that section that describe it should be read as history rather\nthan as the current design.** `StreamBlockHeader` has exactly two fields, `count` and `capacity`;\nthere is no `previous`, no `previousTotal`, no `spare`, and no compaction pass anywhere in\n`StreamBlock` or `StreamArray`.\n\nWhat the code does instead is keep the open element **inline, in `StreamArray.pending`**, an\n`Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a\ncorrect snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element\nsnapshot has to diverge from is the one piece held by value. Closed elements still live in uniform\npower-of-two `StreamBlock`s, and a block a snapshot shares is still *written past* rather than\ncopied, because each array carries its own `tailCount` and the parser only ever appends above the\nprefix every sharer captured (`StreamBlockHeader.count` is the filling array's high-water mark and\nnothing else reads it). The three headline properties of the section — storage owns its capacity,\nthe template is a pointer rather than a closure, uniqueness is settled per container — are all\nstill accurate; only the freeze/compact/spare chain was replaced.\n\nThe trade recorded against the chain was that it cost a malloc per retained snapshot and could not\nbe made to cost less. The inline slot costs one whole-element move per element instead — the\nclosed element moving into its block slot when the next one opens — which is the cost\n`_openElement(copying:)` and `_appendClosed` are shaped around (see \"`_appendClosed`: the\nwhole-value route skips the open element\" below). The claim at the end of that section that \"the\nstale element is destroyed by a specialised move rather than `swift_arrayDestroy`\" is also inverted\nby what `StreamBlock` does today; see \"Block teardown\" below.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/correction-the-frozen-tail-chain-is-not-what-shipped",
+        "slug" : "correction-the-frozen-tail-chain-is-not-what-shipped",
+        "summary" : "\"The open element moves into the storage\" describes, under Snapshots after the move, a tail that is \"frozen in place and chained behind a fresh tail\" through previous / previousTotal header links, compacted into full sealed blocks once the chain holds a…",
+        "tables" : [
+
+        ],
+        "title" : "Correction: the frozen-tail chain is not what shipped",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7802,
+        "markdown" : "`StreamBlock.deinit` on a generic class is emitted **once, generically** — the binary holds\n`StreamParsingCore.StreamBlock.deinit` and no per-element-type copy of it — so whatever its body\ndoes, it does through `Element`'s value witnesses. The \"specialised destroy\" the teardown path was\nassumed to reach never existed.\n\nThe body used to be a loop of `(elements + index).move()`. That is `load [take]`, and unspecialised\nIRGen lowers it to an `alloca` of the element's stride, an `initializeWithTake` witness call into\nit, and only then the destroy witness on the copy: every element was memmoved onto the stack purely\nto be torn down there. On Twitter full (11.9 KB partial, 100 elements) that was **1.19 MB of\n`memmove` per parse**, charged to the discard.\n\nThe counted form is one `swift_arrayDestroy`, which walks the elements in place and calls the\ndestroy witness on each. It had been avoided for consulting the element's metadata first — but\nunspecialised the function has already loaded that metadata (the `_isPOD` guard reads it), and the\nper-element form pays an out-of-line `UnsafeMutablePointer.deinitialize` call *plus*\n`swift_arrayDestroy` per element rather than once per block. The `_isPOD` guard in front of it is\nitself load-bearing: destroying unconditionally **cost the homogeneous double array 10%** for\n40,000 doubles that need no destroy at all.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/block-teardown-deinitialize-count-not-a-move-loop",
+        "slug" : "block-teardown-deinitialize-count-not-a-move-loop",
+        "summary" : "StreamBlock.deinit on a generic class is emitted once, generically — the binary holds StreamParsingCore.StreamBlock.deinit and no per-element-type copy of it — so whatever its body does, it does through Element's value witnesses. The \"specialised destroy\" the…",
+        "tables" : [
+
+        ],
+        "title" : "Block teardown: `deinitialize(count:)`, not a `move()` loop",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7823,
+        "markdown" : "The default block is 32 elements, which is the granularity the snapshot semantics were designed\naround: a block is what a write into a shared block copies and what a half-filled tail wastes. That\nis the wrong unit for a *small* element. A block is one malloc and one out-of-line `prepareSlot`\ncall, and a block of 32 doubles is 256 bytes, so a flat array of ten thousand numbers paid a malloc\nevery 256 bytes of payload. Profiles put `prepareSlot` at **4.0% of typed Mesh and 3.0% of typed\nCanada**, all of it under the number-array and SIMD-pair element opens.\n\nSo for a *trivial* element of at most sixteen bytes the block aims at a byte target — 2 KB,\nspelled as `blockByteShift` — instead of at 32 elements. `Double` and `Int` get 256-element\nblocks, `SIMD2<Double>` 128-element ones, and every other element type keeps exactly the size it\nhad. Everything in the expression is a compile-time property of `Element`, so it folds to a\nconstant per instantiation.\n\nThe sixteen-byte ceiling is measured, not arithmetic. Raising it to 64 bytes pulled in small POD\n*partials* too — a dictionary's value blocks, for instance — and **cost CITM 1.2% for no gain\nanywhere**: those containers hold tens of elements, not thousands, so a larger block is a 2 KB\nallocation they never fill rather than a malloc they never repeat. Sixteen bytes is exactly the\nwidth of the elements that arrive in their thousands (a number, a coordinate pair), which is where\nthe malloc traffic actually was. Non-trivial elements are excluded outright: their blocks carry a\ndestroy loop that dwarfs the malloc the larger block would save.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamarray-block-sizing-for-small-trivial-elements",
+        "slug" : "streamarray-block-sizing-for-small-trivial-elements",
+        "summary" : "The default block is 32 elements, which is the granularity the snapshot semantics were designed around: a block is what a write into a shared block copies and what a half-filled tail wastes. That is the wrong unit for a small element. A block is one malloc…",
+        "tables" : [
+
+        ],
+        "title" : "StreamArray block sizing for small trivial elements",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7846,
+        "markdown" : "Number and other whole-token routes deliver their value to the sink exactly once and entire — the\nparser buffers a number straddling a chunk boundary and emits it at the closing byte\n(`emitBufferedNumber`) — so there is no window in which a snapshot could observe a half-written\nelement, which is the only thing `pending` buys. `_appendClosed` therefore commits straight into\nthe block slot.\n\nGoing through `_openElement` instead cost, per element: a whole-element move out of `pending` into\nthe slot, the `nil` tag written over the vacated payload, and the new value plus its `.some` tag\nwritten back into `pending` — four stores and a load-compare where this route has one store.\n\n`appendSealed` (the `drainPending` + `commit` pair `_appendClosed` calls) is `@inline(__always)`\n*for this call site*: left outlined it costs a `bl` and a stack frame per element, and that measured\n**worse than the `_openElement` round trip it was replacing**. Why `commit` itself is forced inline\nis trap 2 of \"The fused slice: the seam priced before the protocol is touched\" (one outlined call\nhid two-thirds of the double-array win), repeated in Stage 3 of the fusion series.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/_appendclosed-the-whole-value-route-skips-the-open-element",
+        "slug" : "_appendclosed-the-whole-value-route-skips-the-open-element",
+        "summary" : "Number and other whole-token routes deliver their value to the sink exactly once and entire — the parser buffers a number straddling a chunk boundary and emits it at the closing byte (emitBufferedNumber) — so there is no window in which a snapshot could…",
+        "tables" : [
+
+        ],
+        "title" : "`_appendClosed`: the whole-value route skips the open element",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7864,
+        "markdown" : "`StreamArray`'s (and `StreamDictionary`'s) `streamSchema` is `@inlinable` so that a client rooting\na parse at `StreamArray<Element>` builds the schema — and therefore the `appendElement` closure\ninside it — in its own module, where `Element` is concrete and the closure body specialises.\nWithout it the whole body is emitted once in the core, generically: every `_openElement` in the\nclosure goes through `Element`'s value witnesses and `Optional<Element>`'s runtime-instantiated\nmetadata. Measured on a root `StreamDictionary`: **~2.9% of the parse in\n`swift_getGenericMetadata`/`getCache` alone**, plus a generic single-payload-enum `assignWithTake`\nper key. A macro-generated partial never hit this, because its container schemas are already built\nat the use site. (`PartialsStream.init(initialValue:from:)` has to be `@inlinable` for the same\nreason; see \"`PartialsStream`'s entry points must stay `@inlinable`\" below.)\n\n`streamSchema` is a *computed* property and `PartialsStream.init` reads it, so every stream rooted\nat a container rebuilt the whole schema, template allocation included. It is cached per element\ntype (`_streamCachedSchema`); the `@inlinable` stays, because the closure handed to the cache is\nstill formed at the use site and still specialises — only the cache probe is out of line.\n\nRelated: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because\n`StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a\n`@usableFromInline` body does not travel with it. At b01cfd6 the specialised `drainPending` called\nthe unspecialised generic `sealedCount` getter once per dictionary key — a runtime-metadata call to\nread `blocks.count`, and a barrier the surrounding loads could not be folded across.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamarray-streamschema-must-be-inlinable-and-cached",
+        "slug" : "streamarray-streamschema-must-be-inlinable-and-cached",
+        "summary" : "StreamArray's (and StreamDictionary's) streamSchema is @inlinable so that a client rooting a parse at StreamArray<Element> builds the schema — and therefore the appendElement closure inside it — in its own module, where Element is concrete and the closure…",
+        "tables" : [
+
+        ],
+        "title" : "`StreamArray.streamSchema` must be `@inlinable`, and cached",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7888,
+        "markdown" : "`_openValue` looks redundant three ways over. Each one was tried and each one lost.\n\n**`drainPending()` is not fused into the open.** `StreamArray._openElement(copying:)` fuses its\npair; doing the same here is **32% slower on the dictionary discarding rows**. Two\n`withUnsafeMutablePointer(to: &self.pendingValue)` projections in one body, with real work in the\nsecond, stop the compiler addressing the box in place, so it stages a copy of `Value?` and destroys\nit: an outlined init-with-copy and an outlined destroy, twice each, or four retain/release pairs\nper key (16 retains for a 128-key parse became 528). A projection whose closure is trivial, or one\nthat is alone in its own function, folds to direct addressing instead. That is what the separate\ncall buys, and it is worth more than the two tag writes it costs. The same rule is why the two\nprojections inside `_openValue` sit on mutually exclusive returns rather than in one body.\n\n**The two `_openValue` overloads are not folded into one body.** Folding them into a shared helper\nthat reported back what the caller still had to write — an `inout Bool` and an optional payload\npointer — stopped the specialiser cold: the `Swift.Int`, `StreamString` and CITM-partial\nspecialisations of the function disappeared from the binary and every `Value` operation went\nthrough its value witness, which **cost the dictionary rows two thirds of their throughput and GSoC\n20%**. Checked with `nm | swift demangle | grep \"generic specialization\"`, which is faster than\nmeasuring it.\n\n**The template is `UnsafePointer<Value?>`, not `UnsafePointer<Value>`.** `self.pendingValue =\ntemplate.pointee` is an *assignment* into `Value?`, and for a partial of any size that is not one\ncopy but five. Measured on the GSoC partial (1,056 bytes) at b01cfd6, per new key, from the\ndisassembly of the specialised body: `memcpy 1056` (template → stack) twice, an `outlined enum tag\nstore of Partial?` to mark the staged copy `.some`, `memcpy 1056` (old `pendingValue` → stack) so\nthe assignment can destroy what it overwrote, an `outlined init with copy of Partial` (a sixth\npass, with the retains), an `outlined destroy of Partial?` of the `nil` it had just staged, and\nfinally `memcpy 1056` (stack → `pendingValue`) — a 6,400-byte stack frame entered through\n`__chkstk_darwin`. None of it is needed: `drainPending()` leaves `pendingValue` holding `.none`,\nwhich owns nothing, so the whole optional — payload *and* tag — is copy-initialised over it in a\nsingle `initializeWithCopy`. A `Value?` template is what makes that expressible, because the tag\ntravels in the template's bytes instead of being injected afterwards, and no branch has to know\nwhether `Value?` spends a spare bit or a trailing byte on it.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamdictionary-_openvalue-three-shapes-each-measured",
+        "slug" : "streamdictionary-_openvalue-three-shapes-each-measured",
+        "summary" : "_openValue looks redundant three ways over. Each one was tried and each one lost.",
+        "tables" : [
+
+        ],
+        "title" : "`StreamDictionary._openValue`: three shapes, each measured",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7924,
+        "markdown" : "`slot(entries:table:forKey:hash:vacantBucket:)` is `@inline(__always)`, which is worth more than\nthe code it costs. It is a *non-mutating* method called from inside `_openValue`'s `inout self`,\nand `Self` is loadable but large — **2,164 bytes for the GSoC partial's dictionary**, most of it the\nopen value. Out of line, `self` arrives `@in_guaranteed` and the nested read cannot share the\naddress the outer inout access already holds, so the caller stages the whole struct:\n`memcpy(sp, self, 2164)` per key, *twice* over (once per key-span branch), for a body that reads\nexactly two words of it — `entries` and `table`. Inlined there is no second access and no copy at\nall. Visible in the disassembly of `_openValue` as `mov w2, #0x874 ; bl memcpy` before every\n`bl ...slot...`.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamdictionary-slot-is-force-inlined-to-avoid-staging-self",
+        "slug" : "streamdictionary-slot-is-force-inlined-to-avoid-staging-self",
+        "summary" : "slot(entries:table:forKey:hash:vacantBucket:) is @inline(__always), which is worth more than the code it costs. It is a non-mutating method called from inside _openValue's inout self, and Self is loadable but large — 2,164 bytes for the GSoC partial's…",
+        "tables" : [
+
+        ],
+        "title" : "`StreamDictionary.slot` is force-inlined to avoid staging `self`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7936,
+        "markdown" : "\"StreamString adaptive block growth — the allocator leaves the string-heavy typed path\" introduced\nthis sizing at half the byte count, and records why `promoteSizedInlineStorage` is\n`@inline(never)`. It now raises the block schedule's start shift from the *whole* count in hand,\nwhere a `streamReserve` hint uses half: a value that arrives as one big span — an unescaped long string parsed in bulk — lands in a single block instead\nof sealing a half-sized one and walking the doubling ramp; a fragment-fed value keeps the 512-byte\nstart and lets the ramp absorb growth.\n\nWhole size rather than half is measured, not tidiness. It took **`Real LLM message - bulk\ndiscarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6** (on top of chunk coalescing, which is\n+37.6%/+7.6% of that on its own), with total mallocs on the LLM row **2,069 → 576**. It costs no\nmemory either: `promoteInlineStorage`'s empty-tail arm reserves `min(needed, blockCapacity)`\nexactly, so a larger block means one seal fewer rather than a larger allocation.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamstring-the-first-overflow-append-sizes-the-schedule-from-the-whole-byte-count",
+        "slug" : "streamstring-the-first-overflow-append-sizes-the-schedule-from-the-whole-byte-count",
+        "summary" : "\"StreamString adaptive block growth — the allocator leaves the string-heavy typed path\" introduced this sizing at half the byte count, and records why promoteSizedInlineStorage is @inline(never). It now raises the block schedule's start shift from the whole…",
+        "tables" : [
+
+        ],
+        "title" : "`StreamString`: the first overflow append sizes the schedule from the whole byte count",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 3,
+        "line" : 7951,
+        "markdown" : "",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments",
+        "path" : "design-notes-relocated-from-source-comments/public-api",
+        "slug" : "public-api",
+        "summary" : "",
+        "tables" : [
+
+        ],
+        "title" : "Public API",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7953,
+        "markdown" : "Two attributes on `PartialsStream` carry measured weight and look like decoration.\n\n- **`init(initialValue:from:)`.** The root schema has to be built in the client module, where\n  `Value` is concrete. Emitted in the core, a `StreamArray` or `StreamDictionary` root reaches\n  `_openElement`/`_openValue` through value witnesses and instantiates `Optional<Element>` metadata\n  per open — **~2.9% of a `StreamDictionary<GSoCProject.Partial>` parse**, the cost recorded\n  above for `streamSchema` itself (\"`StreamArray.streamSchema` must be `@inlinable`, and cached\").\n- **`next(_:)`.** `JSONParser.parse` is generic over the sink and specialises into its caller, and a\n  caller in another module cannot specialise what it cannot see. Left opaque, the byte entry point\n  was **half the wall clock of every byte-fed row** (`LayerOverheadBenchmarks`) and 3% of the bulk\n  rows.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/public-api",
+        "path" : "design-notes-relocated-from-source-comments/public-api/partialsstream-s-entry-points-must-stay-inlinable",
+        "slug" : "partialsstream-s-entry-points-must-stay-inlinable",
+        "summary" : "Two attributes on PartialsStream carry measured weight and look like decoration.",
+        "tables" : [
+
+        ],
+        "title" : "`PartialsStream`'s entry points must stay `@inlinable`",
+        "verdict" : "neutral"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+
+        ],
+        "history" : {
+          "recorded" : "2026-09-15T11:49:48-07:00",
+          "recordedCommit" : "2d1109c5f",
+          "recordedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revised" : "2026-09-15T11:49:48-07:00",
+          "revisedCommit" : "2d1109c5f",
+          "revisedSubject" : "Relocate condensed source-comment rationale into NEW_ARCHITECTURE.md",
+          "revisions" : 1
+        },
+        "level" : 4,
+        "line" : 7967,
+        "markdown" : "Swift 6.3 (every 6.3.x, fixed in 6.4) crashes in the mandatory SIL pass\n`PredictableDeadAllocationElimination` on a **generic** function whose result is\n`Optional<T.View>` with `T.View` an opaque `~Escapable` associated type. Both halves are needed: a\nnon-generic function returning `Optional<ConcreteView>`, or a generic one returning a non-optional\n`T.View`, compiles. Building a view per branch of a dispatch and returning it from there is\nequivalent in meaning but leaves several `Optional<Value.View>` stack slots for the pass to merge,\nwhich is the crashing shape.\n\nDisabling the `Lifetimes` experimental feature on 6.3 is not a workaround: every `~Escapable`\ninitializer and accessor in the library then fails to compile, and `@_unsafeNonescapableResult`\ndoes not substitute.\n\nThe shape that avoids it: every branch yields a plain, escapable `UnsafeMutableRawPointer?`, and a\nsingle exit forms the one view with `_overrideLifetime(T.streamView(address), borrowing: self)`.\n`_streamMemberAddress` (`StreamFrameEntry.swift`, which replaced `_streamMemberView`) and the\n`StreamArray.View` / `StreamDictionary.View` subscripts all use it. The caller pays one\n`_overrideLifetime`, because raw pointers carry no provenance for `@_lifetime(borrow storage)` to\nchain through two hops. New `View`-returning generic APIs should keep this shape until 6.3 is\ndropped.",
+        "measurements" : [
+
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/public-api",
+        "path" : "design-notes-relocated-from-source-comments/public-api/address-first-view-once-the-swift-6-3-pdae-crash",
+        "slug" : "address-first-view-once-the-swift-6-3-pdae-crash",
+        "summary" : "Swift 6.3 (every 6.3.x, fixed in 6.4) crashes in the mandatory SIL pass PredictableDeadAllocationElimination on a generic function whose result is Optional<T.View> with T.View an opaque ~Escapable associated type. Both halves are needed: a non-generic…",
+        "tables" : [
+
+        ],
+        "title" : "Address first, view once: the Swift 6.3 PDAE crash",
+        "verdict" : "neutral"
       }
     ],
     "title" : "New Architecture"
   },
-  "generatedAt" : "2026-09-13T02:42:39Z",
+  "generatedAt" : "2026-09-16T19:33:12Z",
   "sources" : {
 
   },
   "stats" : {
-    "codeBlockCount" : 18,
-    "datedSections" : 276,
-    "declCount" : 1501,
-    "fileCount" : 45,
+    "codeBlockCount" : 19,
+    "datedSections" : 314,
+    "declCount" : 1537,
+    "fileCount" : 48,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
-    "lastRecorded" : "2026-09-09T20:06:41-07:00",
-    "sectionCount" : 276,
-    "tableCount" : 146,
+    "lastRecorded" : "2026-09-16T12:25:55-07:00",
+    "sectionCount" : 314,
+    "tableCount" : 149,
     "verdictCounts" : {
-      "landed" : 22,
-      "mixed" : 5,
-      "neutral" : 220,
-      "rejected" : 29
+      "landed" : 24,
+      "mixed" : 4,
+      "neutral" : 256,
+      "rejected" : 30
     }
   }
 }

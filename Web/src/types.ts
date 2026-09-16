@@ -576,7 +576,12 @@ export interface StreamStringTrace {
 
 export interface CollectionTrace {
   array: {
+    /** The element type the fill was recorded with, and its default block capacity. */
+    elementType: string;
     blockCapacity: number;
+    /** A small trivial element's schedule, which aims at a byte budget rather than a slot count. */
+    trivialElementType: string;
+    trivialBlockCapacity: number;
     initialTailCapacity: number;
     /** The element after which a snapshot was taken and held for the rest of the fill. */
     snapshotAfter: number;

@@ -97,24 +97,35 @@ enum StorageTraces {
   static func collections(elements: Int, keys: [String]) -> CollectionTrace {
     var verified = true
 
-    // The array, filled through `_openElement`: the parser's own entry point, which is what puts
-    // the element being parsed outside the blocked storage until it commits.
+    // The array, filled through `_openElement(copying:)`: the call the schema's element open makes,
+    // which moves the previous element into its slot and copies the template into the space it
+    // vacated, so the element being parsed stays outside the blocked storage until it commits.
+    //
+    // The elements are `String`s, not `Int`s, because the block schedule depends on the element: a
+    // small trivial element aims its blocks at 2 KB (`Int` gets 256 slots), while anything with a
+    // destroy keeps the 32-slot default -- which is the shape of an array of parsed objects, and a
+    // schedule short enough to watch seal. Both capacities are read off the type.
     //
     // A snapshot -- a plain value copy -- is taken partway through and held for the rest of the
     // fill, because the thing worth showing about the blocks is what does *not* happen: the
     // filling block is written past rather than diverged from, so its object identity survives
     // every append made while the copy is alive. `sharedTail` is that identity compared against
     // the snapshot's, read off the shipped values rather than asserted here.
-    var array = StreamArray<Int>()
+    var array = StreamArray<String>()
     var arraySteps: [CollectionTrace.ArrayStep] = []
     let snapshotAt = elements / 2
-    var snapshot: StreamArray<Int>?
+    var snapshot: StreamArray<String>?
     var snapshotBlock: ObjectIdentifier?
     var blockCopiedWhileShared = false
 
-    func tailIdentity(_ value: StreamArray<Int>) -> ObjectIdentifier? {
+    func tailIdentity(_ value: StreamArray<String>) -> ObjectIdentifier? {
       value.tail.map(ObjectIdentifier.init)
     }
+
+    // One template for the whole fill, as the schema builders leak one per schema.
+    let template = UnsafeMutablePointer<String>.allocate(capacity: 1)
+    template.initialize(to: "")
+    defer { template.deinitialize(count: 1); template.deallocate() }
 
     for index in 0..<elements {
       // Opening an element is what commits the previous one; a commit that fills the tail seals a
@@ -122,7 +133,8 @@ enum StorageTraces {
       // is decided by what the open did to the storage, not by counting.
       let sealedBefore = array.blocks.count
       let capacityBefore = array.tail?.slotCapacity ?? 0
-      _ = array._openElement(index)
+      array._openElement(copying: template).assumingMemoryBound(to: String.self).pointee =
+        String(index)
       let capacity = array.tail?.slotCapacity ?? 0
       let event: String
       if array.blocks.count > sealedBefore {
@@ -141,7 +153,7 @@ enum StorageTraces {
       arraySteps.append(
         CollectionTrace.ArrayStep(
           index: index, value: index, blocks: array.blocks.map(\.count), tailCount: array.tailCount,
-          tailCapacity: capacity, pending: array.pending, count: array.count, sharedTail: shared,
+          tailCapacity: capacity, pending: array.pending.flatMap { Int($0) }, count: array.count, sharedTail: shared,
           event: event))
       if index == snapshotAt {
         snapshot = array
@@ -154,15 +166,16 @@ enum StorageTraces {
       CollectionTrace.ArrayStep(
         index: elements - 1, value: elements - 1, blocks: array.blocks.map(\.count),
         tailCount: array.tailCount, tailCapacity: array.tail?.slotCapacity ?? 0,
-        pending: array.pending, count: array.count,
+        pending: array.pending.flatMap { Int($0) }, count: array.count,
         sharedTail: snapshotBlock != nil && tailIdentity(array) == snapshotBlock, event: "commit"))
-    verified = verified && array.count == elements && (0..<elements).allSatisfy { array[$0] == $0 }
+    verified = verified && array.count == elements && (0..<elements).allSatisfy { array[$0] == String($0) }
 
     // The snapshot has to have stayed exactly what it was when it was taken -- the open element
     // it captured included -- while every append above went into the block it shares.
-    let held = snapshot ?? StreamArray<Int>()
+    let held = snapshot ?? StreamArray<String>()
     verified =
-      verified && held.count == snapshotAt + 1 && (0..<held.count).allSatisfy { held[$0] == $0 }
+      verified && held.count == snapshotAt + 1
+      && (0..<held.count).allSatisfy { held[$0] == String($0) }
       && !blockCopiedWhileShared
 
     // The dictionary, filled through `_openValue`: the same call the sink makes for a dynamic key.
@@ -177,12 +190,12 @@ enum StorageTraces {
       dictSteps.append(
         CollectionTrace.DictStep(
           key: key, hash: traceHex(hash), entryCount: dictionary.entries.count,
-          storedValueCount: dictionary.storedValues.count, tableCount: dictionary.table?.count ?? 0,
+          storedValueCount: dictionary.storedValues.count, tableCount: dictionary.table.count,
           pendingSlot: dictionary.pendingSlot,
-          event: dictionary.table != nil && dictSteps.last?.tableCount == 0 ? "index" : "open"))
+          event: !dictionary.table.isEmpty && dictSteps.last?.tableCount == 0 ? "index" : "open"))
     }
     dictionary.drainPending()
-    let slots = dictionary.table.map { Array($0) } ?? []
+    let slots = Array(dictionary.table)
 
     // Probes through the shipped lookup, with the probe chain recorded alongside it. A miss walks
     // to the first empty bucket, which is what bounds the chain.
@@ -194,7 +207,9 @@ enum StorageTraces {
       var hash: UInt64 = 0
       keyBytes.withUnsafeBufferPointer { buffer in
         hash = StreamDictionary<Int>.hash(buffer)
-        if let table = dictionary.table {
+        // Below the threshold the table is empty rather than absent, and the lookup scans entries.
+        let table = dictionary.table
+        if !table.isEmpty {
           let mask = table.count - 1
           var probe = Int(hash & UInt64(mask))
           while buckets.count <= table.count {
@@ -213,7 +228,7 @@ enum StorageTraces {
         CollectionTrace.Lookup(
           key: key, hash: traceHex(hash), buckets: buckets, slot: slot ?? -1, found: slot != nil))
       // The recorded chain has to end where the shipped lookup ended.
-      if let slot, let table = dictionary.table, let bucket = buckets.last, table[bucket] != slot {
+      if let slot, !dictionary.table.isEmpty, let bucket = buckets.last, dictionary.table[bucket] != slot {
         verified = false
       }
       if (slot != nil) != keys.contains(key) { verified = false }
@@ -224,8 +239,9 @@ enum StorageTraces {
 
     return CollectionTrace(
       array: CollectionTrace.ArrayTrace(
-        blockCapacity: StreamArray<Int>.blockCapacity,
-        initialTailCapacity: StreamArray<Int>.initialTailCapacity, snapshotAfter: snapshotAt,
+        elementType: "String", blockCapacity: StreamArray<String>.defaultBlockCapacity,
+        trivialElementType: "Int", trivialBlockCapacity: StreamArray<Int>.defaultBlockCapacity,
+        initialTailCapacity: StreamArray<String>.initialTailCapacity, snapshotAfter: snapshotAt,
         steps: arraySteps),
       dictionary: CollectionTrace.DictionaryTrace(
         indexThreshold: StreamDictionary<Int>.indexThreshold, steps: dictSteps, slots: slots,

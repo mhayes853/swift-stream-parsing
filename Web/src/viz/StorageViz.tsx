@@ -339,7 +339,10 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
       <Facts
         items={[
           ["count", String(step.count)],
-          ["block capacity", `${trace.array.blockCapacity} elements`],
+          [
+            "block capacity",
+            `${trace.array.blockCapacity} ${trace.array.elementType}s — ${trace.array.trivialBlockCapacity} for ${trace.array.trivialElementType}`
+          ],
           ["first tail reservation", `${trace.array.initialTailCapacity} — it promotes once`],
           ["allocations", String(step.blocks.length + (step.tailCapacity > 0 ? 1 : 0))],
           [
@@ -352,7 +355,12 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
       <p className="viz-caption">
         Reads see the pending element as the last one, which is what keeps an incomplete element
         visible while it streams. The sealed count is <code>blocks.count &lt;&lt; shift</code> and
-        needs no stored field, because every block is the same power of two. A block is a{" "}
+        needs no stored field, because every block is the same power of two. The power is chosen
+        per element type: an element with a destroy keeps the default of{" "}
+        {trace.array.blockCapacity}, while a trivial element of at most sixteen bytes aims its
+        blocks at 2 KB instead — {trace.array.trivialBlockCapacity} for{" "}
+        <code>{trace.array.trivialElementType}</code> — because its block has no destroy loop to
+        outweigh the allocations saved. A block is a{" "}
         <code>StreamBlock</code> — a <code>ManagedBuffer</code> whose elements are tail-allocated
         with it — rather than a <code>ContiguousArray</code>, because an array never exposes its
         spare capacity: committing would mean handing the element to <code>append</code>, and a
