@@ -104,6 +104,9 @@ if only == "all" || only == "content" {
     print(
       "steps: \(stepCount) algorithm steps across \(pipeline.nodes.count) charts, every graph reachable and terminating"
     )
+    print(
+      "overview: \(pipeline.overview.how.count) how, \(pipeline.overview.why.count) why, all citations resolve"
+    )
   } else {
     for warning in docWarnings { print("warning: \(warning)") }
     print("note: no pipeline.json yet; skipping reference validation")

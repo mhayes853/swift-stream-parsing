@@ -155,8 +155,23 @@ export interface PipelineNode {
   steps: AlgorithmStep[];
 }
 
+export interface OverviewItem {
+  title: string;
+  // A single paragraph or node may be written bare; lib/overview.ts is what reads either form.
+  detail: string | string[];
+  node?: string | string[];
+  doc?: string[];
+}
+
+export interface Overview {
+  lede: string[];
+  how: OverviewItem[];
+  why: OverviewItem[];
+}
+
 export interface Pipeline {
   version: number;
+  overview: Overview;
   stages: PipelineStage[];
   nodes: PipelineNode[];
 }

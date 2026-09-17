@@ -1,5 +1,173 @@
 {
   "version": 2,
+  "overview": {
+    "lede": [
+      "This parser reads JSON that has not finished arriving. Bytes come in whatever pieces a socket or a model hands over, and the value built from them has to be readable *between* pieces rather than at the end. That rules out the usual shape — read the document, then walk it — which is what `Decodable` assumes, and it rules out a SAX parser too, since those emit a value only once it is complete.",
+      "So the parser is a state machine fed chunks. Every call consumes exactly the bytes it was given, emits every token those bytes finish, and leaves enough behind to resume in the middle of one: a number split across two chunks, a `\\u00e9` split down the middle. Almost everything below is about keeping that contract without paying for it."
+    ],
+    "how": [
+      {
+        "title": "A chunk arrives, and the parser picks up mid-token",
+        "detail": "`parse(_:into:)` takes a pointer and a count and returns when those bytes are gone, not when the document is done. If the chunk ends inside a token the state machine simply stays there; a UTF-8 sequence cut in half is held in a single 64-bit field, a byte per lane, and completed against the next chunk's first bytes before the loop starts. `finish(into:)` is the other end, where a document ending in a number learns the number is over and an unclosed string or container is reported.",
+        "node": [
+          "chunk-in",
+          "buffering"
+        ]
+      },
+      {
+        "title": "A switch over thirteen states, and structural bytes taken in runs",
+        "detail": [
+          "In the release binary `parse` is 1284 bytes, 322 instructions, 18 calls and not one vector instruction: it decides what the next byte is and calls the function for that token class, each about a kilobyte of its own. A byte's cost is therefore usually that round trip rather than the work it does. So `},{\"` and `\":` — 20–25% of token dense JSON, and always in clusters — are consumed by a loop that stays in place while the state is still structural, and a literal, a number or a string that finishes inside the chunk is settled there too rather than re-entering the dispatcher.",
+          "For the length of a run the state, the depth and the container stack live in locals; the stack is one `UInt64` where bit *n* says whether the container at depth *n* is an object, which is sixty-four levels of nesting in a register and why deeper than that is rejected rather than spilled. Where the input is dense enough, one NEON classification of sixty-four bytes replaces the scans in front of each token and the walk visits set bits instead, on a grid that moves with completed tokens so that a string crossing byte 64 is finished by its own scanner. A fully windowed walk exists as well and is off by default: it loses 4–36% wherever the document is not structurally dense."
+        ],
+        "node": [
+          "dispatcher",
+          "state-ladder",
+          "structural-run",
+          "in-run-values",
+          "structural-blocks",
+          "window-gate"
+        ]
+      },
+      {
+        "title": "Whitespace and string content are scanned sixteen bytes at a time",
+        "detail": [
+          "Every whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20, so a minified document answers the question with a single inline compare and never touches a vector; only what survives that test goes out of line to the SIMD16 scan. How much there is to find is a property of the document rather than of JSON — none of `canada` is whitespace and 71% of `citm_catalog` is.",
+          "String content is the same shape: one pass over sixteen bytes tests for the closing quote, a backslash and a control byte together, and the lane that hit is found with a movemask rather than a search. A simple escape is decoded inline and a `\\uXXXX` through a call, because five bytes of work can afford one and `\\n` cannot — spelling both inline cost an escape heavy payload 18.5%. Bytes that are not ASCII leave with the end index for a vector UTF-8 validator built out of three table lookups."
+        ],
+        "node": [
+          "whitespace-compare",
+          "whitespace-vector",
+          "string-run",
+          "first-hit-lane",
+          "escapes",
+          "utf8"
+        ]
+      },
+      {
+        "title": "A number is scanned greedily, then parsed by the narrowest kernel that fits it",
+        "detail": "The scan finds the token's end in one pass, using the same fused movemask the string scan does. An unsigned integer of one to eight digits is then parsed with no loop and no data dependent branch, from the eight bytes *ending* at the token — those are already consumed input, so one `end >= 8` test makes the read safe and the bytes masked off become leading zeros. Floats are accumulated and finished by Eisel-Lemire instead of a `String` round trip. Either way the number is emitted once, whole, at the end of its token: `1`, `12`, `123` are not prefixes of the value the way partial string content is.",
+        "node": [
+          "number-scan",
+          "short-integer",
+          "eisel-lemire"
+        ]
+      },
+      {
+        "title": "Finished tokens cross one boundary, and the destination may decline",
+        "detail": "A sink gets one call per token carrying a borrowed `Span<UInt8>`, and those calls do not throw: a rejection is recorded and read once per chunk. Opening a container returns a disposition, so a sink with no use for a subtree answers `.skip` and the parser scans past it at structural speed — brackets matched by kind, strings terminated, no keys resolved and no values built. The close always arrives even when the interior was skipped, so a sink is never left holding an unbalanced frame.",
+        "node": [
+          "sink-protocol",
+          "dispositions",
+          "skip-run"
+        ]
+      },
+      {
+        "title": "A key becomes a field by comparing words, into storage that can be read mid-parse",
+        "detail": [
+          "Keys arrive whole, unescaped and validated, and are matched against precomputed 64-bit words — one or two compares for the overwhelming majority of real keys. `Dictionary` measured 7–8× slower, because `Hasher` runs at every lookup, and it is a non-starter for Embedded besides. The read happens in place, out of the parser's own buffer, using padding the buffer already had; what the macro emits per member is data rather than a closure — first word, length, byte offset, kind — so most fields are stored straight at `storage + offset`.",
+          "Frames hold pointers into the value being built, so every depth updates per byte instead of at the end. String bytes accumulate into blocks whose size doubles, and producing a `String` is a read rather than something the append path pays for. Reading a field while parsing continues is a borrowed view — a typed pointer the compiler will not let outlive the call that lent it — so a leaf can be read without materializing the levels above it."
+        ],
+        "node": [
+          "keys",
+          "field-table",
+          "partial-sink",
+          "stream-string",
+          "views"
+        ]
+      }
+    ],
+    "why": [
+      {
+        "title": "The first profile said the opposite of what was true",
+        "detail": [
+          "The library started at 2.5–3.5 MB/s and every suspect was innocent. Key path dispatch was single digit percent. A naive byte-at-a-time switch already ran at 1520 MB/s, five times the target. A per-byte function call cost 0.28 ns, and copying a `Partial` per byte cost about 1%.",
+          "The cost was allocation and code that could not specialize: one malloc per byte of string content, roughly two more per byte from an unspecialized generic `Sequence` walk, and a read-modify-write of a whole subtree per byte through a computed key path. That is why the interface below is spans and stored properties rather than values and key paths — and it is where the habit of measuring everything in this log comes from, because the intuitions were not close."
+        ],
+        "doc": [
+          "why"
+        ]
+      },
+      {
+        "title": "The parse loop is register bound, not work bound",
+        "detail": [
+          "Whitespace is found by looking ahead, one compare before every structural byte — which buys nothing on a minified document. Discovering it in the dispatch switch instead is free by construction: no lookahead, no flag, and a document with no whitespace pays literally zero. It was built, and it lost 10–18% nearly everywhere.",
+          "The lookahead has one whitespace test; discovery has five, one in each state that has to reject a byte it does not recognise, and that function inlines into the loop. `canada` has no whitespace at all, saved exactly what was predicted, and still lost 2%. One compare in one place beats zero compares in five places, and *where* code sits decides more of this parser's shape than how much work it does."
+        ],
+        "node": [
+          "whitespace-compare"
+        ],
+        "doc": [
+          "design-decisions/discovering-whitespace-instead-of-scanning-for-it",
+          "design-decisions/whitespace-one-compare-in-front-of-the-run-scan"
+        ]
+      },
+      {
+        "title": "Runs, not bytes — and no structural bitmap",
+        "detail": [
+          "SIMD16 beat a scalar loop at every run length measured, from 4 bytes (2476 against 1401 MB/s) to 4096 (21411 against 1548). SWAR loses to a scalar loop below about twelve bytes and never beats SIMD16, so it is unused on this path; SIMD32 loses because a NEON register is 128 bits and it lowers to two operations and a recombine.",
+          "Building a bitmap of every structural byte first, the way simdjson does, measured worse than testing bytes as they arrive: 2824 MB/s against 3788. Structural bytes are 20–25% of token dense JSON, so the bitmap is dense, and walking its set bits costs more than the tests it removes. The technique is sound; the density it assumes is not there."
+        ],
+        "node": [
+          "string-run"
+        ],
+        "doc": [
+          "design-decisions/runs-not-bytes"
+        ]
+      },
+      {
+        "title": "A fusion only pays if it deletes a call",
+        "detail": [
+          "Because a byte's cost is the round trip into the dispatcher, the wins are in not making the trip. Staying in a loop while the state remains structural took the corpus from 1071 to 1181 MB/s, and `canada` — nothing but `[`, `,` and numbers — gained 15% from a change that scans nothing.",
+          "The colon after a key looked like the next one: across 61,145 keys in the corpus not one has a space before its colon, so peeking for it hits 100% of the time. It moved the aggregate by 1 MB/s. The run loop had already swallowed the colon, and the value's opening quote still forced the call the fusion was supposed to delete. The comma passes that test — after it, the whitespace and the next value's first byte, nothing structural is left — and it is worth +4.7%."
+        ],
+        "node": [
+          "structural-run"
+        ],
+        "doc": [
+          "design-decisions/the-parse-loop-is-a-dispatcher-and-a-structural-byte-costs-a-call",
+          "design-decisions/the-run-loop-subsumes-the-transition-it-would-have-been-fused-with",
+          "design-decisions/fusing-the-comma-which-does-pass-that-test"
+        ]
+      },
+      {
+        "title": "Nothing about the destination's types reaches the parser",
+        "detail": [
+          "The sink takes one token at a time as a borrowed span, and its methods do not throw: a failure is recorded and read once per chunk, because a check after every call sits on the hottest path in the program and measured 2–5%. Escapes are decoded to UTF-8 before they cross, so nothing below the boundary needs `String` or the Unicode tables — which is what lets the core build for Embedded Swift.",
+          "The boundary is also format agnostic: what crosses it are tokens, not JSON, so another parser can drive the same sinks. And because the destination is what answers, a sink can say it does not want a subtree at all and the parser will skip it at structural speed — worth +41% where most of what arrives is not being kept."
+        ],
+        "node": [
+          "sink-protocol"
+        ],
+        "doc": [
+          "design-decisions/fast-interface-a-token-granular-sink"
+        ]
+      },
+      {
+        "title": "A partial that can be read decides how storage may move",
+        "detail": [
+          "Frames hold pointers into the value being built, which is what lets a partial update per byte at every depth. It is sound only because the innermost open container is the only thing ever mutated: a buffer can move on its next append, and that cannot happen while an element of it is open. `Dictionary` breaks the rule outright, since an insertion can relocate every value, so the streaming dictionary is an append-only array that keeps insertion order and builds an index only past a threshold.",
+          "Reading is the same constraint from the other side. A value handed out mid-parse shares the buffers still being written into, so keeping one means copying it: reading a member per byte through `current` costs 24 ms where parsing the same payload and observing nothing costs 449 µs. A borrowed view projects instead, copying per member actually read, at 459 µs — and it is `~Copyable`, so what stops it outliving the parser's storage is the compiler rather than a comment."
+        ],
+        "node": [
+          "partial-sink"
+        ],
+        "doc": [
+          "design-decisions/storage-frames-pointing-into-the-value",
+          "design-decisions/views-paying-for-what-you-read"
+        ]
+      },
+      {
+        "title": "The experiments that lost are kept too",
+        "detail": [
+          "Thirty of the recorded experiments were rejected against twenty-four landed, and several of the rejections are the counterintuitive ones above: a change that is free by construction, a fusion that hits 100% of the time, a word compare replacing a byte loop. Each is kept with the measurement that settled it, because the argument for building it is just as convincing the second time somebody makes it. The Experiments view above lists them together."
+        ],
+        "doc": [
+          "design-decisions/literals-are-already-fast-enough-to-be-unmeasurable"
+        ]
+      }
+    ]
+  },
   "stages": [
     {
       "id": "entry",

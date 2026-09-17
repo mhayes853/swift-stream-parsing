@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { citations } from "./lib/overview";
 import { content, pipeline, serveGenerated } from "./test/fixtures";
 
 describe("App", () => {
@@ -11,6 +12,21 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "The parse path" })).toBeInTheDocument();
     expect(await screen.findByText(String(content.stats.sectionCount))).toBeInTheDocument();
     expect(screen.getByText(String(pipeline.nodes.length))).toBeInTheDocument();
+  });
+
+  it("explains how the algorithm works and why, and its citations open the step", async () => {
+    const user = userEvent.setup();
+    serveGenerated();
+    render(<App />);
+    expect(screen.getByRole("heading", { name: "How it works" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Why it is built this way" })).toBeInTheDocument();
+    for (const item of [...pipeline.overview.how, ...pipeline.overview.why]) {
+      expect(screen.getByRole("heading", { name: item.title })).toBeInTheDocument();
+    }
+    await screen.findByText(String(content.stats.sectionCount));
+    const cited = pipeline.overview.why.flatMap((item) => citations(item, new Map(), pipeline.nodes))[0];
+    await user.click(screen.getAllByRole("link", { name: cited.label })[0]);
+    expect(await screen.findByRole("dialog", { name: cited.label })).toBeInTheDocument();
   });
 
   it("opens a node's evidence from the chart and closes it again", async () => {

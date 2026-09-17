@@ -3,6 +3,7 @@ import pipelineData from "../content/pipeline.json";
 import { DetailPanel } from "./components/DetailPanel";
 import { FlowChart } from "./components/FlowChart";
 import { Graveyard } from "./components/Graveyard";
+import { How, Lede, Why } from "./components/Overview";
 import { Payloads } from "./components/Payloads";
 import { useBundles, useRoute, useTheme } from "./components/hooks";
 import { span } from "./lib/dates";
@@ -66,6 +67,24 @@ export function App() {
           <>
             <section className="intro">
               <h1>The parse path</h1>
+              <Lede paragraphs={pipeline.overview.lede} />
+              <div className="stat-row">
+                <Stat value={String(pipeline.nodes.length)} label="steps" />
+                <Stat value={content ? String(content.stats.sectionCount) : "—"} label="documented sections" />
+                <Stat value={content ? String(experimentTotal(content)) : "—"} label="experiments with a verdict" />
+                <Stat value={content ? String(content.stats.tableCount) : "—"} label="measurement tables" />
+                <Stat value={content ? String(content.stats.declCount) : "—"} label="declarations indexed" />
+                <Stat
+                  value={(content && span(content.stats.firstRecorded, content.stats.lastRecorded)) || "—"}
+                  label="the log's span"
+                />
+              </div>
+            </section>
+
+            <How overview={pipeline.overview} sections={sections} nodes={pipeline.nodes} />
+
+            <section className="chart-intro">
+              <h2 className="panel-rule">The whole path, drawn</h2>
               <p>
                 Each node is a step a chunk of bytes passes through; each arrow is labelled with
                 what it does, or with the condition under which it is taken. Numbers appear where
@@ -80,21 +99,12 @@ export function App() {
                 </span>{" "}
                 the experiments that settled its shape, the source, and the assembly.
               </p>
-              <div className="stat-row">
-                <Stat value={String(pipeline.nodes.length)} label="steps" />
-                <Stat value={content ? String(content.stats.sectionCount) : "—"} label="documented sections" />
-                <Stat value={content ? String(experimentTotal(content)) : "—"} label="experiments with a verdict" />
-                <Stat value={content ? String(content.stats.tableCount) : "—"} label="measurement tables" />
-                <Stat value={content ? String(content.stats.declCount) : "—"} label="declarations indexed" />
-                <Stat
-                  value={(content && span(content.stats.firstRecorded, content.stats.lastRecorded)) || "—"}
-                  label="the log's span"
-                />
-              </div>
               <FlowLegend />
             </section>
 
             <FlowChart pipeline={pipeline} sections={sections} selected={selected} onSelect={select} />
+
+            <Why overview={pipeline.overview} sections={sections} nodes={pipeline.nodes} />
 
             <p className="viz-note">
               Generated from <code>NEW_ARCHITECTURE.md</code> and the source comments by{" "}

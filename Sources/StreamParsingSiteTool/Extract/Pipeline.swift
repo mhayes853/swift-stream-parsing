@@ -8,6 +8,7 @@ import Foundation
 /// the source comments, and a reference that stops resolving fails the build.
 struct Pipeline: Decodable {
   var version: Int
+  var overview: Overview
   var stages: [Stage]
   var nodes: [Node]
 
@@ -15,6 +16,49 @@ struct Pipeline: Decodable {
     var id: String
     var title: String
     var blurb: String
+  }
+
+  /// The algorithm as a whole, drawn above the chart on the landing page.
+  ///
+  /// The chart says what the steps are and each node says why it exists, but neither answers the
+  /// question a reader arrives with: what shape is this thing, and why that shape. `how` is the
+  /// short version of the walk; `why` is the longer half, one principle per card, each carrying
+  /// the node it is visible at and the log sections that settled it.
+  struct Overview: Decodable {
+    /// The constraint the rest of the design answers to. Drawn as the opening paragraphs.
+    var lede: [String]
+    var how: [Item]
+    var why: [Item]
+
+    struct Item: Decodable {
+      var title: String
+      /// One paragraph for a `how` item, which is a summary; as many as it takes for a `why` one,
+      /// which is an argument and generally needs the measurement that decided it.
+      var detail: [String]
+      /// The nodes this is visible at, linked so the card opens them. Validated against the graph.
+      var node: [String]
+      /// Doc slugs, validated exactly as a node's `evidence.doc` is.
+      var doc: [String]?
+
+      /// `detail` and `node` each take a bare string as well as a list, because a `how` item is
+      /// usually one paragraph and a `why` card is usually about one node.
+      init(from decoder: any Decoder) throws {
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        title = try keyed.decode(String.self, forKey: .title)
+        doc = try keyed.decodeIfPresent([String].self, forKey: .doc)
+        detail = try Self.list(keyed, .detail) ?? []
+        node = try Self.list(keyed, .node) ?? []
+      }
+
+      static func list(
+        _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+      ) throws -> [String]? {
+        if let one = try? container.decodeIfPresent(String.self, forKey: key) { return [one] }
+        return try container.decodeIfPresent([String].self, forKey: key)
+      }
+
+      enum CodingKeys: String, CodingKey { case title, detail, node, doc }
+    }
   }
 
   struct Node: Decodable {
@@ -126,6 +170,7 @@ struct ReferenceReport {
     }
     Self.reportDuplicates(pipeline.stages.map(\.id), kind: "stage", into: &report)
     Self.reportDuplicates(pipeline.nodes.map(\.id), kind: "node", into: &report)
+    Self.validateOverview(pipeline.overview, nodeIDs: nodeIDs, paths: paths, into: &report)
 
     for node in pipeline.nodes {
       let at = "node '\(node.id)'"
@@ -167,6 +212,43 @@ struct ReferenceReport {
       report.warnings.append("node '\(node.id)': no evidence attached")
     }
     return report
+  }
+
+  /// The landing page's explanation, held to the same standard as a node's.
+  ///
+  /// Its cards cite the graph and the log rather than restating them, so the same rename that
+  /// breaks a node's evidence breaks this too -- which is the point of citing at all.
+  static func validateOverview(
+    _ overview: Pipeline.Overview, nodeIDs: Set<String>, paths: Set<String>,
+    into report: inout ReferenceReport
+  ) {
+    if overview.lede.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+      report.errors.append("overview: no 'lede'; the page opens with what the parser is for")
+    }
+    if overview.how.isEmpty { report.errors.append("overview: no 'how' items") }
+    if overview.why.isEmpty { report.errors.append("overview: no 'why' items") }
+    for (kind, items) in [("how", overview.how), ("why", overview.why)] {
+      for item in items {
+        let at = "overview \(kind) '\(item.title)'"
+        if item.title.trimmingCharacters(in: .whitespaces).isEmpty {
+          report.errors.append("overview \(kind): an item has no title")
+        }
+        if item.detail.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+          report.errors.append("\(at): no 'detail'")
+        }
+        for node in item.node where !nodeIDs.contains(node) {
+          report.errors.append(Self.referenceError(node, kind: "node", at: at, in: nodeIDs))
+        }
+        for slug in item.doc ?? [] where !paths.contains(slug) {
+          report.errors.append(Self.referenceError(slug, kind: "doc section", at: at, in: paths))
+        }
+      }
+    }
+    // A why card with neither is prose nobody can check, which is what the rest of this file exists
+    // to prevent. One of the two is enough: not every principle is visible at a single node.
+    for item in overview.why where item.node.isEmpty && (item.doc ?? []).isEmpty {
+      report.warnings.append("overview why '\(item.title)': cites neither a node nor a doc section")
+    }
   }
 
   /// The node's own algorithm graph, held to the same standard as the pipeline graph above.

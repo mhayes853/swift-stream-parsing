@@ -45,6 +45,12 @@ How the content is sourced, and therefore what you have to touch:
   node graph (including `next`, which is what the flow chart draws), the short prose per node, and
   the *references* — doc slugs, `File.swift:symbol` pairs, assembly symbols. A new experiment
   attaches to the node it belongs to by adding its slug to that node's evidence list.
+- **The landing page's explanation is in the same file, under `overview`.** The chart says what
+  the steps are and each node says why that step exists, but neither answers what a reader arrives
+  asking: what shape is this parser, and why that shape. `how` summarises the walk; `why` is one
+  card per principle, and each carries the node it is visible at and the log sections that settled
+  it, validated exactly as a node's evidence is. A principle citing neither is a claim nothing
+  checks, so the extractor warns — and a *measurement* belongs in the log being cited, not here.
 - **Every arrow says what it is.** An edge in `next` is
   `{ to, kind, label, when }`. `label` is drawn on the arrow and is **required** — the extractor
   fails on an empty one, because an unlabelled arrow between two functions asserts only that one

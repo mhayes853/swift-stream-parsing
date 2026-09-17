@@ -598,6 +598,55 @@ mark {
   margin: 0 0 14px;
 }
 .intro p { color: var(--text-secondary); max-width: 76ch; margin: 0 0 18px; }
+.intro p.lede { color: var(--text-primary); font-size: 16.5px; }
+
+/* MARK: - The overview: how the algorithm works, and why it is shaped that way */
+
+.overview { padding: 8px 0 4px; }
+.overview.why { padding-top: 24px; }
+.overview h3 { font-size: 15px; letter-spacing: -0.01em; margin: 0 0 8px; }
+.overview-how p { font-size: 14.5px; }
+.overview p { color: var(--text-secondary); margin: 0 0 12px; }
+.overview p:last-child { margin-bottom: 0; }
+
+/* Numbered, so two columns still read in order — and ten steps in one column pushes the chart
+ * off the bottom of the page, which is the thing they are introducing. */
+.overview-how {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 28px;
+  margin: 0;
+  padding: 0;
+}
+.overview-how li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; }
+.overview-step {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--series-1);
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+
+/* Two columns, because a why card is an argument and reads badly at the page's full width. */
+.overview-why { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.overview-why article {
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 18px 20px;
+}
+.overview-why p { font-size: 14px; }
+
+.overview-cites { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; margin-top: 12px; }
+.overview-cites a { color: var(--text-muted); text-decoration: none; border-bottom: 1px solid var(--grid); }
+.overview-cites a:hover { color: var(--text-primary); }
+
+.chart-intro { padding: 36px 0 0; }
+.chart-intro p { color: var(--text-secondary); max-width: 76ch; margin: 0; }
 
 .flow-legend { margin: 18px 0 0; gap: 20px; }
 .flow-key {
@@ -1558,6 +1607,8 @@ mark {
   .stat .value { font-size: 22px; }
   .stat .label { font-size: 12px; line-height: 1.35; }
   .flow-scroll { margin: 8px -16px 0; padding: 0 16px 8px; }
+  .overview-how, .overview-why { grid-template-columns: minmax(0, 1fr); }
+  .overview-why article { padding: 14px 15px; }
 
   .panel { width: 100%; left: 0; border-left: none; }
   .panel-head { padding: 14px 16px 0; }
