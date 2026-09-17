@@ -160,6 +160,8 @@ export interface OverviewItem {
   // A single paragraph or node may be written bare; lib/overview.ts is what reads either form.
   detail: string | string[];
   node?: string | string[];
+  // Chart lanes this step is, scrolled to rather than opened.
+  stage?: string | string[];
   doc?: string[];
 }
 

@@ -3,6 +3,11 @@ import type { EdgeKind } from "../types";
 export type Point = [number, number];
 export type Curve = [Point, Point, Point, Point];
 
+// The chart draws one lane per stage; the overview scrolls to one by this id. Both spell it here.
+export function laneID(stage: string): string {
+  return `lane-${stage}`;
+}
+
 export function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
 }

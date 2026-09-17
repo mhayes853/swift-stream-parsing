@@ -1,8 +1,9 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { citations } from "./lib/overview";
+import { laneID } from "./lib/graph";
+import { citations, lanes } from "./lib/overview";
 import { content, pipeline, serveGenerated } from "./test/fixtures";
 
 describe("App", () => {
@@ -24,6 +25,17 @@ describe("App", () => {
       expect(screen.getByRole("heading", { name: item.title })).toBeInTheDocument();
     }
     await screen.findByText(String(content.stats.sectionCount));
+    for (const item of pipeline.overview.how) {
+      for (const lane of lanes(item, pipeline.stages)) {
+        expect(document.getElementById(laneID(lane.id)), lane.id).not.toBeNull();
+        expect(screen.getAllByRole("button", { name: `Scroll the chart to ${lane.title}` })).not.toHaveLength(0);
+      }
+    }
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
+    await user.click(screen.getAllByRole("button", { name: /^Scroll the chart to / })[0]);
+    expect(scrollTo).toHaveBeenCalled();
+
     const cited = pipeline.overview.why.flatMap((item) => citations(item, new Map(), pipeline.nodes))[0];
     await user.click(screen.getAllByRole("link", { name: cited.label })[0]);
     expect(await screen.findByRole("dialog", { name: cited.label })).toBeInTheDocument();

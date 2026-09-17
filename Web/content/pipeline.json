@@ -8,7 +8,8 @@
     "how": [
       {
         "title": "A chunk arrives, and the parser picks up mid-token",
-        "detail": "`parse(_:into:)` takes a pointer and a count and returns when those bytes are gone, not when the document is done. If the chunk ends inside a token the state machine simply stays there; a UTF-8 sequence cut in half is held in a single 64-bit field, a byte per lane, and completed against the next chunk's first bytes before the loop starts. `finish(into:)` is the other end, where a document ending in a number learns the number is over and an unclosed string or container is reported.",
+        "detail": "`parse(_:into:)` takes a pointer and a count, and returns when those bytes are gone rather than when the document ends. A chunk that stops inside a token leaves the state machine there; a UTF-8 sequence cut in half is held in one 64-bit field and completed against the next chunk's first bytes. `finish(into:)` is the other end, where a trailing number completes and an unclosed string or container is reported.",
+        "stage": "entry",
         "node": [
           "chunk-in",
           "buffering"
@@ -17,36 +18,36 @@
       {
         "title": "A switch over thirteen states, and structural bytes taken in runs",
         "detail": [
-          "In the release binary `parse` is 1284 bytes, 322 instructions, 18 calls and not one vector instruction: it decides what the next byte is and calls the function for that token class, each about a kilobyte of its own. A byte's cost is therefore usually that round trip rather than the work it does. So `},{\"` and `\":` — 20–25% of token dense JSON, and always in clusters — are consumed by a loop that stays in place while the state is still structural, and a literal, a number or a string that finishes inside the chunk is settled there too rather than re-entering the dispatcher.",
-          "For the length of a run the state, the depth and the container stack live in locals; the stack is one `UInt64` where bit *n* says whether the container at depth *n* is an object, which is sixty-four levels of nesting in a register and why deeper than that is rejected rather than spilled. Where the input is dense enough, one NEON classification of sixty-four bytes replaces the scans in front of each token and the walk visits set bits instead, on a grid that moves with completed tokens so that a string crossing byte 64 is finished by its own scanner. A fully windowed walk exists as well and is off by default: it loses 4–36% wherever the document is not structurally dense."
+          "`parse` is 1284 bytes, 322 instructions, 18 calls and no vector instruction: it decides what the next byte is and calls the function for that token class. A byte's cost is that round trip rather than its own work — so `},{\"` and `\":`, a fifth of token dense JSON and always in clusters, are taken by a loop that stays put while the state is structural, and a value that finishes inside the chunk is settled there too.",
+          "For the length of a run the state, the depth and the container stack sit in locals, the stack being one `UInt64` whose bit *n* says whether depth *n* is an object — which is why nesting stops at sixty-four rather than spilling. Where the input is dense one NEON classification of sixty-four bytes replaces the scans in front of each token. A fully windowed walk exists behind a threshold and is off by default: it loses 4–36% wherever a document is not structurally dense."
         ],
+        "stage": "dispatch",
         "node": [
           "dispatcher",
-          "state-ladder",
           "structural-run",
-          "in-run-values",
-          "structural-blocks",
-          "window-gate"
+          "structural-blocks"
         ]
       },
       {
         "title": "Whitespace and string content are scanned sixteen bytes at a time",
         "detail": [
-          "Every whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20, so a minified document answers the question with a single inline compare and never touches a vector; only what survives that test goes out of line to the SIMD16 scan. How much there is to find is a property of the document rather than of JSON — none of `canada` is whitespace and 71% of `citm_catalog` is.",
-          "String content is the same shape: one pass over sixteen bytes tests for the closing quote, a backslash and a control byte together, and the lane that hit is found with a movemask rather than a search. A simple escape is decoded inline and a `\\uXXXX` through a call, because five bytes of work can afford one and `\\n` cannot — spelling both inline cost an escape heavy payload 18.5%. Bytes that are not ASCII leave with the end index for a vector UTF-8 validator built out of three table lookups."
+          "Every whitespace byte is ≤ 0x20 and every byte that may legally follow one is > 0x20, so minified input settles the question with one inline compare and never touches a vector; only what survives goes out of line to the SIMD16 scan. None of `canada` is whitespace and 71% of `citm_catalog` is — how much there is to find is a property of the document, not of JSON.",
+          "Strings take the same shape: one pass over sixteen bytes tests the closing quote, a backslash and a control byte together, and a movemask names the lane that hit. A `\\n` is decoded inline and a `\\uXXXX` through a call — five bytes of work can afford one and one byte cannot, and spelling both inline cost an escape heavy payload 18.5%. Non-ASCII leaves with the end index, for a vector UTF-8 validator built out of three table lookups."
+        ],
+        "stage": [
+          "whitespace",
+          "strings"
         ],
         "node": [
           "whitespace-compare",
-          "whitespace-vector",
           "string-run",
-          "first-hit-lane",
-          "escapes",
-          "utf8"
+          "escapes"
         ]
       },
       {
         "title": "A number is scanned greedily, then parsed by the narrowest kernel that fits it",
-        "detail": "The scan finds the token's end in one pass, using the same fused movemask the string scan does. An unsigned integer of one to eight digits is then parsed with no loop and no data dependent branch, from the eight bytes *ending* at the token — those are already consumed input, so one `end >= 8` test makes the read safe and the bytes masked off become leading zeros. Floats are accumulated and finished by Eisel-Lemire instead of a `String` round trip. Either way the number is emitted once, whole, at the end of its token: `1`, `12`, `123` are not prefixes of the value the way partial string content is.",
+        "detail": "One pass finds the token's end. An unsigned integer of up to eight digits is parsed with no loop and no data dependent branch, from the eight bytes *ending* at the token: those are already consumed input, so one `end >= 8` test makes the read safe and the bytes masked off become leading zeros. Floats are accumulated and finished by Eisel-Lemire rather than a `String` round trip. Either way the number is emitted once and whole — `1`, `12`, `123` are not prefixes of the value the way partial string content is.",
+        "stage": "numbers",
         "node": [
           "number-scan",
           "short-integer",
@@ -55,24 +56,26 @@
       },
       {
         "title": "Finished tokens cross one boundary, and the destination may decline",
-        "detail": "A sink gets one call per token carrying a borrowed `Span<UInt8>`, and those calls do not throw: a rejection is recorded and read once per chunk. Opening a container returns a disposition, so a sink with no use for a subtree answers `.skip` and the parser scans past it at structural speed — brackets matched by kind, strings terminated, no keys resolved and no values built. The close always arrives even when the interior was skipped, so a sink is never left holding an unbalanced frame.",
+        "detail": "A sink gets one call per token carrying a borrowed `Span<UInt8>`, and those calls do not throw: a rejection is recorded and read once per chunk. Opening a container returns a disposition, so a sink with no use for a subtree answers `.skip` and the parser scans past it at structural speed — brackets matched by kind, no keys resolved, no values built. The close always arrives even then, so a sink is never left holding an unbalanced frame.",
+        "stage": "sink",
         "node": [
           "sink-protocol",
-          "dispositions",
-          "skip-run"
+          "dispositions"
         ]
       },
       {
         "title": "A key becomes a field by comparing words, into storage that can be read mid-parse",
         "detail": [
-          "Keys arrive whole, unescaped and validated, and are matched against precomputed 64-bit words — one or two compares for the overwhelming majority of real keys. `Dictionary` measured 7–8× slower, because `Hasher` runs at every lookup, and it is a non-starter for Embedded besides. The read happens in place, out of the parser's own buffer, using padding the buffer already had; what the macro emits per member is data rather than a closure — first word, length, byte offset, kind — so most fields are stored straight at `storage + offset`.",
-          "Frames hold pointers into the value being built, so every depth updates per byte instead of at the end. String bytes accumulate into blocks whose size doubles, and producing a `String` is a read rather than something the append path pays for. Reading a field while parsing continues is a borrowed view — a typed pointer the compiler will not let outlive the call that lent it — so a leaf can be read without materializing the levels above it."
+          "Keys arrive whole and are matched against precomputed 64-bit words, one or two compares for most real keys, where `Dictionary` measured 7–8× slower because `Hasher` runs at every lookup. The read happens in place out of the parser's buffer, using padding it already had, and what the macro emits per member is data rather than a closure — so most fields are stored straight at `storage + offset`.",
+          "Frames hold pointers into the value being built, so every depth updates per byte. String bytes accumulate in blocks whose size doubles, and producing a `String` is a read. Reading a field while parsing continues is a borrowed view the compiler will not let outlive the call that lent it, so a leaf can be read without materializing the levels above it."
+        ],
+        "stage": [
+          "routing",
+          "storage"
         ],
         "node": [
           "keys",
           "field-table",
-          "partial-sink",
-          "stream-string",
           "views"
         ]
       }

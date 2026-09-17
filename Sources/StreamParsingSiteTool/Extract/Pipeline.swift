@@ -37,6 +37,9 @@ struct Pipeline: Decodable {
       var detail: [String]
       /// The nodes this is visible at, linked so the card opens them. Validated against the graph.
       var node: [String]
+      /// The chart lanes this step *is*, linked so the reader can go look at it rather than take
+      /// the prose's word for it. Validated against the stage list.
+      var stage: [String]
       /// Doc slugs, validated exactly as a node's `evidence.doc` is.
       var doc: [String]?
 
@@ -48,6 +51,7 @@ struct Pipeline: Decodable {
         doc = try keyed.decodeIfPresent([String].self, forKey: .doc)
         detail = try Self.list(keyed, .detail) ?? []
         node = try Self.list(keyed, .node) ?? []
+        stage = try Self.list(keyed, .stage) ?? []
       }
 
       static func list(
@@ -57,7 +61,7 @@ struct Pipeline: Decodable {
         return try container.decodeIfPresent([String].self, forKey: key)
       }
 
-      enum CodingKeys: String, CodingKey { case title, detail, node, doc }
+      enum CodingKeys: String, CodingKey { case title, detail, node, stage, doc }
     }
   }
 
@@ -170,7 +174,8 @@ struct ReferenceReport {
     }
     Self.reportDuplicates(pipeline.stages.map(\.id), kind: "stage", into: &report)
     Self.reportDuplicates(pipeline.nodes.map(\.id), kind: "node", into: &report)
-    Self.validateOverview(pipeline.overview, nodeIDs: nodeIDs, paths: paths, into: &report)
+    Self.validateOverview(
+      pipeline.overview, nodeIDs: nodeIDs, stageIDs: stageIDs, paths: paths, into: &report)
 
     for node in pipeline.nodes {
       let at = "node '\(node.id)'"
@@ -219,7 +224,7 @@ struct ReferenceReport {
   /// Its cards cite the graph and the log rather than restating them, so the same rename that
   /// breaks a node's evidence breaks this too -- which is the point of citing at all.
   static func validateOverview(
-    _ overview: Pipeline.Overview, nodeIDs: Set<String>, paths: Set<String>,
+    _ overview: Pipeline.Overview, nodeIDs: Set<String>, stageIDs: Set<String>, paths: Set<String>,
     into report: inout ReferenceReport
   ) {
     if overview.lede.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
@@ -238,6 +243,9 @@ struct ReferenceReport {
         }
         for node in item.node where !nodeIDs.contains(node) {
           report.errors.append(Self.referenceError(node, kind: "node", at: at, in: nodeIDs))
+        }
+        for stage in item.stage where !stageIDs.contains(stage) {
+          report.errors.append(Self.referenceError(stage, kind: "stage", at: at, in: stageIDs))
         }
         for slug in item.doc ?? [] where !paths.contains(slug) {
           report.errors.append(Self.referenceError(slug, kind: "doc section", at: at, in: paths))

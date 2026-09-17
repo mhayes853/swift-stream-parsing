@@ -1,4 +1,4 @@
-import type { DocSection, OverviewItem, PipelineNode } from "../types";
+import type { DocSection, OverviewItem, PipelineNode, PipelineStage } from "../types";
 import { repoURL } from "./evidence";
 import { formatRoute } from "./route";
 
@@ -8,6 +8,17 @@ function list(value: string | string[] | undefined): string[] {
 
 export function paragraphs(item: OverviewItem): string[] {
   return list(item.detail);
+}
+
+/**
+ * The chart lanes a step is drawn in, in the order the chart draws them.
+ *
+ * These are not links: a lane is part of the page already, so the citation scrolls to it rather
+ * than navigating, and a stage the chart no longer has is dropped the way a doc slug would be.
+ */
+export function lanes(item: OverviewItem, stages: readonly PipelineStage[]): PipelineStage[] {
+  const wanted = list(item.stage);
+  return stages.filter((stage) => wanted.includes(stage.id));
 }
 
 export interface OverviewCitation {

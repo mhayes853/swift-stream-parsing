@@ -1,5 +1,13 @@
-import { citations, paragraphs } from "../lib/overview";
-import type { DocSection, Overview as OverviewContent, OverviewItem, PipelineNode } from "../types";
+import { laneID } from "../lib/graph";
+import { citations, lanes, paragraphs } from "../lib/overview";
+import type {
+  DocSection,
+  Overview as OverviewContent,
+  OverviewItem,
+  PipelineNode,
+  PipelineStage
+} from "../types";
+import { useMediaQuery } from "./hooks";
 import { inline } from "./Markdown";
 
 export function Lede({ paragraphs: text }: { paragraphs: string[] }) {
@@ -18,9 +26,10 @@ interface Part {
   overview: OverviewContent;
   sections: Map<string, DocSection>;
   nodes: readonly PipelineNode[];
+  stages?: readonly PipelineStage[];
 }
 
-export function How({ overview, sections, nodes }: Part) {
+export function How({ overview, sections, nodes, stages = [] }: Part) {
   return (
     <section className="overview">
       <h2 className="panel-rule">How it works</h2>
@@ -30,7 +39,7 @@ export function How({ overview, sections, nodes }: Part) {
             <span className="overview-step" aria-hidden="true">
               {i + 1}
             </span>
-            <Item item={item} sections={sections} nodes={nodes} />
+            <Item item={item} sections={sections} nodes={nodes} stages={stages} />
           </li>
         ))}
       </ol>
@@ -54,16 +63,29 @@ export function Why({ overview, sections, nodes }: Part) {
   );
 }
 
+// Measured rather than `scrollIntoView`, so the lane lands below the sticky top bar instead of
+// underneath it.
+function scrollToLane(stage: string, instant: boolean) {
+  const lane = document.getElementById(laneID(stage));
+  if (!lane) return;
+  const top = lane.getBoundingClientRect().top + window.scrollY - 76;
+  window.scrollTo({ top, behavior: instant ? "auto" : "smooth" });
+}
+
 function Item({
   item,
   sections,
-  nodes
+  nodes,
+  stages = []
 }: {
   item: OverviewItem;
   sections: Map<string, DocSection>;
   nodes: readonly PipelineNode[];
+  stages?: readonly PipelineStage[];
 }) {
   const cites = citations(item, sections, nodes);
+  const rows = lanes(item, stages);
+  const instant = useMediaQuery("(prefers-reduced-motion: reduce)");
   // One element, because a `how` item sits in the second column of its row's grid.
   return (
     <div className="overview-item">
@@ -71,6 +93,21 @@ function Item({
       {paragraphs(item).map((p, i) => (
         <p key={i}>{inline(p, `d${i}-${item.title}`)}</p>
       ))}
+      {rows.length > 0 && (
+        <p className="overview-lanes">
+          <span>In the chart</span>
+          {rows.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              aria-label={`Scroll the chart to ${row.title}`}
+              onClick={() => scrollToLane(row.id, instant)}
+            >
+              {row.title} ↓
+            </button>
+          ))}
+        </p>
+      )}
       {cites.length > 0 && (
         <p className="overview-cites">
           {cites.map((cite) =>

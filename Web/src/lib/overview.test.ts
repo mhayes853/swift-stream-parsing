@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { content, pipeline, section } from "../test/fixtures";
 import type { PipelineNode } from "../types";
 import { sectionsByPath } from "./evidence";
-import { citations, paragraphs } from "./overview";
+import { citations, lanes, paragraphs } from "./overview";
 
 const runs = section({ title: "Runs, not bytes", line: 58 });
 const byPath = sectionsByPath([runs]);
@@ -40,6 +40,20 @@ describe("citations", () => {
 
   it("drops what does not resolve rather than drawing a dead link", () => {
     expect(citations({ title: "a", detail: "d", node: "renamed", doc: ["gone"] }, byPath, nodes)).toEqual([]);
+  });
+
+  it("names the chart's lanes in the chart's order, and drops one it no longer has", () => {
+    const stages = pipeline.stages;
+    const item = { title: "a", detail: "d", stage: ["strings", "entry", "renamed"] };
+    expect(lanes(item, stages).map((s) => s.id)).toEqual(["entry", "strings"]);
+    expect(lanes({ title: "a", detail: "d" }, stages)).toEqual([]);
+  });
+
+  it("resolves every lane the real overview points at", () => {
+    for (const item of pipeline.overview.how) {
+      const wanted = typeof item.stage === "string" ? 1 : (item.stage?.length ?? 0);
+      expect(lanes(item, pipeline.stages).length, item.title).toBe(wanted);
+    }
   });
 
   it("resolves every citation in the real overview", () => {

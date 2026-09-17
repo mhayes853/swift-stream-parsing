@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NODE_H, PAD, cardBox, layoutFlow, leaderPath, rowRuleY } from "../lib/flowLayout";
 import type { PlacedNode } from "../lib/flowLayout";
-import { DASH, neighbours, wrap } from "../lib/graph";
+import { DASH, laneID, neighbours, wrap } from "../lib/graph";
 import type { DocSection, Pipeline, PipelineNode } from "../types";
 import { EdgeLabel } from "./EdgeLabel";
 import { EdgeList } from "./EdgeList";
@@ -69,7 +69,7 @@ export function FlowChart({
           </defs>
 
           {layout.rows.map((row, i) => (
-            <g key={row.stage.id}>
+            <g key={row.stage.id} id={laneID(row.stage.id)}>
               <line
                 x1={geo.laneW + PAD - 12}
                 y1={rowRuleY(row)}

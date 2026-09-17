@@ -81,7 +81,12 @@ export function App() {
               </div>
             </section>
 
-            <How overview={pipeline.overview} sections={sections} nodes={pipeline.nodes} />
+            <How
+              overview={pipeline.overview}
+              sections={sections}
+              nodes={pipeline.nodes}
+              stages={pipeline.stages}
+            />
 
             <section className="chart-intro">
               <h2 className="panel-rule">The whole path, drawn</h2>
