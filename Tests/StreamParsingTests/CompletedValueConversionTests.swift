@@ -1,11 +1,12 @@
 import StreamParsing
-import Synchronization
 import Testing
+
+@testable import StreamParsingCore
 
 private enum ConversionTestError: Error { case invalid }
 private enum TextConversion: StreamCompletedValueConversion {
   typealias Source = StreamString
-  static let calls = Mutex((to: 0, from: 0))
+  static let calls = _StreamLock((to: 0, from: 0))
   static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> String
   {
     calls.withLock { $0.to += 1 }
@@ -35,7 +36,7 @@ private enum BooleanConversion: StreamCompletedValueConversion {
 }
 private enum PairConversion: StreamCompletedValueConversion {
   typealias Source = StreamArray<Int>
-  static let calls = Mutex(0)
+  static let calls = _StreamLock(0)
   static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> Int {
     calls.withLock { $0 += 1 }
     guard source.count == 2 else { throw ConversionTestError.invalid }
