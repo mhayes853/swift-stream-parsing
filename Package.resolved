@@ -1,5 +1,5 @@
 {
-  "originHash" : "8886f5566e8320310f835687cb6070439120584d32a0085154a3389663fe13b4",
+  "originHash" : "f61706975d88f1c8239440a01bdf1ef7b35739060a6bfe97c79b76f23bc29ce7",
   "pins" : [
     {
       "identity" : "swift-custom-dump",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-snapshot-testing",
       "state" : {
-        "revision" : "a8b7c5e0ed33d8ab8887d1654d9b59f2cbad529b",
-        "version" : "1.18.7"
+        "revision" : "59a99c458de4d2dee580529b61b4f78dca7b7fa6",
+        "version" : "1.19.4"
       }
     },
     {
@@ -62,15 +62,6 @@
       "state" : {
         "revision" : "31073495cae9caf243c440eac94b3ab067e3d7bc",
         "version" : "1.8.0"
-      }
-    },
-    {
-      "identity" : "yams",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jpsim/Yams",
-      "state" : {
-        "revision" : "deaf82e867fa2cbd3cd865978b079bfcf384ac28",
-        "version" : "6.2.1"
       }
     }
   ],

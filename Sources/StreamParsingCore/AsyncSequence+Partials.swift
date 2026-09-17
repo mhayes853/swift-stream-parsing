@@ -1,191 +1,200 @@
+// Embedded Swift has no AsyncSequence in the 6.3 SDK, and a target with no scheduler has no
+// async byte stream to consume. Gated so the rest of the core stays Embedded clean.
+#if !hasFeature(Embedded)
 extension AsyncSequence where Element == UInt8 {
   /// Incrementally parses bytes as a value in an async sequence.
   ///
   /// ```swift
-  /// @StreamParseable
-  /// struct MyModel {
-  ///   // ...
-  /// }
-  ///
-  /// let partials = sequence.partials(of: MyModel.self, from: .json())
-  /// for try await partial in partials {
+  /// for try await partial in sequence.partials(of: MyModel.self, from: .json()) {
   ///   print(partial)
   /// }
   /// ```
   ///
   /// - Parameters:
   ///   - type: The value type describing each partial state.
-  ///   - parser: The parser to drive from the async bytes.
+  ///   - format: The format describing the parser to drive from the async bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Parseable: StreamParseable, Parser>(
+  public func partials<Parseable: StreamParseable>(
     of type: Parseable.Type,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable.Partial, Parser, Self, CollectionOfOne<UInt8>> {
-    self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Parseable.Partial, Self, CollectionOfOne<UInt8>> {
+    self.partials(initialValue: Parseable.Partial.streamInitialValue(), from: format)
   }
 
   /// Incrementally parses bytes as a value in an async sequence.
   ///
-  /// ```swift
-  /// @StreamParseable
-  /// struct MyModel {
-  ///   // ...
-  /// }
-  ///
-  /// let partials = sequence.partials(of: MyModel.Partial.self, from: .json())
-  /// for try await partial in partials {
-  ///   print(partial)
-  /// }
-  /// ```
-  ///
   /// - Parameters:
   ///   - type: The value type describing each partial state.
-  ///   - parser: The parser to drive from the async bytes.
+  ///   - format: The format describing the parser to drive from the async bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value, Parser>(
+  @_disfavoredOverload
+  public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
-    self.partials(initialValue: type.initialParseableValue(), from: parser)
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Value, Self, CollectionOfOne<UInt8>> {
+    self.partials(initialValue: Value.streamInitialValue(), from: format)
   }
 
   /// Incrementally parses bytes as a value in an async sequence.
   ///
   /// - Parameters:
   ///   - initialValue: The value state to resume parsing from.
-  ///   - parser: The parser that consumes the incoming bytes.
+  ///   - format: The format describing the parser that consumes the incoming bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value, Parser>(
+  public func partials<Value: StreamParseableRoot>(
     initialValue: Value,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Value, Parser, Self, CollectionOfOne<UInt8>> {
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Value, Self, CollectionOfOne<UInt8>> {
     AsyncPartialsSequence(
       base: self,
-      parser: parser,
+      format: format,
       initialValue: initialValue,
-      bytesPath: \.collection
+      bytes: { CollectionOfOne($0) }
     )
   }
 }
 
 extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
-  /// Incrementally parses bytes as a value in an async sequence.
-  ///
-  /// ```swift
-  /// @StreamParseable
-  /// struct MyModel {
-  ///   // ...
-  /// }
-  ///
-  /// let partials = sequence.partials(of: MyModel.self, from: .json())
-  /// for try await partial in partials {
-  ///   print(partial)
-  /// }
-  /// ```
+  /// Incrementally parses chunks of bytes as a value in an async sequence.
   ///
   /// - Parameters:
   ///   - type: The value type describing each partial state.
-  ///   - parser: The parser that processes the collected sequences.
+  ///   - format: The format describing the parser that processes the collected sequences.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Parseable: StreamParseable, Parser>(
+  public func partials<Parseable: StreamParseable>(
     of type: Parseable.Type,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Parseable.Partial, Parser, Self, Element> {
-    self.partials(initialValue: type.Partial.initialParseableValue(), from: parser)
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Parseable.Partial, Self, Element> {
+    self.partials(initialValue: Parseable.Partial.streamInitialValue(), from: format)
   }
 
-  /// Incrementally parses a chunk of byte as a value in an async sequence.
-  ///
-  /// ```swift
-  /// @StreamParseable
-  /// struct MyModel {
-  ///   // ...
-  /// }
-  ///
-  /// let partials = sequence.partials(of: MyModel.Partial.self, from: .json())
-  /// for try await partial in partials {
-  ///   print(partial)
-  /// }
-  /// ```
+  /// Incrementally parses chunks of bytes as a value in an async sequence.
   ///
   /// - Parameters:
   ///   - type: The value type represented by each partial.
-  ///   - parser: The parser that processes the collected sequences.
+  ///   - format: The format describing the parser that processes the collected sequences.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value, Parser>(
+  @_disfavoredOverload
+  public func partials<Value: StreamParseableRoot>(
     of type: Value.Type,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
-    self.partials(initialValue: type.initialParseableValue(), from: parser)
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Value, Self, Element> {
+    self.partials(initialValue: Value.streamInitialValue(), from: format)
   }
 
-  /// Incrementally parses a chunk of byte as a value in an async sequence.
+  /// Incrementally parses chunks of bytes as a value in an async sequence.
   ///
   /// - Parameters:
   ///   - initialValue: The value state to parse from.
-  ///   - parser: The parser that consumes each chunk of bytes.
+  ///   - format: The format describing the parser that consumes each chunk of bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value, Parser>(
+  public func partials<Value: StreamParseableRoot>(
     initialValue: Value,
-    from parser: Parser
-  ) -> AsyncPartialsSequence<Value, Parser, Self, Element> {
-    AsyncPartialsSequence(
-      base: self,
-      parser: parser,
-      initialValue: initialValue,
-      bytesPath: \.self
-    )
+    from format: JSONStreamFormat
+  ) -> AsyncPartialsSequence<Value, Self, Element> {
+    AsyncPartialsSequence(base: self, format: format, initialValue: initialValue, bytes: { $0 })
   }
 }
 
-/// An `AsyncSequence` that incrementally parses a byte stream.
+final class AsyncPartialsSubscriber: Sendable {}
+
+actor AsyncPartialsSubscription {
+  private var subscriber: AsyncPartialsSubscriber?
+
+  func claim(_ subscriber: AsyncPartialsSubscriber) -> Bool {
+    if let currentSubscriber = self.subscriber {
+      return currentSubscriber === subscriber
+    } else {
+      self.subscriber = subscriber
+      return true
+    }
+  }
+}
+
+/// A single-subscriber `AsyncSequence` that emits a partial after each input element and one
+/// finalized value when the input ends.
+///
+/// The first iterator to request an element owns the sequence. A different iterator throws
+/// ``StreamParsingError/multipleSubscribers`` when it requests an element. Copies of the owning
+/// iterator share its position and remain part of the same subscription.
+/// After an iterator throws, subsequent requests through it or its copies return `nil`.
 public struct AsyncPartialsSequence<
-  Element: StreamParseableValue,
-  Parser: StreamParser<Element>,
+  Element: StreamParseableRoot,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
 >: AsyncSequence {
   let base: Base
-  let parser: Parser
+  let format: JSONStreamFormat
   let initialValue: Element
-  let bytesPath: KeyPath<Base.Element, Seq> & Sendable
+  let bytes: @Sendable (Base.Element) -> Seq
+  let subscription = AsyncPartialsSubscription()
+
+  // Iterators must be copyable; the box makes copies share the base iterator and the stream.
+  final class Box<State> {
+    let base: Base
+    let subscriber = AsyncPartialsSubscriber()
+    var baseIterator: Base.AsyncIterator?
+    var stream: PartialsStream<Element>
+    var hasClaimedSubscription: Bool?
+    var hasTerminated = false
+    var state: State
+
+    init(base: Base, stream: consuming PartialsStream<Element>, state: State) {
+      self.state = state
+      self.base = base
+      self.stream = stream
+    }
+
+    func nextBaseElement() async throws -> Base.Element? {
+      if self.baseIterator == nil {
+        self.baseIterator = self.base.makeAsyncIterator()
+      }
+      return try await self.baseIterator?.next()
+    }
+  }
 
   public struct AsyncIterator: AsyncIteratorProtocol {
-    var baseIterator: Base.AsyncIterator
-    var stream: PartialsStream<Element, Parser>
-    let bytesPath: KeyPath<Base.Element, Seq> & Sendable
+    let box: Box<Void>
+    let subscription: AsyncPartialsSubscription
+    let bytes: @Sendable (Base.Element) -> Seq
 
     public mutating func next() async throws -> Element? {
-      guard let nextValue = try await self.baseIterator.next() else {
-        try self.stream.finish()
-        return nil
+      guard !self.box.hasTerminated else { return nil }
+      do {
+        if self.box.hasClaimedSubscription == nil {
+          self.box.hasClaimedSubscription = await self.subscription.claim(self.box.subscriber)
+        }
+        guard self.box.hasClaimedSubscription == true else {
+          throw StreamParsingError.multipleSubscribers
+        }
+        guard let nextValue = try await self.box.nextBaseElement() else {
+          self.box.hasTerminated = true
+          return try self.box.stream.finish()
+        }
+        try self.box.stream.next(self.bytes(nextValue))
+        return self.box.stream.current
+      } catch {
+        // AsyncIteratorProtocol requires nil after any error, including an upstream error or
+        // a refused subscription. Keep this in the box so iterator copies terminate together.
+        self.box.hasTerminated = true
+        throw error
       }
-      return try self.stream.next(nextValue[keyPath: self.bytesPath])
     }
   }
 
   public func makeAsyncIterator() -> AsyncIterator {
     AsyncIterator(
-      baseIterator: self.base.makeAsyncIterator(),
-      stream: PartialsStream(
-        initialValue: self.initialValue,
-        from: self.parser
+      box: Box(
+        base: self.base,
+        stream: PartialsStream(initialValue: self.initialValue, from: self.format),
+        state: ()
       ),
-      bytesPath: self.bytesPath
+      subscription: self.subscription,
+      bytes: self.bytes
     )
   }
 }
 
 extension AsyncPartialsSequence: Sendable
-where Element: Sendable, Parser: Sendable, Base: Sendable, Seq: Sendable {}
-
-extension AsyncPartialsSequence.AsyncIterator: Sendable
-where Element: Sendable, Parser: Sendable, Base.AsyncIterator: Sendable, Seq: Sendable {}
-
-// MARK: - Helpers
-
-extension UInt8 {
-  fileprivate var collection: CollectionOfOne<Self> {
-    CollectionOfOne(self)
-  }
-}
+where Element: Sendable, Base: Sendable, Seq: Sendable {}
+#endif
