@@ -104,7 +104,12 @@ typed storage; nested/computed path selection is explicitly unsupported in this 
    make selective consumers easier to write. An explicitly owned batch type would support queues
    and replay beyond a borrowed callback. Document that today's `.skip` validates only structure
    and that the batching adapter does not honor skips or retain original event end offsets.
-5. **Explicit string-backed conversions.** Add opt-in strategies/wrappers for UUID, URL, dates,
+5. **Completed-value conversions (implemented and generalized).** The two-way
+   `StreamCompletedValueConversion` protocol and `@StreamParseableMember(completedConversion:)`
+   now support string, number, boolean, array, and object sources. See
+   [COMPLETED_VALUE_CONVERSIONS.md](COMPLETED_VALUE_CONVERSIONS.md). Concrete UUID/URL/date/base64
+   strategies remain separate follow-ups. The original proposal:
+   **Explicit string-backed conversions.** Add opt-in strategies/wrappers for UUID, URL, dates,
    and base64 data, converting only at a complete-token boundary. Appending fragments directly
    into these types cannot represent intermediate states; keep raw partial text available and
    define invalid-completed-value errors separately from missing values.

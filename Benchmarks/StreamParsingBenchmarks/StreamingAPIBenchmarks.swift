@@ -268,4 +268,55 @@ func streamingAPIBenchmarks() {
     project: { $0.summary?.value },
     field: expectParses { try ObservedFieldPath(\BenchmarkQwen3StructuredResponse.Partial.summary) }
   )
+  addCompletedConversionRows("Qwen 3 search tool call", payload: Payloads.qwen3SearchToolCall,
+    plain: BenchmarkQwen3ToolCall.Partial.self, converted: ConvertedToolCall.Partial.self)
+  addCompletedConversionRows("Qwen 3 workspace edit tool call", payload: Payloads.qwen3WorkspaceEditToolCall,
+    plain: BenchmarkQwen3ToolCall.Partial.self, converted: ConvertedToolCall.Partial.self)
+  addCompletedConversionRows("Qwen 3 structured response", payload: Payloads.qwen3StructuredResponse,
+    plain: BenchmarkQwen3StructuredResponse.Partial.self, converted: ConvertedStructuredResponse.Partial.self)
+
+}
+
+
+private enum CompletedString: StreamCompletedValueConversion {
+  typealias Source = StreamString
+  static func convertToValue(_ source: borrowing Source.View) -> String { String(source.value) }
+  static func convertFromValue(_ value: String) -> StreamString { StreamString(value) }
+}
+
+@StreamParseable
+private struct ConvertedToolCall {
+  @StreamParseableMember(completedConversion: CompletedString.self)
+  var name: String = ""
+  var arguments: BenchmarkQwen3ToolArguments = BenchmarkQwen3ToolArguments()
+}
+
+@StreamParseable
+private struct ConvertedStructuredResponse {
+  @StreamParseableMember(completedConversion: CompletedString.self)
+  var summary: String = ""
+  var findings: [BenchmarkQwen3Finding] = []
+  var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
+}
+
+private func addCompletedConversionRows<Plain: StreamParseableRoot, Converted: StreamParseableRoot>(
+  _ name: String, payload: [UInt8], plain: Plain.Type, converted: Converted.Type
+) {
+  let input = chunks(payload, size: 64)
+  func add<Value: StreamParseableRoot>(_ mode: String, _ type: Value.Type) {
+    Benchmark("Conversion \(mode) \(name) - 64B chunks", configuration: payloadConfiguration) { benchmark in
+      measurePayloadThroughput(benchmark, payload: payload) {
+        expectParses {
+          var stream = PartialsStream<Value>(from: .json())
+          for chunk in input {
+            try stream.next(chunk)
+            blackHole(stream.current)
+          }
+          blackHole(try stream.finish())
+        }
+      }
+    }
+  }
+  add("source", plain)
+  add("completed", converted)
 }

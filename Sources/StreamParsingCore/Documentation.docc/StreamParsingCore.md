@@ -215,3 +215,24 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
 - `StreamParsingTagged` interops the library with `Tagged`.
 - `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+
+## Completed-value conversions
+
+Use `@StreamParseableMember(completedConversion: Strategy.self)` to parse one representation
+and expose a different model type. A ``StreamCompletedValueConversion`` declares a source
+root type and implements `convertToValue(_:)` and `convertFromValue(_:)`.
+
+```swift
+@StreamParseable
+struct Event {
+  @StreamParseableMember(completedConversion: UnixSeconds.self)
+  var createdAt: Date = Date(timeIntervalSince1970: 0)
+}
+```
+
+The generated partial stores ``ConvertedPartial``. Its `source` updates incrementally; its
+`value` is cached after the complete string, number, boolean, array, or object is validated
+and converted. Nonoptional converted members need a declared default for total model
+conversion. Optional members preserve the existing missing/null behavior; `observeField`
+can distinguish those states. Model-to-partial conversion calls `convertFromValue`, without
+repeating `convertToValue`. Strategies and converted partials are unavailable in Embedded Swift.

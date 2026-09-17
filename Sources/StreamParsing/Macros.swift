@@ -98,3 +98,42 @@ public enum PartialMembersMode: Hashable, Sendable {
   /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
   case streamInitialValue
 }
+
+#if !hasFeature(Embedded)
+  /// Converts a member's source representation once its JSON value completes.
+  ///
+  /// ```swift
+  /// @StreamParseable struct Event {
+  ///   @StreamParseableMember(completedConversion: UnixSeconds.self)
+  ///   var createdAt: Date = Date(timeIntervalSince1970: 0)
+  /// }
+  /// ```
+  /// The strategy's `Value` must match the member's unwrapped type. The generated partial
+  /// stores `ConvertedPartial<Conversion>` and exposes incremental `source` and cached `value`.
+  /// Nonoptional members require an explicit default for `init(orInitial:)`. Null clears an
+  /// optional partial; use `observeField` to distinguish null from missing input. Capacity hints
+  /// are not supported on converted members. Conversion strategies are unavailable in Embedded.
+  /// - Parameter completedConversion: The two-way, completed-value conversion strategy.
+  @attached(peer)
+  public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
+    completedConversion: Conversion.Type
+  ) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
+  /// Selects a JSON key and a completed-value conversion. See `StreamParseableMember(completedConversion:)`.
+  /// - Parameters:
+  ///   - key: The JSON member name.
+  ///   - completedConversion: The two-way conversion strategy for the member.
+  @attached(peer)
+  public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
+    key: String, completedConversion: Conversion.Type
+  ) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+
+  /// Selects JSON key aliases and a completed-value conversion.
+  /// - Parameters:
+  ///   - keyNames: JSON names that route to the same member.
+  ///   - completedConversion: The two-way conversion strategy for the member.
+  @attached(peer)
+  public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
+    keyNames: [String], completedConversion: Conversion.Type
+  ) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
+#endif

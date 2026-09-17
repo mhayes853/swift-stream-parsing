@@ -233,6 +233,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.frames.deinitialize(count: self.frameCount)
     self.frameCount = 0
     self.droppedFrameCount = 0
+    self.completedValues.removeAll(keepingCapacity: true)
     self.scalarTarget = nil
     self.homogeneousStringStorage = nil
     self.inlineStringStorage = nil
@@ -263,6 +264,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     var frame = initialFrame
+    if frame.withSchema({ $0.completedValue != nil }) {
+      frame = self.openCompletedValue(frame)
+    }
     frame.routeBits = frame.schema.routeBits
     if frame.leafRoute.usesFrameElementIndex {
       // Objects use this field for a matched member. A fixed-width array has no keys, so the same
@@ -300,11 +304,39 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     guard self.frameCount > 0 else { return }
+    if !self.completedValues.isEmpty { self.finishCompletedValues() }
     self.frameCount &-= 1
     (self.frames + self.frameCount).deinitialize(count: 1)
     self.activeRouteBits = self.frameCount == 0
       ? 0
       : (self.frames + (self.frameCount &- 1)).pointee.routeBits
+  }
+
+  // Outlined so ordinary push/pop do not carry conversion ownership and stack bookkeeping.
+  @inline(never)
+  private mutating func openCompletedValue(_ initialFrame: BorrowedFrame) -> BorrowedFrame {
+    var frame = initialFrame
+    while let hooks = frame.schema.completedValue {
+      self.completedValues.append(
+        _StreamPendingCompletedValue(depth: self.frameCount + 1, storage: frame.storage, hooks: hooks)
+      )
+      frame = BorrowedFrame(storage: hooks.begin(frame.storage), schema: hooks.source)
+      #if DEBUG && !hasFeature(Embedded)
+        self.audit.record(hooks.source)
+      #endif
+    }
+    return frame
+  }
+
+  @inline(never)
+  private mutating func finishCompletedValues() {
+    while self.completedValues.last?.depth == self.frameCount {
+      let completed = self.completedValues.removeLast()
+      if self.streamFailure == nil {
+        let result = completed.hooks.finish(completed.storage)
+        if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+      }
+    }
   }
 
   // MARK: Containers
@@ -607,6 +639,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   }
 
   public mutating func stringEnd() {
+    if self.stringResultRaw == 0, let target = self.scalarTarget {
+      let result = target.withSchema {
+        $0.finishString?(target.storage, target.field) ?? .applied
+      }
+      self.stringResultRaw = result.rawValue
+    }
     self.homogeneousStringStorage = nil
     self.inlineStringStorage = nil
     self.scalarTarget = nil
@@ -614,9 +652,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // Once per string value rather than per chunk, which is what makes the fold above worth it.
     if self.stringResultRaw != 0 {
       self.recordFailure(
-        self.stringResultRaw == StreamApplyResult.capacityExceeded.rawValue
-          ? .capacityExceeded
-          : .typeMismatch
+        Self.failureReason(for: StreamApplyResult(rawValue: self.stringResultRaw)!)
       )
       self.stringResultRaw = 0
     }
@@ -647,6 +683,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           }
           if bytes.count > 0 {
             let result = top.pointee.schema.applyString(top.pointee.storage, field, bytes)
+            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
+          }
+          if self.streamFailure == nil {
+            let result = top.pointee.schema.finishString?(top.pointee.storage, field) ?? .applied
             if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
           }
         }
@@ -840,6 +880,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // The open string value's worst result so far, as a raw value so chunks can fold into it
   // without branching. Read and reset once per value in `stringEnd`.
   @usableFromInline var stringResultRaw: UInt8 = 0
+
+  // Kept after the existing hot fields. Ordinary parsing never allocates this stack.
+  @usableFromInline var completedValues: [_StreamPendingCompletedValue] = []
 
   @inline(never)
   private mutating func openKnownStreamStringTarget(
@@ -1355,6 +1398,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           .streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
       }
       self.homogeneousStringStorage = storage
+      self.scalarTarget = nil
       return .applied
     case .inlineString:
       if entry.pointee.isOptional {
@@ -1404,9 +1448,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       let opened = frame.pointee.schema.applyString(storage, entry.pointee.index, Span())
       if opened != .applied { return opened }
       if bytes.count > 0 {
-        return frame.pointee.schema.applyString(storage, entry.pointee.index, bytes)
+        let result = frame.pointee.schema.applyString(storage, entry.pointee.index, bytes)
+        if result != .applied { return result }
       }
-      return .applied
+      return frame.pointee.schema.finishString?(storage, entry.pointee.index) ?? .applied
     default:
       return .unsupported
     }
@@ -1488,6 +1533,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   static func failureReason(for result: StreamApplyResult) -> StreamSinkFailure.Reason {
     switch result {
     case .capacityExceeded: .capacityExceeded
+    case .conversionFailed: .conversionFailed
     default: .typeMismatch
     }
   }

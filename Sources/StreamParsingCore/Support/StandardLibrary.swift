@@ -266,6 +266,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyNull(storage, field)
       },
+      finishString: wrapped.finishString,
       enterField: { storage, field in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterField(storage, field)
@@ -290,7 +291,8 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
       fixedElementCount: wrapped.fixedElementCount,
       // No materialising closure in front of the table's store: `prepareRoot` materialises the
       // optional root before any frame is pushed over it.
-      fields: wrapped.fields
+      fields: wrapped.fields,
+      completedValue: wrapped.completedValue
     )
   }
 }
