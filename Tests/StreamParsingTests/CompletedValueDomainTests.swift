@@ -8,7 +8,8 @@ private struct ConvertedPoint: Sendable, Equatable {
 private enum PointConversion: StreamCompletedValueConversion {
   typealias Source = StreamArray<Double>
   enum InvalidPoint: Error { case arity }
-  static func convertToValue(_ source: borrowing Source.View) throws -> ConvertedPoint {
+  static func convertToValue(_ source: borrowing Source.View) throws(InvalidPoint) -> ConvertedPoint
+  {
     guard source.count == 2 else { throw InvalidPoint.arity }
     return ConvertedPoint(x: source[0]!.value, y: source[1]!.value)
   }

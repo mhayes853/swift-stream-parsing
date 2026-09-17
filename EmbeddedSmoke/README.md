@@ -34,6 +34,11 @@ What it covers:
   that allocates.
 - Every count and checksum is compared across chunk sizes 7, 3 and 1 as well as the whole
   document, because resumability breaks the same way on a microcontroller as anywhere else.
+- Completed-value conversions exercise typed failures, retained concrete errors, reverse conversion,
+  and nonthrowing strategies with an inferred `Never` error type. A small scalar sink forwards
+  parser tokens directly to the conversion schema; using `PartialSink` also pulls in floating-point
+  runtime symbols (`_swift_stdlib_strtod_clocale` / `_swift_stdlib_strtof_clocale`) missing from
+  the installed 6.3.2 wasm SDK.
 - A malformed document has to be rejected here too, so typed `throws` is exercised rather than
   assumed.
 

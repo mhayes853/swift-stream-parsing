@@ -12,7 +12,7 @@ import StreamParsing
 enum UnixSeconds: StreamCompletedValueConversion {
   typealias Source = Double
 
-  static func convertToValue(_ source: borrowing Source.View) throws -> Date {
+  static func convertToValue(_ source: borrowing Source.View) throws(InvalidTimestamp) -> Date {
     guard source.value.isFinite else { throw InvalidTimestamp() }
     return Date(timeIntervalSince1970: source.value)
   }
@@ -114,7 +114,12 @@ its source; a completed wrapper contains the cached destination value.
 `key:` and `keyNames:` can accompany `completedConversion:` or be supplied in another member
 attribute. The strategy must be written as a type followed by `.self`. Only one strategy is
 allowed per member. Capacity hints on converted members are currently rejected. Public model
-members require appropriately visible strategy types. This API is excluded from Embedded Swift.
+members require appropriately visible strategy types. Strategies also work in Embedded Swift
+when their source, value, and error types support it.
+`ConversionError` is inferred from the typed `throws` declaration; nonthrowing strategies infer
+`Never`. The partial retains `ConversionError?`, without erasing the error to `any Error`.
+On Embedded, drive the converted partial through `JSONParser` and `PartialSink`;
+`PartialsStream` still uses untyped errors.
 
 The wrapper can also be used directly with `PartialsStream(initialValue:from:)` at roots or as
 an element/value of `StreamArray` and `StreamDictionary`, including optional elements.

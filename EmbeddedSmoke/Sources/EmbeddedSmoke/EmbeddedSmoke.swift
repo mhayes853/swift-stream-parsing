@@ -49,7 +49,6 @@ struct SmokeSink: StreamParseSink {
     self.keyWordChecksum = self.keyWordChecksum &+ bytes.paddedLeadingWord()
   }
 
-
   // Keys arrive through the collapsed form because the parser always buffers them, but strings
   // arrive as runs, so they come through begin, chunk and end. Counting in both is what makes
   // the tally the same either way.
@@ -188,9 +187,111 @@ extension Nested: StreamParseable {
   }
 }
 
+// MARK: - Completed conversions
+
+enum NonnegativeConversion: StreamCompletedValueConversion {
+  typealias Source = Int
+  enum Invalid: Error { case negative }
+
+  static func convertToValue(_ source: borrowing Source.View) throws(Invalid) -> Int {
+    guard source.value >= 0 else { throw .negative }
+    return source.value * 2
+  }
+
+  static func convertFromValue(_ value: Int) -> Int { value / 2 }
+}
+
+enum BooleanConversion: StreamCompletedValueConversion {
+  typealias Source = Bool
+
+  // The associated error type is inferred as Never.
+  static func convertToValue(_ source: borrowing Source.View) -> Int {
+    source.value ? 1 : 0
+  }
+
+  static func convertFromValue(_ value: Int) -> Bool { value != 0 }
+}
+
+// Forward scalar tokens to the conversion schema without pulling in PartialSink's unrelated
+// floating-point routes: the installed wasm SDK lacks their strtod/strtof runtime symbols.
+struct ConversionSmokeSink: StreamParseSink {
+  var streamFailure: StreamSinkFailure?
+  let root: UnsafeMutableRawPointer
+  let schema: StreamSchema
+
+  mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
+    record(schema.applyNumber(root, StreamSchema.wholeValueField, bytes, info))
+  }
+
+  mutating func boolean(_ value: Bool) {
+    record(schema.applyBoolean(root, StreamSchema.wholeValueField, value))
+  }
+
+  mutating func beginObject() -> StreamContainerDisposition { preconditionFailure() }
+  mutating func endObject() { preconditionFailure() }
+  mutating func beginArray() -> StreamContainerDisposition { preconditionFailure() }
+  mutating func endArray() { preconditionFailure() }
+  mutating func key(_ bytes: Span<UInt8>) { preconditionFailure() }
+  mutating func stringBegin() { preconditionFailure() }
+  mutating func stringChunk(_ bytes: Span<UInt8>) { preconditionFailure() }
+  mutating func stringEnd() { preconditionFailure() }
+  mutating func null() { preconditionFailure() }
+
+  mutating func record(_ result: StreamApplyResult) {
+    if result != .applied {
+      precondition(result == .conversionFailed)
+      streamFailure = StreamSinkFailure(reason: .conversionFailed)
+    }
+  }
+}
+
+func parseConverted<C: StreamCompletedValueConversion>(
+  _ payload: StaticString,
+  into value: inout ConvertedPartial<C>
+) -> JSONParsingError? {
+  withUnsafeMutablePointer(to: &value) { storage in
+    var sink = ConversionSmokeSink(
+      root: UnsafeMutableRawPointer(storage),
+      schema: ConvertedPartial<C>.streamSchema
+    )
+    var parser = JSONParser()
+    return payload.withUTF8Buffer { input -> JSONParsingError? in
+      do throws(JSONParsingError) {
+        // Feed scalar source tokens incrementally through the real parser.
+        for byte in input { try parser.parse(byte: byte, into: &sink) }
+        try parser.finish(into: &sink)
+        return nil
+      } catch {
+        return error
+      }
+    }
+  }
+}
+
+func checkCompletedConversions() {
+  var number = ConvertedPartial<NonnegativeConversion>()
+  precondition(parseConverted("12 ", into: &number) == nil)
+  precondition(number.value == 24)
+  precondition(number.conversionError == nil)
+  let rebuilt = ConvertedPartial<NonnegativeConversion>(value: 24)
+  precondition(rebuilt.source == 12)
+  precondition(rebuilt.value == 24)
+
+  var invalid = ConvertedPartial<NonnegativeConversion>()
+  let failure = parseConverted("-1 ", into: &invalid)
+  precondition(failure?.reason == .sinkRejectedToken(.init(reason: .conversionFailed)))
+  precondition(invalid.conversionError == .negative)
+  precondition(invalid.value == nil)
+
+  var boolean = ConvertedPartial<BooleanConversion>()
+  precondition(parseConverted("true", into: &boolean) == nil)
+  precondition(boolean.value == 1)
+}
+
 @main
 struct EmbeddedSmoke {
   static func main() {
+    checkCompletedConversions()
     let payload: StaticString = """
       {"id":4217,"name":"Blob","tags":["a","b"],"active":true,"score":-1.5e2,\
       "address":{"city":"Brooklyn"},"missing":null}

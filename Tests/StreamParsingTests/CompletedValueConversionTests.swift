@@ -6,7 +6,8 @@ private enum ConversionTestError: Error { case invalid }
 private enum TextConversion: StreamCompletedValueConversion {
   typealias Source = StreamString
   static let calls = Mutex((to: 0, from: 0))
-  static func convertToValue(_ source: borrowing Source.View) throws -> String {
+  static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> String
+  {
     calls.withLock { $0.to += 1 }
     let text = String(source.value)
     guard text != "bad" else { throw ConversionTestError.invalid }
@@ -19,7 +20,7 @@ private enum TextConversion: StreamCompletedValueConversion {
 }
 private enum NumberConversion: StreamCompletedValueConversion {
   typealias Source = Int
-  static func convertToValue(_ source: borrowing Source.View) throws -> Int {
+  static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> Int {
     guard source.value >= 0 else { throw ConversionTestError.invalid }
     return source.value * 2
   }
@@ -35,7 +36,7 @@ private enum BooleanConversion: StreamCompletedValueConversion {
 private enum PairConversion: StreamCompletedValueConversion {
   typealias Source = StreamArray<Int>
   static let calls = Mutex(0)
-  static func convertToValue(_ source: borrowing Source.View) throws -> Int {
+  static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> Int {
     calls.withLock { $0 += 1 }
     guard source.count == 2 else { throw ConversionTestError.invalid }
     return source.value.reduce(0, +)
@@ -66,7 +67,8 @@ private struct InnerConversionModel {
 }
 private enum ObjectConversion: StreamCompletedValueConversion {
   typealias Source = InnerConversionModel.Partial
-  static func convertToValue(_ source: borrowing Source.View) throws -> String {
+  static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> String
+  {
     guard let text = source.text?.value else { throw ConversionTestError.invalid }
     return text + "!"
   }
@@ -81,6 +83,19 @@ private struct ObjectConversionModel {
 }
 
 @Suite(.serialized) struct CompletedValueConversionTests {
+  @Test func conversionErrorsKeepTheirConcreteTypes() throws {
+    var stream = PartialsStream<ConvertedPartial<NumberConversion>>(from: .json())
+    #expect(throws: JSONParsingError.self) { try stream.next("-1 ".utf8) }
+    let error: ConversionTestError? = stream.current.conversionError
+    #expect(error == .invalid)
+    stream.withView { view in
+      let error: ConversionTestError? = view.conversionError
+      #expect(error == .invalid)
+    }
+    let nonthrowing: Never? = ConvertedPartial<BooleanConversion>(value: "yes").conversionError
+    #expect(nonthrowing == nil)
+  }
+
   @Test func stringsConvertOnlyAtClosingQuoteAndCache() throws {
     TextConversion.calls.withLock { $0 = (0, 0) }
     var stream = PartialsStream<ConversionModel.Partial>(from: .json())
@@ -203,7 +218,7 @@ private struct ObjectConversionModel {
           Issue.record("Expected conversion failure")
         } catch let error as JSONParsingError {
           #expect(error.reason == .sinkRejectedToken(.init(reason: .conversionFailed)))
-          #expect(stream.current.object?.conversionError is ConversionTestError)
+          #expect(stream.current.object?.conversionError == .invalid)
         }
       } else {
         for threshold in [0, Int.max] {
@@ -301,7 +316,7 @@ private enum FixedPairConversion: StreamCompletedValueConversion {
 }
 private enum NestedPairConversion: StreamCompletedValueConversion {
   typealias Source = ConvertedPartial<PairConversion>
-  static func convertToValue(_ source: borrowing Source.View) throws -> Int {
+  static func convertToValue(_ source: borrowing Source.View) throws(ConversionTestError) -> Int {
     guard let value = source.value else { throw ConversionTestError.invalid }
     return value * 2
   }

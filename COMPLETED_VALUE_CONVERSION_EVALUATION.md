@@ -9,7 +9,7 @@ ordinary 24-byte parser frames. No JSON scanning kernel or SIMD/SWAR algorithm c
 ## Tests
 
 `swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`:
-**833 tests in 83 suites passed**, with the same two known Unicode issues.
+**834 tests in 83 suites passed**, with the same two known Unicode issues.
 The release benchmark product also built successfully.
 
 The new coverage includes:
@@ -21,6 +21,7 @@ The new coverage includes:
 - Duplicate keys, cached prior numbers during unfinished replacement tokens, and observation.
 - Optional fields/roots/elements, dictionary values, initial-value partials, and explicit defaults.
 - Original strategy errors retained in partials; conversion failures distinct from source errors.
+- Concrete error types in snapshots and borrowed views, with `Never` inferred for nonthrowing strategies.
 - Truncation, reset after failure, async termination, and iterator copies.
 - Public macro expansion, destinations without parsing/initialization conformances, and round trips.
 - Macro snapshots and diagnostics for missing defaults, duplicate strategies, capacity hints,
@@ -113,3 +114,51 @@ the source, and snapshots of the larger partial. The small search payload pays t
 relative cost (about 3.3 microseconds additional median time). This implementation prioritizes
 correct completion semantics and composable source schemas; it does not promise zero-cost
 conversions. Concrete UUID/date/URL/base64 strategies are not included in this change.
+
+## Typed conversion errors and Embedded Swift
+
+`ConversionError: Error` is inferred from the strategy's typed `throws` declaration; a
+nonthrowing strategy infers `Never`. Both snapshot and borrowed-view `conversionError`
+properties retain this concrete type. The conversion protocol, wrapper, and macro overloads
+are no longer excluded from Embedded Swift. The Embedded schema helper also keeps its
+metatype generic rather than erasing it to `Any.Type`.
+
+The Swift 6.3.2 Embedded wasm smoke executable builds, links, and runs successfully under
+Node's WASI runtime. It checks successful conversion, reverse conversion, concrete retained
+failures, parser failure reporting, and a nonthrowing strategy. Scalar parser events go through
+a small test sink into the actual conversion schema. Full `PartialSink` linkage encounters
+missing `_swift_stdlib_strtod_clocale` / `_swift_stdlib_strtof_clocale` symbols in the installed
+wasm SDK; `PartialsStream` separately still uses untyped errors. Neither unrelated limitation
+is changed here. Macro expansion and container conversions remain covered by the host tests.
+
+No parser scanning or sink logic changed. All 204 common selected sink, structural-parser,
+and numeric-appender symbols retain their sizes in the x86_64 release binary compared with
+the preceding completed-conversion implementation; size equality alone does not establish
+instruction equivalence or performance.
+
+A fresh before/after sweep used the preceding release executable and the typed-error release,
+with builds and tests stopped during timing. It covered 30 cases: seven raw payloads, eight
+typed payloads (including Twitter full), nine async/observation controls, and three paired
+source/completed-conversion workloads. These are single-run medians, not statistical bounds.
+
+| Typed payload | Before MB/s | Typed errors MB/s | Throughput change |
+|---|---:|---:|---:|
+| CITM catalog | 620 | 631 | +1.6% |
+| Canada | 328 | 353 | +7.5% |
+| GSoC 2018 | 958 | 902 | -5.9% |
+| GitHub events | 885 | 896 | +1.2% |
+| LLM message | 1590 | 1565 | -1.6% |
+| Mesh | 294 | 291 | -1.1% |
+| Twitter | 1348 | 1349 | +0.1% |
+| Twitter full | 457 | 461 | +0.8% |
+
+The three completed-conversion workloads changed by -1.5% (search), -1.9% (structured response),
+and -0.3% (workspace edit). Async/observation controls ranged from -3.8% to +4.8%.
+Raw GitHub events measured -5.8%, prompting a focused repeat alongside the typed GSoC and
+Canada outliers. ARM remains unmeasured.
+
+In the focused repeat, typed Canada remained faster (328 → 353 MB/s, +7.6%); typed GSoC
+returned near baseline (961 → 958 MB/s, -0.3%). Raw GitHub remained slower
+(1475 → 1394 MB/s, -5.3%). The persistent raw GitHub difference is unresolved; no raw parser
+logic changed, and unchanged symbol sizes do not rule out binary-layout effects. This result
+is recorded rather than presented as a regression-free change.

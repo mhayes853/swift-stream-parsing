@@ -235,4 +235,4 @@ The generated partial stores ``ConvertedPartial``. Its `source` updates incremen
 and converted. Nonoptional converted members need a declared default for total model
 conversion. Optional members preserve the existing missing/null behavior; `observeField`
 can distinguish those states. Model-to-partial conversion calls `convertFromValue`, without
-repeating `convertToValue`. Strategies and converted partials are unavailable in Embedded Swift.
+repeating `convertToValue`. Conversion errors use typed `throws` and remain concrete in the partial, including in Embedded Swift.
