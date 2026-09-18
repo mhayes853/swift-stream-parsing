@@ -52,6 +52,68 @@ for partial in partials {
 // Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
+To consume synchronous input lazily instead of retaining every snapshot, use
+``PartialIterator``:
+
+```swift
+var updates = json.utf8.partialIterator(of: Profile.self, from: .json())
+while let update = try updates.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+The iterator is noncopyable and emits after each byte (or chunk), followed by one
+completed update after EOF validation. Further calls return `nil` after completion
+or an error. `isComplete` describes document validation, not model-field presence.
+
+To read without a whole-value snapshot, use a scoped view:
+
+```swift
+try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view, isComplete in
+  print(view.name?.value, isComplete)
+}
+```
+
+A view cannot escape the callback. Members read through it can be copied and retained.
+The final callback also uses a view, via ``PartialsStream/finishWithView(_:)``.
+
+Observe one field through a borrowed view and suppress unchanged values:
+
+```swift
+var names = json.utf8.partialIterator(of: Profile.self, from: .json())
+  .project { $0.name?.value }
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Async partial sequences support the same `project` and `removeDuplicateUpdates`
+operators. Projection happens before copying the root value. Filtering retains one
+previously emitted value and always forwards document completion, even if the selected
+field is unchanged. Both APIs can also filter whole snapshots without a projection.
+Use `by:` to supply a custom equivalence predicate.
+
+Projection preserves the selected representation. To distinguish missing, null, incomplete,
+and complete fields, opt into ``ObservedField`` instead:
+
+```swift
+var names = try json.utf8.partialIterator(of: Profile.self, from: .json())
+  .observeField(\.name)
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Field completion is separate from validated document EOF. A string can finish before its
+object closes, and a completed object can still have absent model members. Observers support
+direct stored fields on object roots with schema field tables; configure them before reading
+input. ``ObservedFieldPath`` validates a reusable selection, including schema key aliases.
+The macro generates `streamObservationFields` for validation without reflection SPI. Custom
+roots opt in by listing all direct stored members in that property. The selectors are
+unavailable in Embedded Swift. Ordinary value projection needs no field-state tracking.
+
 The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
 
 ```swift
@@ -153,3 +215,24 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
 - `StreamParsingTagged` interops the library with `Tagged`.
 - `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+
+## Completed-value conversions
+
+Use `@StreamParseableMember(completedConversion: Strategy.self)` to parse one representation
+and expose a different model type. A ``StreamCompletedValueConversion`` declares a source
+root type and implements `convertToValue(_:)` and `convertFromValue(_:)`.
+
+```swift
+@StreamParseable
+struct Event {
+  @StreamParseableMember(completedConversion: UnixSeconds.self)
+  var createdAt: Date = Date(timeIntervalSince1970: 0)
+}
+```
+
+The generated partial stores ``ConvertedPartial``. Its `source` updates incrementally; its
+`value` is cached after the complete string, number, boolean, array, or object is validated
+and converted. Nonoptional converted members need a declared default for total model
+conversion. Optional members preserve the existing missing/null behavior; `observeField`
+can distinguish those states. Model-to-partial conversion calls `convertFromValue`, without
+repeating `convertToValue`. Conversion errors use typed `throws` and remain concrete in the partial, including in Embedded Swift.

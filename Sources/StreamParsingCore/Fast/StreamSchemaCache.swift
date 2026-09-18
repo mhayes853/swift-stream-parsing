@@ -62,10 +62,10 @@ extension _StreamTemplateStorage {
 
 #if hasFeature(Embedded)
   /// Embedded Swift has no metatype identity to key on, so the build is not cached there. The
-  /// template is still owned, so nothing leaks.
+  /// template is still owned, so nothing leaks. The generic metatype avoids forming `Any.Type`.
   @inlinable
-  public func _streamCachedSchema(
-    for type: Any.Type,
+  public func _streamCachedSchema<T>(
+    for type: T.Type,
     build: () -> StreamSchema
   ) -> StreamSchema {
     build()

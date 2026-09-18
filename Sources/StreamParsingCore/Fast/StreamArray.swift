@@ -1,15 +1,15 @@
 // Array storage the parser can hold a pointer into, and that a snapshot copies without copying
 // the elements. The open element lives inline in `pending`, so a value copy diverges it for free;
-// closed elements live in power-of-two blocks that are written past, never copied, because each
-// array captures its own `tailCount`; and `pending`'s address never moves while blocks seal. A
-// plain copy is therefore a correct snapshot. See NEW_ARCHITECTURE.md, "The open element moves
-// into the storage".
+// closed elements live in power-of-two blocks, shared until a mutation needs to copy a block.
+// Appending into a shared tail copies that tail first, so both copies can continue independently.
+// `pending`'s address never moves while blocks seal. See NEW_ARCHITECTURE.md, "The open element
+// moves into the storage".
 public struct StreamArray<Element> {
   // Sealed; written again only through the checked subscript, which copies a shared block first.
   // Every block holds the chosen capacity, so indexing is a shift and a mask.
   @usableFromInline var blocks: [StreamBlock<Element>]
 
-  // The filling block, nil until the first element. The first allocation is smaller than the block
+  // The filling block, made unique before writing. The first allocation is smaller than the block
   // capacity and grows once; later tails start full size. A full tail seals when the *next* element
   // commits, not when it fills.
   @usableFromInline var tail: StreamBlock<Element>?
@@ -18,8 +18,7 @@ public struct StreamArray<Element> {
   // `sealedCount + tailCount` for every read; nil when nothing is parsing into this array.
   @usableFromInline var pending: Element?
 
-  // This array's own count in `tail`, not the block's high-water mark, which belongs to whichever
-  // array is filling it. Copied with the array, which makes appending into a shared block safe.
+  // The number of initialized elements in this array's tail, kept inline for indexing.
   @usableFromInline var tailCount: Int
 
   // Chosen by capacity hints while the array is empty; a shift, so indexing needs no division.
@@ -129,13 +128,14 @@ public struct StreamArray<Element> {
   // MARK: Slots
 
   // The address the next closed element is initialised at, sealing, growing or allocating the tail
-  // as needed; two loads and a compare when the tail has room. No uniqueness check: the slot is
-  // above this array's own count, so no copy can reach it (see `StreamBlockHeader.count`).
+  // as needed. A copy can also append at `tailCount`, so even writes beyond the current count
+  // need ordinary CoW. Check uniqueness before binding the tail to a local reference.
   @inlinable
   @inline(__always)
   mutating func nextSlot() -> UnsafeMutablePointer<Element> {
-    if let tail = self.tail, self.tailCount < tail.slotCapacity {
-      return tail.base + self.tailCount
+    if self.tail != nil, self.tailCount < self.tail.unsafelyUnwrapped.slotCapacity {
+      self.ensureUniqueTail()
+      return self.tail.unsafelyUnwrapped.base + self.tailCount
     }
     return self.prepareSlot()
   }
@@ -230,7 +230,7 @@ public struct StreamArray<Element> {
     return self.blocks[index]
   }
 
-  // The same for the filling block; only writes into held elements need it, never appends.
+  // The same for the filling block, for both element replacement and appending.
   @inlinable
   mutating func ensureUniqueTail() {
     guard self.tail != nil, !isKnownUniquelyReferenced(&self.tail) else { return }
@@ -399,8 +399,8 @@ extension StreamArray: Hashable where Element: Hashable {
   }
 }
 
-// Asserted, not checked: sharing a block is safe by the rule that it is only written above the
-// count every sharer captured, which the type system cannot see.
+// Asserted, not checked: every write into a shared block first makes that block unique,
+// including writes to its initialized count. Independent values can therefore mutate safely.
 extension StreamArray: @unchecked Sendable where Element: Sendable {}
 
 #if !hasFeature(Embedded)

@@ -273,6 +273,8 @@ extension StreamParseableMacro {
       modifierPrefix: modifierPrefix,
       membersMode: membersMode
     )
+    let observationPaths = properties.filter { !$0.isIgnored }
+      .map { "\\.\($0.memberName)" }.joined(separator: ", ")
     let schemaLines = Self.partialStructSchema(
       from: properties,
       modifierPrefix: modifierPrefix,
@@ -304,6 +306,12 @@ extension StreamParseableMacro {
         \(raw: inline)\(raw: modifierPrefix)static func streamInitialValue() -> Self {
           Self._streamInitialValueTemplate
         }
+
+        #if !hasFeature(Embedded)
+        \(raw: modifierPrefix)static var streamObservationFields: [PartialKeyPath<Self>] {
+          [\(raw: observationPaths)]
+        }
+        #endif
 
         \(raw: viewLines)
 
@@ -545,7 +553,7 @@ extension StreamParseableMacro {
       """ + "\n\n  "
   }
 
-  private static func schemaCases(for properties: [StoredProperty]) -> SchemaCases {
+  private static func schemaCases(for properties: [StoredProperty], inlinable: Bool) -> SchemaCases {
     var cases = SchemaCases()
     for property in properties {
       let field = "Self.StreamField.\(property.memberName)"
@@ -570,11 +578,12 @@ extension StreamParseableMacro {
         )
       }
       let isContainer: Bool
-      switch Self.fieldShape(for: property.type) {
+      switch property.completedConversion == nil ? Self.fieldShape(for: property.type) : .scalarOrObject {
       case .scalarOrObject:
         isContainer = false
+        let access = property.completedConversion != nil && inlinable ? "@usableFromInline" : "private"
         cases.containerSchemas.append(
-          "private static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
+          "\(access) static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
         )
       case .array, .dictionary:
         isContainer = true
@@ -583,6 +592,14 @@ extension StreamParseableMacro {
         )
       }
       for index in cases.applies.indices where !isContainer || cases.applies[index].acceptsContainers {
+        if property.completedConversion != nil, !cases.applies[index].acceptsContainers {
+          let arguments = index == 0 ? "bytes" : (index == 1 ? "bytes, info" : "value")
+          let operation = ["applyString", "applyNumber", "applyBoolean"][index]
+          cases.applies[index].cases.append(
+            "    case \(field): return _streamWithConverted(&\(target)) { Self.\(constant)!.\(operation)($0, StreamParsingCore.StreamSchema.wholeValueField, \(arguments)) }"
+          )
+          continue
+        }
         cases.applies[index].cases.append(
           cases.applies[index].body(field, target, capacityArgument)
         )
@@ -598,7 +615,7 @@ extension StreamParseableMacro {
   ) -> String {
     let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
-    let cases = Self.schemaCases(for: active)
+    let cases = Self.schemaCases(for: active, inlinable: inlinable)
 
     func switchBody(_ cases: [String]) -> String {
       cases.isEmpty ? "" : cases.joined(separator: "\n") + "\n"
@@ -606,6 +623,25 @@ extension StreamParseableMacro {
 
     func storageBinding(_ cases: [String]) -> String {
       cases.isEmpty ? "" : "    let p = storage.assumingMemoryBound(to: Self.self)\n"
+    }
+
+    let converted = active.filter { $0.completedConversion != nil }
+    let finishStringArgument: String
+    if converted.isEmpty {
+      finishStringArgument = ""
+    } else {
+      let branches = converted.map { property in
+        "case Self.StreamField.\(property.memberName): return _streamWithConverted(&p.pointee.\(property.memberName)) { Self.streamContainerSchema_\(property.name)!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied }"
+      }.joined(separator: "\n")
+      finishStringArgument = """
+          finishString: { storage, field in
+            let p = storage.assumingMemoryBound(to: Self.self)
+            switch field {
+            \(branches)
+            default: return .applied
+            }
+          },
+      """ + "\n"
     }
 
     let applyFunctions = cases.applies
@@ -645,7 +681,7 @@ extension StreamParseableMacro {
           applyNumber: Self.streamApplyNumber,
           applyBoolean: Self.streamApplyBoolean,
           applyNull: Self.streamApplyNull,
-          fields: Self.streamFields
+      \(finishStringArgument)    fields: Self.streamFields
         )
       """
   }
@@ -668,6 +704,9 @@ extension StreamParseableMacro {
   // is what makes the member the schema writes through and the member the type declares the same
   // member.
   private static func partialTypeName(for property: StoredProperty) -> String {
+    if let conversion = property.completedConversion {
+      return "StreamParsingCore.ConvertedPartial<\(conversion)>"
+    }
     if case .dictionary(let value) = Self.fieldShape(for: property.type) {
       return "StreamParsingCore.StreamDictionary<\(value).Partial>"
     }
@@ -772,6 +811,12 @@ extension StreamParseableMacro {
     let argumentLines = activeProperties.enumerated()
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
+        if let conversion = property.completedConversion {
+          let expression = Self.isOptional(property.type)
+            ? "self.\(property.memberName).map { StreamParsingCore.ConvertedPartial<\(conversion)>(value: $0) }"
+            : "StreamParsingCore.ConvertedPartial<\(conversion)>(value: self.\(property.memberName))"
+          return "    \(property.memberName): \(expression)\(suffix)"
+        }
         if case .dictionary = Self.fieldShape(for: property.type) {
           // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
           // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
@@ -823,7 +868,11 @@ extension StreamParseableMacro {
     func assignments(_ helper: String) -> String {
       let lines =
         active.map {
-          "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
+          if $0.completedConversion != nil {
+            let fallback = Self.isOptional($0.type) ? "nil" : ($0.defaultExpression ?? "nil")
+            return "    self.\($0.memberName) = _streamConvertedValue(partial.\($0.memberName)) ?? (\(fallback))"
+          }
+          return "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
         }
         + ignoredLines
       return lines.joined(separator: "\n")
@@ -836,7 +885,11 @@ extension StreamParseableMacro {
       let bindings =
         active
         .map {
-          "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
+          if $0.completedConversion != nil {
+            let helper = Self.isOptional($0.type) ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
+            return "      let \($0.memberName) = \(helper)(partial.\($0.memberName))"
+          }
+          return "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
         }
         .joined(separator: ",\n")
       let stores = (active.map { "    self.\($0.memberName) = \($0.memberName)" } + ignoredLines)
@@ -965,6 +1018,8 @@ extension StreamParseableMacro {
     /// inlinable member may read it. `nil` for a generated property, as visible as its type.
     var access: String? = nil
     var isUsableFromInline = false
+    var completedConversion: String? = nil
+    var defaultExpression: String? = nil
 
     /// `name`, re-escaped wherever the identifier itself is emitted.
     var memberName: String { StreamParseableMacro.memberIdentifier(for: self.name) }
@@ -1057,6 +1112,7 @@ extension StreamParseableMacro {
           propertyName: Self.unescaped(identifierPattern.identifier),
           type: type,
           hasDefaultValue: binding.initializer != nil,
+          defaultExpression: binding.initializer?.value.trimmedDescription,
           context: context
         )
       )
@@ -1069,6 +1125,7 @@ extension StreamParseableMacro {
     propertyName: String,
     type: TypeSyntax,
     hasDefaultValue: Bool,
+    defaultExpression: String?,
     context: DiagnosticSink
   ) -> StoredProperty {
     let hasIgnoredAttribute = self.streamParseableIgnoredAttribute(in: variableDecl.attributes) != nil
@@ -1106,6 +1163,31 @@ extension StreamParseableMacro {
         context: context
       )
     }
+    var conversion: String?
+    for attribute in Self.streamParseableMemberAttributes(in: variableDecl.attributes) {
+      guard let arguments = attribute.arguments?.as(LabeledExprListSyntax.self),
+        let expression = Self.argumentExpression(in: arguments, named: "completedConversion")
+      else { continue }
+      guard conversion == nil else {
+        context.diagnose(Self.error(attribute, "completedConversion: can only be specified once per property."))
+        continue
+      }
+      guard let member = expression.as(MemberAccessExprSyntax.self),
+        member.declName.baseName.text == "self", let base = member.base
+      else {
+        context.diagnose(Self.error(expression, "completedConversion: requires a strategy type followed by .self."))
+        continue
+      }
+      conversion = base.trimmedDescription
+    }
+    if conversion != nil, !isIgnored {
+      if capacityInfo.value != nil {
+        context.diagnose(Self.error(variableDecl, "initialCapacity: is not supported with completedConversion:."))
+      }
+      if !Self.isOptional(type), defaultExpression == nil {
+        context.diagnose(Self.error(variableDecl, "A nonoptional converted member requires an explicit default for init(orInitial:)."))
+      }
+    }
     return StoredProperty(
       name: propertyName,
       type: type,
@@ -1115,7 +1197,9 @@ extension StreamParseableMacro {
       hasDefaultValue: hasDefaultValue,
       access: Self.declaredAccess(of: variableDecl.modifiers),
       isUsableFromInline: !Self.attributes(named: "usableFromInline", in: variableDecl.attributes)
-        .isEmpty
+        .isEmpty,
+      completedConversion: conversion,
+      defaultExpression: defaultExpression
     )
   }
 

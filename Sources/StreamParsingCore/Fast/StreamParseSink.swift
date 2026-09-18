@@ -49,6 +49,8 @@ public enum StreamApplyResult: UInt8, Hashable, Sendable {
   case unsupported = 1
   /// The destination holds this kind of token but has no room left for it.
   case capacityExceeded = 2
+  /// A completed source value was rejected by its conversion strategy.
+  case conversionFailed = 3
 }
 
 // MARK: - StreamSinkFailure
@@ -56,6 +58,7 @@ public enum StreamApplyResult: UInt8, Hashable, Sendable {
 public struct StreamSinkFailure: Error, Hashable, Sendable {
   public enum Reason: Hashable, Sendable {
     case typeMismatch
+    case conversionFailed
     case depthExceeded
     /// Bounded storage overflowed: an inline string past its capacity, or a fixed-size array
     /// given more elements than it declares.

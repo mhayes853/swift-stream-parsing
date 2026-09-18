@@ -4,9 +4,8 @@
 // unspecialized. See NEW_ARCHITECTURE.md, "The open element moves into the storage".
 @usableFromInline
 struct StreamBlockHeader {
-  // The high-water mark of initialised slots and the count `deinit` destroys. Written only by the
-  // filling array and read by nothing else: a holder reads its own `tailCount`, a prefix of this,
-  // so appending into a block a snapshot shares changes nothing the snapshot can observe.
+  // The number of initialised slots and the count `deinit` destroys. The owning array makes the
+  // block unique before changing either the elements or this header.
   @usableFromInline var count: Int
   // Stored rather than read back from `malloc_size` the way `ManagedBuffer.capacity` does.
   @usableFromInline let capacity: Int
@@ -72,8 +71,7 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   var slotCapacity: Int { self.headerPointer.pointee.capacity }
 
   /// A block holding copies of this block's first `count` elements, with room for `capacity`: the
-  /// path a write into a shared block takes. `count` is passed in because the header's is the
-  /// filling array's high-water mark, which can be ahead of the copier's own.
+  /// path a write into a shared block takes. The caller supplies its initialized element count.
   @inlinable
   func copy(count: Int, capacity: Int) -> StreamBlock<Element> {
     let copied = StreamBlock<Element>.make(capacity: capacity)
@@ -94,6 +92,6 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   }
 }
 
-// Below the filling array's count a block is immutable, and the slots above belong to that array
-// alone (see `count`). `StreamArray` asserts `Sendable` on the same grounds.
+// A shared block is immutable: `StreamArray` makes it unique before writing elements or header.
+// `StreamArray` asserts `Sendable` on the same grounds.
 extension StreamBlock: @unchecked Sendable where Element: Sendable {}

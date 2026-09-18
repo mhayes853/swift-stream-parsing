@@ -98,6 +98,36 @@ struct `AsyncPartialsSequence Tests` {
   }
 
   @Test
+  func `Parsing Failure Terminates Iterator Copies`() async throws {
+    let partials = AsyncBytes(bytes: Array("@1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var iterator = partials.makeAsyncIterator()
+    var copy = iterator
+    await #expect(throws: JSONParsingError.self) { _ = try await iterator.next() }
+    #expect(try await copy.next() == nil)
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
+  func `Upstream Failure Terminates Iteration`() async throws {
+    let bytes = AsyncThrowingStream<UInt8, any Error> { continuation in
+      continuation.finish(throwing: CancellationError())
+    }
+    var iterator = bytes.partials(initialValue: 0, from: .json()).makeAsyncIterator()
+    await #expect(throws: CancellationError.self) { _ = try await iterator.next() }
+    // In particular, do not attempt to finish the empty JSON document after the error.
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
+  func `Finalization Failure Terminates Iteration`() async throws {
+    var iterator = AsyncBytes(bytes: []).partials(initialValue: 0, from: .json())
+      .makeAsyncIterator()
+    await #expect(throws: JSONParsingError.self) { _ = try await iterator.next() }
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
   func `Rejects A Second Subscriber`() async throws {
     let partials = AsyncBytes(bytes: Array("1".utf8))
       .partials(initialValue: 0, from: .json())
@@ -109,6 +139,7 @@ struct `AsyncPartialsSequence Tests` {
     await #expect(throws: StreamParsingError.multipleSubscribers) {
       _ = try await second.next()
     }
+    #expect(try await second.next() == nil)
     let final = try await first.next()
     expectNoDifference(final, 1)
     let end = try await first.next()

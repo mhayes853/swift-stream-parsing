@@ -174,6 +174,23 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     return self.current
   }
 
+  /// Validates EOF and lends the final value without taking a snapshot.
+  /// The stream is finished even if the callback throws.
+  public mutating func finishWithView<R>(
+    _ body: (borrowing Value.View) throws -> R
+  ) throws -> R {
+    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.hasFinished = true
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserThrown = true
+      throw error
+    }
+    return try self.withView(body)
+  }
+
   /// Completes parsing and returns the final value by taking it from the stream.
   ///
   /// ``finish()`` without the snapshot: `finish()` copies the whole tree through its value
