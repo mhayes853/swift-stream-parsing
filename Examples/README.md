@@ -2,7 +2,7 @@
 
 ```sh
 swift run demo
-swift run demo "Standup with Blob on Monday. Retro with Blob Jr. on Friday."
+swift run demo "Lunch with Sam on 2 May, then the board meeting on 5 May with Kim, Lee and Dana."
 ```
 
 A local LLM extracts calendar events from a message as JSON, and every token it generates is
@@ -29,8 +29,8 @@ first run.
 - Elsewhere, install a llama.cpp that provides `llama.pc` to `pkg-config`, for example
   `sudo pacman -S llama-cpp` on Arch.
 
-The model is tiny so that it runs anywhere, not because it extracts well: expect it to miss or
-repeat events. A grammar guarantees that the JSON it writes is well formed.
+The model is tiny so that it runs anywhere. It handles the built-in message well, but expect
+mistakes on arbitrary input. A grammar guarantees that the JSON it writes is well formed.
 
 A module that applies `@StreamParseable` must enable the `Lifetimes` and `AddressableTypes`
 experimental features, as [`Package.swift`](Package.swift) does.

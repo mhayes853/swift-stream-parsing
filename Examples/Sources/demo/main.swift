@@ -48,17 +48,9 @@ let message =
   Friday 14 March, with Ana, José, Priya and Tom all invited!
   """
 
-// LFM2's chat template, written out by hand.
-let prompt = """
-  <|startoftext|><|im_start|>system
-  Extract every calendar event from the user's message. Reply with JSON: \
-  {"events": [{"title": "...", "date": "...", "attendees": ["..."]}]}. \
-  Use a short title for each event, and list each event once.<|im_end|>
-  <|im_start|>user
-  \(message)<|im_end|>
-  <|im_start|>assistant
-
-  """
+let instruction =
+  "List each event in this message with a short title, its date, and the names of the people "
+  + "attending it."
 
 // MARK: - Download the model on first run
 
@@ -95,9 +87,17 @@ let sampler = llama_sampler_chain_init(llama_sampler_chain_default_params())
 llama_sampler_chain_add(sampler, llama_sampler_init_grammar(vocabulary, grammar, "root"))
 llama_sampler_chain_add(sampler, llama_sampler_init_greedy())
 
-var promptTokens = [llama_token](repeating: 0, count: prompt.utf8.count + 16)
+// Format the prompt with the chat template embedded in the model file.
+let messages = [llama_chat_message(role: strdup("user"), content: strdup("\(instruction)\n\n\(message)"))]
+var promptBuffer = [CChar](repeating: 0, count: 4 * message.utf8.count + 1024)
+let promptLength = llama_chat_apply_template(
+  llama_model_chat_template(model, nil), messages, messages.count, true, &promptBuffer, Int32(promptBuffer.count)
+)
+guard promptLength > 0, promptLength < promptBuffer.count else { fatalError("Could not apply the chat template") }
+
+var promptTokens = [llama_token](repeating: 0, count: Int(promptLength) + 16)
 let promptTokenCount = llama_tokenize(
-  vocabulary, prompt, Int32(prompt.utf8.count), &promptTokens, Int32(promptTokens.count), false, true
+  vocabulary, promptBuffer, promptLength, &promptTokens, Int32(promptTokens.count), true, true
 )
 guard promptTokenCount > 0, promptTokenCount < contextParameters.n_batch else {
   fatalError("The message does not fit in the prompt")
