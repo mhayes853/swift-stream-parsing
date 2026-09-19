@@ -2,10 +2,7 @@
 
 import PackageDescription
 
-// The examples live in their own package so the library's manifest never learns about
-// llama.cpp: `replay` needs nothing beyond the library itself, and only `live` links an LLM.
-let applePlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS]
-
+// A separate package, so the library's own manifest never has to know about llama.cpp.
 let package = Package(
   name: "swift-stream-parsing-examples",
   platforms: [.macOS(.v13)],
@@ -18,11 +15,22 @@ let package = Package(
     .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "2.10549.0"))
   ],
   targets: [
-    // The model types, chunk sources, fixture format, and the terminal logger.
-    .target(
-      name: "DemoCore",
+    // llama.cpp as installed by the system package manager, found through `llama.pc`.
+    .systemLibrary(
+      name: "CLlama",
+      pkgConfig: "llama",
+      providers: [.brew(["llama.cpp"]), .apt(["llama.cpp"])]
+    ),
+    .executableTarget(
+      name: "demo",
       dependencies: [
-        .product(name: "StreamParsing", package: "swift-stream-parsing")
+        .product(name: "StreamParsing", package: "swift-stream-parsing"),
+        .target(name: "CLlama", condition: .when(platforms: [.linux, .windows, .android])),
+        .product(
+          name: "LlamaSwift",
+          package: "llama.swift",
+          condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS])
+        )
       ],
       // `@StreamParseable` generates borrowed `~Escapable` views, which need both of these in
       // whichever module applies the macro.
@@ -30,30 +38,7 @@ let package = Package(
         .enableExperimentalFeature("Lifetimes"),
         .enableExperimentalFeature("AddressableTypes")
       ]
-    ),
-    // llama.cpp as installed by the system package manager, found through `llama.pc`.
-    .systemLibrary(
-      name: "CLlama",
-      pkgConfig: "llama",
-      providers: [.brew(["llama.cpp"]), .apt(["llama.cpp"])]
-    ),
-    // An in-process LLM that streams grammar-constrained JSON token by token.
-    .target(
-      name: "LlamaSource",
-      dependencies: [
-        "DemoCore",
-        .target(name: "CLlama", condition: .when(platforms: [.linux, .windows, .android])),
-        .product(
-          name: "LlamaSwift",
-          package: "llama.swift",
-          condition: .when(platforms: applePlatforms)
-        )
-      ]
-    ),
-    // `swift run replay`: parses a recorded token stream. No model or llama.cpp required.
-    .executableTarget(name: "replay", dependencies: ["DemoCore"]),
-    // `swift run live`: parses what a local model generates, as it generates it.
-    .executableTarget(name: "live", dependencies: ["DemoCore", "LlamaSource"])
+    )
   ],
   swiftLanguageModes: [.v6]
 )
