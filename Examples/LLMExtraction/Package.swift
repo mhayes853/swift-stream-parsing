@@ -4,12 +4,12 @@ import PackageDescription
 
 // A separate package, so the library's own manifest never has to know about llama.cpp.
 let package = Package(
-  name: "swift-stream-parsing-examples",
+  name: "LLMExtraction",
   platforms: [.macOS(.v13)],
   dependencies: [
     // Named explicitly: a path dependency's identity defaults to its directory name, which
     // breaks the build from a git worktree whose directory is not called swift-stream-parsing.
-    .package(name: "swift-stream-parsing", path: ".."),
+    .package(name: "swift-stream-parsing", path: "../.."),
     // Apple platforms only; it wraps llama.cpp's prebuilt XCFramework. SwiftPM still downloads
     // the (unused) artifact on other platforms, where `CLlama` links the system library instead.
     .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "2.10549.0"))
@@ -22,7 +22,7 @@ let package = Package(
       providers: [.brew(["llama.cpp"]), .apt(["llama.cpp"])]
     ),
     .executableTarget(
-      name: "demo",
+      name: "LLMExtraction",
       dependencies: [
         .product(name: "StreamParsing", package: "swift-stream-parsing"),
         .target(name: "CLlama", condition: .when(platforms: [.linux, .windows, .android])),

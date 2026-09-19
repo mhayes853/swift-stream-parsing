@@ -1,8 +1,8 @@
-# Examples
+# LLM Extraction
 
 ```sh
-swift run demo
-swift run demo "Lunch with Sam on 2 May, then the board meeting on 5 May with Kim, Lee and Dana."
+swift run
+swift run "Lunch with Sam on 2 May, then the board meeting on 5 May with Kim, Lee and Dana."
 ```
 
 A local LLM extracts calendar events from a message as JSON, and every token it generates is
@@ -15,7 +15,7 @@ the partial value that results from it:
 " Review" → Partial(events: Optional([Partial(title: Optional("Design Review"), date: nil, attendees: nil)]))
 ```
 
-Everything is in [`main.swift`](Sources/demo/main.swift).
+Everything is in [`main.swift`](Sources/LLMExtraction/main.swift).
 
 ## Requirements
 

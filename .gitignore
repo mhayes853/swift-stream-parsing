@@ -15,5 +15,5 @@ DerivedData/
 .netrc
 agentic-stuffs
 .benchmarkBaselines
-/Examples/.build
-/Examples/.build-*
+/Examples/*/.build
+/Examples/*/.build-*

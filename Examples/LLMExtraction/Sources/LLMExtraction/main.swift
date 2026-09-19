@@ -1,4 +1,4 @@
-// swift run demo ["a message to extract calendar events from"]
+// swift run LLMExtraction ["a message to extract calendar events from"]
 //
 // A local LLM writes JSON one token at a time, and every token is parsed into a typed
 // `Extraction.Partial` as it arrives. The partial is logged after each token.

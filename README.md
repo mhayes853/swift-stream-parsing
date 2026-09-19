@@ -223,7 +223,7 @@ for try await profilePartial in partials {
 
 ## Examples
 
-The [Examples](Examples) package parses a local LLM's structured output token by token, logging the typed partial after every chunk.
+The [LLMExtraction](Examples/LLMExtraction) example parses a local LLM's structured output token by token, logging the typed partial after every chunk.
 
 ## Parsers
 
