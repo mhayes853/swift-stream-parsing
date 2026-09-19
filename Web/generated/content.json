@@ -49809,7 +49809,7 @@
         },
         "level" : 4,
         "line" : 7772,
-        "markdown" : "\"The open element moves into the storage\" describes, under *Snapshots after the move*, a tail that\nis \"frozen in place and chained behind a fresh tail\" through `previous` / `previousTotal` header\nlinks, compacted into full sealed blocks once the chain holds a block's worth, with a `spare` block\nkept for reuse across repeated snapshots inside one open element. **None of that is in the code,\nand the two throughput tables in that section that describe it should be read as history rather\nthan as the current design.** `StreamBlockHeader` has exactly two fields, `count` and `capacity`;\nthere is no `previous`, no `previousTotal`, no `spare`, and no compaction pass anywhere in\n`StreamBlock` or `StreamArray`.\n\nWhat the code does instead is keep the open element **inline, in `StreamArray.pending`**, an\n`Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a\ncorrect snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element\nsnapshot has to diverge from is the one piece held by value. Closed elements still live in uniform\npower-of-two `StreamBlock`s, and a block a snapshot shares is still *written past* rather than\ncopied, because each array carries its own `tailCount` and the parser only ever appends above the\nprefix every sharer captured (`StreamBlockHeader.count` is the filling array's high-water mark and\nnothing else reads it). The three headline properties of the section — storage owns its capacity,\nthe template is a pointer rather than a closure, uniqueness is settled per container — are all\nstill accurate; only the freeze/compact/spare chain was replaced.\n\nThe trade recorded against the chain was that it cost a malloc per retained snapshot and could not\nbe made to cost less. The inline slot costs one whole-element move per element instead — the\nclosed element moving into its block slot when the next one opens — which is the cost\n`_openElement(copying:)` and `_appendClosed` are shaped around (see \"`_appendClosed`: the\nwhole-value route skips the open element\" below). The claim at the end of that section that \"the\nstale element is destroyed by a specialised move rather than `swift_arrayDestroy`\" is also inverted\nby what `StreamBlock` does today; see \"Block teardown\" below.",
+        "markdown" : "\"The open element moves into the storage\" describes, under *Snapshots after the move*, a tail that\nis \"frozen in place and chained behind a fresh tail\" through `previous` / `previousTotal` header\nlinks, compacted into full sealed blocks once the chain holds a block's worth, with a `spare` block\nkept for reuse across repeated snapshots inside one open element. **None of that is in the code,\nand the two throughput tables in that section that describe it should be read as history rather\nthan as the current design.** `StreamBlockHeader` has exactly two fields, `count` and `capacity`;\nthere is no `previous`, no `previousTotal`, no `spare`, and no compaction pass anywhere in\n`StreamBlock` or `StreamArray`.\n\nWhat the code does instead is keep the open element **inline, in `StreamArray.pending`**, an\n`Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a\ncorrect snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element\nsnapshot has to diverge from is the one piece held by value. Closed elements still live in uniform\npower-of-two `StreamBlock`s. Until the copy-on-write fix below, a block a snapshot shared was\n*written past* rather than copied, on the rule that each array carries its own `tailCount` and the\nparser only ever appends above the prefix every sharer captured; **that rule was unsound and the\nappends are now ordinary copy-on-write** — see \"Landed: ordinary copy-on-write on the tail\". The\nthree headline properties of the section — storage owns its capacity, the template is a pointer\nrather than a closure, uniqueness is settled per container — are all still accurate; only the\nfreeze/compact/spare chain was replaced.\n\nThe trade recorded against the chain was that it cost a malloc per retained snapshot and could not\nbe made to cost less. The inline slot costs one whole-element move per element instead — the\nclosed element moving into its block slot when the next one opens — which is the cost\n`_openElement(copying:)` and `_appendClosed` are shaped around (see \"`_appendClosed`: the\nwhole-value route skips the open element\" below). The claim at the end of that section that \"the\nstale element is destroyed by a specialised move rather than `swift_arrayDestroy`\" is also inverted\nby what `StreamBlock` does today; see \"Block teardown\" below.",
         "measurements" : [
 
         ],
@@ -49821,6 +49821,487 @@
 
         ],
         "title" : "Correction: the frozen-tail chain is not what shipped",
+        "verdict" : "landed"
+      },
+      {
+        "chapter" : "Design notes relocated from source comments",
+        "codeBlocks" : [
+          {
+            "code" : "swift build --scratch-path .build-cow-tsan --target StreamParsingCore \\\n  --sanitize=thread --disable-default-traits",
+            "language" : "sh"
+          }
+        ],
+        "level" : 4,
+        "line" : 7803,
+        "markdown" : "The written-past rule above was not merely an optimisation, it was the correctness argument for\nsharing a block at all, and a review of the generic API broke it with three lines. After `var b =\na`, both values hold the same tail and the same `tailCount`, so both compute the same next slot:\nstarting from `[1]`, appending `2` to `a` and `3` to `b` leaves `a` reading `[1, 3]`. The rule\nassumed one writer; a value type has as many writers as it has copies. `StreamDictionary` inherited\nit through `storedValues`, a non-trivial element leaked or double-released the ownership one\nappend overwrote, and two `Sendable` copies mutated on different threads raced on the elements and\non the block header both were advancing. A high-water check would have fixed the serial case and\nnone of the concurrent one, which is what ruled out repairing the rule in place.\n\nSo `nextSlot` now calls `ensureUniqueTail` before it hands back an address, and the uniqueness\ncheck happens before the tail is bound to a local strong reference — binding first makes the check\nanswer \"shared\" about the reference it just created. The header's initialised count is covered by\nthe same rule, which is the part the old design specifically exempted. What did not change: a\nsealed block still stays shared without being copied, because nothing appends into it; growing a\nsmall full tail still moves its contents when uniquely owned; a shared-tail append copies only the\ninitialised elements and keeps the block's capacity; and the open element is still inline in\n`pending`, so a mid-element snapshot still diverges for free.\n\nThe reproductions from the review pass as ordinary regression tests, alongside interleaved\ndivergent appends across the small-tail and sealed-block boundaries, weak-reference checks that\nthe overwritten element is released exactly once, mutation of a retained parser snapshot, and two\nstreams seeded from one nested collection. A core-only Thread Sanitizer harness — 64 workers × 16\nrounds, 300 appends and a mutated nested dictionary each, checking both the divergent results and\nthe untouched seeds — emitted no report:\n\n```sh\nswift build --scratch-path .build-cow-tsan --target StreamParsingCore \\\n  --sanitize=thread --disable-default-traits\n```\n\nThe cost is a `swift_isUniquelyReferenced_native` call in the per-element commit path, and it is\nnot free. On x86_64 the `Double` specialisation of `_streamArrayNumberAppender` grows 742 → 913\nbytes with 88 → 120 bytes of stack, the value spilled across the call and reloaded for the store;\n`PartialSink.openKnownSIMDDoubleElement` grows 1,035 → 1,151 bytes, each of its six route arms\ngaining one outlined `ensureUniqueTail` on the roomy-tail commit. Two release binaries\n(`e13ef7cd` and the fix) were run interleaved over 52 rows:\n\n| Benchmark | Before µs | CoW µs | Change | Mallocs |\n| --- | ---: | ---: | ---: | ---: |\n| Real Canada — bulk discarding | 6,021.12 | 6,901.76 | -12.8% | 1,398 → 1,398 |\n| Real Mesh — bulk discarding | 2,263.04 | 2,527.23 | -10.5% | 352 → 352 |\n| Dictionary 512 keys — discarding | 225.15 | 248.45 | -9.4% | 39 → 39 |\n| Dictionary 128 keys — discarding | 56.35 | 62.11 | -9.3% | 33 → 33 |\n| Retention 100 users — keep all | 410.88 | 478.72 | -14.2% | 28 → 122 |\n| Retention Mesh — window 16 | 153,000 | 161,000 | -5.0% | 603 → ≈70,000 |\n| Stream Array of structs — snapshot per byte | 408.83 | 411.65 | -0.7% | 26 → 26 |\n| Real Twitter — bulk discarding | 474.37 | 469.76 | +1.0% | 132 → 132 |\n| Real GitHub events — bulk discarding | 73.41 | 71.87 | +2.1% | 80 → 80 |\n\nThe allocation columns say which half of the cost is which. Canada, Mesh and the discarding\ndictionary rows allocate *exactly* what they allocated before, so their 9–13% is the check, the\nspills and the code growth alone — no tail was actually copied. The retention rows are the other\nhalf: 28 → 122 mallocs for a hundred kept user states, and Mesh's window rows 603 → ≈70,000,\nwhich is a detached tail per retained snapshot. A nine-row confirmation in reverse order (CoW\nfirst) reproduced every one of these within half a point except the Qwen workspace row, which\nmoved from -5.6% to -2.4% and should be treated as unsettled. The async rows span -1.6% to +2.3%\nand the raw-sink controls -1.0% to +4.3%, neither of which is a result from one sweep.\n\nThis is measured on x86_64 Linux, on a host with no ARM Swift SDK, so the primary target's\nnumbers are not in yet and no follow-up has been applied. The two worth measuring are inlining the\nuniqueness check while outlining the copy path — particularly for the SIMD opener, where the same\ncheck is reached six ways — and a scoped bulk-append that establishes uniqueness once per block\nrather than once per element, which is only sound if no snapshot can be taken inside the borrow.\nNeither recovers the old rule: the discarding rows show the floor an ordinary-CoW append has.",
+        "measurements" : [
+          {
+            "column" : "Before µs",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada — bulk discarding",
+            "value" : 6021.12
+          },
+          {
+            "column" : "CoW µs",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada — bulk discarding",
+            "value" : 6901.76
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada — bulk discarding",
+            "unit" : "%",
+            "value" : -12.8
+          },
+          {
+            "column" : "Mallocs",
+            "isDelta" : false,
+            "payload" : "canada",
+            "rowLabel" : "Real Canada — bulk discarding",
+            "unit" : "→ 1,398",
+            "value" : 1398
+          },
+          {
+            "column" : "Before µs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh — bulk discarding",
+            "value" : 2263.04
+          },
+          {
+            "column" : "CoW µs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh — bulk discarding",
+            "value" : 2527.23
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh — bulk discarding",
+            "unit" : "%",
+            "value" : -10.5
+          },
+          {
+            "column" : "Mallocs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Real Mesh — bulk discarding",
+            "unit" : "→ 352",
+            "value" : 352
+          },
+          {
+            "column" : "Before µs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh — window 16",
+            "value" : 153000
+          },
+          {
+            "column" : "CoW µs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh — window 16",
+            "value" : 161000
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh — window 16",
+            "unit" : "%",
+            "value" : -5
+          },
+          {
+            "column" : "Mallocs",
+            "isDelta" : false,
+            "payload" : "mesh",
+            "rowLabel" : "Retention Mesh — window 16",
+            "unit" : "→ ≈70,000",
+            "value" : 603
+          },
+          {
+            "column" : "Before µs",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter — bulk discarding",
+            "value" : 474.37
+          },
+          {
+            "column" : "CoW µs",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter — bulk discarding",
+            "value" : 469.76
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter — bulk discarding",
+            "unit" : "%",
+            "value" : 1
+          },
+          {
+            "column" : "Mallocs",
+            "isDelta" : false,
+            "payload" : "twitter",
+            "rowLabel" : "Real Twitter — bulk discarding",
+            "unit" : "→ 132",
+            "value" : 132
+          },
+          {
+            "column" : "Before µs",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events — bulk discarding",
+            "value" : 73.41
+          },
+          {
+            "column" : "CoW µs",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events — bulk discarding",
+            "value" : 71.87
+          },
+          {
+            "column" : "Change",
+            "isDelta" : true,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events — bulk discarding",
+            "unit" : "%",
+            "value" : 2.1
+          },
+          {
+            "column" : "Mallocs",
+            "isDelta" : false,
+            "payload" : "github_events",
+            "rowLabel" : "Real GitHub events — bulk discarding",
+            "unit" : "→ 80",
+            "value" : 80
+          }
+        ],
+        "parentPath" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock",
+        "path" : "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/landed-ordinary-copy-on-write-on-the-tail",
+        "slug" : "landed-ordinary-copy-on-write-on-the-tail",
+        "summary" : "The written-past rule above was not merely an optimisation, it was the correctness argument for sharing a block at all, and a review of the generic API broke it with three lines. After var b = a, both values hold the same tail and the same tailCount, so both…",
+        "tables" : [
+          {
+            "headers" : [
+              "Benchmark",
+              "Before µs",
+              "CoW µs",
+              "Change",
+              "Mallocs"
+            ],
+            "labelColumn" : 0,
+            "rows" : [
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Canada — bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "6,021.12",
+                  "value" : 6021.12
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "6,901.76",
+                  "value" : 6901.76
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-12.8%",
+                  "unit" : "%",
+                  "value" : -12.8
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "1,398 → 1,398",
+                  "unit" : "→ 1,398",
+                  "value" : 1398
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Mesh — bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,263.04",
+                  "value" : 2263.04
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "2,527.23",
+                  "value" : 2527.23
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-10.5%",
+                  "unit" : "%",
+                  "value" : -10.5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "352 → 352",
+                  "unit" : "→ 352",
+                  "value" : 352
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Dictionary 512 keys — discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "225.15",
+                  "value" : 225.15
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "248.45",
+                  "value" : 248.45
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-9.4%",
+                  "unit" : "%",
+                  "value" : -9.4
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "39 → 39",
+                  "unit" : "→ 39",
+                  "value" : 39
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Dictionary 128 keys — discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "56.35",
+                  "value" : 56.35
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "62.11",
+                  "value" : 62.11
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-9.3%",
+                  "unit" : "%",
+                  "value" : -9.3
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "33 → 33",
+                  "unit" : "→ 33",
+                  "value" : 33
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Retention 100 users — keep all"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "410.88",
+                  "value" : 410.88
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "478.72",
+                  "value" : 478.72
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-14.2%",
+                  "unit" : "%",
+                  "value" : -14.2
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "28 → 122",
+                  "unit" : "→ 122",
+                  "value" : 28
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Retention Mesh — window 16"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "153,000",
+                  "value" : 153000
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "161,000",
+                  "value" : 161000
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-5.0%",
+                  "unit" : "%",
+                  "value" : -5
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "603 → ≈70,000",
+                  "unit" : "→ ≈70,000",
+                  "value" : 603
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Stream Array of structs — snapshot per byte"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "408.83",
+                  "value" : 408.83
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "411.65",
+                  "value" : 411.65
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "-0.7%",
+                  "unit" : "%",
+                  "value" : -0.7
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "26 → 26",
+                  "unit" : "→ 26",
+                  "value" : 26
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real Twitter — bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "474.37",
+                  "value" : 474.37
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "469.76",
+                  "value" : 469.76
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+1.0%",
+                  "unit" : "%",
+                  "value" : 1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "132 → 132",
+                  "unit" : "→ 132",
+                  "value" : 132
+                }
+              ],
+              [
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "Real GitHub events — bulk discarding"
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "73.41",
+                  "value" : 73.41
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "71.87",
+                  "value" : 71.87
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : true,
+                  "text" : "+2.1%",
+                  "unit" : "%",
+                  "value" : 2.1
+                },
+                {
+                  "bold" : false,
+                  "isDelta" : false,
+                  "text" : "80 → 80",
+                  "unit" : "→ 80",
+                  "value" : 80
+                }
+              ]
+            ]
+          }
+        ],
+        "title" : "Landed: ordinary copy-on-write on the tail",
         "verdict" : "landed"
       },
       {
@@ -49838,7 +50319,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7802,
+        "line" : 7871,
         "markdown" : "`StreamBlock.deinit` on a generic class is emitted **once, generically** — the binary holds\n`StreamParsingCore.StreamBlock.deinit` and no per-element-type copy of it — so whatever its body\ndoes, it does through `Element`'s value witnesses. The \"specialised destroy\" the teardown path was\nassumed to reach never existed.\n\nThe body used to be a loop of `(elements + index).move()`. That is `load [take]`, and unspecialised\nIRGen lowers it to an `alloca` of the element's stride, an `initializeWithTake` witness call into\nit, and only then the destroy witness on the copy: every element was memmoved onto the stack purely\nto be torn down there. On Twitter full (11.9 KB partial, 100 elements) that was **1.19 MB of\n`memmove` per parse**, charged to the discard.\n\nThe counted form is one `swift_arrayDestroy`, which walks the elements in place and calls the\ndestroy witness on each. It had been avoided for consulting the element's metadata first — but\nunspecialised the function has already loaded that metadata (the `_isPOD` guard reads it), and the\nper-element form pays an out-of-line `UnsafeMutablePointer.deinitialize` call *plus*\n`swift_arrayDestroy` per element rather than once per block. The `_isPOD` guard in front of it is\nitself load-bearing: destroying unconditionally **cost the homogeneous double array 10%** for\n40,000 doubles that need no destroy at all.",
         "measurements" : [
 
@@ -49868,7 +50349,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7823,
+        "line" : 7892,
         "markdown" : "The default block is 32 elements, which is the granularity the snapshot semantics were designed\naround: a block is what a write into a shared block copies and what a half-filled tail wastes. That\nis the wrong unit for a *small* element. A block is one malloc and one out-of-line `prepareSlot`\ncall, and a block of 32 doubles is 256 bytes, so a flat array of ten thousand numbers paid a malloc\nevery 256 bytes of payload. Profiles put `prepareSlot` at **4.0% of typed Mesh and 3.0% of typed\nCanada**, all of it under the number-array and SIMD-pair element opens.\n\nSo for a *trivial* element of at most sixteen bytes the block aims at a byte target — 2 KB,\nspelled as `blockByteShift` — instead of at 32 elements. `Double` and `Int` get 256-element\nblocks, `SIMD2<Double>` 128-element ones, and every other element type keeps exactly the size it\nhad. Everything in the expression is a compile-time property of `Element`, so it folds to a\nconstant per instantiation.\n\nThe sixteen-byte ceiling is measured, not arithmetic. Raising it to 64 bytes pulled in small POD\n*partials* too — a dictionary's value blocks, for instance — and **cost CITM 1.2% for no gain\nanywhere**: those containers hold tens of elements, not thousands, so a larger block is a 2 KB\nallocation they never fill rather than a malloc they never repeat. Sixteen bytes is exactly the\nwidth of the elements that arrive in their thousands (a number, a coordinate pair), which is where\nthe malloc traffic actually was. Non-trivial elements are excluded outright: their blocks carry a\ndestroy loop that dwarfs the malloc the larger block would save.",
         "measurements" : [
 
@@ -49898,7 +50379,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7846,
+        "line" : 7915,
         "markdown" : "Number and other whole-token routes deliver their value to the sink exactly once and entire — the\nparser buffers a number straddling a chunk boundary and emits it at the closing byte\n(`emitBufferedNumber`) — so there is no window in which a snapshot could observe a half-written\nelement, which is the only thing `pending` buys. `_appendClosed` therefore commits straight into\nthe block slot.\n\nGoing through `_openElement` instead cost, per element: a whole-element move out of `pending` into\nthe slot, the `nil` tag written over the vacated payload, and the new value plus its `.some` tag\nwritten back into `pending` — four stores and a load-compare where this route has one store.\n\n`appendSealed` (the `drainPending` + `commit` pair `_appendClosed` calls) is `@inline(__always)`\n*for this call site*: left outlined it costs a `bl` and a stack frame per element, and that measured\n**worse than the `_openElement` round trip it was replacing**. Why `commit` itself is forced inline\nis trap 2 of \"The fused slice: the seam priced before the protocol is touched\" (one outlined call\nhid two-thirds of the double-array win), repeated in Stage 3 of the fusion series.",
         "measurements" : [
 
@@ -49928,7 +50409,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7864,
+        "line" : 7933,
         "markdown" : "`StreamArray`'s (and `StreamDictionary`'s) `streamSchema` is `@inlinable` so that a client rooting\na parse at `StreamArray<Element>` builds the schema — and therefore the `appendElement` closure\ninside it — in its own module, where `Element` is concrete and the closure body specialises.\nWithout it the whole body is emitted once in the core, generically: every `_openElement` in the\nclosure goes through `Element`'s value witnesses and `Optional<Element>`'s runtime-instantiated\nmetadata. Measured on a root `StreamDictionary`: **~2.9% of the parse in\n`swift_getGenericMetadata`/`getCache` alone**, plus a generic single-payload-enum `assignWithTake`\nper key. A macro-generated partial never hit this, because its container schemas are already built\nat the use site. (`PartialsStream.init(initialValue:from:)` has to be `@inlinable` for the same\nreason; see \"`PartialsStream`'s entry points must stay `@inlinable`\" below.)\n\n`streamSchema` is a *computed* property and `PartialsStream.init` reads it, so every stream rooted\nat a container rebuilt the whole schema, template allocation included. It is cached per element\ntype (`_streamCachedSchema`); the `@inlinable` stays, because the closure handed to the cache is\nstill formed at the use site and still specialises — only the cache probe is out of line.\n\nRelated: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because\n`StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a\n`@usableFromInline` body does not travel with it. At b01cfd6 the specialised `drainPending` called\nthe unspecialised generic `sealedCount` getter once per dictionary key — a runtime-metadata call to\nread `blocks.count`, and a barrier the surrounding loads could not be folded across.",
         "measurements" : [
 
@@ -49958,7 +50439,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7888,
+        "line" : 7957,
         "markdown" : "`_openValue` looks redundant three ways over. Each one was tried and each one lost.\n\n**`drainPending()` is not fused into the open.** `StreamArray._openElement(copying:)` fuses its\npair; doing the same here is **32% slower on the dictionary discarding rows**. Two\n`withUnsafeMutablePointer(to: &self.pendingValue)` projections in one body, with real work in the\nsecond, stop the compiler addressing the box in place, so it stages a copy of `Value?` and destroys\nit: an outlined init-with-copy and an outlined destroy, twice each, or four retain/release pairs\nper key (16 retains for a 128-key parse became 528). A projection whose closure is trivial, or one\nthat is alone in its own function, folds to direct addressing instead. That is what the separate\ncall buys, and it is worth more than the two tag writes it costs. The same rule is why the two\nprojections inside `_openValue` sit on mutually exclusive returns rather than in one body.\n\n**The two `_openValue` overloads are not folded into one body.** Folding them into a shared helper\nthat reported back what the caller still had to write — an `inout Bool` and an optional payload\npointer — stopped the specialiser cold: the `Swift.Int`, `StreamString` and CITM-partial\nspecialisations of the function disappeared from the binary and every `Value` operation went\nthrough its value witness, which **cost the dictionary rows two thirds of their throughput and GSoC\n20%**. Checked with `nm | swift demangle | grep \"generic specialization\"`, which is faster than\nmeasuring it.\n\n**The template is `UnsafePointer<Value?>`, not `UnsafePointer<Value>`.** `self.pendingValue =\ntemplate.pointee` is an *assignment* into `Value?`, and for a partial of any size that is not one\ncopy but five. Measured on the GSoC partial (1,056 bytes) at b01cfd6, per new key, from the\ndisassembly of the specialised body: `memcpy 1056` (template → stack) twice, an `outlined enum tag\nstore of Partial?` to mark the staged copy `.some`, `memcpy 1056` (old `pendingValue` → stack) so\nthe assignment can destroy what it overwrote, an `outlined init with copy of Partial` (a sixth\npass, with the retains), an `outlined destroy of Partial?` of the `nil` it had just staged, and\nfinally `memcpy 1056` (stack → `pendingValue`) — a 6,400-byte stack frame entered through\n`__chkstk_darwin`. None of it is needed: `drainPending()` leaves `pendingValue` holding `.none`,\nwhich owns nothing, so the whole optional — payload *and* tag — is copy-initialised over it in a\nsingle `initializeWithCopy`. A `Value?` template is what makes that expressible, because the tag\ntravels in the template's bytes instead of being injected afterwards, and no branch has to know\nwhether `Value?` spends a spare bit or a trailing byte on it.",
         "measurements" : [
 
@@ -49988,7 +50469,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7924,
+        "line" : 7993,
         "markdown" : "`slot(entries:table:forKey:hash:vacantBucket:)` is `@inline(__always)`, which is worth more than\nthe code it costs. It is a *non-mutating* method called from inside `_openValue`'s `inout self`,\nand `Self` is loadable but large — **2,164 bytes for the GSoC partial's dictionary**, most of it the\nopen value. Out of line, `self` arrives `@in_guaranteed` and the nested read cannot share the\naddress the outer inout access already holds, so the caller stages the whole struct:\n`memcpy(sp, self, 2164)` per key, *twice* over (once per key-span branch), for a body that reads\nexactly two words of it — `entries` and `table`. Inlined there is no second access and no copy at\nall. Visible in the disassembly of `_openValue` as `mov w2, #0x874 ; bl memcpy` before every\n`bl ...slot...`.",
         "measurements" : [
 
@@ -50018,7 +50499,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7936,
+        "line" : 8005,
         "markdown" : "\"StreamString adaptive block growth — the allocator leaves the string-heavy typed path\" introduced\nthis sizing at half the byte count, and records why `promoteSizedInlineStorage` is\n`@inline(never)`. It now raises the block schedule's start shift from the *whole* count in hand,\nwhere a `streamReserve` hint uses half: a value that arrives as one big span — an unescaped long string parsed in bulk — lands in a single block instead\nof sealing a half-sized one and walking the doubling ramp; a fragment-fed value keeps the 512-byte\nstart and lets the ramp absorb growth.\n\nWhole size rather than half is measured, not tidiness. It took **`Real LLM message - bulk\ndiscarding` +73.7% and `Real GSoC 2018` +11.6% over b01cfd6** (on top of chunk coalescing, which is\n+37.6%/+7.6% of that on its own), with total mallocs on the LLM row **2,069 → 576**. It costs no\nmemory either: `promoteInlineStorage`'s empty-tail arm reserves `min(needed, blockCapacity)`\nexactly, so a larger block means one seal fewer rather than a larger allocation.",
         "measurements" : [
 
@@ -50048,7 +50529,7 @@
           "revisions" : 1
         },
         "level" : 3,
-        "line" : 7951,
+        "line" : 8020,
         "markdown" : "",
         "measurements" : [
 
@@ -50078,7 +50559,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7953,
+        "line" : 8022,
         "markdown" : "Two attributes on `PartialsStream` carry measured weight and look like decoration.\n\n- **`init(initialValue:from:)`.** The root schema has to be built in the client module, where\n  `Value` is concrete. Emitted in the core, a `StreamArray` or `StreamDictionary` root reaches\n  `_openElement`/`_openValue` through value witnesses and instantiates `Optional<Element>` metadata\n  per open — **~2.9% of a `StreamDictionary<GSoCProject.Partial>` parse**, the cost recorded\n  above for `streamSchema` itself (\"`StreamArray.streamSchema` must be `@inlinable`, and cached\").\n- **`next(_:)`.** `JSONParser.parse` is generic over the sink and specialises into its caller, and a\n  caller in another module cannot specialise what it cannot see. Left opaque, the byte entry point\n  was **half the wall clock of every byte-fed row** (`LayerOverheadBenchmarks`) and 3% of the bulk\n  rows.",
         "measurements" : [
 
@@ -50108,7 +50589,7 @@
           "revisions" : 1
         },
         "level" : 4,
-        "line" : 7967,
+        "line" : 8036,
         "markdown" : "Swift 6.3 (every 6.3.x, fixed in 6.4) crashes in the mandatory SIL pass\n`PredictableDeadAllocationElimination` on a **generic** function whose result is\n`Optional<T.View>` with `T.View` an opaque `~Escapable` associated type. Both halves are needed: a\nnon-generic function returning `Optional<ConcreteView>`, or a generic one returning a non-optional\n`T.View`, compiles. Building a view per branch of a dispatch and returning it from there is\nequivalent in meaning but leaves several `Optional<Value.View>` stack slots for the pass to merge,\nwhich is the crashing shape.\n\nDisabling the `Lifetimes` experimental feature on 6.3 is not a workaround: every `~Escapable`\ninitializer and accessor in the library then fails to compile, and `@_unsafeNonescapableResult`\ndoes not substitute.\n\nThe shape that avoids it: every branch yields a plain, escapable `UnsafeMutableRawPointer?`, and a\nsingle exit forms the one view with `_overrideLifetime(T.streamView(address), borrowing: self)`.\n`_streamMemberAddress` (`StreamFrameEntry.swift`, which replaced `_streamMemberView`) and the\n`StreamArray.View` / `StreamDictionary.View` subscripts all use it. The caller pays one\n`_overrideLifetime`, because raw pointers carry no provenance for `@_lifetime(borrow storage)` to\nchain through two hops. New `View`-returning generic APIs should keep this shape until 6.3 is\ndropped.",
         "measurements" : [
 
@@ -50126,21 +50607,21 @@
     ],
     "title" : "New Architecture"
   },
-  "generatedAt" : "2026-09-17T21:08:13Z",
+  "generatedAt" : "2026-09-18T19:57:47Z",
   "sources" : {
 
   },
   "stats" : {
-    "codeBlockCount" : 19,
+    "codeBlockCount" : 20,
     "datedSections" : 314,
-    "declCount" : 1537,
-    "fileCount" : 48,
+    "declCount" : 1746,
+    "fileCount" : 56,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
     "lastRecorded" : "2026-09-16T12:25:55-07:00",
-    "sectionCount" : 314,
-    "tableCount" : 149,
+    "sectionCount" : 315,
+    "tableCount" : 150,
     "verdictCounts" : {
-      "landed" : 24,
+      "landed" : 25,
       "mixed" : 4,
       "neutral" : 256,
       "rejected" : 30

@@ -7784,12 +7784,13 @@ What the code does instead is keep the open element **inline, in `StreamArray.pe
 `Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a
 correct snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element
 snapshot has to diverge from is the one piece held by value. Closed elements still live in uniform
-power-of-two `StreamBlock`s, and a block a snapshot shares is still *written past* rather than
-copied, because each array carries its own `tailCount` and the parser only ever appends above the
-prefix every sharer captured (`StreamBlockHeader.count` is the filling array's high-water mark and
-nothing else reads it). The three headline properties of the section — storage owns its capacity,
-the template is a pointer rather than a closure, uniqueness is settled per container — are all
-still accurate; only the freeze/compact/spare chain was replaced.
+power-of-two `StreamBlock`s. Until the copy-on-write fix below, a block a snapshot shared was
+*written past* rather than copied, on the rule that each array carries its own `tailCount` and the
+parser only ever appends above the prefix every sharer captured; **that rule was unsound and the
+appends are now ordinary copy-on-write** — see "Landed: ordinary copy-on-write on the tail". The
+three headline properties of the section — storage owns its capacity, the template is a pointer
+rather than a closure, uniqueness is settled per container — are all still accurate; only the
+freeze/compact/spare chain was replaced.
 
 The trade recorded against the chain was that it cost a malloc per retained snapshot and could not
 be made to cost less. The inline slot costs one whole-element move per element instead — the
@@ -7798,6 +7799,74 @@ closed element moving into its block slot when the next one opens — which is t
 whole-value route skips the open element" below). The claim at the end of that section that "the
 stale element is destroyed by a specialised move rather than `swift_arrayDestroy`" is also inverted
 by what `StreamBlock` does today; see "Block teardown" below.
+
+#### Landed: ordinary copy-on-write on the tail
+
+The written-past rule above was not merely an optimisation, it was the correctness argument for
+sharing a block at all, and a review of the generic API broke it with three lines. After `var b =
+a`, both values hold the same tail and the same `tailCount`, so both compute the same next slot:
+starting from `[1]`, appending `2` to `a` and `3` to `b` leaves `a` reading `[1, 3]`. The rule
+assumed one writer; a value type has as many writers as it has copies. `StreamDictionary` inherited
+it through `storedValues`, a non-trivial element leaked or double-released the ownership one
+append overwrote, and two `Sendable` copies mutated on different threads raced on the elements and
+on the block header both were advancing. A high-water check would have fixed the serial case and
+none of the concurrent one, which is what ruled out repairing the rule in place.
+
+So `nextSlot` now calls `ensureUniqueTail` before it hands back an address, and the uniqueness
+check happens before the tail is bound to a local strong reference — binding first makes the check
+answer "shared" about the reference it just created. The header's initialised count is covered by
+the same rule, which is the part the old design specifically exempted. What did not change: a
+sealed block still stays shared without being copied, because nothing appends into it; growing a
+small full tail still moves its contents when uniquely owned; a shared-tail append copies only the
+initialised elements and keeps the block's capacity; and the open element is still inline in
+`pending`, so a mid-element snapshot still diverges for free.
+
+The reproductions from the review pass as ordinary regression tests, alongside interleaved
+divergent appends across the small-tail and sealed-block boundaries, weak-reference checks that
+the overwritten element is released exactly once, mutation of a retained parser snapshot, and two
+streams seeded from one nested collection. A core-only Thread Sanitizer harness — 64 workers × 16
+rounds, 300 appends and a mutated nested dictionary each, checking both the divergent results and
+the untouched seeds — emitted no report:
+
+```sh
+swift build --scratch-path .build-cow-tsan --target StreamParsingCore \
+  --sanitize=thread --disable-default-traits
+```
+
+The cost is a `swift_isUniquelyReferenced_native` call in the per-element commit path, and it is
+not free. On x86_64 the `Double` specialisation of `_streamArrayNumberAppender` grows 742 → 913
+bytes with 88 → 120 bytes of stack, the value spilled across the call and reloaded for the store;
+`PartialSink.openKnownSIMDDoubleElement` grows 1,035 → 1,151 bytes, each of its six route arms
+gaining one outlined `ensureUniqueTail` on the roomy-tail commit. Two release binaries
+(`e13ef7cd` and the fix) were run interleaved over 52 rows:
+
+| Benchmark | Before µs | CoW µs | Change | Mallocs |
+| --- | ---: | ---: | ---: | ---: |
+| Real Canada — bulk discarding | 6,021.12 | 6,901.76 | -12.8% | 1,398 → 1,398 |
+| Real Mesh — bulk discarding | 2,263.04 | 2,527.23 | -10.5% | 352 → 352 |
+| Dictionary 512 keys — discarding | 225.15 | 248.45 | -9.4% | 39 → 39 |
+| Dictionary 128 keys — discarding | 56.35 | 62.11 | -9.3% | 33 → 33 |
+| Retention 100 users — keep all | 410.88 | 478.72 | -14.2% | 28 → 122 |
+| Retention Mesh — window 16 | 153,000 | 161,000 | -5.0% | 603 → ≈70,000 |
+| Stream Array of structs — snapshot per byte | 408.83 | 411.65 | -0.7% | 26 → 26 |
+| Real Twitter — bulk discarding | 474.37 | 469.76 | +1.0% | 132 → 132 |
+| Real GitHub events — bulk discarding | 73.41 | 71.87 | +2.1% | 80 → 80 |
+
+The allocation columns say which half of the cost is which. Canada, Mesh and the discarding
+dictionary rows allocate *exactly* what they allocated before, so their 9–13% is the check, the
+spills and the code growth alone — no tail was actually copied. The retention rows are the other
+half: 28 → 122 mallocs for a hundred kept user states, and Mesh's window rows 603 → ≈70,000,
+which is a detached tail per retained snapshot. A nine-row confirmation in reverse order (CoW
+first) reproduced every one of these within half a point except the Qwen workspace row, which
+moved from -5.6% to -2.4% and should be treated as unsettled. The async rows span -1.6% to +2.3%
+and the raw-sink controls -1.0% to +4.3%, neither of which is a result from one sweep.
+
+This is measured on x86_64 Linux, on a host with no ARM Swift SDK, so the primary target's
+numbers are not in yet and no follow-up has been applied. The two worth measuring are inlining the
+uniqueness check while outlining the copy path — particularly for the SIMD opener, where the same
+check is reached six ways — and a scoped bulk-append that establishes uniqueness once per block
+rather than once per element, which is only sound if no snapshot can be taken inside the borrow.
+Neither recovers the old rule: the discarding rows show the floor an ordinary-CoW append has.
 
 #### Block teardown: `deinitialize(count:)`, not a `move()` loop
 

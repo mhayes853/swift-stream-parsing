@@ -149,21 +149,23 @@
       {
         "title": "A partial that can be read decides how storage may move",
         "detail": [
-          "Frames hold pointers into the value being built, which is what lets a partial update per byte at every depth. It is sound only because the innermost open container is the only thing ever mutated: a buffer can move on its next append, and that cannot happen while an element of it is open. `Dictionary` breaks the rule outright, since an insertion can relocate every value, so the streaming dictionary is an append-only array that keeps insertion order and builds an index only past a threshold.",
+          "Frames hold pointers into the value being built, which is what lets a partial update per byte at every depth. It is sound only because the innermost open container is the only thing ever mutated: a buffer can move on its next append, and that cannot happen while an element of it is open. `Dictionary` breaks the rule outright, since an insertion can relocate every value, so the streaming dictionary is an append-only array that keeps insertion order and builds an index only past a threshold. Sharing is the same question from the writer's side, and it was answered wrongly once: a snapshot is a plain copy of the value, so every copy is also a writer, and an append that skipped its uniqueness check let two of them claim one slot. Restoring the check cost 9–13% on the rows that keep nothing.",
           "Reading is the same constraint from the other side. A value handed out mid-parse shares the buffers still being written into, so keeping one means copying it: reading a member per byte through `current` costs 24 ms where parsing the same payload and observing nothing costs 449 µs. A borrowed view projects instead, copying per member actually read, at 459 µs — and it is `~Copyable`, so what stops it outliving the parser's storage is the compiler rather than a comment."
         ],
         "node": [
-          "partial-sink"
+          "partial-sink",
+          "collections"
         ],
         "doc": [
           "design-decisions/storage-frames-pointing-into-the-value",
-          "design-decisions/views-paying-for-what-you-read"
+          "design-decisions/views-paying-for-what-you-read",
+          "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/landed-ordinary-copy-on-write-on-the-tail"
         ]
       },
       {
         "title": "The experiments that lost are kept too",
         "detail": [
-          "Thirty of the recorded experiments were rejected against twenty-four landed, and several of the rejections are the counterintuitive ones above: a change that is free by construction, a fusion that hits 100% of the time, a word compare replacing a byte loop. Each is kept with the measurement that settled it, because the argument for building it is just as convincing the second time somebody makes it. The Experiments view above lists them together."
+          "Thirty of the recorded experiments were rejected against twenty-five landed, and several of the rejections are the counterintuitive ones above: a change that is free by construction, a fusion that hits 100% of the time, a word compare replacing a byte loop. Each is kept with the measurement that settled it, because the argument for building it is just as convincing the second time somebody makes it. The Experiments view above lists them together."
         ],
         "doc": [
           "design-decisions/literals-are-already-fast-enough-to-be-unmeasurable"
@@ -4407,7 +4409,7 @@
               "to": "apply",
               "kind": "branch",
               "label": "a custom type",
-              "when": "Through the schema's apply closure, which reports applied, ignored or unsupported rather than throwing."
+              "when": "Through the schema's apply closure, which reports rather than throws: applied, unsupported, capacity exceeded, or a completed value its conversion rejected."
             }
           ]
         },
@@ -4652,12 +4654,12 @@
       "viz": "collections",
       "why": [
         "`PartialSink`'s frames point directly into the value being built. For an array that is sound: its buffer can only move on an append, and no append happens while an element is still open. For a `Dictionary` it is not, because an insert can relocate every value. `StreamDictionary` keeps values append-only so the array's rule holds for it as well, and it keeps insertion order.",
-        "Both collections also serve the partial value's readers. Closed elements live in blocks that a copy shares by retaining, so a snapshot taken mid-stream does not copy the elements that are already complete."
+        "Both collections also serve the partial value's readers. A sealed block is shared by retaining and never written again, so a snapshot taken mid-stream does not copy the elements that are already complete. Only the block still being filled can be written, and only that one is copied, and only when the append that needs it finds it shared."
       ],
       "prose": [
-        "Streaming collections with their own storage. Closed elements live in uniform power-of-two blocks the value shares by retaining rather than copying, and the one element the parser is still writing lives inline, outside them.",
+        "Streaming collections with their own storage. Closed elements live in uniform power-of-two blocks a copy shares by retaining, and the one element the parser is still writing lives inline, outside them.",
         "The dictionary's index is a single table with one entry buffer; `Dictionary` was measured against it and lost outright. Both structural guesses made when designing that table turned out to be wrong, and one of them has since been reversed again — the values are blocked now.",
-        "Moving the open element into the blocks was built, measured and reverted. What stayed is the block type it needed, which turned out to buy something larger: a shared block is written past rather than copied, so the commit path has no copy-on-write check on it at all."
+        "Moving the open element into the blocks was built, measured and reverted. What stayed is the block type it needed. The rule built around it did not: a shared block was written past rather than copied, until a review showed that two copies of one array compute the same next slot. The commit path takes an ordinary uniqueness check now, and the discarding collection rows show what that costs."
       ],
       "evidence": {
         "doc": [
@@ -4668,6 +4670,7 @@
           "next-streamdictionary/order",
           "native-fixed-width-arrays-inlinearray",
           "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/correction-the-frozen-tail-chain-is-not-what-shipped",
+          "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/landed-ordinary-copy-on-write-on-the-tail",
           "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/block-teardown-deinitialize-count-not-a-move-loop",
           "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamarray-block-sizing-for-small-trivial-elements",
           "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/_appendclosed-the-whole-value-route-skips-the-open-element",
@@ -4722,8 +4725,8 @@
         {
           "id": "array",
           "title": "commit into the filling block",
-          "kicker": "written past, not copied",
-          "detail": "Closed elements live in uniform power-of-two blocks, and each array holds its *own* count of the ones in the filling block, captured by value when the array is copied. A snapshot's elements are therefore a prefix of the filling block's, and the parser appends above that prefix — memory no snapshot reads — so there is no copy-on-write check on the commit path at all, at any block size. Only a write *into* the prefix copies, and copies one block: the checked subscript, or a repeated dictionary key landing in a sealed one. The power is chosen per element type: 32 by default, but a trivial element of at most sixteen bytes aims at 2 KB instead (256 `Double`s), because at 32 `prepareSlot` was 4% of typed Mesh and such a block has no destroy loop to outweigh the allocations saved. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
+          "kicker": "unique first, then write",
+          "detail": "Closed elements live in uniform power-of-two blocks. A sealed one is never written again, so sharing it is free and a snapshot keeps the elements it already holds for the price of a retain. The filling block is the one that can still be written, and `nextSlot` makes it unique before it returns an address — the check happening before the tail is bound to a local reference, since binding first makes the check answer about the reference it just created. That check used to be absent: each array held its *own* count of the elements in the filling block, the parser appended above the prefix every sharer had captured, and the copy was argued away. Two copies of one array compute the same next slot, so the argument was wrong — `[1]` copied, then `2` appended to one and `3` to the other, reads back `[1, 3]` — and no serial fix covers two threads doing it. The check costs 9–13% on the collection rows that keep nothing at all, where no tail is ever actually copied, and one detached block per retained snapshot on the rows that keep everything. The power is chosen per element type: 32 by default, but a trivial element of at most sixteen bytes aims at 2 KB instead (256 `Double`s), because at 32 `prepareSlot` was 4% of typed Mesh and such a block has no destroy loop to outweigh the allocations saved. A power of two means the sealed count is `blocks.count << shift` and needs no stored field.",
           "source": "StreamArray.swift:StreamArray",
           "next": [
             {
@@ -4743,7 +4746,7 @@
           "id": "block",
           "title": "StreamBlock",
           "kicker": "one allocation",
-          "detail": "A `ManagedBuffer` with the elements tail-allocated, not a `ContiguousArray`. An array never exposes its spare capacity, so committing meant handing the element to `append` and letting the array copy it in — and a shared array copies *all* of its elements before the first of those writes. Owning the capacity outright is what lets the parser write the element into the slot it will live in, and what lets a shared block be written past. One object rather than two: the two-allocation form doubled the malloc count of every number-heavy corpus (Canada 2,659 → 5,109) and cost them 10–28%. The header is read through its pointer rather than as a stored class property, which from outside its module is a dynamic `swift_beginAccess` even in release, and it is deliberately not generic over the element, because a generic header makes the elements' offset a metadata question wherever the block is reached unspecialised — 7–8% on GitHub and GSoC. A block's `deinit` is emitted once, generically, so it destroys its elements with one counted `deinitialize(count:)` — a `move()` loop there lowered to an alloca, a take and a destroy per element, 1.19 MB of memmove per Twitter full parse.",
+          "detail": "A `ManagedBuffer` with the elements tail-allocated, not a `ContiguousArray`. An array never exposes its spare capacity, so committing meant handing the element to `append` and letting the array copy it in — and a shared array copies *all* of its elements before the first of those writes. Owning the capacity outright is what lets the parser write the element into the slot it will live in, and what bounds the copy a shared tail now takes to one block. One object rather than two: the two-allocation form doubled the malloc count of every number-heavy corpus (Canada 2,659 → 5,109) and cost them 10–28%. The header is read through its pointer rather than as a stored class property, which from outside its module is a dynamic `swift_beginAccess` even in release, and it is deliberately not generic over the element, because a generic header makes the elements' offset a metadata question wherever the block is reached unspecialised — 7–8% on GitHub and GSoC. A block's `deinit` is emitted once, generically, so it destroys its elements with one counted `deinitialize(count:)` — a `move()` loop there lowered to an alloca, a take and a destroy per element, 1.19 MB of memmove per Twitter full parse.",
           "source": "StreamBlock.swift:StreamBlock",
           "next": []
         },
@@ -4784,7 +4787,7 @@
           "id": "dictvalues",
           "title": "the values are blocked too",
           "kicker": "a StreamArray",
-          "detail": "`storedValues` is a `StreamArray`, for the reason the elements are: a snapshot shares the blocks instead of copying them. That reverses one of the two guesses above — a flat `[Value]` makes a snapshot-per-byte parse copy the whole value array per byte, measured at 58% off the dictionary snapshot rows, and the 2× finding had no snapshot row in front of it. The dictionary still keeps its *own* open value rather than borrowing the array's, because a repeated key's open value is an element the array already holds, and unlike an append a write into one of those is a write a kept state can see. That write happens inside the drain, with the block it lands in made unique first, so no state can be taken between the check and the write.",
+          "detail": "`storedValues` is a `StreamArray`, for the reason the elements are: a snapshot shares the sealed blocks instead of copying them. That reverses one of the two guesses above — a flat `[Value]` makes a snapshot-per-byte parse copy the whole value array per byte, measured at 58% off the dictionary snapshot rows, and the 2× finding had no snapshot row in front of it. The dictionary still keeps its *own* open value rather than borrowing the array's, because a repeated key's open value is an element the array already holds, and unlike an append a write into one of those is a write a kept state can see. That write happens inside the drain, with the block it lands in made unique first, so no state can be taken between the check and the write.",
           "source": "StreamDictionary.swift:StreamDictionary",
           "next": []
         },
@@ -4792,7 +4795,7 @@
           "id": "snapshot",
           "title": "a plain value copy",
           "kicker": "no streamSnapshot()",
-          "detail": "Everything left of the parse cursor is immutable, so copying the value retains the blocks rather than copying them — which is why nothing here has a `streamSnapshot()`. The one thing the copy has to diverge is the element the parser is still inside, and holding that inline diverges it for free. `Sendable` is asserted rather than checked here, because the blocks are objects: what makes sharing one safe is the rule that it is only ever written above the count every sharer captured, not the type system.",
+          "detail": "Everything left of the parse cursor is immutable, so copying the value retains the blocks rather than copying them — which is why nothing here has a `streamSnapshot()`. The one thing the copy has to diverge is the element the parser is still inside, and holding that inline diverges it for free. `Sendable` is asserted rather than checked here, because the blocks are objects: what makes sharing one safe is that every write into a block makes it unique first, its initialised count included, which is a rule the type system cannot see.",
           "source": "StreamArray.swift:StreamArray",
           "next": []
         }

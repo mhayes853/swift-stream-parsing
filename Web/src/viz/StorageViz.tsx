@@ -215,6 +215,7 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
   if (!step) return null;
   const scale = Math.max(trace.array.blockCapacity, step.tailCapacity, 1);
   const held = steps[trace.array.snapshotAfter];
+  const detached = steps.slice(0, index + 1).some((s) => s.event === "detach");
 
   return (
     <>
@@ -232,13 +233,14 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
           </>
         ) : step.event === "commit" ? (
           <>The last element commits at the close. Nothing is open any more.</>
-        ) : step.sharedTail ? (
+        ) : step.event === "detach" ? (
           <>
             Element {step.index} opens, and the snapshot taken after element{" "}
-            {trace.array.snapshotAfter} still holds this very block. The commit writes slot{" "}
-            {step.tailCount - 1} of it, above the {held?.tailCount ?? 0} the snapshot counted —
-            memory the snapshot does not read — so the block is written past rather than copied.
-            There is no uniqueness check on this path at all.
+            {trace.array.snapshotAfter} still holds the block this commit was going to write into.
+            So <code>nextSlot</code> finds it shared and detaches it: the {held?.tailCount ?? 0}{" "}
+            initialised elements are copied into a block of this array's own, and the snapshot
+            keeps the original. Both can be appended to now, and neither can see the other's slot{" "}
+            {step.tailCount - 1}.
           </>
         ) : (
           <>
@@ -272,7 +274,7 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
                 background: "var(--series-1)"
               }}
             />
-            {step.sharedTail && held && (
+            {step.event === "detach" && held && (
               <div
                 className="block-fill shared"
                 style={{
@@ -282,13 +284,13 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
               />
             )}
           </div>
-          <span className="block-label">{step.sharedTail ? "tail — shared" : "tail"}</span>
+          <span className="block-label">{step.event === "detach" ? "tail — copied" : "tail"}</span>
           {/* A just-sealed tail has capacity 0 until the next commit reserves a block. */}
           <span className="block-meta">
             {step.tailCapacity === 0
               ? "unreserved"
-              : step.sharedTail && held
-                ? `${step.tailCount}/${step.tailCapacity} — snapshot counts ${held.tailCount}`
+              : step.event === "detach" && held
+                ? `${step.tailCount}/${step.tailCapacity} — ${held.tailCount} copied out of the snapshot's`
                 : `${step.tailCount}/${step.tailCapacity}`}
           </span>
         </div>
@@ -312,10 +314,15 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
             `${trace.array.blockCapacity} ${trace.array.elementType}s — ${trace.array.trivialBlockCapacity} for ${trace.array.trivialElementType}`
           ],
           ["first tail reservation", `${trace.array.initialTailCapacity} — it promotes once`],
-          ["allocations", String(step.blocks.length + (step.tailCapacity > 0 ? 1 : 0))],
           [
-            "copies while shared",
-            step.sharedTail ? "0 — written past" : held ? "0 across the whole run" : "—"
+            "allocations",
+            // This value's own blocks. Once the tail is detached the snapshot is holding one more,
+            // which is the allocation the copy cost and the reason to say so here.
+            `${step.blocks.length + (step.tailCapacity > 0 ? 1 : 0)}${detached ? " — the snapshot holds one more" : ""}`
+          ],
+          [
+            "blocks copied",
+            !held ? "—" : detached ? "1 — the tail the snapshot shared" : "0 so far"
           ]
         ]}
       />
@@ -333,7 +340,7 @@ function ArrayPanel({ trace, index }: { trace: CollectionTrace; index: number })
         with it — rather than a <code>ContiguousArray</code>, because an array never exposes its
         spare capacity: committing would mean handing the element to <code>append</code>, and a
         shared array copies all of its elements before the first of those writes. Owning the
-        capacity is what makes the run above copy nothing.
+        capacity is what keeps the copy above to the one block that was shared.
       </p>
     </>
   );

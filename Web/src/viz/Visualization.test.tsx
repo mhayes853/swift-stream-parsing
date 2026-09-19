@@ -36,6 +36,22 @@ describe("Visualization", () => {
     expect(screen.getByRole("slider")).toHaveValue("0");
   });
 
+  // The array panel's whole point is the commit that finds its tail shared with a snapshot and
+  // copies it. If a recorded fill stops containing one, the panel still draws — silently showing
+  // an append path with no copy-on-write in it, which is what the parser used to do and does not.
+  it("shows the snapshot detaching the tail it shares", () => {
+    const steps = traces.collections.array.steps;
+    const at = steps.findIndex((s) => s.event === "detach");
+    expect(at).toBeGreaterThan(traces.collections.array.snapshotAfter);
+    expect(steps[at].sharedTail).toBe(true);
+    expect(steps.filter((s) => s.event === "detach")).toHaveLength(1);
+
+    render(<Visualization kind="collections" traces={traces} />);
+    fireEvent.change(screen.getByRole("slider"), { target: { value: String(at) } });
+    expect(screen.getByText("tail — copied")).toBeInTheDocument();
+    expect(screen.getByText(/blocks copied/).parentElement).toHaveTextContent("1 —");
+  });
+
   it("follows a hovered lane through the tables", () => {
     const { container } = render(<Visualization kind="utf8" traces={traces} />);
     const lane = container.querySelectorAll(".vec-stack .vec-lane")[5];

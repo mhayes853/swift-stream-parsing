@@ -570,8 +570,9 @@ export interface CollectionTrace {
       tailCapacity: number;
       pending?: number | null;
       count: number;
+      // Whether the commit *found* the tail shared with the snapshot, which is what makes it copy.
       sharedTail: boolean;
-      event: "open" | "commit" | "seal" | "grow";
+      event: "open" | "commit" | "seal" | "grow" | "detach";
     }[];
   };
   dictionary: {

@@ -107,16 +107,17 @@ enum StorageTraces {
     // schedule short enough to watch seal. Both capacities are read off the type.
     //
     // A snapshot -- a plain value copy -- is taken partway through and held for the rest of the
-    // fill, because the thing worth showing about the blocks is what does *not* happen: the
-    // filling block is written past rather than diverged from, so its object identity survives
-    // every append made while the copy is alive. `sharedTail` is that identity compared against
-    // the snapshot's, read off the shipped values rather than asserted here.
+    // fill, because the thing worth showing about the blocks is what the next commit then has to
+    // do: it finds the filling block shared and detaches it, copying the initialised elements into
+    // a block of its own and leaving the snapshot holding the original. `sharedTail` is the
+    // identity the commit *found*, compared against the snapshot's, and `detach` is the identity
+    // changing under it -- both read off the shipped values rather than asserted here.
     var array = StreamArray<String>()
     var arraySteps: [CollectionTrace.ArrayStep] = []
     let snapshotAt = elements / 2
     var snapshot: StreamArray<String>?
     var snapshotBlock: ObjectIdentifier?
-    var blockCopiedWhileShared = false
+    var detaches = 0
 
     func tailIdentity(_ value: StreamArray<String>) -> ObjectIdentifier? {
       value.tail.map(ObjectIdentifier.init)
@@ -133,22 +134,26 @@ enum StorageTraces {
       // is decided by what the open did to the storage, not by counting.
       let sealedBefore = array.blocks.count
       let capacityBefore = array.tail?.slotCapacity ?? 0
+      // What the commit *finds*: the block the snapshot holds is still this array's tail, so the
+      // uniqueness check inside `nextSlot` is about to answer "shared".
+      let shared = snapshotBlock != nil && tailIdentity(array) == snapshotBlock
       array._openElement(copying: template).assumingMemoryBound(to: String.self).pointee =
         String(index)
       let capacity = array.tail?.slotCapacity ?? 0
+      let detached = shared && tailIdentity(array) != snapshotBlock
       let event: String
       if array.blocks.count > sealedBefore {
         event = "seal"
       } else if capacityBefore != 0 && capacity != capacityBefore {
         event = "grow"
+      } else if detached {
+        event = "detach"
       } else {
         event = "open"
       }
-      let shared = snapshotBlock != nil && tailIdentity(array) == snapshotBlock
-      // A block copy while the snapshot holds it would show up here as the identity changing under
-      // a plain append. A seal or a promotion changes it too, and legitimately -- the filling block
-      // has moved on and the snapshot's is behind it -- so those stop the check rather than fail it.
-      if snapshotBlock != nil, event == "open", !shared { blockCopiedWhileShared = true }
+      if event == "detach" { detaches += 1 }
+      // Once the tail has been detached, or sealed, or promoted, the snapshot's block is behind
+      // this array and no later commit can reach it -- so there is nothing left to watch.
       if event != "open" { snapshotBlock = nil }
       arraySteps.append(
         CollectionTrace.ArrayStep(
@@ -171,12 +176,15 @@ enum StorageTraces {
     verified = verified && array.count == elements && (0..<elements).allSatisfy { array[$0] == String($0) }
 
     // The snapshot has to have stayed exactly what it was when it was taken -- the open element
-    // it captured included -- while every append above went into the block it shares.
+    // it captured included -- while the fill continued past it. That is now a claim about the
+    // copy: the first commit after the snapshot has to have detached the tail (exactly one
+    // detach, since nothing shares the block it allocated), because a commit that wrote into the
+    // shared block instead is the corruption this path was changed to prevent.
     let held = snapshot ?? StreamArray<String>()
     verified =
       verified && held.count == snapshotAt + 1
       && (0..<held.count).allSatisfy { held[$0] == String($0) }
-      && !blockCopiedWhileShared
+      && detaches == 1
 
     // The dictionary, filled through `_openValue`: the same call the sink makes for a dynamic key.
     var dictionary = StreamDictionary<Int>()
