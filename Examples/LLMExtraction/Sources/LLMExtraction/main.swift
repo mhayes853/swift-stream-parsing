@@ -72,7 +72,9 @@ if !FileManager.default.fileExists(atPath: modelURL.path) {
 
 llama_log_set({ _, _, _ in }, nil)
 llama_backend_init()
-guard let model = llama_model_load_from_file(modelURL.path, llama_model_default_params()) else {
+var modelParameters = llama_model_default_params()
+modelParameters.n_gpu_layers = 0  // The model is small enough that the CPU is plenty.
+guard let model = llama_model_load_from_file(modelURL.path, modelParameters) else {
   fatalError("Could not load \(modelURL.path)")
 }
 var contextParameters = llama_context_default_params()
@@ -138,4 +140,5 @@ if let extraction = Extraction(streamPartial: partial) {
   }
 } else {
   print("The model stopped before every field was present.")
+  exit(1)
 }

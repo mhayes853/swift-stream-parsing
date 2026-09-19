@@ -25,7 +25,7 @@ first run.
 
 - Apple platforms need nothing else: llama.cpp comes from
   [llama.swift](https://github.com/mattt/llama.swift)'s prebuilt XCFramework. This path has not
-  been run yet.
+  been run locally; CI runs it on macOS.
 - Elsewhere, install a llama.cpp that provides `llama.pc` to `pkg-config`, for example
   `sudo pacman -S llama-cpp` on Arch.
 
