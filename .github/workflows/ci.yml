@@ -76,6 +76,16 @@ jobs:
           swift test
           --disable-experimental-prebuilts --enable-all-traits
 
+  examples:
+    name: Examples (replay)
+    runs-on: ubuntu-latest
+    container: swift:6.3.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      # `replay` needs neither a model nor llama.cpp; a parse failure exits non-zero.
+      - name: Replay the recorded token stream
+        run: swift run --package-path Examples replay --no-delay
+
   embedded:
     name: Embedded (wasm)
     runs-on: ubuntu-latest

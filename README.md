@@ -221,6 +221,10 @@ for try await profilePartial in partials {
 }
 ```
 
+## Examples
+
+The [Examples](Examples) package parses a local LLM's structured output token by token, logging the typed partial after every chunk. `swift run --package-path Examples replay` runs it from a recorded generation with no model required.
+
 ## Parsers
 
 The JSON parser accepts only strict JSON.
