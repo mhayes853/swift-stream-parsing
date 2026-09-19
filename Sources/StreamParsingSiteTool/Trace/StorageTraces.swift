@@ -1,0 +1,258 @@
+import Foundation
+
+@testable import StreamParsingCore
+
+// Recorders for storage: what a `StreamString`, a `StreamArray` and a `StreamDictionary` actually
+// look like while they fill.
+//
+// These read the values' own stored properties after every append, so the block capacities the
+// animation draws are the capacities the type chose, and the schedule constants come off the type
+// rather than out of this file.
+
+enum StorageTraces {
+  // MARK: - StreamString
+
+  /// A real `StreamString` fed chunks the size the parser feeds them, read back after each one.
+  ///
+  /// `streamAppend(utf8:)` is the same entry point `PartialSink` uses for a `.streamString`
+  /// member, so the ramp recorded here is the ramp a parse produces.
+  static func streamString(chunks: [String]) -> StreamStringTrace {
+    var value = StreamString()
+    var steps: [StreamStringTrace.Step] = []
+    var written: [UInt8] = []
+
+    // The empty value as it starts, read off it rather than written down: the tail's capacity here
+    // is the first block the schedule will ask for.
+    steps.append(
+      StreamStringTrace.Step(
+        chunk: "", chunkBytes: 0, inlineCount: value.inlineCount, blocks: [],
+        tailCount: value.tail.count, tailCapacity: value.tailBlockCapacity,
+        utf8Count: value.utf8Count, event: "inline"))
+
+    for chunk in chunks {
+      let bytes = Array(chunk.utf8)
+      let blocksBefore = value.blocks.count
+      let inlineBefore = value.usesInlineStorage
+      bytes.withUnsafeBufferPointer { buffer in _ = value.streamAppend(utf8: buffer.span) }
+      written.append(contentsOf: bytes)
+
+      // Which of the four things this append did, decided by what changed rather than by the size
+      // of the chunk: the inline buffer overflowed, a block sealed, or neither.
+      let event: String
+      if inlineBefore && !value.usesInlineStorage {
+        event = "promote"
+      } else if value.blocks.count > blocksBefore {
+        event = "seal"
+      } else if value.usesInlineStorage {
+        event = "inline"
+      } else {
+        event = "append"
+      }
+
+      steps.append(
+        StreamStringTrace.Step(
+          chunk: chunk, chunkBytes: bytes.count,
+          inlineCount: value.usesInlineStorage ? value.inlineCount : 0,
+          blocks: value.blocks.map(\.count), tailCount: value.tail.count,
+          tailCapacity: value.tailBlockCapacity, utf8Count: value.utf8Count, event: event))
+    }
+
+    // The closed-form locate, called on the shipped value: one `clz` inside the doubling ramp and
+    // a shift past it, rather than a search over prefix sums.
+    let sealed = value.sealedCount
+    var locate: [StreamStringTrace.Locate] = []
+    let probes = [0, 1, sealed / 4, sealed - 1, sealed, value.utf8Count - 1]
+    for position in Set(probes).sorted() where position >= 0 && position < value.utf8Count {
+      if position >= sealed {
+        locate.append(
+          StreamStringTrace.Locate(
+            position: position, block: value.blocks.count, offset: position - sealed,
+            byte: value.utf8[position], region: "tail"))
+      } else {
+        let found = value.sealedPosition(of: position)
+        locate.append(
+          StreamStringTrace.Locate(
+            position: position, block: found.block, offset: found.offset,
+            byte: value.utf8[position], region: "sealed"))
+      }
+    }
+
+    // The reader has to hand back what went in, and every locate has to name a byte that agrees
+    // with the block it points into.
+    let verified =
+      value.utf8Count == written.count
+      && written.indices.allSatisfy { value.utf8[$0] == written[$0] }
+      && locate.filter { $0.region == "sealed" }.allSatisfy {
+        value.blocks[$0.block][$0.offset] == $0.byte
+      }
+
+    return StreamStringTrace(
+      inlineCapacity: StreamString.inlineCapacity, firstBlockCapacity: StreamString.blockCapacity,
+      maximumBlockCapacity: 1 << StreamString.maximumBlockShift, steps: steps, locate: locate,
+      verified: verified)
+  }
+
+  // MARK: - StreamArray and StreamDictionary
+
+  static func collections(elements: Int, keys: [String]) -> CollectionTrace {
+    var verified = true
+
+    // The array, filled through `_openElement(copying:)`: the call the schema's element open makes,
+    // which moves the previous element into its slot and copies the template into the space it
+    // vacated, so the element being parsed stays outside the blocked storage until it commits.
+    //
+    // The elements are `String`s, not `Int`s, because the block schedule depends on the element: a
+    // small trivial element aims its blocks at 2 KB (`Int` gets 256 slots), while anything with a
+    // destroy keeps the 32-slot default -- which is the shape of an array of parsed objects, and a
+    // schedule short enough to watch seal. Both capacities are read off the type.
+    //
+    // A snapshot -- a plain value copy -- is taken partway through and held for the rest of the
+    // fill, because the thing worth showing about the blocks is what the next commit then has to
+    // do: it finds the filling block shared and detaches it, copying the initialised elements into
+    // a block of its own and leaving the snapshot holding the original. `sharedTail` is the
+    // identity the commit *found*, compared against the snapshot's, and `detach` is the identity
+    // changing under it -- both read off the shipped values rather than asserted here.
+    var array = StreamArray<String>()
+    var arraySteps: [CollectionTrace.ArrayStep] = []
+    let snapshotAt = elements / 2
+    var snapshot: StreamArray<String>?
+    var snapshotBlock: ObjectIdentifier?
+    var detaches = 0
+
+    func tailIdentity(_ value: StreamArray<String>) -> ObjectIdentifier? {
+      value.tail.map(ObjectIdentifier.init)
+    }
+
+    // One template for the whole fill, as the schema builders leak one per schema.
+    let template = UnsafeMutablePointer<String>.allocate(capacity: 1)
+    template.initialize(to: "")
+    defer { template.deinitialize(count: 1); template.deallocate() }
+
+    for index in 0..<elements {
+      // Opening an element is what commits the previous one; a commit that fills the tail seals a
+      // block, and one that fills the small first tail promotes it to a full-sized one. The event
+      // is decided by what the open did to the storage, not by counting.
+      let sealedBefore = array.blocks.count
+      let capacityBefore = array.tail?.slotCapacity ?? 0
+      // What the commit *finds*: the block the snapshot holds is still this array's tail, so the
+      // uniqueness check inside `nextSlot` is about to answer "shared".
+      let shared = snapshotBlock != nil && tailIdentity(array) == snapshotBlock
+      array._openElement(copying: template).assumingMemoryBound(to: String.self).pointee =
+        String(index)
+      let capacity = array.tail?.slotCapacity ?? 0
+      let detached = shared && tailIdentity(array) != snapshotBlock
+      let event: String
+      if array.blocks.count > sealedBefore {
+        event = "seal"
+      } else if capacityBefore != 0 && capacity != capacityBefore {
+        event = "grow"
+      } else if detached {
+        event = "detach"
+      } else {
+        event = "open"
+      }
+      if event == "detach" { detaches += 1 }
+      // Once the tail has been detached, or sealed, or promoted, the snapshot's block is behind
+      // this array and no later commit can reach it -- so there is nothing left to watch.
+      if event != "open" { snapshotBlock = nil }
+      arraySteps.append(
+        CollectionTrace.ArrayStep(
+          index: index, value: index, blocks: array.blocks.map(\.count), tailCount: array.tailCount,
+          tailCapacity: capacity, pending: array.pending.flatMap { Int($0) }, count: array.count, sharedTail: shared,
+          event: event))
+      if index == snapshotAt {
+        snapshot = array
+        snapshotBlock = tailIdentity(array)
+      }
+    }
+    // Nothing follows the last element, so its commit is the drain the parser does at the close.
+    array.drainPending()
+    arraySteps.append(
+      CollectionTrace.ArrayStep(
+        index: elements - 1, value: elements - 1, blocks: array.blocks.map(\.count),
+        tailCount: array.tailCount, tailCapacity: array.tail?.slotCapacity ?? 0,
+        pending: array.pending.flatMap { Int($0) }, count: array.count,
+        sharedTail: snapshotBlock != nil && tailIdentity(array) == snapshotBlock, event: "commit"))
+    verified = verified && array.count == elements && (0..<elements).allSatisfy { array[$0] == String($0) }
+
+    // The snapshot has to have stayed exactly what it was when it was taken -- the open element
+    // it captured included -- while the fill continued past it. That is now a claim about the
+    // copy: the first commit after the snapshot has to have detached the tail (exactly one
+    // detach, since nothing shares the block it allocated), because a commit that wrote into the
+    // shared block instead is the corruption this path was changed to prevent.
+    let held = snapshot ?? StreamArray<String>()
+    verified =
+      verified && held.count == snapshotAt + 1
+      && (0..<held.count).allSatisfy { held[$0] == String($0) }
+      && detaches == 1
+
+    // The dictionary, filled through `_openValue`: the same call the sink makes for a dynamic key.
+    var dictionary = StreamDictionary<Int>()
+    var dictSteps: [CollectionTrace.DictStep] = []
+    for (index, key) in keys.enumerated() {
+      let keyBytes = Array(key.utf8)
+      let hash = keyBytes.withUnsafeBufferPointer { StreamDictionary<Int>.hash($0) }
+      keyBytes.withUnsafeBufferPointer { buffer in
+        _ = dictionary._openValue(forKey: buffer.span, initial: index)
+      }
+      dictSteps.append(
+        CollectionTrace.DictStep(
+          key: key, hash: traceHex(hash), entryCount: dictionary.entries.count,
+          storedValueCount: dictionary.storedValues.count, tableCount: dictionary.table.count,
+          pendingSlot: dictionary.pendingSlot,
+          event: !dictionary.table.isEmpty && dictSteps.last?.tableCount == 0 ? "index" : "open"))
+    }
+    dictionary.drainPending()
+    let slots = Array(dictionary.table)
+
+    // Probes through the shipped lookup, with the probe chain recorded alongside it. A miss walks
+    // to the first empty bucket, which is what bounds the chain.
+    var lookups: [CollectionTrace.Lookup] = []
+    for key in keys.prefix(2) + ["absent"] {
+      let keyBytes = Array(key.utf8)
+      var buckets: [Int] = []
+      var slot: Int32?
+      var hash: UInt64 = 0
+      keyBytes.withUnsafeBufferPointer { buffer in
+        hash = StreamDictionary<Int>.hash(buffer)
+        // Below the threshold the table is empty rather than absent, and the lookup scans entries.
+        let table = dictionary.table
+        if !table.isEmpty {
+          let mask = table.count - 1
+          var probe = Int(hash & UInt64(mask))
+          while buckets.count <= table.count {
+            buckets.append(probe)
+            let candidate = table[probe]
+            if candidate < 0 { break }
+            if dictionary.entries[Int(candidate)].hash == hash { break }
+            probe = (probe &+ 1) & mask
+          }
+        } else {
+          buckets = Array(0..<dictionary.entries.count)
+        }
+        slot = dictionary.slot(forKey: buffer, hash: hash)
+      }
+      lookups.append(
+        CollectionTrace.Lookup(
+          key: key, hash: traceHex(hash), buckets: buckets, slot: slot ?? -1, found: slot != nil))
+      // The recorded chain has to end where the shipped lookup ended.
+      if let slot, !dictionary.table.isEmpty, let bucket = buckets.last, dictionary.table[bucket] != slot {
+        verified = false
+      }
+      if (slot != nil) != keys.contains(key) { verified = false }
+    }
+    verified =
+      verified && dictionary.count == keys.count
+      && keys.enumerated().allSatisfy { dictionary[$0.element] == $0.offset }
+
+    return CollectionTrace(
+      array: CollectionTrace.ArrayTrace(
+        elementType: "String", blockCapacity: StreamArray<String>.defaultBlockCapacity,
+        trivialElementType: "Int", trivialBlockCapacity: StreamArray<Int>.defaultBlockCapacity,
+        initialTailCapacity: StreamArray<String>.initialTailCapacity, snapshotAfter: snapshotAt,
+        steps: arraySteps),
+      dictionary: CollectionTrace.DictionaryTrace(
+        indexThreshold: StreamDictionary<Int>.indexThreshold, steps: dictSteps, slots: slots,
+        lookups: lookups), verified: verified)
+  }
+}

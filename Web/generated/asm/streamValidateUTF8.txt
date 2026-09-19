@@ -1,0 +1,170 @@
+; StreamParsingCore.streamValidateUTF8(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int) -> Swift.Bool
+; _$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF
+; 165 instructions
+; llvm-objdump -d, release benchmark binary
+
+10029bf98:     	stp	x22, x21, [sp, #-0x30]!
+10029bf9c:     	stp	x20, x19, [sp, #0x10]
+10029bfa0:     	stp	x29, x30, [sp, #0x20]
+10029bfa4:     	add	x29, sp, #0x20
+10029bfa8:     	sub	x9, sp, #0x70
+10029bfac:     	and	sp, x9, #0xffffffffffffffe0
+10029bfb0:     	adrp	x8, 0x10055d000 <_write+0x10055d000>
+10029bfb4:     	ldr	x8, [x8, #0x878]
+10029bfb8:     	ldr	x8, [x8]
+10029bfbc:     	str	x8, [sp, #0x68]
+10029bfc0:     	sub	x8, x2, x1
+10029bfc4:     	cmp	x8, #0x1
+10029bfc8:     	b.lt	0x10029bfe8 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x50>
+10029bfcc:     	mov	x19, x0
+10029bfd0:     	add	x9, x0, x2
+10029bfd4:     	ldurb	w10, [x9, #-0x1]
+10029bfd8:     	cmp	w10, #0xbf
+10029bfdc:     	b.ls	0x10029bff0 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x58>
+10029bfe0:     	mov	w0, #0x0                ; =0
+10029bfe4:     	b	0x10029c1bc <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x224>
+10029bfe8:     	mov	w0, #0x1                ; =1
+10029bfec:     	b	0x10029c1bc <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x224>
+10029bff0:     	cmp	x8, #0x1
+10029bff4:     	b.ne	0x10029c1e8 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x250>
+10029bff8:     	movi.2d	v0, #0000000000000000
+10029bffc:     	stp	q0, q0, [sp, #0x40]
+10029c000:     	add	x9, sp, #0x40
+10029c004:     	orr	x0, x9, #0x3
+10029c008:     	mov	x20, x1
+10029c00c:     	add	x1, x19, x1
+10029c010:     	mov	x21, x2
+10029c014:     	mov	x2, x8
+10029c018:     	bl	0x1004ad1a8 <_write+0x1004ad1a8>
+10029c01c:     	mov	x1, x20
+10029c020:     	mov	x2, x21
+10029c024:     	ldur	q1, [sp, #0x43]
+10029c028:     	ldur	q2, [sp, #0x42]
+10029c02c:     	ldur	q3, [sp, #0x41]
+10029c030:     	ldr	q4, [sp, #0x40]
+10029c034:     	ushr.16b	v0, v2, #0x4
+10029c038:     	adrp	x8, 0x1004c1000 <_$s17StreamParsingCore0A10DictionaryVyxGAA0A13ParseableRootA2aERzlMc+0x20>
+10029c03c:     	ldr	q17, [x8, #0x1a0]
+10029c040:     	tbl.16b	v5, { v17 }, v0
+10029c044:     	movi.16b	v0, #0xf
+10029c048:     	and.16b	v2, v2, v0
+10029c04c:     	adrp	x8, 0x1004c1000 <_$s17StreamParsingCore0A10DictionaryVyxGAA0A13ParseableRootA2aERzlMc+0x20>
+10029c050:     	ldr	q19, [x8, #0x1b0]
+10029c054:     	tbl.16b	v2, { v19 }, v2
+10029c058:     	and.16b	v2, v2, v5
+10029c05c:     	ushr.16b	v1, v1, #0x4
+10029c060:     	adrp	x8, 0x1004c1000 <_$s17StreamParsingCore0A10DictionaryVyxGAA0A13ParseableRootA2aERzlMc+0x20>
+10029c064:     	ldr	q20, [x8, #0x1c0]
+10029c068:     	tbl.16b	v1, { v20 }, v1
+10029c06c:     	and.16b	v5, v2, v1
+10029c070:     	movi.16b	v1, #0x60
+10029c074:     	uqsub.16b	v3, v3, v1
+10029c078:     	movi.16b	v2, #0x70
+10029c07c:     	uqsub.16b	v4, v4, v2
+10029c080:     	orr.16b	v4, v4, v3
+10029c084:     	movi.16b	v3, #0x80
+10029c088:     	and.16b	v4, v4, v3
+10029c08c:     	eor.16b	v18, v4, v5
+10029c090:     	add	x8, x1, #0x10
+10029c094:     	add	x9, x1, #0x20
+10029c098:     	cmp	x2, x9
+10029c09c:     	b.ge	0x10029c0a8 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x110>
+10029c0a0:     	mov	x9, x8
+10029c0a4:     	b	0x10029c108 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x170>
+10029c0a8:     	add	x9, x19, x8
+10029c0ac:     	ldr	q4, [x9]
+10029c0b0:     	ldur	q5, [x9, #-0x1]
+10029c0b4:     	ldur	q6, [x9, #-0x2]
+10029c0b8:     	ldur	q7, [x9, #-0x3]
+10029c0bc:     	ushr.16b	v16, v5, #0x4
+10029c0c0:     	tbl.16b	v16, { v17 }, v16
+10029c0c4:     	and.16b	v5, v5, v0
+10029c0c8:     	tbl.16b	v5, { v19 }, v5
+10029c0cc:     	and.16b	v5, v5, v16
+10029c0d0:     	ushr.16b	v4, v4, #0x4
+10029c0d4:     	tbl.16b	v4, { v20 }, v4
+10029c0d8:     	and.16b	v4, v5, v4
+10029c0dc:     	uqsub.16b	v5, v6, v1
+10029c0e0:     	uqsub.16b	v6, v7, v2
+10029c0e4:     	orr.16b	v5, v6, v5
+10029c0e8:     	and.16b	v5, v5, v3
+10029c0ec:     	eor.16b	v4, v5, v4
+10029c0f0:     	orr.16b	v18, v4, v18
+10029c0f4:     	add	x9, x8, #0x10
+10029c0f8:     	add	x10, x8, #0x20
+10029c0fc:     	mov	x8, x9
+10029c100:     	cmp	x2, x10
+10029c104:     	b.ge	0x10029c0a8 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x110>
+10029c108:     	movi.2d	v0, #0000000000000000
+10029c10c:     	cmp	x2, x9
+10029c110:     	b.le	0x10029c1a4 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x20c>
+10029c114:     	stp	q20, q19, [sp]
+10029c118:     	stp	q18, q17, [sp, #0x20]
+10029c11c:     	add	x1, x19, x9
+10029c120:     	stp	q0, q0, [sp, #0x40]
+10029c124:     	ldurb	w8, [x1, #-0x3]
+10029c128:     	strb	w8, [sp, #0x40]
+10029c12c:     	ldurh	w8, [x1, #-0x2]
+10029c130:     	sturh	w8, [sp, #0x41]
+10029c134:     	subs	x2, x2, x9
+10029c138:     	b.mi	0x10029c224 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x28c>
+10029c13c:     	add	x8, sp, #0x40
+10029c140:     	orr	x0, x8, #0x3
+10029c144:     	bl	0x1004ad1a8 <_write+0x1004ad1a8>
+10029c148:     	ldur	q0, [sp, #0x43]
+10029c14c:     	ldur	q1, [sp, #0x42]
+10029c150:     	ldur	q2, [sp, #0x41]
+10029c154:     	ldp	q5, q3, [sp, #0x30]
+10029c158:     	ushr.16b	v4, v1, #0x4
+10029c15c:     	tbl.16b	v4, { v5 }, v4
+10029c160:     	movi.16b	v5, #0xf
+10029c164:     	and.16b	v1, v1, v5
+10029c168:     	ldp	q5, q18, [sp, #0x10]
+10029c16c:     	tbl.16b	v1, { v5 }, v1
+10029c170:     	and.16b	v1, v1, v4
+10029c174:     	ushr.16b	v0, v0, #0x4
+10029c178:     	ldr	q4, [sp]
+10029c17c:     	tbl.16b	v0, { v4 }, v0
+10029c180:     	and.16b	v0, v1, v0
+10029c184:     	movi.16b	v1, #0x60
+10029c188:     	uqsub.16b	v1, v2, v1
+10029c18c:     	movi.16b	v2, #0x70
+10029c190:     	uqsub.16b	v2, v3, v2
+10029c194:     	orr.16b	v1, v2, v1
+10029c198:     	movi.16b	v2, #0x80
+10029c19c:     	and.16b	v1, v1, v2
+10029c1a0:     	eor.16b	v0, v1, v0
+10029c1a4:     	orr.16b	v0, v0, v18
+10029c1a8:     	dup.2d	v1, v0[1]
+10029c1ac:     	orr.16b	v0, v1, v0
+10029c1b0:     	fmov	x8, d0
+10029c1b4:     	cmp	x8, #0x0
+10029c1b8:     	cset	w0, eq
+10029c1bc:     	ldr	x8, [sp, #0x68]
+10029c1c0:     	adrp	x9, 0x10055d000 <_write+0x10055d000>
+10029c1c4:     	ldr	x9, [x9, #0x878]
+10029c1c8:     	ldr	x9, [x9]
+10029c1cc:     	cmp	x9, x8
+10029c1d0:     	b.ne	0x10029c228 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x290>
+10029c1d4:     	sub	sp, x29, #0x20
+10029c1d8:     	ldp	x29, x30, [sp, #0x20]
+10029c1dc:     	ldp	x20, x19, [sp, #0x10]
+10029c1e0:     	ldp	x22, x21, [sp], #0x30
+10029c1e4:     	ret
+10029c1e8:     	ldurb	w10, [x9, #-0x2]
+10029c1ec:     	cmp	w10, #0xdf
+10029c1f0:     	b.hi	0x10029bfe0 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x48>
+10029c1f4:     	cmp	x8, #0x3
+10029c1f8:     	b.lo	0x10029bff8 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x60>
+10029c1fc:     	ldurb	w9, [x9, #-0x3]
+10029c200:     	cmp	w9, #0xef
+10029c204:     	b.hi	0x10029bfe0 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x48>
+10029c208:     	movi.2d	v0, #0000000000000000
+10029c20c:     	stp	q0, q0, [sp, #0x40]
+10029c210:     	cmp	x8, #0xf
+10029c214:     	b.ls	0x10029c000 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x68>
+10029c218:     	ldr	q1, [x19, x1]
+10029c21c:     	stur	q1, [sp, #0x43]
+10029c220:     	b	0x10029c028 <_$s17StreamParsingCore18streamValidateUTF84base4from2toSbSV_S2itF+0x90>
+10029c224:     	brk	#0x1
+10029c228:     	bl	0x1004acd94 <_write+0x1004acd94>

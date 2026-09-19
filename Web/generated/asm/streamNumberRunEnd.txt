@@ -1,0 +1,58 @@
+; StreamParsingCore.streamNumberRunEnd(base: Swift.UnsafeRawPointer, from: Swift.Int, to: Swift.Int) -> Swift.Int
+; _$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF
+; 53 instructions
+; llvm-objdump -d, release benchmark binary
+
+100284570:     	add	x8, x1, #0x10
+100284574:     	cmp	x2, x8
+100284578:     	b.ge	0x100284584 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x14>
+10028457c:     	mov	x8, x1
+100284580:     	b	0x1002845e0 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x70>
+100284584:     	adrp	x8, 0x1004ae000 <_$s23StreamParsingBenchmarks25BenchmarkGSoCOrganizationV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOSQAAMc+0x14>
+100284588:     	ldr	q0, [x8, #0x670]
+10028458c:     	movi.16b	v1, #0xf
+100284590:     	adrp	x8, 0x1004ae000 <_$s23StreamParsingBenchmarks25BenchmarkGSoCOrganizationV10CodingKeys33_5416B021FE73E7AC8C4855A62A631F6ELLOSQAAMc+0x14>
+100284594:     	ldr	q2, [x8, #0x680]
+100284598:     	ldr	q3, [x0, x1]
+10028459c:     	ushr.16b	v4, v3, #0x4
+1002845a0:     	tbl.16b	v4, { v0 }, v4
+1002845a4:     	and.16b	v3, v3, v1
+1002845a8:     	tbl.16b	v3, { v2 }, v3
+1002845ac:     	cmtst.16b	v3, v3, v4
+1002845b0:     	shrn.8b	v3, v3, #0x4
+1002845b4:     	fmov	x8, d3
+1002845b8:     	mvn	x8, x8
+1002845bc:     	rbit	x8, x8
+1002845c0:     	clz	x8, x8
+1002845c4:     	cmp	x8, #0x3f
+1002845c8:     	b.ls	0x100284638 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xc8>
+1002845cc:     	add	x8, x1, #0x10
+1002845d0:     	add	x9, x1, #0x20
+1002845d4:     	mov	x1, x8
+1002845d8:     	cmp	x2, x9
+1002845dc:     	b.ge	0x100284598 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x28>
+1002845e0:     	cmp	x8, x2
+1002845e4:     	b.ge	0x10028463c <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
+1002845e8:     	mov	w9, #0x1                ; =1
+1002845ec:     	mov	x10, #0x680000000000    ; =114349209288704
+1002845f0:     	b	0x100284600 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x90>
+1002845f4:     	add	x8, x8, #0x1
+1002845f8:     	cmp	x2, x8
+1002845fc:     	b.eq	0x10028463c <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0xcc>
+100284600:     	ldrb	w11, [x0, x8]
+100284604:     	sub	w12, w11, #0x30
+100284608:     	cmp	w12, #0xa
+10028460c:     	b.lo	0x1002845f4 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+100284610:     	cmp	w11, #0x2e
+100284614:     	lsl	x12, x9, x11
+100284618:     	and	x12, x12, x10
+10028461c:     	ccmp	x12, #0x0, #0x4, ls
+100284620:     	b.ne	0x1002845f4 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+100284624:     	and	w11, w11, #0xffffffdf
+100284628:     	cmp	w11, #0x45
+10028462c:     	b.eq	0x1002845f4 <_$s17StreamParsingCore18streamNumberRunEnd4base4from2toSiSV_S2itF+0x84>
+100284630:     	mov	x0, x8
+100284634:     	ret
+100284638:     	add	x2, x1, x8, lsr #2
+10028463c:     	mov	x0, x2
+100284640:     	ret

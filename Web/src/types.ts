@@ -1,0 +1,631 @@
+// Mirrors the Swift models in Sources/StreamParsingSiteTool. Everything except pipeline.json is
+// generated, so if these drift the fix is in the extractor, not here.
+
+export type Verdict = "landed" | "rejected" | "mixed" | "neutral";
+
+export interface TableCell {
+  text: string;
+  bold: boolean;
+  value?: number;
+  unit?: string;
+  isDelta: boolean;
+}
+
+export interface DocTable {
+  headers: string[];
+  rows: TableCell[][];
+  labelColumn?: number;
+}
+
+export interface Measurement {
+  payload: string;
+  rowLabel: string;
+  column: string;
+  value: number;
+  unit?: string;
+  isDelta: boolean;
+}
+
+export interface DocCodeBlock {
+  language: string;
+  code: string;
+}
+
+export interface DocHistory {
+  recorded: string;
+  recordedCommit: string;
+  recordedSubject: string;
+  revised: string;
+  revisedCommit: string;
+  revisedSubject: string;
+  revisions: number;
+}
+
+export interface DocSection {
+  path: string;
+  slug: string;
+  title: string;
+  level: number;
+  parentPath?: string;
+  chapter: string;
+  line: number;
+  verdict: Verdict;
+  markdown: string;
+  summary: string;
+  tables: DocTable[];
+  codeBlocks: DocCodeBlock[];
+  measurements: Measurement[];
+  history?: DocHistory;
+}
+
+export interface ContentBundle {
+  generatedAt: string;
+  doc: { path: string; title: string; sections: DocSection[] };
+  stats: {
+    sectionCount: number;
+    tableCount: number;
+    codeBlockCount: number;
+    declCount: number;
+    fileCount: number;
+    verdictCounts: Record<string, number>;
+    datedSections: number;
+    firstRecorded?: string;
+    lastRecorded?: string;
+  };
+}
+
+export interface SourceDecl {
+  symbol: string;
+  qualifiedName: string;
+  kind: string;
+  file: string;
+  startLine: number;
+  endLine: number;
+  attributes: string[];
+  comment?: string;
+  code: string;
+  members: string[];
+}
+
+export interface SourceBundle {
+  generatedAt: string;
+  sources: Record<string, SourceDecl[]>;
+}
+
+export interface PipelineStage {
+  id: string;
+  title: string;
+  blurb: string;
+}
+
+export type VizKind =
+  | "stringRun"
+  | "whitespace"
+  | "containers"
+  | "structuralBlocks"
+  | "number"
+  | "movemask"
+  | "whitespaceTable"
+  | "numberTable"
+  | "utf8"
+  | "escapes"
+  | "sinkCalls"
+  | "dispositions"
+  | "skipRun"
+  | "skipBlocks"
+  | "keyMatch"
+  | "fieldTable"
+  | "frames"
+  | "schemaRouting"
+  | "streamString"
+  | "collections"
+  | "views";
+
+export type EdgeKind = "step" | "branch" | "return" | "detail";
+
+export interface PipelineEdge {
+  to: string;
+  kind: EdgeKind;
+  label: string;
+  when?: string;
+}
+
+export interface AlgorithmStep {
+  id: string;
+  title: string;
+  kicker?: string;
+  detail: string;
+  source?: string;
+  ordering?: "ordered" | "unordered";
+  next: PipelineEdge[];
+}
+
+export interface PipelineNode {
+  id: string;
+  stage: string;
+  title: string;
+  kicker: string;
+  why: string[];
+  prose: string[];
+  viz: VizKind | null;
+  evidence: { doc: string[]; source: string[]; asm: string[] };
+  invokes?: string;
+  ordering?: "ordered" | "unordered";
+  next: PipelineEdge[];
+  steps: AlgorithmStep[];
+}
+
+export interface OverviewItem {
+  title: string;
+  // A single paragraph or node may be written bare; lib/overview.ts is what reads either form.
+  detail: string | string[];
+  node?: string | string[];
+  // Chart lanes this step is, scrolled to rather than opened.
+  stage?: string | string[];
+  doc?: string[];
+}
+
+export interface Overview {
+  lede: string[];
+  how: OverviewItem[];
+  why: OverviewItem[];
+}
+
+export interface Pipeline {
+  version: number;
+  overview: Overview;
+  stages: PipelineStage[];
+  nodes: PipelineNode[];
+}
+
+export interface StringRunBlock {
+  offset: number;
+  bytes: number[];
+  isQuote: boolean[];
+  isBackslash: boolean[];
+  isControl: boolean[];
+  hit: boolean[];
+  anyHit: boolean;
+  hitLane: number;
+  scannedAfter: number[];
+  nonASCIIAfter: boolean;
+}
+
+export interface StringRunTrace {
+  sample: string;
+  bytes: number[];
+  blocks: StringRunBlock[];
+  tail: { offset: number; byte: number; terminates: boolean }[];
+  end: number;
+  containsNonASCII: boolean;
+  verified: boolean;
+}
+
+export interface WhitespaceCall {
+  from: number;
+  to: number;
+  firstByte: number;
+  earlyOut: boolean;
+  path: "early" | "scalar" | "vector";
+  end: number;
+  runLength: number;
+  lanes: { offset: number; byte: number; isWhitespace: boolean }[];
+}
+
+export interface WhitespaceTrace {
+  sample: string;
+  bytes: number[];
+  calls: WhitespaceCall[];
+}
+
+export interface ContainerStep {
+  index: number;
+  event: string;
+  text?: string;
+  offset: number;
+  length: number;
+  depthBefore: number;
+  depthAfter: number;
+  containersAfter: string;
+  containersBits: number[];
+}
+
+export interface ContainerTrace {
+  sample: string;
+  steps: ContainerStep[];
+  maximumDepth: number;
+  offsetsVerified: boolean;
+}
+
+export interface StructuralBlockVisit {
+  offset: number;
+  byte: number;
+  kind: string;
+  next: number;
+  maskAfter: boolean[];
+  reanchors: boolean;
+}
+
+export interface StructuralBlock {
+  index: number;
+  offset: number;
+  bytes: number[];
+  starts: boolean[];
+  quotes: boolean[];
+  backslashes: boolean[];
+  startCount: number;
+  noOuterWhitespace: boolean;
+  nonASCII: boolean;
+  needsScalar: boolean;
+  strikeBefore: number;
+  strikeAfter: number;
+  givesUp: boolean;
+  visits: StructuralBlockVisit[];
+}
+
+export interface StructuralBlockCase {
+  name: string;
+  purpose: string;
+  sample: string;
+  bytes: number[];
+  blocks: StructuralBlock[];
+  end: number;
+  shippedEnd: number;
+  gaveUp: boolean;
+  shippedGaveUp: boolean;
+  eventsMatch: boolean;
+  verified: boolean;
+}
+
+export interface StructuralBlockTrace {
+  cases: StructuralBlockCase[];
+  verified: boolean;
+}
+
+export interface NumberCase {
+  text: string;
+  prefix: string;
+  runEnd: number;
+  digitCount: number;
+  acceptedByShortInteger: boolean;
+  value?: number;
+  steps: { label: string; detail: string; hex: string; bytes: number[] }[];
+  verified: boolean;
+}
+
+export interface LookupTable {
+  name: string;
+  indexedBy: string;
+  entries: number[];
+  format: "byte" | "bits";
+  bitLabels: string[];
+  note: string;
+}
+
+export interface TableLane {
+  lane: number;
+  byte: number;
+  indices: number[];
+  values: number[];
+  hit: boolean;
+}
+
+export interface TableTrace {
+  kernel: string;
+  summary: string;
+  replaces: string;
+  sample: string;
+  bytes: number[];
+  tables: LookupTable[];
+  lanes: TableLane[];
+  combine: "equal" | "and";
+  verified: boolean;
+}
+
+export interface UTF8Lane {
+  lane: number;
+  byte: number;
+  previous1: number;
+  previous2: number;
+  previous3: number;
+  indices: number[];
+  values: number[];
+  special: number;
+  mustContinue: number;
+  error: number;
+  classes: string[];
+  role: "ascii" | "continuation" | "lead2" | "lead3" | "lead4" | "invalid";
+}
+
+export interface UTF8Trace {
+  sample: string;
+  bytes: number[];
+  tables: LookupTable[];
+  lanes: UTF8Lane[];
+  valid: boolean;
+  verified: boolean;
+}
+
+export interface EscapeTrace {
+  entries: { byte: number; source: string; decoded?: number; meaning: string }[];
+  map: number[];
+  verified: boolean;
+}
+
+export interface SinkCall {
+  index: number;
+  method: string;
+  signature: string;
+  text?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  takesSpan: boolean;
+  depthAfter: number;
+  group: "structure" | "key" | "whole" | "chunked";
+}
+
+export interface SinkCallTrace {
+  sample: string;
+  bytes: number[];
+  calls: SinkCall[];
+  verified: boolean;
+}
+
+export interface DispositionTrace {
+  sample: string;
+  bytes: number[];
+  skippedKey: string;
+  streamed: SinkCall[];
+  skipped: SinkCall[];
+  delivered: boolean[];
+  skipFrom: number;
+  skipTo: number;
+  verified: boolean;
+}
+
+export interface SkipRunStep {
+  offset: number;
+  byte: number;
+  action: "open" | "close" | "string" | "separator" | "number" | "literal" | "done";
+  scanner?: string | null;
+  next: number;
+  depthBefore: number;
+  depthAfter: number;
+  containers: string;
+  emits: boolean;
+}
+
+export interface SkipRunTrace {
+  sample: string;
+  bytes: number[];
+  from: number;
+  startDepth: number;
+  steps: SkipRunStep[];
+  end: number;
+  shippedEnd: number;
+  verified: boolean;
+}
+
+export interface SkipBlockVisit {
+  offset: number;
+  byte: number;
+  depthBefore: number;
+  depthAfter: number;
+  isObject: boolean;
+  opens: boolean;
+  emits: boolean;
+  maskAfter: boolean[];
+}
+
+export interface SkipBlock {
+  index: number;
+  offset: number;
+  bytes: number[];
+  brackets: boolean[];
+  needsScalar: boolean;
+  nonASCII: boolean;
+  inStringBefore: boolean;
+  inStringAfter: boolean;
+  endsOddBefore: boolean;
+  endsOddAfter: boolean;
+  depthBefore: number;
+  depthAfter: number;
+  visits: SkipBlockVisit[];
+}
+
+export interface SkipBlockTrace {
+  sample: string;
+  bytes: number[];
+  from: number;
+  startDepth: number;
+  blocks: SkipBlock[];
+  end: number;
+  shippedEnd: number;
+  state: string;
+  shippedState: string;
+  verified: boolean;
+}
+
+export interface FieldEntry {
+  index: number;
+  key: string;
+  keyWord: string;
+  wordBytes: number[];
+  keyLength: number;
+  kind: string;
+  offset: number;
+  hash: string;
+  bucket: number;
+}
+
+export interface FieldProbeStep {
+  bucket: number;
+  entry: number;
+  wordEqual: boolean;
+  lengthEqual: boolean;
+  tailChecked: boolean;
+  tailEqual: boolean;
+  hit: boolean;
+}
+
+export interface FieldProbe {
+  key: string;
+  bytes: number[];
+  word: string;
+  wordBytes: number[];
+  length: number;
+  hash: string;
+  bytesHash: string;
+  steps: FieldProbeStep[];
+  shipped: number;
+  mirrored: number;
+  verified: boolean;
+}
+
+export interface FieldTable {
+  name: string;
+  strategy: "scan" | "indexed" | "none";
+  threshold: number;
+  entries: FieldEntry[];
+  slots: number[];
+  probes: FieldProbe[];
+}
+
+export interface FieldMatchTrace {
+  tables: FieldTable[];
+  verified: boolean;
+}
+
+export interface Frame {
+  schema: number;
+  storageOffset?: number | null;
+  pendingField: number;
+  field?: string | null;
+}
+
+export interface FrameStep {
+  index: number;
+  call: string;
+  text?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  frames: Frame[];
+  wrote?: string | null;
+}
+
+export interface FrameTrace {
+  sample: string;
+  bytes: number[];
+  rootSize: number;
+  schemas: {
+    id: number;
+    name: string;
+    shape: string;
+    keyRouting: string;
+    fieldCount: number;
+  }[];
+  members: { name: string; offset: number; size: number; kind: string; schema: number }[];
+  steps: FrameStep[];
+  verified: boolean;
+  result: string;
+}
+
+export interface StreamStringTrace {
+  inlineCapacity: number;
+  firstBlockCapacity: number;
+  maximumBlockCapacity: number;
+  steps: {
+    chunk: string;
+    chunkBytes: number;
+    inlineCount: number;
+    blocks: number[];
+    tailCount: number;
+    tailCapacity: number;
+    utf8Count: number;
+    event: "inline" | "promote" | "append" | "seal";
+  }[];
+  locate: {
+    position: number;
+    block: number;
+    offset: number;
+    byte: number;
+    region: "inline" | "sealed" | "tail";
+  }[];
+  verified: boolean;
+}
+
+export interface CollectionTrace {
+  array: {
+    elementType: string;
+    blockCapacity: number;
+    trivialElementType: string;
+    trivialBlockCapacity: number;
+    initialTailCapacity: number;
+    snapshotAfter: number;
+    steps: {
+      index: number;
+      value: number;
+      blocks: number[];
+      tailCount: number;
+      tailCapacity: number;
+      pending?: number | null;
+      count: number;
+      // Whether the commit *found* the tail shared with the snapshot, which is what makes it copy.
+      sharedTail: boolean;
+      event: "open" | "commit" | "seal" | "grow" | "detach";
+    }[];
+  };
+  dictionary: {
+    indexThreshold: number;
+    steps: {
+      key: string;
+      hash: string;
+      entryCount: number;
+      storedValueCount: number;
+      tableCount: number;
+      pendingSlot: number;
+      event: "open" | "commit" | "index";
+    }[];
+    slots: number[];
+    lookups: { key: string; hash: string; buckets: number[]; slot: number; found: boolean }[];
+  };
+  verified: boolean;
+}
+
+export interface ViewTrace {
+  typeName: string;
+  size: number;
+  stride: number;
+  members: {
+    name: string;
+    offset: number;
+    size: number;
+    kind: string;
+    value: string;
+    indirect: boolean;
+  }[];
+  verified: boolean;
+}
+
+export interface TraceBundle {
+  generatedAt: string;
+  arch: string;
+  stringRun: StringRunTrace;
+  whitespace: WhitespaceTrace;
+  containers: ContainerTrace;
+  structuralBlocks: StructuralBlockTrace;
+  number: { cases: NumberCase[] };
+  whitespaceTable: TableTrace;
+  numberTable: TableTrace;
+  utf8: UTF8Trace;
+  escapes: EscapeTrace;
+  sinkCalls: SinkCallTrace;
+  dispositions: DispositionTrace;
+  skipRun: SkipRunTrace;
+  skipBlocks: SkipBlockTrace;
+  fieldMatch: FieldMatchTrace;
+  frames: FrameTrace;
+  streamString: StreamStringTrace;
+  collections: CollectionTrace;
+  views: ViewTrace;
+}
