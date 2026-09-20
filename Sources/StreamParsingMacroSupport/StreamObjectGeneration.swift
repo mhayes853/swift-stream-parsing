@@ -620,9 +620,11 @@ extension StreamObjectGeneration {
       let member = Self.memberName(field.name)
       let fieldID = "Self.StreamField.\(member)"
       for key in field.keys {
-        result.matches.append(
-          "  case \(self.wordLiteral(key))\(self.matchGuard(key)): return \(fieldID)"
-        )
+        let match = StreamUTF8Match(key)
+        let condition = match.remainingCondition(byteCount: ExprSyntax("key.count")) { offset in
+          ExprSyntax("key.paddedWord(at: \(raw: offset))")
+        }
+        result.matches.append("  case \(match.leadingWord) where \(condition): return \(fieldID)")
       }
       let target = "p.pointee.\(member)"
       let schema = self.schemaName(field)
@@ -725,27 +727,27 @@ extension StreamObjectGeneration {
     if case .dictionary(let value) = self.fieldShape(field.type) {
       return "StreamParsingCore.StreamDictionary<\(value.trimmedDescription).Partial>"
     }
-    return "\(self.unwrapped(field.type).trimmedDescription).Partial"
+    return "\(field.type.streamUnwrappedOptionalType.trimmedDescription).Partial"
   }
 
   fileprivate func memberType(_ field: StreamParseableField) -> String {
     let base = self.partialType(field)
-    return self.partialMembers.makesRequiredPropertiesOptional || self.isOptional(field.type)
+    return self.partialMembers.makesRequiredPropertiesOptional || field.type.streamIsOptional
       ? "\(base)?" : base
   }
 
   fileprivate func fieldShape(_ type: TypeSyntax) -> FieldShape {
-    let type = self.unwrapped(type)
+    let type = type.streamUnwrappedOptionalType
     if let array = type.as(ArrayTypeSyntax.self) { return .array(array.element) }
     if let dictionary = type.as(DictionaryTypeSyntax.self) { return .dictionary(dictionary.value) }
-    if let arguments = self.genericArguments(type), arguments.count == 1,
-      self.lastTypeName(type) == "Array",
+    if let arguments = type.streamGenericArguments, arguments.count == 1,
+      type.streamTypeName == "Array",
       case .type(let element) = arguments.first!.argument
     {
       return .array(element)
     }
-    if let arguments = self.genericArguments(type), arguments.count == 2,
-      self.lastTypeName(type) == "Dictionary",
+    if let arguments = type.streamGenericArguments, arguments.count == 2,
+      type.streamTypeName == "Dictionary",
       case .type(let value) = arguments[arguments.index(after: arguments.startIndex)].argument
     {
       return .dictionary(value)
@@ -760,17 +762,8 @@ extension StreamObjectGeneration {
     case .dictionary(let value):
       self.containerSchemaExpression("Dictionary", element: value, label: "value")
     case .scalarOrObject:
-      "_streamSchema(for: \(self.unwrapped(type).trimmedDescription).Partial.self)"
+      "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
     }
-  }
-
-  fileprivate func lastTypeName(_ type: TypeSyntax) -> String? {
-    type.as(IdentifierTypeSyntax.self)?.name.text ?? type.as(MemberTypeSyntax.self)?.name.text
-  }
-
-  fileprivate func genericArguments(_ type: TypeSyntax) -> GenericArgumentListSyntax? {
-    type.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
-      ?? type.as(MemberTypeSyntax.self)?.genericArgumentClause?.arguments
   }
 
   fileprivate func containerSchemaExpression(
@@ -778,30 +771,10 @@ extension StreamObjectGeneration {
     element: TypeSyntax,
     label: String
   ) -> String {
-    let storage = self.unwrapped(element).trimmedDescription
-    let builder = self.isOptional(element) ? "_streamOptional\(kind)Schema" : "_stream\(kind)Schema"
+    let storage = element.streamUnwrappedOptionalType.trimmedDescription
+    let builder = element.streamIsOptional ? "_streamOptional\(kind)Schema" : "_stream\(kind)Schema"
     return "\(builder)(\(storage).Partial.self, \(label): \(self.schemaExpression(element)))"
   }
-
-  fileprivate func unwrapped(_ type: TypeSyntax) -> TypeSyntax {
-    var current = type
-    while true {
-      let next: TypeSyntax
-      if let optional = current.as(OptionalTypeSyntax.self) {
-        next = optional.wrappedType
-      } else if self.lastTypeName(current) == "Optional",
-        let arguments = self.genericArguments(current), arguments.count == 1,
-        case .type(let wrapped) = arguments.first!.argument
-      {
-        next = wrapped
-      } else {
-        return current
-      }
-      current = next
-    }
-  }
-
-  fileprivate func isOptional(_ type: TypeSyntax) -> Bool { self.unwrapped(type) != type }
 
   fileprivate static func bareName(_ token: TokenSyntax) -> String {
     let text = token.text
@@ -826,21 +799,6 @@ extension StreamObjectGeneration {
       return false
     }
     return !Syntax(declaration).hasError
-  }
-
-  fileprivate func wordLiteral(_ key: String, at start: Int = 0) -> String {
-    StreamUTF8Match.wordLiteral(
-      StreamUTF8Match.paddedWord(in: Array(key.utf8), at: start)
-    )
-  }
-
-  fileprivate func matchGuard(_ key: String) -> String {
-    let utf8 = Array(key.utf8)
-    var conditions = ["key.count == \(utf8.count)"]
-    for offset in stride(from: 8, to: utf8.count, by: 8) {
-      conditions.append("key.paddedWord(at: \(offset)) == \(self.wordLiteral(key, at: offset))")
-    }
-    return " where " + conditions.joined(separator: " && ")
   }
 
   fileprivate func members(_ source: String) -> MemberBlockItemListSyntax {

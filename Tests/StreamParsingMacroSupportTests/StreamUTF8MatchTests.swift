@@ -23,6 +23,56 @@ struct `Stream UTF8 match tests` {
   }
 
   @Test
+  func `Custom Count And Word Expressions Compose Into A Where Clause`() {
+    let match = StreamUTF8Match("abcdefghijklmnopq")
+    var offsets = [Int]()
+    let condition = match.remainingCondition(
+      byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
+    ) { offset in
+      offsets.append(offset)
+      return FunctionCallExprSyntax(
+        callee: DeclReferenceExprSyntax(baseName: .identifier("loadWord"))
+      ) {
+        LabeledExprSyntax(expression: IntegerLiteralExprSyntax(offset))
+      }
+    }
+    let clause = WhereClauseSyntax(
+      whereKeyword: .keyword(.where, trailingTrivia: .space),
+      condition: condition
+    )
+    expectNoDifference(offsets, [8, 16])
+    expectNoDifference(match.word(at: 16).trimmedDescription, "0x0000_0000_0000_0071")
+    expectNoDifference(
+      clause.trimmedDescription,
+      "where streamCount == 17 && loadWord(8) == 0x706F_6E6D_6C6B_6A69 && loadWord(16) == 0x0000_0000_0000_0071"
+    )
+  }
+
+  @Test
+  func `Custom Match Expressions Preserve Operator Precedence`() {
+    let condition = StreamUTF8Match("abcdefghi")
+      .remainingCondition(
+        byteCount: ExprSyntax("cachedCount ?? fallbackCount")
+      ) { _ in
+        ExprSyntax("word & mask")
+      }
+    expectNoDifference(
+      condition.trimmedDescription,
+      "(cachedCount ?? fallbackCount) == 9 && (word & mask) == 0x0000_0000_0000_0069"
+    )
+  }
+
+  @Test
+  func `Custom Word Builder Propagates Errors`() {
+    #expect(throws: BuilderError.self) {
+      try StreamUTF8Match("abcdefghi")
+        .remainingCondition(byteCount: ExprSyntax("count")) {
+          _ throws -> ExprSyntax in throw BuilderError()
+        }
+    }
+  }
+
+  @Test
   func `Match Distinguishes Empty And NUL Values By Count`() {
     let bytes: ExprSyntax = "bytes"
 

@@ -27,13 +27,24 @@ public struct StreamUTF8Match: Hashable, Sendable {
   /// The expression may occur more than once in the returned syntax. Use
   /// ``StreamUTF8Matcher`` when the expression must be evaluated exactly once.
   public func condition(matching bytes: some ExprSyntaxProtocol) -> ExprSyntax {
-    Self.completeCondition(matching: bytes, utf8: Array(self.value.utf8))
+    guard !self.value.isEmpty else { return "(\(bytes)).count == 0" }
+    let remaining = self.remainingCondition(matching: bytes)
+    // Count comes first so an empty span short-circuits before its nil base address
+    // reaches `paddedLeadingWord()`.
+    return "\(remaining) && (\(bytes)).paddedLeadingWord() == \(self.leadingWord)"
   }
 
   /// The little-endian, zero-padded first eight bytes of the match value.
-  public var leadingWord: IntegerLiteralExprSyntax {
-    IntegerLiteralExprSyntax(
-      literal: .integerLiteral(Self.wordLiteral(Self.paddedWord(in: Array(self.value.utf8), at: 0)))
+  public var leadingWord: IntegerLiteralExprSyntax { self.word(at: 0) }
+
+  /// A little-endian word containing up to eight UTF-8 bytes at a nonnegative offset.
+  /// Missing bytes are padded with zeros.
+  public func word(at offset: Int) -> IntegerLiteralExprSyntax {
+    precondition(offset >= 0)
+    return IntegerLiteralExprSyntax(
+      literal: .integerLiteral(
+        Self.wordLiteral(Self.paddedWord(in: Array(self.value.utf8), at: offset))
+      )
     )
   }
 
@@ -42,38 +53,40 @@ public struct StreamUTF8Match: Hashable, Sendable {
   /// This predicate is complete when the caller has already established that
   /// `leadingWord` matches. The expression may occur more than once.
   public func remainingCondition(matching bytes: some ExprSyntaxProtocol) -> ExprSyntax {
-    Self.remainingCondition(matching: bytes, utf8: Array(self.value.utf8))
-  }
-
-  static func completeCondition(
-    matching bytes: some ExprSyntaxProtocol,
-    utf8: [UInt8]
-  ) -> ExprSyntax {
-    guard !utf8.isEmpty else {
-      return "(\(bytes)).count == 0"
+    self.remainingCondition(byteCount: ExprSyntax("(\(bytes)).count")) { offset in
+      ExprSyntax("(\(bytes)).paddedWord(at: \(raw: offset))")
     }
-    let word = IntegerLiteralExprSyntax(
-      literal: .integerLiteral(Self.wordLiteral(Self.paddedWord(in: utf8, at: 0)))
-    )
-    let leading: ExprSyntax = "(\(bytes)).paddedLeadingWord() == \(word)"
-    let remaining = Self.remainingCondition(matching: bytes, utf8: utf8)
-    // Count comes first so an empty span short-circuits before its nil base address
-    // reaches `paddedLeadingWord()`.
-    return "\(remaining) && \(leading)"
   }
 
-  static func remainingCondition(
-    matching bytes: some ExprSyntaxProtocol,
-    utf8: [UInt8]
-  ) -> ExprSyntax {
-    var condition: ExprSyntax = "(\(bytes)).count == \(raw: utf8.count)"
-    for offset in stride(from: 8, to: utf8.count, by: 8) {
-      let word = IntegerLiteralExprSyntax(
-        literal: .integerLiteral(Self.wordLiteral(Self.paddedWord(in: utf8, at: offset)))
-      )
-      condition = "\(condition) && (\(bytes)).paddedWord(at: \(raw: offset)) == \(word)"
+  /// Generates the remaining predicate using a custom byte count and word loader.
+  ///
+  /// `wordAtOffset` builds an expression for each trailing word, at offsets 8, 16,
+  /// and so on. It executes during generation, not in the generated client code.
+  /// The count check precedes the word loads, and `leadingWord` must already match.
+  /// The result composes with `WhereClauseSyntax`, `if`, and other conditions.
+  public func remainingCondition<Word: ExprSyntaxProtocol>(
+    byteCount: some ExprSyntaxProtocol,
+    wordAtOffset: (Int) throws -> Word
+  ) rethrows -> ExprSyntax {
+    var condition: ExprSyntax = "\(Self.operand(byteCount)) == \(raw: self.value.utf8.count)"
+    for offset in stride(from: 8, to: self.value.utf8.count, by: 8) {
+      let loaded = try wordAtOffset(offset)
+      condition = "\(condition) && \(Self.operand(loaded)) == \(self.word(at: offset))"
     }
     return condition
+  }
+
+  // Preserve precedence for caller-supplied expressions without adding parentheses
+  // to the simple references and calls used by the built-in generators.
+  private static func operand(_ expression: some ExprSyntaxProtocol) -> ExprSyntax {
+    let expression = ExprSyntax(expression)
+    if expression.is(DeclReferenceExprSyntax.self) || expression.is(MemberAccessExprSyntax.self)
+      || expression.is(FunctionCallExprSyntax.self) || expression.is(IntegerLiteralExprSyntax.self)
+      || expression.is(SubscriptCallExprSyntax.self) || expression.is(TupleExprSyntax.self)
+    {
+      return expression
+    }
+    return "(\(expression))"
   }
 
   static func paddedWord(in utf8: [UInt8], at start: Int) -> UInt64 {

@@ -91,6 +91,28 @@ dependency; its generated-code target must also enable the needed compiler featu
 `StreamUTF8MatchSet` combines several spellings into one predicate; an empty set is false.
 These predicates can reference the input expression repeatedly, so provide a stable expression.
 
+For a different storage representation or a cached byte count, supply the expressions that
+read the count and each trailing word. The same predicate works in a switch `where` clause
+or an `if` condition:
+
+```swift
+let match = StreamUTF8Match("awaiting_moderation")
+let condition = match.remainingCondition(
+  byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
+) { offset in
+  ExprSyntax("partial.paddedWord(at: \(raw: offset))")
+}
+let clause = WhereClauseSyntax(
+  whereKeyword: .keyword(.where, trailingTrivia: .space),
+  condition: condition
+)
+```
+
+The surrounding switch must already match `match.leadingWord`. The remaining predicate
+checks the byte count before reading words at offsets 8, 16, and so on, distinguishing NUL
+bytes from padding. The closure runs while generating syntax and accepts concrete expression
+nodes. `match.word(at:)` exposes individual padded word literals for custom control flow.
+
 For complete control flow, use `StreamUTF8Matcher`:
 
 ```swift
@@ -123,3 +145,10 @@ Different encoded spellings remain distinct even when Swift strings compare as c
 equivalent. Conflicting byte-identical keys in different branches are rejected at construction.
 The generated expressions expect `count`, `paddedLeadingWord()`, and `paddedWord(at:)`, as
 provided by `Span<UInt8>` with `StreamParsingCore` in scope.
+
+## Inspect optional types
+
+`TypeSyntaxProtocol.streamUnwrappedOptionalType` removes explicit optional layers written as
+`T?`, `Optional<T>`, or `Swift.Optional<T>`. `streamIsOptional` checks whether any such layer
+exists. These utilities accept concrete type nodes and preserve optionality inside containers;
+they inspect syntax and do not resolve type aliases.

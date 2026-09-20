@@ -1,4 +1,5 @@
 import SwiftDiagnostics
+import SwiftParser
 import StreamParsingMacroSupport
 import SwiftSyntax
 import SwiftSyntaxBuilder
@@ -308,108 +309,6 @@ extension StreamParseableMacro {
     )
   }
 
-  private static func paddedWord(for key: String, at start: Int = 0) -> UInt64 {
-    var word: UInt64 = 0
-    for (offset, byte) in Array(key.utf8).dropFirst(start).prefix(8).enumerated() {
-      word |= UInt64(byte) << (offset * 8)
-    }
-    return word
-  }
-
-  static func keyWordLiteral(for key: String, at start: Int = 0) -> String {
-    let word = Self.paddedWord(for: key, at: start)
-    let digits = Array("0123456789ABCDEF")
-    var hex = ""
-    for shift in stride(from: 60, through: 0, by: -4) {
-      hex.append(digits[Int((word >> UInt64(shift)) & 0xF)])
-    }
-    var grouped = [String]()
-    var index = hex.startIndex
-    while index < hex.endIndex {
-      let next = hex.index(index, offsetBy: 4)
-      grouped.append(String(hex[index..<next]))
-      index = next
-    }
-    return "0x" + grouped.joined(separator: "_")
-  }
-
-  static func stringLiteral(_ key: String) -> String {
-    var escaped = ""
-    for scalar in key.unicodeScalars {
-      switch scalar {
-      case "\\": escaped += "\\\\"
-      case "\"": escaped += "\\\""
-      default: escaped.unicodeScalars.append(scalar)
-      }
-    }
-    return "\"\(escaped)\""
-  }
-
-  // The exact-match `where` clause for `String`-raw enum values. The count is load bearing below
-  // eight bytes too, because a decoded
-  // NUL is otherwise indistinguishable from `paddedWord`'s zero padding.
-  static func matchGuard(for name: String, count: String, word: String) -> String {
-    let byteCount = name.utf8.count
-    var conditions = ["\(count) == \(byteCount)"]
-    var offset = 8
-    while offset < byteCount {
-      conditions.append("\(word)(at: \(offset)) == \(Self.keyWordLiteral(for: name, at: offset))")
-      offset += 8
-    }
-    return " where " + conditions.joined(separator: " && ")
-  }
-
-  private enum FieldShape {
-    case scalarOrObject
-    case array
-    case dictionary(String)
-  }
-
-  private static func fieldShape(for type: TypeSyntax) -> FieldShape {
-    let unwrapped = Self.unwrappedType(type)
-    if unwrapped.is(ArrayTypeSyntax.self) { return .array }
-    if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
-      return .dictionary(dictionary.value.trimmedDescription)
-    }
-    return .scalarOrObject
-  }
-
-  private static func unwrappedType(_ type: TypeSyntax) -> TypeSyntax {
-    var current = type
-    while true {
-      let next = Self.unwrappedOnce(current)
-      if next == current { return current }
-      current = next
-    }
-  }
-
-  private static func unwrappedOnce(_ type: TypeSyntax) -> TypeSyntax {
-    if let optional = type.as(OptionalTypeSyntax.self) { return optional.wrappedType }
-    let name: String
-    let arguments: GenericArgumentListSyntax?
-    if let identifier = type.as(IdentifierTypeSyntax.self) {
-      name = identifier.name.text
-      arguments = identifier.genericArgumentClause?.arguments
-    } else if let member = type.as(MemberTypeSyntax.self) {
-      name = member.name.text
-      arguments = member.genericArgumentClause?.arguments
-    } else {
-      return type
-    }
-    guard name == "Optional",
-      let arguments,
-      arguments.count == 1,
-      case .type(let wrapped) = arguments.first?.argument
-    else {
-      return type
-    }
-    return wrapped
-  }
-
-  private static func isOptional(_ type: TypeSyntax) -> Bool {
-    Self.unwrappedType(type) != type
-  }
-
   static func streamPartialValueProperty(
     from properties: [StoredProperty],
     modifierPrefix: String,
@@ -429,19 +328,19 @@ extension StreamParseableMacro {
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
         if let conversion = property.completedConversion {
-          let expression = Self.isOptional(property.type)
+          let expression = property.type.streamIsOptional
             ? "self.\(property.memberName).map { StreamParsingCore.ConvertedPartial<\(conversion)>(value: $0) }"
             : "StreamParsingCore.ConvertedPartial<\(conversion)>(value: self.\(property.memberName))"
           return "    \(property.memberName): \(expression)\(suffix)"
         }
-        if case .dictionary = Self.fieldShape(for: property.type) {
+        if property.type.streamUnwrappedOptionalType.is(DictionaryTypeSyntax.self) {
           // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
           // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
           // through the optional rather than reaching for `mapValues` on it, which did not
           // compile at all.
           let converted = "StreamParsingCore.StreamDictionary($0.mapValues(\\.streamPartialValue))"
           let value =
-            Self.isOptional(property.type)
+            property.type.streamIsOptional
             ? "self.\(property.memberName).map { \(converted) }"
             : "StreamParsingCore.StreamDictionary(self.\(property.memberName).mapValues(\\.streamPartialValue))"
           return "    \(property.memberName): \(value)\(suffix)"
@@ -486,7 +385,7 @@ extension StreamParseableMacro {
       let lines =
         active.map {
           if $0.completedConversion != nil {
-            let fallback = Self.isOptional($0.type) ? "nil" : ($0.defaultExpression ?? "nil")
+            let fallback = $0.type.streamIsOptional ? "nil" : ($0.defaultExpression ?? "nil")
             return "    self.\($0.memberName) = _streamConvertedValue(partial.\($0.memberName)) ?? (\(fallback))"
           }
           return "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -503,7 +402,7 @@ extension StreamParseableMacro {
         active
         .map {
           if $0.completedConversion != nil {
-            let helper = Self.isOptional($0.type) ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
+            let helper = $0.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
             return "      let \($0.memberName) = \(helper)(partial.\($0.memberName))"
           }
           return "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -773,7 +672,7 @@ extension StreamParseableMacro {
     for diagnostic in capacityInfo.diagnostics {
       context.diagnose(diagnostic)
     }
-    if hasIgnoredAttribute, !hasDefaultValue, !Self.isOptional(type) {
+    if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
       Self.diagnoseUnsettableIgnoredMember(
         in: variableDecl,
         propertyName: propertyName,
@@ -801,7 +700,7 @@ extension StreamParseableMacro {
       if capacityInfo.value != nil {
         context.diagnose(Self.error(variableDecl, "initialCapacity: is not supported with completedConversion:."))
       }
-      if !Self.isOptional(type), defaultExpression == nil {
+      if !type.streamIsOptional, defaultExpression == nil {
         context.diagnose(Self.error(variableDecl, "A nonoptional converted member requires an explicit default for init(orInitial:)."))
       }
     }
@@ -937,7 +836,7 @@ extension StreamParseableMacro {
       }
 
       if let keyExpression {
-        guard let keyName = self.stringLiteralValue(from: keyExpression) else {
+        guard let keyName = keyExpression.as(StringLiteralExprSyntax.self)?.representedLiteralValue else {
           diagnostics.append(
             Self.error(attribute, "@StreamParseableMember(key:) requires a string literal.")
           )
@@ -1086,21 +985,11 @@ extension StreamParseableMacro {
   // Interpolation declines rather than silently dropping the interpolated segment: `"a\(1)b"`
   // used to read as the key `ab`. An empty literal is returned as such, so callers that care can
   // say "must not be empty" instead of "not a literal".
-  static func stringLiteralValue(from expression: ExprSyntax) -> String? {
-    guard let literal = expression.as(StringLiteralExprSyntax.self) else { return nil }
-    var value = ""
-    for segment in literal.segments {
-      guard let text = segment.as(StringSegmentSyntax.self)?.content.text else { return nil }
-      value += text
-    }
-    return value
-  }
-
   private static func stringArrayValues(from expression: ExprSyntax) -> [String]? {
     guard let arrayExpression = expression.as(ArrayExprSyntax.self) else { return nil }
     var values = [String]()
     for element in arrayExpression.elements {
-      guard let value = self.stringLiteralValue(from: element.expression) else { return nil }
+      guard let value = element.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue else { return nil }
       values.append(value)
     }
     return values.isEmpty ? nil : values

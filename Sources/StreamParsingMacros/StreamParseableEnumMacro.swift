@@ -1,4 +1,6 @@
+import StreamParsingMacroSupport
 import SwiftDiagnostics
+import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
@@ -107,7 +109,7 @@ extension StreamParseableMacro {
         var defaultName = bareName
         if case .string = rawKind, let rawValue = element.rawValue?.value {
           // `case none = ""` is an ordinary sentinel raw value, so an empty literal is kept.
-          if let literal = Self.stringLiteralValue(from: rawValue) {
+          if let literal = rawValue.as(StringLiteralExprSyntax.self)?.representedLiteralValue {
             defaultName = literal
           } else {
             Self.diagnoseNonLiteralRawValue(in: element, context: context)
@@ -392,10 +394,14 @@ extension StreamParseableMacro {
 
     let exactArms = candidates
       .map { candidate in
-        let word = Self.keyWordLiteral(for: candidate.name)
-        let guardClause = Self.enumMatchGuard(for: candidate.name)
+        let match = StreamUTF8Match(candidate.name)
+        let condition = match.remainingCondition(
+          byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
+        ) { offset in
+          ExprSyntax("partial.paddedWord(at: \(raw: offset))")
+        }
         return """
-              case \(word)\(guardClause):
+              case \(match.leadingWord) where \(condition):
                 self = .\(candidate.reference)
                 return
           """
@@ -413,7 +419,7 @@ extension StreamParseableMacro {
       }
       .map { _, candidate in
         """
-              if partial.isPrefix(of: \(Self.stringLiteral(candidate.name))) {
+              if partial.isPrefix(of: \(StringLiteralExprSyntax(content: candidate.name).trimmedDescription)) {
                 self = .\(candidate.reference)
                 return
               }
@@ -542,11 +548,6 @@ extension StreamParseableMacro {
           }
         }
       """
-  }
-
-  // `matchGuard` reading a `StreamString` rather than a key span.
-  static func enumMatchGuard(for name: String) -> String {
-    Self.matchGuard(for: name, count: "streamCount", word: "partial.paddedWord")
   }
 
   // A JSON key becomes a Swift member name, which it is not always already: a key may be a Swift
