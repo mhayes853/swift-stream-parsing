@@ -32,7 +32,9 @@ public struct StreamUTF8Match: Hashable, Sendable {
 
   /// The little-endian, zero-padded first eight bytes of the match value.
   public var leadingWord: IntegerLiteralExprSyntax {
-    IntegerLiteralExprSyntax(literal: .integerLiteral(Self.wordLiteral(self.paddedWord(at: 0))))
+    IntegerLiteralExprSyntax(
+      literal: .integerLiteral(Self.wordLiteral(Self.paddedWord(in: Array(self.value.utf8), at: 0)))
+    )
   }
 
   /// Generates the byte-count and trailing-word portion of the equality predicate.
@@ -81,21 +83,16 @@ public struct StreamUTF8Match: Hashable, Sendable {
       }
   }
 
-  private func paddedWord(at start: Int) -> UInt64 {
-    Self.paddedWord(in: Array(self.value.utf8), at: start)
-  }
-
   static func wordLiteral(_ word: UInt64) -> String {
-    let digits = Array("0123456789ABCDEF")
-    let hex = stride(from: 60, through: 0, by: -4)
-      .map {
-        String(digits[Int((word >> UInt64($0)) & 0xF)])
+    "0x"
+      + stride(from: 48, through: 0, by: -16)
+      .map { shift in
+        let digits = String((word >> shift) & 0xFFFF, radix: 16, uppercase: true)
+        return String(repeating: "0", count: 4 - digits.count) + digits
       }
-    return "0x"
-      + stride(from: 0, to: hex.count, by: 4)
-      .map { hex[$0..<min($0 + 4, hex.count)].joined() }
       .joined(separator: "_")
   }
+
 }
 
 /// A byte-exact predicate that accepts any of several UTF-8 strings.
@@ -120,15 +117,24 @@ public struct StreamUTF8MatchSet: Hashable, Sendable {
   ///
   /// An empty set produces `false`. The input expression may occur more than once.
   public func condition(matching bytes: some ExprSyntaxProtocol) -> ExprSyntax {
-    guard let first = self.values.first else {
+    self.condition(matching: bytes, afterLeadingWordMatch: false)
+  }
+
+  func condition(
+    matching bytes: some ExprSyntaxProtocol,
+    afterLeadingWordMatch: Bool
+  ) -> ExprSyntax {
+    let conditions = self.values.map { value in
+      let match = StreamUTF8Match(value)
+      return afterLeadingWordMatch
+        ? match.remainingCondition(matching: bytes) : match.condition(matching: bytes)
+    }
+    guard let first = conditions.first else {
       return ExprSyntax(BooleanLiteralExprSyntax(false))
     }
-    return self.values.dropFirst()
-      .reduce(StreamUTF8Match(first).condition(matching: bytes)) {
-        partial,
-        value in
-        let match = StreamUTF8Match(value).condition(matching: bytes)
-        return "\(partial) || (\(match))"
+    return conditions.dropFirst()
+      .reduce(first) { partial, condition in
+        "\(partial) || (\(condition))"
       }
   }
 }

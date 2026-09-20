@@ -1,3 +1,4 @@
+import SwiftBasicFormat
 import SwiftSyntax
 import SwiftSyntaxBuilder
 
@@ -154,64 +155,16 @@ public struct StreamParseableField: Hashable, Sendable {
     name: TokenSyntax,
     type: some TypeSyntaxProtocol,
     keys: some Sequence<String>,
-    initialCapacity: ExprSyntax? = nil,
-    completedConversion: TypeSyntax? = nil
+    initialCapacity: (any ExprSyntaxProtocol)? = nil,
+    completedConversion: (any TypeSyntaxProtocol)? = nil
   ) {
     self.name = name
     self.type = TypeSyntax(type)
     self.keys = Array(keys)
-    self.initialCapacity = initialCapacity
-    self.completedConversion = completedConversion
+    self.initialCapacity = initialCapacity.map { ExprSyntax($0) }
+    self.completedConversion = completedConversion.map { TypeSyntax($0) }
   }
 
-  /// Creates a field description with a concrete initial-capacity expression.
-  public init(
-    name: TokenSyntax,
-    type: some TypeSyntaxProtocol,
-    keys: some Sequence<String>,
-    initialCapacity: some ExprSyntaxProtocol,
-    completedConversion: TypeSyntax? = nil
-  ) {
-    self.name = name
-    self.type = TypeSyntax(type)
-    self.keys = Array(keys)
-    self.initialCapacity = ExprSyntax(initialCapacity)
-    self.completedConversion = completedConversion
-  }
-
-  /// Creates a field using a concrete conversion-strategy type node.
-  public init(
-    name: TokenSyntax,
-    type: some TypeSyntaxProtocol,
-    keys: some Sequence<String>,
-    initialCapacity: ExprSyntax? = nil,
-    completedConversion: some TypeSyntaxProtocol
-  ) {
-    self.init(
-      name: name,
-      type: type,
-      keys: keys,
-      initialCapacity: initialCapacity,
-      completedConversion: Optional.some(TypeSyntax(completedConversion))
-    )
-  }
-
-  /// Creates a field using concrete capacity and conversion-strategy syntax nodes.
-  public init(
-    name: TokenSyntax,
-    type: some TypeSyntaxProtocol,
-    keys: some Sequence<String>,
-    initialCapacity: some ExprSyntaxProtocol,
-    completedConversion: some TypeSyntaxProtocol
-  ) {
-    self.init(
-      name: name,
-      type: type,
-      keys: keys,
-      initialCapacity: Optional.some(ExprSyntax(initialCapacity)),
-      completedConversion: Optional.some(TypeSyntax(completedConversion))
-    )
-  }
 }
 
 /// An invalid combination in an object-generation description.
@@ -374,11 +327,6 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     )
   }
 
-  /// Generates the pointer-backed nested view declaration.
-  public func viewDeclaration(named name: TokenSyntax? = nil) -> StructDeclSyntax {
-    self.viewDeclaration(named: name, additionalMembers: MemberBlockItemListSyntax([]))
-  }
-
   /// Generates a view and appends caller-supplied members to it.
   public func viewDeclaration(
     named name: TokenSyntax? = nil,
@@ -390,7 +338,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
   /// Generates a view with an already-built member list appended to it.
   public func viewDeclaration(
     named name: TokenSyntax? = nil,
-    additionalMembers: MemberBlockItemListSyntax
+    additionalMembers: MemberBlockItemListSyntax = MemberBlockItemListSyntax([])
   ) -> StructDeclSyntax {
     let viewName = (name ?? self.configuration.names.viewType).trimmedDescription
     let partialName = self.configuration.names.partialType.trimmedDescription
@@ -437,7 +385,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     )
     guard !additionalMembers.isEmpty else { return declaration }
     var members = self.terminated(declaration.memberBlock.members, nextIndentation: .spaces(2))
-    members.append(contentsOf: self.indented(additionalMembers))
+    members.append(contentsOf: additionalMembers.indented(by: .spaces(2)))
     declaration.memberBlock.members = members
     return declaration
   }
@@ -500,14 +448,20 @@ public struct StreamObjectGeneration: Hashable, Sendable {
 
   /// Generates one scalar application callback for the object schema.
   public func applyFunction(for operation: StreamApplyOperation) -> FunctionDeclSyntax {
-    let function = self.schemaPlan.apply[operation]!
-    let binding =
-      function.cases.isEmpty ? "" : "  let p = storage.assumingMemoryBound(to: Self.self)\n"
-    let cases = function.cases.joined(separator: "\n")
+    let (name, valueParameters) =
+      switch operation {
+      case .string: ("streamApplyString", ",\n  _ bytes: Span<UInt8>")
+      case .number:
+        ("streamApplyNumber", ",\n  _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo")
+      case .boolean: ("streamApplyBoolean", ", _ value: Bool")
+      case .null: ("streamApplyNull", "")
+      }
+    let cases = self.schemaPlan.apply[operation, default: []].joined(separator: "\n")
+    let binding = cases.isEmpty ? "" : "  let p = storage.assumingMemoryBound(to: Self.self)\n"
     return self.declaration(
       """
-      \(self.inline)\(self.access)static func \(function.name)(
-        \(function.parameters)
+      \(self.inline)\(self.access)static func \(name)(
+        _ storage: UnsafeMutableRawPointer, _ field: Int32\(valueParameters)
       ) -> StreamParsingCore.StreamApplyResult {
       \(binding)  switch field {
       \(cases)
@@ -572,15 +526,6 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     return result
   }
 
-  /// Generates the complete nested partial-storage declaration.
-  public func partialDeclaration(named name: TokenSyntax? = nil) -> StructDeclSyntax {
-    self.partialDeclaration(
-      named: name,
-      additionalViewMembers: MemberBlockItemListSyntax([]),
-      additionalMembers: MemberBlockItemListSyntax([])
-    )
-  }
-
   /// Generates a complete partial declaration with concrete view and partial additions.
   public func partialDeclaration(
     named name: TokenSyntax? = nil,
@@ -632,7 +577,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       declaration.memberBlock.members,
       nextIndentation: .spaces(2)
     )
-    declarationMembers.append(contentsOf: self.indented(members))
+    declarationMembers.append(contentsOf: members.indented(by: .spaces(2)))
     declaration.memberBlock.members = declarationMembers
     return declaration
   }
@@ -652,22 +597,16 @@ public struct StreamObjectGeneration: Hashable, Sendable {
 }
 
 extension StreamObjectGeneration {
-  fileprivate struct ApplyPlan: Hashable, Sendable {
-    let name: String
-    let parameters: String
-    var cases = [String]()
-  }
-
   fileprivate struct SchemaPlan: Hashable, Sendable {
     var matches = [String]()
     var fields = [String]()
     var containerSchemas = [String]()
-    var apply = [StreamApplyOperation: ApplyPlan]()
+    var apply = [StreamApplyOperation: [String]]()
   }
 
   fileprivate enum FieldShape {
     case scalarOrObject
-    case array
+    case array(TypeSyntax)
     case dictionary(TypeSyntax)
   }
 
@@ -676,25 +615,7 @@ extension StreamObjectGeneration {
   fileprivate var inline: String { self.inlinable ? "@inlinable " : "" }
 
   fileprivate func buildPlan() -> SchemaPlan {
-    var result = SchemaPlan(apply: [
-      .string: ApplyPlan(
-        name: "streamApplyString",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32,\n  _ bytes: Span<UInt8>"
-      ),
-      .number: ApplyPlan(
-        name: "streamApplyNumber",
-        parameters:
-          "_ storage: UnsafeMutableRawPointer, _ field: Int32,\n  _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo"
-      ),
-      .boolean: ApplyPlan(
-        name: "streamApplyBoolean",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool"
-      ),
-      .null: ApplyPlan(
-        name: "streamApplyNull",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32"
-      )
-    ])
+    var result = SchemaPlan()
     for field in self.fields {
       let member = Self.memberName(field.name)
       let fieldID = "Self.StreamField.\(member)"
@@ -723,7 +644,6 @@ extension StreamObjectGeneration {
       let isContainer = container.isContainer
       for operation in [StreamApplyOperation.string, .number, .boolean, .null]
       where !isContainer || operation == .null {
-        var function = result.apply[operation]!
         if field.completedConversion != nil, operation != .null {
           let (method, args) =
             switch operation {
@@ -732,9 +652,10 @@ extension StreamObjectGeneration {
             case .boolean: ("applyBoolean", "value")
             case .null: fatalError()
             }
-          function.cases.append(
-            "  case \(fieldID): return _streamWithConverted(&\(target)) { Self.\(schema)!.\(method)($0, StreamParsingCore.StreamSchema.wholeValueField, \(args)) }"
-          )
+          result.apply[operation, default: []]
+            .append(
+              "  case \(fieldID): return _streamWithConverted(&\(target)) { Self.\(schema)!.\(method)($0, StreamParsingCore.StreamSchema.wholeValueField, \(args)) }"
+            )
         } else {
           let expression =
             switch operation {
@@ -743,9 +664,8 @@ extension StreamObjectGeneration {
             case .boolean: "streamApply(&\(target), boolean: value)"
             case .null: "StreamParsing.streamApplyNull(&\(target))"
             }
-          function.cases.append("  case \(fieldID): return \(expression)")
+          result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
         }
-        result.apply[operation] = function
       }
     }
     return result
@@ -816,12 +736,13 @@ extension StreamObjectGeneration {
 
   fileprivate func fieldShape(_ type: TypeSyntax) -> FieldShape {
     let type = self.unwrapped(type)
-    if type.is(ArrayTypeSyntax.self) { return .array }
+    if let array = type.as(ArrayTypeSyntax.self) { return .array(array.element) }
     if let dictionary = type.as(DictionaryTypeSyntax.self) { return .dictionary(dictionary.value) }
     if let arguments = self.genericArguments(type), arguments.count == 1,
-      self.lastTypeName(type) == "Array"
+      self.lastTypeName(type) == "Array",
+      case .type(let element) = arguments.first!.argument
     {
-      return .array
+      return .array(element)
     }
     if let arguments = self.genericArguments(type), arguments.count == 2,
       self.lastTypeName(type) == "Dictionary",
@@ -833,30 +754,14 @@ extension StreamObjectGeneration {
   }
 
   fileprivate func schemaExpression(_ type: TypeSyntax) -> String {
-    let type = self.unwrapped(type)
-    if let array = type.as(ArrayTypeSyntax.self) {
-      return self.containerSchemaExpression("Array", element: array.element, label: "element")
+    switch self.fieldShape(type) {
+    case .array(let element):
+      self.containerSchemaExpression("Array", element: element, label: "element")
+    case .dictionary(let value):
+      self.containerSchemaExpression("Dictionary", element: value, label: "value")
+    case .scalarOrObject:
+      "_streamSchema(for: \(self.unwrapped(type).trimmedDescription).Partial.self)"
     }
-    if let dictionary = type.as(DictionaryTypeSyntax.self) {
-      return self.containerSchemaExpression(
-        "Dictionary",
-        element: dictionary.value,
-        label: "value"
-      )
-    }
-    if let arguments = self.genericArguments(type), arguments.count == 1,
-      self.lastTypeName(type) == "Array",
-      case .type(let element) = arguments.first!.argument
-    {
-      return self.containerSchemaExpression("Array", element: element, label: "element")
-    }
-    if let arguments = self.genericArguments(type), arguments.count == 2,
-      self.lastTypeName(type) == "Dictionary",
-      case .type(let value) = arguments[arguments.index(after: arguments.startIndex)].argument
-    {
-      return self.containerSchemaExpression("Dictionary", element: value, label: "value")
-    }
-    return "_streamSchema(for: \(type.trimmedDescription).Partial.self)"
   }
 
   fileprivate func lastTypeName(_ type: TypeSyntax) -> String? {
@@ -884,24 +789,14 @@ extension StreamObjectGeneration {
       let next: TypeSyntax
       if let optional = current.as(OptionalTypeSyntax.self) {
         next = optional.wrappedType
-      } else if let identifier = current.as(IdentifierTypeSyntax.self),
-        identifier.name.text == "Optional",
-        let argument = identifier.genericArgumentClause?.arguments.first,
-        identifier.genericArgumentClause?.arguments.count == 1,
-        case .type(let wrapped) = argument.argument
-      {
-        next = wrapped
-      } else if let member = current.as(MemberTypeSyntax.self),
-        member.name.text == "Optional",
-        let argument = member.genericArgumentClause?.arguments.first,
-        member.genericArgumentClause?.arguments.count == 1,
-        case .type(let wrapped) = argument.argument
+      } else if self.lastTypeName(current) == "Optional",
+        let arguments = self.genericArguments(current), arguments.count == 1,
+        case .type(let wrapped) = arguments.first!.argument
       {
         next = wrapped
       } else {
         return current
       }
-      if next == current { return current }
       current = next
     }
   }
@@ -968,23 +863,10 @@ extension StreamObjectGeneration {
     _ members: MemberBlockItemListSyntax,
     nextIndentation: Trivia = []
   ) -> MemberBlockItemListSyntax {
-    guard !members.isEmpty else { return members }
-    let lastIndex = members.index(before: members.endIndex)
-    return MemberBlockItemListSyntax(
-      members.indices.map { index in
-        var item = members[index]
-        guard index == lastIndex else { return item }
-        item.trailingTrivia = .newlines(2) + nextIndentation
-        return item
-      }
-    )
-  }
-
-  fileprivate func indented(
-    _ members: MemberBlockItemListSyntax
-  ) -> MemberBlockItemListSyntax {
-    StreamObjectSyntaxIndenter(indentation: .spaces(2)).rewrite(members)
-      .cast(MemberBlockItemListSyntax.self)
+    guard let lastIndex = members.indices.last else { return members }
+    var result = members
+    result[lastIndex].trailingTrivia = .newlines(2) + nextIndentation
+    return result
   }
 
   fileprivate func member(_ declaration: some DeclSyntaxProtocol) -> MemberBlockItemSyntax {
@@ -996,31 +878,5 @@ extension StreamObjectGeneration {
   fileprivate func declaration<T: DeclSyntaxProtocol>(_ source: String, as type: T.Type) -> T {
     let declaration = DeclSyntax("\(raw: source)")
     return declaration.as(T.self)!
-  }
-}
-
-private final class StreamObjectSyntaxIndenter: SyntaxRewriter {
-  let indentation: Trivia
-
-  init(indentation: Trivia) {
-    self.indentation = indentation
-    super.init(viewMode: .sourceAccurate)
-  }
-
-  override func visit(_ token: TokenSyntax) -> TokenSyntax {
-    TokenSyntax(
-      token.tokenKind,
-      leadingTrivia: self.indent(token.leadingTrivia),
-      trailingTrivia: self.indent(token.trailingTrivia),
-      presence: token.presence
-    )
-  }
-
-  private func indent(_ trivia: Trivia) -> Trivia {
-    Trivia(
-      pieces: trivia.flatMap { piece in
-        piece.isNewline ? [piece] + self.indentation.pieces : [piece]
-      }
-    )
   }
 }

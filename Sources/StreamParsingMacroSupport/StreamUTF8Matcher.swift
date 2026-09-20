@@ -101,19 +101,14 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
   }
 
   private struct Candidate: Hashable, Sendable {
-    let utf8: [UInt8]
+    let value: String
     let branch: Int
-  }
-
-  private struct LeadingGroup: Hashable, Sendable {
-    let word: UInt64
-    var candidates: [Candidate]
   }
 
   private func candidates() -> [Candidate] {
     self.branches.enumerated()
       .flatMap { index, branch in
-        branch.values.map { Candidate(utf8: Array($0.utf8), branch: index) }
+        branch.values.map { Candidate(value: $0, branch: index) }
       }
   }
 
@@ -121,13 +116,13 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
     matching bytes: some ExprSyntaxProtocol,
     otherwise fallback: CodeBlockItemListSyntax
   ) -> CodeBlockItemListSyntax {
-    let populated = self.branches.enumerated().filter { !$0.element.values.isEmpty }
+    let populated = self.branches.filter { !$0.values.isEmpty }
     return populated.reversed()
       .reduce(fallback) { remainder, entry in
-        let condition = self.completeCondition(for: entry.element, matching: bytes)
+        let condition = StreamUTF8MatchSet(entry.values).condition(matching: bytes)
         return """
           if \(condition) {
-            \(entry.element.body)
+            \(entry.body)
           } else {
             \(remainder)
           }
@@ -140,29 +135,24 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
     otherwise fallback: CodeBlockItemListSyntax
   ) -> CodeBlockItemListSyntax {
     let candidates = self.candidates()
-    let groups = candidates.filter { !$0.utf8.isEmpty }
-      .reduce(into: [LeadingGroup]()) { groups, candidate in
-        let word = StreamUTF8Match.paddedWord(in: candidate.utf8, at: 0)
-        if let index = groups.firstIndex(where: { $0.word == word }) {
-          groups[index].candidates.append(candidate)
-        } else {
-          groups.append(LeadingGroup(word: word, candidates: [candidate]))
-        }
-      }
-    let switchCases = groups.map { group -> SwitchCaseSyntax in
-      let literal = IntegerLiteralExprSyntax(
-        literal: .integerLiteral(StreamUTF8Match.wordLiteral(group.word))
-      )
-      let statements = self.leadingGroupTree(
-        group.candidates,
-        matching: bytes,
-        otherwise: fallback
-      )
-      return """
-        case \(literal):
-          \(statements)
-        """
+    let groups = Dictionary(grouping: candidates.filter { !$0.value.isEmpty }) {
+      StreamUTF8Match.paddedWord(in: Array($0.value.utf8), at: 0)
     }
+    let switchCases = groups.keys.sorted()
+      .map { word -> SwitchCaseSyntax in
+        let literal = IntegerLiteralExprSyntax(
+          literal: .integerLiteral(StreamUTF8Match.wordLiteral(word))
+        )
+        let statements = self.leadingGroupTree(
+          groups[word]!,
+          matching: bytes,
+          otherwise: fallback
+        )
+        return """
+          case \(literal):
+            \(statements)
+          """
+      }
     let defaultStatements: CodeBlockItemListSyntax =
       if fallback.isEmpty {
         CodeBlockItemListSyntax { BreakStmtSyntax() }
@@ -192,7 +182,7 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
           )
         },
         body: CodeBlockSyntax {
-          if let empty = candidates.first(where: { $0.utf8.isEmpty }) {
+          if let empty = candidates.first(where: { $0.value.isEmpty }) {
             self.branches[empty.branch].body
           } else {
             fallback
@@ -213,16 +203,15 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
     matching bytes: some ExprSyntaxProtocol,
     otherwise fallback: CodeBlockItemListSyntax
   ) -> CodeBlockItemListSyntax {
-    let branchOrder = candidates.reduce(into: [Int]()) { order, candidate in
-      if !order.contains(candidate.branch) { order.append(candidate.branch) }
-    }
-    return branchOrder.reversed()
+    let groups = Dictionary(grouping: candidates, by: \.branch)
+    return groups.keys.sorted().reversed()
       .reduce(fallback) { remainder, branchIndex in
-        let conditions =
-          candidates
-          .filter { $0.branch == branchIndex }
-          .map { StreamUTF8Match.remainingCondition(matching: bytes, utf8: $0.utf8) }
-        let condition = self.disjunction(conditions)
+        let values = groups[branchIndex]!.map(\.value)
+        let condition = StreamUTF8MatchSet(values)
+          .condition(
+            matching: bytes,
+            afterLeadingWordMatch: true
+          )
         return """
           if \(condition) {
             \(self.branches[branchIndex].body)
@@ -233,24 +222,4 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
       }
   }
 
-  private func completeCondition(
-    for branch: StreamUTF8Branch,
-    matching bytes: some ExprSyntaxProtocol
-  ) -> ExprSyntax {
-    self.disjunction(
-      branch.values.map {
-        StreamUTF8Match.completeCondition(matching: bytes, utf8: Array($0.utf8))
-      }
-    )
-  }
-
-  private func disjunction(_ conditions: [ExprSyntax]) -> ExprSyntax {
-    guard let first = conditions.first else {
-      return ExprSyntax(BooleanLiteralExprSyntax(false))
-    }
-    return conditions.dropFirst()
-      .reduce(first) { partial, condition in
-        "\(partial) || (\(condition))"
-      }
-  }
 }

@@ -96,6 +96,7 @@ let package = Package(
     .target(
       name: "StreamParsingMacroSupport",
       dependencies: [
+        .product(name: "SwiftBasicFormat", package: "swift-syntax"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
         .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
         .product(name: "SwiftSyntaxMacros", package: "swift-syntax")

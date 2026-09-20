@@ -69,6 +69,26 @@ struct `StreamObjectGeneration validation tests` {
   }
 
   @Test
+  func `Optional Concrete Syntax Nodes Need No Wrapping`() throws {
+    let capacity: IntegerLiteralExprSyntax? = IntegerLiteralExprSyntax(
+      literal: .integerLiteral("8")
+    )
+    let conversion: IdentifierTypeSyntax? = nil
+    let field = StreamParseableField(
+      name: TokenSyntax.identifier("values"),
+      type: ArrayTypeSyntax(element: IdentifierTypeSyntax(name: TokenSyntax.identifier("Int"))),
+      keys: ["values"],
+      initialCapacity: capacity,
+      completedConversion: conversion
+    )
+    let generation = try StreamObjectGeneration(fields: [field])
+    expectNoDifference(
+      generation.fieldTableProperty().description.contains("initialCapacity: 8"),
+      true
+    )
+  }
+
+  @Test
   func `Concrete Capacity And Conversion Nodes Need No Wrapping`() {
     let field = StreamParseableField(
       name: TokenSyntax.identifier("value"),
