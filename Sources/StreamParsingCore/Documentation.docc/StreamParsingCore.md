@@ -217,6 +217,20 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
 - `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
 
+Without `LifetimeView`, generated and core `View` types are escapable `@unsafe` pointer
+projections. Keep the originating stream alive and do not retain or use a view across parser
+mutation. With strict memory safety, acknowledge these operations explicitly:
+
+```swift
+let title = unsafe stream.withView { view in
+  unsafe view.title?.value
+}
+```
+
+Enabling `LifetimeView` preserves the same `View` names while making them `~Escapable` and adding
+compiler-checked lifetime dependencies. The consuming target must separately enable the
+experimental `Lifetimes` compiler feature; Swift package traits do not propagate compiler flags.
+
 ## Completed-value conversions
 
 Use `@StreamParseableMember(completedConversion: Strategy.self)` to parse one representation

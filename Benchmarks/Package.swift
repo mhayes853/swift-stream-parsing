@@ -11,7 +11,7 @@ let package = Package(
   dependencies: [
     // Named explicitly: a path dependency's identity defaults to its directory name, which
     // breaks the build from a git worktree whose directory is not called swift-stream-parsing.
-    .package(name: "swift-stream-parsing", path: ".."),
+    .package(name: "swift-stream-parsing", path: "..", traits: ["LifetimeView"]),
     .package(url: "https://github.com/ordo-one/benchmark", from: "1.36.0"),
     .package(url: "https://github.com/mattt/swift-yyjson.git", from: "0.6.0")
   ],
@@ -24,10 +24,7 @@ let package = Package(
         .product(name: "StreamParsing", package: "swift-stream-parsing")
       ],
       path: "StreamParsingBenchmarkModels",
-      swiftSettings: [
-        .enableExperimentalFeature("Lifetimes"),
-        .enableExperimentalFeature("AddressableTypes")
-      ]
+      swiftSettings: [.enableExperimentalFeature("Lifetimes")]
     ),
     .executableTarget(
       name: "StreamParsingBenchmarks",
@@ -42,8 +39,7 @@ let package = Package(
       resources: [.copy("Resources")],
       swiftSettings: [
         .define("STREAM_PARSING_BENCHMARKS"),
-        .enableExperimentalFeature("Lifetimes"),
-        .enableExperimentalFeature("AddressableTypes")
+        .enableExperimentalFeature("Lifetimes")
       ],
       plugins: [.plugin(name: "BenchmarkPlugin", package: "benchmark")]
     )

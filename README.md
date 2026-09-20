@@ -273,6 +273,38 @@ While the core library itself has 0 dependencies, you can enable the following p
 - `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
 - `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
 
+Without `LifetimeView`, macro-generated `Partial.View` and the core collection views are escapable,
+pointer-backed `@unsafe` types. This keeps macro consumers on standard Swift settings, but the
+caller must keep the originating stream alive and must not retain or use a view across parser
+mutation. Unsafe APIs are acknowledged explicitly:
+
+```swift
+let title = unsafe stream.withView { view in
+  unsafe view.title?.value
+}
+```
+
+Enable `LifetimeView` to keep the same `View` name and API while making it `~Escapable` and tying
+its projections to the stream with compiler-checked lifetimes. Package traits do not enable
+compiler experiments in a consuming target, so that target must also enable `Lifetimes`:
+
+```swift
+dependencies: [
+  .package(
+    url: "https://github.com/mhayes853/swift-stream-parsing",
+    from: "0.5.0",
+    traits: ["LifetimeView"]
+  )
+],
+targets: [
+  .target(
+    name: "MyTarget",
+    dependencies: [.product(name: "StreamParsing", package: "swift-stream-parsing")],
+    swiftSettings: [.enableExperimentalFeature("Lifetimes")]
+  )
+]
+```
+
 ## Documentation
 
 The documentation for releases and main are available here.

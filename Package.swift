@@ -66,7 +66,7 @@ let package = Package(
     .target(
       name: "StreamParsing",
       dependencies: ["StreamParsingCore", "StreamParsingMacros"],
-      swiftSettings: suppressedAssociatedTypes + lifetimes + addressableTypes
+      swiftSettings: suppressedAssociatedTypes
     ),
     // C interoperability target. Executable shims live as inline functions in the header so
     // their scalar/NEON forms can disappear into Swift callers; generated lookup-table storage

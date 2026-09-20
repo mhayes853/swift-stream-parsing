@@ -8,7 +8,7 @@ let package = Package(
   dependencies: [
     // Named explicitly: a path dependency's identity defaults to its directory name, which
     // breaks the build from a git worktree whose directory is not called swift-stream-parsing.
-    .package(name: "swift-stream-parsing", path: "../.."),
+    .package(name: "swift-stream-parsing", path: "../..", traits: ["LifetimeView"]),
     .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "2.10549.0"))
   ],
   targets: [
@@ -28,10 +28,7 @@ let package = Package(
           condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS])
         )
       ],
-      swiftSettings: [
-        .enableExperimentalFeature("Lifetimes"),
-        .enableExperimentalFeature("AddressableTypes")
-      ]
+      swiftSettings: [.enableExperimentalFeature("Lifetimes")]
     )
   ],
   swiftLanguageModes: [.v6]

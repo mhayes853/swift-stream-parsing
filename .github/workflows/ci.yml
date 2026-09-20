@@ -31,6 +31,11 @@ jobs:
         run: >-
           swift test --configuration ${{ matrix.config }}
           --enable-all-traits --disable-experimental-prebuilts
+      - name: Run the no-lifetime macro smoke test
+        if: matrix.config == 'debug'
+        run: >-
+          swift run --package-path NoLifetimeSmoke
+          --disable-experimental-prebuilts
 
   llm-extraction:
     name: LLMExtraction example (macOS)
