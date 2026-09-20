@@ -29,6 +29,7 @@ let package = Package(
   products: [
     .library(name: "StreamParsing", targets: ["StreamParsing"]),
     .library(name: "StreamParsingCore", targets: ["StreamParsingCore"]),
+    .library(name: "StreamParsingMacroSupport", targets: ["StreamParsingMacroSupport"]),
   ],
   traits: [
     .trait(
@@ -92,9 +93,18 @@ let package = Package(
           .treatWarning("EmbeddedRestrictions", as: .warning)
       ] + suppressedAssociatedTypes + lifetimes + addressableTypes
     ),
+    .target(
+      name: "StreamParsingMacroSupport",
+      dependencies: [
+        .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
+      ]
+    ),
     .macro(
       name: "StreamParsingMacros",
       dependencies: [
+        "StreamParsingMacroSupport",
         .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
         .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
       ]
@@ -111,6 +121,15 @@ let package = Package(
       resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + lifetimes + addressableTypes
+    ),
+    .testTarget(
+      name: "StreamParsingMacroSupportTests",
+      dependencies: [
+        "StreamParsingMacroSupport",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+        .product(name: "SwiftParser", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax")
+      ]
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

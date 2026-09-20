@@ -36,6 +36,11 @@ jobs:
         run: >-
           swift run --package-path SmokeTests
           --disable-experimental-prebuilts NoLifetimeSmoke
+      - name: Run downstream macro support smoke tests
+        if: matrix.config == 'debug'
+        run: |
+          swift run --package-path SmokeTests/MacroSupport --disable-experimental-prebuilts MacroSupportSmoke
+          swift run --package-path SmokeTests/MacroSupport --traits LifetimeView --disable-experimental-prebuilts MacroSupportSmoke
 
   llm-extraction:
     name: LLMExtraction example (macOS)

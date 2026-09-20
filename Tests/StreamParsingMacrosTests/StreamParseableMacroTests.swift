@@ -68,7 +68,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String.Partial.View? {
+              var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -78,7 +78,7 @@ extension BaseTestSuite {
                 }
               }
 
-            var age: Int.Partial.View? {
+              var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.age) else {
@@ -197,6 +197,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -303,7 +304,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String.Partial.View? {
+              var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -313,7 +314,7 @@ extension BaseTestSuite {
                 }
               }
 
-            var nickname: String.Partial.View? {
+              var nickname: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.nickname) else {
@@ -446,6 +447,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -680,7 +682,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String.Partial.View? {
+              var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -690,7 +692,7 @@ extension BaseTestSuite {
                 }
               }
 
-            var age: Int.Partial.View? {
+              var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.age) else {
@@ -809,6 +811,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init(_ partial: Partial) {
@@ -902,7 +905,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var nickname: String.Partial.View? {
+              var nickname: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.nickname) else {
@@ -1004,6 +1007,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -1105,7 +1109,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var stored: String.Partial.View? {
+              var stored: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.stored) else {
@@ -1207,6 +1211,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -1478,7 +1483,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
+              var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.circle) else {
@@ -1488,38 +1493,39 @@ extension BaseTestSuite {
                 }
               }
 
-          /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-          /// than one case's key has arrived yet.
-          enum ResolvedView: ~Copyable, ~Escapable {
-            case unresolved
-            case ambiguous
-              case circle
-            }
 
-            var resolved: ResolvedView {
-              @_lifetime(borrow self)
-              get {
-                var streamMatched = -1
-                var streamMatches = 0
-              if self._streamStorage.pointee.circle != nil {
-                  streamMatched = 0;
-                  streamMatches += 1
+              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+              /// than one case's key has arrived yet.
+              enum ResolvedView: ~Copyable, ~Escapable {
+                case unresolved
+                case ambiguous
+                  case circle
                 }
-                guard streamMatches == 1 else {
-                  if streamMatches == 0 {
-                    return .unresolved
+
+                var resolved: ResolvedView {
+                  @_lifetime(borrow self)
+                  get {
+                    var streamMatched = -1
+                    var streamMatches = 0
+                  if self._streamStorage.pointee.circle != nil {
+                      streamMatched = 0;
+                      streamMatches += 1
+                    }
+                    guard streamMatches == 1 else {
+                      if streamMatches == 0 {
+                        return .unresolved
+                      }
+                      return .ambiguous
+                    }
+                    switch streamMatched {
+                  case 0:
+                    return .circle
+                    default:
+                      return .unresolved
+                    }
                   }
-                  return .ambiguous
                 }
-                switch streamMatched {
-              case 0:
-                return .circle
-                default:
-                  return .unresolved
-                }
-              }
             }
-          }
 
             @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
@@ -1612,6 +1618,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -1784,7 +1791,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var `default`: DefaultPayload.Partial.View? {
+              var `default`: DefaultPayload.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`default`) else {
@@ -1794,7 +1801,7 @@ extension BaseTestSuite {
                 }
               }
 
-            var `class`: StreamParsingCore.StreamEmptyObject.Partial.View? {
+              var `class`: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`class`) else {
@@ -1804,52 +1811,53 @@ extension BaseTestSuite {
                 }
               }
 
-          /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-          /// than one case's key has arrived yet.
-          enum ResolvedView: ~Copyable, ~Escapable {
-            case unresolved
-            case ambiguous
-              case `default`(DefaultPayload.Partial.View)
-              case `class`
-            }
 
-            var resolved: ResolvedView {
-              @_lifetime(borrow self)
-              get {
-                var streamMatched = -1
-                var streamMatches = 0
-              if self._streamStorage.pointee.`default` != nil {
-                  streamMatched = 0;
-                  streamMatches += 1
+              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+              /// than one case's key has arrived yet.
+              enum ResolvedView: ~Copyable, ~Escapable {
+                case unresolved
+                case ambiguous
+                  case `default`(DefaultPayload.Partial.View)
+                  case `class`
                 }
-              if self._streamStorage.pointee.`class` != nil {
-                  streamMatched = 1;
-                  streamMatches += 1
-                }
-                guard streamMatches == 1 else {
-                  if streamMatches == 0 {
-                    return .unresolved
+
+                var resolved: ResolvedView {
+                  @_lifetime(borrow self)
+                  get {
+                    var streamMatched = -1
+                    var streamMatches = 0
+                  if self._streamStorage.pointee.`default` != nil {
+                      streamMatched = 0;
+                      streamMatches += 1
+                    }
+                  if self._streamStorage.pointee.`class` != nil {
+                      streamMatched = 1;
+                      streamMatches += 1
+                    }
+                    guard streamMatches == 1 else {
+                      if streamMatches == 0 {
+                        return .unresolved
+                      }
+                      return .ambiguous
+                    }
+                    switch streamMatched {
+                  case 0:
+                    guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`default`)
+                    else {
+                      return .unresolved
+                    }
+                    return _overrideLifetime(
+                      .`default`(DefaultPayload.Partial.streamView(streamAddress)),
+                      borrowing: self
+                    )
+                  case 1:
+                    return .`class`
+                    default:
+                      return .unresolved
+                    }
                   }
-                  return .ambiguous
                 }
-                switch streamMatched {
-              case 0:
-                guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`default`)
-                else {
-                  return .unresolved
-                }
-                return _overrideLifetime(
-                  .`default`(DefaultPayload.Partial.streamView(streamAddress)),
-                  borrowing: self
-                )
-              case 1:
-                return .`class`
-                default:
-                  return .unresolved
-                }
-              }
             }
-          }
 
             @_lifetime(borrow storage)
             static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
@@ -1959,6 +1967,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           enum DefaultPayload {
@@ -1998,7 +2007,7 @@ extension BaseTestSuite {
                     self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
                   }
 
-                var _0: String.Partial.View? {
+                  var _0: String.Partial.View? {
                     @_lifetime(borrow self)
                     get {
                       guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee._0) else {
@@ -2100,6 +2109,7 @@ extension BaseTestSuite {
                   applyNull: Self.streamApplyNull,
                   fields: Self.streamFields
                 )
+
               }
 
               struct Value: StreamParsingCore.StreamParseable {
@@ -2350,7 +2360,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String.Partial.View? {
+              var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -2452,6 +2462,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -2543,7 +2554,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var name: String.Partial.View? {
+              @inlinable public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -2647,6 +2658,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
@@ -2734,7 +2746,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var name: String.Partial.View? {
+              var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -2836,6 +2848,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -2923,7 +2936,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            fileprivate var name: String.Partial.View? {
+              fileprivate var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -3025,6 +3038,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           fileprivate init?(_ partial: Partial) {
@@ -3124,7 +3138,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var name: String.Partial.View? {
+              @inlinable public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -3134,7 +3148,7 @@ extension BaseTestSuite {
                 }
               }
 
-            @inlinable public var age: Int.Partial.View? {
+              @inlinable public var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.age) else {
@@ -3257,6 +3271,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
@@ -3361,7 +3376,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var name: String.Partial.View? {
+              @inlinable public var name: String.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.name) else {
@@ -3371,7 +3386,7 @@ extension BaseTestSuite {
                 }
               }
 
-            @inlinable public var age: Int.Partial.View? {
+              @inlinable public var age: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.age) else {
@@ -3494,6 +3509,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
@@ -3674,7 +3690,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
+              @inlinable public var circle: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.circle) else {
@@ -3684,7 +3700,7 @@ extension BaseTestSuite {
                 }
               }
 
-            @inlinable public var square: StreamParsingCore.StreamEmptyObject.Partial.View? {
+              @inlinable public var square: StreamParsingCore.StreamEmptyObject.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.square) else {
@@ -3694,45 +3710,46 @@ extension BaseTestSuite {
                 }
               }
 
-          /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-          /// than one case's key has arrived yet.
-          public enum ResolvedView: ~Copyable, ~Escapable {
-            case unresolved
-            case ambiguous
-              case circle
-              case square
-            }
 
-            @inlinable public var resolved: ResolvedView {
-              @_lifetime(borrow self)
-              get {
-                var streamMatched = -1
-                var streamMatches = 0
-              if self._streamStorage.pointee.circle != nil {
-                  streamMatched = 0;
-                  streamMatches += 1
+              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+              /// than one case's key has arrived yet.
+              public enum ResolvedView: ~Copyable, ~Escapable {
+                case unresolved
+                case ambiguous
+                  case circle
+                  case square
                 }
-              if self._streamStorage.pointee.square != nil {
-                  streamMatched = 1;
-                  streamMatches += 1
-                }
-                guard streamMatches == 1 else {
-                  if streamMatches == 0 {
-                    return .unresolved
+
+                @inlinable public var resolved: ResolvedView {
+                  @_lifetime(borrow self)
+                  get {
+                    var streamMatched = -1
+                    var streamMatches = 0
+                  if self._streamStorage.pointee.circle != nil {
+                      streamMatched = 0;
+                      streamMatches += 1
+                    }
+                  if self._streamStorage.pointee.square != nil {
+                      streamMatched = 1;
+                      streamMatches += 1
+                    }
+                    guard streamMatches == 1 else {
+                      if streamMatches == 0 {
+                        return .unresolved
+                      }
+                      return .ambiguous
+                    }
+                    switch streamMatched {
+                  case 0:
+                    return .circle
+                  case 1:
+                    return .square
+                    default:
+                      return .unresolved
+                    }
                   }
-                  return .ambiguous
                 }
-                switch streamMatched {
-              case 0:
-                return .circle
-              case 1:
-                return .square
-                default:
-                  return .unresolved
-                }
-              }
             }
-          }
 
             @_lifetime(borrow storage)
             @inlinable public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
@@ -3846,6 +3863,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
@@ -3954,7 +3972,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            var items: [Item].Partial.View? {
+              var items: [Item].Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.items) else {
@@ -3964,7 +3982,7 @@ extension BaseTestSuite {
                 }
               }
 
-            var index: StreamParsingCore.StreamDictionary<Item.Partial>.View? {
+              var index: StreamParsingCore.StreamDictionary<Item.Partial>.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.index) else {
@@ -4004,6 +4022,7 @@ extension BaseTestSuite {
               _ bytes: Span<UInt8>
             ) -> StreamParsingCore.StreamApplyResult {
               switch field {
+
               default:
                 return .unsupported
               }
@@ -4014,6 +4033,7 @@ extension BaseTestSuite {
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
             ) -> StreamParsingCore.StreamApplyResult {
               switch field {
+
               default:
                 return .unsupported
               }
@@ -4023,6 +4043,7 @@ extension BaseTestSuite {
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
             ) -> StreamParsingCore.StreamApplyResult {
               switch field {
+
               default:
                 return .unsupported
               }
@@ -4068,6 +4089,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           init?(_ partial: Partial) {
@@ -4205,7 +4227,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable package var `class`: Int.Partial.View? {
+              @inlinable package var `class`: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.`class`) else {
@@ -4215,7 +4237,7 @@ extension BaseTestSuite {
                 }
               }
 
-            @inlinable package var storage: Int.Partial.View? {
+              @inlinable package var storage: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.storage) else {
@@ -4225,7 +4247,7 @@ extension BaseTestSuite {
                 }
               }
 
-            @inlinable package var x: Int.Partial.View? {
+              @inlinable package var x: Int.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.x) else {
@@ -4367,6 +4389,7 @@ extension BaseTestSuite {
               applyNull: Self.streamApplyNull,
               fields: Self.streamFields
             )
+
           }
 
           @inlinable package init?(_ partial: Partial) {

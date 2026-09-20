@@ -303,7 +303,7 @@ extension StreamParseableMacro {
       // `ResolvedView`/`resolved` go in as members of `View` itself, not a second extension of
       // it: an `@attached(extension)` macro can only extend the type it is attached to, so an
       // extension naming `Partial.View` is silently rewritten back to the enum.
-      let partialDeclText = Self.partialStructDecl(
+      let partialDeclText = try Self.partialStructDecl(
         for: properties,
         accessModifier: accessModifier,
         membersMode: .optional,
@@ -315,9 +315,13 @@ extension StreamParseableMacro {
       // `.description` renders flush left, and only the first line of a `\(raw:)` interpolation
       // picks up the surrounding indentation.
       let partialStructText = Self.reindented(partialDeclText, by: 2)
-      let payloadWrapperTexts = cases
+      let payloadWrapperTexts = try cases
         .filter { !$0.associatedValues.isEmpty }
-        .map { Self.reindented(Self.payloadWrapperDecl(for: $0, accessModifier: accessModifier), by: 2) }
+        .map {
+          try Self.reindented(
+            Self.payloadWrapperDecl(for: $0, accessModifier: accessModifier), by: 2
+          )
+        }
       partialSection =
         ([partialStructText] + payloadWrapperTexts)
         .joined(separator: "\n\n") + "\n"
@@ -650,7 +654,9 @@ extension StreamParseableMacro {
   // usual field-table `Partial` plus a `Value` struct with the same stored properties. Two types
   // rather than one because `conversionMembers` assigns into a real nominal type, and reusing it
   // here is what avoids a second implementation of per-field extraction.
-  static func payloadWrapperDecl(for enumCase: EnumCase, accessModifier: String?) -> String {
+  static func payloadWrapperDecl(
+    for enumCase: EnumCase, accessModifier: String?
+  ) throws -> String {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
     let payloadTypeName = Self.payloadTypeName(for: enumCase)
     let properties = enumCase.associatedValues.map { value in
@@ -664,7 +670,7 @@ extension StreamParseableMacro {
       )
     }
     let partialText = Self.reindented(
-      Self.partialStructDecl(
+      try Self.partialStructDecl(
         for: properties,
         accessModifier: accessModifier,
         membersMode: .optional,

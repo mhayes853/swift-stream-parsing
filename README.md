@@ -305,6 +305,17 @@ targets: [
 ]
 ```
 
+## Building compatible macros
+
+`StreamParsingMacroSupport` is a SwiftSyntax library for other macro implementations. It
+generates partial storage, views, optimized object schemas, and UTF-8 matching syntax. Its
+component APIs let a macro compose those pieces with its own declarations, and the
+`LifetimeView` trait selects the default view generation mode.
+
+Add the `StreamParsingMacroSupport` product to your macro target. Generated client code uses
+`StreamParsing`. See the [macro support guide](Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md)
+and the [downstream macro example](SmokeTests/MacroSupport/Sources/SupportMacros/SupportMacros.swift).
+
 ## Documentation
 
 The documentation for releases and main are available here.

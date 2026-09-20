@@ -61,7 +61,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
+              @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.createdAt) else {
@@ -189,6 +189,7 @@ extension BaseTestSuite {
               },
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
