@@ -118,7 +118,7 @@ typed storage; nested/computed path selection is explicitly unsupported in this 
 
 - The pre-fix focused run reproduced three async lifecycle failures and all four known-issue
   expectations (the collection bug has both array and dictionary reproductions).
-- `swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel
+- `swift test --traits SwiftCollections,Tagged --no-parallel
   --skip-build`: 764 tests in 77 suites passed, with four explicitly acknowledged known issues.
 - The parallel run hit the existing `Stream Init Reuses The Cached Schema` test: its global
   allocation counter included 13 allocations from concurrent work, exceeding its threshold

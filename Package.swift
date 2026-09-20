@@ -32,22 +32,26 @@ let package = Package(
   ],
   traits: [
     .trait(
-      name: "StreamParsingSwiftCollections",
+      name: "SwiftCollections",
       description: "Adds integrations for swift-collections types."
     ),
     .trait(
-      name: "StreamParsingTagged",
+      name: "Tagged",
       description: "Adds integrations for Tagged."
     ),
     .trait(
-      name: "StreamParsingFoundation",
+      name: "Foundation",
       description: "Adds integrations for Foundation types."
     ),
     .trait(
-      name: "StreamParsingCoreGraphics",
+      name: "CoreGraphics",
       description: "Adds integrations for CoreGraphics types."
     ),
-    .default(enabledTraits: ["StreamParsingFoundation", "StreamParsingCoreGraphics"])
+    .trait(
+      name: "LifetimeView",
+      description: "Enables compiler-checked nonescapable stream views."
+    ),
+    .default(enabledTraits: ["Foundation", "CoreGraphics"])
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
@@ -75,12 +79,12 @@ let package = Package(
         .product(
           name: "Collections",
           package: "swift-collections",
-          condition: .when(traits: ["StreamParsingSwiftCollections"])
+          condition: .when(traits: ["SwiftCollections"])
         ),
         .product(
           name: "Tagged",
           package: "swift-tagged",
-          condition: .when(traits: ["StreamParsingTagged"])
+          condition: .when(traits: ["Tagged"])
         )
       ],
       swiftSettings: [

@@ -1,4 +1,4 @@
-#if StreamParsingCoreGraphics && canImport(CoreGraphics)
+#if CoreGraphics && canImport(CoreGraphics)
   import CoreGraphics
   import CustomDump
   import Testing

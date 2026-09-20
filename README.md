@@ -267,10 +267,11 @@ let partials = try snakeCaseYAML.utf8.partials(
 ## Traits
 
 While the core library itself has 0 dependencies, you can enable the following package traits to integrate with additional dependencies:
-- `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
-- `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
-- `StreamParsingTagged` interops the library with `Tagged`.
-- `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `SwiftCollections` interops the library with types from Swift Collections.
+- `Foundation` interops the library with types from Foundation (enabled by default).
+- `Tagged` interops the library with `Tagged`.
+- `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
 
 ## Documentation
 
@@ -296,7 +297,7 @@ dependencies: [
     url: "https://github.com/mhayes853/swift-stream-parsing",
     from: "0.5.0",
     // You can omit the traits if you don't need any of them.
-    traits: ["StreamParsingSwiftCollections"]
+    traits: ["SwiftCollections"]
   ),
 ]
 ```

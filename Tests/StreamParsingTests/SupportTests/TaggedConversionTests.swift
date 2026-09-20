@@ -1,4 +1,4 @@
-#if StreamParsingTagged
+#if Tagged
   import CustomDump
   import Tagged
   import Testing

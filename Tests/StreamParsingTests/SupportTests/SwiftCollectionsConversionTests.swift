@@ -1,4 +1,4 @@
-#if StreamParsingSwiftCollections
+#if SwiftCollections
   import BitCollections
   import DequeModule
   import HashTreeCollections

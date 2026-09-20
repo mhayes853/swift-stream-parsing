@@ -23,7 +23,7 @@ unique ownership through the collection implementation.
 
 - Full serial suite with Foundation, swift-collections and Tagged integrations: **769 tests in
   77 suites passed**, with the two pre-existing Unicode expected failures. Command:
-  `swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`.
+  `swift test --traits SwiftCollections,Tagged --no-parallel`.
 - Array and dictionary corruption reproductions now pass as normal tests.
 - Added interleaved divergent appends around small-tail and sealed-block boundaries, weak-reference
   checks for correct element release, mutation of a retained parser snapshot, two streams seeded
@@ -202,4 +202,3 @@ any decision about the performance acceptable for the primary target.
 | API AsyncSequence Qwen 3 workspace edit tool call - 1400B chunks | 83.78 | 84.42 | -0.8% | 128 → 128 |
 | API AsyncSequence Qwen 3 workspace edit tool call - 16384B chunks | 68.42 | 69.50 | -1.6% | 128 → 128 |
 | API AsyncSequence Qwen 3 workspace edit tool call - 64B chunks | 363.26 | 368.13 | -1.3% | 128 → 128 |
-

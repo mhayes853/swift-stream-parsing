@@ -6,7 +6,7 @@ single sweeps, not statistically established small improvements/regressions. ARM
 
 ## Synchronous iterator and scoped views
 
-`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`:
+`swift test --traits SwiftCollections,Tagged --no-parallel`:
 776 tests in 78 suites passed; the two previously known Unicode issues remain acknowledged.
 Seven new tests cover emission timing, EOF number flushing, snapshot stability, laziness,
 terminal errors, callback failures, and the public overloads.
@@ -46,7 +46,7 @@ unchanged sizes versus baseline; this is not a claim of instruction-by-instructi
 
 ## Selective observation
 
-`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`:
+`swift test --traits SwiftCollections,Tagged --no-parallel`:
 788 tests in 79 suites passed; the same two known issues remain acknowledged.
 Twelve new tests cover field projection, unrelated-field suppression, optional outputs,
 independent snapshots, custom/full-value filtering, completion with identical values,
@@ -188,7 +188,7 @@ Neither the packed field table nor partial storage layouts changed. The protocol
 and generated computed property are used at selection setup, outside the parsing loop.
 
 Validation: **811 tests in 80 suites passed**, with the same two known Unicode issues, using
-`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`.
+`swift test --traits SwiftCollections,Tagged --no-parallel`.
 Updated 16 macro snapshots and added a custom-root opt-in regression test. Existing tests
 cover iterator-copy tracking, subscriptions, aliases, invalid paths, and overlapping fields.
 The release benchmark product also built successfully.
