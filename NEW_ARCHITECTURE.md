@@ -601,9 +601,9 @@ above is a memcpy benchmark by comparison, and this is the number worth quoting.
 
 ### Phase 0b — Embedded smoke (done)
 
-- `EmbeddedSmoke/` builds and **links** a freestanding wasm executable, since the failures that
+- `SmokeTests/` builds and **links** the `EmbeddedSmoke` freestanding wasm executable, since the failures that
   matter are link time and do not appear on Darwin.
-- `swiftly run +6.3.2 swift build --package-path EmbeddedSmoke --swift-sdk swift-6.3.2-RELEASE_wasm-embedded`
+- `swiftly run +6.3.2 swift build --package-path SmokeTests --product EmbeddedSmoke --swift-sdk swift-6.3.2-RELEASE_wasm-embedded`
 - Does not depend on the core yet; gains that once the old parser is removed.
 
 ### Phase 1 — Safe wins and test infrastructure (done)

@@ -1,14 +1,12 @@
 .DS_Store
 /.build
 /Benchmarks/.build
-/EmbeddedSmoke/.build
-/NoLifetimeSmoke/.build
+/SmokeTests/.build
 # Alternate scratch paths, e.g. `--scratch-path .build-64` for building against a second
 # toolchain side by side with the default one.
 /.build-*
 /Benchmarks/.build-*
-/EmbeddedSmoke/.build-*
-/NoLifetimeSmoke/.build-*
+/SmokeTests/.build-*
 /Packages
 xcuserdata/
 DerivedData/
