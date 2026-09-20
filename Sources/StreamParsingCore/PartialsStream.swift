@@ -66,8 +66,10 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   /// Reads the value in place, without copying it.
   ///
-  /// The view borrows the stream's storage, so it cannot outlive `body`. Reading a member off it
-  /// copies that member and nothing else; use ``current`` to keep a whole state.
+  /// With the `LifetimeView` trait, the view borrows the stream's storage and cannot outlive
+  /// `body`. Without the trait this API is unsafe: the view itself is escapable, and callers must
+  /// not preserve it or any pointer-backed projection after the callback or across parser mutation.
+  /// Reading a member copies that member and nothing else; use ``current`` to keep a whole state.
   ///
   /// ```swift
   /// try stream.next(byte)
@@ -75,6 +77,9 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   ///   render(post.title)
   /// }
   /// ```
+#if !LifetimeView
+  @unsafe
+#endif
   public func withView<R>(_ body: (borrowing Value.View) throws -> R) rethrows -> R {
     try body(Value.streamView(UnsafeMutableRawPointer(self.storage)))
   }
@@ -176,6 +181,9 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
 
   /// Validates EOF and lends the final value without taking a snapshot.
   /// The stream is finished even if the callback throws.
+#if !LifetimeView
+  @unsafe
+#endif
   public mutating func finishWithView<R>(
     _ body: (borrowing Value.View) throws -> R
   ) throws -> R {

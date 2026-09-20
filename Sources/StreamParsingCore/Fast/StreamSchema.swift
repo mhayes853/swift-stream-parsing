@@ -521,10 +521,15 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// Defaults to ``StreamPointerView``, which is what a scalar wants. A type with members worth
   /// reading one at a time overrides it with a projection whose accessors copy only what they return.
   ///
-  /// `~Escapable`, so "must outlive the view" on ``streamView(_:)`` is checked rather than merely
-  /// documented. There is deliberately no `= Self` fallback: a mix of Escapable `Self` views and
-  /// `~Escapable` projections makes per-field code generation ambiguous (the macro's `partialStructView`).
+  /// With the `LifetimeView` trait this is `~Escapable`, so "must outlive the view" on
+  /// ``streamView(_:)`` is compiler-checked rather than merely documented. Without the trait,
+  /// views are escapable unsafe pointer projections and callers must uphold that invariant.
+  /// There is deliberately no `= Self` fallback because the macro generates member projections.
+#if LifetimeView
   associatedtype View: ~Copyable, ~Escapable
+#else
+  associatedtype View: ~Copyable
+#endif
 
   /// Builds a view over a value at `storage`.
   ///
@@ -532,7 +537,11 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// call site: the pointer itself carries no lifetime of its own, but the dependency still
   /// forces callers through an API shape (like a `withView`-style closure) that cannot let the
   /// view outlive the call that produced it.
+#if LifetimeView
   @_lifetime(borrow storage)
+#else
+  @unsafe
+#endif
   static func streamView(_ storage: UnsafeMutableRawPointer) -> View
 }
 
@@ -551,7 +560,11 @@ extension StreamParseableRoot where View == StreamPointerView<Self> {
   // A correct snapshot without a recursive rebuild: every container the parser writes into holds
   // its open element in an inline slot, so a copy shares only storage that is sealed and never
   // written again, and the open element's own buffers copy on write at the next append.
+#if LifetimeView
   @_lifetime(borrow storage)
+#else
+  @unsafe
+#endif
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> StreamPointerView<Self> {
     StreamPointerView(storage)
   }

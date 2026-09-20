@@ -1,8 +1,10 @@
 /// The default ``StreamParseableRoot/View`` for a type with nothing to project — a scalar, or any
 /// other type that hands its whole value back rather than a member-by-member window onto it.
 ///
-/// The dereference is deferred to the read, and the view is `~Escapable` so the compiler ties it
-/// to the storage it was built from rather than trusting the caller.
+/// With the `LifetimeView` trait, the view is `~Escapable` and the compiler ties it to the storage
+/// it was built from. Otherwise it is escapable and explicitly unsafe: the caller is responsible
+/// for ensuring the storage remains alive and unmoved for every access.
+#if LifetimeView
 public struct StreamPointerView<Value>: ~Copyable, ~Escapable {
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 
@@ -14,6 +16,19 @@ public struct StreamPointerView<Value>: ~Copyable, ~Escapable {
   @inlinable
   public var value: Value { self.storage.pointee }
 }
+#else
+@unsafe
+public struct StreamPointerView<Value>: ~Copyable {
+  @usableFromInline let storage: UnsafeMutablePointer<Value>
+
+  public init(_ storage: UnsafeMutableRawPointer) {
+    self.storage = storage.assumingMemoryBound(to: Value.self)
+  }
+
+  @inlinable
+  public var value: Value { self.storage.pointee }
+}
+#endif
 
 #if compiler(>=6.4)
 extension StreamPointerView: Equatable where Value: Equatable {

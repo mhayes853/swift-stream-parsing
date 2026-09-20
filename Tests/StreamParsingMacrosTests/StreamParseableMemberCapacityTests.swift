@@ -6,7 +6,7 @@ extension BaseTestSuite {
   struct `StreamParseableMember capacity tests` {
     @Test
     func `Capacity Requires An Integer Literal`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         let capacity = 32
 
@@ -33,7 +33,7 @@ extension BaseTestSuite {
 
     @Test
     func `Capacity Can Only Be Specified Once`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Payload {

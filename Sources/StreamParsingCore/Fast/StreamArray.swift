@@ -476,6 +476,7 @@ where Element: StreamParseableRoot {
   ///
   /// Closed elements are read through `sealedBlock(_:)` and `tail`; the open element is in neither,
   /// and the subscript reaches it as the last element.
+#if LifetimeView
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamArray<Element>>
 
@@ -543,6 +544,68 @@ where Element: StreamParseableRoot {
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
     View(storage)
   }
+#else
+  /// An unsafe zero-copy window onto the array.
+  ///
+  /// The view may escape, so every access requires the caller to ensure that its originating
+  /// stream is still alive and that parsing has not invalidated the addressed storage.
+  @unsafe
+  public struct View: ~Copyable {
+    @usableFromInline let storage: UnsafeMutablePointer<StreamArray<Element>>
+
+    @usableFromInline
+    init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: StreamArray<Element>.self)
+    }
+
+    /// The number of elements, including the open one if there is one.
+    @inlinable
+    public var count: Int { self.storage.pointee.count }
+
+    /// A copy of the whole array, for an escaping snapshot.
+    @inlinable
+    public var value: StreamArray<Element> { self.storage.pointee }
+
+    /// The number of full, sealed blocks.
+    @inlinable
+    public var sealedBlockCount: Int { self.storage.pointee.blocks.count }
+
+    /// A zero-copy window onto one full, sealed block of elements.
+    @_lifetime(borrow self)
+    public func sealedBlock(_ blockIndex: Int) -> Span<Element> {
+      let block = self.storage.pointee.blocks[blockIndex]
+      let buffer = UnsafeBufferPointer(start: block.base, count: block.count)
+      return _overrideLifetime(Span(_unsafeElements: buffer), borrowing: self)
+    }
+
+    /// A zero-copy window onto the closed elements in the filling block.
+    public var tail: Span<Element> {
+      @_lifetime(borrow self)
+      get {
+        let buffer: UnsafeBufferPointer<Element>
+        if let block = self.storage.pointee.tail {
+          buffer = UnsafeBufferPointer(start: block.base, count: self.storage.pointee.tailCount)
+        } else {
+          buffer = UnsafeBufferPointer(start: nil, count: 0)
+        }
+        return _overrideLifetime(Span(_unsafeElements: buffer), borrowing: self)
+      }
+    }
+
+    /// A view onto the element at `index`, or `nil` when `index` is out of bounds.
+    public subscript(index: Int) -> Element.View? {
+      let address: UnsafeMutableRawPointer? =
+        index < 0 || index >= self.count ? nil : self.storage.pointee.elementAddress(index)
+      guard let address else { return nil }
+      return Element.streamView(address)
+    }
+  }
+
+  @unsafe
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+    View(storage)
+  }
+#endif
 }
 
 extension StreamArray: StreamParseable where Element: StreamParseableRoot {

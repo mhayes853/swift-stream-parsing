@@ -328,6 +328,7 @@ extension StreamParseableMacro {
   ) -> String {
     let inline = Self.inlinableAttribute(inlinable)
     let active = properties.filter { !$0.isIgnored }
+#if LifetimeView
     let accessors = active
       .map { property in
         let type = Self.partialTypeName(for: property)
@@ -344,6 +345,23 @@ extension StreamParseableMacro {
           """
       }
       .joined(separator: "\n\n")
+#else
+    let accessors = active
+      .map { property in
+        let type = Self.partialTypeName(for: property)
+        return """
+            \(inline)\(modifierPrefix)var \(property.memberName): \(type).View? {
+                get {
+                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.memberName)) else {
+                    return nil
+                  }
+                  return \(type).streamView(address)
+                }
+              }
+          """
+      }
+      .joined(separator: "\n\n")
+#endif
     let body = active.isEmpty ? "" : "\n\(accessors)\n"
     // `extraViewMembers` is how the enum lowering gets `ResolvedView`/`resolved` in here: they
     // have to be real members of `View`, since an extension macro can only extend the type it is
@@ -352,6 +370,7 @@ extension StreamParseableMacro {
     // `_streamStorage`, not `storage`: a member named `storage` would otherwise redeclare it.
     // `@frozen` so the inlinable `init` stays legal under library evolution; it is one pointer.
     let frozen = inlinable ? "@frozen " : ""
+#if LifetimeView
     return """
       \(frozen)\(modifierPrefix)struct View: ~Copyable, ~Escapable {
           \(modifierPrefix)let _streamStorage: UnsafeMutablePointer<Partial>
@@ -367,6 +386,22 @@ extension StreamParseableMacro {
           View(storage)
         }
       """
+#else
+    return """
+      @unsafe \(frozen)\(modifierPrefix)struct View: ~Copyable {
+          \(modifierPrefix)let _streamStorage: UnsafeMutablePointer<Partial>
+
+          \(inline)\(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
+            self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
+          }
+      \(body)\(closing)
+
+        @unsafe
+        \(inline)\(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+          View(storage)
+        }
+      """
+#endif
   }
 
   private static func paddedWord(for key: String, at start: Int = 0) -> UInt64 {

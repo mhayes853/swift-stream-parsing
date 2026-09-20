@@ -4,7 +4,7 @@ import Testing
 extension BaseTestSuite {
   @Suite struct CompletedValueConversionMacroTests {
     @Test func generatesConversionStorageAndBothDirections() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public struct Event {
@@ -220,7 +220,7 @@ extension BaseTestSuite {
     }
 
     @Test func requiresDefaultForNonoptionalConvertedMembers() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -241,7 +241,7 @@ extension BaseTestSuite {
     }
 
     @Test func rejectsDuplicateStrategies() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -265,7 +265,7 @@ extension BaseTestSuite {
     }
 
     @Test func rejectsCapacityHintOnConvertedMember() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -288,7 +288,7 @@ extension BaseTestSuite {
     }
 
     @Test func requiresTypeLiteral() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {

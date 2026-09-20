@@ -316,6 +316,7 @@ extension StreamDictionary where Value: StreamParseableRoot {
   /// its existing slot (see `pendingSlot`), so that position can briefly hold a stale value while
   /// the live one sits in `pendingValue`. `subscript(key:)` routes around that by checking the
   /// pending entry first; a raw span would not.
+#if LifetimeView
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
 
@@ -366,6 +367,53 @@ extension StreamDictionary where Value: StreamParseableRoot {
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
     View(storage)
   }
+#else
+  /// An unsafe zero-copy window onto the dictionary.
+  ///
+  /// The view may escape, so every access requires the caller to ensure that its originating
+  /// stream is still alive and that parsing has not invalidated the addressed storage.
+  @unsafe
+  public struct View: ~Copyable {
+    @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
+
+    @usableFromInline
+    init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: StreamDictionary<Value>.self)
+    }
+
+    /// The number of entries.
+    @inlinable
+    public var count: Int { self.storage.pointee.count }
+
+    /// A copy of the whole dictionary, for callers that want an escaping snapshot.
+    @inlinable
+    public var value: StreamDictionary<Value> { self.storage.pointee }
+
+    /// A view onto the value stored under `key`, or `nil` when there is no such entry.
+    public subscript(key: String) -> Value.View? {
+      let address: UnsafeMutableRawPointer?
+      if self.storage.pointee.pendingEntryKey == key {
+        address =
+          self.storage.pointee.pendingValue == nil
+          ? nil
+          : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+            UnsafeMutableRawPointer($0)
+          }
+      } else if let slot = self.storage.pointee.slot(forKey: key) {
+        address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+      } else {
+        address = nil
+      }
+      guard let address else { return nil }
+      return Value.streamView(address)
+    }
+  }
+
+  @unsafe
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+    View(storage)
+  }
+#endif
 }
 
 // MARK: - Parsing support

@@ -6,7 +6,7 @@ extension BaseTestSuite {
   struct `StreamParseableMacro tests` {
     @Test
     func `Basic`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -238,7 +238,7 @@ extension BaseTestSuite {
 
     @Test
     func `Custom Member Keys`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -487,7 +487,7 @@ extension BaseTestSuite {
 
     @Test
     func `StreamParseableMember Applied To Static Property`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -510,7 +510,7 @@ extension BaseTestSuite {
 
     @Test
     func `StreamParseableMember Applied To Computed Property`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -537,7 +537,7 @@ extension BaseTestSuite {
 
     @Test
     func `Missing Stored Property Type Annotation`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -560,7 +560,7 @@ extension BaseTestSuite {
 
     @Test
     func `Non-String Key Literal`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         let keyName = "customKeyName"
 
@@ -589,7 +589,7 @@ extension BaseTestSuite {
 
     @Test
     func `Non-String Key Names Array Literal`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         let keyNames = ["customKeyName"]
 
@@ -618,7 +618,7 @@ extension BaseTestSuite {
 
     @Test
     func `Stream Initial Value Members`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable(partialMembers: .streamInitialValue)
         struct Person {
@@ -846,7 +846,7 @@ extension BaseTestSuite {
         }
         """#
       }
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -1039,7 +1039,7 @@ extension BaseTestSuite {
 
     @Test
     func `Excludes Static, Computed, And Method Members`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -1242,7 +1242,7 @@ extension BaseTestSuite {
 
     @Test
     func `Non Optional Ignored Property Without A Default`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -1266,7 +1266,7 @@ extension BaseTestSuite {
 
     @Test
     func `StreamParseableMember And StreamParseableIgnored On Same Property`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -1294,7 +1294,7 @@ extension BaseTestSuite {
 
     @Test
     func `String Raw Value Enum`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Broadcast: Swift.String {
@@ -1374,7 +1374,7 @@ extension BaseTestSuite {
 
     @Test
     func `Integer Raw Value Enum`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Priority: Int {
@@ -1419,7 +1419,7 @@ extension BaseTestSuite {
 
     @Test
     func `Raw Less Enum Uses The Codable Object Form`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Figure {
@@ -1651,7 +1651,7 @@ extension BaseTestSuite {
 
     @Test
     func `Enum Without A Fallback Case`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Broadcast: String {
@@ -1672,7 +1672,7 @@ extension BaseTestSuite {
 
     @Test
     func `Enum With An Unsupported Raw Type`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Flag: Character {
@@ -1695,7 +1695,7 @@ extension BaseTestSuite {
 
     @Test
     func `Enum Rejects Partial Members Mode`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable(partialMembers: .streamInitialValue)
         enum Figure {
@@ -1718,7 +1718,7 @@ extension BaseTestSuite {
 
     @Test
     func `Applied To Enum With Associated Values`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Note {
@@ -2186,7 +2186,7 @@ extension BaseTestSuite {
 
     @Test
     func `Applied To Class Or Actor`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         class Person {
@@ -2204,7 +2204,7 @@ extension BaseTestSuite {
         }
         """
       }
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         actor Person {
@@ -2226,7 +2226,7 @@ extension BaseTestSuite {
 
     @Test
     func `Does Not Override Existing Partial Inner Type`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -2292,7 +2292,7 @@ extension BaseTestSuite {
 
     @Test
     func `Uses Existing StreamPartialValue Property`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -2487,7 +2487,7 @@ extension BaseTestSuite {
 
     @Test
     func `Access Modifier`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public struct Person {
@@ -2678,7 +2678,7 @@ extension BaseTestSuite {
         }
         """#
       }
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         private struct Person {
@@ -2867,7 +2867,7 @@ extension BaseTestSuite {
         }
         """#
       }
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         fileprivate struct Person {
@@ -3062,7 +3062,7 @@ extension BaseTestSuite {
     // type's own properties, out of line. Everything on `Partial` stays inlinable.
     @Test
     func `Public Type With An Internal Member`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public struct Person {
@@ -3299,7 +3299,7 @@ extension BaseTestSuite {
     // `@usableFromInline` and a narrower setter do not block it: only the getter is read.
     @Test
     func `Public Type With Usable From Inline And Private Set Members`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public struct Person {
@@ -3535,7 +3535,7 @@ extension BaseTestSuite {
 
     @Test
     func `Public String Raw Value Enum Is Inlinable`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public enum Stage: String {
@@ -3608,7 +3608,7 @@ extension BaseTestSuite {
     // library evolution, so it alone stays out of line.
     @Test
     func `Public Raw Less Enum Is Inlinable Except streamPartialValue`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public enum Shape {
@@ -3891,7 +3891,7 @@ extension BaseTestSuite {
 
     @Test
     func `Container Members Only`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Feed {
@@ -4109,7 +4109,7 @@ extension BaseTestSuite {
 
     @Test
     func `Generic Type Is Diagnosed`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Box<T> {
@@ -4130,7 +4130,7 @@ extension BaseTestSuite {
 
     @Test
     func `Nested Package Struct With Awkward Members`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         struct Outer {
           @StreamParseable
@@ -4416,7 +4416,7 @@ extension BaseTestSuite {
 
     @Test
     func `Enum Case Named Like A ResolvedView Sentinel`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum E {
@@ -4439,7 +4439,7 @@ extension BaseTestSuite {
 
     @Test
     func `Payload Type Name Collision`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum E {
@@ -4464,7 +4464,7 @@ extension BaseTestSuite {
 
     @Test
     func `Interpolated Key`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -4487,7 +4487,7 @@ extension BaseTestSuite {
 
     @Test
     func `Empty Key`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -4510,7 +4510,7 @@ extension BaseTestSuite {
 
     @Test
     func `Key And Key Names Together`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -4533,7 +4533,7 @@ extension BaseTestSuite {
 
     @Test
     func `Duplicate Key Names`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person {
@@ -4557,7 +4557,7 @@ extension BaseTestSuite {
 
     @Test
     func `Existing Partial And Stated Conformance`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Person: StreamParseable {
@@ -4614,7 +4614,7 @@ extension BaseTestSuite {
 
     @Test
     func `Enum With A Non Static Stream Initial Value`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Stage: String {
@@ -4639,7 +4639,7 @@ extension BaseTestSuite {
 
     @Test
     func `Unreadable Partial Members Argument`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         let mode = PartialMembersMode.optional
 
@@ -4664,7 +4664,7 @@ extension BaseTestSuite {
 
     @Test
     func `Indirect Enum Is Diagnosed`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         indirect enum E {
@@ -4689,7 +4689,7 @@ extension BaseTestSuite {
 
     @Test
     func `Self Referential Payloads Are Diagnosed`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         enum Tree {
@@ -4726,7 +4726,7 @@ extension BaseTestSuite {
 
     @Test
     func `Qualified Self Reference Is Diagnosed In A Nested Enum`() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         struct Outer {
           @StreamParseable

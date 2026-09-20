@@ -712,8 +712,9 @@ extension StreamParseableMacro {
       """
   }
 
-  // The read side: a `~Copyable & ~Escapable` enum grouping every case's borrowed view under one
-  // switch, so a case can be read mid-stream without materialising an owned snapshot.
+  // The read side groups every case's view under one switch, so a case can be read mid-stream
+  // without materialising an owned snapshot. It follows `View`: nonescapable with `LifetimeView`,
+  // otherwise an explicitly unsafe escapable pointer projection.
   //
   // Two constraints shape what is emitted here. Multi-pattern `case` labels are not implemented
   // for a `~Copyable` match on Swift 6.3/6.4, so every arm is single-pattern. And this must live
@@ -727,6 +728,7 @@ extension StreamParseableMacro {
         """
     }
 
+#if LifetimeView
     let resolveArms = Self.caseArms(cases) { index, enumCase, member in
       guard !enumCase.associatedValues.isEmpty else {
         return """
@@ -745,6 +747,23 @@ extension StreamParseableMacro {
               )
         """
     }
+#else
+    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
+      guard !enumCase.associatedValues.isEmpty else {
+        return """
+              case \(index):
+                return .\(enumCase.reference)
+          """
+      }
+      let payloadType = Self.payloadTypeName(for: enumCase)
+      return """
+            case \(index):
+              guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(member))
+              else { return .unresolved }
+              return .\(enumCase.reference)(\(payloadType).Partial.streamView(streamAddress))
+        """
+    }
+#endif
 
     let viewCases = cases
       .map { enumCase in
@@ -754,6 +773,7 @@ extension StreamParseableMacro {
       }
       .joined(separator: "\n")
 
+#if LifetimeView
     return """
       /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
       /// than one case's key has arrived yet.
@@ -781,6 +801,34 @@ extension StreamParseableMacro {
           }
         }
       """
+#else
+    return """
+      /// One case's unsafe mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
+      /// than one case's key has arrived yet. Do not retain it across parser mutation.
+      @unsafe \(modifierPrefix)enum ResolvedView: ~Copyable {
+        case unresolved
+        case ambiguous
+      \(viewCases)
+        }
+
+        \(inline)\(modifierPrefix)var resolved: ResolvedView {
+          get {
+            var streamMatched = -1
+            var streamMatches = 0
+      \(countArms)
+            guard streamMatches == 1 else {
+              if streamMatches == 0 { return .unresolved }
+              return .ambiguous
+            }
+            switch streamMatched {
+      \(resolveArms)
+            default:
+              return .unresolved
+            }
+          }
+        }
+      """
+#endif
   }
 }
 

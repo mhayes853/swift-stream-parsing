@@ -35,10 +35,14 @@ public protocol StreamCompletedValueConversion: SendableMetatype {
   associatedtype ConversionError: Error
 
   /// Validates and converts a completed, non-null source value.
-  /// - Parameter source: A borrowed view of the parsed source; it cannot escape this call.
+  /// - Parameter source: A view of the parsed source. With `LifetimeView` it cannot escape this
+  ///   call; otherwise it is an unsafe pointer projection that must not be retained.
   /// - Returns: The value cached in the partial and used when constructing the model.
   /// - Throws: A strategy-defined error if the completed source is invalid. Parsing reports
   ///   `StreamSinkFailure.Reason.conversionFailed`; the partial retains `conversionError`.
+#if !LifetimeView
+  @unsafe
+#endif
   static func convertToValue(_ source: borrowing Source.View) throws(ConversionError) -> Value
 
   /// Reconstructs a source representation without invoking `convertToValue`.
@@ -77,6 +81,7 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
 
   public static func streamInitialValue() -> Self { Self() }
 
+#if LifetimeView
   public struct View: ~Copyable, ~Escapable {
     private let storage: UnsafeMutablePointer<ConvertedPartial>
 
@@ -101,6 +106,26 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
 
   @_lifetime(borrow storage)
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> View { View(storage) }
+#else
+  @unsafe
+  public struct View: ~Copyable {
+    private let storage: UnsafeMutablePointer<ConvertedPartial>
+
+    fileprivate init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: ConvertedPartial.self)
+    }
+
+    public var source: Strategy.Source.View {
+      Strategy.Source.streamView(sourceAddress(self.storage))
+    }
+
+    public var value: Strategy.Value? { self.storage.pointee.value }
+    public var conversionError: Strategy.ConversionError? { self.storage.pointee.conversionError }
+  }
+
+  @unsafe
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View { View(storage) }
+#endif
 
   private static func sourceAddress(_ storage: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
     sourceAddress(storage.assumingMemoryBound(to: Self.self))
