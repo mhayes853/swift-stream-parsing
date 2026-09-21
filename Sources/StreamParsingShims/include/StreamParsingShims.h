@@ -67,6 +67,14 @@ typedef struct {
   // Every `\` byte, escaped or not. The walk tests this over a string's extent: a string with no
   // backslash between its quotes is emitted in place, one with any goes to the escape decoder.
   uint64_t backslash;
+  // Every byte that ends a number in a valid document: whitespace, `,` and the four brackets
+  // (`[` and `{` ride along on the bracket class bit; they cost nothing and end nothing valid).
+  // Not masked by `in_string`: the walk reads it only above a number's first byte, which is
+  // outside every string, and the first set bit there is the number's end. The set is disjoint
+  // from the number class, so that extent is never shorter than `streamNumberRunEnd`'s; where it
+  // is longer the token is malformed (`12abc`), the whole-token parse rejects it, and the walk
+  // hands the token back to the scalar loop, which reports it as it always has.
+  uint64_t scalar_end;
   // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
   uint64_t in_string;
   // Carry out: 1 if this block ends inside an odd-length backslash run.
@@ -329,6 +337,7 @@ stream_parsing_classify_structural_block(
     // Edge to edge inside a string: no byte of it is whitespace outside one, by construction.
     out.no_outer_whitespace = 1;
     out.starts = 0;
+    out.scalar_end = 0;
     out.needs_scalar = vminvq_u8(vminq_u8(vminq_u8(v0, v1), vminq_u8(v2, v3))) < 0x20;
     return out;
   }
@@ -374,9 +383,16 @@ stream_parsing_classify_structural_block(
   uint64_t control = stream_parsing_movemask4(
     vcltq_u8(v0, space), vcltq_u8(v1, space), vcltq_u8(v2, space), vcltq_u8(v3, space)
   );
+  // COMMA (0x04) and BRACK (0x80): a test of two class bits the lookups above already produced.
+  const uint8x16_t separator_bits = vdupq_n_u8(0x84);
+  uint64_t separator = stream_parsing_movemask4(
+    vtstq_u8(c0, separator_bits), vtstq_u8(c1, separator_bits),
+    vtstq_u8(c2, separator_bits), vtstq_u8(c3, separator_bits)
+  );
 
   out.no_outer_whitespace = (whitespace & ~in_string) == 0;
   out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
+  out.scalar_end = whitespace | separator;
   out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
   return out;
 }

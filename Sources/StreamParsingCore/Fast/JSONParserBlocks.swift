@@ -296,18 +296,35 @@
               mask &= UInt64.max &<< UInt64(bit &+ 4)
               continue
             case .asciiDash, .asciiZero ... .asciiNine:
-              // The extent is deliberately *not* taken from the masks: `12abc` has to report
-              // `unexpectedToken` at the `a`, which is what the grammar walk behind
-              // `streamNumberRunEnd` does and what a mask over the number's byte class would not.
-              let end = streamNumberRunEnd(base: base, from: at, to: to)
-              guard end < to else {
-                // The token may continue in the next chunk, so it goes to the per-byte path
-                // whole, exactly as the scalar arm hands it over.
-                self.resetNumber()
-                state = .number
+              // The extent is the first `scalar_end` bit above the token: one `tzcnt` in place of
+              // `streamNumberRunEnd`'s dependent load/lookup/movemask chain per number. That bit
+              // is where a *valid* number ends; a malformed one (`12abc`) runs on to it, fails
+              // the whole-token parse before anything is emitted, and goes back to the scalar
+              // loop at its first byte with the state untouched -- so `12abc` still reports
+              // `unexpectedToken` at the `a`, from the code that has always reported it.
+              let ends = classes.scalar_end & (UInt64.max &<< UInt64(bit))
+              var end = p &+ ends.trailingZeroBitCount
+              if ends == 0 {
+                // The number runs out of the block (`end` is `p + 64` here, which the loop bound
+                // keeps inside the chunk). Nothing up to there ends it, so the scalar scan picks
+                // up at the edge rather than at the token's first byte.
+                end = streamNumberRunEnd(base: base, from: end, to: to)
+                guard end < to else {
+                  // The token may continue in the next chunk, so it goes to the per-byte path
+                  // whole, exactly as the scalar arm hands it over.
+                  self.resetNumber()
+                  state = .number
+                  return at
+                }
+              }
+              // One emit site: `emitNumber` is forced inline, and a second copy of it cost the
+              // walk 118 instructions and 16 stack accesses.
+              do throws(JSONParsingError) {
+                try self.emitNumber(base: base, from: at, to: end, into: &sink, reportAt: end)
+              } catch {
+                guard case .invalidNumber = error.reason else { throw error }
                 return at
               }
-              try self.emitNumber(base: base, from: at, to: end, into: &sink, reportAt: end)
               state = .afterValue
               if end &- p >= 64 {
                 p = end

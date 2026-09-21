@@ -7093,6 +7093,138 @@ cycle (an element copy the old design also paid, plus a block and the reseat) is
 byte. The realistic shape, the latest state held while chunks arrive, sits between the two: the
 harness table above, -16% at 64-byte chunks.
 
+## One parse path: windowed mode removed, number extents from the block masks
+
+Two changes, 2026-09-20/21, measured separately. Harness `~/.cache/sspab/s13`; every A/B is two
+prebuilt binaries interleaved, best-of-rounds p0. The machine was under heavy unrelated load
+throughout (load average 110-260), so the floor is about +-1.5% on p0 and the p50 columns drift;
+effects below that are not claimed.
+
+### Windowed mode is gone
+
+`JSONParserWindow.swift`, `JSONParserShapes.swift`, the C window indexer
+(`stream_parsing_index_window`, all of `StreamParsingShims.c`), the long-decimal kernel
+(`stream_parsing_decimal32`) and `windowThreshold` on both `JSONParser` and `JSONStreamFormat` are
+deleted: about 2,300 lines. The path was off in every shipped configuration (`windowThreshold`
+defaulted to `.max`) and by `2d1109c` won only Canada (+21.6% raw / +1.9% typed) and Mesh (+28.2%
+/ +6.8%), losing 17-30% on the typed string-heavy rows. A mode an end user has to benchmark to
+choose is not worth that. The sections above that describe it are history.
+
+Two things survived the deletion:
+
+* `dispatchOnce` moved into `JSONParser.swift` unchanged; `parse(byte:)` and the bulk loop share it.
+* The block walk's re-probe hook. It rode on `windowThreshold` (lowered to 4 KB while a probe was
+  due, so `parse`'s one compare served both). It is now a private `blockWalkProbeThreshold` with
+  the same compare in the same place, and `parsePastThreshold` became `parseProbing`. With that,
+  `parse` and `consumeStructuralRun` are opcode-identical to the pre-deletion binary for both the
+  counting sink and `PartialSink`.
+
+**The deletion was not free until the parser was padded back to its old size, and that is the
+finding worth keeping.** Removing the window fields shrank `JSONParser` from 96 to 80 bytes, which
+moves `PartialSink` 16 bytes inside `PartialsStream`. Every hot typed-layer function was
+opcode-identical (all ten `PartialSink` event entry points, checked by stripped-disassembly hash),
+and the typed rows still lost, reproducibly over 5 interleaved rounds:
+
+| row | 80-byte parser | padded to 96 |
+| --- | ---: | ---: |
+| Dictionary 128 keys - discarding | -3.9% | -0.1% |
+| GitHub events - bulk discarding | -3.0% | -1.5% |
+| Twitter full - bulk discarding | -1.8% | -1.4% |
+| Twitter - bulk discarding | -1.5% | -1.1% |
+| CITM catalog - bulk discarding | -0.9% | 0.0% |
+| Twitter - bulk (raw) | +1.0% | +0.7% |
+
+Two reserved `UInt64` fields (`reservedLayout0/1`) hold the size. The residual ~1.2% on the Twitter
+typed rows has no code or data-layout explanation left (hot code identical, sizes restored) and sits
+at the noise floor of that session; it was not chased. Same class as "alignment lottery priced": a
+deletion is a layout change, and a layout change is measured like any other.
+
+### Number extents from the block masks
+
+The walk already took a string's extent from the quote mask and the next token from `starts`, but a
+number still ran `streamNumberRunEnd` -- a dependent `ldr q`/`ushr`/`tbl`/`and`/`tbl`/`cmtst`/
+`shrn`/`fmov`/`rbit`/`clz` chain per token, the same shape of cost the walk exists to remove. The
+old source comment gave the reason: `12abc` must report `unexpectedToken` at the `a`, which a mask
+over a looser byte class would not.
+
+The classifier now hands out one more mask, `scalar_end`: whitespace, `,` and the four brackets --
+every byte that ends a number in a *valid* document. It is `whitespace | vtst(c, COMMA|BRACK)`,
+two class bits the lookups already produce, so it costs four `cmtst` and one movemask (the walk's
+specialisation grew 61 instructions in all, error path included). The number arm is then
+
+```
+lsl   x8, x13, x23          ; bits at and above the token
+ldr   x10, [sp, #0x68]      ; scalar_end (spilled: the walk has no register to spare)
+ands  x8, x8, x10
+rbit  x8, x8
+clz   x8, x8
+add   x25, x8, x19          ; end
+b.eq  <runs out of the block>
+```
+
+followed directly by the short-integer kernel with the length already known.
+
+**Error parity is by construction, not by case analysis.** The set is disjoint from the number
+class, so the mask extent is never shorter than `streamNumberRunEnd`'s. Where it is longer the token
+is malformed; `emitNumber` validates the whole extent before it emits anything and every failure in
+it is `.invalidNumber`, so the walk catches exactly that reason and hands the token back to the
+scalar loop at its first byte with the state untouched. The scalar loop then scans, emits `12`, and
+reports the `a` -- the code that has always reported it. Valid documents never take the catch.
+`Number extents read from the block masks agree with the ladder` sweeps ~65 valid and malformed
+shapes across every block alignment against the ladder; flipping the caught reason fails it with
+6,570 mismatches.
+
+Two codegen notes. `emitNumber` is `@inline(__always)`: giving it a second call site (one for the
+mask extent, one for the block-edge fallback) cost the walk 118 instructions and 16 stack accesses,
+so both paths compute `end` and share one emit. And a number that runs out of its block resumes the
+scalar scan at the block edge, not at the token: nothing before the edge ends it, and a malformed
+prefix is caught by the same hand-back.
+
+**Measured, as shipped (gate unchanged), 3 rounds, 30 rows:** mean +0.3%, worst -1.1% (CITM 16 KB
+typed), best +2.0%; raw GitHub +2.0, Twitter +1.5, CITM +1.5. Nothing outside the floor in either
+direction -- expected, because the gate keeps the number-heavy payloads out of the walk entirely.
+
+**Measured with the gate forced open, walk with mask extents vs walk with the scan, 3 rounds:**
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Mesh | +20.4% | +12.7% |
+| Canada | +3.9% | +8.3% |
+| Numbers small integers | +31.9% | -- |
+| Numbers large integers | +10.6% | +3.1% |
+| Numbers floats | +8.4% | +2.6% |
+| Qwen 3 workspace edit | +5.0% | +0.9% |
+| Twitter / GitHub / CITM | +2.0 / +2.2 / +0.9% | +0.7 / +0.4 / +0.3% |
+| GSoC / LLM | -0.2 / -0.2% | -0.6 / 0.0% |
+
+This is also the answer to "no movemask spelling can beat the ladder on 1-3 digit tokens"
+(`streamNumberRunEndShimmed`): that finding was about paying the vector-to-GPR latency *per
+number*. Here it is paid once per 64 bytes and every number in the block reads its end out of a
+general register.
+
+**It does not make the gate removable.** The ungated walk (mask extents in) against the shipped,
+gated parser, 3 rounds:
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Canada | -5.1% | -8.5% |
+| Mesh | -7.4% | -11.6% |
+| Qwen 3 workspace edit | -27.6% | -2.1% |
+| Qwen 3 structured response | -11.6% | -0.6% |
+| LLM message | -2.1% | -2.6% |
+| Twitter escaped | -3.7% | -1.9% |
+| Numbers wide exponent floats / large integers | -28% / -25% | -15% / -9% |
+| Twitter / CITM / GitHub / GSoC | within +-1% | within +-1% |
+
+Mesh's walk penalty went from the census's -26.4% to -7.4%, so the extents bought most of what
+they could; what is left is the classifier itself on blocks with no whitespace to skip, plus a
+re-anchor per long token (an 18-byte Canada float crosses a block edge more than one time in four).
+An unconditional walk needs either a cheaper classifier for whitespace-free blocks or an entry
+condition that is a function of the bytes at the cursor rather than of history. Open.
+
+Literals needed nothing: `true`/`false`/`null` have been a 32-bit word compare inside the walk since
+"String values and literals finish inside the structural run", and the walk restates that arm.
+
 ## Design notes relocated from source comments
 
 These notes were the rationale in the source comments at their call sites, moved here when those
@@ -7110,10 +7242,12 @@ the call site; on x86 the AVX2 twin in `AVX2.c`, called once per block because i
 inlined. (The kernel's class encoding is in "The structural block classifier's two-table
 encoding" below.)
 
-Per block it deletes three things. The whitespace scan that precedes every token: whitespace is
+Per block it deletes four things. The whitespace scan that precedes every token: whitespace is
 simply absent from the `starts` mask, so "the next token" is one `rbit`/`clz`. The string scan that
 precedes every key and string value: the extent is the pair of quote bits, and "does it contain an
-escape" is an AND against the backslash mask. And the per-string high-bit reduction:
+escape" is an AND against the backslash mask. The number scan: the extent is the first `scalar_end`
+bit above the token (see "Number extents from the block masks"). And the per-string high-bit
+reduction:
 `containsNonASCII` becomes the block's own flag, so the ~99% of blocks with no high byte never call
 the validator at all.
 
@@ -7184,10 +7318,12 @@ out of the walk within four.
 
 **A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes
 shape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather
-than by its first four blocks forever. `parsePastThreshold` counts the chunks: while a countdown is
-live the default `windowThreshold` drops to 4 KB so bulk chunks reach it, and the chunk that runs it
-out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15% at
-Mesh's per-block loss. A caller-set threshold is left alone.
+than by its first four blocks forever. `parseProbing` counts the chunks: while a countdown is live
+`blockWalkProbeThreshold` drops from `.max` to 4 KB so bulk chunks reach it, and the chunk that runs
+it out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15%
+at Mesh's per-block loss. (The hook is a threshold compare rather than a flag test because it took
+over the slot `windowThreshold` had in `parse` when windowed mode was removed — see "One parse
+path" — which kept `parse` the size it was.)
 
 **Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.
 `GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free
@@ -7505,7 +7641,9 @@ bit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D
 ```
 
 `\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and every byte
->= 0x80 is in no class at all, which is what `needs_scalar` reads. Neither `brackets` nor `op` is
+>= 0x80 is in no class at all, which is what `needs_scalar` reads. (`scalar_end` is the one mask
+read straight off two class bits, COMMA | BRACK — see "Number extents from the block masks".)
+Neither `brackets` nor `op` is
 computed here: the walk reads the four bracket bytes and the two operators it lands on out of the
 line the classifier just touched — two movemasks the skip classifier's shape pays for and this one
 does not.

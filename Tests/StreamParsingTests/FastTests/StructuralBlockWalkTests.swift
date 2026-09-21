@@ -253,6 +253,45 @@ struct StructuralBlockWalkTests {
     }
   }
 
+  // The walk reads a number's end off the block's `scalar_end` mask (whitespace, `,`, brackets)
+  // rather than scanning the number class. Every shape where those two disagree -- a number run
+  // into a letter, a quote, a colon, a stray sign -- has to come out of the scalar ladder's mouth
+  // unchanged, and every valid terminator has to end the token where the ladder ends it. The
+  // trailing pad keeps a whole block ahead of the token at every alignment, so the mask path (not
+  // the block-edge fallback) is what runs.
+  @Test
+  func `Number extents read from the block masks agree with the ladder`() {
+    let bodies = [
+      // Valid, one per terminator.
+      "[1,2]", "[1 ,2]", "[1\n,2]", "[1\t]", "[1\r\n]", "[ 1 ]", "{\"a\":1}", "{\"a\":1 }",
+      "[[1],[2]]", "[-0]", "[0]", "[1.5,2.5e3,-1E-2,1e+9]", "[12345678,123456789,1234567890123456789]",
+      "[0.1234567890123456789,99999999999999999999999]", "7", "7 ", "-7.25e1\n",
+      // Malformed: the mask extent is longer than the number class run.
+      "[12abc]", "[12abc,1]", "[12 abc]", "[12\"x\"]", "{\"a\":12:3}", "[12true]", "[1e5x,2]",
+      "[12\\n]", "[12_000]", "[1/2]", "[0x10]", "[1'2]", "12abc", "12\"",
+      // Malformed inside the number class: the grammar walk's own rejections.
+      "[1.2.3]", "[01]", "[-]", "[--1]", "[1-2]", "[1+2]", "[1e]", "[1e+]", "[1.]", "[-.5]",
+      "[1..2]", "[1ee2]", "[+1]", "[.5]", "[1.e2]", "[00]", "[-01]",
+      // Long enough to cross a block edge at several pads: the edge fallback scans from the edge,
+      // so garbage on either side of it has to come back to the ladder too.
+      "[12abc345,1]", "[1234567890123456789012345abc,1]", "[123456789012345678901234567890,1]",
+      "[1234567890.1234567890e-1234567890 ,1]", "[1234567890123456789\"x\"]",
+      // Openers directly after a number: on the bracket class bit, so they end the extent.
+      "[12[3]]", "[12{}]", "{\"a\":12{\"b\":1}}",
+      // Mismatched or stray closers after a number.
+      "[1}", "{\"a\":1]", "1]", "1}", "1,",
+    ]
+    let tail = Array(repeating: UInt8(0x20), count: 64)
+    for pad in 0..<66 {
+      let spaces = Array(repeating: UInt8(0x20), count: pad)
+      for body in bodies {
+        Self.expectAgreement(
+          spaces + Array(body.utf8) + tail, "\(body.debugDescription) pad \(pad)", chunks: [63, 64, 100, 4096, .max]
+        )
+      }
+    }
+  }
+
   // The depth cap, with the breaching bracket at every offset modulo the grid.
   @Test
   func `The depth cap reports the same byte at every chunking`() {

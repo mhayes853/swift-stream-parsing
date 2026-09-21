@@ -403,6 +403,7 @@ stream_parsing_classify_structural_block(
     out.no_outer_whitespace = 1;
     out.strike = 1;
     out.starts = 0;
+    out.scalar_end = 0;
     out.needs_scalar = stream_parsing_block_any_control(v0, v1);
     return out;
   }
@@ -429,9 +430,16 @@ stream_parsing_classify_structural_block(
       _mm256_cmpeq_epi8(v1, _mm256_shuffle_epi8(ws_table, v1)));
   uint64_t control = stream_parsing_block_mask(
       stream_parsing_block_control(v0), stream_parsing_block_control(v1));
+  // COMMA (0x04) and BRACK (0x80), as in the NEON kernel. AVX2 has no `vtst`, so this is the
+  // complement of "neither bit set".
+  const __m256i separator_bits = _mm256_set1_epi8((char)0x84);
+  uint64_t separator = ~stream_parsing_block_mask(
+      _mm256_cmpeq_epi8(_mm256_and_si256(c0, separator_bits), zero),
+      _mm256_cmpeq_epi8(_mm256_and_si256(c1, separator_bits), zero));
 
   out.no_outer_whitespace = (whitespace & ~in_string) == 0;
   out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
+  out.scalar_end = whitespace | separator;
   out.strike = out.no_outer_whitespace
       | (__builtin_popcountll(out.starts) >= STREAM_PARSING_BLOCK_WALK_DENSE_STARTS);
   out.needs_scalar = ((control & in_string) | (unaccepted & ~in_string)) != 0;
