@@ -7119,25 +7119,39 @@ Two things survived the deletion:
   `parse` and `consumeStructuralRun` are opcode-identical to the pre-deletion binary for both the
   counting sink and `PartialSink`.
 
-**The deletion was not free until the parser was padded back to its old size, and that is the
-finding worth keeping.** Removing the window fields shrank `JSONParser` from 96 to 80 bytes, which
-moves `PartialSink` 16 bytes inside `PartialsStream`. Every hot typed-layer function was
-opcode-identical (all ten `PartialSink` event entry points, checked by stripped-disassembly hash),
-and the typed rows still lost, reproducibly over 5 interleaved rounds:
+**`JSONParser`'s size is a placement lottery, not a cache-line effect -- measured, after a false
+start.** Removing the window fields shrank `JSONParser` from 96 to 80 bytes, which moves
+`PartialSink` inside `PartialsStream` (`storage` 8 bytes, then the parser, then the 136-byte sink;
+the whole struct is 8-aligned and lands at an arbitrary 16-byte stack phase). The first A/B of the
+deletion, taken at load average 170-260 against a binary that still held the windowed code, read
+Dictionary 128 keys -3.9% and GitHub typed -3.0% with every hot typed function opcode-identical, and
+two reserved `UInt64`s were added to hold 96 bytes. A clean sweep did not bear that out. Seven
+binaries identical but for the number of reserved words, 5 interleaved rounds with rotating order,
+load ~15, best-of-5 p0 relative to 96 bytes (the 96-byte binary run twice is the noise floor):
 
-| row | 80-byte parser | padded to 96 |
-| --- | ---: | ---: |
-| Dictionary 128 keys - discarding | -3.9% | -0.1% |
-| GitHub events - bulk discarding | -3.0% | -1.5% |
-| Twitter full - bulk discarding | -1.8% | -1.4% |
-| Twitter - bulk discarding | -1.5% | -1.1% |
-| CITM catalog - bulk discarding | -0.9% | 0.0% |
-| Twitter - bulk (raw) | +1.0% | +0.7% |
+| row | 80 | 88 | 96 | 96 again | 104 | 112 | 128 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dictionary 128 keys - discarding | -0.8% | -0.8% | 0 | 0.0% | 0.0% | -0.7% | +0.1% |
+| GitHub events - bulk discarding | +0.2% | -0.1% | 0 | +0.2% | +0.2% | -0.7% | -2.9% |
+| Twitter - bulk discarding | +0.3% | +0.2% | 0 | +0.1% | +0.4% | -1.3% | -2.2% |
+| Twitter full - bulk discarding | +0.2% | -1.0% | 0 | +0.3% | +0.7% | -0.8% | -3.0% |
+| Twitter full - 16KB chunks discarding | -0.4% | -1.3% | 0 | -0.2% | +0.3% | -1.3% | -3.1% |
+| Canada - bulk discarding | -1.1% | +0.1% | 0 | +0.1% | +0.1% | -0.4% | -0.1% |
+| Retention 100 users - window 16 | -0.3% | 0.0% | 0 | 0.0% | -0.1% | -0.3% | -4.0% |
+| Twitter - bulk (raw) | -0.5% | -0.2% | 0 | -0.2% | -0.4% | -0.4% | -0.1% |
+| mean of 11 rows | -0.20% | -0.22% | 0 | +0.09% | +0.25% | -0.69% | -1.77% |
 
-Two reserved `UInt64` fields (`reservedLayout0/1`) hold the size. The residual ~1.2% on the Twitter
-typed rows has no code or data-layout explanation left (hot code identical, sizes restored) and sits
-at the noise floor of that session; it was not chased. Same class as "alignment lottery priced": a
-deletion is a layout change, and a layout change is measured like any other.
+80 against 96 is -0.2%, inside the floor on all but two rows, so the reserved words were removed.
+Padding to 128 -- "two whole cache lines" -- is the *worst* point, -3..-4% on three typed rows with
+hot code identical to the 96-byte build (13 of 14 hot symbols hash-equal; `parse` grows by the two
+by-value prologue instructions). The response is neither monotone nor 64-periodic, which is what
+sink placement against an unaligned frame looks like and what a line-containment effect would not.
+Two consequences. No padding constant can be principled here, because the parser starts 8 bytes
+into a struct Swift will not align past 16 (`@_alignment(64)` is rejected: "cannot increase
+alignment above maximum alignment of 16"); deterministic placement needs parser, sink and value in
+one explicitly 64-aligned heap allocation with `PartialsStream` as a handle -- not built. And a
+single A/B under load is not evidence for a layout effect of a few percent: the sweep with a
+duplicated reference is the protocol.
 
 ### Number extents from the block masks
 

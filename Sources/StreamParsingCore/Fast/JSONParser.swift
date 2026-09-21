@@ -130,14 +130,6 @@ public struct JSONParser: ~Copyable {
   // against a value that is almost always `.max`; see `parseProbing` for why it is not a flag test.
   @usableFromInline var blockWalkProbeThreshold: Int = .max
 
-  // Reserved: holds `JSONParser` at the 96 bytes it had with the windowed path's tail fields, which
-  // is what places `PartialSink` inside `PartialsStream`. Measured when those fields were deleted
-  // (5 interleaved rounds, hot typed code opcode-identical): at 80 bytes `Dictionary 128 keys`
-  // -3.9%, `GitHub events` typed -3.0%, Twitter typed -1.5%; padded back, -0.1% / -1.5% / -1.1%.
-  // Never read or written after `init`.
-  @usableFromInline var reservedLayout0: UInt64 = 0
-  @usableFromInline var reservedLayout1: UInt64 = 0
-
   public init(bufferCapacity: Int = 4096) {
     // `bufferCapacity` is narrowed to `UInt32` below and `capacity &+ scratchByteCount` would wrap
     // on a 32-bit `Int` target. Unsigned so the `Int(UInt32.max)` cannot itself overflow there.
