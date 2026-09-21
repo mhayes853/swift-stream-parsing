@@ -32,7 +32,7 @@ struct SupportPartialMacro: MemberMacro {
       )
     ]
     let generation = try StreamObjectGeneration(fields: fields)
-    let partial = generation.structDeclaration(
+    let partial = generation.structDeclarationSyntax(
       in: context,
       additionalMembers: { references in
         DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
@@ -79,7 +79,7 @@ struct SupportMatcherMacro: MemberMacro {
         keys: [key]
       )
     })
-    return [DeclSyntax(try generation.structDeclaration(
+    return [DeclSyntax(try generation.structDeclarationSyntax(
       in: context,
       additionalMembers: { references in
         DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
@@ -126,7 +126,7 @@ struct SupportFullPartialMacro: MemberMacro {
         )
       )
     )
-    return [DeclSyntax(try generation.structDeclaration(
+    return [DeclSyntax(try generation.structDeclarationSyntax(
       in: context,
       additionalMembers: { references in
         DeclSyntax("private var recognizedCount = 0")

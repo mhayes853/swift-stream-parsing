@@ -21,7 +21,7 @@ let generation = try StreamObjectGeneration(
     accessLevel: .public
   )
 )
-let declaration = try generation.structDeclaration(in: context)
+let declaration = try generation.structDeclarationSyntax(in: context)
 ```
 
 The generator owns storage, initialization, observation metadata, schema routing, and the
@@ -38,7 +38,7 @@ implementation members makes the consumer responsible for their continued compat
 ## Add members and behavior
 
 ```swift
-let declaration = try generation.structDeclaration(
+let declaration = try generation.structDeclarationSyntax(
   in: context,
   additionalMembers: { references in
     DeclSyntax("var lastRecognizedField: StreamParsingCore.StreamFieldID? = nil")

@@ -26,7 +26,7 @@ struct StructCustomizationTests {
   func contextsSupplyCoordinatedReferencesAndHygienicHooks() throws {
     let generation = try self.generation()
     var identifiers: [String] = []
-    let declaration = generation.structDeclaration(
+    let declaration = generation.structDeclarationSyntax(
       in: BasicMacroExpansionContext(),
       additionalMembers: { context in
         let _ = #expect(context.partialType.trimmedDescription == "Accumulator")
@@ -68,7 +68,7 @@ struct StructCustomizationTests {
 
   @Test
   func noCustomizationInstallsNoHandler() throws {
-    let declaration = try self.generation().structDeclaration(in: BasicMacroExpansionContext())
+    let declaration = try self.generation().structDeclarationSyntax(in: BasicMacroExpansionContext())
     #expect(!declaration.description.contains("onFieldRecognized:"))
     #expect(!declaration.description.contains("streamDidRecognizeField"))
   }
@@ -80,7 +80,7 @@ struct StructCustomizationTests {
       if builder == index { throw BuilderFailure() }
     }
     #expect(throws: BuilderFailure.self) {
-      try generation.structDeclaration(
+      try generation.structDeclarationSyntax(
         in: BasicMacroExpansionContext(),
         additionalMembers: { _ in
           let _ = try failIfSelected(0)

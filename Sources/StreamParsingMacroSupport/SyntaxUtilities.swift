@@ -31,14 +31,14 @@ func streamGenericArguments(_ type: some TypeSyntaxProtocol) -> GenericArgumentL
     ?? type.as(MemberTypeSyntax.self)?.genericArgumentClause?.arguments
 }
 
-func streamPaddedWord(in utf8: [UInt8], at start: Int) -> UInt64 {
+private func streamPaddedWord(in utf8: [UInt8], at start: Int) -> UInt64 {
   utf8.dropFirst(start).prefix(8).enumerated()
     .reduce(into: UInt64(0)) { word, element in
       word |= UInt64(element.element) << UInt64(element.offset * 8)
     }
 }
 
-func streamWordLiteral(_ word: UInt64) -> String {
+private func streamWordLiteral(_ word: UInt64) -> String {
   "0x"
     + stride(from: 48, through: 0, by: -16)
     .map { shift in
@@ -55,23 +55,6 @@ func streamRemainingUTF8Condition(
   streamRemainingUTF8Condition(match, byteCount: ExprSyntax("(\(bytes)).count")) { offset in
     ExprSyntax("(\(bytes)).paddedWord(at: \(raw: offset))")
   }
-}
-
-func streamUTF8Condition(
-  _ values: [String],
-  matching bytes: some ExprSyntaxProtocol,
-  afterLeadingWordMatch: Bool = false
-) -> ExprSyntax {
-  let conditions = values.map { value in
-    let match = StreamUTF8Match(value)
-    return afterLeadingWordMatch
-      ? streamRemainingUTF8Condition(match, matching: bytes) : match.condition(matching: bytes)
-  }
-  guard let first = conditions.first else { return ExprSyntax(BooleanLiteralExprSyntax(false)) }
-  return conditions.dropFirst()
-    .reduce(first) { partial, condition in
-      "\(partial) || (\(condition))"
-    }
 }
 
 package func streamUTF8WordLiteral(_ value: String, at offset: Int) -> IntegerLiteralExprSyntax {

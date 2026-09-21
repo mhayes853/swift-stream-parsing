@@ -309,10 +309,9 @@ public struct StreamObjectGeneration: Hashable, Sendable {
 
   /// Generates a view with an already-built member list appended to it.
   private func viewDeclaration(
-    named name: TokenSyntax? = nil,
     additionalMembers: MemberBlockItemListSyntax = MemberBlockItemListSyntax([])
   ) -> StructDeclSyntax {
-    let viewName = (name ?? self.configuration.names.viewType).trimmedDescription
+    let viewName = self.configuration.names.viewType.trimmedDescription
     let partialName = self.configuration.names.partialType.trimmedDescription
     let accessors = self.fields
       .map { field -> String in
@@ -388,11 +387,6 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       .joined(separator: "\n")
     let access = self.inlinable ? "@usableFromInline " : "private "
     return self.declaration("\(access)enum StreamField {\n\(constants)\n}", as: EnumDeclSyntax.self)
-  }
-
-  /// Generates the schemas cached for fields that can contain nested values.
-  private func containerSchemaMembers() -> MemberBlockItemListSyntax {
-    self.members(self.schemaPlan.containerSchemas.joined(separator: "\n"))
   }
 
   /// Generates byte-exact key matching for the object schema.
@@ -491,7 +485,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     if !self.fields.isEmpty {
       result.append(self.member(self.fieldIdentifiers()))
     }
-    result.append(contentsOf: self.containerSchemaMembers())
+    result.append(contentsOf: self.members(self.schemaPlan.containerSchemas.joined(separator: "\n")))
     result.append(self.member(self.matchFieldFunction()))
     for operation in [StreamApplyOperation.string, .number, .boolean, .null] {
       result.append(self.member(self.applyFunction(for: operation)))
@@ -506,7 +500,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
   /// Additional stored members must provide default values and satisfy `Sendable`.
   /// Recognition runs once per declared key, including aliases and repeats, before its
   /// value is applied. Unknown keys are not reported. An empty body installs no hook.
-  public func structDeclaration(
+  public func structDeclarationSyntax(
     in context: some MacroExpansionContext,
     @MemberBlockItemListBuilder additionalMembers:
       (StreamPartialGenerationContext) throws -> MemberBlockItemListSyntax = { _ in [] },
@@ -535,22 +529,27 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       field: ExprSyntax(DeclReferenceExprSyntax(baseName: fieldParameter)),
       fields: fields
     ))
-    let handler = body.isEmpty ? nil : context.makeUniqueName("streamDidRecognizeField")
+    var handler: FunctionDeclSyntax?
+    if !body.isEmpty {
+      let name = context.makeUniqueName("streamDidRecognizeField")
+      var declaration = self.declaration(
+        "private mutating func \(name.text)(_ \(fieldParameter.text): StreamParsingCore.StreamFieldID) {}",
+        as: FunctionDeclSyntax.self
+      )
+      declaration.body = CodeBlockSyntax(statements: body)
+      handler = declaration.formatted().cast(FunctionDeclSyntax.self)
+    }
     return self.buildStructDeclaration(
       additionalViewMembers: viewAdditions.formatted().cast(MemberBlockItemListSyntax.self),
       additionalMembers: additions.formatted().cast(MemberBlockItemListSyntax.self),
-      recognitionHandler: handler,
-      recognitionParameter: fieldParameter,
-      recognitionBody: body
+      recognitionHandler: handler
     )
   }
 
   fileprivate func buildStructDeclaration(
     additionalViewMembers: MemberBlockItemListSyntax = [],
     additionalMembers: MemberBlockItemListSyntax = [],
-    recognitionHandler: TokenSyntax? = nil,
-    recognitionParameter: TokenSyntax = .identifier("field"),
-    recognitionBody: CodeBlockItemListSyntax = []
+    recognitionHandler: FunctionDeclSyntax? = nil
   ) -> StructDeclSyntax {
     let partialName = self.configuration.names.partialType.trimmedDescription
     let view = self.viewDeclaration(additionalMembers: additionalViewMembers)
@@ -566,14 +565,9 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       )
     }
     members.append(self.member(self.streamViewFunction()))
-    members.append(contentsOf: self.schemaMembers(recognitionHandler: recognitionHandler))
+    members.append(contentsOf: self.schemaMembers(recognitionHandler: recognitionHandler?.name))
     if let recognitionHandler {
-      var handler = self.declaration(
-        "private mutating func \(recognitionHandler.text)(_ \(recognitionParameter.text): StreamParsingCore.StreamFieldID) {}",
-        as: FunctionDeclSyntax.self
-      )
-      handler.body = CodeBlockSyntax(statements: recognitionBody)
-      members.append(self.member(handler.formatted().cast(FunctionDeclSyntax.self)))
+      members.append(self.member(recognitionHandler))
     }
     members.append(contentsOf: self.terminated(additionalMembers))
     if let lastIndex = members.indices.last {
@@ -596,7 +590,6 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     declaration.memberBlock.members = declarationMembers
     return declaration
   }
-
 
 }
 

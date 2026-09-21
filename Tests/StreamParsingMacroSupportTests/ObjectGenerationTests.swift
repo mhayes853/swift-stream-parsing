@@ -35,17 +35,19 @@ struct `StreamObjectGeneration tests` {
       ]
     )
 
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+
     expectNoDifference(
-      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("var payload: Payload.Partial?"),
+      source.contains("var payload: Payload.Partial?"),
       true
     )
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "Self.StreamField.payload")
+    self.expectContains(source, "Self.StreamField.payload")
     self.expectContains(
-      try generation.structDeclaration(in: BasicMacroExpansionContext()).description,
+      source,
       "streamApply(&p.pointee.payload, utf8: bytes)"
     )
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "enum StreamField")
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "static let streamSchema")
+    self.expectContains(source, "enum StreamField")
+    self.expectContains(source, "static let streamSchema")
   }
 
   @Test
@@ -68,7 +70,7 @@ struct `StreamObjectGeneration tests` {
         )
       )
     )
-    let declaration = try generation.structDeclaration(
+    let declaration = try generation.structDeclarationSyntax(
       in: BasicMacroExpansionContext(),
       additionalMembers: { _ in
         try VariableDeclSyntax("static let marker = 1")
@@ -100,7 +102,7 @@ struct `StreamObjectGeneration tests` {
       ],
       configuration: StreamGenerationConfiguration(viewMode: .unsafe)
     )
-    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
 
     self.expectContains(source, "@unsafe struct View: ~Copyable")
     expectNoDifference(source.contains("~Escapable"), false)
@@ -126,32 +128,32 @@ struct `StreamObjectGeneration tests` {
       ],
       partialMembers: .streamInitialValue
     )
-    let storage = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
-    let fields = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
-    let schema = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
 
     self.expectContains(
-      storage,
+      source,
       "var `default`: StreamParsingCore.ConvertedPartial<Conversions.Value>?"
     )
-    self.expectContains(storage, "var items: [Model.Item].Partial")
-    self.expectContains(fields, "key: \"legacy_default\"")
-    self.expectContains(fields, "initialCapacity: 32")
-    self.expectContains(schema, "_streamWithConverted(&p.pointee.`default`)")
+    self.expectContains(source, "var items: [Model.Item].Partial")
+    self.expectContains(source, "key: \"legacy_default\"")
+    self.expectContains(source, "initialCapacity: 32")
+    self.expectContains(source, "_streamWithConverted(&p.pointee.`default`)")
   }
 
   @Test
   func `Empty Objects Generate Coherent Components`() throws {
     let generation = try StreamObjectGeneration(fields: [StreamParseableField]())
 
-    expectNoDifference(try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("enum StreamField"), false)
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "init(")
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "default: return -1")
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+
+    expectNoDifference(source.contains("enum StreamField"), false)
+    self.expectContains(source, "init(")
+    self.expectContains(source, "default: return -1")
     expectNoDifference(
-      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("let p = storage.assumingMemoryBound"),
+      source.contains("let p = storage.assumingMemoryBound"),
       false
     )
-    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "struct Partial")
+    self.expectContains(source, "struct Partial")
   }
 
   private func expectContains(

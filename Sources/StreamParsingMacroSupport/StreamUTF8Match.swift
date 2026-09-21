@@ -33,8 +33,6 @@ public struct StreamUTF8Match: Hashable, Sendable {
     // reaches `paddedLeadingWord()`.
     return "\(remaining) && (\(bytes)).paddedLeadingWord() == \(streamUTF8WordLiteral(self.value, at: 0))"
   }
-
-
 }
 
 /// A byte-exact predicate that accepts any of several UTF-8 strings.
@@ -59,6 +57,8 @@ public struct StreamUTF8MatchSet: Hashable, Sendable {
   ///
   /// An empty set produces `false`. The input expression may occur more than once.
   public func condition(matching bytes: some ExprSyntaxProtocol) -> ExprSyntax {
-    streamUTF8Condition(self.values, matching: bytes)
+    let conditions = self.values.map { StreamUTF8Match($0).condition(matching: bytes) }
+    guard let first = conditions.first else { return ExprSyntax(BooleanLiteralExprSyntax(false)) }
+    return conditions.dropFirst().reduce(first) { "\($0) || (\($1))" }
   }
 }
