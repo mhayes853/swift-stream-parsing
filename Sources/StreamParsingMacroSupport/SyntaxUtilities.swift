@@ -1,25 +1,29 @@
 import SwiftSyntax
 import SwiftSyntaxBuilder
 
-// Shared syntax inspection; these are package implementation details, not public API.
-package func streamUnwrappedOptionalType(_ original: some TypeSyntaxProtocol) -> TypeSyntax {
-  var type = TypeSyntax(original)
-  while true {
-    if let optional = type.as(OptionalTypeSyntax.self) {
-      type = optional.wrappedType
-    } else if streamTypeName(type) == "Optional",
-      let arguments = streamGenericArguments(type), arguments.count == 1,
-      case .type(let wrapped) = arguments.first!.argument
-    {
-      type = wrapped
-    } else {
-      return type
+extension TypeSyntaxProtocol {
+  /// Removes every explicit optional layer (`T?`, `Optional<T>`, or `Swift.Optional<T>`).
+  /// Does not resolve type aliases or unwrap optional elements inside containers.
+  public var streamUnwrappedOptionalType: TypeSyntax {
+    var type = TypeSyntax(self)
+    while true {
+      if let optional = type.as(OptionalTypeSyntax.self) {
+        type = optional.wrappedType
+      } else if streamTypeName(type) == "Optional",
+        let arguments = streamGenericArguments(type), arguments.count == 1,
+        case .type(let wrapped) = arguments.first!.argument
+      {
+        type = wrapped
+      } else {
+        return type
+      }
     }
   }
-}
 
-package func streamIsOptional(_ type: some TypeSyntaxProtocol) -> Bool {
-  streamUnwrappedOptionalType(type) != TypeSyntax(type)
+  /// Whether the type has a syntactically explicit optional layer.
+  public var streamIsOptional: Bool {
+    self.streamUnwrappedOptionalType != TypeSyntax(self)
+  }
 }
 
 func streamTypeName(_ type: some TypeSyntaxProtocol) -> String? {

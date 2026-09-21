@@ -67,7 +67,7 @@ public enum StreamInliningMode: Hashable, Sendable {
 }
 
 /// Names shared by coordinated partial and view generation.
-public struct StreamGeneratedNames: Hashable, Sendable {
+public struct StreamGeneratedNames: Sendable {
   /// The generated partial-storage type name.
   public var partialType: TokenSyntax
   /// The generated view type name.
@@ -81,7 +81,7 @@ public struct StreamGeneratedNames: Hashable, Sendable {
 }
 
 /// Options shared by every component of an object generation.
-public struct StreamGenerationConfiguration: Hashable, Sendable {
+public struct StreamGenerationConfiguration: Sendable {
   /// The ownership model emitted for views.
   public var viewMode: StreamViewMode
   /// The visibility of generated conformance members.
@@ -107,7 +107,7 @@ public struct StreamGenerationConfiguration: Hashable, Sendable {
 }
 
 /// Describes one property in generated stream partial storage.
-public struct StreamParseableField: Hashable, Sendable {
+public struct StreamParseableField: Sendable {
   /// The Swift member identifier, including backticks when already escaped.
   public var name: TokenSyntax
   /// The completed property's declared type.
@@ -118,21 +118,6 @@ public struct StreamParseableField: Hashable, Sendable {
   public var initialCapacity: ExprSyntax?
   /// A type conforming to `StreamCompletedValueConversion`.
   public var completedConversion: TypeSyntax?
-
-  public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.name == rhs.name && lhs.type == rhs.type
-      && lhs.keys.map { Array($0.utf8) } == rhs.keys.map { Array($0.utf8) }
-      && lhs.initialCapacity == rhs.initialCapacity
-      && lhs.completedConversion == rhs.completedConversion
-  }
-
-  public func hash(into hasher: inout Hasher) {
-    hasher.combine(self.name)
-    hasher.combine(self.type)
-    hasher.combine(self.keys.map { Array($0.utf8) })
-    hasher.combine(self.initialCapacity)
-    hasher.combine(self.completedConversion)
-  }
 
   /// Creates a field description from general SwiftSyntax nodes.
   public init(
@@ -152,7 +137,10 @@ public struct StreamParseableField: Hashable, Sendable {
 }
 
 /// An invalid combination in an object-generation description.
-public enum StreamObjectGenerationError: Error, Hashable, Sendable, CustomStringConvertible {
+#if compiler(>=6.2.3)
+@nonexhaustive
+#endif
+public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStringConvertible {
   /// Explicit inlining requires public or package access for the generated storage.
   case incompatibleInliningAccess
   /// A field has no identifier text.
@@ -181,8 +169,8 @@ public enum StreamObjectGenerationError: Error, Hashable, Sendable, CustomString
   }
 }
 
-/// A validated, reusable plan for generating object partial-storage syntax.
-public struct StreamObjectGeneration: Hashable, Sendable {
+/// A reusable plan for generating object partial-storage syntax.
+public struct StreamObjectGeneration: Sendable {
   /// The fields in stable generated order.
   public let fields: [StreamParseableField]
   /// The representation used for required partial members.
@@ -224,15 +212,18 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       }
     }
     self.init(
-      uncheckedFields: fields,
+      diagnosedFields: fields,
       partialMembers: partialMembers,
       configuration: configuration
     )
   }
 
-  /// Creates a plan for source that the macro target has already diagnosed.
-  fileprivate init(
-    uncheckedFields fields: some Sequence<StreamParseableField>,
+  /// Creates a recovery plan after the caller has diagnosed invalid source.
+  ///
+  /// Skips validation so a macro can emit its own diagnostics and recovery expansion.
+  /// The resulting syntax may contain the errors present in the supplied fields.
+  public init(
+    diagnosedFields fields: some Sequence<StreamParseableField>,
     partialMembers: StreamPartialMembers = .optional,
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) {
@@ -377,7 +368,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
   }
 
   /// Generates integer identifiers for fields. Empty objects produce an empty enum.
-  private func fieldIdentifiers() -> EnumDeclSyntax {
+  private func fieldIdentifierDeclaration() -> EnumDeclSyntax {
     let constants = self.fields.enumerated()
       .map { index, field in
         self.inlinable
@@ -483,7 +474,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
   private func schemaMembers(recognitionHandler: TokenSyntax?) -> MemberBlockItemListSyntax {
     var result = MemberBlockItemListSyntax([])
     if !self.fields.isEmpty {
-      result.append(self.member(self.fieldIdentifiers()))
+      result.append(self.member(self.fieldIdentifierDeclaration()))
     }
     result.append(contentsOf: self.members(self.schemaPlan.containerSchemas.joined(separator: "\n")))
     result.append(self.member(self.matchFieldFunction()))
@@ -495,40 +486,39 @@ public struct StreamObjectGeneration: Hashable, Sendable {
     return result
   }
 
+  /// Field names and their `StreamFieldID` expressions, in declaration order.
+  ///
+  /// Aliases share the identifier of their declared field. The expressions can be
+  /// used in added members and recognition handlers without depending on schema layout.
+  public var fieldIdentifiers: [(name: TokenSyntax, identifier: ExprSyntax)] {
+    self.fields.enumerated().map { index, field in
+      (name: field.name, identifier: ExprSyntax("StreamParsingCore._streamFieldID(\(raw: index))"))
+    }
+  }
+
   /// Generates a complete stream-compatible struct and builds additive customizations.
   ///
   /// Additional stored members must provide default values and satisfy `Sendable`.
   /// Recognition runs once per declared key, including aliases and repeats, before its
   /// value is applied. Unknown keys are not reported. An empty body installs no hook.
+  /// The hook receives expressions for the mutable partial and recognized `StreamFieldID`.
+  /// Use `fieldIdentifiers` to compare that identifier with a declared field.
   public func structDeclarationSyntax(
     in context: some MacroExpansionContext,
     @MemberBlockItemListBuilder additionalMembers:
-      (StreamPartialGenerationContext) throws -> MemberBlockItemListSyntax = { _ in [] },
+      () throws -> MemberBlockItemListSyntax = { [] },
     @MemberBlockItemListBuilder additionalViewMembers:
-      (StreamPartialGenerationContext) throws -> MemberBlockItemListSyntax = { _ in [] },
+      () throws -> MemberBlockItemListSyntax = { [] },
     @CodeBlockItemListBuilder onFieldRecognized:
-      (StreamFieldRecognitionContext) throws -> CodeBlockItemListSyntax = { _ in [] }
+      (ExprSyntax, ExprSyntax) throws -> CodeBlockItemListSyntax = { _, _ in [] }
   ) rethrows -> StructDeclSyntax {
-    let partialName = self.configuration.names.partialType
-    let fields = self.fields.enumerated().map { index, field in
-      StreamGeneratedField(
-        name: field.name,
-        identifier: ExprSyntax("StreamParsingCore._streamFieldID(\(raw: index))")
-      )
-    }
-    let generationContext = StreamPartialGenerationContext(
-      partialType: TypeSyntax(IdentifierTypeSyntax(name: partialName)),
-      viewType: TypeSyntax("\(partialName).\(self.configuration.names.viewType)"),
-      fields: fields
-    )
-    let additions = try additionalMembers(generationContext)
-    let viewAdditions = try additionalViewMembers(generationContext)
+    let format = BasicFormat(indentationWidth: .spaces(2))
+    let additions = try additionalMembers().formatted(using: format).cast(MemberBlockItemListSyntax.self)
+    let viewAdditions = try additionalViewMembers().formatted(using: format).cast(MemberBlockItemListSyntax.self)
     let fieldParameter = context.makeUniqueName("streamRecognizedField")
-    let body = try onFieldRecognized(StreamFieldRecognitionContext(
-      partial: ExprSyntax("self"),
-      field: ExprSyntax(DeclReferenceExprSyntax(baseName: fieldParameter)),
-      fields: fields
-    ))
+    let body = try onFieldRecognized(
+      ExprSyntax("self"), ExprSyntax(DeclReferenceExprSyntax(baseName: fieldParameter))
+    )
     var handler: FunctionDeclSyntax?
     if !body.isEmpty {
       let name = context.makeUniqueName("streamDidRecognizeField")
@@ -537,22 +527,10 @@ public struct StreamObjectGeneration: Hashable, Sendable {
         as: FunctionDeclSyntax.self
       )
       declaration.body = CodeBlockSyntax(statements: body)
-      handler = declaration.formatted().cast(FunctionDeclSyntax.self)
+      handler = declaration.formatted(using: format).cast(FunctionDeclSyntax.self)
     }
-    return self.buildStructDeclaration(
-      additionalViewMembers: viewAdditions.formatted().cast(MemberBlockItemListSyntax.self),
-      additionalMembers: additions.formatted().cast(MemberBlockItemListSyntax.self),
-      recognitionHandler: handler
-    )
-  }
-
-  fileprivate func buildStructDeclaration(
-    additionalViewMembers: MemberBlockItemListSyntax = [],
-    additionalMembers: MemberBlockItemListSyntax = [],
-    recognitionHandler: FunctionDeclSyntax? = nil
-  ) -> StructDeclSyntax {
     let partialName = self.configuration.names.partialType.trimmedDescription
-    let view = self.viewDeclaration(additionalMembers: additionalViewMembers)
+    let view = self.viewDeclaration(additionalMembers: viewAdditions)
     var members = self.storageMembers()
     members.append(self.member(self.initializer()))
     members.append(contentsOf: self.initialValueMembers())
@@ -565,11 +543,11 @@ public struct StreamObjectGeneration: Hashable, Sendable {
       )
     }
     members.append(self.member(self.streamViewFunction()))
-    members.append(contentsOf: self.schemaMembers(recognitionHandler: recognitionHandler?.name))
-    if let recognitionHandler {
-      members.append(self.member(recognitionHandler))
+    members.append(contentsOf: self.schemaMembers(recognitionHandler: handler?.name))
+    if let handler {
+      members.append(self.member(handler))
     }
-    members.append(contentsOf: self.terminated(additionalMembers))
+    members.append(contentsOf: self.terminated(additions))
     if let lastIndex = members.indices.last {
       members[lastIndex].trailingTrivia = .newline
     }
@@ -594,7 +572,7 @@ public struct StreamObjectGeneration: Hashable, Sendable {
 }
 
 extension StreamObjectGeneration {
-  private struct SchemaPlan: Hashable, Sendable {
+  private struct SchemaPlan: Sendable {
     var matches = [String]()
     var fields = [String]()
     var containerSchemas = [String]()
@@ -738,17 +716,17 @@ extension StreamObjectGeneration {
     if case .dictionary(let value) = self.fieldShape(field.type) {
       return "StreamParsingCore.StreamDictionary<\(value.trimmedDescription).Partial>"
     }
-    return "\(streamUnwrappedOptionalType(field.type).trimmedDescription).Partial"
+    return "\(field.type.streamUnwrappedOptionalType.trimmedDescription).Partial"
   }
 
   private func memberType(_ field: StreamParseableField) -> String {
     let base = self.partialType(field)
-    return (self.partialMembers == .optional) || streamIsOptional(field.type)
+    return (self.partialMembers == .optional) || field.type.streamIsOptional
       ? "\(base)?" : base
   }
 
   private func fieldShape(_ type: TypeSyntax) -> FieldShape {
-    let type = streamUnwrappedOptionalType(type)
+    let type = type.streamUnwrappedOptionalType
     if let array = type.as(ArrayTypeSyntax.self) { return .array(array.element) }
     if let dictionary = type.as(DictionaryTypeSyntax.self) { return .dictionary(dictionary.value) }
     if let arguments = streamGenericArguments(type), arguments.count == 1,
@@ -773,7 +751,7 @@ extension StreamObjectGeneration {
     case .dictionary(let value):
       self.containerSchemaExpression("Dictionary", element: value, label: "value")
     case .scalarOrObject:
-      "_streamSchema(for: \(streamUnwrappedOptionalType(type).trimmedDescription).Partial.self)"
+      "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
     }
   }
 
@@ -782,9 +760,9 @@ extension StreamObjectGeneration {
     element: TypeSyntax,
     label: String
   ) -> String {
-    let storage = streamUnwrappedOptionalType(element).trimmedDescription
+    let storage = element.streamUnwrappedOptionalType.trimmedDescription
     let builder =
-      streamIsOptional(element) ? "_streamOptional\(kind)Schema" : "_stream\(kind)Schema"
+      element.streamIsOptional ? "_streamOptional\(kind)Schema" : "_stream\(kind)Schema"
     return "\(builder)(\(storage).Partial.self, \(label): \(self.schemaExpression(element)))"
   }
 
@@ -849,49 +827,4 @@ extension StreamObjectGeneration {
     let declaration = DeclSyntax("\(raw: source)")
     return declaration.as(T.self)!
   }
-}
-
-// The macro readers have already diagnosed invalid source. Keep their recovery
-// generation separate from the public, validated initializer.
-package func streamObjectGeneration(
-  diagnosedFields: some Sequence<StreamParseableField>,
-  partialMembers: StreamPartialMembers,
-  configuration: StreamGenerationConfiguration
-) -> StreamObjectGeneration {
-  StreamObjectGeneration(
-    uncheckedFields: diagnosedFields,
-    partialMembers: partialMembers,
-    configuration: configuration
-  )
-}
-
-// Internal macro lowering has already diagnosed source errors and needs no customization hooks.
-package func streamStructDeclaration(
-  _ generation: StreamObjectGeneration,
-  additionalViewMembers: MemberBlockItemListSyntax = []
-) -> StructDeclSyntax {
-  generation.buildStructDeclaration(additionalViewMembers: additionalViewMembers)
-}
-
-/// A reference to a field declared by this generation plan.
-public struct StreamGeneratedField {
-  public let name: TokenSyntax
-  /// A `StreamFieldID` expression valid at the customization's insertion point.
-  public let identifier: ExprSyntax
-}
-
-/// Supported type and field references for additive declarations.
-public struct StreamPartialGenerationContext {
-  public let partialType: TypeSyntax
-  public let viewType: TypeSyntax
-  public let fields: [StreamGeneratedField]
-}
-
-/// Expressions available inside a field-recognition handler.
-public struct StreamFieldRecognitionContext {
-  /// A mutable reference to the current partial, valid inside the generated handler.
-  public let partial: ExprSyntax
-  /// The recognized `StreamFieldID`; aliases produce the same identifier.
-  public let field: ExprSyntax
-  public let fields: [StreamGeneratedField]
 }

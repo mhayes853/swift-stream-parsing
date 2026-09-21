@@ -25,12 +25,16 @@ struct `StreamObjectGeneration validation tests` {
   }
 
   @Test
-  func `Field Equality Preserves Byte Exact Keys`() {
-    let composed = self.field(name: "name", key: "é")
-    var decomposed = composed
-    decomposed.keys = ["e\u{301}"]
-    expectNoDifference(composed == decomposed, false)
-    expectNoDifference(Set([composed, decomposed]).count, 2)
+  func `Diagnosed Fields Can Still Produce Recovery Syntax`() throws {
+    let fields = [self.field(name: "first", key: "value"), self.field(name: "second", key: "value")]
+    #expect(throws: StreamObjectGenerationError.duplicateKey("value")) {
+      try StreamObjectGeneration(fields: fields)
+    }
+    let generation = StreamObjectGeneration(diagnosedFields: fields)
+    let declaration = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
+    #expect(!Parser.parse(source: declaration.description).hasError)
+    #expect(declaration.description.contains("var first:"))
+    #expect(declaration.description.contains("var second:"))
   }
 
   @Test

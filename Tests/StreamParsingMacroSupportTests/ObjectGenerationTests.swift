@@ -72,10 +72,10 @@ struct `StreamObjectGeneration tests` {
     )
     let declaration = try generation.structDeclarationSyntax(
       in: BasicMacroExpansionContext(),
-      additionalMembers: { _ in
+      additionalMembers: {
         try VariableDeclSyntax("static let marker = 1")
       },
-      additionalViewMembers: { _ in
+      additionalViewMembers: {
         try VariableDeclSyntax("var isPresent: Bool { true }")
       }
     )

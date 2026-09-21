@@ -23,16 +23,15 @@ struct StructCustomizationTests {
   }
 
   @Test
-  func contextsSupplyCoordinatedReferencesAndHygienicHooks() throws {
+  func fieldIdentifiersAndHooksComposeWithoutContextWrappers() throws {
     let generation = try self.generation()
-    var identifiers: [String] = []
+    let identifiers = generation.fieldIdentifiers.map(\.identifier.trimmedDescription)
+    #expect(generation.configuration.names.partialType.text == "Accumulator")
+    #expect(generation.configuration.names.viewType.text == "Borrowed")
+    #expect(generation.fieldIdentifiers.map(\.name.text) == ["name"])
     let declaration = generation.structDeclarationSyntax(
       in: BasicMacroExpansionContext(),
-      additionalMembers: { context in
-        let _ = #expect(context.partialType.trimmedDescription == "Accumulator")
-        let _ = #expect(context.viewType.trimmedDescription == "Accumulator.Borrowed")
-        let _ = #expect(context.fields.map(\.name.text) == ["name"])
-        let _ = { identifiers = context.fields.map(\.identifier.trimmedDescription) }()
+      additionalMembers: {
         VariableDeclSyntax(
           bindingSpecifier: .keyword(.var),
           bindings: PatternBindingListSyntax {
@@ -47,14 +46,14 @@ struct StructCustomizationTests {
         DeclSyntax("var streamRecognizedField: Int { 10 }")
         DeclSyntax("mutating func streamDidRecognizeField() {}")
       },
-      additionalViewMembers: { context in
-        let _ = #expect(context.fields.map(\.identifier.trimmedDescription) == identifiers)
+      additionalViewMembers: {
+        let _ = #expect(generation.fieldIdentifiers.map(\.identifier.trimmedDescription) == identifiers)
         DeclSyntax("var marker: Int { 42 }")
       },
-      onFieldRecognized: { event in
-        let _ = #expect(event.fields.map(\.identifier.trimmedDescription) == identifiers)
-        let _ = #expect(event.field.trimmedDescription != "streamRecognizedField")
-        "\(event.partial).tracking += 1"
+      onFieldRecognized: { partial, field in
+        let _ = #expect(generation.fieldIdentifiers.map(\.identifier.trimmedDescription) == identifiers)
+        let _ = #expect(field.trimmedDescription != "streamRecognizedField")
+        "\(partial).tracking += 1"
       }
     )
     let source = declaration.description
@@ -82,13 +81,13 @@ struct StructCustomizationTests {
     #expect(throws: BuilderFailure.self) {
       try generation.structDeclarationSyntax(
         in: BasicMacroExpansionContext(),
-        additionalMembers: { _ in
+        additionalMembers: {
           let _ = try failIfSelected(0)
         },
-        additionalViewMembers: { _ in
+        additionalViewMembers: {
           let _ = try failIfSelected(1)
         },
-        onFieldRecognized: { _ in
+        onFieldRecognized: { _, _ in
           let _ = try failIfSelected(2)
         }
       )

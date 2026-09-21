@@ -35,21 +35,30 @@ The result is a `StructDeclSyntax`, so a consumer can modify declaration attribu
 constraints, inheritance, or members through normal SwiftSyntax operations. Rewriting generated
 implementation members makes the consumer responsible for their continued compatibility.
 
+The regular initializer validates the plan and throws `StreamObjectGenerationError`. Macros
+that have already emitted their own diagnostics can use `StreamObjectGeneration(diagnosedFields:)`
+to generate recovery syntax without repeating validation. Invalid input may still produce invalid
+Swift. The built-in macro uses these same public APIs.
+
+`TypeSyntaxProtocol.streamIsOptional` and `.streamUnwrappedOptionalType` inspect explicit optional
+syntax on both concrete and type-erased nodes. They preserve optional container elements and do
+not resolve type aliases.
+
 ## Add members and behavior
 
 ```swift
 let declaration = try generation.structDeclarationSyntax(
   in: context,
-  additionalMembers: { references in
+  additionalMembers: {
     DeclSyntax("var lastRecognizedField: StreamParsingCore.StreamFieldID? = nil")
-    DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
+    DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[0].identifier) }")
     DeclSyntax("mutating func resetTracking() { lastRecognizedField = nil }")
   },
-  additionalViewMembers: { _ in
+  additionalViewMembers: {
     DeclSyntax("var marker: Int { 42 }")
   },
-  onFieldRecognized: { event in
-    "\(event.partial).lastRecognizedField = \(event.field)"
+  onFieldRecognized: { partial, field in
+    "\(partial).lastRecognizedField = \(field)"
   }
 )
 ```
@@ -61,8 +70,9 @@ struct's `Sendable` conformance. View additions must respect the selected lifeti
 Do not duplicate generated members. Defaults are also used by the cached initial-value template;
 custom state should have value semantics suitable for copying that template.
 
-Customization contexts supply the generated types and field references. Identifier expressions
-are valid at their insertion point and have runtime type `StreamFieldID`. Consumers can compare,
+`generation.configuration.names` supplies the generated type names. `generation.fieldIdentifiers`
+supplies named tuples containing each field's name and identifier syntax in declaration order.
+Identifier expressions have runtime type `StreamFieldID`. Consumers can compare,
 store, hash, and switch on these schema-local identities. Aliases share an identifier. Identifiers
 are not table positions or array indices and must not be persisted across schema revisions or
 compared across unrelated schemas. The underscored numeric bridge used in expansions is
@@ -74,7 +84,7 @@ trigger the hook. Recognition does not imply that parsing or application will su
 routing and matcher routing use the same contract, including optional wrappers and nested
 containers. Empty hook bodies install no runtime handler. The hook's statements run inside a
 mutating helper, so returning exits that helper rather than cancelling parsing. Expressions
-supplied by the event context should be used instead of assuming parameter or storage names.
+passed to the hook should be used instead of assuming parameter or storage names.
 
 ## Compose complete UTF-8 predicates
 

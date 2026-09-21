@@ -34,26 +34,26 @@ struct SupportPartialMacro: MemberMacro {
     let generation = try StreamObjectGeneration(fields: fields)
     let partial = generation.structDeclarationSyntax(
       in: context,
-      additionalMembers: { references in
+      additionalMembers: {
         DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
         DeclSyntax("var nameWasEmpty: [Bool] = []")
-        DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
-        DeclSyntax("static var idField: StreamParsingCore.StreamFieldID { \(references.fields[1].identifier) }")
-        DeclSyntax("static var tagsField: StreamParsingCore.StreamFieldID { \(references.fields[2].identifier) }")
+        DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[0].identifier) }")
+        DeclSyntax("static var idField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[1].identifier) }")
+        DeclSyntax("static var tagsField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[2].identifier) }")
         DeclSyntax("mutating func resetTracking() { recognizedFields.removeAll() }")
         DeclSyntax("enum TrackingMode { case enabled, disabled }")
         DeclSyntax("subscript(index: Int) -> StreamParsingCore.StreamFieldID { recognizedFields[index] }")
         DeclSyntax("init(tracking: TrackingMode) { self.init() }")
         DeclSyntax("#if DEBUG\nvar debugMarker: Bool { true }\n#endif")
       },
-      additionalViewMembers: { _ in
+      additionalViewMembers: {
         DeclSyntax("var marker: Int { 42 }")
       },
-      onFieldRecognized: { event in
-        "\(event.partial).recognizedFields.append(\(event.field))"
+      onFieldRecognized: { partial, field in
+        "\(partial).recognizedFields.append(\(field))"
         """
-        if \(event.field) == \(event.fields[0].identifier) {
-          \(event.partial).nameWasEmpty.append(\(event.partial).name == nil)
+        if \(field) == \(generation.fieldIdentifiers[0].identifier) {
+          \(partial).nameWasEmpty.append(\(partial).name == nil)
         }
         """
       }
@@ -81,9 +81,9 @@ struct SupportMatcherMacro: MemberMacro {
     })
     return [DeclSyntax(try generation.structDeclarationSyntax(
       in: context,
-      additionalMembers: { references in
+      additionalMembers: {
         DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
-        let cases = references.fields.enumerated().map { index, field in
+        let cases = generation.fieldIdentifiers.enumerated().map { index, field in
           "case \(index): return \(field.identifier.trimmedDescription)"
         }.joined(separator: "\n")
         DeclSyntax("""
@@ -95,8 +95,8 @@ struct SupportMatcherMacro: MemberMacro {
           }
           """)
       },
-      onFieldRecognized: { event in
-        "\(event.partial).recognizedFields.append(\(event.field))"
+      onFieldRecognized: { partial, field in
+        "\(partial).recognizedFields.append(\(field))"
       }
     ))]
 
@@ -110,8 +110,8 @@ struct SupportFullPartialMacro: MemberMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
-    let generation = try StreamObjectGeneration(
-      fields: [
+    let generation = StreamObjectGeneration(
+      diagnosedFields: [
         StreamParseableField(
           name: TokenSyntax.identifier("default"),
           type: TypeSyntax("Swift.Optional<Int>"),
@@ -128,13 +128,13 @@ struct SupportFullPartialMacro: MemberMacro {
     )
     return [DeclSyntax(try generation.structDeclarationSyntax(
       in: context,
-      additionalMembers: { references in
+      additionalMembers: {
         DeclSyntax("private var recognizedCount = 0")
         DeclSyntax("public var count: Int { recognizedCount }")
-        DeclSyntax("public static var valueField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
+        DeclSyntax("public static var valueField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[0].identifier) }")
       },
-      onFieldRecognized: { event in
-        "\(event.partial).recognizedCount += 1"
+      onFieldRecognized: { partial, field in
+        "\(partial).recognizedCount += 1"
       }
     ))]
   }

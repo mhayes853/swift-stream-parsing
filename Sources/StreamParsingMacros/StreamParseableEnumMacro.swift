@@ -255,7 +255,8 @@ extension StreamParseableMacro {
     of node: AttributeSyntax,
     declaration: EnumDeclSyntax,
     type: some TypeSyntaxProtocol,
-    in context: DiagnosticSink
+    in context: DiagnosticSink,
+    expansionContext: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
     // The fully qualified name, so a nested enum extends `Outer.Inner`.
     let typeName = type.trimmedDescription
@@ -311,7 +312,8 @@ extension StreamParseableMacro {
         membersMode: .optional,
         extraViewMembers: cases.isEmpty
           ? ""
-          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
+          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable),
+        in: expansionContext
       )
       .description
       // `.description` renders flush left, and only the first line of a `\(raw:)` interpolation
@@ -321,7 +323,7 @@ extension StreamParseableMacro {
         .filter { !$0.associatedValues.isEmpty }
         .map {
           try Self.reindented(
-            Self.payloadWrapperDecl(for: $0, accessModifier: accessModifier), by: 2
+            Self.payloadWrapperDecl(for: $0, accessModifier: accessModifier, in: expansionContext), by: 2
           )
         }
       partialSection =
@@ -635,7 +637,8 @@ extension StreamParseableMacro {
   // rather than one because `conversionMembers` assigns into a real nominal type, and reusing it
   // here is what avoids a second implementation of per-field extraction.
   static func payloadWrapperDecl(
-    for enumCase: EnumCase, accessModifier: String?
+    for enumCase: EnumCase, accessModifier: String?,
+    in context: some MacroExpansionContext
   ) throws -> String {
     let modifierPrefix = Self.modifierPrefix(for: accessModifier)
     let payloadTypeName = Self.payloadTypeName(for: enumCase)
@@ -654,6 +657,7 @@ extension StreamParseableMacro {
         for: properties,
         accessModifier: accessModifier,
         membersMode: .optional,
+        in: context
       )
       .description,
       by: 2
