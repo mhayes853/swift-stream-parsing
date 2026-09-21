@@ -7149,9 +7149,34 @@ sink placement against an unaligned frame looks like and what a line-containment
 Two consequences. No padding constant can be principled here, because the parser starts 8 bytes
 into a struct Swift will not align past 16 (`@_alignment(64)` is rejected: "cannot increase
 alignment above maximum alignment of 16"); deterministic placement needs parser, sink and value in
-one explicitly 64-aligned heap allocation with `PartialsStream` as a handle -- not built. And a
-single A/B under load is not evidence for a layout effect of a few percent: the sweep with a
-duplicated reference is the protocol.
+one explicitly 64-aligned heap allocation with `PartialsStream` as a handle. And a single A/B under
+load is not evidence for a layout effect of a few percent: the sweep with a duplicated reference is
+the protocol.
+
+**The aligned box: built, measured, rejected.** `PartialsStream` as `{ box, flags }` over one
+allocation laid out `[JSONParser @0 | PartialSink @128 | Value @320]`, every part on a line
+boundary; 793 tests pass; `parse`, `consumeStructuralRun`, the block walk and every `PartialSink`
+entry point opcode-identical (they always ran through `inout` addresses), the chunked driver 170 ->
+147 instructions with the 240-byte struct out of its frame. Four-way, 5 rotated rounds, 20 typed
+rows, against the inline 80-byte struct (run twice: floor +0.03% mean, +-0.3% a row):
+
+| | box, 16-aligned | box, 64-aligned |
+| --- | ---: | ---: |
+| Twitter bulk / 16 KB | -1.0 / -1.1% | -0.9 / -1.2% |
+| GitHub / LLM / GSoC | -0.7 / -0.7 / -0.6% | -0.7 / -0.8 / -0.5% |
+| Canada / Mesh | +0.4 / +0.3% | +0.4 / +0.3% |
+| Twitter escaped byte by byte | 0.0% | 0.0% |
+| mean of 20 | -0.10% | -0.28% |
+
+The 64-aligned and 16-aligned boxes are indistinguishable, so line alignment buys nothing -- as it
+should not: the data is L1-resident and no 8-aligned field on a 16-aligned base can split a line.
+The box itself costs the string and object rows about a point with identical code; the likeliest
+reason (not proven) is that the inline parser and sink share the always-hot stack lines and page of
+the frame that spills around them, and the box gives them their own. The inline struct at 80 bytes
+already sits in the flat part of the size sweep (80-104 within +-0.5%), so the box would buy
+determinism nobody needs for ~0.3%. Patch kept at `~/.cache/sspab/s13/aligned_box.patch`. What the
+sweep does leave behind is a rule: a change that grows `JSONParser` past ~104 bytes must be swept,
+not A/B'd once.
 
 ### Number extents from the block masks
 
