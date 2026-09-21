@@ -45,8 +45,9 @@ public struct JSONParser: ~Copyable {
   @usableFromInline static let maximumDepth = 64
 
   // Field order is a cache-line decision: everything a parse touches is in the first 64 bytes, the
-  // tail holds deinit-only state and the block walk's switch. Small fields are narrowed, not bit-packed -- packing
-  // would make plain stores read-modify-writes and break the fused `strh` for the two flags below.
+  // tail holds deinit-only state and the block walk's switch. Small fields are narrowed, not
+  // bit-packed -- packing would make plain stores read-modify-writes and break the fused `strh`
+  // for the two flags below.
   @usableFromInline var state = State.value
   // Whether the string being read is a key; the escape and unicode states are shared. `bufferCount
   // > 0` cannot stand in: a key whose first character is an escape has buffered nothing yet.
