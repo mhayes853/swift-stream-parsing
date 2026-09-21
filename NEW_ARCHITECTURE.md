@@ -7401,6 +7401,12 @@ bitmap test, a load and a second bitmap test before the scan. Under the old gate
 | the same signal as `i = ~i; break` | 169 stack accesses against 191, and *worse*: Canada -5.2%, Mesh -6.0% |
 | two whitespace bytes only (no quote) | Twitter spaced -5.0%: Python-style objects want the walk |
 | signal read off the scan's results (run >= 2, or stopped on a quote) | Mesh -3.2% but Canada raw -7.1%, Qwen raw -5.5%, `Pretty printed users - 64B` -10.6%, Qwen typed -1.6% |
+| lookahead byte reused: when it is neither whitespace nor a quote it goes straight to the dispatch (`i += 1; byte = next`), skipping the scan | Mesh +3.6% raw / +2.1%, and everything else down: Canada -4.5%, Qwen -5.0/-5.2%, Twitter escaped -4.5%, Retention -2.9% (mean -1.43%, floor -0.22%). 21 fewer instructions and 19 fewer stack accesses in the `NullSink` run; the compiler gave the shortcut its own edge into the token dispatch (and a free `next >= 0x40` tier) |
+| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | every other row back inside the floor, which supports the edge as the cause above; Mesh raw +2.8% but Mesh typed -2.4% (8 rounds, Mesh floor 0.0%). Typed is the criterion: rejected |
+
+Seven spellings at this site now, and the pattern holds: a second way into or out of the ladder's
+dispatch costs rows that never reach the whitespace path at all (Canada), so what is being measured
+is the loop's shape, not the work added. Mesh's -5.5% is the price of the signal as it stands.
 
 A latent hang was found on the way: with the signal as `byte <= space`, a control byte outside a
 string signals, the walk returns the block untouched (`needs_scalar`), and the two hand the same
