@@ -7401,16 +7401,60 @@ bitmap test, a load and a second bitmap test before the scan. Under the old gate
 | the same signal as `i = ~i; break` | 169 stack accesses against 191, and *worse*: Canada -5.2%, Mesh -6.0% |
 | two whitespace bytes only (no quote) | Twitter spaced -5.0%: Python-style objects want the walk |
 | signal read off the scan's results (run >= 2, or stopped on a quote) | Mesh -3.2% but Canada raw -7.1%, Qwen raw -5.5%, `Pretty printed users - 64B` -10.6%, Qwen typed -1.6% |
-| lookahead byte reused: when it is neither whitespace nor a quote it goes straight to the dispatch (`i += 1; byte = next`), skipping the scan | Mesh +3.6% raw / +2.1%, and everything else down: Canada -4.5%, Qwen -5.0/-5.2%, Twitter escaped -4.5%, Retention -2.9% (mean -1.43%, floor -0.22%). 21 fewer instructions and 19 fewer stack accesses in the `NullSink` run; the compiler gave the shortcut its own edge into the token dispatch (and a free `next >= 0x40` tier) |
-| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | every other row back inside the floor, which supports the edge as the cause above; Mesh raw +2.8% but Mesh typed -2.4% (8 rounds, Mesh floor 0.0%). Typed is the criterion: rejected |
+| lookahead byte reused: when it is neither whitespace nor a quote it goes straight to the dispatch (`i += 1; byte = next`), skipping the scan | Mesh +3.6% (raw +2.1%), and the rest down: Twitter escaped -3.5%, Retention -2.9%, Canada -2.6%, Qwen -2.6/-2.4%, Twitter full -2.1%; raw Canada -4.5%, Qwen -5.2/-5.0% (mean -1.43%, floor -0.22%). 21 fewer instructions and 19 fewer stack accesses in the `NullSink` run; the compiler gave the shortcut its own edge into the token dispatch (and a free `next >= 0x40` tier) |
+| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | 8 rounds, Mesh floor 0.0%: Mesh **+2.8%**, Mesh 16KB +0.7%, raw Mesh -2.4%; CITM -0.5%, Canada 0.0%; Twitter spaced -2.8% and Twitter escaped -2.4% on rows whose floor read -1.6% and -1.8% in that run. Not rejected by these numbers: open, wants a quiet re-run of the noisy rows |
 
-Seven spellings at this site now, and the pattern holds: a second way into or out of the ladder's
-dispatch costs rows that never reach the whitespace path at all (Canada), so what is being measured
-is the loop's shape, not the work added. Mesh's -5.5% is the price of the signal as it stands.
+(An earlier revision of this table had the raw and typed columns of these two rows swapped -- `- bulk`
+is the raw row, `- bulk discarding` the typed one -- and rejected the second spelling for a typed
+Mesh loss that was the raw row's.)
 
-A latent hang was found on the way: with the signal as `byte <= space`, a control byte outside a
-string signals, the walk returns the block untouched (`needs_scalar`), and the two hand the same
-byte back and forth forever. No test held a control byte with 64 bytes behind it; one does now.
+#### Staging the escaped string tail: the scan's load is the copy
+
+A profile of the typed `LLM message` row (xctrace, standalone `-O` harness) says the row is an
+escape-cycle benchmark, not a long-string one. 97% of its bytes are string content, and that content
+holds 14,222 escapes (`\n` 10.3k, `\"` 3.9k): 13.7k runs between escapes, median 14 bytes, mean 75.
+`coalescedEscapedStringTail` paid for each run twice -- `streamStringRun` to find its end, then
+`bufferStringRun` to copy it into the coalescing buffer, a libc `memmove` of a different length every
+time for anything over sixteen bytes. The raw counting sink copies nothing, so its whole 15.0%
+`_platform_memmove` self-time was that one `copyMemory`; the typed row's 18.6% is that plus
+`StreamString`'s own append of each flushed buffer.
+
+`streamStringRunStaging` is `streamStringRun` with one line added: each sixteen-byte block is stored
+behind `bufferCount` from the register the terminator test reads. When the scan knows where the run
+ends, the run is already in the buffer. Whole blocks are stored, so the lanes past a terminator are
+junk; nothing counts until `bufferCount` moves over it, and that happens after the surrogate and
+UTF-8 checks, so a throw leaves the buffer as it was. A block is staged only while all sixteen bytes
+fit under `bufferCapacity` and before `to`; whatever is left of a run goes through
+`bufferStringRun` as before, which flushes ahead of its copy, so order is kept. On x86_64 staging
+stops after two blocks and `streamStringRun` escalates a long run to the wide scanner as it did.
+
+One behaviour moved: a run at least as long as the whole buffer used to be handed over in place.
+The scan cannot know a run's length before it has staged the front of it, so such a run now passes
+through the buffer. Same bytes, different cuts, and cuts were never promised.
+
+Only the tail changed: 719 -> 594 instructions and 63 -> 37 stack accesses for `PartialSink`, 694 ->
+642 for the counting sink; the other 343 `JSONParser` symbols and 2,784 typed-layer symbols are
+opcode-identical. Six rounds, four-way (reference twice), floor +-0.1% on most rows, -0.8% at worst:
+
+| row | raw (`- bulk`) | typed (`- bulk discarding`) |
+| --- | ---: | ---: |
+| LLM message | +5.7% | +5.8% (16KB +5.9%) |
+| Twitter escaped | -3.2% | +1.3% (16KB +1.3%) |
+| GSoC | +0.9% | +1.5% |
+| Twitter | +0.5% | +1.0% |
+| CITM | +0.9% | -1.1% |
+| GitHub | -0.5% | -0.3% |
+| Qwen structured | 0.0% | -1.5% |
+| Twitter full | | -0.2% |
+| Dictionary 128 keys | | -1.7% |
+| Retention 100 users | | -3.1% |
+
+Retention and Dictionary hold no escape at all (generated user lists and counts), never reach the
+tail, and run opcode-identical code: the tail shrank by 500 bytes in a module-wide object and what
+sits behind it moved. Putting the new scanner in a file of its own changed nothing (Retention -3.2%,
+Dictionary -1.3%), so it is the tail's size, not the new symbol. Raw Twitter escaped does reach the
+tail: its runs are a few bytes long (`\/` in URLs), where a staged block is a store the 16-byte
+fast path of `bufferStringRun` already was.
 
 #### Skipping a subtree inside the block walk (built, measured, rejected)
 

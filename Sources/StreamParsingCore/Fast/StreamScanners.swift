@@ -151,6 +151,76 @@ package func streamStringRun(base: UnsafeRawPointer, from: Int, to: Int) -> Stre
   return StreamStringRun(end: to, containsNonASCII: containsNonASCII)
 }
 
+// `streamStringRun` that also copies what it scans: each block is stored to `staging` from the
+// register the terminator test reads, so string content bound for a buffer is read once and never
+// goes through a variable-length `memmove`. Whole blocks are stored, so the bytes after a
+// terminator's lane are junk the caller does not count: `staged` is how many bytes from `from` on
+// are good. `room` is how many bytes `staging` can take; a block is staged only while all sixteen
+// of its bytes fit and lie before `to`, and the rest of the run is scanned without a copy, for the
+// caller to move however it moved runs before.
+@inlinable
+@inline(__always)
+package func streamStringRunStaging(
+  base: UnsafeRawPointer, from: Int, to: Int, staging: UnsafeMutableRawPointer, room: Int
+) -> (run: StreamStringRun, staged: Int) {
+  if from < to {
+    let first = base.load(fromByteOffset: from, as: UInt8.self)
+    if first == .asciiQuote || first == .asciiBackslash || first < .asciiSpace {
+      return (StreamStringRun(end: from, containsNonASCII: false), 0)
+    }
+  }
+
+  let quote = SIMD16<UInt8>(repeating: .asciiQuote)
+  let backslash = SIMD16<UInt8>(repeating: .asciiBackslash)
+  let space = SIMD16<UInt8>(repeating: .asciiSpace)
+  let lanes = SIMD16<UInt8>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+
+  var scanned = SIMD16<UInt8>.zero
+  var i = from
+#if arch(x86_64)
+  // Two blocks, then `streamStringRun` below escalates a long run to the wide scanner as before.
+  let limit = Swift.min(to, from &+ Swift.min(room, 2 &* streamScannerVectorWidth))
+#else
+  let limit = Swift.min(to, from &+ room)
+#endif
+  while i &+ streamScannerVectorWidth <= limit {
+    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    staging.storeBytes(of: chunk, toByteOffset: i &- from, as: SIMD16<UInt8>.self)
+    let hit = chunk .== quote .| chunk .== backslash .| chunk .< space
+#if arch(arm64)
+    let anyHit = streamVectorContainsNonASCII(streamMaskBytes(hit))
+#else
+    let anyHit = any(hit)
+#endif
+    if anyHit {
+#if arch(arm64)
+      let lane = streamFirstHitLaneNEON(hit)
+#else
+      let lane = streamFirstHitLane(hit)
+#endif
+      let beforeHit = lanes .< SIMD16<UInt8>(repeating: UInt8(truncatingIfNeeded: lane))
+      let prefix = SIMD16<UInt8>.zero.replacing(with: chunk, where: beforeHit)
+      return (
+        StreamStringRun(
+          end: i &+ lane,
+          containsNonASCII: streamVectorContainsNonASCII(scanned | prefix)
+        ),
+        i &+ lane &- from
+      )
+    }
+    scanned |= chunk
+    i &+= streamScannerVectorWidth
+  }
+  let rest = streamStringRun(base: base, from: i, to: to)
+  return (
+    StreamStringRun(
+      end: rest.end,
+      containsNonASCII: rest.containsNonASCII || streamVectorContainsNonASCII(scanned)
+    ),
+    i &- from
+  )
+}
+
 // One compare in front, scans out of line: every JSON whitespace byte is <= 0x20 and every byte that
 // may legally follow one is > 0x20. The inlined body must stay this small. Measured: inlining the
 // vector body or peeling a one-byte run here cost -18%/-34% on whitespace-free escape-dense

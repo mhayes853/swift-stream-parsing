@@ -871,7 +871,17 @@ public struct JSONParser: ~Copyable {
     }
     i = fused
     while true {
-      let run = streamStringRun(base: base, from: i, to: to)
+      // The scan stores each block it reads behind `bufferCount`, so a run is in the buffer by the
+      // time its end is known (`streamStringRunStaging`). Staged bytes count for nothing until
+      // `bufferCount` moves over them, which is after the checks that can throw. Staging stops
+      // where the buffer's capacity or the chunk does; what is left of the run goes the old way,
+      // behind the staged part, where `bufferStringRun` flushes before it copies.
+      let at = Int(self.bufferCount)
+      let scan = streamStringRunStaging(
+        base: base, from: i, to: to, staging: UnsafeMutableRawPointer(self.bufferBase + at),
+        room: Int(self.bufferCapacity) &- at
+      )
+      let run = scan.run
       let end = run.end
 
       if end > i {
@@ -881,9 +891,15 @@ public struct JSONParser: ~Copyable {
           try self.validateUTF8IfNeeded(
             base: base, from: i, to: emitEnd, containsNonASCII: run.containsNonASCII, reportAt: nil
           )
-          try self.bufferStringRun(
-            base: base, from: i, count: emitEnd &- i, end: emitEnd, to: to, into: &sink
-          )
+          let count = emitEnd &- i
+          let staged = Swift.min(scan.staged, count)
+          self.bufferCount &+= UInt32(staged)
+          if staged < count {
+            try self.bufferStringRun(
+              base: base, from: i &+ staged, count: count &- staged, end: emitEnd, to: to,
+              into: &sink
+            )
+          }
         }
         if emitEnd < end {
           try self.holdPendingUTF8(base: base, from: emitEnd, to: end)
