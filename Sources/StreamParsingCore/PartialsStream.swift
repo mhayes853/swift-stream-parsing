@@ -7,22 +7,17 @@
 public struct JSONStreamFormat: Hashable, Sendable {
   /// The capacity of the buffer the parser allocates for keys, numbers and escapes.
   public var bufferCapacity: Int
-  /// Chunks at least this long are parsed by the windowed path; see `JSONParser`.
-  public var windowThreshold: Int
 
-  public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
+  public init(bufferCapacity: Int = 4096) {
     self.bufferCapacity = bufferCapacity
-    self.windowThreshold = windowThreshold
   }
 
   /// Parses JSON.
   ///
-  /// - Parameters:
-  ///   - bufferCapacity: The capacity of the parser's buffer.
-  ///   - windowThreshold: Chunks at least this long are parsed by the windowed path.
+  /// - Parameter bufferCapacity: The capacity of the parser's buffer.
   /// - Returns: A format describing a JSON parser.
-  public static func json(bufferCapacity: Int = 4096, windowThreshold: Int = .max) -> Self {
-    Self(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
+  public static func json(bufferCapacity: Int = 4096) -> Self {
+    Self(bufferCapacity: bufferCapacity)
   }
 }
 
@@ -101,9 +96,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     let storage = Self.allocateStorage()
     storage.initialize(to: initialValue)
     self.storage = storage
-    self.parser = JSONParser(
-      bufferCapacity: format.bufferCapacity, windowThreshold: format.windowThreshold
-    )
+    self.parser = JSONParser(bufferCapacity: format.bufferCapacity)
     self.sink = PartialSink(root: storage, schema: Value.streamSchema)
   }
 

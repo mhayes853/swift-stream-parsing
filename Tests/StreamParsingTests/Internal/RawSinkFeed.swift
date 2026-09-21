@@ -7,16 +7,15 @@ import StreamParsingCore
 // The parser is created here rather than passed in: every caller wants a fresh one per run, and
 // one that is not fresh would carry state across documents.
 // There are exactly three shapes a raw sink test feeds in: fixed size chunks, a single split at a
-// chosen byte, and one byte at a time. `bufferCapacity` and `windowThreshold` are the only knobs
-// any of them varies, so they ride along as defaults rather than as a fourth shape.
+// chosen byte, and one byte at a time. `bufferCapacity` is the only knob any of them varies, so
+// it rides along as a default rather than as a fourth shape.
 func feed<Sink: StreamParseSink & ~Copyable>(
   _ bytes: [UInt8],
   chunk: Int = .max,
   into sink: inout Sink,
-  bufferCapacity: Int = 4096,
-  windowThreshold: Int = .max
+  bufferCapacity: Int = 4096
 ) throws(JSONParsingError) {
-  var parser = JSONParser(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
+  var parser = JSONParser(bufferCapacity: bufferCapacity)
   try streamDrive(bytes, chunk: chunk, through: &parser, into: &sink)
 }
 
@@ -25,10 +24,9 @@ func feed<Sink: StreamParseSink & ~Copyable>(
   _ bytes: [UInt8],
   chunk: Int = .max,
   into sink: inout Sink,
-  buffer: UnsafeMutableBufferPointer<UInt8>,
-  windowThreshold: Int = .max
+  buffer: UnsafeMutableBufferPointer<UInt8>
 ) throws(JSONParsingError) {
-  var parser = JSONParser(buffer: buffer, windowThreshold: windowThreshold)
+  var parser = JSONParser(buffer: buffer)
   try streamDrive(bytes, chunk: chunk, through: &parser, into: &sink)
 }
 
@@ -38,10 +36,9 @@ func feed<Sink: StreamParseSink & ~Copyable>(
   _ bytes: [UInt8],
   splitAt: Int,
   into sink: inout Sink,
-  bufferCapacity: Int = 4096,
-  windowThreshold: Int = .max
+  bufferCapacity: Int = 4096
 ) throws(JSONParsingError) {
-  var parser = JSONParser(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
+  var parser = JSONParser(bufferCapacity: bufferCapacity)
   try bytes.withUnsafeBufferPointer { input throws(JSONParsingError) in
     let first = UnsafeBufferPointer(start: input.baseAddress, count: splitAt)
     let second = UnsafeBufferPointer(
@@ -58,10 +55,9 @@ func feed<Sink: StreamParseSink & ~Copyable>(
 func feedByByte<Sink: StreamParseSink & ~Copyable>(
   _ bytes: [UInt8],
   into sink: inout Sink,
-  bufferCapacity: Int = 4096,
-  windowThreshold: Int = .max
+  bufferCapacity: Int = 4096
 ) throws(JSONParsingError) {
-  var parser = JSONParser(bufferCapacity: bufferCapacity, windowThreshold: windowThreshold)
+  var parser = JSONParser(bufferCapacity: bufferCapacity)
   for byte in bytes {
     try parser.parse(byte: byte, into: &sink)
   }

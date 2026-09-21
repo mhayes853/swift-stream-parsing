@@ -50,10 +50,7 @@
           if self.blockWalkStrikes >= 4 {
             self.blockWalkGivenUp = true
             self.blockWalkProbeCountdown = Self.blockWalkProbeKilobytes
-            if self.windowThreshold == .max {
-              self.windowThreshold = Self.blockWalkProbeChunk
-              self.blockWalkProbeLowered = true
-            }
+            self.blockWalkProbeThreshold = Self.blockWalkProbeChunk
             return ~p
           }
         } else if self.blockWalkStrikes != 0 {
@@ -406,15 +403,15 @@
 // The re-probe: a given-up walk is re-armed once `blockWalkProbeKilobytes` of chunks of at least
 // `blockWalkProbeChunk` bytes have gone by, so a stream that changes shape is judged again. A
 // failed probe is at most four blocks walked per 64 KB, ~0.15% at Mesh's per-block loss (-26.4%).
-// Smaller chunks keep the verdict; a caller-set `windowThreshold` is left alone, its chunks count.
+// Smaller chunks keep the verdict.
 extension JSONParser {
   @inlinable package static var blockWalkProbeKilobytes: UInt8 { 64 }
   @inlinable package static var blockWalkProbeChunk: Int { 4096 }
 
-  // While a re-probe is due the default `windowThreshold` is lowered to `blockWalkProbeChunk`, so
-  // `parsePastThreshold` gets every bulk-sized chunk and counts it here before parsing it: the one
-  // that runs the countdown out is walked from its first block. Only the gate's give-up starts a
-  // countdown, and the gate only runs with the kernels.
+  // While a re-probe is due `blockWalkProbeThreshold` is `blockWalkProbeChunk`, so `parseProbing`
+  // gets every bulk-sized chunk and counts it here before parsing it: the one that runs the
+  // countdown out is walked from its first block. Only the gate's give-up starts a countdown, and
+  // the gate only runs with the kernels.
   @usableFromInline
   @inline(never)
   mutating func probeBlockWalk(count n: Int) {
@@ -424,13 +421,8 @@ extension JSONParser {
       return
     }
     self.blockWalkProbeCountdown = 0
-    if self.blockWalkProbeLowered {
-      self.windowThreshold = .max
-      self.blockWalkProbeLowered = false
-    }
-    if self.blockKernelsAvailable {
-      self.blockWalkGivenUp = false
-      self.blockWalkStrikes = 0
-    }
+    self.blockWalkProbeThreshold = .max
+    self.blockWalkGivenUp = false
+    self.blockWalkStrikes = 0
   }
 }

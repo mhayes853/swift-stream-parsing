@@ -72,10 +72,9 @@ struct StructuralBlockWalkTests {
 
   // `chunk == nil` selects the byte-fed entry point, which can never reach the block path.
   private static func run(
-    _ bytes: [UInt8], chunk: Int?, blocks: Bool, rearmGate: Bool = false,
-    windowThreshold: Int = .max
+    _ bytes: [UInt8], chunk: Int?, blocks: Bool, rearmGate: Bool = false
   ) -> Outcome {
-    var parser = JSONParser(windowThreshold: windowThreshold)
+    var parser = JSONParser()
     parser.blockWalkEnabled = blocks
     var sink = ProbeSink()
     var outcome = Outcome(calls: [], errorReason: nil, errorOffset: nil)
@@ -514,19 +513,6 @@ struct StructuralBlockWalkTests {
     let expected = Self.run(bytes, chunk: chunk, blocks: false)
     #expect(expected.errorReason == nil)
     #expect(sink.calls == expected.calls)
-  }
-
-  // A caller-set threshold is never lowered: below the probe chunk every chunk is windowed anyway,
-  // above it the windowed chunks do the counting. Either way the sink sees what the ladder sends.
-  @Test(arguments: [1, 8_192])
-  func `The re-probe leaves a caller-set window threshold alone`(threshold: Int) {
-    let bytes = Self.shapeShiftingDocument
-    for chunk in [JSONParser.blockWalkProbeChunk, 16_384] {
-      let expected = Self.run(bytes, chunk: chunk, blocks: false, windowThreshold: threshold)
-      #expect(expected.errorReason == nil)
-      let actual = Self.run(bytes, chunk: chunk, blocks: true, windowThreshold: threshold)
-      #expect(actual == expected, "threshold \(threshold) chunk \(chunk)")
-    }
   }
 
   // Only the gate's own give-up starts a countdown: a parser that starts given up -- the verdict an

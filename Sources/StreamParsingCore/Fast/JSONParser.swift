@@ -45,7 +45,7 @@ public struct JSONParser: ~Copyable {
   @usableFromInline static let maximumDepth = 64
 
   // Field order is a cache-line decision: everything a parse touches is in the first 64 bytes, the
-  // tail holds deinit-only and window state. Small fields are narrowed, not bit-packed -- packing
+  // tail holds deinit-only and block-walk gate state. Small fields are narrowed, not bit-packed -- packing
   // would make plain stores read-modify-writes and break the fused `strh` for the two flags below.
   @usableFromInline var state = State.value
   // Whether the string being read is a key; the escape and unicode states are shared. `bufferCount
@@ -122,21 +122,23 @@ public struct JSONParser: ~Copyable {
   #endif
 
   // Kilobytes left before a given-up walk is re-armed (`probeBlockWalk`), zero while no re-probe
-  // is due (always, without the kernels); and whether the gate lowered the default `.max`
-  // `windowThreshold` so bulk chunks reach it. Both sit in the padding before `windowThreshold`.
+  // is due (always, without the kernels). Sits in the padding before `blockWalkProbeThreshold`.
   @usableFromInline package var blockWalkProbeCountdown: UInt8 = 0
-  @usableFromInline var blockWalkProbeLowered = false
 
-  // A chunk at least this long takes the windowed path (JSONParserWindow.swift). The window
-  // scratch is allocated on first use, so a parser that never sees a large chunk never pays.
-  @usableFromInline var windowThreshold: Int
-  @usableFromInline var windowScratch: UnsafeMutableRawPointer? = nil
-  // Entries per 64-byte block in the last indexed window, and how many windows since. Sparse
-  // windows are routed to the dispatcher; see `parseWindowed`.
-  @usableFromInline var windowDensity: UInt32 = .max
-  @usableFromInline var windowsSinceProbe: UInt32 = 0
+  // `.max` except while a re-probe is due, when the gate lowers it to `blockWalkProbeChunk` so
+  // `parse` sends bulk-sized chunks through `parseProbing` to be counted. One compare in `parse`
+  // against a value that is almost always `.max`; see `parseProbing` for why it is not a flag test.
+  @usableFromInline var blockWalkProbeThreshold: Int = .max
 
-  public init(bufferCapacity: Int = 4096, windowThreshold: Int = .max) {
+  // Reserved: holds `JSONParser` at the 96 bytes it had with the windowed path's tail fields, which
+  // is what places `PartialSink` inside `PartialsStream`. Measured when those fields were deleted
+  // (5 interleaved rounds, hot typed code opcode-identical): at 80 bytes `Dictionary 128 keys`
+  // -3.9%, `GitHub events` typed -3.0%, Twitter typed -1.5%; padded back, -0.1% / -1.5% / -1.1%.
+  // Never read or written after `init`.
+  @usableFromInline var reservedLayout0: UInt64 = 0
+  @usableFromInline var reservedLayout1: UInt64 = 0
+
+  public init(bufferCapacity: Int = 4096) {
     // `bufferCapacity` is narrowed to `UInt32` below and `capacity &+ scratchByteCount` would wrap
     // on a 32-bit `Int` target. Unsigned so the `Int(UInt32.max)` cannot itself overflow there.
     precondition(
@@ -147,10 +149,9 @@ public struct JSONParser: ~Copyable {
     self.bufferBase = .allocate(capacity: capacity &+ Self.scratchByteCount)
     self.bufferCapacity = UInt32(capacity)
     self.ownsBuffer = true
-    self.windowThreshold = windowThreshold
   }
 
-  public init(buffer: UnsafeMutableBufferPointer<UInt8>, windowThreshold: Int = .max) {
+  public init(buffer: UnsafeMutableBufferPointer<UInt8>) {
     precondition(
       buffer.count >= Self.minimumBufferByteCount,
       "JSONParser requires a caller-supplied buffer of at least \(Self.minimumBufferByteCount) bytes."
@@ -163,18 +164,16 @@ public struct JSONParser: ~Copyable {
     self.bufferBase = buffer.baseAddress.unsafelyUnwrapped
     self.bufferCapacity = UInt32(buffer.count &- Self.scratchByteCount)
     self.ownsBuffer = false
-    self.windowThreshold = windowThreshold
   }
 
   deinit {
     if self.ownsBuffer { self.bufferBase.deallocate() }
-    self.windowScratch?.deallocate()
   }
 
-  /// Rewinds the parser to its freshly initialized state while keeping its allocations.
+  /// Rewinds the parser to its freshly initialized state while keeping its allocation.
   ///
-  /// The buffer and the window scratch survive: they are the whole cost of constructing a parser.
-  /// Legal in any state, including after a thrown parse.
+  /// The buffer survives: it is the whole cost of constructing a parser. Legal in any state,
+  /// including after a thrown parse.
   public mutating func reset() {
     self.state = .value
     self.containers = 0
@@ -195,11 +194,7 @@ public struct JSONParser: ~Copyable {
     self.blockWalkGivenUp = !self.blockKernelsAvailable
     self.blockWalkStrikes = 0
     self.blockWalkProbeCountdown = 0
-    if self.blockWalkProbeLowered { self.windowThreshold = .max }
-    self.blockWalkProbeLowered = false
-    // Window telemetry describes the previous document's shape; the next may not share it.
-    self.windowDensity = .max
-    self.windowsSinceProbe = 0
+    self.blockWalkProbeThreshold = .max
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -262,8 +257,8 @@ public struct JSONParser: ~Copyable {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
     let n = input.count
-    if n >= self.windowThreshold {
-      try self.parsePastThreshold(base: base, count: n, into: &sink)
+    if n >= self.blockWalkProbeThreshold {
+      try self.parseProbing(base: base, count: n, into: &sink)
       return
     }
     do throws(JSONParsingError) {
@@ -291,38 +286,67 @@ public struct JSONParser: ~Copyable {
       i = try self.completePendingUTF8(base: base, count: n, into: &sink)
     }
 
-    // The thirteen-case switch lives once, in `dispatchOnce`, which the windowed seam also runs.
+    // The thirteen-case switch lives once, in `dispatchOnce`, which `parse(byte:)` also runs.
     while i < n {
       i = try self.dispatchOnce(base: base, from: i, to: n, into: &sink)
     }
   }
 
-  // Every chunk `parse` sends past `windowThreshold`: the windowed path, or, while a block-walk
-  // re-probe is due, a chunk only the lowered threshold sent here -- counted, then parsed by
-  // `parse`'s own dispatcher branch, restated. Measured: a test of its own in `parse` stopped the
-  // benchmark chunk loops inlining `parse` and moved `consumeStructuralRun`'s frame.
+  // One iteration of the dispatcher's loop. Forced inline, not plain `@inlinable`: left to itself
+  // the bulk loop calls out once per iteration, which is what it exists to avoid.
+  @inlinable
+  @inline(__always)
+  mutating func dispatchOnce<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer,
+    from: Int,
+    to n: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) -> Int {
+    var i = from
+    switch self.state {
+    case .value, .firstValue, .afterValue, .key, .firstKey, .afterKey, .done:
+      i = try self.consumeStructuralRun(base: base, from: i, to: n, into: &sink)
+    case .inString:
+      i = try self.consumeStringRun(base: base, from: i, to: n, into: &sink)
+    case .inKey:
+      i = try self.consumeKeyRun(base: base, from: i, to: n, into: &sink)
+    case .escape:
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      i &+= 1
+      try self.consumeEscape(byte, at: i, into: &sink)
+    case .unicode:
+      let byte = base.load(fromByteOffset: i, as: UInt8.self)
+      i &+= 1
+      try self.consumeUnicodeDigit(byte, at: i, into: &sink)
+    case .number:
+      i = try self.consumeNumber(base: base, from: i, to: n, into: &sink)
+    case .literal:
+      i = try self.consumeLiteral(base: base, from: i, to: n, into: &sink)
+    case .skipping, .skippingString, .skippingEscape:
+      i = try self.consumeSkipRun(base: base, from: i, to: n, into: &sink)
+    }
+    return i
+  }
+
+  // A bulk-sized chunk while a block-walk re-probe is due: counted, then parsed by `parse`'s own
+  // dispatcher branch, restated. Measured: a flag test of its own in `parse` stopped the benchmark
+  // chunk loops inlining `parse` and moved `consumeStructuralRun`'s frame, so the hook is a
+  // threshold compare that is false for every chunk while no probe is due.
   @inlinable
   @inline(never)
-  mutating func parsePastThreshold<Sink: StreamParseSink & ~Copyable>(
+  mutating func parseProbing<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, count n: Int, into sink: inout Sink
   ) throws(JSONParsingError) {
-    if self.blockWalkProbeCountdown != 0 {
-      let lowered = self.blockWalkProbeLowered
-      if n >= Self.blockWalkProbeChunk { self.probeBlockWalk(count: n) }
-      if lowered {
-        do throws(JSONParsingError) {
-          try self.parseDispatching(base: base, count: n, into: &sink)
-        } catch {
-          try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
-          try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
-        }
-        try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
-        try self.commitSink(chunkEnd: n, into: &sink)
-        self.consumedByteCount &+= n
-        return
-      }
+    self.probeBlockWalk(count: n)
+    do throws(JSONParsingError) {
+      try self.parseDispatching(base: base, count: n, into: &sink)
+    } catch {
+      try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+      try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
     }
-    try self.parseWindowed(base: base, count: n, into: &sink)
+    try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
+    try self.commitSink(chunkEnd: n, into: &sink)
+    self.consumedByteCount &+= n
   }
 
   @inlinable
@@ -512,8 +536,8 @@ public struct JSONParser: ~Copyable {
           state = .inString
           return false
         }
-        // One whole `string` record, the same event `consumeStringRun` and the windowed walk
-        // record for a clean string, with the same rejection point (the opening quote).
+        // One whole `string` record, the same event `consumeStringRun` records for a clean
+        // string, with the same rejection point (the opening quote).
         do throws(JSONParsingError) {
           try self.validateUTF8IfNeeded(
             base: base, from: cursor, to: run.end, containsNonASCII: run.containsNonASCII,
@@ -741,7 +765,7 @@ public struct JSONParser: ~Copyable {
     if self.stringBeginPending {
       self.stringBeginPending = false
       // The whole string is in this chunk and has no escape: one `string` record, the same
-      // event the windowed walk records, with the same rejection point (the opening quote).
+      // event the structural run records, with the same rejection point (the opening quote).
       if run.end < to, base.load(fromByteOffset: run.end, as: UInt8.self) == .asciiQuote {
         do throws(JSONParsingError) {
           try self.validateUTF8IfNeeded(
@@ -1182,9 +1206,8 @@ public struct JSONParser: ~Copyable {
   }
 
   // Parses and validates in the same walk: the grammar is the segment order, so a byte the grammar
-  // has no place for fails the final position check rather than a tracked flag. LOCKSTEP:
-  // `JSONParserShapes.parseNumber` is a deliberate copy of this and `emitGeneralNumber`, including
-  // the `to >= 8` guard below, which is what keeps `streamShortInteger`'s backward load in bounds.
+  // has no place for fails the final position check rather than a tracked flag. The `to >= 8`
+  // guard below is what keeps `streamShortInteger`'s backward load in bounds.
   @inlinable
   @inline(__always)
   mutating func emitNumber<Sink: StreamParseSink & ~Copyable>(

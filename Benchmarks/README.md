@@ -59,12 +59,9 @@ They are therefore comparable to the parser's typed bulk convenience rows, not t
 counting-sink rows. (`Real Twitter full - JSONDecoder Codable` is Foundation only: it is the
 comparator for the 26-field `Real Twitter full - bulk discarding` row.)
 
-Two axes are gated rather than swept across every corpus. A `- 16KB chunks*` row is registered
+One axis is gated rather than swept across every corpus. A `- 16KB chunks*` row is registered
 only where the payload is larger than one 16 KB chunk, because below that the chunked feed is the
-bulk row under another name. A `- ...windowed` row is registered only for Canada and Mesh:
-`windowThreshold` defaults to `.max`, so no shipped configuration takes that path, and the
-full-corpus A/B in `NEW_ARCHITECTURE.md` has it losing on everything but number batches. Those two
-corpora keep a control so a future change to the windowed path has something to move.
+bulk row under another name.
 
 ## Payloads
 

@@ -7,8 +7,8 @@
 
 // MARK: - simdjson stage 1's two bit algorithms
 //
-// Shared by the window indexer (StreamParsingShims.c) and the classifiers below. They live in
-// the header rather than that translation unit because the classifiers are inlined into Swift.
+// Shared by the block classifiers below (and their AVX2 twins). They live in the header because
+// the NEON classifiers are inlined into Swift.
 
 // Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
 // carries "the previous block ended inside an odd run" in and out.
@@ -382,20 +382,6 @@ stream_parsing_classify_structural_block(
 }
 #endif
 
-#if !(defined(__aarch64__) && defined(__ARM_NEON))
-// The window indexer's portable path needs the parity too. The block classifiers' x86 twins in
-// AVX2.c use `pclmulqdq` instead; every other architecture keeps the scalar loops.
-static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
-  bitmask ^= bitmask << 1;
-  bitmask ^= bitmask << 2;
-  bitmask ^= bitmask << 4;
-  bitmask ^= bitmask << 8;
-  bitmask ^= bitmask << 16;
-  bitmask ^= bitmask << 32;
-  return bitmask;
-}
-#endif
-
 // MARK: - x86: the AVX2 tier
 //
 // Defined in AVX2.c, not here: a modular header including `immintrin.h` forces `_Builtin_intrinsics`,
@@ -435,131 +421,6 @@ stream_parsing_structural_classes stream_parsing_classify_structural_block(
     const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
 
 #endif  // __x86_64__
-
-#include <stddef.h>
-
-// Stage-1 window indexer: one pass over `len` bytes in 64-byte blocks, writing to `indices` every
-// chunk-relative position a consuming walk must visit; returns how many. `needs_scan`/`non_ascii`
-// flag blocks holding a backslash or control byte / a byte >= 0x80. Requires len <= 32 KB starting
-// at a token boundary outside any string, len+8 slots in `indices`, (len+4095)/4096 words per bitmap.
-size_t stream_parsing_index_window(const uint8_t *p, size_t len, uint32_t base,
-                                   uint32_t *indices, uint64_t *needs_scan,
-                                   uint64_t *non_ascii);
-
-// A simple decimal of more than sixteen bytes, parsed in one pass from a known extent: one vector
-// classification gates the shape (optional '-', digits, at most one interior '.', no exponent, no
-// leading zero, at most 19 digits) and the digits accumulate unvalidated; anything else returns 0.
-// Reads 32 bytes from `p`. Measured: +24% on Canada's long floats, a loss short -- hence the gate.
-STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_swar8(uint64_t w) {
-  w -= 0x3030303030303030ULL;
-  w = (w * 10) + (w >> 8);
-  w = (((w & 0x000000FF000000FFULL) * (100 + (1000000ULL << 32)))
-       + (((w >> 16) & 0x000000FF000000FFULL) * (1 + (10000ULL << 32)))) >> 32;
-  return w;
-}
-
-// Reads in eight-byte words, so the `count % 8 != 0` tail loads up to seven bytes past `q + count`.
-// In bounds only because `stream_parsing_decimal32` rejects `len > 21` and passes slices of the same
-// `p`, so the furthest byte is `p + 27`, inside its 32 mapped bytes (`JSONParserShapes.parseNumber`
-// guarantees `from &+ 32 <= chunkEnd`). Loosening `len <= 21` without revisiting this reads OOB.
-STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_decimal_digits(const uint8_t *q, unsigned count) {
-  static const uint64_t pow10[8] = {
-    1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL
-  };
-  uint64_t value = 0;
-  while (count >= 8) {
-    uint64_t w;
-    __builtin_memcpy(&w, q, 8);
-    value = value * 100000000ULL + stream_parsing_swar8(w);
-    q += 8;
-    count -= 8;
-  }
-  if (count > 0) {
-    uint64_t w;
-    __builtin_memcpy(&w, q, 8);
-    // Left-justify the remaining digits into an eight-digit field padded with '0' in front.
-    w = (w << ((8 - count) * 8)) | (0x3030303030303030ULL >> (count * 8));
-    value = value * pow10[count] + stream_parsing_swar8(w);
-  }
-  return value;
-}
-
-STREAM_PARSING_SIMD_SHIM void stream_parsing_decimal_classify(
-  const uint8_t *p, uint32_t *digits, uint32_t *dots
-) {
-#if defined(__aarch64__) && defined(__ARM_NEON)
-  uint8x16_t v0 = vld1q_u8(p);
-  uint8x16_t v1 = vld1q_u8(p + 16);
-  const uint8x16_t zero = vdupq_n_u8('0');
-  const uint8x16_t nine = vdupq_n_u8(9);
-  const uint8x16_t dot = vdupq_n_u8('.');
-  const uint8x16_t bit_mask = {
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80
-  };
-  uint8x16_t d0 = vandq_u8(vcleq_u8(vsubq_u8(v0, zero), nine), bit_mask);
-  uint8x16_t d1 = vandq_u8(vcleq_u8(vsubq_u8(v1, zero), nine), bit_mask);
-  uint8x16_t s = vpaddq_u8(d0, d1);
-  s = vpaddq_u8(s, s);
-  s = vpaddq_u8(s, s);
-  *digits = vgetq_lane_u32(vreinterpretq_u32_u8(s), 0);
-  uint8x16_t t = vpaddq_u8(vandq_u8(vceqq_u8(v0, dot), bit_mask), vandq_u8(vceqq_u8(v1, dot), bit_mask));
-  t = vpaddq_u8(t, t);
-  t = vpaddq_u8(t, t);
-  *dots = vgetq_lane_u32(vreinterpretq_u32_u8(t), 0);
-#else
-  uint32_t d = 0, o = 0;
-  for (int i = 0; i < 32; i++) {
-    if ((uint8_t)(p[i] - '0') <= 9) { d |= 1u << i; }
-    if (p[i] == '.') { o |= 1u << i; }
-  }
-  *digits = d;
-  *dots = o;
-#endif
-}
-
-STREAM_PARSING_SIMD_SHIM int stream_parsing_decimal32(
-  const uint8_t *p, size_t len, uint64_t *magnitude, int32_t *exponent,
-  uint32_t *digit_count, uint32_t *flags
-) {
-  static const uint64_t pow10[20] = {
-    1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL, 100000000ULL,
-    1000000000ULL, 10000000000ULL, 100000000000ULL, 1000000000000ULL, 10000000000000ULL,
-    100000000000000ULL, 1000000000000000ULL, 10000000000000000ULL, 100000000000000000ULL,
-    1000000000000000000ULL, 10000000000000000000ULL
-  };
-  if (len == 0 || len > 21) { return 0; }
-  uint32_t digits, dots;
-  stream_parsing_decimal_classify(p, &digits, &dots);
-  unsigned start = p[0] == '-';
-  if (start >= len) { return 0; }
-  uint32_t body = ((1u << len) - 1u) & ~((1u << start) - 1u);
-  uint32_t dot = dots & body;
-  if (((digits | dot) & body) != body) { return 0; }
-  if (dot & (dot - 1)) { return 0; }
-  unsigned count = (unsigned)len - start - (dot != 0);
-  if (count > 19) { return 0; }
-  unsigned int_digits, frac_digits, dot_at = 0;
-  if (dot) {
-    dot_at = (unsigned)__builtin_ctz(dot);
-    if (dot_at == start || dot_at == len - 1) { return 0; }
-    int_digits = dot_at - start;
-    frac_digits = (unsigned)len - dot_at - 1;
-  } else {
-    int_digits = count;
-    frac_digits = 0;
-  }
-  if (int_digits > 1 && p[start] == '0') { return 0; }
-  uint64_t value = stream_parsing_decimal_digits(p + start, int_digits);
-  if (frac_digits) {
-    value = value * pow10[frac_digits] + stream_parsing_decimal_digits(p + dot_at + 1, frac_digits);
-  }
-  *magnitude = value;
-  *exponent = -(int32_t)frac_digits;
-  *digit_count = count;
-  *flags = start | (dot != 0 ? 2u : 0u);
-  return 1;
-}
 
 // The Eisel-Lemire power-of-ten table, defined in `Pow10_128.c` and generated -- see the header
 // comment there. The array is declared incomplete because Swift imports a sized C array as a

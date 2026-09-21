@@ -26,12 +26,12 @@ struct ContainerSkipTests {
     case sinkFailure(StreamSinkFailure.Reason)
   }
 
-  private func parse(_ json: String, chunk: Int, windowThreshold: Int = .max) -> Outcome {
+  private func parse(_ json: String, chunk: Int) -> Outcome {
     let payload = Array(json.utf8)
     var value = SkipRow.Partial.streamInitialValue()
     var outcome: Outcome?
     withUnsafeMutablePointer(to: &value) { pointer in
-      var parser = JSONParser(windowThreshold: windowThreshold)
+      var parser = JSONParser()
       var sink = PartialSink(root: pointer)
       do {
         try payload.withUnsafeBufferPointer { input in
@@ -54,16 +54,13 @@ struct ContainerSkipTests {
   }
 
   // Every chunk size that changes which state carries the skip across a boundary, byte-fed
-  // included — and the windowed walk, whose open arms honor the skip through their own path.
+  // included.
   private func expectAllChunks(
     _ json: String, _ expected: Outcome, sizes: [Int] = [Int.max, 64, 7, 3, 2, 1]
   ) {
     for chunk in sizes {
       expectNoDifference(self.parse(json, chunk: chunk), expected, "chunk \(chunk)")
     }
-    expectNoDifference(
-      self.parse(json, chunk: Int.max, windowThreshold: 1), expected, "windowed"
-    )
   }
 
   private static let populated = Outcome.value(id: 7, name: "row", after: true)
@@ -108,13 +105,11 @@ struct ContainerSkipTests {
   ] as [[UInt8]])
   func `A skipped escape does not hide invalid UTF-8`(sequence: [UInt8]) {
     let bytes: [UInt8] = [0x5B, 0x22, 0x5C] + sequence + [0x22, 0x5D]
-    for threshold in [Int.max, 1] {
-      for split in (0...bytes.count).map(Optional.some) + [nil] {
-        let error = #expect(throws: JSONParsingError.self) {
-          try self.parseSkipping(bytes, splitAt: split, windowThreshold: threshold)
-        }
-        expectNoDifference(error, JSONParsingError(reason: .invalidUTF8, byteOffset: 3))
+    for split in (0...bytes.count).map(Optional.some) + [nil] {
+      let error = #expect(throws: JSONParsingError.self) {
+        try self.parseSkipping(bytes, splitAt: split)
       }
+      expectNoDifference(error, JSONParsingError(reason: .invalidUTF8, byteOffset: 3))
     }
   }
 
@@ -126,19 +121,15 @@ struct ContainerSkipTests {
   ] as [[UInt8]])
   func `A skipped non-ASCII escape is validated without emitting its interior`(sequence: [UInt8]) throws {
     let bytes: [UInt8] = [0x5B, 0x22, 0x5C] + sequence + [0x5C, 0x22, 0x22, 0x5D]
-    for threshold in [Int.max, 1] {
-      for split in (0...bytes.count).map(Optional.some) + [nil] {
-        let calls = try self.parseSkipping(bytes, splitAt: split, windowThreshold: threshold)
-        expectNoDifference(calls, ["beginArray", "endArray"])
-      }
+    for split in (0...bytes.count).map(Optional.some) + [nil] {
+      let calls = try self.parseSkipping(bytes, splitAt: split)
+      expectNoDifference(calls, ["beginArray", "endArray"])
     }
   }
 
   // nil selects the dedicated byte-fed entry point; otherwise split the buffer in two.
-  private func parseSkipping(
-    _ bytes: [UInt8], splitAt: Int?, windowThreshold: Int
-  ) throws -> [String] {
-    var parser = JSONParser(windowThreshold: windowThreshold)
+  private func parseSkipping(_ bytes: [UInt8], splitAt: Int?) throws -> [String] {
+    var parser = JSONParser()
     var sink = RootSkippingSink()
     if let splitAt {
       try bytes.withUnsafeBufferPointer { input in

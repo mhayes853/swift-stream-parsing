@@ -21,12 +21,6 @@ import StreamParsingCore
 // suite was. Validation is unconditional now, so there is no configuration axis here any more —
 // these rows measure the parser as it ships.
 
-// Windowed rows are gated to these two corpora. `windowThreshold` defaults to `.max` -- the path
-// is off in every shipped configuration -- and the full-corpus A/B recorded in NEW_ARCHITECTURE.md
-// has it losing 4-36% on string-heavy and sub-window payloads. Canada and Mesh are the number-batch
-// documents where it was ever competitive, so they keep a control; the other 37 rows are gone.
-private let windowedCorpora: Set<String> = ["Canada", "Mesh"]
-
 // 16 KB is a TLS record, which is the granularity a document this size actually arrives at. Below
 // that the "chunked" feed is one slice, i.e. the bulk row under a different name, so it is gated on
 // the payload being larger than one chunk.
@@ -89,21 +83,6 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
         blackHole(
           expectParses {
             try streamDiscardingChunks(payload, chunk: chunkSize, as: Value.self)
-          }
-        )
-      }
-    }
-  }
-
-  // The same convenience-layer parse through the windowed path, which is where number batches
-  // reach `PartialSink`. The row above is its gate-off control.
-  if windowedCorpora.contains(name) {
-    Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
-      benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(
-          expectParses {
-            try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
           }
         )
       }
@@ -251,17 +230,6 @@ private func addRealWorldFastRows() {
       Benchmark("Real \(name) - 16KB chunks", configuration: payloadConfiguration) { benchmark in
         measurePayloadThroughput(benchmark, payload: payload) {
           blackHole(expectParses { try runFastParser(payload, chunk: chunkSize) })
-        }
-      }
-    }
-
-    // The same bulk feed through the windowed path (JSONParserWindow.swift), which the gate takes
-    // for any chunk at or above the threshold. Both variants live in one binary so they can be
-    // interleaved in one run.
-    if windowedCorpora.contains(name) {
-      Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
-        measurePayloadThroughput(benchmark, payload: payload) {
-          blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
         }
       }
     }

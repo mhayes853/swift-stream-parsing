@@ -81,8 +81,8 @@ extension JSONParser {
     into sink: inout Sink
   ) throws(JSONParsingError) {
     switch kind {
-    // Open dispositions are discarded (legal by the advisory contract); sites that can honor a
-    // skip use `recordContainerOpen`. The one open site left here is `consumeNumericArray`'s `[`.
+    // Open dispositions are discarded (legal by the advisory contract); every site that opens a
+    // container uses `recordContainerOpen`, which can honor a skip.
     case .beginObject: _ = sink.beginObject()
     case .endObject: sink.endObject()
     case .beginArray: _ = sink.beginArray()
