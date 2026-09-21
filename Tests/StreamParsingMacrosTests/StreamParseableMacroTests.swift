@@ -44,10 +44,6 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -204,7 +200,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -218,8 +213,6 @@ extension BaseTestSuite {
             self.age = age
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -280,10 +273,6 @@ extension BaseTestSuite {
               self.nickname = nickname
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -454,7 +443,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -468,8 +456,6 @@ extension BaseTestSuite {
             self.nickname = nickname
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -658,10 +644,6 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -818,7 +800,6 @@ extension BaseTestSuite {
             self.init(orInitial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -832,8 +813,6 @@ extension BaseTestSuite {
             self.age = age
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -881,10 +860,6 @@ extension BaseTestSuite {
               self.nickname = nickname
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -1014,7 +989,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let nickname = Self._streamValue({ $0.nickname
@@ -1025,8 +999,6 @@ extension BaseTestSuite {
             self.nickname = nickname
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.nickname = Self._streamValueOrInitial({
                 $0.nickname
@@ -1085,10 +1057,6 @@ extension BaseTestSuite {
               self.stored = stored
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -1218,7 +1186,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let stored = Self._streamValue({ $0.stored
@@ -1229,8 +1196,6 @@ extension BaseTestSuite {
             self.stored = stored
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.stored = Self._streamValueOrInitial({
                 $0.stored
@@ -1329,11 +1294,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Resolves the case the accumulated raw value names, or the shortest case that value is
-          /// still a prefix of.
-          ///
-          /// A partial string cannot say whether it is finished, so a value that names one case and
-          /// is a prefix of a longer one resolves to the shorter and may later be superseded.
           init?(streamPartial partial: Partial) {
             let streamCount = partial.utf8Count
             guard streamCount > 0 else {
@@ -1367,8 +1327,6 @@ extension BaseTestSuite {
             return nil
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .live
           }
@@ -1407,13 +1365,10 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream produced a raw value no case declares.
           init?(streamPartial partial: Partial) {
             self.init(rawValue: partial)
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .low
           }
@@ -1459,10 +1414,6 @@ extension BaseTestSuite {
               self.circle = circle
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -1494,8 +1445,6 @@ extension BaseTestSuite {
               }
 
 
-              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-              /// than one case's key has arrived yet.
               enum ResolvedView: ~Copyable, ~Escapable {
                 case unresolved
                 case ambiguous
@@ -1625,9 +1574,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
-          /// the same document — and, for a case with associated values, unless that one case's own
-          /// payload has everything it needs yet.
           init?(streamPartial partial: Partial) {
             var streamMatched = -1
             var streamMatches = 0
@@ -1646,8 +1592,6 @@ extension BaseTestSuite {
             }
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .circle
           }
@@ -1767,10 +1711,6 @@ extension BaseTestSuite {
               self.`class` = `class`
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -1812,8 +1752,6 @@ extension BaseTestSuite {
               }
 
 
-              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-              /// than one case's key has arrived yet.
               enum ResolvedView: ~Copyable, ~Escapable {
                 case unresolved
                 case ambiguous
@@ -1983,10 +1921,6 @@ extension BaseTestSuite {
                   self._0 = _0
                 }
 
-                // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-                // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-                // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-                // `Self` itself `Sendable` here and lets the template be a plain `static let`.
                 private static let _streamInitialValueTemplate: Self = Self()
 
                 static func streamInitialValue() -> Self {
@@ -2153,9 +2087,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
-          /// the same document — and, for a case with associated values, unless that one case's own
-          /// payload has everything it needs yet.
           init?(streamPartial partial: Partial) {
             var streamMatched = -1
             var streamMatches = 0
@@ -2184,8 +2115,6 @@ extension BaseTestSuite {
             }
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .`class`
           }
@@ -2267,7 +2196,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -2281,8 +2209,6 @@ extension BaseTestSuite {
             self.age = age
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -2336,10 +2262,6 @@ extension BaseTestSuite {
               self.name = name
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -2469,7 +2391,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -2480,8 +2401,6 @@ extension BaseTestSuite {
             self.name = name
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -2530,10 +2449,6 @@ extension BaseTestSuite {
               self.name = name
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -2665,7 +2580,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           public init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -2676,8 +2590,6 @@ extension BaseTestSuite {
             self.name = name
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           public init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -2722,10 +2634,6 @@ extension BaseTestSuite {
               self.name = name
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -2855,7 +2763,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -2866,8 +2773,6 @@ extension BaseTestSuite {
             self.name = name
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -2912,10 +2817,6 @@ extension BaseTestSuite {
               self.name = name
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             fileprivate static func streamInitialValue() -> Self {
@@ -3045,7 +2946,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           fileprivate init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -3056,8 +2956,6 @@ extension BaseTestSuite {
             self.name = name
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           fileprivate init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -3114,10 +3012,6 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -3278,7 +3172,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           public init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -3292,8 +3185,6 @@ extension BaseTestSuite {
             self.age = age
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           public init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -3352,10 +3243,6 @@ extension BaseTestSuite {
               self.age = age
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -3516,7 +3403,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           public init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -3530,8 +3416,6 @@ extension BaseTestSuite {
             self.age = age
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           public init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name
@@ -3579,11 +3463,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Resolves the case the accumulated raw value names, or the shortest case that value is
-          /// still a prefix of.
-          ///
-          /// A partial string cannot say whether it is finished, so a value that names one case and
-          /// is a prefix of a longer one resolves to the shorter and may later be superseded.
           @inlinable public init?(streamPartial partial: Partial) {
             let streamCount = partial.utf8Count
             guard streamCount > 0 else {
@@ -3610,8 +3489,6 @@ extension BaseTestSuite {
             return nil
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .idle
           }
@@ -3666,10 +3543,6 @@ extension BaseTestSuite {
               self.square = square
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -3711,8 +3584,6 @@ extension BaseTestSuite {
               }
 
 
-              /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-              /// than one case's key has arrived yet.
               public enum ResolvedView: ~Copyable, ~Escapable {
                 case unresolved
                 case ambiguous
@@ -3870,9 +3741,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
-          /// the same document — and, for a case with associated values, unless that one case's own
-          /// payload has everything it needs yet.
           @inlinable public init?(streamPartial partial: Partial) {
             var streamMatched = -1
             var streamMatches = 0
@@ -3897,8 +3765,6 @@ extension BaseTestSuite {
             }
           }
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
             Self(streamPartial: partial) ?? .circle
           }
@@ -3948,10 +3814,6 @@ extension BaseTestSuite {
               self.index = index
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             private static let _streamInitialValueTemplate: Self = Self()
 
             static func streamInitialValue() -> Self {
@@ -4096,7 +3958,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let items = Self._streamValue({ $0.items
@@ -4110,8 +3971,6 @@ extension BaseTestSuite {
             self.index = index
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.items = Self._streamValueOrInitial({
                 $0.items
@@ -4203,10 +4062,6 @@ extension BaseTestSuite {
               self.x = x
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable package static func streamInitialValue() -> Self {
@@ -4396,7 +4251,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           package init?(streamPartial partial: Partial) {
             guard
               let `class` = Self._streamValue({ $0.`class`
@@ -4414,8 +4268,6 @@ extension BaseTestSuite {
             self.note = nil
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           package init(orInitial partial: Partial) {
             self.`class` = Self._streamValueOrInitial({
                 $0.`class`
@@ -4608,7 +4460,6 @@ extension BaseTestSuite {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           init?(streamPartial partial: Partial) {
             guard
               let name = Self._streamValue({ $0.name
@@ -4619,8 +4470,6 @@ extension BaseTestSuite {
             self.name = name
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           init(orInitial partial: Partial) {
             self.name = Self._streamValueOrInitial({
                 $0.name

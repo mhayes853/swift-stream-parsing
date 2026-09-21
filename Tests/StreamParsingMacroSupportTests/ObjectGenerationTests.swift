@@ -1,6 +1,7 @@
 import CustomDump
 import StreamParsingMacroSupport
 import SwiftSyntax
+import SwiftSyntaxMacroExpansion
 import SwiftSyntaxBuilder
 import Testing
 
@@ -22,7 +23,7 @@ struct `StreamObjectGeneration tests` {
   }
 
   @Test
-  func `Concrete Type Syntax Builds Granular Components`() throws {
+  func `Concrete Type Syntax Builds A Complete Struct`() throws {
     let payloadType = IdentifierTypeSyntax(name: TokenSyntax.identifier("Payload"))
     let generation = try StreamObjectGeneration(
       fields: [
@@ -35,16 +36,16 @@ struct `StreamObjectGeneration tests` {
     )
 
     expectNoDifference(
-      generation.storageMembers().trimmedDescription,
-      "var payload: Payload.Partial?"
+      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("var payload: Payload.Partial?"),
+      true
     )
-    self.expectContains(generation.matchFieldFunction().description, "Self.StreamField.payload")
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "Self.StreamField.payload")
     self.expectContains(
-      generation.applyFunction(for: .string).description,
+      try generation.structDeclaration(in: BasicMacroExpansionContext()).description,
       "streamApply(&p.pointee.payload, utf8: bytes)"
     )
-    self.expectContains(generation.fieldIdentifiers().description, "enum StreamField")
-    self.expectContains(generation.schemaProperty().description, "static let streamSchema")
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "enum StreamField")
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "static let streamSchema")
   }
 
   @Test
@@ -67,13 +68,15 @@ struct `StreamObjectGeneration tests` {
         )
       )
     )
-    let declaration = try generation.partialDeclaration(
-      additionalViewMembers: MemberBlockItemListSyntax {
+    let declaration = try generation.structDeclaration(
+      in: BasicMacroExpansionContext(),
+      additionalMembers: { _ in
+        try VariableDeclSyntax("static let marker = 1")
+      },
+      additionalViewMembers: { _ in
         try VariableDeclSyntax("var isPresent: Bool { true }")
       }
-    ) {
-      try VariableDeclSyntax("static let marker = 1")
-    }
+    )
     let source = declaration.description
 
     self.expectContains(source, "public struct Accumulator")
@@ -97,7 +100,7 @@ struct `StreamObjectGeneration tests` {
       ],
       configuration: StreamGenerationConfiguration(viewMode: .unsafe)
     )
-    let source = generation.viewDeclaration().description
+    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
 
     self.expectContains(source, "@unsafe struct View: ~Copyable")
     expectNoDifference(source.contains("~Escapable"), false)
@@ -123,9 +126,9 @@ struct `StreamObjectGeneration tests` {
       ],
       partialMembers: .streamInitialValue
     )
-    let storage = generation.storageMembers().description
-    let fields = generation.fieldTableProperty().description
-    let schema = generation.schemaMembers().description
+    let storage = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
+    let fields = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
+    let schema = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
 
     self.expectContains(
       storage,
@@ -141,14 +144,14 @@ struct `StreamObjectGeneration tests` {
   func `Empty Objects Generate Coherent Components`() throws {
     let generation = try StreamObjectGeneration(fields: [StreamParseableField]())
 
-    expectNoDifference(generation.storageMembers().isEmpty, true)
-    self.expectContains(generation.initializer().description, "init(")
-    self.expectContains(generation.matchFieldFunction().description, "default: return -1")
+    expectNoDifference(try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("enum StreamField"), false)
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "init(")
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "default: return -1")
     expectNoDifference(
-      generation.applyFunction(for: .null).description.contains("assumingMemoryBound"),
+      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("let p = storage.assumingMemoryBound"),
       false
     )
-    self.expectContains(generation.partialDeclaration().description, "struct Partial")
+    self.expectContains(try generation.structDeclaration(in: BasicMacroExpansionContext()).description, "struct Partial")
   }
 
   private func expectContains(

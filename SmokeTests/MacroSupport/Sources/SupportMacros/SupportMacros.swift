@@ -32,20 +32,32 @@ struct SupportPartialMacro: MemberMacro {
       )
     ]
     let generation = try StreamObjectGeneration(fields: fields)
-    let partial = try StructDeclSyntax(
-      "struct Partial: StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject, Sendable"
-    ) {
-      DeclSyntax("typealias Partial = Self")
-      generation.storageMembers()
-      generation.initializer()
-      generation.initialValueMembers()
-      generation.observationMembers()
-      generation.schemaMembers()
-      generation.viewDeclaration {
+    let partial = generation.structDeclaration(
+      in: context,
+      additionalMembers: { references in
+        DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
+        DeclSyntax("var nameWasEmpty: [Bool] = []")
+        DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
+        DeclSyntax("static var idField: StreamParsingCore.StreamFieldID { \(references.fields[1].identifier) }")
+        DeclSyntax("static var tagsField: StreamParsingCore.StreamFieldID { \(references.fields[2].identifier) }")
+        DeclSyntax("mutating func resetTracking() { recognizedFields.removeAll() }")
+        DeclSyntax("enum TrackingMode { case enabled, disabled }")
+        DeclSyntax("subscript(index: Int) -> StreamParsingCore.StreamFieldID { recognizedFields[index] }")
+        DeclSyntax("init(tracking: TrackingMode) { self.init() }")
+        DeclSyntax("#if DEBUG\nvar debugMarker: Bool { true }\n#endif")
+      },
+      additionalViewMembers: { _ in
         DeclSyntax("var marker: Int { 42 }")
+      },
+      onFieldRecognized: { event in
+        "\(event.partial).recognizedFields.append(\(event.field))"
+        """
+        if \(event.field) == \(event.fields[0].identifier) {
+          \(event.partial).nameWasEmpty.append(\(event.partial).name == nil)
+        }
+        """
       }
-      generation.streamViewFunction()
-    }
+    )
     return [DeclSyntax(partial)]
   }
 }
@@ -60,34 +72,34 @@ struct SupportMatcherMacro: MemberMacro {
     let keys = [
       "", "a", "a\0", "customer_name", "customer_id", "é", "e\u{301}", "abcdefghijklmno\0"
     ]
-    let branches = keys.enumerated()
-      .map { index, key in
-        StreamUTF8Branch(matching: [key]) {
-          CodeBlockItemSyntax("result = \(raw: index)")
-        }
-      }
-    let matcher = try StreamUTF8Matcher(branches: branches)
-    let strategies: [(String, StreamUTF8Matcher.Strategy)] = [
-      ("switchMatch", .switchTree), ("ifMatch", .ifElseTree)
-    ]
-    return try strategies.map { name, strategy in
-      let statements = matcher.statements(
-        matching: DeclReferenceExprSyntax(baseName: TokenSyntax.identifier("bytes")),
-        strategy: strategy,
-        in: context
-      ) {
-        CodeBlockItemSyntax("result = -1")
-      }
-      return DeclSyntax(
-        try FunctionDeclSyntax("static func \(raw: name)(_ bytes: Span<UInt8>) -> Int") {
-          CodeBlockItemSyntax("var result = -2")
-          statements
-          ReturnStmtSyntax(
-            expression: DeclReferenceExprSyntax(baseName: TokenSyntax.identifier("result"))
-          )
-        }
+    let generation = try StreamObjectGeneration(fields: keys.enumerated().map { index, key in
+      StreamParseableField(
+        name: .identifier("field\(index)"),
+        type: IdentifierTypeSyntax(name: .identifier("Int")),
+        keys: [key]
       )
-    }
+    })
+    return [DeclSyntax(try generation.structDeclaration(
+      in: context,
+      additionalMembers: { references in
+        DeclSyntax("var recognizedFields: [StreamParsingCore.StreamFieldID] = []")
+        let cases = references.fields.enumerated().map { index, field in
+          "case \(index): return \(field.identifier.trimmedDescription)"
+        }.joined(separator: "\n")
+        DeclSyntax("""
+          static func identifier(at index: Int) -> StreamParsingCore.StreamFieldID {
+            switch index {
+            \(raw: cases)
+            default: preconditionFailure()
+            }
+          }
+          """)
+      },
+      onFieldRecognized: { event in
+        "\(event.partial).recognizedFields.append(\(event.field))"
+      }
+    ))]
+
   }
 }
 
@@ -114,7 +126,17 @@ struct SupportFullPartialMacro: MemberMacro {
         )
       )
     )
-    return [DeclSyntax(generation.partialDeclaration())]
+    return [DeclSyntax(try generation.structDeclaration(
+      in: context,
+      additionalMembers: { references in
+        DeclSyntax("private var recognizedCount = 0")
+        DeclSyntax("public var count: Int { recognizedCount }")
+        DeclSyntax("public static var valueField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
+      },
+      onFieldRecognized: { event in
+        "\(event.partial).recognizedCount += 1"
+      }
+    ))]
   }
 }
 

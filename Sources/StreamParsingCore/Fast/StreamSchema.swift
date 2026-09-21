@@ -215,6 +215,8 @@ public final class StreamSchema: @unchecked Sendable {
   }
 
   @usableFromInline let keyRouting: KeyRouting
+  // Only key recognition consults hooks; scalar/container routing retains its original flag.
+  @usableFromInline let keyDispatch: _StreamKeyDispatch
 
   // The field table (StreamFieldTable.swift), or nil for a schema that routes keys through
   // `matchField`. Every macro-generated object schema carries one. The owner is `fields`; the
@@ -327,6 +329,10 @@ public final class StreamSchema: @unchecked Sendable {
   // to write its completed value. Ordinary schemas carry nil; ordinary frames stay 24 bytes.
   @usableFromInline let completedValue: _StreamCompletedValueHooks?
 
+  /// Called once for each recognized object key, before its value is applied.
+  /// Aliases share an identifier; unknown keys are not reported. Nil incurs no hook dispatch.
+  public let onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)?
+
 
 
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
@@ -335,6 +341,7 @@ public final class StreamSchema: @unchecked Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
+    onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>
     ) -> StreamApplyResult = { _, _, _ in .unsupported },
@@ -363,6 +370,7 @@ public final class StreamSchema: @unchecked Sendable {
       shape: shape,
       prepareRoot: prepareRoot,
       matchField: matchField,
+      onFieldRecognized: onFieldRecognized,
       applyString: applyString,
       applyNumber: applyNumber,
       applyBoolean: applyBoolean,
@@ -385,6 +393,7 @@ public final class StreamSchema: @unchecked Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
+    onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>
     ) -> StreamApplyResult = { _, _, _ in .unsupported },
@@ -455,7 +464,14 @@ public final class StreamSchema: @unchecked Sendable {
       shape == .dictionary
       ? .dictionary
       : (fields != nil ? .table : (matchField == nil ? .ignore : .match))
+    self.keyDispatch = switch self.keyRouting {
+    case .table: onFieldRecognized == nil ? .table : .observedTable
+    case .match: onFieldRecognized == nil ? .match : .observedMatch
+    case .dictionary: .dictionary
+    case .ignore: .ignore
+    }
     self.matchField = matchField ?? { _ in -1 }
+    self.onFieldRecognized = onFieldRecognized
     self.applyString = applyString
     self.applyNumber = applyNumber
     self.applyBoolean = applyBoolean
@@ -898,6 +914,7 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     // handing `base.matchField` over unconditionally would make `matchField != nil` true and route
     // every key through the closure that the `ignore` case exists to skip.
     matchField: base.ignoresKeys ? nil : base.matchField,
+    onFieldRecognized: base.onFieldRecognized,
     applyString: base.applyString,
     applyNumber: base.applyNumber,
     applyBoolean: base.applyBoolean,
@@ -1024,3 +1041,14 @@ extension StreamParseableRoot where Self: StreamBooleanConvertible {
     public static var streamObservationFields: [PartialKeyPath<Self>] { [] }
   }
 #endif
+
+// Kept separate from KeyRouting so instrumentation does not add cases to scalar hot paths.
+@usableFromInline
+enum _StreamKeyDispatch: UInt8, Sendable {
+  case match
+  case dictionary
+  case ignore
+  case table
+  case observedTable
+  case observedMatch
+}

@@ -236,6 +236,15 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
     // Propagated, not always wrapped, so a destination that matches no keys still skips the call.
     let delegated: @Sendable (Span<UInt8>) -> Int32 = { key in wrapped.matchField(key) }
     let matchField: (@Sendable (Span<UInt8>) -> Int32)? = wrapped.ignoresKeys ? nil : delegated
+    let recognition: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)?
+    if let recognized = wrapped.onFieldRecognized {
+      recognition = { storage, field in
+        _streamMaterializeOptional(storage, as: Wrapped.self)
+        recognized(storage, field)
+      }
+    } else {
+      recognition = nil
+    }
     return StreamSchema(
       shape: wrapped.shape,
       prepareRoot: { storage in
@@ -243,6 +252,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         wrapped.prepareRoot(storage)
       },
       matchField: matchField,
+      onFieldRecognized: recognition,
       applyString: { storage, field, bytes in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyString(storage, field, bytes)

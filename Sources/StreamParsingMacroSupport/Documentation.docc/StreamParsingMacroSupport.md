@@ -1,154 +1,95 @@
-# ``StreamParsingMacroSupport``
+# StreamParsingMacroSupport
 
-Generate stream parsing declarations from another macro's own model.
+Generate a complete stream-compatible struct from another macro using SwiftSyntax.
 
-## Overview
+Add the `StreamParsingMacroSupport` product to the macro target. The source receiving the
+expansion must import `StreamParsing`, which reexports `StreamParsingCore`.
 
-Add the `StreamParsingMacroSupport` product to the dependencies of your `.macro` target.
-The support library runs in the macro implementation; the generated client declarations
-require `import StreamParsing`. The support library itself does not depend on the runtime.
-
-Inputs accept SwiftSyntax protocols where possible, so callers can pass concrete type and
-expression nodes. Outputs use concrete declaration nodes or syntax lists that compose with
-SwiftSyntaxBuilder. No source declaration is required to describe a field.
+## Describe the fields and generate the struct
 
 ```swift
-import StreamParsingMacroSupport
-import SwiftSyntax
-import SwiftSyntaxBuilder
-
-let field = StreamParseableField(
-  name: TokenSyntax.identifier("name"),
-  type: IdentifierTypeSyntax(name: TokenSyntax.identifier("String")),
-  keys: ["name", "display_name"]
-)
-let generation = try StreamObjectGeneration(fields: [field])
-let partial = generation.partialDeclaration()
-```
-
-The generated `Partial` is independently parseable. Generating this declaration alone does
-not synthesize conversions or a `StreamParseable` conformance for the enclosing source type.
-Those policies remain with the consuming macro in this first version.
-
-## Compose declarations
-
-Complete generation uses the same components exposed individually:
-
-```swift
-let partial = try StructDeclSyntax(
-  "struct Partial: StreamParsingCore.StreamParseable, StreamParsingCore.StreamParseableObject, Sendable"
-) {
-  DeclSyntax("typealias Partial = Self")
-  generation.storageMembers()
-  generation.initializer()
-  generation.initialValueMembers()
-  generation.observationMembers()
-  generation.schemaMembers()
-  generation.viewDeclaration {
-    DeclSyntax("var marker: Int { 42 }")
-  }
-  generation.streamViewFunction()
-}
-```
-
-For finer schema customization, use `fieldIdentifiers()`, `containerSchemaMembers()`,
-`matchFieldFunction()`, `applyFunction(for:)`, `fieldTableProperty()`, and `schemaProperty()`.
-They share the generator's field ordering and storage interpretation. Keep those components
-together when changing names or storage types: the field table addresses the exact stored
-representation described by the generator.
-
-Return values can be edited through ordinary SwiftSyntax APIs before insertion. Builder
-closures execute during generation and their declarations become syntax nodes, not runtime
-callbacks.
-
-## Lifetime mode
-
-`StreamViewMode.packageDefault` resolves to `.lifetime` when this package's `LifetimeView`
-trait is enabled, and `.unsafe` otherwise. The lifetime mode generates noncopyable,
-nonescapable views and lifetime annotations. Unsafe mode generates noncopyable unsafe pointer
-views without compiler-enforced lifetime constraints.
-
-Use the default in ordinary macro expansion so views agree with the runtime. Explicit modes
-are useful for expansion tests:
-
-```swift
-let configuration = StreamGenerationConfiguration(viewMode: .lifetime)
 let generation = try StreamObjectGeneration(
-  fields: fields,
-  configuration: configuration
+  fields: [
+    StreamParseableField(
+      name: .identifier("name"),
+      type: IdentifierTypeSyntax(name: .identifier("String")),
+      keys: ["name", "display_name"]
+    )
+  ],
+  configuration: StreamGenerationConfiguration(
+    viewMode: .packageDefault,
+    accessLevel: .public
+  )
 )
+let declaration = try generation.structDeclaration(in: context)
 ```
 
-Selecting a mode does not enable package traits or compiler features. A downstream package
-that exposes its own `LifetimeView` trait must forward it to its `swift-stream-parsing`
-dependency; its generated-code target must also enable the needed compiler features.
-`SmokeTests/MacroSupport` provides an executable example of that setup.
+The generator owns storage, initialization, observation metadata, schema routing, and the
+view's lifetime handling. `StreamViewMode.packageDefault` follows the `LifetimeView` package
+trait. Explicit `.lifetime` and `.unsafe` modes are also available. Coordinate generated names
+through `StreamGeneratedNames`; `TokenSyntax.streamPartial` and `.streamView` provide the
+conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize required fields
+with their stream initial values instead of making them optional.
 
-## UTF-8 predicates and matching
+The result is a `StructDeclSyntax`, so a consumer can modify declaration attributes, generic
+constraints, inheritance, or members through normal SwiftSyntax operations. Rewriting generated
+implementation members makes the consumer responsible for their continued compatibility.
 
-`StreamUTF8Match` produces an exact byte predicate. `leadingWord` and
-`remainingCondition(matching:)` expose the components used by optimized dispatch.
-`StreamUTF8MatchSet` combines several spellings into one predicate; an empty set is false.
-These predicates can reference the input expression repeatedly, so provide a stable expression.
-
-For a different storage representation or a cached byte count, supply the expressions that
-read the count and each trailing word. The same predicate works in a switch `where` clause
-or an `if` condition:
+## Add members and behavior
 
 ```swift
-let match = StreamUTF8Match("awaiting_moderation")
-let condition = match.remainingCondition(
-  byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
-) { offset in
-  ExprSyntax("partial.paddedWord(at: \(raw: offset))")
-}
-let clause = WhereClauseSyntax(
-  whereKeyword: .keyword(.where, trailingTrivia: .space),
-  condition: condition
+let declaration = try generation.structDeclaration(
+  in: context,
+  additionalMembers: { references in
+    DeclSyntax("var lastRecognizedField: StreamParsingCore.StreamFieldID? = nil")
+    DeclSyntax("static var nameField: StreamParsingCore.StreamFieldID { \(references.fields[0].identifier) }")
+    DeclSyntax("mutating func resetTracking() { lastRecognizedField = nil }")
+  },
+  additionalViewMembers: { _ in
+    DeclSyntax("var marker: Int { 42 }")
+  },
+  onFieldRecognized: { event in
+    "\(event.partial).lastRecognizedField = \(event.field)"
+  }
 )
 ```
 
-The surrounding switch must already match `match.leadingWord`. The remaining predicate
-checks the byte count before reading words at offsets 8, 16, and so on, distinguishing NUL
-bytes from padding. The closure runs while generating syntax and accepts concrete expression
-nodes. `match.word(at:)` exposes individual padded word literals for custom control flow.
+The member builders accept arbitrary valid struct members, including methods, initializers,
+subscripts, nested types, conditional compilation, and already-built member lists. Additional
+stored properties must have defaults compatible with the generated initializer and satisfy the
+struct's `Sendable` conformance. View additions must respect the selected lifetime mode.
+Do not duplicate generated members. Defaults are also used by the cached initial-value template;
+custom state should have value semantics suitable for copying that template.
 
-For complete control flow, use `StreamUTF8Matcher`:
+Customization contexts supply the generated types and field references. Identifier expressions
+are valid at their insertion point and have runtime type `StreamFieldID`. Consumers can compare,
+store, hash, and switch on these schema-local identities. Aliases share an identifier. Identifiers
+are not table positions or array indices and must not be persisted across schema revisions or
+compared across unrelated schemas. The underscored numeric bridge used in expansions is
+implementation support; consumers should interpolate the supplied identifier syntax.
+
+`onFieldRecognized` runs once for each declared key on this partial, before its value is applied.
+Repeated keys trigger repeated calls; aliases report the same identity; unknown keys do not
+trigger the hook. Recognition does not imply that parsing or application will succeed. Table
+routing and matcher routing use the same contract, including optional wrappers and nested
+containers. Empty hook bodies install no runtime handler. The hook's statements run inside a
+mutating helper, so returning exits that helper rather than cancelling parsing. Expressions
+supplied by the event context should be used instead of assuming parameter or storage names.
+
+## Compose complete UTF-8 predicates
+
+For custom control flow, `StreamUTF8Match` and `StreamUTF8MatchSet` generate complete byte-exact
+predicates accepting general `ExprSyntaxProtocol` nodes:
 
 ```swift
-let matcher = try StreamUTF8Matcher(
-  branches: [
-    StreamUTF8Branch(matching: ["customer_name", "name"]) {
-      ReturnStmtSyntax(expression: nameFieldID)
-    },
-    StreamUTF8Branch(matching: ["customer_id"]) {
-      ReturnStmtSyntax(expression: idFieldID)
-    }
-  ]
+let condition = StreamUTF8MatchSet(["name", "display_name"]).condition(
+  matching: DeclReferenceExprSyntax(baseName: .identifier("bytes"))
 )
-let body = matcher.statements(
-  matching: bytesExpression,
-  strategy: .switchTree,
-  in: context
-) {
-  ReturnStmtSyntax(expression: unknownFieldID)
-}
+let clause = WhereClauseSyntax(condition: condition)
 ```
 
-The matcher binds its input once, using the expansion context for a unique temporary name.
-Both `.switchTree` and `.ifElseTree` return `CodeBlockItemListSyntax`. A body can return,
-throw, or continue into the statements following the generated matcher. A successful branch
-never executes the fallback.
-
-Matching compares UTF-8 bytes, including byte length and all words after the leading word.
-Different encoded spellings remain distinct even when Swift strings compare as canonically
-equivalent. Conflicting byte-identical keys in different branches are rejected at construction.
-The generated expressions expect `count`, `paddedLeadingWord()`, and `paddedWord(at:)`, as
-provided by `Span<UInt8>` with `StreamParsingCore` in scope.
-
-## Inspect optional types
-
-`TypeSyntaxProtocol.streamUnwrappedOptionalType` removes explicit optional layers written as
-`T?`, `Optional<T>`, or `Swift.Optional<T>`. `streamIsOptional` checks whether any such layer
-exists. These utilities accept concrete type nodes and preserve optionality inside containers;
-they inspect syntax and do not resolve type aliases.
+Inputs must provide `count`, `paddedLeadingWord()`, and `paddedWord(at:)`, such as `Span<UInt8>`.
+The expression may be evaluated more than once; bind side-effecting input to a local first.
+Canonical Unicode equivalents remain distinct when their UTF-8 bytes differ. Word extraction,
+partial guards, dispatch strategies, and branch handlers are implementation details. Consumers
+extending generated structs use field identities and the recognition hook instead.

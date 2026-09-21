@@ -284,8 +284,8 @@ extension StreamParseableMacro {
     case .optional: .optional
     case .streamInitialValue: .streamInitialValue
     }
-    let generation = StreamObjectGeneration(
-      uncheckedFields: fields,
+    let generation = streamObjectGeneration(
+      diagnosedFields: fields,
       partialMembers: mode,
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
@@ -305,7 +305,7 @@ extension StreamParseableMacro {
       ).memberBlock.members
     }
     return DeclSyntax(
-      generation.partialDeclaration(additionalViewMembers: viewMembers)
+      streamStructDeclaration(generation, additionalViewMembers: viewMembers)
     )
   }
 
@@ -328,19 +328,19 @@ extension StreamParseableMacro {
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
         if let conversion = property.completedConversion {
-          let expression = property.type.streamIsOptional
+          let expression = streamIsOptional(property.type)
             ? "self.\(property.memberName).map { StreamParsingCore.ConvertedPartial<\(conversion)>(value: $0) }"
             : "StreamParsingCore.ConvertedPartial<\(conversion)>(value: self.\(property.memberName))"
           return "    \(property.memberName): \(expression)\(suffix)"
         }
-        if property.type.streamUnwrappedOptionalType.is(DictionaryTypeSyntax.self) {
+        if streamUnwrappedOptionalType(property.type).is(DictionaryTypeSyntax.self) {
           // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
           // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
           // through the optional rather than reaching for `mapValues` on it, which did not
           // compile at all.
           let converted = "StreamParsingCore.StreamDictionary($0.mapValues(\\.streamPartialValue))"
           let value =
-            property.type.streamIsOptional
+            streamIsOptional(property.type)
             ? "self.\(property.memberName).map { \(converted) }"
             : "StreamParsingCore.StreamDictionary(self.\(property.memberName).mapValues(\\.streamPartialValue))"
           return "    \(property.memberName): \(value)\(suffix)"
@@ -385,7 +385,7 @@ extension StreamParseableMacro {
       let lines =
         active.map {
           if $0.completedConversion != nil {
-            let fallback = $0.type.streamIsOptional ? "nil" : ($0.defaultExpression ?? "nil")
+            let fallback = streamIsOptional($0.type) ? "nil" : ($0.defaultExpression ?? "nil")
             return "    self.\($0.memberName) = _streamConvertedValue(partial.\($0.memberName)) ?? (\(fallback))"
           }
           return "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -402,7 +402,7 @@ extension StreamParseableMacro {
         active
         .map {
           if $0.completedConversion != nil {
-            let helper = $0.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
+            let helper = streamIsOptional($0.type) ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
             return "      let \($0.memberName) = \(helper)(partial.\($0.memberName))"
           }
           return "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -438,13 +438,10 @@ extension StreamParseableMacro {
     return """
       \(unlabelled)
 
-        /// Fails when the stream did not produce a member this type has no way to do without.
         \(modifierPrefix)init?(streamPartial partial: Partial) {
       \(strictBody)
         }
 
-        /// Fills members the stream did not produce with their initial values, keeping the ones
-        /// it did.
         \(modifierPrefix)init(orInitial partial: Partial) {
       \(assignments("_streamValueOrInitial"))
         }
@@ -672,7 +669,7 @@ extension StreamParseableMacro {
     for diagnostic in capacityInfo.diagnostics {
       context.diagnose(diagnostic)
     }
-    if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
+    if hasIgnoredAttribute, !hasDefaultValue, !streamIsOptional(type) {
       Self.diagnoseUnsettableIgnoredMember(
         in: variableDecl,
         propertyName: propertyName,
@@ -700,7 +697,7 @@ extension StreamParseableMacro {
       if capacityInfo.value != nil {
         context.diagnose(Self.error(variableDecl, "initialCapacity: is not supported with completedConversion:."))
       }
-      if !type.streamIsOptional, defaultExpression == nil {
+      if !streamIsOptional(type), defaultExpression == nil {
         context.diagnose(Self.error(variableDecl, "A nonoptional converted member requires an explicit default for init(orInitial:)."))
       }
     }

@@ -348,8 +348,6 @@ extension StreamParseableMacro {
         """
 
 
-          /// Falls back to the case marked `@StreamParseableDefault` when the stream did not
-          /// produce a value this type can represent.
           \(inline)\(prefix)static func streamValueOrInitial(from partial: Partial) -> Self {
         \(Self.defaultCaseFallbackBody(for: enumCase))
           }
@@ -395,13 +393,13 @@ extension StreamParseableMacro {
     let exactArms = candidates
       .map { candidate in
         let match = StreamUTF8Match(candidate.name)
-        let condition = match.remainingCondition(
+        let condition = streamRemainingUTF8Condition(match,
           byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
         ) { offset in
           ExprSyntax("partial.paddedWord(at: \(raw: offset))")
         }
         return """
-              case \(match.leadingWord) where \(condition):
+              case \(streamUTF8WordLiteral(match.value, at: 0)) where \(condition):
                 self = .\(candidate.reference)
                 return
           """
@@ -456,11 +454,6 @@ extension StreamParseableMacro {
           self.init(streamPartial: partial)
         }
 
-        /// Resolves the case the accumulated raw value names, or the shortest case that value is
-        /// still a prefix of.
-        ///
-        /// A partial string cannot say whether it is finished, so a value that names one case and
-        /// is a prefix of a longer one resolves to the shorter and may later be superseded.
         \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
       \(body)
         }
@@ -477,7 +470,6 @@ extension StreamParseableMacro {
         self.init(streamPartial: partial)
       }
 
-      /// Fails when the stream produced a raw value no case declares.
       \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
         self.init(rawValue: partial)
       }
@@ -533,9 +525,6 @@ extension StreamParseableMacro {
           self.init(streamPartial: partial)
         }
 
-        /// Fails unless exactly one case's key arrived, matching what `JSONDecoder` accepts for
-        /// the same document — and, for a case with associated values, unless that one case's own
-        /// payload has everything it needs yet.
         \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
           var streamMatched = -1
           var streamMatches = 0
@@ -615,16 +604,6 @@ extension StreamParseableMacro {
       """
   }
 
-  // `Value` and its `Partial` are implementation detail — nothing outside this expansion names
-  // either — so the doc comments `conversionMembers` writes for a *user's* type are noise here.
-  // They stay on the struct lowering, where they document API someone actually calls.
-  static func stripped(_ text: String) -> String {
-    text
-      .split(separator: "\n", omittingEmptySubsequences: false)
-      .filter { !$0.drop(while: { $0 == " " }).hasPrefix("///") }
-      .joined(separator: "\n")
-  }
-
   // The generated per-case payload namespace's name. Upper-cased because it is a type: a case is
   // spelled `text`, its payload type `TextPayload`. The suffix is what keeps it from colliding
   // with a Swift keyword, so no backticking is needed even for `case \`default\``.
@@ -693,11 +672,9 @@ extension StreamParseableMacro {
       by: 4
     )
     let valueConversion = Self.reindented(
-      Self.stripped(
-        Self.conversionMembers(
-          from: properties, modifierPrefix: modifierPrefix, membersMode: .optional,
-          inlinable: inlinable
-        )
+      Self.conversionMembers(
+        from: properties, modifierPrefix: modifierPrefix, membersMode: .optional,
+        inlinable: inlinable
       ),
       by: 4
     )
@@ -782,8 +759,6 @@ extension StreamParseableMacro {
 
 #if LifetimeView
     return """
-      /// One case's borrowed, mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-      /// than one case's key has arrived yet.
       \(modifierPrefix)enum ResolvedView: ~Copyable, ~Escapable {
         case unresolved
         case ambiguous
@@ -810,8 +785,6 @@ extension StreamParseableMacro {
       """
 #else
     return """
-      /// One case's unsafe mid-stream view — or `.unresolved`/`.ambiguous` when zero or more
-      /// than one case's key has arrived yet. Do not retain it across parser mutation.
       @unsafe \(modifierPrefix)enum ResolvedView: ~Copyable {
         case unresolved
         case ambiguous

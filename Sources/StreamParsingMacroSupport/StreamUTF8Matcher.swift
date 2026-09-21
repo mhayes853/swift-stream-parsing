@@ -1,45 +1,46 @@
+import SwiftBasicFormat
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// A body associated with one or more byte-exact UTF-8 spellings.
-public struct StreamUTF8Branch: Hashable, Sendable {
+struct StreamUTF8Branch: Hashable, Sendable {
   /// The strings that select this branch.
-  public let values: [String]
+  let values: [String]
 
   /// The statements emitted when a value matches.
-  public let body: CodeBlockItemListSyntax
+  let body: CodeBlockItemListSyntax
 
   /// Creates a branch and eagerly builds its body.
-  public init(
+  init(
     matching values: some Sequence<String>,
     @CodeBlockItemListBuilder body: () throws -> CodeBlockItemListSyntax
   ) rethrows {
     self.values = Array(values)
-    self.body = try body()
+    self.body = try body().formatted().cast(CodeBlockItemListSyntax.self)
   }
 
-  public static func == (lhs: Self, rhs: Self) -> Bool {
+  static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.values.map { Array($0.utf8) } == rhs.values.map { Array($0.utf8) }
       && lhs.body == rhs.body
   }
 
-  public func hash(into hasher: inout Hasher) {
+  func hash(into hasher: inout Hasher) {
     self.values.forEach { hasher.combine(Array($0.utf8)) }
     hasher.combine(self.body)
   }
 }
 
 /// An error found while constructing a ``StreamUTF8Matcher``.
-public enum StreamUTF8MatcherError: Error, Hashable, Sendable {
+enum StreamUTF8MatcherError: Error, Hashable, Sendable {
   /// Two branches contain the same exact UTF-8 byte sequence.
   case duplicateValue([UInt8])
 }
 
 /// Generates byte-exact dispatch over a collection of UTF-8 branches.
-public struct StreamUTF8Matcher: Hashable, Sendable {
+struct StreamUTF8Matcher: Hashable, Sendable {
   /// The shape of the generated control flow.
-  public enum Strategy: Hashable, Sendable {
+  enum Strategy: Hashable, Sendable {
     /// Groups candidates by their leading padded word and emits a switch.
     case switchTree
 
@@ -48,13 +49,13 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
   }
 
   /// The branches, in matching order.
-  public let branches: [StreamUTF8Branch]
+  let branches: [StreamUTF8Branch]
 
   /// Creates a matcher, rejecting byte-identical values in different branches.
   ///
   /// Validation compares UTF-8 bytes directly. Canonically equivalent Swift
   /// strings remain distinct when their encoded bytes differ.
-  public init(branches: some Sequence<StreamUTF8Branch>) throws {
+  init(branches: some Sequence<StreamUTF8Branch>) throws {
     let branches = Array(branches)
     var seen = [[UInt8]: Int]()
     for (branchIndex, branch) in branches.enumerated() {
@@ -74,13 +75,13 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
   /// Exactly one matching body is entered. If no value matches, `otherwise`
   /// is entered. Empty branches never match, and an empty matcher emits only
   /// the input binding and fallback body.
-  public func statements(
+  func statements(
     matching bytes: some ExprSyntaxProtocol,
     strategy: Strategy,
     in context: some MacroExpansionContext,
     @CodeBlockItemListBuilder otherwise: () throws -> CodeBlockItemListSyntax
   ) rethrows -> CodeBlockItemListSyntax {
-    let fallback = try otherwise()
+    let fallback = try otherwise().formatted().cast(CodeBlockItemListSyntax.self)
     let name = context.makeUniqueName("streamUTF8Bytes")
     let reference = DeclReferenceExprSyntax(baseName: name)
     guard self.branches.contains(where: { !$0.values.isEmpty }) else {
@@ -98,6 +99,44 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
       let \(name) = \(bytes)
       \(dispatch)
       """
+  }
+
+  /// Generates a function taking a UTF-8 span and executing this matcher.
+  ///
+  /// Supply return statements in the branches and fallback for a value-returning
+  /// function. Use `statements` for bodies with custom control flow, or customize
+  /// the returned declaration through SwiftSyntax.
+  func functionDeclaration(
+    named name: TokenSyntax,
+    inputName: TokenSyntax = .identifier("bytes"),
+    returning returnType: some TypeSyntaxProtocol,
+    modifiers: DeclModifierListSyntax = [],
+    strategy: Strategy,
+    in context: some MacroExpansionContext,
+    @CodeBlockItemListBuilder otherwise: () throws -> CodeBlockItemListSyntax
+  ) rethrows -> FunctionDeclSyntax {
+    let body = try self.statements(
+      matching: DeclReferenceExprSyntax(baseName: inputName),
+      strategy: strategy,
+      in: context,
+      otherwise: otherwise
+    )
+    return FunctionDeclSyntax(
+      modifiers: modifiers,
+      name: name,
+      signature: FunctionSignatureSyntax(
+        parameterClause: FunctionParameterClauseSyntax {
+          FunctionParameterSyntax(
+            firstName: .wildcardToken(),
+            secondName: inputName,
+            type: TypeSyntax("Span<UInt8>")
+          )
+        },
+        returnClause: ReturnClauseSyntax(type: returnType)
+      ),
+      body: CodeBlockSyntax(statements: body)
+    )
+    .formatted().cast(FunctionDeclSyntax.self)
   }
 
   private struct Candidate: Hashable, Sendable {
@@ -136,12 +175,12 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
   ) -> CodeBlockItemListSyntax {
     let candidates = self.candidates()
     let groups = Dictionary(grouping: candidates.filter { !$0.value.isEmpty }) {
-      StreamUTF8Match.paddedWord(in: Array($0.value.utf8), at: 0)
+      streamPaddedWord(in: Array($0.value.utf8), at: 0)
     }
     let switchCases = groups.keys.sorted()
       .map { word -> SwitchCaseSyntax in
         let literal = IntegerLiteralExprSyntax(
-          literal: .integerLiteral(StreamUTF8Match.wordLiteral(word))
+          literal: .integerLiteral(streamWordLiteral(word))
         )
         let statements = self.leadingGroupTree(
           groups[word]!,
@@ -207,11 +246,7 @@ public struct StreamUTF8Matcher: Hashable, Sendable {
     return groups.keys.sorted().reversed()
       .reduce(fallback) { remainder, branchIndex in
         let values = groups[branchIndex]!.map(\.value)
-        let condition = StreamUTF8MatchSet(values)
-          .condition(
-            matching: bytes,
-            afterLeadingWordMatch: true
-          )
+        let condition = streamUTF8Condition(values, matching: bytes, afterLeadingWordMatch: true)
         return """
           if \(condition) {
             \(self.branches[branchIndex].body)

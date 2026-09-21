@@ -1,5 +1,5 @@
 import CustomDump
-import StreamParsingMacroSupport
+@testable import StreamParsingMacroSupport
 import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxBuilder
@@ -15,7 +15,7 @@ struct `Stream UTF8 match tests` {
     let match = StreamUTF8Match("abcdefghijklmnopq")
     let bytes: ExprSyntax = "bytes"
 
-    expectNoDifference(match.leadingWord.trimmedDescription, "0x6867_6665_6463_6261")
+    expectNoDifference(streamUTF8WordLiteral(match.value, at: 0).trimmedDescription, "0x6867_6665_6463_6261")
     expectNoDifference(
       match.condition(matching: bytes).trimmedDescription,
       "(bytes).count == 17 && (bytes).paddedWord(at: 8) == 0x706F_6E6D_6C6B_6A69 && (bytes).paddedWord(at: 16) == 0x0000_0000_0000_0071 && (bytes).paddedLeadingWord() == 0x6867_6665_6463_6261"
@@ -26,7 +26,7 @@ struct `Stream UTF8 match tests` {
   func `Custom Count And Word Expressions Compose Into A Where Clause`() {
     let match = StreamUTF8Match("abcdefghijklmnopq")
     var offsets = [Int]()
-    let condition = match.remainingCondition(
+    let condition = streamRemainingUTF8Condition(match,
       byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
     ) { offset in
       offsets.append(offset)
@@ -41,7 +41,7 @@ struct `Stream UTF8 match tests` {
       condition: condition
     )
     expectNoDifference(offsets, [8, 16])
-    expectNoDifference(match.word(at: 16).trimmedDescription, "0x0000_0000_0000_0071")
+    expectNoDifference(streamUTF8WordLiteral(match.value, at: 16).trimmedDescription, "0x0000_0000_0000_0071")
     expectNoDifference(
       clause.trimmedDescription,
       "where streamCount == 17 && loadWord(8) == 0x706F_6E6D_6C6B_6A69 && loadWord(16) == 0x0000_0000_0000_0071"
@@ -50,8 +50,7 @@ struct `Stream UTF8 match tests` {
 
   @Test
   func `Custom Match Expressions Preserve Operator Precedence`() {
-    let condition = StreamUTF8Match("abcdefghi")
-      .remainingCondition(
+    let condition = streamRemainingUTF8Condition(StreamUTF8Match("abcdefghi"),
         byteCount: ExprSyntax("cachedCount ?? fallbackCount")
       ) { _ in
         ExprSyntax("word & mask")
@@ -65,8 +64,7 @@ struct `Stream UTF8 match tests` {
   @Test
   func `Custom Word Builder Propagates Errors`() {
     #expect(throws: BuilderError.self) {
-      try StreamUTF8Match("abcdefghi")
-        .remainingCondition(byteCount: ExprSyntax("count")) {
+      try streamRemainingUTF8Condition(StreamUTF8Match("abcdefghi"),byteCount: ExprSyntax("count")) {
           _ throws -> ExprSyntax in throw BuilderError()
         }
     }
@@ -253,6 +251,38 @@ struct `Stream UTF8 match tests` {
     expectNoDifference(source.contains("return selected"), true)
     expectNoDifference(Syntax(statements).hasError, false)
     expectNoDifference(Parser.parse(source: statements.description).hasError, false)
+  }
+
+  @Test(arguments: [StreamUTF8Matcher.Strategy.switchTree, .ifElseTree])
+  func `Matcher Generates A Customizable Function Declaration`(
+    strategy: StreamUTF8Matcher.Strategy
+  ) throws {
+    let matcher = try StreamUTF8Matcher(branches: [
+      StreamUTF8Branch(matching: ["value"]) {
+        ReturnStmtSyntax(expression: IntegerLiteralExprSyntax(1))
+      }
+    ])
+    let function = matcher.functionDeclaration(
+      named: .identifier("lookup"),
+      inputName: .identifier("input"),
+      returning: OptionalTypeSyntax(wrappedType: IdentifierTypeSyntax(name: .identifier("Int"))),
+      modifiers: DeclModifierListSyntax {
+        DeclModifierSyntax(name: .keyword(.public))
+        DeclModifierSyntax(name: .keyword(.static))
+      },
+      strategy: strategy,
+      in: BasicMacroExpansionContext()
+    ) { ReturnStmtSyntax(expression: NilLiteralExprSyntax()) }
+    expectNoDifference(function.name.text, "lookup")
+    expectNoDifference(
+      function.signature.parameterClause.parameters.first?.secondName?.text,
+      "input"
+    )
+    expectNoDifference(function.signature.returnClause?.type.trimmedDescription, "Int?")
+    expectNoDifference(function.description.contains("public static func lookup"), true)
+    expectNoDifference(function.description.contains("return 1"), true)
+    expectNoDifference(function.description.contains("return nil"), true)
+    expectNoDifference(Parser.parse(source: function.description).hasError, false)
   }
 
   @Test

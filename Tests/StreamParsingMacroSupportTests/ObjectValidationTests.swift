@@ -2,6 +2,7 @@ import CustomDump
 import StreamParsingMacroSupport
 import SwiftParser
 import SwiftSyntax
+import SwiftSyntaxMacroExpansion
 import Testing
 
 @Suite
@@ -38,7 +39,7 @@ struct `StreamObjectGeneration validation tests` {
       self.field(name: "composed", key: "é"),
       self.field(name: "decomposed", key: "e\u{301}")
     ])
-    let source = generation.matchFieldFunction().description
+    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
     expectNoDifference(source.contains("key.count == 2"), true)
     expectNoDifference(source.contains("key.count == 3"), true)
   }
@@ -63,8 +64,8 @@ struct `StreamObjectGeneration validation tests` {
     )
     let generation = try StreamObjectGeneration(fields: [field])
     expectNoDifference(
-      generation.storageMembers().trimmedDescription,
-      "var value: StreamParsingCore.ConvertedPartial<EpochSeconds>?"
+      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("var value: StreamParsingCore.ConvertedPartial<EpochSeconds>?"),
+      true
     )
   }
 
@@ -83,7 +84,7 @@ struct `StreamObjectGeneration validation tests` {
     )
     let generation = try StreamObjectGeneration(fields: [field])
     expectNoDifference(
-      generation.fieldTableProperty().description.contains("initialCapacity: 8"),
+      try generation.structDeclaration(in: BasicMacroExpansionContext()).description.contains("initialCapacity: 8"),
       true
     )
   }
@@ -113,7 +114,7 @@ struct `StreamObjectGeneration validation tests` {
       ],
       configuration: StreamGenerationConfiguration(viewMode: mode, accessLevel: .public)
     )
-    let source = generation.partialDeclaration().description
+    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
     expectNoDifference(Parser.parse(source: source).hasError, false)
     expectNoDifference(source.contains("var `default`:"), true)
   }
@@ -121,20 +122,42 @@ struct `StreamObjectGeneration validation tests` {
   @Test
   func `Empty Keys Are Checked Before Loading The Leading Word`() throws {
     let generation = try StreamObjectGeneration(fields: [self.field(name: "empty", key: "")])
-    let source = generation.matchFieldFunction().description
+    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
     let emptyCheck = try #require(source.range(of: "guard !key.isEmpty"))
     let load = try #require(source.range(of: "paddedLeadingWord"))
     expectNoDifference(emptyCheck.lowerBound < load.lowerBound, true)
     expectNoDifference(
-      Parser.parse(source: generation.partialDeclaration().description).hasError,
+      Parser.parse(source: try generation.structDeclaration(in: BasicMacroExpansionContext()).description).hasError,
       false
     )
   }
 
+  @Test(arguments: [StreamViewMode.lifetime, .unsafe])
+  func `Generated Declarations Do Not Contain Comments`(mode: StreamViewMode) throws {
+    let generation = try StreamObjectGeneration(
+      fields: [self.field(name: "url", key: "https://example.com")],
+      configuration: StreamGenerationConfiguration(viewMode: mode)
+    )
+    let comments = try generation.structDeclaration(in: BasicMacroExpansionContext()).tokens(viewMode: .sourceAccurate)
+      .flatMap { Array($0.leadingTrivia) + Array($0.trailingTrivia) }
+      .filter {
+        switch $0 {
+        case .lineComment, .docLineComment, .blockComment, .docBlockComment: true
+        default: false
+        }
+      }
+    expectNoDifference(comments.isEmpty, true)
+  }
+
   @Test
   func `Renaming A Complete Partial Updates Its Storage References`() throws {
-    let generation = try StreamObjectGeneration(fields: [self.field(name: "value", key: "value")])
-    let source = generation.partialDeclaration(named: TokenSyntax.identifier("Storage")).description
+    let generation = try StreamObjectGeneration(
+      fields: [self.field(name: "value", key: "value")],
+      configuration: StreamGenerationConfiguration(
+        names: StreamGeneratedNames(partialType: .identifier("Storage"))
+      )
+    )
+    let source = try generation.structDeclaration(in: BasicMacroExpansionContext()).description
     expectNoDifference(source.contains("struct Storage:"), true)
     expectNoDifference(source.contains("UnsafeMutablePointer<Storage>"), true)
     expectNoDifference(Parser.parse(source: source).hasError, false)

@@ -74,23 +74,6 @@ private func expectedViewExpansion(_ source: String) -> String {
       }
     }
 
-    if trimmed.contains("One case's borrowed, mid-stream view") {
-      transformed.append(
-        line.replacingOccurrences(
-          of: "One case's borrowed, mid-stream view",
-          with: "One case's unsafe mid-stream view"
-        )
-      )
-      index += 1
-      continue
-    }
-
-    if trimmed == "/// than one case's key has arrived yet." {
-      transformed.append(indentation + "/// than one case's key has arrived yet. Do not retain it across parser mutation.")
-      index += 1
-      continue
-    }
-
     transformed.append(line)
     index += 1
   }
