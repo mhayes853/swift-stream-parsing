@@ -400,8 +400,7 @@ stream_parsing_classify_structural_block(
   // Edge to edge inside a string. Dead for the structural walk, which always passes zero carries
   // (see the NEON kernel); kept so the two spellings answer every input alike.
   if (quote == 0 && in_string == ~(uint64_t)0) {
-    out.no_outer_whitespace = 1;
-    out.strike = 1;
+    out.ladder_block = 1;
     out.starts = 0;
     out.scalar_end = 0;
     out.needs_scalar = stream_parsing_block_any_control(v0, v1);
@@ -437,11 +436,11 @@ stream_parsing_classify_structural_block(
       _mm256_cmpeq_epi8(_mm256_and_si256(c0, separator_bits), zero),
       _mm256_cmpeq_epi8(_mm256_and_si256(c1, separator_bits), zero));
 
-  out.no_outer_whitespace = (whitespace & ~in_string) == 0;
+  uint64_t outer_whitespace = whitespace & ~in_string;
+  out.ladder_block =
+      (outer_whitespace == 0) | ((quote == 0) & ((outer_whitespace & (outer_whitespace << 1)) == 0));
   out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
   out.scalar_end = whitespace | separator;
-  out.strike = out.no_outer_whitespace
-      | (__builtin_popcountll(out.starts) >= STREAM_PARSING_BLOCK_WALK_DENSE_STARTS);
   out.needs_scalar = ((control & in_string) | (unaccepted & ~in_string)) != 0;
   return out;
 }

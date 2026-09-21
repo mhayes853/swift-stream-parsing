@@ -165,6 +165,11 @@ enum Payloads {
   static let gsoc2018 = Self.resource("gsoc-2018")
   static let githubEvents = Self.resource("github_events")
   static let twitterEscaped = Self.resource("twitterescaped")
+  // `twitter` again as Python's `json.dumps` writes it by default: `", "` and `": "` separators
+  // and no indentation, so every whitespace run outside a string is exactly one byte. The shape
+  // most tool-call output arrives in, and the one neither the pretty printed nor the minified
+  // corpora cover.
+  static let twitterSpaced = Self.resource("twitterspaced")
 
   // A three.js mesh export, and the number payload the others are not. `canada` is denser in
   // numbers (90.1% of bytes against 78.8%) but almost perfectly uniform -- 97.7% of its tokens

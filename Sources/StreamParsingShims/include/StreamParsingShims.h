@@ -88,22 +88,15 @@ typedef struct {
   // string, so this is the caller's `containsNonASCII` for the strings it emits; the validator
   // then runs each string's own extent and reports at the byte it finds, as the scalar path does.
   uint32_t non_ascii;
-  // Nonzero: the block holds no whitespace *outside* a string -- the walk's gate signal, computed
-  // here rather than handed out as a mask because one `bic` + `cmp` beats another 64-bit field in
-  // the struct. Whitespace inside a string is deliberately excluded: those bytes the walk skips
-  // with its cursor anyway, so the classifier saves nothing on them.
-  uint32_t no_outer_whitespace;
-  // Nonzero: the block is a strike against the walk -- `no_outer_whitespace`, or at least
-  // `STREAM_PARSING_BLOCK_WALK_DENSE_STARTS` bits in `starts`. Written by the AVX2 kernel only and
-  // read only on x86 (baseline x86-64 has no `popcnt`); arm64's Swift gate recomputes it from the
-  // two fields above. Sits in the struct's tail padding, so the size is the same either way.
-  uint32_t strike;
+  // Nonzero: the block is the scalar ladder's -- it holds nothing the walk buys. The walk replaces
+  // two of the ladder's scans, whitespace runs and string extents, so that is a block with no
+  // whitespace outside a string at all, or with no string and no whitespace *run* outside one (a
+  // lone separator space, as in `[1.5, 2.5]`, the ladder takes in its stride; measured: Mesh, all
+  // numbers and one-byte runs, -7.0% raw / -10.6% typed in the walk). A function of these 64
+  // bytes alone. Whitespace inside a string is excluded: the walk's cursor skips it anyway.
+  // Computed here rather than handed out as masks: a flag beats more 64-bit fields in the struct.
+  uint32_t ladder_block;
 } stream_parsing_structural_classes;
-
-// The gate's second strike: a block with at least this many token-start candidates has
-// whitespace but nothing to skip (JSONParserBlocks.swift). One constant for both spellings of the
-// gate -- the Swift one on arm64 and the AVX2 kernel's `strike`.
-#define STREAM_PARSING_BLOCK_WALK_DENSE_STARTS 48
 
 // The one SIMD operation Swift's SIMD API cannot express: a byte table lookup, `tbl` on arm64.
 // The `ext_vector_type` signature imports as `SIMD16<UInt8>`, and `static inline` folds the call
@@ -335,7 +328,7 @@ stream_parsing_classify_structural_block(
   // kept for a carrying caller.)
   if (quote == 0 && in_string == ~(uint64_t)0) {
     // Edge to edge inside a string: no byte of it is whitespace outside one, by construction.
-    out.no_outer_whitespace = 1;
+    out.ladder_block = 1;
     out.starts = 0;
     out.scalar_end = 0;
     out.needs_scalar = vminvq_u8(vminq_u8(vminq_u8(v0, v1), vminq_u8(v2, v3))) < 0x20;
@@ -390,7 +383,12 @@ stream_parsing_classify_structural_block(
     vtstq_u8(c2, separator_bits), vtstq_u8(c3, separator_bits)
   );
 
-  out.no_outer_whitespace = (whitespace & ~in_string) == 0;
+  // Nothing here for the walk to buy: no string (whose extent it reads off `quote`) and no
+  // whitespace *run* outside one (the scan it replaces; a lone separator space the ladder takes in
+  // its stride). See the field's comment.
+  uint64_t outer_whitespace = whitespace & ~in_string;
+  out.ladder_block =
+    (outer_whitespace == 0) | ((quote == 0) & ((outer_whitespace & (outer_whitespace << 1)) == 0));
   out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
   out.scalar_end = whitespace | separator;
   out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
@@ -422,7 +420,7 @@ ptrdiff_t stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdi
                                          int *out_non_ascii);
 
 // Whether the two block classifiers below may be called: AVX2 plus PCLMULQDQ (the quote parity)
-// and POPCNT (the structural kernel's gate strike). A separate question from
+// and POPCNT (no longer used by either kernel; every AVX2 part has it). A separate question from
 // `stream_parsing_has_avx2` so a (hypothetical) AVX2 part without either keeps the validator and
 // the string scanner. Resolved on first use and cached with the same probe.
 int stream_parsing_has_avx2_block_kernels(void);

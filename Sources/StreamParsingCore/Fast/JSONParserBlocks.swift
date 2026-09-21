@@ -8,8 +8,7 @@
   // starts on. See NEW_ARCHITECTURE.md, "The structural block walk".
   extension JSONParser {
     // Entered with a structural state, no token in flight and a whole block ahead. Returns where
-    // the scalar loop resumes (`~p` once the gate gives up), `state`/`depth`/`containers` written
-    // back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
+    // the scalar loop resumes, `state`/`depth`/`containers` written back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
     // save/restore in the prologue of `consumeStructuralRun`, which every byte-fed token pays.
     @inlinable
     @inline(never)
@@ -33,31 +32,10 @@
         // Anything unusual is the scalar loop's, from this block's first byte, so the byte an
         // error names is the byte the scalar loop names.
         if classes.needs_scalar != 0 { return p }
-        // The gate: a block strikes with no whitespace outside strings (nothing for the `tzcnt` to
-        // buy over the ladder's scan) or dense `starts` (Mesh); four in a row give the walk up
-        // until `probeBlockWalk` re-arms it. Census in NEW_ARCHITECTURE.md. x86 gets the verdict
-        // whole from the kernel: baseline x86-64 has no `popcnt` (`nonzeroBitCount` was 17
-        // instructions a block).
-        #if arch(x86_64)
-          let strike = classes.strike != 0
-        #else
-          let strike =
-            classes.no_outer_whitespace != 0
-            || classes.starts.nonzeroBitCount >= Int(STREAM_PARSING_BLOCK_WALK_DENSE_STARTS)
-        #endif
-        if strike {
-          self.blockWalkStrikes &+= 1
-          if self.blockWalkStrikes >= 4 {
-            self.blockWalkGivenUp = true
-            self.blockWalkProbeCountdown = Self.blockWalkProbeKilobytes
-            self.blockWalkProbeThreshold = Self.blockWalkProbeChunk
-            return ~p
-          }
-        } else if self.blockWalkStrikes != 0 {
-          // Consecutive, not cumulative. Measured: counting GSoC's odd whitespace-free blocks up
-          // reached four and threw its win away (+18.1% -> -0.8%).
-          self.blockWalkStrikes = 0
-        }
+        // Nothing in the block for the walk to buy (the field's comment says what that means), so
+        // it is the ladder's, which comes back at the next indentation or string it meets. A
+        // function of this block alone -- no strikes, no verdict, no history.
+        if classes.ladder_block != 0 { return p }
         let containsNonASCII = classes.non_ascii != 0
         var mask = classes.starts
 
@@ -416,30 +394,3 @@
     }
   }
 #endif
-
-// The re-probe: a given-up walk is re-armed once `blockWalkProbeKilobytes` of chunks of at least
-// `blockWalkProbeChunk` bytes have gone by, so a stream that changes shape is judged again. A
-// failed probe is at most four blocks walked per 64 KB, ~0.15% at Mesh's per-block loss (-26.4%).
-// Smaller chunks keep the verdict.
-extension JSONParser {
-  @inlinable package static var blockWalkProbeKilobytes: UInt8 { 64 }
-  @inlinable package static var blockWalkProbeChunk: Int { 4096 }
-
-  // While a re-probe is due `blockWalkProbeThreshold` is `blockWalkProbeChunk`, so `parseProbing`
-  // gets every bulk-sized chunk and counts it here before parsing it: the one that runs the
-  // countdown out is walked from its first block. Only the gate's give-up starts a countdown, and
-  // the gate only runs with the kernels.
-  @usableFromInline
-  @inline(never)
-  mutating func probeBlockWalk(count n: Int) {
-    let kilobytes = n &>> 10
-    if kilobytes < Int(self.blockWalkProbeCountdown) {
-      self.blockWalkProbeCountdown &-= UInt8(truncatingIfNeeded: kilobytes)
-      return
-    }
-    self.blockWalkProbeCountdown = 0
-    self.blockWalkProbeThreshold = .max
-    self.blockWalkGivenUp = false
-    self.blockWalkStrikes = 0
-  }
-}

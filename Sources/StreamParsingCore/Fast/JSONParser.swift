@@ -45,7 +45,7 @@ public struct JSONParser: ~Copyable {
   @usableFromInline static let maximumDepth = 64
 
   // Field order is a cache-line decision: everything a parse touches is in the first 64 bytes, the
-  // tail holds deinit-only and block-walk gate state. Small fields are narrowed, not bit-packed -- packing
+  // tail holds deinit-only state and the block walk's switch. Small fields are narrowed, not bit-packed -- packing
   // would make plain stores read-modify-writes and break the fused `strh` for the two flags below.
   @usableFromInline var state = State.value
   // Whether the string being read is a key; the escape and unicode states are shared. `bufferCount
@@ -98,19 +98,6 @@ public struct JSONParser: ~Copyable {
   // `parse`'s prologue copies by value (measured: two instructions per specialisation).
   @usableFromInline package var blockWalkEnabled = true
 
-  // The walk's verdict on this payload and the consecutive strikes behind it (the gate in
-  // JSONParserBlocks.swift), initialised from `blockKernelsAvailable`, which `reset` restores. On
-  // x86 the verdict also carries "no AVX2 classifier", so the run's entry test is the availability
-  // test. Measured: one packed byte cost `Mesh - bulk` -4.0% against -8.8%; keep two adjacent bytes.
-  #if arch(x86_64)
-    @usableFromInline package var blockWalkGivenUp = !streamHasAVX2BlockKernels
-  #elseif arch(arm64)
-    @usableFromInline package var blockWalkGivenUp = false
-  #else
-    @usableFromInline package var blockWalkGivenUp = true
-  #endif
-  @usableFromInline package var blockWalkStrikes: UInt8 = 0
-
   // Whether this CPU has the block classifiers both 64-byte block paths need: the constant `true`
   // on arm64, a byte copied from the process-wide probe once per parser on x86.
   #if arch(x86_64)
@@ -120,15 +107,6 @@ public struct JSONParser: ~Copyable {
   #else
     @inlinable package var blockKernelsAvailable: Bool { false }
   #endif
-
-  // Kilobytes left before a given-up walk is re-armed (`probeBlockWalk`), zero while no re-probe
-  // is due (always, without the kernels). Sits in the padding before `blockWalkProbeThreshold`.
-  @usableFromInline package var blockWalkProbeCountdown: UInt8 = 0
-
-  // `.max` except while a re-probe is due, when the gate lowers it to `blockWalkProbeChunk` so
-  // `parse` sends bulk-sized chunks through `parseProbing` to be counted. One compare in `parse`
-  // against a value that is almost always `.max`; see `parseProbing` for why it is not a flag test.
-  @usableFromInline var blockWalkProbeThreshold: Int = .max
 
   public init(bufferCapacity: Int = 4096) {
     // `bufferCapacity` is narrowed to `UInt32` below and `capacity &+ scratchByteCount` would wrap
@@ -183,10 +161,6 @@ public struct JSONParser: ~Copyable {
     self.skipEndDepth = 0
     self.pendingUTF8Count = 0
     self.consumedByteCount = 0
-    self.blockWalkGivenUp = !self.blockKernelsAvailable
-    self.blockWalkStrikes = 0
-    self.blockWalkProbeCountdown = 0
-    self.blockWalkProbeThreshold = .max
   }
 
   public var byteOffset: Int { self.consumedByteCount }
@@ -249,10 +223,6 @@ public struct JSONParser: ~Copyable {
     guard let start = input.baseAddress, !input.isEmpty else { return }
     let base = UnsafeRawPointer(start)
     let n = input.count
-    if n >= self.blockWalkProbeThreshold {
-      try self.parseProbing(base: base, count: n, into: &sink)
-      return
-    }
     do throws(JSONParsingError) {
       try self.parseDispatching(base: base, count: n, into: &sink)
     } catch {
@@ -320,27 +290,6 @@ public struct JSONParser: ~Copyable {
     return i
   }
 
-  // A bulk-sized chunk while a block-walk re-probe is due: counted, then parsed by `parse`'s own
-  // dispatcher branch, restated. Measured: a flag test of its own in `parse` stopped the benchmark
-  // chunk loops inlining `parse` and moved `consumeStructuralRun`'s frame, so the hook is a
-  // threshold compare that is false for every chunk while no probe is due.
-  @inlinable
-  @inline(never)
-  mutating func parseProbing<Sink: StreamParseSink & ~Copyable>(
-    base: UnsafeRawPointer, count n: Int, into sink: inout Sink
-  ) throws(JSONParsingError) {
-    self.probeBlockWalk(count: n)
-    do throws(JSONParsingError) {
-      try self.parseDispatching(base: base, count: n, into: &sink)
-    } catch {
-      try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
-      try self.commitSink(chunkEnd: n, replacing: error, into: &sink)
-    }
-    try self.settlePendingStringBegin(base: base, chunkEnd: n, into: &sink)
-    try self.commitSink(chunkEnd: n, into: &sink)
-    self.consumedByteCount &+= n
-  }
-
   @inlinable
   public mutating func finish<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink
@@ -383,14 +332,15 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     #if arch(arm64)
-      if self.blockWalkEnabled && !self.blockWalkGivenUp {
+      // The size test first: a byte-fed or sub-block chunk can never reach the walk, and this way
+      // it pays one compare for that rather than two field loads.
+      if to &- from >= 64, self.blockWalkEnabled {
         return try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
       }
     #elseif arch(x86_64)
-      // `blockWalkGivenUp` also says the CPU lacks the AVX2 classifier, so this is the
-      // availability check too. The block copy is a call, not a second inlined body -- measured:
-      // both inlined moved `self` out of `r14` and cost `Mesh - bulk` -7.8% against -2.5%.
-      if self.blockWalkEnabled && !self.blockWalkGivenUp {
+      // The block copy is a call, not a second inlined body -- measured: both inlined moved `self`
+      // out of `r14` and cost `Mesh - bulk` -7.8% against -2.5%.
+      if to &- from >= 64, self.blockWalkEnabled && self.blockKernelsAvailable {
         return try self.consumeStructuralRunBlocks(base: base, from: from, to: to, into: &sink)
       }
     #endif
@@ -408,6 +358,47 @@ public struct JSONParser: ~Copyable {
       into sink: inout Sink
     ) throws(JSONParsingError) -> Int {
       try self.structuralRun(base: base, from: from, to: to, blocks: true, into: &sink)
+    }
+  #endif
+
+  // The byte after a whitespace byte that sends the ladder to the block walk: more whitespace
+  // (indentation) or a quote (a string next). Those are the two scans the walk replaces.
+  @inlinable
+  @inline(__always)
+  static func followsIntoBlockWalk(_ byte: UInt8) -> Bool {
+    ((streamWhitespaceBitmap | (1 &<< UInt64(UInt8.asciiQuote))) >> UInt64(byte)) & 1 != 0
+  }
+
+  #if arch(arm64) || arch(x86_64)
+    // The ladder's way into the block walk (JSONParserBlocks.swift). State crosses in the parser's
+    // fields, which the ladder writes before the call and reads after it: handing the walk the
+    // ladder's own locals `inout` makes them address-taken, and their stores land in the run's
+    // entry block, on every byte-fed call (measured: ten stack accesses, Mesh -7.3%, Canada
+    // -4.0%). Returns the first byte the ladder should look at, which is never whitespace: the
+    // ladder dispatches it without re-testing the signal, so a block the walk hands straight
+    // back cannot bounce between the two.
+    @inlinable
+    @inline(never)
+    mutating func structuralBlocksFromLadder<Sink: StreamParseSink & ~Copyable>(
+      base: UnsafeRawPointer,
+      from: Int,
+      to: Int,
+      into sink: inout Sink
+    ) throws(JSONParsingError) -> Int {
+      var state = self.state
+      var depth = self.depth
+      var containers = self.containers
+      defer {
+        self.state = state
+        self.depth = depth
+        self.containers = containers
+      }
+      let end = try self.consumeStructuralBlocks(
+        base: base, from: from, to: to, state: &state, depth: &depth, containers: &containers,
+        into: &sink
+      )
+      guard state.isStructural else { return end }
+      return streamWhitespaceEnd(base: base, from: end, to: to)
     }
   #endif
 
@@ -430,45 +421,64 @@ public struct JSONParser: ~Copyable {
       self.containers = containers
     }
     while i < to {
-      #if arch(arm64) || arch(x86_64)
-        // The 64-byte block path (JSONParserBlocks.swift), tried at every token boundary because
-        // that is where it is re-entered: anything it will not judge comes back here, and the
-        // next block is available once this loop settles that token. `state.isStructural` is not
-        // tested -- the loop only reaches its own top in a structural state.
-        if blocks, i &+ 64 <= to {
-          // Copies scoped to this branch, not the run's own locals: taking the address of `depth`
-          // and `containers` makes `var depth = self.depth` address-taken, and the store it
-          // becomes lands in the entry block, on every byte-fed call that never gets here.
-          var blockState = state
-          var blockDepth = depth
-          var blockContainers = containers
-          defer {
-            state = blockState
-            depth = blockDepth
-            containers = blockContainers
+      // The scan's one-compare fast path, spelled here so the signal below sits behind it: a token
+      // with no whitespace in front of it -- every token of a minified document -- pays nothing.
+      var byte = base.load(fromByteOffset: i, as: UInt8.self)
+      if byte <= .asciiSpace {
+        #if arch(arm64) || arch(x86_64)
+          // The signal for the block walk: a whitespace byte followed by more whitespace
+          // (indentation) or by a quote (a string next), and a whole block ahead. Those are the
+          // two scans the walk replaces. A lone separator space in front of a number is neither,
+          // and a document made of those (Mesh: 73,024 runs, all one byte, all before numbers)
+          // runs faster on the ladder (-7.0% raw / -10.6% typed in the walk), while the same
+          // separators in front of strings want the walk (Twitter spaced: -5.0% typed when kept
+          // on the ladder). A function of two bytes: a minified document never signals, and
+          // nothing is remembered from one block to the next.
+          // Exact whitespace, not `<= space`: a stray control byte must reach the ladder's error
+          // arm, and the walk hands such a block straight back, so signalling on it would loop.
+          // The walk is reached through `structuralBlocksFromLadder`, never with this loop's
+          // locals `inout`, and never through a second exit from the loop -- measured: an early
+          // `return ~i` to an outer driver cost the typed rows that never signal 2-3%, and the
+          // same signal as `i = ~i; break` 5-6% (Canada, Mesh, Twitter spaced), with *fewer*
+          // stack accesses than either. Reading the signal off the scan's results instead (run
+          // length >= 2, or a quote as the byte it stopped on) spares Mesh a load per number
+          // (typed -5.6% -> -3.2%) and lost everywhere else: Canada raw -7.1%, Qwen raw -5.5%,
+          // `Pretty printed users - 64B chunks` -10.6%, Qwen typed -1.6%.
+          if blocks, i &+ 64 <= to, streamIsWhitespace(byte),
+            Self.followsIntoBlockWalk(base.load(fromByteOffset: i &+ 1, as: UInt8.self))
+          {
+            self.state = state
+            self.depth = depth
+            self.containers = containers
+            do throws(JSONParsingError) {
+              i = try self.structuralBlocksFromLadder(base: base, from: i, to: to, into: &sink)
+            } catch {
+              // The walk wrote the fields back; this loop's `defer` must not undo that.
+              state = self.state
+              depth = self.depth
+              containers = self.containers
+              throw error
+            }
+            state = self.state
+            depth = self.depth
+            containers = self.containers
+            if i == to || !state.isStructural { break }
+            byte = base.load(fromByteOffset: i, as: UInt8.self)
+          } else {
+            // The scan hands back the byte it stopped on, so the dispatch below reads a register
+            // instead of reloading the address the scan just tested.
+            let scanned = streamWhitespaceEndByte(base: base, from: i, to: to)
+            i = scanned.end
+            if i == to { break }
+            byte = scanned.byte
           }
-          i = try self.consumeStructuralBlocks(
-            base: base, from: i, to: to, state: &blockState, depth: &blockDepth,
-            containers: &blockContainers, into: &sink
-          )
-          // A negative answer is the walk giving up on this payload's shape (the gate in
-          // JSONParserBlocks.swift); the index is its bitwise complement. Breaking honours it
-          // without the loop holding anything mutable -- the dispatcher re-enters at once.
-          if i < 0 {
-            i = ~i
-            break
-          }
-          // A block that handed the parse to the skip scanner, the string loop or the number path
-          // leaves the run exactly as the step below would have.
-          if !blockState.isStructural { break }
-        }
-      #endif
-      // The scan hands back the byte it stopped on, so the dispatch below reads a register instead
-      // of reloading the address the scan's one-compare fast path just tested.
-      let scanned = streamWhitespaceEndByte(base: base, from: i, to: to)
-      i = scanned.end
-      if i == to { break }
-      let byte = scanned.byte
+        #else
+          let scanned = streamWhitespaceEndByte(base: base, from: i, to: to)
+          i = scanned.end
+          if i == to { break }
+          byte = scanned.byte
+        #endif
+      }
       i &+= 1
       // A number is the one token whose first byte belongs to the token itself, so the run ends
       // and the byte is handed back for `.number` to re-read.

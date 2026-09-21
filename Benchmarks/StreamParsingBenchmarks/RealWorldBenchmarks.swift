@@ -13,6 +13,8 @@ import StreamParsingCore
 //   citm_catalog     deep nesting and heavily repeated keys, ~1.6 MB
 //   gsoc-2018        large with long string values, ~3.2 MB
 //   twitterescaped   the same document as twitter with every non-ASCII byte as a \u escape
+//   twitterspaced    the same document as Python's `json.dumps` writes it: one-space separators,
+//                    no indentation, ~481 KB
 //   github_events    a small API response, ~64 KB
 //   llm_message      an assistant message: long escaped markdown, tool-use objects, small ints
 //   qwen3 calls      small and medium Hermes-style tool arguments, including nested source edits
@@ -29,6 +31,7 @@ private let chunkSize = 16_384
 private let realWorldPayloads: [(String, [UInt8])] = [
   ("Twitter", Payloads.twitter),
   ("Twitter escaped", Payloads.twitterEscaped),
+  ("Twitter spaced", Payloads.twitterSpaced),
   ("Canada", Payloads.canada),
   ("CITM catalog", Payloads.citmCatalog),
   ("GSoC 2018", Payloads.gsoc2018),
@@ -266,6 +269,11 @@ private func addRealWorldBaselineConvenienceRows() {
     payload: Payloads.twitterEscaped,
     as: BenchmarkTwitterMatched.Partial.self,
     includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Twitter spaced",
+    payload: Payloads.twitterSpaced,
+    as: BenchmarkTwitterMatched.Partial.self
   )
   addRealWorldConvenienceRows(
     "Twitter full",

@@ -73,7 +73,9 @@ the corpus comparable parsers publish against, so these numbers can be read next
 else's at the level of input shape. The numbers are not direct parser shoot-out results: the raw
 rows stream events into a counting sink and the convenience rows materialize Swift partials,
 whereas commonly published yyjson and simdjson results generally build or query their own data
-representations.
+representations. `twitterspaced.json` is `twitter.json` re-serialised with Python's default
+`json.dumps` (`", "` and `": "` separators, no indentation, `ensure_ascii=False`): the shape most
+tool-call output arrives in, where every whitespace run outside a string is exactly one byte.
 
 `llm_message.json` is an assistant message of long escaped markdown, fenced code and tool-use
 objects. `Payloads.swift` also generates realistic Qwen 3 structured outputs: the canonical JSON

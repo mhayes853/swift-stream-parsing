@@ -7259,7 +7259,10 @@ Mesh's walk penalty went from the census's -26.4% to -7.4%, so the extents bough
 they could; what is left is the classifier itself on blocks with no whitespace to skip, plus a
 re-anchor per long token (an 18-byte Canada float crosses a block edge more than one time in four).
 An unconditional walk needs either a cheaper classifier for whitespace-free blocks or an entry
-condition that is a function of the bytes at the cursor rather than of history. Open.
+condition that is a function of the bytes at the cursor rather than of history. The second is what
+landed: see "When the walk runs: a signal in the ladder, a verdict per block" in the design notes.
+A `Twitter spaced` corpus (Python `json.dumps` separators) was added for it, because no existing
+row had one-byte whitespace in front of strings.
 
 Literals needed nothing: `true`/`false`/`null` have been a 32-bit word compare inside the walk since
 "String values and literals finish inside the structural run", and the walk restates that arm.
@@ -7321,66 +7324,87 @@ skip block scanner" below): it is where the classifier's two tables and four spl
 and hoisting into `d8` puts a save/restore pair in the prologue of whatever function owns the loop.
 `consumeStructuralRun`'s prologue is the one every byte-fed token pays and must not grow.
 
-#### The block walk's gate: whitespace outside strings
+#### When the walk runs: a signal in the ladder, a verdict per block
 
-The classifier does not pay on every payload, so the walk gates itself off. Two signals, one strike
-each, counted per classified block; four consecutive strikes and the walk is done with that parser
-(`blockWalkGivenUp`, reset by `reset()`). Both signals were chosen off a census of the classifier's
-own masks over the corpus, in bytes per classified block:
+The classifier does not pay on every payload, so the walk does not run on every payload. What
+decides is two tests, both functions of the bytes at the cursor and nothing else -- no counters, no
+verdict carried between blocks, no dependence on how the input was chunked.
 
-| corpus | raw delta | ws outside strings | in-string | starts |
-| --- | --- | --- | --- | --- |
-| CITM catalog | +37.9% | 46.3 | 8.5 | 9.4 |
-| GitHub events | +31.8% | 17.0 | 39.7 | 7.9 |
-| Twitter | +24.2% | 21.9 | 32.2 | 10.5 |
-| GSoC 2018 | +15.2% | 19.0 | 39.9 | 5.7 |
-| LLM message | −0.1% | 0.0 | 53.6 | 11.4 |
-| Twitter escaped | −4.1% | 0.0 | 49.5 | 15.3 |
-| Canada | −5.7% | 0.0 | 0.0 | 64.0 |
-| Qwen workspace | (−25.8% typed) | 0.0 | 56.9 | 8.1 |
-| Qwen structured | (−11.5% typed) | 0.0 | 54.6 | 10.0 |
-| Mesh | −26.4% | 6.7 | 0.0 | 57.3 |
+**In: the ladder signals.** In the whitespace slow path of `structuralRun(blocks: true)`: a
+whitespace byte followed by more whitespace or by a quote, with 64 bytes ahead. **Out: the block is
+the ladder's.** `ladder_block` from the classifier: no whitespace outside a string at all, or no
+string and no whitespace *run* outside one. Both say the same thing from two sides. The walk
+replaces exactly two of the ladder's scans -- whitespace runs and string extents (numbers are a wash:
+see "Number extents from the block masks") -- so it runs where there is indentation or a string
+after whitespace, and nowhere else.
 
-The split is total: every corpus the walk wins on has 17 or more whitespace bytes per block
-*outside* its strings, and every corpus it loses on has none. That is the whole mechanism — the
-ladder's whitespace scan is a SIMD loop entered once per token, and replacing it with a `tzcnt` is
-what the classifier is actually buying. With no whitespace to skip there is nothing left to buy: the
-walk re-reads the same byte the ladder would have, through 139 more instructions per block. A dense
-`starts` mask catches the one shape that has whitespace but still nothing to skip — `Mesh`, a run of
-numbers — and is kept as a second strike for it. (The same split showed in "Cheap first tiers: one
-of three landed, and the census said which": the whitespace peel's flat documents were the ones
-with almost no whitespace outside strings.)
+The census that fixed the rule, whitespace runs outside strings:
 
-Not one block of CITM, Twitter, GitHub or GSoC is whitespace-free, so four strikes never fire on
-them; Canada, Mesh, both Qwen payloads and Twitter escaped strike on essentially every block and are
-out of the walk within four.
+| corpus | runs | one byte | two or more |
+| --- | ---: | ---: | ---: |
+| CITM catalog | 76,337 | 33.9% | 66.1% |
+| Twitter | 28,826 | 46.3% | 53.7% |
+| GitHub events | 2,526 | 45.2% | 54.8% |
+| GSoC 2018 | 41,713 | 45.5% | 54.5% |
+| Twitter spaced | (Python `json.dumps`) | 100% | 0% |
+| Mesh | 73,024 | 100% | 0% |
+| Canada / LLM / Twitter escaped / Qwen | <= 18 | -- | -- |
 
-**A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes
-shape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather
-than by its first four blocks forever. `parseProbing` counts the chunks: while a countdown is live
-`blockWalkProbeThreshold` drops from `.max` to 4 KB so bulk chunks reach it, and the chunk that runs
-it out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15%
-at Mesh's per-block loss. (The hook is a threshold compare rather than a flag test because it took
-over the slot `windowThreshold` had in `parse` when windowed mode was removed — see "One parse
-path" — which kept `parse` the size it was.)
+Every pretty-printed corpus signals at each member's indentation. The minified ones never reach the
+slow path. The two all-one-byte corpora are the pair that whitespace shape alone cannot separate,
+and they want opposite things: Mesh (every separator in front of a number) is -7.0% raw / -10.6%
+typed in the walk, Twitter spaced (the same separators in front of strings) is -5.0% typed kept on
+the ladder. The quote is what tells them apart, on the way in and on the way out.
 
-**Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.
-`GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free
-block; counting those up over its 13,343 blocks reached four and threw the win away (+18.1% →
-−0.8%).
+A block the walk refuses where it was entered cannot loop: `structuralBlocksFromLadder` skips the
+whitespace it was entered on and the ladder dispatches the byte it returns without re-testing the
+signal, so at least one token is consumed per hand-off. The signal tests exact whitespace, not
+`<= space`, so a stray control byte goes to the ladder's error arm (`A block the walk refuses where
+it was signalled cannot loop`).
 
-On x86 the kernel hands the verdict back whole (a `strike` field). Baseline x86-64 has no `popcnt`,
-so computing `starts.nonzeroBitCount` in Swift was a 17-instruction bit-twiddling sequence on every
-block of every payload the walk wins on — those always have whitespace and so never short-circuit
-past it. On x86 the same flag also carries whether the CPU has the AVX2 classifier at all
-(`streamHasAVX2BlockKernels`): a machine without it starts every document already given up, which
-makes the run's entry test the availability test too, with no third load and no read of the lazily
-initialised global on any parse path.
+**What it replaced.** The previous gate counted strikes per block (no whitespace outside strings,
+or 48+ `starts`), gave the walk up after four in a row, and re-armed it after 64 KB of chunks of
+at least 4 KB -- through a threshold compare in `parse` on every call. It made the same document
+parse differently at 2 KB chunks than at 8 KB, and let a document's first 256 bytes decide its next
+64 KB. Its census and the reasoning behind each constant are in git history (`8cab8fb` and before).
 
-**Verdict and strike count are two adjacent bytes, not one packed byte.** Packing them so the run's
-entry test would be a single load was measured and is worse: `Mesh - bulk` −4.0% against −8.8% and
-`Canada - bulk` −1.9% against −4.6%, interleaved and reproduced. Two plain `Bool` loads cost less
-than one load plus the mask, and the read-modify-write the walk needs to set a bit costs more still.
+**Measured against that gate, 4 interleaved rounds, the gated build run twice as the floor (+0.08%
+mean, +-0.4% a row), best-of-4 p0:**
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| CITM catalog | -1.4% | +2.7% |
+| Twitter full | -- | +2.5% |
+| Dictionary 128 keys / Retention 100 users | -- | +2.1 / +2.0% |
+| LLM message | -1.2% | +1.6% |
+| GitHub events | -0.6% | +1.5% |
+| GSoC 2018 | -0.6% | +1.1% |
+| Qwen 3 workspace edit / structured | -0.7 / -1.6% | +1.1 / +0.3% |
+| Twitter / Twitter escaped / Twitter spaced | -0.3 / -0.7 / -1.0% | +0.8 / +0.6 / +0.4% |
+| byte-fed rows (6) | +0.3 .. +2.7% | |
+| Canada | +1.2% | -1.4% |
+| Mesh | -3.9% | **-5.5%** |
+| mean of 41 rows | | +0.23% |
+
+`parse` lost ten instructions (the threshold compare and its out-of-line probe path), the walk
+forty, and `JSONParser` is 72 bytes. Mesh is the one real loss, reproduced in a second run (-5.6%):
+its separators put every number through the whitespace slow path, where the signal now costs a
+bitmap test, a load and a second bitmap test before the scan. Under the old gate Mesh ran the
+`blocks: false` copy, which has none of it.
+
+**The spellings that lost**, in the order tried (typed rows unless marked):
+
+| spelling | what happened |
+| --- | --- |
+| signal on any whitespace byte; walk left only on a whitespace-free block | Mesh -7.0% raw / -10.6%: it enters on `, ` and stays |
+| signal as `return ~i` to an outer driver loop that calls the walk | rows that never signal -1..-3% (Canada -1.9%, Mesh -2.9%): a second exit from the ladder's loop |
+| the same signal as `i = ~i; break` | 169 stack accesses against 191, and *worse*: Canada -5.2%, Mesh -6.0% |
+| two whitespace bytes only (no quote) | Twitter spaced -5.0%: Python-style objects want the walk |
+| signal read off the scan's results (run >= 2, or stopped on a quote) | Mesh -3.2% but Canada raw -7.1%, Qwen raw -5.5%, `Pretty printed users - 64B` -10.6%, Qwen typed -1.6% |
+
+A latent hang was found on the way: with the signal as `byte <= space`, a control byte outside a
+string signals, the walk returns the block untouched (`needs_scalar`), and the two hand the same
+byte back and forth forever. No test held a control byte with 64 bytes behind it; one does now.
 
 #### Skipping a subtree inside the block walk (built, measured, rejected)
 
