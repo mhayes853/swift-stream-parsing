@@ -522,11 +522,28 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     guard let top = self.topFrame else { return }
     // Read through the frame each time, not bound to a local: a local passed to `enterKey` kept the
     // schema alive across the call, a retain per dictionary entry. In place it is a borrow.
-    switch top.pointee.schema.keyRouting {
+    switch top.pointee.schema.keyDispatch {
     case .table:
       top.pointee.pendingField = Self.matchTable(top, bytes)
     case .match:
       top.pointee.pendingField = top.pointee.withSchema { $0.matchField(bytes) }
+    case .observedTable:
+      let entry = Self.matchTable(top, bytes)
+      top.pointee.pendingField = entry
+      if entry >= 0 {
+        let field = top.pointee.schema.fieldEntries.unsafelyUnwrapped[Int(entry)].index
+        top.pointee.withSchema {
+          $0.onFieldRecognized!(top.pointee.storage, _streamFieldID(field))
+        }
+      }
+    case .observedMatch:
+      let field = top.pointee.withSchema { $0.matchField(bytes) }
+      top.pointee.pendingField = field
+      if field >= 0 {
+        top.pointee.withSchema {
+          $0.onFieldRecognized!(top.pointee.storage, _streamFieldID(field))
+        }
+      }
     case .dictionary:
       switch self.activeLeafRoute {
       case .dictionaryStreamString, .dictionaryOptionalStreamString,

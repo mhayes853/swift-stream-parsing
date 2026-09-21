@@ -1,5 +1,17 @@
 # Smoke tests
 
+`MacroSupport` is a separate downstream package whose own macro imports the public
+`StreamParsingMacroSupport` product. It composes partial storage, schemas and a custom view,
+then compiles and executes both UTF-8 matching strategies. Run it in both modes:
+
+```sh
+swift run --package-path SmokeTests/MacroSupport --disable-experimental-prebuilts MacroSupportSmoke
+swift run --package-path SmokeTests/MacroSupport --traits LifetimeView --disable-experimental-prebuilts MacroSupportSmoke
+```
+
+The fixture forwards its trait to the dependency, checking that the macro support target and
+runtime choose the same default view mode across a package boundary.
+
 `NoLifetimeSmoke` expands and runs `@StreamParseable` without enabling `LifetimeView`,
 `Lifetimes`, or `AddressableTypes`:
 

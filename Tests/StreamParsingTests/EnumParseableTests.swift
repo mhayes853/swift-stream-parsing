@@ -35,6 +35,13 @@ private enum Renamed: String, Equatable {
 }
 
 @StreamParseable
+private enum EscapedRaw: String, Equatable {
+  @StreamParseableDefault
+  case control = "line\n\"\\\0end"
+  case interpolationText = #"literal \(text)"#
+}
+
+@StreamParseable
 private enum Aliased: String, Equatable {
   @StreamParseableDefault
   @StreamParseableMember(keyNames: ["LIVE", "running"])
@@ -143,6 +150,13 @@ struct `Enum Parseable Tests` {
   func `Declines a raw value no case declares`() throws {
     let partial = try parsePartial(#"{"stage":"retired"}"#, as: Job.self)
     expectNoDifference(partial.stage.flatMap(Stage.init(streamPartial:)), nil)
+  }
+
+  @Test(arguments: [EscapedRaw.control, .interpolationText])
+  fileprivate func `Escaped Raw Values Match Decoded Bytes`(value: EscapedRaw) throws {
+    let json = String(decoding: try JSONEncoder().encode(value.rawValue), as: UTF8.self)
+    let partial = try parsePartial(json, as: EscapedRaw.self)
+    expectNoDifference(EscapedRaw(streamPartial: partial), value)
   }
 
   // The long-unknown-value case: with bounded storage this would have been a parse failure, and

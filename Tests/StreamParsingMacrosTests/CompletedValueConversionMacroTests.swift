@@ -37,10 +37,6 @@ extension BaseTestSuite {
               self.createdAt = createdAt
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -61,7 +57,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
+              @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.createdAt) else {
@@ -189,13 +185,13 @@ extension BaseTestSuite {
               },
               fields: Self.streamFields
             )
+
           }
 
           @inlinable public init?(_ partial: Partial) {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           public init?(streamPartial partial: Partial) {
             guard
               let createdAt = _streamConvertedValue(partial.createdAt)
@@ -205,8 +201,6 @@ extension BaseTestSuite {
             self.createdAt = createdAt
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           public init(orInitial partial: Partial) {
             self.createdAt = _streamConvertedValue(partial.createdAt) ?? (Date(timeIntervalSince1970: 0))
           }

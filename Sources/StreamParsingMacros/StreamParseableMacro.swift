@@ -1,4 +1,6 @@
 import SwiftDiagnostics
+import SwiftParser
+import StreamParsingMacroSupport
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
@@ -75,7 +77,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         return []
       }
       return try Self.enumExtensionExpansion(
-        of: node, declaration: enumDecl, type: type, in: sink
+        of: node, declaration: enumDecl, type: type, in: sink, expansionContext: context
       )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
@@ -113,10 +115,11 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       ]
     }
 
-    let partialStruct = Self.partialStructDecl(
+    let partialStruct = try Self.partialStructDecl(
       for: properties,
       accessModifier: accessModifier,
-      membersMode: membersMode
+      membersMode: membersMode,
+      in: context
     )
     return [
       try ExtensionDeclSyntax(
@@ -258,574 +261,57 @@ extension StreamParseableMacro {
     for properties: [StoredProperty],
     accessModifier: String?,
     membersMode: PartialMembersMode,
-    extraViewMembers: String = ""
-  ) -> DeclSyntax {
-    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let inlinable = Self.isInlinable(accessModifier)
-    let inline = Self.inlinableAttribute(inlinable)
-    let propertyLines = Self.partialStructProperties(
-      from: properties,
-      modifierPrefix: modifierPrefix,
-      membersMode: membersMode
-    )
-    let initializerLines = Self.partialStructInitializer(
-      from: properties,
-      modifierPrefix: modifierPrefix,
-      membersMode: membersMode
-    )
-    let observationPaths = properties.filter { !$0.isIgnored }
-      .map { "\\.\($0.memberName)" }.joined(separator: ", ")
-    let schemaLines = Self.partialStructSchema(
-      from: properties,
-      modifierPrefix: modifierPrefix,
-      inlinable: inlinable
-    )
-    let viewLines = Self.partialStructView(
-      from: properties,
-      modifierPrefix: modifierPrefix,
-      inlinable: inlinable,
-      extraViewMembers: extraViewMembers
-    )
-    // An inlinable body cannot name a `private` declaration.
-    let templateAccess = inlinable ? "@usableFromInline " : "private "
-    return """
-      \(raw: modifierPrefix)struct Partial: StreamParsingCore.StreamParseable,
-        StreamParsingCore.StreamParseableObject, Sendable {
-        \(raw: modifierPrefix)typealias Partial = Self
-
-      \(raw: propertyLines)
-
-        \(raw: initializerLines)
-
-        // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-        // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-        // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-        // `Self` itself `Sendable` here and lets the template be a plain `static let`.
-        \(raw: templateAccess)static let _streamInitialValueTemplate: Self = Self()
-
-        \(raw: inline)\(raw: modifierPrefix)static func streamInitialValue() -> Self {
-          Self._streamInitialValueTemplate
-        }
-
-        #if !hasFeature(Embedded)
-        \(raw: modifierPrefix)static var streamObservationFields: [PartialKeyPath<Self>] {
-          [\(raw: observationPaths)]
-        }
-        #endif
-
-        \(raw: viewLines)
-
-        \(raw: schemaLines)
-      }
-      """
-  }
-
-  private static func partialStructView(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    inlinable: Bool,
-    extraViewMembers: String = ""
-  ) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    let active = properties.filter { !$0.isIgnored }
-#if LifetimeView
-    let accessors = active
-      .map { property in
-        let type = Self.partialTypeName(for: property)
-        return """
-            \(inline)\(modifierPrefix)var \(property.memberName): \(type).View? {
-                @_lifetime(borrow self)
-                get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.memberName)) else {
-                    return nil
-                  }
-                  return _overrideLifetime(\(type).streamView(address), borrowing: self)
-                }
-              }
-          """
-      }
-      .joined(separator: "\n\n")
-#else
-    let accessors = active
-      .map { property in
-        let type = Self.partialTypeName(for: property)
-        return """
-            \(inline)\(modifierPrefix)var \(property.memberName): \(type).View? {
-                get {
-                  guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(property.memberName)) else {
-                    return nil
-                  }
-                  return \(type).streamView(address)
-                }
-              }
-          """
-      }
-      .joined(separator: "\n\n")
-#endif
-    let body = active.isEmpty ? "" : "\n\(accessors)\n"
-    // `extraViewMembers` is how the enum lowering gets `ResolvedView`/`resolved` in here: they
-    // have to be real members of `View`, since an extension macro can only extend the type it is
-    // attached to.
-    let closing = extraViewMembers.isEmpty ? "  }" : "  \n\(extraViewMembers)\n}"
-    // `_streamStorage`, not `storage`: a member named `storage` would otherwise redeclare it.
-    // `@frozen` so the inlinable `init` stays legal under library evolution; it is one pointer.
-    let frozen = inlinable ? "@frozen " : ""
-#if LifetimeView
-    return """
-      \(frozen)\(modifierPrefix)struct View: ~Copyable, ~Escapable {
-          \(modifierPrefix)let _streamStorage: UnsafeMutablePointer<Partial>
-
-          @_lifetime(borrow storage)
-          \(inline)\(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
-            self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
-          }
-      \(body)\(closing)
-
-        @_lifetime(borrow storage)
-        \(inline)\(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
-          View(storage)
-        }
-      """
-#else
-    return """
-      @unsafe \(frozen)\(modifierPrefix)struct View: ~Copyable {
-          \(modifierPrefix)let _streamStorage: UnsafeMutablePointer<Partial>
-
-          \(inline)\(modifierPrefix)init(_ storage: UnsafeMutableRawPointer) {
-            self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
-          }
-      \(body)\(closing)
-
-        @unsafe
-        \(inline)\(modifierPrefix)static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
-          View(storage)
-        }
-      """
-#endif
-  }
-
-  private static func paddedWord(for key: String, at start: Int = 0) -> UInt64 {
-    var word: UInt64 = 0
-    for (offset, byte) in Array(key.utf8).dropFirst(start).prefix(8).enumerated() {
-      word |= UInt64(byte) << (offset * 8)
-    }
-    return word
-  }
-
-  static func keyWordLiteral(for key: String, at start: Int = 0) -> String {
-    let word = Self.paddedWord(for: key, at: start)
-    let digits = Array("0123456789ABCDEF")
-    var hex = ""
-    for shift in stride(from: 60, through: 0, by: -4) {
-      hex.append(digits[Int((word >> UInt64(shift)) & 0xF)])
-    }
-    var grouped = [String]()
-    var index = hex.startIndex
-    while index < hex.endIndex {
-      let next = hex.index(index, offsetBy: 4)
-      grouped.append(String(hex[index..<next]))
-      index = next
-    }
-    return "0x" + grouped.joined(separator: "_")
-  }
-
-  static func stringLiteral(_ key: String) -> String {
-    var escaped = ""
-    for scalar in key.unicodeScalars {
-      switch scalar {
-      case "\\": escaped += "\\\\"
-      case "\"": escaped += "\\\""
-      default: escaped.unicodeScalars.append(scalar)
-      }
-    }
-    return "\"\(escaped)\""
-  }
-
-  // The exact-match `where` clause, shared by object keys (`keyMatchGuard`) and `String`-raw
-  // values (`enumMatchGuard`). The count is load bearing below eight bytes too, because a decoded
-  // NUL is otherwise indistinguishable from `paddedWord`'s zero padding.
-  static func matchGuard(for name: String, count: String, word: String) -> String {
-    let byteCount = name.utf8.count
-    var conditions = ["\(count) == \(byteCount)"]
-    var offset = 8
-    while offset < byteCount {
-      conditions.append("\(word)(at: \(offset)) == \(Self.keyWordLiteral(for: name, at: offset))")
-      offset += 8
-    }
-    return " where " + conditions.joined(separator: " && ")
-  }
-
-  private static func keyMatchGuard(for key: String) -> String {
-    Self.matchGuard(for: key, count: "key.count", word: "key.paddedWord")
-  }
-
-  private enum FieldShape {
-    case scalarOrObject
-    case array
-    case dictionary(String)
-  }
-
-  // One of the four `streamApplyX` functions. They differ only in signature, in what a matched
-  // field does with the value, and in whether a container field takes part: a container is only
-  // ever nulled, never written a scalar.
-  private struct ApplyFunction {
-    let name: String
-    /// The parameter list, laid out for the generated signature's four-space continuation.
-    let parameters: String
-    let body: (_ field: String, _ target: String, _ capacity: String) -> String
-    let acceptsContainers: Bool
-    var cases = [String]()
-  }
-
-  private struct SchemaCases {
-    var match = [String]()
-    // One table entry per key name. See `StreamFieldTable.swift`.
-    var fields = [String]()
-    // One stored schema per container field. See `containerSchemaConstants`.
-    var containerSchemas = [String]()
-    var applies = [
-      ApplyFunction(
-        name: "streamApplyString",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32,\n    _ bytes: Span<UInt8>",
-        body: { "    case \($0): return streamApply(&\($1), utf8: bytes\($2))" },
-        acceptsContainers: false
-      ),
-      ApplyFunction(
-        name: "streamApplyNumber",
-        parameters: """
-          _ storage: UnsafeMutableRawPointer, _ field: Int32,
-              _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
-          """,
-        body: { field, target, _ in
-          "    case \(field): return streamApply(&\(target), bytes: bytes, info: info)"
+    extraViewMembers: String = "",
+    in context: some MacroExpansionContext
+  ) throws -> DeclSyntax {
+    let fields = properties.compactMap { property -> StreamParseableField? in
+      guard !property.isIgnored else { return nil }
+      return StreamParseableField(
+        name: TokenSyntax.identifier(property.memberName),
+        type: property.type,
+        keys: property.keyNames,
+        initialCapacity: property.initialCapacity.map {
+          ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
-        acceptsContainers: false
-      ),
-      ApplyFunction(
-        name: "streamApplyBoolean",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool",
-        body: { field, target, _ in
-          "    case \(field): return streamApply(&\(target), boolean: value)"
-        },
-        acceptsContainers: false
-      ),
-      ApplyFunction(
-        name: "streamApplyNull",
-        parameters: "_ storage: UnsafeMutableRawPointer, _ field: Int32",
-        body: { field, target, _ in
-          "    case \(field): return StreamParsing.streamApplyNull(&\(target))"
-        },
-        // A container field can be nulled like any other: an optional member clears, and a
-        // non-optional one falls to the disfavoured overload and stays the mismatch it was.
-        acceptsContainers: true
-      )
-    ]
-  }
-
-  private static func fieldShape(for type: TypeSyntax) -> FieldShape {
-    let unwrapped = Self.unwrappedType(type)
-    if unwrapped.is(ArrayTypeSyntax.self) { return .array }
-    if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
-      return .dictionary(dictionary.value.trimmedDescription)
-    }
-    return .scalarOrObject
-  }
-
-  // Storage type and schema are both named from the *unwrapped* element or value type — naming
-  // them from different types is what made `[String?]` write through a `.none` representation.
-  // An optional element picks the builder that opens its slot materialised instead.
-  private static func schemaExpression(for type: TypeSyntax) -> String {
-    let unwrapped = Self.unwrappedType(type)
-    if let array = unwrapped.as(ArrayTypeSyntax.self) {
-      return Self.containerSchemaExpression(
-        "Array", element: array.element, builder: "_streamOptionalArraySchema", label: "element"
+        completedConversion: property.completedConversion.map { TypeSyntax(stringLiteral: $0) }
       )
     }
-    if let dictionary = unwrapped.as(DictionaryTypeSyntax.self) {
-      return Self.containerSchemaExpression(
-        "Dictionary", element: dictionary.value, builder: "_streamOptionalDictionarySchema",
-        label: "value"
+    let accessLevel: StreamGeneratedAccessLevel = switch accessModifier {
+    case "fileprivate": .fileprivate
+    case "package": .package
+    case "public": .public
+    default: .internal
+    }
+    let mode: StreamPartialMembers = switch membersMode {
+    case .optional: .optional
+    case .streamInitialValue: .streamInitialValue
+    }
+    let generation = StreamObjectGeneration(
+      diagnosedFields: fields,
+      partialMembers: mode,
+      configuration: StreamGenerationConfiguration(
+        viewMode: .packageDefault,
+        accessLevel: accessLevel,
+        inlining: .automatic
       )
-    }
-    return "_streamSchema(for: \(unwrapped.trimmedDescription).Partial.self)"
-  }
-
-  private static func containerSchemaExpression(
-    _ kind: String,
-    element: TypeSyntax,
-    builder optionalBuilder: String,
-    label: String
-  ) -> String {
-    let storage = Self.unwrappedType(element).trimmedDescription
-    let base = Self.schemaExpression(for: element)
-    let builder = Self.isOptional(element) ? optionalBuilder : "_stream\(kind)Schema"
-    return "\(builder)(\(storage).Partial.self, \(label): \(base))"
-  }
-
-  // A container field's schema, stored once per type rather than built once per container. These
-  // are `private` because nothing outside `streamEnterField` reads them, and they are emitted
-  // even when the type has no container fields costs nothing, since the list is empty then.
-  private static func containerSchemaConstants(_ constants: [String]) -> String {
-    guard !constants.isEmpty else { return "" }
-    return constants.joined(separator: "\n  ") + "\n\n  "
-  }
-
-  // Computed when inlinable: another module sees an inlinable getter's constant, not a `let`'s.
-  private static func fieldConstants(for properties: [StoredProperty], inlinable: Bool) -> String {
-    guard !properties.isEmpty else { return "" }
-    let constants = properties.enumerated()
-      .map { index, property in
-        inlinable
-          ? "    @inlinable static var \(property.memberName): Int32 { \(index) }"
-          : "    static let \(property.memberName): Int32 = \(index)"
-      }
-      .joined(separator: "\n")
-    let access = inlinable ? "@usableFromInline" : "private"
-    return """
-      \(access) enum StreamField {
-      \(constants)
-        }
-      """ + "\n\n  "
-  }
-
-  private static func schemaCases(for properties: [StoredProperty], inlinable: Bool) -> SchemaCases {
-    var cases = SchemaCases()
-    for property in properties {
-      let field = "Self.StreamField.\(property.memberName)"
-      for key in property.keyNames {
-        let word = Self.keyWordLiteral(for: key)
-        let guardClause = Self.keyMatchGuard(for: key)
-        cases.match.append("    case \(word)\(guardClause): return \(field)")
-      }
-
-      let target = "p.pointee.\(property.memberName)"
-      let constant = "streamContainerSchema_\(property.name)"
-      let capacityArgument = property.initialCapacity.map { ", initialCapacity: \($0)" } ?? ""
-      for key in property.keyNames {
-        cases.fields.append(
-          """
-                StreamParsingCore.StreamField(
-                  key: \(Self.stringLiteral(key)), index: \(field),
-                  route: _streamFieldRoute(&\(target), schema: Self.\(constant)\(capacityArgument)),
-                  offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)
-                ),
-          """
-        )
-      }
-      let isContainer: Bool
-      switch property.completedConversion == nil ? Self.fieldShape(for: property.type) : .scalarOrObject {
-      case .scalarOrObject:
-        isContainer = false
-        let access = property.completedConversion != nil && inlinable ? "@usableFromInline" : "private"
-        cases.containerSchemas.append(
-          "\(access) static let \(constant) = _streamContainerSchema(for: (\(Self.partialTypeName(for: property))).self)"
-        )
-      case .array, .dictionary:
-        isContainer = true
-        cases.containerSchemas.append(
-          "private static let \(constant) = \(Self.schemaExpression(for: property.type))"
-        )
-      }
-      for index in cases.applies.indices where !isContainer || cases.applies[index].acceptsContainers {
-        if property.completedConversion != nil, !cases.applies[index].acceptsContainers {
-          let arguments = index == 0 ? "bytes" : (index == 1 ? "bytes, info" : "value")
-          let operation = ["applyString", "applyNumber", "applyBoolean"][index]
-          cases.applies[index].cases.append(
-            "    case \(field): return _streamWithConverted(&\(target)) { Self.\(constant)!.\(operation)($0, StreamParsingCore.StreamSchema.wholeValueField, \(arguments)) }"
-          )
-          continue
-        }
-        cases.applies[index].cases.append(
-          cases.applies[index].body(field, target, capacityArgument)
-        )
-      }
-    }
-    return cases
-  }
-
-  private static func partialStructSchema(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    inlinable: Bool
-  ) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    let active = properties.filter { !$0.isIgnored }
-    let cases = Self.schemaCases(for: active, inlinable: inlinable)
-
-    func switchBody(_ cases: [String]) -> String {
-      cases.isEmpty ? "" : cases.joined(separator: "\n") + "\n"
-    }
-
-    func storageBinding(_ cases: [String]) -> String {
-      cases.isEmpty ? "" : "    let p = storage.assumingMemoryBound(to: Self.self)\n"
-    }
-
-    let converted = active.filter { $0.completedConversion != nil }
-    let finishStringArgument: String
-    if converted.isEmpty {
-      finishStringArgument = ""
+    )
+    let viewMembers: MemberBlockItemListSyntax = if extraViewMembers.isEmpty {
+      MemberBlockItemListSyntax([])
     } else {
-      let branches = converted.map { property in
-        "case Self.StreamField.\(property.memberName): return _streamWithConverted(&p.pointee.\(property.memberName)) { Self.streamContainerSchema_\(property.name)!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied }"
-      }.joined(separator: "\n")
-      finishStringArgument = """
-          finishString: { storage, field in
-            let p = storage.assumingMemoryBound(to: Self.self)
-            switch field {
-            \(branches)
-            default: return .applied
-            }
-          },
-      """ + "\n"
-    }
-
-    let applyFunctions = cases.applies
-      .map { function in
+      try StructDeclSyntax(
         """
-          \(inline)\(modifierPrefix)static func \(function.name)(
-            \(function.parameters)
-          ) -> StreamParsingCore.StreamApplyResult {
-        \(storageBinding(function.cases))    switch field {
-        \(switchBody(function.cases))    default: return .unsupported
-            }
-          }
+        struct _StreamViewMembers {
+        \(raw: extraViewMembers)
+        }
         """
-      }
-      .joined(separator: "\n\n")
-
-    return """
-      \(Self.fieldConstants(for: active, inlinable: inlinable))\(Self.containerSchemaConstants(cases.containerSchemas))\(inline)\(modifierPrefix)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-          switch key.paddedLeadingWord() {
-      \(switchBody(cases.match))    default: return -1
-          }
-        }
-
-      \(applyFunctions)
-
-        \(modifierPrefix)static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
-          of: Self.self, prototype: Self()
-        ) { p in
-          [
-      \(switchBody(cases.fields))    ]
-        }
-
-        \(modifierPrefix)static let streamSchema = StreamParsingCore.StreamSchema(
-          shape: .object,
-          matchField: Self.streamMatchField,
-          applyString: Self.streamApplyString,
-          applyNumber: Self.streamApplyNumber,
-          applyBoolean: Self.streamApplyBoolean,
-          applyNull: Self.streamApplyNull,
-      \(finishStringArgument)    fields: Self.streamFields
-        )
-      """
-  }
-
-  private static func partialStructProperties(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    membersMode: PartialMembersMode
-  ) -> String {
-    let lines = properties.filter { !$0.isIgnored }
-      .map { property in
-        let type = Self.memberTypeName(for: property, membersMode: membersMode)
-        return "  \(modifierPrefix)var \(property.memberName): \(type)"
-      }
-    return lines.joined(separator: "\n")
-  }
-
-  // The partial storage a property's *wrapped* type describes, with no optionality of its own.
-  // Every schema the macro emits is built from the same unwrapped type, so keeping the two in step
-  // is what makes the member the schema writes through and the member the type declares the same
-  // member.
-  private static func partialTypeName(for property: StoredProperty) -> String {
-    if let conversion = property.completedConversion {
-      return "StreamParsingCore.ConvertedPartial<\(conversion)>"
+      ).memberBlock.members
     }
-    if case .dictionary(let value) = Self.fieldShape(for: property.type) {
-      return "StreamParsingCore.StreamDictionary<\(value).Partial>"
-    }
-    return "\(Self.unwrappedType(property.type).trimmedDescription).Partial"
-  }
-
-  // Both spellings of an optional (`Int?` and `Optional<Int>`), and every layer of it: `Int??`
-  // unwrapped once left a member no schema described, so only `null` ever reached it.
-  private static func unwrappedType(_ type: TypeSyntax) -> TypeSyntax {
-    var current = type
-    while true {
-      let next = Self.unwrappedOnce(current)
-      if next == current { return current }
-      current = next
-    }
-  }
-
-  private static func unwrappedOnce(_ type: TypeSyntax) -> TypeSyntax {
-    if let optional = type.as(OptionalTypeSyntax.self) { return optional.wrappedType }
-    let name: String
-    let arguments: GenericArgumentListSyntax?
-    if let identifier = type.as(IdentifierTypeSyntax.self) {
-      name = identifier.name.text
-      arguments = identifier.genericArgumentClause?.arguments
-    } else if let member = type.as(MemberTypeSyntax.self) {
-      name = member.name.text
-      arguments = member.genericArgumentClause?.arguments
-    } else {
-      return type
-    }
-    guard name == "Optional",
-      let arguments,
-      arguments.count == 1,
-      case .type(let wrapped) = arguments.first?.argument
-    else {
-      return type
-    }
-    return wrapped
-  }
-
-  private static func isOptional(_ type: TypeSyntax) -> Bool {
-    Self.unwrappedType(type) != type
-  }
-
-  // The type a `Partial` stores for a property: one level of optionality, never two — there is
-  // no `inout T??` overload of `streamApply`, so a doubly optional member is unwritable.
-  //
-  // The mode decides whether a *non*-optional property becomes optional here; an optional one
-  // already is, in both modes.
-  private static func memberTypeName(
-    for property: StoredProperty,
-    membersMode: PartialMembersMode
-  ) -> String {
-    let base = Self.partialTypeName(for: property)
-    let isOptional = membersMode.shouldEmitOptionalMembers || Self.isOptional(property.type)
-    return isOptional ? "\(base)?" : base
-  }
-
-  private static func partialStructInitializer(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    membersMode: PartialMembersMode
-  ) -> String {
-    let activeProperties = properties.filter { !$0.isIgnored }
-    let parameters =
-      activeProperties
-      .map { property in
-        let type = Self.memberTypeName(for: property, membersMode: membersMode)
-        return "\(property.memberName): \(type) = \(membersMode.defaultValueSyntax)"
-      }
-      .joined(separator: ",\n    ")
-    let assignments =
-      activeProperties
-      .map { property in
-        "    self.\(property.memberName) = \(property.memberName)"
-      }
-      .joined(separator: "\n")
-    return """
-      \(modifierPrefix)init(
-          \(parameters)
-        ) {
-      \(assignments)
-        }
-      """
+    return DeclSyntax(
+      try generation.structDeclarationSyntax(
+        in: context,
+        additionalViewMembers: { viewMembers }
+      )
+    )
   }
 
   static func streamPartialValueProperty(
@@ -847,19 +333,19 @@ extension StreamParseableMacro {
       .map { index, property in
         let suffix = index == activeProperties.count - 1 ? "" : ","
         if let conversion = property.completedConversion {
-          let expression = Self.isOptional(property.type)
+          let expression = property.type.streamIsOptional
             ? "self.\(property.memberName).map { StreamParsingCore.ConvertedPartial<\(conversion)>(value: $0) }"
             : "StreamParsingCore.ConvertedPartial<\(conversion)>(value: self.\(property.memberName))"
           return "    \(property.memberName): \(expression)\(suffix)"
         }
-        if case .dictionary = Self.fieldShape(for: property.type) {
+        if property.type.streamUnwrappedOptionalType.is(DictionaryTypeSyntax.self) {
           // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
           // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
           // through the optional rather than reaching for `mapValues` on it, which did not
           // compile at all.
           let converted = "StreamParsingCore.StreamDictionary($0.mapValues(\\.streamPartialValue))"
           let value =
-            Self.isOptional(property.type)
+            property.type.streamIsOptional
             ? "self.\(property.memberName).map { \(converted) }"
             : "StreamParsingCore.StreamDictionary(self.\(property.memberName).mapValues(\\.streamPartialValue))"
           return "    \(property.memberName): \(value)\(suffix)"
@@ -904,7 +390,7 @@ extension StreamParseableMacro {
       let lines =
         active.map {
           if $0.completedConversion != nil {
-            let fallback = Self.isOptional($0.type) ? "nil" : ($0.defaultExpression ?? "nil")
+            let fallback = $0.type.streamIsOptional ? "nil" : ($0.defaultExpression ?? "nil")
             return "    self.\($0.memberName) = _streamConvertedValue(partial.\($0.memberName)) ?? (\(fallback))"
           }
           return "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -921,7 +407,7 @@ extension StreamParseableMacro {
         active
         .map {
           if $0.completedConversion != nil {
-            let helper = Self.isOptional($0.type) ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
+            let helper = $0.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
             return "      let \($0.memberName) = \(helper)(partial.\($0.memberName))"
           }
           return "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
@@ -957,13 +443,10 @@ extension StreamParseableMacro {
     return """
       \(unlabelled)
 
-        /// Fails when the stream did not produce a member this type has no way to do without.
         \(modifierPrefix)init?(streamPartial partial: Partial) {
       \(strictBody)
         }
 
-        /// Fills members the stream did not produce with their initial values, keeping the ones
-        /// it did.
         \(modifierPrefix)init(orInitial partial: Partial) {
       \(assignments("_streamValueOrInitial"))
         }
@@ -1191,7 +674,7 @@ extension StreamParseableMacro {
     for diagnostic in capacityInfo.diagnostics {
       context.diagnose(diagnostic)
     }
-    if hasIgnoredAttribute, !hasDefaultValue, !Self.isOptional(type) {
+    if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
       Self.diagnoseUnsettableIgnoredMember(
         in: variableDecl,
         propertyName: propertyName,
@@ -1219,7 +702,7 @@ extension StreamParseableMacro {
       if capacityInfo.value != nil {
         context.diagnose(Self.error(variableDecl, "initialCapacity: is not supported with completedConversion:."))
       }
-      if !Self.isOptional(type), defaultExpression == nil {
+      if !type.streamIsOptional, defaultExpression == nil {
         context.diagnose(Self.error(variableDecl, "A nonoptional converted member requires an explicit default for init(orInitial:)."))
       }
     }
@@ -1355,7 +838,7 @@ extension StreamParseableMacro {
       }
 
       if let keyExpression {
-        guard let keyName = self.stringLiteralValue(from: keyExpression) else {
+        guard let keyName = keyExpression.as(StringLiteralExprSyntax.self)?.representedLiteralValue else {
           diagnostics.append(
             Self.error(attribute, "@StreamParseableMember(key:) requires a string literal.")
           )
@@ -1504,21 +987,11 @@ extension StreamParseableMacro {
   // Interpolation declines rather than silently dropping the interpolated segment: `"a\(1)b"`
   // used to read as the key `ab`. An empty literal is returned as such, so callers that care can
   // say "must not be empty" instead of "not a literal".
-  static func stringLiteralValue(from expression: ExprSyntax) -> String? {
-    guard let literal = expression.as(StringLiteralExprSyntax.self) else { return nil }
-    var value = ""
-    for segment in literal.segments {
-      guard let text = segment.as(StringSegmentSyntax.self)?.content.text else { return nil }
-      value += text
-    }
-    return value
-  }
-
   private static func stringArrayValues(from expression: ExprSyntax) -> [String]? {
     guard let arrayExpression = expression.as(ArrayExprSyntax.self) else { return nil }
     var values = [String]()
     for element in arrayExpression.elements {
-      guard let value = self.stringLiteralValue(from: element.expression) else { return nil }
+      guard let value = element.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue else { return nil }
       values.append(value)
     }
     return values.isEmpty ? nil : values
