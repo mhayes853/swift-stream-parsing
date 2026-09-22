@@ -585,7 +585,7 @@ extension StreamParseableMacro {
   // A default case with no payload can fall back to its bare `.case` the way it always has. One
   // with associated values has nothing to fall back to *until* its own payload is filled in the
   // same recursive way a struct member with an initial value is — `<Case>Payload.Value` already
-  // has that for free from `conversionMembers`, so this calls it rather than repeating the rule.
+  // has that for free from `conversionsSyntax`, so this calls it rather than repeating the rule.
   static func defaultCaseFallbackBody(for enumCase: EnumCase) -> String {
     guard !enumCase.associatedValues.isEmpty else {
       return "    Self(streamPartial: partial) ?? .\(enumCase.reference)"
@@ -634,7 +634,7 @@ extension StreamParseableMacro {
 
   // A payload-bearing case's associated values become a `<Case>Payload` namespace holding the
   // usual field-table `Partial` plus a `Value` struct with the same stored properties. Two types
-  // rather than one because `conversionMembers` assigns into a real nominal type, and reusing it
+  // rather than one because `conversionsSyntax` assigns into a real nominal type, and reusing it
   // here is what avoids a second implementation of per-field extraction.
   static func payloadWrapperDecl(
     for enumCase: EnumCase, accessModifier: String?,
@@ -665,23 +665,14 @@ extension StreamParseableMacro {
     let valueProperties = properties
       .map { "    \(modifierPrefix)var \($0.memberName): \($0.type.trimmedDescription)" }
       .joined(separator: "\n")
-    // `conversionMembers`'s `_streamValue`/`_streamValueOrInitial` calls resolve through a
+    // `conversionsSyntax`'s `_streamValue`/`_streamValueOrInitial` calls resolve through a
     // protocol extension on `StreamParseable` itself, so `Value` has to actually conform —
     // `streamPartialValue` included, even though nothing here ever calls it back.
-    let inlinable = Self.isInlinable(accessModifier)
-    let valuePartialValue = Self.reindented(
-      Self.streamPartialValueProperty(
-        from: properties, modifierPrefix: modifierPrefix, inlinable: inlinable
-      ),
-      by: 4
+    let conversions = try Self.conversions(
+      for: properties, accessModifier: accessModifier, membersMode: .optional
     )
-    let valueConversion = Self.reindented(
-      Self.conversionMembers(
-        from: properties, modifierPrefix: modifierPrefix, membersMode: .optional,
-        inlinable: inlinable
-      ),
-      by: 4
-    )
+    let valuePartialValue = Self.reindented(conversions.streamPartialValue.description, by: 4)
+    let valueConversion = Self.reindented(conversions.initializers, by: 4)
 
     return """
       \(modifierPrefix)enum \(payloadTypeName) {

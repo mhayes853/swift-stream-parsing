@@ -140,9 +140,56 @@ struct SupportFullPartialMacro: MemberMacro {
   }
 }
 
+/// A downstream macro that also makes the whole type `StreamParseable`.
+///
+/// `total` is internal on a public type, so this host knows `streamPartialValue` cannot be
+/// inlined and says so; the plan itself only sees the partial's access.
+struct SupportModelMacro: ExtensionMacro {
+  static func expansion(
+    of node: AttributeSyntax,
+    attachedTo declaration: some DeclGroupSyntax,
+    providingExtensionsOf type: some TypeSyntaxProtocol,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [ExtensionDeclSyntax] {
+    let generation = try StreamObjectGeneration(
+      fields: [
+        StreamParseableField(
+          name: .identifier("number"),
+          type: IdentifierTypeSyntax(name: .identifier("String")),
+          keys: ["number"]
+        ),
+        StreamParseableField(
+          name: .identifier("total"),
+          type: IdentifierTypeSyntax(name: .identifier("Int")),
+          keys: ["total"],
+          completedConversion: IdentifierTypeSyntax(name: .identifier("Cents")),
+          defaultValue: IntegerLiteralExprSyntax(-1)
+        )
+      ],
+      configuration: StreamGenerationConfiguration(
+        accessLevel: .public,
+        names: StreamGeneratedNames(partialType: .identifier("Accumulator"))
+      )
+    )
+    let partial = try generation.structDeclarationSyntax(in: context)
+    let conversions = try generation.conversionsSyntax(
+      unparsedMembers: [StreamUnparsedMember(name: .identifier("retries"), value: IntegerLiteralExprSyntax(3))],
+      partialValueInlining: .never
+    )
+    return [
+      try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+        partial
+        conversions
+      }
+    ]
+  }
+}
+
 @main
 struct SupportPlugin: CompilerPlugin {
   let providingMacros: [Macro.Type] = [
-    SupportPartialMacro.self, SupportFullPartialMacro.self, SupportMatcherMacro.self
+    SupportPartialMacro.self, SupportFullPartialMacro.self, SupportMatcherMacro.self,
+    SupportModelMacro.self
   ]
 }

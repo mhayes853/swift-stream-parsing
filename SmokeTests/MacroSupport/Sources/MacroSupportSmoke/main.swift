@@ -11,6 +11,14 @@ macro SupportMatcher() = #externalMacro(module: "SupportMacros", type: "SupportM
 macro SupportFullPartial() =
   #externalMacro(module: "SupportMacros", type: "SupportFullPartialMacro")
 
+@attached(
+  extension,
+  conformances: StreamParseable,
+  names: named(Accumulator), named(Partial), named(streamPartialValue), named(init),
+  named(streamValueOrInitial)
+)
+macro SupportModel() = #externalMacro(module: "SupportMacros", type: "SupportModelMacro")
+
 @SupportPartial
 struct Customer {}
 
@@ -19,6 +27,20 @@ struct Lookup {}
 
 @SupportFullPartial
 public struct CustomCustomer {}
+
+/// Whole cents on the wire, doubled to half-cents in the model.
+public enum Cents: StreamCompletedValueConversion {
+  public typealias Source = Int
+  public static func convertToValue(_ source: borrowing Source.View) -> Int { source.value * 2 }
+  public static func convertFromValue(_ value: Int) -> Int { value / 2 }
+}
+
+@SupportModel
+public struct Invoice: Equatable {
+  public var number: String
+  var total: Int
+  var retries: Int
+}
 
 var stream = PartialsStream<Customer.Partial>(from: .json())
 try stream.next(#"{"customer_name":"Ada","customer_id":42,"tags":["swift","macros"]}"#.utf8)
@@ -80,4 +102,11 @@ var optional = PartialsStream<Customer.Partial?>(from: .json())
 try optional.next(#"{"name":"A","customer_id":1}"#.utf8)
 let optionalResult = try optional.finish()
 precondition(optionalResult?.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField])
+var invoiceStream = PartialsStream<Invoice.Partial>(from: .json())
+try invoiceStream.next(#"{"number":"A-1","total":21}"#.utf8)
+let invoice = try invoiceStream.finish()
+precondition(Invoice(streamPartial: invoice) == Invoice(number: "A-1", total: 42, retries: 3))
+precondition(Invoice(Invoice(number: "B", total: 8, retries: 0).streamPartialValue) == Invoice(number: "B", total: 8, retries: 3))
+precondition(Invoice(Invoice.Partial()) == nil)
+precondition(Invoice(orInitial: Invoice.Partial()) == Invoice(number: "", total: -1, retries: 3))
 print("Macro support smoke passed")

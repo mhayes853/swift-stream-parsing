@@ -44,6 +44,44 @@ Swift. The built-in macro uses these same public APIs.
 syntax on both concrete and type-erased nodes. They preserve optional container elements and do
 not resolve type aliases.
 
+## Convert between the whole type and its partial
+
+```swift
+let conversions = try generation.conversionsSyntax(
+  unparsedMembers: [StreamUnparsedMember(name: .identifier("retries"), value: IntegerLiteralExprSyntax(3))],
+  partialValueInlining: .never
+)
+let partial = try generation.structDeclarationSyntax(in: context)
+let conformance = try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+  partial
+  conversions
+}
+```
+
+`conversionsSyntax` generates the members that make the whole type `StreamParseable`:
+`streamPartialValue`, `init?(streamPartial:)`, `init(orInitial:)`, `streamValueOrInitial(from:)`,
+and an unlabelled `init(_:)`. The unlabelled initializer is the strict, failable conversion for
+`.optional` partial members and the total one for `.streamInitialValue`. A partial type name
+other than `Partial` also produces `typealias Partial`. Put the members in an extension of the
+whole type: initializers declared in its body suppress the memberwise initializer.
+
+Each field's `name` must be a stored property of the whole type with the field's `type`. The
+strict initializer fails when a nonoptional member is absent; `init(orInitial:)` falls back to
+each member's stream initial value, recursively. A converted field has no such value, so a
+nonoptional one requires `StreamParseableField.defaultValue`. Validated plans throw
+`missingCompletedConversionDefault` without it; `diagnosedFields:` plans fall back to `nil`.
+
+`unparsedMembers` lists whole-type stored properties that are absent from the partial and have
+no initializer. Every conversion initializer assigns their `value`, which defaults to `nil`. Do
+not list a property that declares its own initializer. A name that repeats a field or another
+unparsed member throws `duplicateField`.
+
+`streamPartialValue` is the only generated member that reads the whole type's stored properties.
+It follows `configuration.inlining` unless `partialValueInlining` overrides it. The plan does not
+check that those properties are readable from an inlinable context, so a host whose properties
+are less visible than the type passes `.never`. The delegating members always follow the
+configuration, and the initializers that assign stored properties are never inlinable.
+
 ## Add members and behavior
 
 ```swift

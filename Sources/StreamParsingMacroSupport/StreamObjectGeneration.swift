@@ -14,6 +14,11 @@ extension TokenSyntax {
   public static var streamPartial: Self { Self.identifier("Partial") }
 }
 
+extension TypeSyntax {
+  /// The fully qualified `StreamParseable` protocol, for a whole type's conformance clause.
+  public static var streamParseable: Self { "StreamParsingCore.StreamParseable" }
+}
+
 /// Selects the ownership model emitted for a stream view.
 public enum StreamViewMode: Hashable, Sendable {
   /// Emits a compiler-checked, nonescapable view.
@@ -118,6 +123,11 @@ public struct StreamParseableField: Sendable {
   public var initialCapacity: ExprSyntax?
   /// A type conforming to `StreamCompletedValueConversion`.
   public var completedConversion: TypeSyntax?
+  /// The whole type's declared default for this property.
+  ///
+  /// Only `conversionsSyntax` reads it: `init(orInitial:)` falls back to it for a nonoptional
+  /// field with a `completedConversion`, which has no stream initial value to use instead.
+  public var defaultValue: ExprSyntax?
 
   /// Creates a field description from general SwiftSyntax nodes.
   public init(
@@ -125,13 +135,15 @@ public struct StreamParseableField: Sendable {
     type: some TypeSyntaxProtocol,
     keys: some Sequence<String>,
     initialCapacity: (any ExprSyntaxProtocol)? = nil,
-    completedConversion: (any TypeSyntaxProtocol)? = nil
+    completedConversion: (any TypeSyntaxProtocol)? = nil,
+    defaultValue: (any ExprSyntaxProtocol)? = nil
   ) {
     self.name = name
     self.type = TypeSyntax(type)
     self.keys = Array(keys)
     self.initialCapacity = initialCapacity.map { ExprSyntax($0) }
     self.completedConversion = completedConversion.map { TypeSyntax($0) }
+    self.defaultValue = defaultValue.map { ExprSyntax($0) }
   }
 
 }
@@ -153,6 +165,8 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
   case duplicateKey(String)
   /// A converted field also specifies a container capacity.
   case initialCapacityWithCompletedConversion(field: String)
+  /// A nonoptional converted field has no `defaultValue` for `init(orInitial:)`.
+  case missingCompletedConversionDefault(field: String)
 
   /// A human-readable explanation of the invalid description.
   public var description: String {
@@ -165,6 +179,8 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
     case .duplicateKey(let key): "The stream key '\(key)' occurs more than once."
     case .initialCapacityWithCompletedConversion(let field):
       "The stream field '\(field)' cannot combine initialCapacity with completedConversion."
+    case .missingCompletedConversionDefault(let field):
+      "The nonoptional converted stream field '\(field)' requires a defaultValue for init(orInitial:)."
     }
   }
 }
@@ -178,6 +194,9 @@ public struct StreamObjectGeneration: Sendable {
   /// Options shared by every generated component.
   public let configuration: StreamGenerationConfiguration
   private var schemaPlan: SchemaPlan
+  /// Whether the plan came from the validating initializer. Recovery plans skip the checks
+  /// `conversionsSyntax` would otherwise throw for.
+  let isValidated: Bool
 
   /// Creates and validates an object generation plan.
   public init(
@@ -212,9 +231,10 @@ public struct StreamObjectGeneration: Sendable {
       }
     }
     self.init(
-      diagnosedFields: fields,
+      fields: fields,
       partialMembers: partialMembers,
-      configuration: configuration
+      configuration: configuration,
+      isValidated: true
     )
   }
 
@@ -227,10 +247,24 @@ public struct StreamObjectGeneration: Sendable {
     partialMembers: StreamPartialMembers = .optional,
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) {
-    let fields = Array(fields)
+    self.init(
+      fields: Array(fields),
+      partialMembers: partialMembers,
+      configuration: configuration,
+      isValidated: false
+    )
+  }
+
+  private init(
+    fields: [StreamParseableField],
+    partialMembers: StreamPartialMembers,
+    configuration: StreamGenerationConfiguration,
+    isValidated: Bool
+  ) {
     self.fields = fields
     self.partialMembers = partialMembers
     self.configuration = configuration
+    self.isValidated = isValidated
     self.schemaPlan = SchemaPlan()
     self.schemaPlan = self.buildPlan()
   }
@@ -553,7 +587,7 @@ public struct StreamObjectGeneration: Sendable {
     }
     var declaration = self.declaration(
       """
-      \(self.access)struct \(partialName): StreamParsingCore.StreamParseable,
+      \(self.access)struct \(partialName): \(TypeSyntax.streamParseable),
         StreamParsingCore.StreamParseableObject, Sendable {
         \(self.access)typealias Partial = Self
       }
@@ -579,13 +613,13 @@ extension StreamObjectGeneration {
     var apply = [StreamApplyOperation: [String]]()
   }
 
-  private enum FieldShape {
+  enum FieldShape {
     case scalarOrObject
     case array(TypeSyntax)
     case dictionary(TypeSyntax)
   }
 
-  private var access: String {
+  var access: String {
     switch self.configuration.accessLevel {
     case .internal: ""
     case .fileprivate: "fileprivate "
@@ -593,15 +627,17 @@ extension StreamObjectGeneration {
     case .public: "public "
     }
   }
-  private var inlinable: Bool {
-    switch self.configuration.inlining {
+  var inlinable: Bool { self.isInlinable(self.configuration.inlining) }
+
+  func isInlinable(_ inlining: StreamInliningMode) -> Bool {
+    switch inlining {
     case .automatic:
       self.configuration.accessLevel == .public || self.configuration.accessLevel == .package
     case .always: true
     case .never: false
     }
   }
-  private var inline: String { self.inlinable ? "@inlinable " : "" }
+  var inline: String { self.inlinable ? "@inlinable " : "" }
 
   private func buildPlan() -> SchemaPlan {
     var result = SchemaPlan()
@@ -725,7 +761,7 @@ extension StreamObjectGeneration {
       ? "\(base)?" : base
   }
 
-  private func fieldShape(_ type: TypeSyntax) -> FieldShape {
+  func fieldShape(_ type: TypeSyntax) -> FieldShape {
     let type = type.streamUnwrappedOptionalType
     if let array = type.as(ArrayTypeSyntax.self) { return .array(array.element) }
     if let dictionary = type.as(DictionaryTypeSyntax.self) { return .dictionary(dictionary.value) }
@@ -766,13 +802,13 @@ extension StreamObjectGeneration {
     return "\(builder)(\(storage).Partial.self, \(label): \(self.schemaExpression(element)))"
   }
 
-  private static func bareName(_ token: TokenSyntax) -> String {
+  static func bareName(_ token: TokenSyntax) -> String {
     let text = token.text
     return text.count > 2 && text.hasPrefix("`") && text.hasSuffix("`")
       ? String(text.dropFirst().dropLast()) : text
   }
 
-  private static func memberName(_ token: TokenSyntax) -> String {
+  static func memberName(_ token: TokenSyntax) -> String {
     let text = token.trimmedDescription
     if text.hasPrefix("`") && text.hasSuffix("`") { return text }
     if let declaration = try? VariableDeclSyntax("var \(raw: text): Int"),
@@ -791,7 +827,7 @@ extension StreamObjectGeneration {
     return !Syntax(declaration).hasError
   }
 
-  private func members(_ source: String) -> MemberBlockItemListSyntax {
+  func members(_ source: String) -> MemberBlockItemListSyntax {
     guard !source.allSatisfy(\.isWhitespace) else {
       return MemberBlockItemListSyntax([])
     }
@@ -823,7 +859,7 @@ extension StreamObjectGeneration {
     return MemberBlockItemSyntax(decl: declaration)
   }
 
-  private func declaration<T: DeclSyntaxProtocol>(_ source: String, as type: T.Type) -> T {
+  func declaration<T: DeclSyntaxProtocol>(_ source: String, as type: T.Type) -> T {
     let declaration = DeclSyntax("\(raw: source)")
     return declaration.as(T.self)!
   }

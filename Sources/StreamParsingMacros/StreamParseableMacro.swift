@@ -43,20 +43,16 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let structDecl = try Self.requireStructDecl(declaration: declaration)
     guard structDecl.genericParameterClause == nil else { return [] }
 
+    guard !Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members) else {
+      return []
+    }
     let properties = Self.storedProperties(in: structDecl, context: sink)
     let accessModifier = Self.accessModifier(for: structDecl.modifiers)
-    let hasStreamPartialValue = Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members)
-    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let streamPartialValuePropertySection =
-      !hasStreamPartialValue
-      ? Self.streamPartialValueProperty(
-        from: properties,
-        modifierPrefix: modifierPrefix,
-        inlinable: Self.isInlinable(accessModifier)
-          && properties.allSatisfy { $0.isIgnored || $0.isReadableInline(from: accessModifier) }
-      )
-      : ""
-    return ["\(raw: streamPartialValuePropertySection)"]
+    // The partial mode only picks the unlabelled initializer, which the extension emits.
+    return [
+      try Self.conversions(for: properties, accessModifier: accessModifier, membersMode: .optional)
+        .streamPartialValue
+    ]
   }
 
   public static func expansion(
@@ -93,12 +89,12 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let accessModifier = Self.accessModifier(for: structDecl.modifiers)
     let membersMode = Self.partialMembersMode(from: node, context: sink)
     let conformance = Self.conformanceClause(for: structDecl)
-    let conversionMembers = Self.conversionMembers(
-      from: properties,
-      modifierPrefix: Self.modifierPrefix(for: accessModifier),
-      membersMode: membersMode,
-      inlinable: Self.isInlinable(accessModifier)
+    let conversionMembers = try Self.conversions(
+      for: properties,
+      accessModifier: accessModifier,
+      membersMode: membersMode
     )
+    .initializers
 
     // A hand written `Partial` still gets the conversions, on the same terms as
     // `streamPartialValue`: they are written from the stored properties, so a `Partial` that
@@ -165,7 +161,7 @@ extension StreamParseableMacro {
     let stated =
       declaration.inheritanceClause?.inheritedTypes
       .contains { Self.lastComponent(of: $0.type) == "StreamParseable" } ?? false
-    return stated ? "" : ": StreamParsingCore.StreamParseable"
+    return stated ? "" : ": \(TypeSyntax.streamParseable)"
   }
 
   static func error(_ node: some SyntaxProtocol, _ message: String) -> Diagnostic {
@@ -264,36 +260,10 @@ extension StreamParseableMacro {
     extraViewMembers: String = "",
     in context: some MacroExpansionContext
   ) throws -> DeclSyntax {
-    let fields = properties.compactMap { property -> StreamParseableField? in
-      guard !property.isIgnored else { return nil }
-      return StreamParseableField(
-        name: TokenSyntax.identifier(property.memberName),
-        type: property.type,
-        keys: property.keyNames,
-        initialCapacity: property.initialCapacity.map {
-          ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
-        },
-        completedConversion: property.completedConversion.map { TypeSyntax(stringLiteral: $0) }
-      )
-    }
-    let accessLevel: StreamGeneratedAccessLevel = switch accessModifier {
-    case "fileprivate": .fileprivate
-    case "package": .package
-    case "public": .public
-    default: .internal
-    }
-    let mode: StreamPartialMembers = switch membersMode {
-    case .optional: .optional
-    case .streamInitialValue: .streamInitialValue
-    }
-    let generation = StreamObjectGeneration(
-      diagnosedFields: fields,
-      partialMembers: mode,
-      configuration: StreamGenerationConfiguration(
-        viewMode: .packageDefault,
-        accessLevel: accessLevel,
-        inlining: .automatic
-      )
+    let generation = Self.objectGeneration(
+      for: properties,
+      accessModifier: accessModifier,
+      membersMode: membersMode
     )
     let viewMembers: MemberBlockItemListSyntax = if extraViewMembers.isEmpty {
       MemberBlockItemListSyntax([])
@@ -314,147 +284,77 @@ extension StreamParseableMacro {
     )
   }
 
-  static func streamPartialValueProperty(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    inlinable: Bool
-  ) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    let activeProperties = properties.filter { !$0.isIgnored }
-    guard !activeProperties.isEmpty else {
-      return """
-          \(inline)\(modifierPrefix)var streamPartialValue: Partial {
-            Partial()
-          }
-        """
+  static func objectGeneration(
+    for properties: [StoredProperty],
+    accessModifier: String?,
+    membersMode: PartialMembersMode
+  ) -> StreamObjectGeneration {
+    let fields = properties.compactMap { property -> StreamParseableField? in
+      guard !property.isIgnored else { return nil }
+      return StreamParseableField(
+        name: TokenSyntax.identifier(property.memberName),
+        type: property.type,
+        keys: property.keyNames,
+        initialCapacity: property.initialCapacity.map {
+          ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
+        },
+        completedConversion: property.completedConversion.map { TypeSyntax(stringLiteral: $0) },
+        defaultValue: property.defaultExpression.map { ExprSyntax("\(raw: $0)") }
+      )
     }
-
-    let argumentLines = activeProperties.enumerated()
-      .map { index, property in
-        let suffix = index == activeProperties.count - 1 ? "" : ","
-        if let conversion = property.completedConversion {
-          let expression = property.type.streamIsOptional
-            ? "self.\(property.memberName).map { StreamParsingCore.ConvertedPartial<\(conversion)>(value: $0) }"
-            : "StreamParsingCore.ConvertedPartial<\(conversion)>(value: self.\(property.memberName))"
-          return "    \(property.memberName): \(expression)\(suffix)"
-        }
-        if property.type.streamUnwrappedOptionalType.is(DictionaryTypeSyntax.self) {
-          // `Dictionary`'s own `streamPartialValue` cannot be used here: the member is a
-          // `StreamDictionary`, so the values are mapped and rewrapped. An optional member maps
-          // through the optional rather than reaching for `mapValues` on it, which did not
-          // compile at all.
-          let converted = "StreamParsingCore.StreamDictionary($0.mapValues(\\.streamPartialValue))"
-          let value =
-            property.type.streamIsOptional
-            ? "self.\(property.memberName).map { \(converted) }"
-            : "StreamParsingCore.StreamDictionary(self.\(property.memberName).mapValues(\\.streamPartialValue))"
-          return "    \(property.memberName): \(value)\(suffix)"
-        }
-        return "    \(property.memberName): self.\(property.memberName).streamPartialValue\(suffix)"
-      }
-      .joined(separator: "\n")
-
-    return """
-      \(inline)\(modifierPrefix)var streamPartialValue: Partial {
-        Partial(
-      \(argumentLines)
-        )
-      }
-      """
+    let accessLevel: StreamGeneratedAccessLevel = switch accessModifier {
+    case "fileprivate": .fileprivate
+    case "package": .package
+    case "public": .public
+    default: .internal
+    }
+    let mode: StreamPartialMembers = switch membersMode {
+    case .optional: .optional
+    case .streamInitialValue: .streamInitialValue
+    }
+    return StreamObjectGeneration(
+      diagnosedFields: fields,
+      partialMembers: mode,
+      configuration: StreamGenerationConfiguration(
+        viewMode: .packageDefault,
+        accessLevel: accessLevel,
+        inlining: .automatic
+      )
+    )
   }
 
-  // MARK: - Partial to whole
-
-  // The inverse direction, emitted into the extension so the memberwise initializer survives.
-  // Nothing here spells a member's type: `_streamValue`/`_streamValueOrInitial` bind it from the
-  // property itself, so the type the macro derived for `Partial` is checked, not trusted.
-  static func conversionMembers(
-    from properties: [StoredProperty],
-    modifierPrefix: String,
-    membersMode: PartialMembersMode,
-    inlinable: Bool
-  ) -> String {
-    // Only the delegating members: under library evolution an `@inlinable` struct initializer
-    // that assigns stored properties does not compile (the memberwise `Partial.init` likewise).
-    let inline = Self.inlinableAttribute(inlinable)
-    let active = properties.filter { !$0.isIgnored }
-    // An ignored property is absent from `Partial`, so a generated initializer has nothing to
-    // fill it from. One that initializes itself is already set; the rest are optional, because
-    // `storedProperty(from:...)` refuses to accept any other kind.
-    let ignoredLines =
-      properties
-      .filter { $0.isIgnored && !$0.hasDefaultValue }
-      .map { "    self.\($0.memberName) = nil" }
-
-    func assignments(_ helper: String) -> String {
-      let lines =
-        active.map {
-          if $0.completedConversion != nil {
-            let fallback = $0.type.streamIsOptional ? "nil" : ($0.defaultExpression ?? "nil")
-            return "    self.\($0.memberName) = _streamConvertedValue(partial.\($0.memberName)) ?? (\(fallback))"
-          }
-          return "    self.\($0.memberName) = Self.\(helper)({ $0.\($0.memberName) }, partial.\($0.memberName))"
-        }
-        + ignoredLines
-      return lines.joined(separator: "\n")
+  // Both directions come from `StreamObjectGeneration.conversionsSyntax`. `streamPartialValue`
+  // goes out through the member expansion, the rest through the extension so the memberwise
+  // initializer survives. The plan comes from `diagnosedFields:`, so a missing converted default
+  // has already been diagnosed here and recovers as `?? (nil)` rather than throwing.
+  static func conversions(
+    for properties: [StoredProperty],
+    accessModifier: String?,
+    membersMode: PartialMembersMode
+  ) throws -> (streamPartialValue: DeclSyntax, initializers: String) {
+    // The plan only knows the partial's visibility. A property less visible than its type
+    // cannot be read from an inlinable getter, and only the host can see that.
+    let readable = properties.allSatisfy {
+      $0.isIgnored || $0.isReadableInline(from: accessModifier)
     }
-
-    let strictBody: String
-    if active.isEmpty {
-      strictBody = ignoredLines.joined(separator: "\n")
-    } else {
-      let bindings =
-        active
-        .map {
-          if $0.completedConversion != nil {
-            let helper = $0.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
-            return "      let \($0.memberName) = \(helper)(partial.\($0.memberName))"
-          }
-          return "      let \($0.memberName) = Self._streamValue({ $0.\($0.memberName) }, partial.\($0.memberName))"
-        }
-        .joined(separator: ",\n")
-      let stores = (active.map { "    self.\($0.memberName) = \($0.memberName)" } + ignoredLines)
-        .joined(separator: "\n")
-      strictBody = """
-            guard
-        \(bindings)
-            else {
-              return nil
-            }
-        \(stores)
-        """
-    }
-
-    // The unlabelled initializer is the one the mode names. With optional members absence is
-    // visible, so it is the strict conversion and it can decline; with members that start at
-    // their initial values absence is not expressible, so it is the total one and cannot.
-    let decliningInit = """
-      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
-          self.init(streamPartial: partial)
-        }
-      """
-    let totalInit = """
-      \(inline)\(modifierPrefix)init(_ partial: Partial) {
-          self.init(orInitial: partial)
-        }
-      """
-    let unlabelled = membersMode.shouldEmitOptionalMembers ? decliningInit : totalInit
-
-    return """
-      \(unlabelled)
-
-        \(modifierPrefix)init?(streamPartial partial: Partial) {
-      \(strictBody)
-        }
-
-        \(modifierPrefix)init(orInitial partial: Partial) {
-      \(assignments("_streamValueOrInitial"))
-        }
-
-        \(inline)\(modifierPrefix)static func streamValueOrInitial(from partial: Partial) -> Self {
-          Self(orInitial: partial)
-        }
-      """
+    let members = try Self.objectGeneration(
+      for: properties,
+      accessModifier: accessModifier,
+      membersMode: membersMode
+    )
+    .conversionsSyntax(
+      unparsedMembers: properties
+        .filter { $0.isIgnored && !$0.hasDefaultValue }
+        .map { StreamUnparsedMember(name: .identifier($0.memberName)) },
+      partialValueInlining: readable ? nil : .never
+    )
+    // The generation has no alias to emit (the name is `Partial`), so the first member is
+    // always `streamPartialValue`.
+    var streamPartialValue = members.first!.decl
+    streamPartialValue.trailingTrivia = []
+    var initializers = MemberBlockItemListSyntax(members.dropFirst())
+    initializers[initializers.startIndex].leadingTrivia = []
+    return (streamPartialValue, initializers.indented(by: .spaces(2)).description)
   }
 
   static func accessModifier(for modifiers: DeclModifierListSyntax) -> String? {
@@ -1010,10 +910,6 @@ extension StreamParseableMacro {
       case .optional: "nil"
       case .streamInitialValue: ".streamInitialValue()"
       }
-    }
-
-    var shouldEmitOptionalMembers: Bool {
-      self == .optional
     }
 
     static func parse(from expression: ExprSyntax) -> Self? {
