@@ -655,7 +655,7 @@ public struct JSONParser: ~Copyable {
         // A number whose terminator is in this chunk is scanned, parsed and emitted here, so the
         // run carries on to the comma. `bufferCount` is zero by construction -- the buffer only
         // holds a token a previous chunk cut, and such a token resumes from `.number` -- so this
-        // is `consumeNumber`'s `bufferCount == 0` arm. The run is the fusion, so no fuse here.
+        // is `consumeNumber`'s `bufferCount == 0` arm.
         let end = streamNumberRunEnd(base: base, from: at, to: to)
         guard end < to else {
           // The token may continue in the next chunk, so it goes to the per-byte path whole, which
@@ -665,6 +665,22 @@ public struct JSONParser: ~Copyable {
           return true
         }
         try self.emitNumber(base: base, from: at, to: end, into: &sink, reportAt: end)
+        // An array's `,` after the number: the numbers behind it are `fuseNumberRun`'s.
+        if depth > 0, end &+ 1 < to,
+          base.load(fromByteOffset: end, as: UInt8.self) == .asciiComma,
+          !Self.topIsObject(depth: depth, containers: containers)
+        {
+          let resume = try self.fuseNumberRun(base: base, comma: end, to: to, into: &sink)
+          guard resume >= 0 else {
+            // A number the chunk cut, from its first byte: `.number` re-reads it, as above.
+            state = .number
+            cursor = ~resume &+ 1
+            return true
+          }
+          cursor = resume
+          state = .afterValue
+          return false
+        }
         cursor = end
         state = .afterValue
         return false
@@ -720,6 +736,56 @@ public struct JSONParser: ~Copyable {
     return false
   }
 
+  // The numbers of an array, taken without going back through the ladder: after a number and its
+  // `,`, at most one space and the next number's first byte are taken here, and the loop goes
+  // round with that byte. That is the separator shape of every numeric array in the corpus (Mesh
+  // `, `, Canada `,`), and it spares the two ladder steps between the numbers -- one of them the
+  // whitespace scan, a 16-byte vector scan for a run that is one byte long. Anything else (a
+  // newline, two spaces, a bracket, a string) falls out at the comma, so the walk's signal still
+  // sees an indented array. What the loop accepts, the ladder accepted: an array's `,` in
+  // `.afterValue` goes to `.value`, one space is a whitespace run, and the number is the ladder's
+  // number arm again. Nothing here opens or closes a container, so `depth` and `containers` stay
+  // the ladder's. A sink rejection throws inside `emitNumber`, at the number it rejected, so no
+  // fusion runs past it.
+  //
+  // Out of line, and entered only at an array's comma. Measured: the same loop inside the ladder's
+  // number arm reallocated the whole structural run (the `PartialSink` copy +88 stack accesses)
+  // and cost the rows that never reach it -- typed Twitter escaped -1.6%, raw LLM -1.8%, byte-fed
+  // numbers -1.6..-3.0% -- with every function 64-byte aligned on both sides.
+  //
+  // `comma` is the `,` after an emitted number, with a byte after it in the chunk. Returns where
+  // the ladder resumes in `.afterValue`: the comma itself when nothing was taken, else the end of
+  // the last number emitted. A number the chunk cuts comes back as `~start`, the number reset for
+  // `.number` to buffer it from its first byte.
+  @inlinable
+  @inline(never)
+  mutating func fuseNumberRun<Sink: StreamParseSink & ~Copyable>(
+    base: UnsafeRawPointer,
+    comma: Int,
+    to: Int,
+    into sink: inout Sink
+  ) throws(JSONParsingError) -> Int {
+    var comma = comma
+    while true {
+      var start = comma &+ 1
+      var byte = base.load(fromByteOffset: start, as: UInt8.self)
+      if byte == .asciiSpace, start &+ 1 < to {
+        start &+= 1
+        byte = base.load(fromByteOffset: start, as: UInt8.self)
+      }
+      guard byte == .asciiDash || byte &- .asciiZero < 10 else { return comma }
+      let end = streamNumberRunEnd(base: base, from: start, to: to)
+      guard end < to else {
+        self.resetNumber()
+        return ~start
+      }
+      try self.emitNumber(base: base, from: start, to: end, into: &sink, reportAt: end)
+      guard end &+ 1 < to, base.load(fromByteOffset: end, as: UInt8.self) == .asciiComma else {
+        return end
+      }
+      comma = end
+    }
+  }
 
   // Takes the `,` after a value in a container and the next value's first byte, so that member's
   // `consumeStructuralRun` call disappears; arrays too (objects only cost canada -3.8%). A failed
