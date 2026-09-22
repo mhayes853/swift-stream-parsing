@@ -29,7 +29,12 @@ view's lifetime handling. `StreamViewMode.packageDefault` follows the `LifetimeV
 trait. Explicit `.lifetime` and `.unsafe` modes are also available. Coordinate generated names
 through `StreamGeneratedNames`; `TokenSyntax.streamPartial` and `.streamView` provide the
 conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize required fields
-with their stream initial values instead of making them optional.
+with their stream initial values instead of making them optional. A field created without `keys`
+matches only its own name, without backticks.
+
+`TypeSyntax.streamParseable` and `.streamParseableObject` spell the library protocols that
+generated declarations conform to, fully qualified so a host's conformance clauses do not depend
+on imports or local names.
 
 The result is a `StructDeclSyntax`, so a consumer can modify declaration attributes, generic
 constraints, inheritance, or members through normal SwiftSyntax operations. Rewriting generated

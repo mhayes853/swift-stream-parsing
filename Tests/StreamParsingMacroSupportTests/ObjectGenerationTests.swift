@@ -23,6 +23,27 @@ struct `StreamObjectGeneration tests` {
   }
 
   @Test
+  func `Fields Without Keys Use Their Bare Name`() {
+    expectNoDifference(
+      StreamParseableField(name: .identifier("name"), type: TypeSyntax("String")).keys,
+      ["name"]
+    )
+    expectNoDifference(
+      StreamParseableField(name: .identifier("`default`"), type: TypeSyntax("Int")).keys,
+      ["default"]
+    )
+  }
+
+  @Test
+  func `Library Protocols Are Fully Qualified`() {
+    expectNoDifference(TypeSyntax.streamParseable.description, "StreamParsingCore.StreamParseable")
+    expectNoDifference(
+      TypeSyntax.streamParseableObject.description,
+      "StreamParsingCore.StreamParseableObject"
+    )
+  }
+
+  @Test
   func `Concrete Type Syntax Builds A Complete Struct`() throws {
     let payloadType = IdentifierTypeSyntax(name: TokenSyntax.identifier("Payload"))
     let generation = try StreamObjectGeneration(

@@ -14,9 +14,12 @@ extension TokenSyntax {
   public static var streamPartial: Self { Self.identifier("Partial") }
 }
 
+// Fully qualified library protocols that generated declarations conform to.
 extension TypeSyntax {
-  /// The fully qualified `StreamParseable` protocol, for a whole type's conformance clause.
+  /// `StreamParseable`, adopted by the whole type and by its generated partial.
   public static var streamParseable: Self { "StreamParsingCore.StreamParseable" }
+  /// `StreamParseableObject`, adopted by a generated object partial.
+  public static var streamParseableObject: Self { "StreamParsingCore.StreamParseableObject" }
 }
 
 /// Selects the ownership model emitted for a stream view.
@@ -146,6 +149,23 @@ public struct StreamParseableField: Sendable {
     self.defaultValue = defaultValue.map { ExprSyntax($0) }
   }
 
+  /// Creates a field whose only key is its name, without backticks.
+  public init(
+    name: TokenSyntax,
+    type: some TypeSyntaxProtocol,
+    initialCapacity: (any ExprSyntaxProtocol)? = nil,
+    completedConversion: (any TypeSyntaxProtocol)? = nil,
+    defaultValue: (any ExprSyntaxProtocol)? = nil
+  ) {
+    self.init(
+      name: name,
+      type: type,
+      keys: [StreamObjectGeneration.bareName(name)],
+      initialCapacity: initialCapacity,
+      completedConversion: completedConversion,
+      defaultValue: defaultValue
+    )
+  }
 }
 
 /// An invalid combination in an object-generation description.
@@ -588,7 +608,7 @@ public struct StreamObjectGeneration: Sendable {
     var declaration = self.declaration(
       """
       \(self.access)struct \(partialName): \(TypeSyntax.streamParseable),
-        StreamParsingCore.StreamParseableObject, Sendable {
+        \(TypeSyntax.streamParseableObject), Sendable {
         \(self.access)typealias Partial = Self
       }
       """,

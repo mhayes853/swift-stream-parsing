@@ -156,13 +156,11 @@ struct SupportModelMacro: ExtensionMacro {
       fields: [
         StreamParseableField(
           name: .identifier("number"),
-          type: IdentifierTypeSyntax(name: .identifier("String")),
-          keys: ["number"]
+          type: IdentifierTypeSyntax(name: .identifier("String"))
         ),
         StreamParseableField(
           name: .identifier("total"),
           type: IdentifierTypeSyntax(name: .identifier("Int")),
-          keys: ["total"],
           completedConversion: IdentifierTypeSyntax(name: .identifier("Cents")),
           defaultValue: IntegerLiteralExprSyntax(-1)
         )

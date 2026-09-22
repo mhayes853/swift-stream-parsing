@@ -10,12 +10,8 @@ struct `StreamObjectGeneration conversion tests` {
   func `Conversions Cover Both Directions`() throws {
     let generation = try StreamObjectGeneration(
       fields: [
-        StreamParseableField(name: .identifier("name"), type: TypeSyntax("String"), keys: ["name"]),
-        StreamParseableField(
-          name: .identifier("tags"),
-          type: TypeSyntax("[String: Int]?"),
-          keys: ["tags"]
-        ),
+        StreamParseableField(name: .identifier("name"), type: TypeSyntax("String")),
+        StreamParseableField(name: .identifier("tags"), type: TypeSyntax("[String: Int]?")),
         StreamParseableField(
           name: .identifier("createdAt"),
           type: TypeSyntax("Date"),
@@ -202,11 +198,7 @@ struct `StreamObjectGeneration conversion tests` {
   }
 
   private func field(_ name: String) -> StreamParseableField {
-    StreamParseableField(
-      name: .identifier(name),
-      type: TypeSyntax("Int"),
-      keys: [name.replacing("`", with: "")]
-    )
+    StreamParseableField(name: .identifier(name), type: TypeSyntax("Int"))
   }
 
   private func expectParses(
