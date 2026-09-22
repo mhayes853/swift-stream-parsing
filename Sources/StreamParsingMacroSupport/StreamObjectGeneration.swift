@@ -20,6 +20,8 @@ extension TypeSyntax {
   public static var streamParseable: Self { "StreamParsingCore.StreamParseable" }
   /// `StreamParseableObject`, adopted by a generated object partial.
   public static var streamParseableObject: Self { "StreamParsingCore.StreamParseableObject" }
+  /// `StreamInitializable`, adopted by an enum without a default case to supply its fallback.
+  public static var streamInitializable: Self { "StreamParsingCore.StreamInitializable" }
 }
 
 /// Selects the ownership model emitted for a stream view.
@@ -88,6 +90,21 @@ public struct StreamGeneratedNames: Sendable {
   }
 }
 
+/// Parses generated member source, dropping whitespace ahead of the first member.
+func streamParsedMembers(_ source: String) -> MemberBlockItemListSyntax {
+  guard !source.allSatisfy(\.isWhitespace) else {
+    return MemberBlockItemListSyntax([])
+  }
+  var parsed = try! StructDeclSyntax("struct _StreamGenerated {\n\(raw: source)\n}")
+    .memberBlock.members
+  if let firstIndex = parsed.indices.first {
+    parsed[firstIndex].leadingTrivia = Trivia(
+      pieces: parsed[firstIndex].leadingTrivia.drop(while: \.isWhitespace)
+    )
+  }
+  return parsed
+}
+
 /// Options shared by every component of an object generation.
 public struct StreamGenerationConfiguration: Sendable {
   /// The ownership model emitted for views.
@@ -112,6 +129,46 @@ public struct StreamGenerationConfiguration: Sendable {
     self.names = names
   }
 
+  /// The access modifier and its trailing space, or nothing for internal access.
+  var accessPrefix: String {
+    switch self.accessLevel {
+    case .internal: ""
+    case .fileprivate: "fileprivate "
+    case .package: "package "
+    case .public: "public "
+    }
+  }
+
+  func isInlinable(_ inlining: StreamInliningMode) -> Bool {
+    switch inlining {
+    case .automatic: self.accessLevel == .public || self.accessLevel == .package
+    case .always: true
+    case .never: false
+    }
+  }
+
+  /// `@inlinable ` when `inlining`, or `nil` for the configured policy, inlines.
+  func inlinableAttribute(_ inlining: StreamInliningMode? = nil) -> String {
+    self.isInlinable(inlining ?? self.inlining) ? "@inlinable " : ""
+  }
+}
+
+extension StreamViewMode {
+  /// Suppressed conformances of a view type.
+  var viewConstraints: String { self == .lifetime ? "~Copyable, ~Escapable" : "~Copyable" }
+  /// The attribute an unsafe view type is declared with.
+  var unsafeAttribute: String { self == .unsafe ? "@unsafe " : "" }
+
+  /// `@_lifetime(borrow <source>)` and a line break followed by `indentation`; nothing for
+  /// unsafe views.
+  func lifetimeAttribute(borrowing source: String, indentation: String = "") -> String {
+    self == .lifetime ? "@_lifetime(borrow \(source))\n\(indentation)" : ""
+  }
+
+  /// `view`, with lifetime views tied to `self`.
+  func borrowedView(_ view: String) -> String {
+    self == .lifetime ? "_overrideLifetime(\(view), borrowing: self)" : view
+  }
 }
 
 /// Describes one property in generated stream partial storage.
@@ -150,6 +207,9 @@ public struct StreamParseableField: Sendable {
   }
 
   /// Creates a field whose only key is its name, without backticks.
+  ///
+  /// A wildcard name (`_`), which only an enum's unlabelled associated value may use, gets no
+  /// key; the enum generation assigns its positional `_<index>` name and key.
   public init(
     name: TokenSyntax,
     type: some TypeSyntaxProtocol,
@@ -160,7 +220,7 @@ public struct StreamParseableField: Sendable {
     self.init(
       name: name,
       type: type,
-      keys: [StreamObjectGeneration.bareName(name)],
+      keys: name.tokenKind == .wildcard ? [] : [StreamObjectGeneration.bareName(name)],
       initialCapacity: initialCapacity,
       completedConversion: completedConversion,
       defaultValue: defaultValue
@@ -187,6 +247,9 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
   case initialCapacityWithCompletedConversion(field: String)
   /// A nonoptional converted field has no `defaultValue` for `init(orInitial:)`.
   case missingCompletedConversionDefault(field: String)
+  /// Members or a recognition hook were supplied for a raw-value enum, whose partial is a
+  /// library type.
+  case hooksRequireObjectRepresentation
 
   /// A human-readable explanation of the invalid description.
   public var description: String {
@@ -201,6 +264,8 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
       "The stream field '\(field)' cannot combine initialCapacity with completedConversion."
     case .missingCompletedConversionDefault(let field):
       "The nonoptional converted stream field '\(field)' requires a defaultValue for init(orInitial:)."
+    case .hooksRequireObjectRepresentation:
+      "Partial members and recognition hooks require the case-keyed object enum representation."
     }
   }
 }
@@ -362,35 +427,27 @@ public struct StreamObjectGeneration: Sendable {
       .map { field -> String in
         let fieldName = Self.memberName(field.name)
         let type = self.partialType(field)
-        let lifetime =
-          self.configuration.viewMode == .lifetime ? "    @_lifetime(borrow self)\n" : ""
-        let value =
-          self.configuration.viewMode == .lifetime
-          ? "_overrideLifetime(\(type).streamView(address), borrowing: self)"
-          : "\(type).streamView(address)"
+        let mode = self.configuration.viewMode
         return """
             \(self.inline)\(self.access)var \(fieldName): \(type).View? {
-          \(lifetime)    get {
+              \(mode.lifetimeAttribute(borrowing: "self", indentation: "    "))get {
                 guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(fieldName)) else {
                   return nil
                 }
-                return \(value)
+                return \(mode.borrowedView("\(type).streamView(address)"))
               }
             }
           """
       }
       .joined(separator: "\n\n")
     let frozen = self.inlinable ? "@frozen " : ""
-    let unsafe = self.configuration.viewMode == .unsafe ? "@unsafe " : ""
-    let constraints =
-      self.configuration.viewMode == .lifetime ? "~Copyable, ~Escapable" : "~Copyable"
-    let lifetime = self.configuration.viewMode == .lifetime ? "@_lifetime(borrow storage)\n  " : ""
+    let mode = self.configuration.viewMode
     var declaration = self.declaration(
       """
-      \(unsafe)\(frozen)\(self.access)struct \(viewName): \(constraints) {
+      \(mode.unsafeAttribute)\(frozen)\(self.access)struct \(viewName): \(mode.viewConstraints) {
         \(self.access)let _streamStorage: UnsafeMutablePointer<\(partialName)>
 
-        \(lifetime)\(self.inline)\(self.access)init(_ storage: UnsafeMutableRawPointer) {
+        \(mode.lifetimeAttribute(borrowing: "storage", indentation: "  "))\(self.inline)\(self.access)init(_ storage: UnsafeMutableRawPointer) {
           self._streamStorage = storage.assumingMemoryBound(to: \(partialName).self)
         }
 
@@ -409,8 +466,8 @@ public struct StreamObjectGeneration: Sendable {
   /// Generates the view factory required by `StreamParseable`.
   private func streamViewFunction() -> FunctionDeclSyntax {
     let viewName = self.configuration.names.viewType.trimmedDescription
-    let lifetime =
-      self.configuration.viewMode == .lifetime ? "@_lifetime(borrow storage)\n" : "@unsafe\n"
+    let mode = self.configuration.viewMode
+    let lifetime = mode == .lifetime ? mode.lifetimeAttribute(borrowing: "storage") : "@unsafe\n"
     return self.declaration(
       """
       \(lifetime)\(self.inline)\(self.access)static func streamView(_ storage: UnsafeMutableRawPointer) -> \(viewName) {
@@ -639,25 +696,9 @@ extension StreamObjectGeneration {
     case dictionary(TypeSyntax)
   }
 
-  var access: String {
-    switch self.configuration.accessLevel {
-    case .internal: ""
-    case .fileprivate: "fileprivate "
-    case .package: "package "
-    case .public: "public "
-    }
-  }
-  var inlinable: Bool { self.isInlinable(self.configuration.inlining) }
-
-  func isInlinable(_ inlining: StreamInliningMode) -> Bool {
-    switch inlining {
-    case .automatic:
-      self.configuration.accessLevel == .public || self.configuration.accessLevel == .package
-    case .always: true
-    case .never: false
-    }
-  }
-  var inline: String { self.inlinable ? "@inlinable " : "" }
+  var access: String { self.configuration.accessPrefix }
+  var inlinable: Bool { self.configuration.isInlinable(self.configuration.inlining) }
+  var inline: String { self.configuration.inlinableAttribute() }
 
   private func buildPlan() -> SchemaPlan {
     var result = SchemaPlan()
@@ -665,11 +706,8 @@ extension StreamObjectGeneration {
       let member = Self.memberName(field.name)
       let fieldID = "Self.StreamField.\(member)"
       for key in field.keys {
-        let match = StreamUTF8Match(key)
-        let condition = streamRemainingUTF8Condition(match, byteCount: ExprSyntax("key.count")) { offset in
-          ExprSyntax("key.paddedWord(at: \(raw: offset))")
-        }
-        result.matches.append("  case \(streamUTF8WordLiteral(match.value, at: 0)) where \(condition): return \(fieldID)")
+        let label = streamWordCaseLabel(key, input: "key", byteCount: ExprSyntax("key.count"))
+        result.matches.append("  \(label): return \(fieldID)")
       }
       let target = "p.pointee.\(member)"
       let schema = self.schemaName(field)
@@ -767,12 +805,16 @@ extension StreamObjectGeneration {
 
   private func partialType(_ field: StreamParseableField) -> String {
     if let conversion = field.completedConversion {
-      return "StreamParsingCore.ConvertedPartial<\(conversion.trimmedDescription)>"
+      return Self.convertedPartialType(conversion)
     }
     if case .dictionary(let value) = self.fieldShape(field.type) {
       return "StreamParsingCore.StreamDictionary<\(value.trimmedDescription).Partial>"
     }
     return "\(field.type.streamUnwrappedOptionalType.trimmedDescription).Partial"
+  }
+
+  static func convertedPartialType(_ conversion: TypeSyntax) -> String {
+    "StreamParsingCore.ConvertedPartial<\(conversion.trimmedDescription)>"
   }
 
   private func memberType(_ field: StreamParseableField) -> String {
@@ -822,45 +864,31 @@ extension StreamObjectGeneration {
     return "\(builder)(\(storage).Partial.self, \(label): \(self.schemaExpression(element)))"
   }
 
-  static func bareName(_ token: TokenSyntax) -> String {
+  /// The name without enclosing backticks.
+  package static func bareName(_ token: TokenSyntax) -> String {
     let text = token.text
     return text.count > 2 && text.hasPrefix("`") && text.hasSuffix("`")
       ? String(text.dropFirst().dropLast()) : text
   }
 
+  /// The name as a member identifier, escaped with backticks where it needs them.
   static func memberName(_ token: TokenSyntax) -> String {
     let text = token.trimmedDescription
     if text.hasPrefix("`") && text.hasSuffix("`") { return text }
-    if let declaration = try? VariableDeclSyntax("var \(raw: text): Int"),
-      !Syntax(declaration).hasError
-    {
-      return text
-    }
-    return "`\(text)`"
+    return Self.isMemberIdentifier(text) ? text : "`\(text)`"
   }
 
   private static func isValidMemberName(_ token: TokenSyntax) -> Bool {
-    guard let declaration = try? VariableDeclSyntax("var \(raw: Self.memberName(token)): Int")
-    else {
-      return false
-    }
+    Self.isMemberIdentifier(Self.memberName(token))
+  }
+
+  private static func isMemberIdentifier(_ text: String) -> Bool {
+    guard let declaration = try? VariableDeclSyntax("var \(raw: text): Int") else { return false }
     return !Syntax(declaration).hasError
   }
 
   func members(_ source: String) -> MemberBlockItemListSyntax {
-    guard !source.allSatisfy(\.isWhitespace) else {
-      return MemberBlockItemListSyntax([])
-    }
-    var parsed = try! StructDeclSyntax(
-      "struct _StreamGenerated {\n\(raw: source)\n}"
-    )
-    .memberBlock.members
-    if let firstIndex = parsed.indices.first {
-      parsed[firstIndex].leadingTrivia = Trivia(
-        pieces: parsed[firstIndex].leadingTrivia.drop(while: \.isWhitespace)
-      )
-    }
-    return self.terminated(parsed)
+    self.terminated(streamParsedMembers(source))
   }
 
   private func terminated(

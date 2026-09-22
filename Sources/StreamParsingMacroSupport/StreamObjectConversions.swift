@@ -58,7 +58,7 @@ extension StreamObjectGeneration {
       ? "" : "\(self.access)typealias Partial = \(partialName)\n\n"
     var members = self.members(
       typealiasDeclaration
-        + self.streamPartialValueSource(inlining: partialValueInlining ?? self.configuration.inlining)
+        + self.streamPartialValueSource(inlining: partialValueInlining)
         + "\n\n"
         + self.initializersSource(unparsedMembers: unparsedMembers)
     )
@@ -67,7 +67,7 @@ extension StreamObjectGeneration {
     return members
   }
 
-  private func validateConversions(unparsedMembers: [StreamUnparsedMember]) throws {
+  func validateConversions(unparsedMembers: [StreamUnparsedMember]) throws {
     for field in self.fields
     where field.completedConversion != nil && !field.type.streamIsOptional
       && field.defaultValue == nil
@@ -88,32 +88,26 @@ extension StreamObjectGeneration {
 
   // MARK: - Whole to partial
 
-  private func streamPartialValueSource(inlining: StreamInliningMode) -> String {
-    let inline = self.isInlinable(inlining) ? "@inlinable " : ""
-    guard !self.fields.isEmpty else {
-      return """
-        \(inline)\(self.access)var streamPartialValue: Partial {
-          Partial()
-        }
-        """
-    }
+  private func streamPartialValueSource(inlining: StreamInliningMode?) -> String {
     let arguments = self.fields
-      .map { "    \(Self.memberName($0.name)): \(self.partialValueExpression(for: $0))" }
-      .joined(separator: ",\n")
-    return """
-      \(inline)\(self.access)var streamPartialValue: Partial {
-        Partial(
-      \(arguments)
-        )
+      .map {
+        let name = Self.memberName($0.name)
+        return "\(name): \(Self.partialValueExpression(for: $0, value: "self.\(name)"))"
       }
-      """
+      .joined(separator: ",\n")
+    return streamDeclarationSource(
+      "\(self.configuration.inlinableAttribute(inlining))\(self.access)var streamPartialValue: Partial",
+      body: arguments.isEmpty ? "Partial()" : "Partial(\n\(streamIndented(arguments, by: 2))\n)"
+    )
   }
 
-  private func partialValueExpression(for field: StreamParseableField) -> String {
-    let member = "self.\(Self.memberName(field.name))"
+  /// The partial for `value`, an expression holding the field's whole value.
+  static func partialValueExpression(for field: StreamParseableField, value member: String)
+    -> String
+  {
     let isOptional = field.type.streamIsOptional
     if let conversion = field.completedConversion {
-      let wrapper = "StreamParsingCore.ConvertedPartial<\(conversion.trimmedDescription)>"
+      let wrapper = Self.convertedPartialType(conversion)
       return isOptional ? "\(member).map { \(wrapper)(value: $0) }" : "\(wrapper)(value: \(member))"
     }
     // Only the `[K: V]` spelling: `Dictionary<K, V>` goes through `Dictionary.streamPartialValue`,
@@ -138,77 +132,75 @@ extension StreamObjectGeneration {
   // initializer that assigns stored properties does not compile.
   private func initializersSource(unparsedMembers: [StreamUnparsedMember]) -> String {
     let unparsedLines = unparsedMembers.map {
-      "  self.\(Self.memberName($0.name)) = \($0.value.trimmedDescription)"
+      "self.\(Self.memberName($0.name)) = \($0.value.trimmedDescription)"
     }
 
-    let strictBody: String
-    if self.fields.isEmpty {
-      strictBody = unparsedLines.joined(separator: "\n")
-    } else {
+    var strictLines = unparsedLines
+    if !self.fields.isEmpty {
       let bindings = self.fields
         .map { field -> String in
           let name = Self.memberName(field.name)
           guard field.completedConversion != nil else {
-            return "    let \(name) = Self._streamValue({ $0.\(name) }, partial.\(name))"
+            return "  let \(name) = Self._streamValue({ $0.\(name) }, partial.\(name))"
           }
           let helper =
             field.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
-          return "    let \(name) = \(helper)(partial.\(name))"
+          return "  let \(name) = \(helper)(partial.\(name))"
         }
         .joined(separator: ",\n")
-      let stores = self.fields.map {
-        let name = Self.memberName($0.name)
-        return "  self.\(name) = \(name)"
-      }
-      strictBody = """
-          guard
-        \(bindings)
-          else {
-            return nil
-          }
-        \((stores + unparsedLines).joined(separator: "\n"))
-        """
+      strictLines = ["guard\n\(bindings)\nelse {\n  return nil\n}"]
+        + self.fields.map {
+          let name = Self.memberName($0.name)
+          return "self.\(name) = \(name)"
+        }
+        + unparsedLines
     }
 
-    let totalAssignments = self.fields
-      .map { field -> String in
+    let totalLines =
+      self.fields.map { field -> String in
         let name = Self.memberName(field.name)
         guard field.completedConversion != nil else {
-          return "  self.\(name) = Self._streamValueOrInitial({ $0.\(name) }, partial.\(name))"
+          return "self.\(name) = Self._streamValueOrInitial({ $0.\(name) }, partial.\(name))"
         }
         let fallback =
           field.type.streamIsOptional ? "nil" : (field.defaultValue?.trimmedDescription ?? "nil")
-        return "  self.\(name) = _streamConvertedValue(partial.\(name)) ?? (\(fallback))"
-      }
-    let totalBody = (totalAssignments + unparsedLines).joined(separator: "\n")
+        return "self.\(name) = _streamConvertedValue(partial.\(name)) ?? (\(fallback))"
+      } + unparsedLines
 
-    let unlabelled =
-      self.partialMembers == .optional
-      ? """
-        \(self.inline)\(self.access)init?(_ partial: Partial) {
-          self.init(streamPartial: partial)
-        }
-        """
-      : """
-        \(self.inline)\(self.access)init(_ partial: Partial) {
-          self.init(orInitial: partial)
-        }
-        """
+    return [
+      self.configuration.unlabelledInitializerSource(isStrict: self.partialMembers == .optional),
+      streamDeclarationSource(
+        "\(self.access)init?(streamPartial partial: Partial)",
+        body: strictLines.joined(separator: "\n")
+      ),
+      streamDeclarationSource(
+        "\(self.access)init(orInitial partial: Partial)",
+        body: totalLines.joined(separator: "\n")
+      ),
+      self.configuration.streamValueOrInitialSource,
+    ]
+    .joined(separator: "\n\n")
+  }
+}
 
-    return """
-      \(unlabelled)
+// The members that only delegate, shared by struct and enum conversions.
+extension StreamGenerationConfiguration {
+  /// The unlabelled `init(_:)`, delegating to the strict or the total conversion.
+  func unlabelledInitializerSource(isStrict: Bool) -> String {
+    let prefix = "\(self.inlinableAttribute())\(self.accessPrefix)"
+    return isStrict
+      ? streamDeclarationSource(
+        "\(prefix)init?(_ partial: Partial)", body: "self.init(streamPartial: partial)"
+      )
+      : streamDeclarationSource(
+        "\(prefix)init(_ partial: Partial)", body: "self.init(orInitial: partial)"
+      )
+  }
 
-      \(self.access)init?(streamPartial partial: Partial) {
-      \(strictBody)
-      }
-
-      \(self.access)init(orInitial partial: Partial) {
-      \(totalBody)
-      }
-
-      \(self.inline)\(self.access)static func streamValueOrInitial(from partial: Partial) -> Self {
-        Self(orInitial: partial)
-      }
-      """
+  var streamValueOrInitialSource: String {
+    streamDeclarationSource(
+      "\(self.inlinableAttribute())\(self.accessPrefix)static func streamValueOrInitial(from partial: Partial) -> Self",
+      body: "Self(orInitial: partial)"
+    )
   }
 }

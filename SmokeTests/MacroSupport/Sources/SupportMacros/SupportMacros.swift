@@ -184,10 +184,58 @@ struct SupportModelMacro: ExtensionMacro {
   }
 }
 
+/// A downstream enum macro using what `@StreamParseable` cannot spell: a converted associated
+/// value, a custom payload name, and partial hooks.
+struct SupportActivityMacro: ExtensionMacro {
+  static func expansion(
+    of node: AttributeSyntax,
+    attachedTo declaration: some DeclGroupSyntax,
+    providingExtensionsOf type: some TypeSyntaxProtocol,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [ExtensionDeclSyntax] {
+    let generation = try StreamEnumGeneration(
+      cases: [
+        StreamParseableEnumCase(name: .identifier("idle")),
+        StreamParseableEnumCase(
+          name: .identifier("charge"),
+          associatedValues: [
+            StreamParseableField(
+              name: .identifier("total"),
+              type: IdentifierTypeSyntax(name: .identifier("Int")),
+              completedConversion: IdentifierTypeSyntax(name: .identifier("Cents")),
+              defaultValue: IntegerLiteralExprSyntax(-1)
+            ),
+            StreamParseableField(name: .wildcardToken(), type: IdentifierTypeSyntax(name: .identifier("String")))
+          ],
+          payloadTypeName: .identifier("ChargeArguments")
+        )
+      ],
+      representation: .caseKeyedObject,
+      defaultCase: .identifier("idle"),
+      configuration: StreamGenerationConfiguration(accessLevel: .public)
+    )
+    let partial = try generation.partialSyntax(
+      in: context,
+      additionalMembers: {
+        DeclSyntax("public var recognized: [StreamParsingCore.StreamFieldID] = []")
+        DeclSyntax("public static var chargeField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[1].identifier) }")
+      },
+      onFieldRecognized: { partial, field in "\(partial).recognized.append(\(field))" }
+    )
+    return [
+      try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+        partial
+        generation.conversionsSyntax()
+      }
+    ]
+  }
+}
+
 @main
 struct SupportPlugin: CompilerPlugin {
   let providingMacros: [Macro.Type] = [
     SupportPartialMacro.self, SupportFullPartialMacro.self, SupportMatcherMacro.self,
-    SupportModelMacro.self
+    SupportModelMacro.self, SupportActivityMacro.self
   ]
 }

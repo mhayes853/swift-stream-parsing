@@ -123,7 +123,8 @@ say different things:
 
 ```swift
 Stage(streamPartial: partial)            // nil for a value no case declares
-Stage.streamValueOrInitial(from: partial) // .unknown for the same value
+Stage(orInitial: partial)                 // .unknown for the same value
+Stage.streamValueOrInitial(from: partial) // .unknown, the same total conversion
 ```
 
 An enum must name a fallback, either this way or by conforming to `StreamInitializable`, because
@@ -308,8 +309,8 @@ targets: [
 ## Building compatible macros
 
 `StreamParsingMacroSupport` is a SwiftSyntax library for other macro implementations. It
-generates partial storage, views, optimized object schemas, conversions between the whole type
-and its partial, and UTF-8 matching syntax. Its
+generates partial storage, views, optimized object schemas, enums in each `@StreamParseable`
+representation, conversions between the whole type and its partial, and UTF-8 matching syntax. Its
 component APIs let a macro compose those pieces with its own declarations, and the
 `LifetimeView` trait selects the default view generation mode.
 

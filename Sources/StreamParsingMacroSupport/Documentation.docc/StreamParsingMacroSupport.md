@@ -1,6 +1,6 @@
 # StreamParsingMacroSupport
 
-Generate a complete stream-compatible struct from another macro using SwiftSyntax.
+Generate stream-compatible structs and enums from another macro using SwiftSyntax.
 
 Add the `StreamParsingMacroSupport` product to the macro target. The source receiving the
 expansion must import `StreamParsing`, which reexports `StreamParsingCore`.
@@ -32,9 +32,9 @@ conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize 
 with their stream initial values instead of making them optional. A field created without `keys`
 matches only its own name, without backticks.
 
-`TypeSyntax.streamParseable` and `.streamParseableObject` spell the library protocols that
-generated declarations conform to, fully qualified so a host's conformance clauses do not depend
-on imports or local names.
+`TypeSyntax.streamParseable`, `.streamParseableObject`, and `.streamInitializable` spell the
+library protocols that generated declarations conform to, fully qualified so a host's
+conformance clauses do not depend on imports or local names.
 
 The result is a `StructDeclSyntax`, so a consumer can modify declaration attributes, generic
 constraints, inheritance, or members through normal SwiftSyntax operations. Rewriting generated
@@ -86,6 +86,70 @@ It follows `configuration.inlining` unless `partialValueInlining` overrides it. 
 check that those properties are readable from an inlinable context, so a host whose properties
 are less visible than the type passes `.never`. The delegating members always follow the
 configuration, and the initializers that assign stored properties are never inlinable.
+
+## Generate enums
+
+```swift
+let generation = try StreamEnumGeneration(
+  cases: [
+    StreamParseableEnumCase(name: .identifier("idle")),
+    StreamParseableEnumCase(
+      name: .identifier("charge"),
+      associatedValues: [
+        StreamParseableField(name: .identifier("total"), type: TypeSyntax("Int")),
+        StreamParseableField(name: .wildcardToken(), type: TypeSyntax("String"))
+      ]
+    )
+  ],
+  representation: .caseKeyedObject,
+  defaultCase: .identifier("idle")
+)
+let conformance = try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+  try generation.partialSyntax(in: context)
+  generation.conversionsSyntax()
+}
+```
+
+`StreamEnumRepresentation` selects the wire form:
+
+- `.stringRawValue` parses `"live"`. Each case's `keys` are its raw value and aliases. A partial
+  string resolves to the shortest case it is a prefix of, so `live` may later become
+  `livestream`; an empty partial resolves to nothing unless a case's key is `""`.
+- `.numericRawValue(type)` parses `5` or `2.5`. The raw type is its own partial and conversion is
+  `init(rawValue:)`; keys are ignored.
+- `.caseKeyedObject` parses what `Codable` produces for an enum without a raw type:
+  `{"charge":{"total":21,"_1":"card"}}`. Each case's `keys` are its object keys.
+
+An associated value is a `StreamParseableField`, so it supports key aliases, `initialCapacity`,
+and `completedConversion` like a struct field. A wildcard name (`_`) marks an unlabelled value,
+which is named and keyed `_<position>` counting every associated value of the case, as `Codable`
+does. Each case with associated values gets a namespace, `<Case>Payload` unless
+`payloadTypeName` names it, holding the payload's `Partial` and a `Value` with one stored
+property per associated value. These names appear in user code (`partial.charge` is
+`ChargePayload.Partial?`), so treat them as API.
+
+`partialSyntax` returns `typealias Partial` for raw values. For `.caseKeyedObject` it returns the
+partial struct and the payload namespaces. The partial's view gains `ResolvedView` and
+`resolved`, which borrow whichever single case has arrived, or report `.unresolved` or
+`.ambiguous`. The member hooks and `onFieldRecognized` work as for structs, and
+`fieldIdentifiers` supplies each case's identity. Raw-value partials are library types, so
+non-empty hooks throw `hooksRequireObjectRepresentation`.
+
+`conversionsSyntax` returns `streamPartialValue`, `init?(_:)`, and `init?(streamPartial:)`. The
+strict conversion requires exactly one case to be present and its payload to be complete. With a
+`defaultCase` it also returns `init(orInitial:)` and `streamValueOrInitial(from:)`, which fall
+back to that case, filling a default case's payload from its stream initial values. Without one,
+the host adopts `TypeSyntax.streamInitializable` and supplies `streamInitialValue()`. An enum has
+no memberwise initializer, so every member can go in the same extension.
+
+`streamPartialValue` of `.caseKeyedObject` is not inlined unless `partialValueInlining` asks for
+it: an inlinable `switch self` over a public enum that isn't `@frozen` does not compile under
+library evolution. Everything else follows `configuration.inlining`.
+
+Validation throws `StreamObjectGenerationError` for a key claimed by two cases and for invalid
+associated values, including a converted one without a `defaultValue`. Names that cannot
+compile, such as duplicate cases or payload types, are left to the compiler. Use
+`StreamEnumGeneration(diagnosedCases:)` for recovery after emitting your own diagnostics.
 
 ## Add members and behavior
 

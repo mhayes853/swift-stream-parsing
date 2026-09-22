@@ -21,9 +21,6 @@ extension StreamParseableMacro {
   struct EnumCase {
     /// The case as written, backticks and all, for use in generated `self = .x` and `case .x`.
     let reference: String
-    /// The bare identifier, which is the JSON key in the raw-less form and the default raw value
-    /// in the `String`-raw one.
-    let bareName: String
     /// Every spelling that resolves to this case. One entry unless
     /// `@StreamParseableMember(keyNames:)` added aliases.
     let matchNames: [String]
@@ -53,7 +50,7 @@ extension StreamParseableMacro {
     return parameterClause.parameters.enumerated().map { index, parameter in
       if let firstName = parameter.firstName, firstName.tokenKind != .wildcard {
         return AssociatedValue(
-          label: StreamParseableMacro.unescaped(firstName), isLabeled: true, type: parameter.type
+          label: StreamObjectGeneration.bareName(firstName), isLabeled: true, type: parameter.type
         )
       }
       return AssociatedValue(label: "_\(index)", isLabeled: false, type: parameter.type)
@@ -92,7 +89,8 @@ extension StreamParseableMacro {
     for member in declaration.memberBlock.members {
       guard let caseDecl = member.decl.as(EnumCaseDeclSyntax.self) else { continue }
 
-      let isDefaultDecl = Self.streamParseableDefaultAttribute(in: caseDecl.attributes) != nil
+      let isDefaultDecl =
+        Self.attribute(named: "StreamParseableDefault", in: caseDecl.attributes) != nil
       if isDefaultDecl, caseDecl.elements.count > 1 {
         Self.diagnoseAmbiguousDefaultCase(in: caseDecl, context: context)
       }
@@ -102,7 +100,7 @@ extension StreamParseableMacro {
 
       for element in caseDecl.elements {
         let associatedValues = Self.associatedValues(in: element.parameterClause)
-        let bareName = StreamParseableMacro.unescaped(element.name)
+        let bareName = StreamObjectGeneration.bareName(element.name)
         // The raw value, where one is written, is the string this case answers to. Where one is
         // not, the case name is — which is both Swift's own default for a `String` raw value and
         // the `CodingKey` `Codable` derives for the raw-less form, so one rule covers both.
@@ -116,16 +114,15 @@ extension StreamParseableMacro {
           }
         }
 
-        let keyInfo = Self.keyNames(for: caseDecl.attributes, defaultName: defaultName)
-        for diagnostic in keyInfo.diagnostics {
-          context.diagnose(diagnostic)
-        }
+        let keyNames = Self.keyNames(
+          for: caseDecl.attributes, defaultName: defaultName, context: context
+        )
 
         // `@StreamParseableMember` means "alias" for a `String`-raw case and "rename" for a
         // raw-less one. A raw-raw case emits its raw value as its partial, so that spelling must
         // stay matchable or the type would not round trip; renaming it is done by writing the raw
         // value. A raw-less case has no wire form of its own, so naming its key replaces it.
-        var matchNames = keyInfo.names
+        var matchNames = keyNames
         if case .string = rawKind, !matchNames.contains(defaultName) {
           matchNames.insert(defaultName, at: 0)
         }
@@ -149,15 +146,14 @@ extension StreamParseableMacro {
               )
             )
           }
-          if !associatedValues.isEmpty,
-            !seenPayloadTypes.insert(Self.payloadTypeName(forCaseNamed: bareName)).inserted
-          {
+          let payloadType = StreamEnumGeneration.defaultPayloadTypeName(forCaseNamed: bareName)
+          if !associatedValues.isEmpty, !seenPayloadTypes.insert(payloadType).inserted {
             context.diagnose(
               Self.error(
                 element,
                 """
                 Case '\(bareName)' generates the payload type \
-                '\(Self.payloadTypeName(forCaseNamed: bareName))', which another case already \
+                '\(payloadType)', which another case already \
                 generates. Case names that differ only in capitalisation cannot both carry a \
                 payload.
                 """
@@ -169,7 +165,6 @@ extension StreamParseableMacro {
         cases.append(
           EnumCase(
             reference: element.name.trimmedDescription,
-            bareName: bareName,
             matchNames: matchNames,
             isDefault: isDefaultDecl && !sawDefault,
             associatedValues: associatedValues
@@ -184,6 +179,9 @@ extension StreamParseableMacro {
 
 // MARK: - Expansion
 
+// Generation itself is `StreamEnumGeneration`'s; the macro reads the declaration, diagnoses it,
+// and places the result. `streamPartialValue` goes out through the member role, the rest through
+// the extension, matching the struct lowering.
 extension StreamParseableMacro {
   static func enumMemberExpansion(
     declaration: EnumDeclSyntax,
@@ -194,61 +192,8 @@ extension StreamParseableMacro {
     }
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
-    Self.diagnoseUnsupportedRawType(in: declaration, rawKind: rawKind, context: context)
-    let accessModifier = Self.accessModifier(for: declaration.modifiers)
-    let prefix = Self.modifierPrefix(for: accessModifier)
-
-    let body: String
-    // Not for the raw-less form: under library evolution an inlinable `switch self` over a
-    // non-frozen enum is an error ("may have additional unknown values").
-    var inlinable = Self.isInlinable(accessModifier)
-    switch rawKind {
-    case .string:
-      body = "self.rawValue.streamPartialValue"
-    case .scalar:
-      body = "self.rawValue"
-    case .none:
-      inlinable = false
-      guard !cases.isEmpty else { return [] }
-      let arms = cases
-        .map { enumCase in
-          let member = Self.memberIdentifier(for: enumCase.bareName)
-          guard !enumCase.associatedValues.isEmpty else {
-            return """
-              case .\(enumCase.reference):
-                return Partial(\(member): StreamParsingCore.StreamEmptyObject())
-            """
-          }
-          let payloadType = Self.payloadTypeName(for: enumCase)
-          let bindings = enumCase.associatedValues
-            .map { "let \(Self.memberIdentifier(for: $0.label))" }
-            .joined(separator: ", ")
-          let payloadArguments = enumCase.associatedValues
-            .map { value in
-              let name = Self.memberIdentifier(for: value.label)
-              return "\(name): \(name).streamPartialValue"
-            }
-            .joined(separator: ", ")
-          return """
-            case .\(enumCase.reference)(\(bindings)):
-              return Partial(\(member): \(payloadType).Partial(\(payloadArguments)))
-          """
-        }
-        .joined(separator: "\n")
-      body = """
-        switch self {
-        \(arms)
-          }
-        """
-    }
-
-    return [
-      """
-      \(raw: Self.inlinableAttribute(inlinable))\(raw: prefix)var streamPartialValue: Partial {
-        \(raw: body)
-      }
-      """
-    ]
+    let generation = Self.enumGeneration(for: declaration, rawKind: rawKind, cases: cases)
+    return [Self.splitConversions(generation.conversionsSyntax()).streamPartialValue]
   }
 
   static func enumExtensionExpansion(
@@ -258,552 +203,64 @@ extension StreamParseableMacro {
     in context: DiagnosticSink,
     expansionContext: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
-    // The fully qualified name, so a nested enum extends `Outer.Inner`.
-    let typeName = type.trimmedDescription
-    let conformance = Self.conformanceClause(for: declaration)
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
     Self.diagnoseUnsupportedRawType(in: declaration, rawKind: rawKind, context: context)
-    if Self.hasExplicitPartialMembersArgument(node) {
+    if Self.argument(named: "partialMembers", of: node) != nil {
       Self.diagnosePartialMembersOnEnum(in: node, context: context)
     }
-
-    let accessModifier = Self.accessModifier(for: declaration.modifiers)
-    let prefix = Self.modifierPrefix(for: accessModifier)
-    let inlinable = Self.isInlinable(accessModifier)
-    let inline = Self.inlinableAttribute(inlinable)
-    let hasExistingPartial = Self.hasExistingPartial(in: declaration.memberBlock.members)
-
-    let partialSection: String
-    switch rawKind {
-    case _ where hasExistingPartial:
-      partialSection = ""
-    case .string:
-      partialSection = "\(prefix)typealias Partial = StreamParsingCore.StreamString\n"
-    case .scalar(let rawType):
-      partialSection = "\(prefix)typealias Partial = \(rawType)\n"
-    case .none:
-      // Every case becomes an optional member. A no-payload case's member holds the empty object
-      // its `{}` payload is; a case with associated values gets a per-case payload type instead
-      // (`payloadWrapperDecl`), keyed the same way `Codable`'s synthesis keys the object it
-      // wraps them in. Either way the struct lowering builds the whole partial — field table,
-      // schema, view and all — from the member list. Nothing about the object form is special
-      // enough to need its own generator.
-      let properties = cases.map { enumCase -> StoredProperty in
-        let payloadName =
-          enumCase.associatedValues.isEmpty
-          ? "StreamParsingCore.StreamEmptyObject"
-          : Self.payloadTypeName(for: enumCase)
-        return StoredProperty(
-          name: enumCase.bareName,
-          type: "\(raw: payloadName)",
-          keyNames: enumCase.matchNames,
-          initialCapacity: nil,
-          isIgnored: false,
-          hasDefaultValue: false
-        )
-      }
-      // `ResolvedView`/`resolved` go in as members of `View` itself, not a second extension of
-      // it: an `@attached(extension)` macro can only extend the type it is attached to, so an
-      // extension naming `Partial.View` is silently rewritten back to the enum.
-      let partialDeclText = try Self.partialStructDecl(
-        for: properties,
-        accessModifier: accessModifier,
-        membersMode: .optional,
-        extraViewMembers: cases.isEmpty
-          ? ""
-          : Self.resolvedViewDecl(cases: cases, modifierPrefix: prefix, inlinable: inlinable),
-        in: expansionContext
-      )
-      .description
-      // `.description` renders flush left, and only the first line of a `\(raw:)` interpolation
-      // picks up the surrounding indentation.
-      let partialStructText = Self.reindented(partialDeclText, by: 2)
-      let payloadWrapperTexts = try cases
-        .filter { !$0.associatedValues.isEmpty }
-        .map {
-          try Self.reindented(
-            Self.payloadWrapperDecl(for: $0, accessModifier: accessModifier, in: expansionContext), by: 2
-          )
-        }
-      partialSection =
-        ([partialStructText] + payloadWrapperTexts)
-        .joined(separator: "\n\n") + "\n"
-    }
-
-    let conversion: String
-    switch rawKind {
-    case .string:
-      conversion = Self.stringRawConversion(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
-    case .scalar:
-      conversion = Self.scalarRawConversion(modifierPrefix: prefix, inlinable: inlinable)
-    case .none:
-      conversion = Self.objectConversion(cases: cases, modifierPrefix: prefix, inlinable: inlinable)
-    }
-
-    let defaultCase = cases.first { $0.isDefault }
-    if defaultCase == nil, !Self.namesAnInitialValue(in: declaration) {
+    if !cases.contains(where: \.isDefault), !Self.namesAnInitialValue(in: declaration) {
       Self.diagnoseMissingDefaultCase(in: declaration, context: context)
     }
-    let valueOrInitial =
-      defaultCase.map { enumCase in
-        """
 
-
-          \(inline)\(prefix)static func streamValueOrInitial(from partial: Partial) -> Self {
-        \(Self.defaultCaseFallbackBody(for: enumCase))
-          }
-        """
-      } ?? ""
-
+    let generation = Self.enumGeneration(for: declaration, rawKind: rawKind, cases: cases)
+    var members =
+      Self.hasExistingPartial(in: declaration.memberBlock.members)
+      ? MemberBlockItemListSyntax([]) : try generation.partialSyntax(in: expansionContext)
+    members.append(contentsOf: Self.splitConversions(generation.conversionsSyntax()).rest)
+    // The fully qualified name, so a nested enum extends `Outer.Inner`.
     return [
       try ExtensionDeclSyntax(
-        """
-        extension \(raw: typeName)\(raw: conformance) {
-          \(raw: partialSection)
-          \(raw: conversion)\(raw: valueOrInitial)
-        }
-        """
-      )
+        "extension \(raw: type.trimmedDescription)\(raw: Self.conformanceClause(for: declaration))"
+      ) {
+        members
+      }
     ]
   }
-}
 
-// MARK: - Conversions
-
-extension StreamParseableMacro {
-  // The `String`-raw matcher, in two stages.
-  //
-  // Stage one is the exact match a complete value hits: the same little-endian word switch the
-  // macro emits for object keys, which the compiler turns into a jump table.
-  //
-  // Stage two is the prefix chain, reached only on a miss. A partial carries no end-of-string
-  // signal, so a mid-flight read must assume something; the assumption is the shortest case still
-  // consistent with the bytes in hand, implemented by emitting the chain sorted by length
-  // ascending. (The caller-visible consequence is documented on `@StreamParseable` itself.)
-  static func stringRawConversion(
-    cases: [EnumCase], modifierPrefix: String, inlinable: Bool
-  ) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    var candidates = [(name: String, reference: String)]()
-    for enumCase in cases {
-      for name in enumCase.matchNames {
-        candidates.append((name, enumCase.reference))
+  static func enumGeneration(
+    for declaration: EnumDeclSyntax,
+    rawKind: EnumRawKind,
+    cases: [EnumCase]
+  ) -> StreamEnumGeneration {
+    let representation: StreamEnumRepresentation =
+      switch rawKind {
+      case .string: .stringRawValue
+      case .scalar(let rawType): .numericRawValue(TypeSyntax("\(raw: rawType)"))
+      case .none: .caseKeyedObject
       }
-    }
-
-    let exactArms = candidates
-      .map { candidate in
-        let match = StreamUTF8Match(candidate.name)
-        let condition = streamRemainingUTF8Condition(match,
-          byteCount: DeclReferenceExprSyntax(baseName: .identifier("streamCount"))
-        ) { offset in
-          ExprSyntax("partial.paddedWord(at: \(raw: offset))")
-        }
-        return """
-              case \(streamUTF8WordLiteral(match.value, at: 0)) where \(condition):
-                self = .\(candidate.reference)
-                return
-          """
-      }
-      .joined(separator: "\n")
-
-    // Stable within a length, so declaration order breaks ties rather than whatever order a sort
-    // happens to produce.
-    let prefixArms = candidates
-      .enumerated()
-      .sorted {
-        let left = $0.element.name.utf8.count
-        let right = $1.element.name.utf8.count
-        return left == right ? $0.offset < $1.offset : left < right
-      }
-      .map { _, candidate in
-        """
-              if partial.isPrefix(of: \(StringLiteralExprSyntax(content: candidate.name).trimmedDescription)) {
-                self = .\(candidate.reference)
-                return
-              }
-          """
-      }
-      .joined(separator: "\n")
-
-    // An empty accumulation is a prefix of every case, so shortest-wins would resolve it to some
-    // case the instant the opening quote arrived — a definite answer on no evidence, which then
-    // *changes* as the real bytes land. Declining instead keeps the progression monotone
-    // (nil, then the case), and `streamValueOrInitial` still supplies the default for anyone who
-    // wants one. The guard is omitted when a case actually spells `""`, since then zero bytes are
-    // a value rather than an absence.
-    var lines = [String]()
-    let countIsRead = !exactArms.isEmpty
-    if countIsRead { lines.append("    let streamCount = partial.utf8Count") }
-    if !candidates.contains(where: { $0.name.isEmpty }) {
-      let count = countIsRead ? "streamCount" : "partial.utf8Count"
-      lines.append("    guard \(count) > 0 else { return nil }")
-    }
-    if countIsRead {
-      lines.append("    switch partial.paddedLeadingWord() {")
-      lines.append(exactArms)
-      lines.append("    default:")
-      lines.append("      break")
-      lines.append("    }")
-    }
-    if !prefixArms.isEmpty { lines.append(prefixArms) }
-    lines.append("    return nil")
-    let body = lines.joined(separator: "\n")
-
-    return """
-      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
-          self.init(streamPartial: partial)
-        }
-
-        \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
-      \(body)
-        }
-      """
-  }
-
-  static func scalarRawConversion(modifierPrefix: String, inlinable: Bool) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    // `Partial` *is* the raw value for every numeric raw type, so there is nothing to accumulate
-    // and nothing to match: a number arrives whole, and the only question is whether the case list
-    // covers it. That is exactly `init(rawValue:)`.
-    return """
-    \(inline)\(modifierPrefix)init?(_ partial: Partial) {
-        self.init(streamPartial: partial)
-      }
-
-      \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
-        self.init(rawValue: partial)
-      }
-    """
-  }
-
-  // The raw-less form. Which case arrived is which member is non-`nil`, and *exactly* one must
-  // be, matching what `JSONDecoder` accepts for the same document. Two passes rather than one,
-  // because a payload-bearing case can also fail by having arrived incomplete: the first pass
-  // only counts, and the second extracts the one identified payload or declines outright.
-  // Both halves of the two-pass resolve, for both readers. `objectConversion` and
-  // `resolvedViewDecl` run the identical count-then-switch protocol over the identical member
-  // list; only how a member is reached and how each arm reads differ, so only the arm bodies do.
-  static func caseArms(
-    _ cases: [EnumCase],
-    _ arm: (_ index: Int, _ enumCase: EnumCase, _ member: String) -> String
-  ) -> String {
-    cases.enumerated()
-      .map { arm($0.offset, $0.element, Self.memberIdentifier(for: $0.element.bareName)) }
-      .joined(separator: "\n")
-  }
-
-  static func objectConversion(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    let countArms = Self.caseArms(cases) { index, _, member in
-      """
-            if partial.\(member) != nil {
-              streamMatched = \(index)
-              streamMatches += 1
-            }
-        """
-    }
-
-    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
-      guard !enumCase.associatedValues.isEmpty else {
-        return """
-              case \(index):
-                self = .\(enumCase.reference)
-          """
-      }
-      let payloadType = Self.payloadTypeName(for: enumCase)
-      let arguments = Self.caseConstructorArguments(for: enumCase.associatedValues, from: "streamValue")
-      return """
-            case \(index):
-              guard let streamValue = \(payloadType).Value(streamPartial: partial.\(member)!)
-              else { return nil }
-              self = .\(enumCase.reference)(\(arguments))
-        """
-    }
-
-    return """
-      \(inline)\(modifierPrefix)init?(_ partial: Partial) {
-          self.init(streamPartial: partial)
-        }
-
-        \(inline)\(modifierPrefix)init?(streamPartial partial: Partial) {
-          var streamMatched = -1
-          var streamMatches = 0
-      \(countArms)
-          guard streamMatches == 1 else { return nil }
-          switch streamMatched {
-      \(resolveArms)
-          default:
-            return nil
-          }
-        }
-      """
-  }
-
-  // A JSON key becomes a Swift member name, which it is not always already: a key may be a Swift
-  // keyword, contain characters an identifier cannot, or be empty. Backticks cover the keyword
-  // case, which is the only one a case name can produce on its own; anything else is a key the
-  // user named explicitly and is left to the compiler to reject at the member declaration, where
-  // the error points at something they wrote.
-  static func memberIdentifier(for key: String) -> String {
-    guard !key.isEmpty else { return "_streamEmptyKey" }
-    let isIdentifier =
-      !key.first!.isNumber
-      && key.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
-    return isIdentifier && !Self.swiftKeywords.contains(key) ? key : "`\(key)`"
-  }
-
-  static let swiftKeywords: Set<String> = [
-    "associatedtype", "borrowing", "case", "catch", "class", "consuming", "continue", "default",
-    "defer", "deinit", "do", "else", "enum", "extension", "fallthrough", "false", "fileprivate",
-    "for", "func", "guard", "if", "import", "in", "init", "inout", "internal", "is", "let",
-    "nil", "operator", "private", "protocol", "public", "repeat", "rethrows", "return", "self",
-    "Self", "static", "struct", "subscript", "super", "switch", "throw", "throws", "true", "try",
-    "typealias", "var", "where", "while"
-  ]
-}
-
-// MARK: - Associated values
-
-extension StreamParseableMacro {
-  // The argument list for constructing a case from its payload's extracted fields — shared
-  // between `objectConversion`'s resolved arm and a payload-bearing default case's fallback,
-  // since both start from a value with one stored property per associated value and need to
-  // call the case constructor with the same labels back.
-  static func caseConstructorArguments(for associatedValues: [AssociatedValue], from source: String)
-    -> String
-  {
-    associatedValues
-      .map { value in
-        let name = Self.memberIdentifier(for: value.label)
-        return value.isLabeled ? "\(value.label): \(source).\(name)" : "\(source).\(name)"
-      }
-      .joined(separator: ", ")
-  }
-
-  // A default case with no payload can fall back to its bare `.case` the way it always has. One
-  // with associated values has nothing to fall back to *until* its own payload is filled in the
-  // same recursive way a struct member with an initial value is — `<Case>Payload.Value` already
-  // has that for free from `conversionsSyntax`, so this calls it rather than repeating the rule.
-  static func defaultCaseFallbackBody(for enumCase: EnumCase) -> String {
-    guard !enumCase.associatedValues.isEmpty else {
-      return "    Self(streamPartial: partial) ?? .\(enumCase.reference)"
-    }
-    let member = Self.memberIdentifier(for: enumCase.bareName)
-    let payloadType = Self.payloadTypeName(for: enumCase)
-    let arguments = Self.caseConstructorArguments(
-      for: enumCase.associatedValues, from: "streamDefaultValue"
-    )
-    return """
-          if let streamMatched = Self(streamPartial: partial) {
-            return streamMatched
-          }
-          let streamDefaultValue = \(payloadType).Value.streamValueOrInitial(
-            from: partial.\(member) ?? \(payloadType).Partial.streamInitialValue()
+    let generationCases = cases.map { enumCase in
+      StreamParseableEnumCase(
+        name: .identifier(enumCase.reference),
+        keys: enumCase.matchNames,
+        associatedValues: enumCase.associatedValues.map { value in
+          StreamParseableField(
+            name: value.isLabeled ? .identifier(value.label) : .wildcardToken(),
+            type: value.type,
+            keys: [value.label]
           )
-          return .\(enumCase.reference)(\(arguments))
-      """
-  }
-
-  // The generated per-case payload namespace's name. Upper-cased because it is a type: a case is
-  // spelled `text`, its payload type `TextPayload`. The suffix is what keeps it from colliding
-  // with a Swift keyword, so no backticking is needed even for `case \`default\``.
-  static func payloadTypeName(for enumCase: EnumCase) -> String {
-    Self.payloadTypeName(forCaseNamed: enumCase.bareName)
-  }
-
-  static func payloadTypeName(forCaseNamed bareName: String) -> String {
-    guard let first = bareName.first else { return "Payload" }
-    return first.uppercased() + bareName.dropFirst() + "Payload"
-  }
-
-  // Re-indents every line but the first by `spaces`. A raw `\(raw:)` interpolation of a
-  // `DeclSyntax` only picks up the surrounding indentation on its first line — see the note at
-  // `partialSection`'s construction — and this is the same fix-up applied to text this file
-  // builds by hand instead (a plain `String` interpolation gets none of that for free, not even
-  // the first line).
-  static func reindented(_ text: String, by spaces: Int) -> String {
-    let pad = String(repeating: " ", count: spaces)
-    return text
-      .split(separator: "\n", omittingEmptySubsequences: false)
-      .enumerated()
-      .map { $0.offset == 0 || $0.element.isEmpty ? String($0.element) : pad + $0.element }
-      .joined(separator: "\n")
-  }
-
-  // A payload-bearing case's associated values become a `<Case>Payload` namespace holding the
-  // usual field-table `Partial` plus a `Value` struct with the same stored properties. Two types
-  // rather than one because `conversionsSyntax` assigns into a real nominal type, and reusing it
-  // here is what avoids a second implementation of per-field extraction.
-  static func payloadWrapperDecl(
-    for enumCase: EnumCase, accessModifier: String?,
-    in context: some MacroExpansionContext
-  ) throws -> String {
-    let modifierPrefix = Self.modifierPrefix(for: accessModifier)
-    let payloadTypeName = Self.payloadTypeName(for: enumCase)
-    let properties = enumCase.associatedValues.map { value in
-      StoredProperty(
-        name: value.label,
-        type: value.type,
-        keyNames: [value.label],
-        initialCapacity: nil,
-        isIgnored: false,
-        hasDefaultValue: false
+        }
       )
     }
-    let partialText = Self.reindented(
-      try Self.partialStructDecl(
-        for: properties,
-        accessModifier: accessModifier,
-        membersMode: .optional,
-        in: context
+    return StreamEnumGeneration(
+      diagnosedCases: generationCases,
+      representation: representation,
+      defaultCase: cases.first(where: \.isDefault).map { .identifier($0.reference) },
+      configuration: StreamGenerationConfiguration(
+        viewMode: .packageDefault,
+        accessLevel: Self.generatedAccessLevel(for: declaration.modifiers)
       )
-      .description,
-      by: 2
     )
-    let valueProperties = properties
-      .map { "    \(modifierPrefix)var \($0.memberName): \($0.type.trimmedDescription)" }
-      .joined(separator: "\n")
-    // `conversionsSyntax`'s `_streamValue`/`_streamValueOrInitial` calls resolve through a
-    // protocol extension on `StreamParseable` itself, so `Value` has to actually conform —
-    // `streamPartialValue` included, even though nothing here ever calls it back.
-    let conversions = try Self.conversions(
-      for: properties, accessModifier: accessModifier, membersMode: .optional
-    )
-    let valuePartialValue = Self.reindented(conversions.streamPartialValue.description, by: 4)
-    let valueConversion = Self.reindented(conversions.initializers, by: 4)
-
-    return """
-      \(modifierPrefix)enum \(payloadTypeName) {
-        \(partialText)
-
-        \(modifierPrefix)struct Value: StreamParsingCore.StreamParseable {
-      \(valueProperties)
-
-          \(modifierPrefix)typealias Partial = \(payloadTypeName).Partial
-
-          \(valuePartialValue)
-
-          \(valueConversion)
-        }
-      }
-      """
-  }
-
-  // The read side groups every case's view under one switch, so a case can be read mid-stream
-  // without materialising an owned snapshot. It follows `View`: nonescapable with `LifetimeView`,
-  // otherwise an explicitly unsafe escapable pointer projection.
-  //
-  // Two constraints shape what is emitted here. Multi-pattern `case` labels are not implemented
-  // for a `~Copyable` match on Swift 6.3/6.4, so every arm is single-pattern. And this must live
-  // on `View`, reaching through the caller-supplied `_streamStorage` — a `Partial` value's own
-  // address via `withUnsafePointer(to:)` dangles the moment the getter returns.
-  static func resolvedViewDecl(cases: [EnumCase], modifierPrefix: String, inlinable: Bool) -> String {
-    let inline = Self.inlinableAttribute(inlinable)
-    let countArms = Self.caseArms(cases) { index, _, member in
-      """
-            if self._streamStorage.pointee.\(member) != nil { streamMatched = \(index); streamMatches += 1 }
-        """
-    }
-
-#if LifetimeView
-    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
-      guard !enumCase.associatedValues.isEmpty else {
-        return """
-              case \(index):
-                return .\(enumCase.reference)
-          """
-      }
-      let payloadType = Self.payloadTypeName(for: enumCase)
-      return """
-            case \(index):
-              guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(member))
-              else { return .unresolved }
-              return _overrideLifetime(
-                .\(enumCase.reference)(\(payloadType).Partial.streamView(streamAddress)),
-                borrowing: self
-              )
-        """
-    }
-#else
-    let resolveArms = Self.caseArms(cases) { index, enumCase, member in
-      guard !enumCase.associatedValues.isEmpty else {
-        return """
-              case \(index):
-                return .\(enumCase.reference)
-          """
-      }
-      let payloadType = Self.payloadTypeName(for: enumCase)
-      return """
-            case \(index):
-              guard let streamAddress = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.\(member))
-              else { return .unresolved }
-              return .\(enumCase.reference)(\(payloadType).Partial.streamView(streamAddress))
-        """
-    }
-#endif
-
-    let viewCases = cases
-      .map { enumCase in
-        enumCase.associatedValues.isEmpty
-          ? "    case \(enumCase.reference)"
-          : "    case \(enumCase.reference)(\(Self.payloadTypeName(for: enumCase)).Partial.View)"
-      }
-      .joined(separator: "\n")
-
-#if LifetimeView
-    return """
-      \(modifierPrefix)enum ResolvedView: ~Copyable, ~Escapable {
-        case unresolved
-        case ambiguous
-      \(viewCases)
-        }
-
-        \(inline)\(modifierPrefix)var resolved: ResolvedView {
-          @_lifetime(borrow self)
-          get {
-            var streamMatched = -1
-            var streamMatches = 0
-      \(countArms)
-            guard streamMatches == 1 else {
-              if streamMatches == 0 { return .unresolved }
-              return .ambiguous
-            }
-            switch streamMatched {
-      \(resolveArms)
-            default:
-              return .unresolved
-            }
-          }
-        }
-      """
-#else
-    return """
-      @unsafe \(modifierPrefix)enum ResolvedView: ~Copyable {
-        case unresolved
-        case ambiguous
-      \(viewCases)
-        }
-
-        \(inline)\(modifierPrefix)var resolved: ResolvedView {
-          get {
-            var streamMatched = -1
-            var streamMatches = 0
-      \(countArms)
-            guard streamMatches == 1 else {
-              if streamMatches == 0 { return .unresolved }
-              return .ambiguous
-            }
-            switch streamMatched {
-      \(resolveArms)
-            default:
-              return .unresolved
-            }
-          }
-        }
-      """
-#endif
   }
 }
 
@@ -815,20 +272,12 @@ extension StreamParseableMacro {
   // so here beats a missing-requirement error inside an expansion. Deliberately syntactic, so a
   // conformance added in a far away extension is invisible: the message names the fix.
   static func namesAnInitialValue(in declaration: EnumDeclSyntax) -> Bool {
-    let inherited = declaration.inheritanceClause?.inheritedTypes ?? []
-    if inherited.contains(where: { Self.lastComponent(of: $0.type) == "StreamInitializable" }) {
-      return true
-    }
-    return declaration.memberBlock.members.contains { member in
-      guard let function = member.decl.as(FunctionDeclSyntax.self),
-        function.name.text == "streamInitialValue",
-        function.modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) }),
-        function.signature.parameterClause.parameters.isEmpty
-      else {
-        return false
+    Self.inherits(declaration, named: "StreamInitializable")
+      || declaration.memberBlock.members.contains { member in
+        guard let function = member.decl.as(FunctionDeclSyntax.self) else { return false }
+        return function.name.text == "streamInitialValue" && function.modifiers.contains(.static)
+          && function.signature.parameterClause.parameters.isEmpty
       }
-      return true
-    }
   }
 
   static func diagnoseMissingDefaultCase(
@@ -836,16 +285,14 @@ extension StreamParseableMacro {
     context: DiagnosticSink
   ) {
     context.diagnose(
-      Diagnostic(
-        node: declaration.name,
-        message: MacroExpansionErrorMessage(
-          """
-          @StreamParseable requires an enum to name a fallback case, because \
-          'streamValueOrInitial' has to produce one when the stream produced nothing this type \
-          can represent. Mark a case with @StreamParseableDefault, or declare \
-          'StreamInitializable' conformance on '\(declaration.name.text)' itself.
-          """
-        )
+      Self.error(
+        declaration.name,
+        """
+        @StreamParseable requires an enum to name a fallback case, because \
+        'streamValueOrInitial' has to produce one when the stream produced nothing this type \
+        can represent. Mark a case with @StreamParseableDefault, or declare \
+        'StreamInitializable' conformance on '\(declaration.name.text)' itself.
+        """
       )
     )
   }
@@ -876,7 +323,7 @@ extension StreamParseableMacro {
             Self.error(
               parameter.type,
               """
-              Case '\(Self.unescaped(element.name))' has a payload that contains \
+              Case '\(StreamObjectGeneration.bareName(element.name))' has a payload that contains \
               '\(declaration.name.text)' itself. @StreamParseable does not support recursive \
               enums, because the generated 'Partial' would contain itself.
               """
@@ -949,14 +396,12 @@ extension StreamParseableMacro {
     context: DiagnosticSink
   ) {
     context.diagnose(
-      Diagnostic(
-        node: element,
-        message: MacroExpansionErrorMessage(
-          """
-          @StreamParseable requires a string literal raw value. Case '\(element.name.text)' \
-          declares one the macro cannot read, so it has no text to match against.
-          """
-        )
+      Self.error(
+        element,
+        """
+        @StreamParseable requires a string literal raw value. Case '\(element.name.text)' \
+        declares one the macro cannot read, so it has no text to match against.
+        """
       )
     )
   }
@@ -977,15 +422,13 @@ extension StreamParseableMacro {
       return
     }
     context.diagnose(
-      Diagnostic(
-        node: inherited,
-        message: MacroExpansionErrorMessage(
-          """
-          @StreamParseable does not support '\(inherited.type.trimmedDescription)' as a raw \
-          value type. Supported raw types are String and the standard integer and floating \
-          point types; an enum with no raw type parses Codable's case-name-keyed object form.
-          """
-        )
+      Self.error(
+        inherited,
+        """
+        @StreamParseable does not support '\(inherited.type.trimmedDescription)' as a raw \
+        value type. Supported raw types are String and the standard integer and floating \
+        point types; an enum with no raw type parses Codable's case-name-keyed object form.
+        """
       )
     )
   }
@@ -995,14 +438,12 @@ extension StreamParseableMacro {
     context: DiagnosticSink
   ) {
     context.diagnose(
-      Diagnostic(
-        node: caseDecl,
-        message: MacroExpansionErrorMessage(
-          """
-          @StreamParseableDefault must mark a single case. This declaration names \
-          \(caseDecl.elements.count).
-          """
-        )
+      Self.error(
+        caseDecl,
+        """
+        @StreamParseableDefault must mark a single case. This declaration names \
+        \(caseDecl.elements.count).
+        """
       )
     )
   }
@@ -1012,11 +453,9 @@ extension StreamParseableMacro {
     context: DiagnosticSink
   ) {
     context.diagnose(
-      Diagnostic(
-        node: caseDecl,
-        message: MacroExpansionErrorMessage(
-          "@StreamParseableDefault is already declared on an earlier case."
-        )
+      Self.error(
+        caseDecl,
+        "@StreamParseableDefault is already declared on an earlier case."
       )
     )
   }
@@ -1026,15 +465,13 @@ extension StreamParseableMacro {
     context: DiagnosticSink
   ) {
     context.diagnose(
-      Diagnostic(
-        node: node,
-        message: MacroExpansionErrorMessage(
-          """
-          @StreamParseable(partialMembers:) does not apply to an enum. An enum's partial has a \
-          fixed shape: absence is what says a case did not arrive, so its members are always \
-          optional.
-          """
-        )
+      Self.error(
+        node,
+        """
+        @StreamParseable(partialMembers:) does not apply to an enum. An enum's partial has a \
+        fixed shape: absence is what says a case did not arrive, so its members are always \
+        optional.
+        """
       )
     )
   }
