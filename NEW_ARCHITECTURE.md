@@ -7402,11 +7402,76 @@ bitmap test, a load and a second bitmap test before the scan. Under the old gate
 | two whitespace bytes only (no quote) | Twitter spaced -5.0%: Python-style objects want the walk |
 | signal read off the scan's results (run >= 2, or stopped on a quote) | Mesh -3.2% but Canada raw -7.1%, Qwen raw -5.5%, `Pretty printed users - 64B` -10.6%, Qwen typed -1.6% |
 | lookahead byte reused: when it is neither whitespace nor a quote it goes straight to the dispatch (`i += 1; byte = next`), skipping the scan | Mesh +3.6% (raw +2.1%), and the rest down: Twitter escaped -3.5%, Retention -2.9%, Canada -2.6%, Qwen -2.6/-2.4%, Twitter full -2.1%; raw Canada -4.5%, Qwen -5.2/-5.0% (mean -1.43%, floor -0.22%). 21 fewer instructions and 19 fewer stack accesses in the `NullSink` run; the compiler gave the shortcut its own edge into the token dispatch (and a free `next >= 0x40` tier) |
-| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | 8 rounds, Mesh floor 0.0%: Mesh **+2.8%**, Mesh 16KB +0.7%, raw Mesh -2.4%; CITM -0.5%, Canada 0.0%; Twitter spaced -2.8% and Twitter escaped -2.4% on rows whose floor read -1.6% and -1.8% in that run. Not rejected by these numbers: open, wants a quiet re-run of the noisy rows |
+| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | 8 rounds, Mesh floor 0.0%: Mesh **+2.8%**, Mesh 16KB +0.7%, raw Mesh -2.4%; CITM -0.5%, Canada 0.0%; Twitter spaced -2.8% and Twitter escaped -2.4% on rows whose floor read -1.6% and -1.8% in that run. Not rejected by these numbers alone; re-tried on top of the fused signal below and closed there (Mesh -3.8%, LLM -2.5%) |
 
 (An earlier revision of this table had the raw and typed columns of these two rows swapped -- `- bulk`
 is the raw row, `- bulk discarding` the typed one -- and rejected the second spelling for a typed
 Mesh loss that was the raw row's.)
+
+**The signal, fused: one branch.** The two halves of the signal were two dependent branches, and
+the second was dearer than its source read. At the raw site (`consumeStructuralRun`, `NullSink`):
+
+```asm
+lsr   x12, x19, x10         ; whitespace bitmap >> byte   (x19 hoisted; no guard, byte <= 0x20)
+tbz   w12, #0, scan         ; branch 1
+ldrb  w11, [x11, #1]        ; next
+cmp   x11, #0x3f            ; overshift guard: Swift's `>>` is 0 past 63
+lsl   x11, x15, x11
+mov   x12, #0x2600
+movk  x12, #0x5, lsl #32    ; the ws|quote bitmap, re-materialised on every visit
+and   x11, x11, x12
+ccmp  x11, #0, #4, ls
+b.ne  walk                  ; branch 2
+```
+
+Now `(streamWhitespaceBitmap &>> byte) & (signalBitmap &>> next) & 1`, one AND and one branch:
+
+```asm
+ldrb  w11, [x11, #1]
+lsr   x12, x19, x10
+and   x12, x12, #1
+lsl   x11, x12, x11         ; (0 or 1) << next
+mov   x12, #0x2600
+movk  x12, #0x5, lsl #32    ; still re-materialised
+tst   x11, x12
+b.ne  walk
+```
+
+The masking shift is exact for `byte` (it is `<= space` here) and aliases modulo 64 for `next`:
+`I J M \` b` and the same values with the high bit set signal falsely after whitespace. None can
+follow whitespace outside a string, so a false signal sends the walk a block it hands straight
+back, and the ladder reports the byte at the offset the `blocks: false` copy reports (`Bytes that
+alias into the signal after whitespace report the same error`). One trap on the way: `signalBitmap`
+as a `static let` reached the specialised loop through its lazy addressor -- a `bl` and two spills
+per visit; it is a computed `static var`, as `streamWhitespaceBitmap` is.
+
+Two variants, 5 interleaved rounds against 06dc4a3 run twice (floor 0.00% mean, <= +-0.3% a row
+except one +0.8%), best-of-5 p0. `sig` is the fused test; `sigfus` is the fused test with the
+`i += 1; continue` shortcut from the table above on its miss path:
+
+| row | `sig` raw / typed | `sigfus` raw / typed |
+| --- | ---: | ---: |
+| GSoC 2018 | +2.8 / +1.0% (16KB +0.9%) | +2.3 / +0.3% |
+| CITM catalog | +2.4 / +0.7% (16KB +1.2%) | +0.8 / +1.2% |
+| GitHub events | +0.6 / +0.5% | +0.5 / +0.8% |
+| Twitter / spaced / full | +0.8 / +0.8 / -- ; +0.4 / +0.2 / +0.3% | +0.9 / +1.0 / -- ; +0.7 / +0.1 / +0.8% |
+| Qwen 3 structured / workspace edit | 0.0 / 0.0 ; +0.7 / 0.0% | +0.8 / +1.1 ; -0.1 / -1.0% |
+| LLM message | -1.3 / 0.0% (16KB +0.2%) | +1.5 / **-2.5%** (16KB -2.2%) |
+| Mesh | -2.0 / -0.9% (16KB +0.5%) | +2.2 / **-3.8%** (16KB -0.6%) |
+| Twitter escaped | +0.7 / -0.3% | +0.9 / -0.9% |
+| Canada (24 whitespace bytes: never signals) | -1.3 / -2.6% (16KB -2.6%) | +0.1 / -4.5% |
+| Retention 100 users / Dictionary 128 keys (minified: never signal) | +3.2 / +0.8% | +3.0 / +2.3% |
+| mean of 34 rows | +0.22% | +0.11% |
+
+`sig` landed: every typed row that runs the signal is +0.2..+1.0% but Mesh (-0.9%) and Twitter
+escaped (-0.3%), and the pretty-printed raw rows are +2.4..+2.8%. Mesh did not move because the
+test was never its cost: the whitespace scan after a miss is. The three rows that never execute the
+signal are the layout lottery again -- Retention and Dictionary 128 keys, which lost -3.1% / -1.7%
+to layout when the string staging landed, came back with opcode-identical code, and Canada took the
+-2.6% instead. `sigfus` is closed: the shortcut that measured Mesh +2.8% on its own does not
+compose with the fused test (the miss path became three branches and gained a stack store), and
+LLM typed -2.5% / Mesh typed -3.8% are real. What Mesh has left is the comma-fusion inside the walk
+that the census priced at 0.3-4% and put aside as a numeric-array optimisation.
 
 #### Staging the escaped string tail: the scan's load is the copy
 

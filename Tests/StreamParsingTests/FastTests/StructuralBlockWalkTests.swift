@@ -310,6 +310,37 @@ struct StructuralBlockWalkTests {
     }
   }
 
+  // The signal's second bitmap test is a masking shift, so the bytes whose low six bits are a
+  // whitespace or quote value (`I J M \` b`, and the same values with the high bit set) alias
+  // into the signal after a whitespace byte. None is valid outside a string: the walk hands the
+  // block back, and the ladder reports the byte the `blocks: false` copy reports.
+  @Test
+  func `Bytes that alias into the signal after whitespace report the same error`() {
+    let tail = String(repeating: " ", count: 80)
+    let aliases: [UInt8] = [
+      0x49, 0x4A, 0x4D, 0x60, 0x62, 0x89, 0x8A, 0x8D, 0xA0, 0xA2, 0xC9, 0xCA, 0xCD, 0xE0, 0xE2,
+    ]
+    for alias in aliases {
+      for whitespace: UInt8 in [0x20, 0x0A, 0x09, 0x0D] {
+        let bodies: [[UInt8]] = [
+          Array("[1,".utf8) + [whitespace, alias] + Array("2]\(tail)".utf8),
+          Array("{\"a\":".utf8) + [whitespace, alias] + Array("}\(tail)".utf8),
+          Array("[".utf8) + [whitespace, alias] + Array("]\(tail)".utf8),
+          Array("[\n  1,".utf8) + [whitespace, alias] + Array("\n  2]\(tail)".utf8),
+        ]
+        for pad in [0, 1, 63, 64] {
+          let spaces = Array(repeating: UInt8(0x20), count: pad)
+          for (index, body) in bodies.enumerated() {
+            Self.expectAgreement(
+              spaces + body, "alias \(alias) after \(whitespace) body \(index) pad \(pad)",
+              chunks: [64, 100, 4096, .max]
+            )
+          }
+        }
+      }
+    }
+  }
+
   // The depth cap, with the breaching bracket at every offset modulo the grid.
   @Test
   func `The depth cap reports the same byte at every chunking`() {

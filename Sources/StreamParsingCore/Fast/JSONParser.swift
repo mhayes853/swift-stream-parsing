@@ -362,12 +362,23 @@ public struct JSONParser: ~Copyable {
     }
   #endif
 
-  // The byte after a whitespace byte that sends the ladder to the block walk: more whitespace
+  // The bytes that, after a whitespace byte, send the ladder to the block walk: more whitespace
   // (indentation) or a quote (a string next). Those are the two scans the walk replaces.
+  // A computed constant: a `static let` reaches the hot loop through its lazy addressor call.
   @inlinable
   @inline(__always)
-  static func followsIntoBlockWalk(_ byte: UInt8) -> Bool {
-    ((streamWhitespaceBitmap | (1 &<< UInt64(UInt8.asciiQuote))) >> UInt64(byte)) & 1 != 0
+  static var signalBitmap: UInt64 { streamWhitespaceBitmap | (1 &<< UInt64(UInt8.asciiQuote)) }
+
+  // Both halves of the signal as one masked bitmap test and one branch. `byte` is <= space here,
+  // so its masking shift is exact. `next` is not: bytes >= 64 alias modulo 64, and the aliases
+  // (`I J M \` b`, bytes >= 0x80) cannot follow whitespace outside a string, so a false signal
+  // only ever sends the walk a block it hands straight back, and the ladder reports the byte at
+  // the same offset it would have. What the guard bought was two instructions per visit plus a
+  // re-materialised constant.
+  @inlinable
+  @inline(__always)
+  static func signalsBlockWalk(_ byte: UInt8, _ next: UInt8) -> Bool {
+    (streamWhitespaceBitmap &>> UInt64(byte)) & (signalBitmap &>> UInt64(next)) & 1 != 0
   }
 
   #if arch(arm64) || arch(x86_64)
@@ -445,8 +456,8 @@ public struct JSONParser: ~Copyable {
           // length >= 2, or a quote as the byte it stopped on) spares Mesh a load per number
           // (typed -5.6% -> -3.2%) and lost everywhere else: Canada raw -7.1%, Qwen raw -5.5%,
           // `Pretty printed users - 64B chunks` -10.6%, Qwen typed -1.6%.
-          if blocks, i &+ 64 <= to, streamIsWhitespace(byte),
-            Self.followsIntoBlockWalk(base.load(fromByteOffset: i &+ 1, as: UInt8.self))
+          if blocks, i &+ 64 <= to,
+            Self.signalsBlockWalk(byte, base.load(fromByteOffset: i &+ 1, as: UInt8.self))
           {
             self.state = state
             self.depth = depth
