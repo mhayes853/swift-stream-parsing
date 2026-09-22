@@ -22,7 +22,7 @@ macro SupportModel() = #externalMacro(module: "SupportMacros", type: "SupportMod
 @attached(
   extension,
   conformances: StreamParseable,
-  names: named(Partial), named(ChargeArguments), named(streamPartialValue), named(init),
+  names: named(Partial), named(ChargeArguments), named(RefundArguments), named(streamPartialValue), named(init),
   named(streamValueOrInitial)
 )
 macro SupportActivity() = #externalMacro(module: "SupportMacros", type: "SupportActivityMacro")
@@ -43,10 +43,15 @@ public enum Cents: StreamCompletedValueConversion {
   public static func convertFromValue(_ value: Int) -> Int { value / 2 }
 }
 
+public protocol SmokePartial {
+  var marker: Int { get }
+}
+
 @SupportActivity
 public enum Activity: Equatable {
   case idle
   case charge(total: Int, String)
+  case refund(code: Int)
 }
 
 @SupportModel
@@ -128,6 +133,8 @@ try activityStream.next(#"{"charge":{"total":21,"_1":"card"}}"#.utf8)
 let activity = try activityStream.finish()
 precondition(Activity(activity) == .charge(total: 42, "card"))
 precondition(activity.recognized == [Activity.Partial.chargeField])
+precondition(activity.marker == 1)
+precondition(activity.charge?.marker == 7)
 precondition(Activity(Activity.charge(total: 8, "x").streamPartialValue) == .charge(total: 8, "x"))
 precondition(Activity(Activity.Partial()) == nil)
 precondition(Activity(orInitial: Activity.Partial()) == .idle)
@@ -135,4 +142,9 @@ var chargeOnly = Activity.Partial()
 chargeOnly.charge = Activity.ChargeArguments.Partial(_1: "cash")
 precondition(Activity(chargeOnly) == nil)
 precondition(Activity.streamValueOrInitial(from: chargeOnly) == .idle)
+var refundStream = PartialsStream<Activity.Partial>(from: .json())
+try refundStream.next(#"{"refund":{"code":17}}"#.utf8)
+let refund = try refundStream.finish()
+precondition(Activity(refund) == .refund(code: 17))
+precondition(Activity(Activity.refund(code: 23).streamPartialValue) == .refund(code: 23))
 print("Macro support smoke passed")

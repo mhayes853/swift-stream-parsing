@@ -36,9 +36,12 @@ matches only its own name, without backticks.
 library protocols that generated declarations conform to, fully qualified so a host's
 conformance clauses do not depend on imports or local names.
 
-The result is a `StructDeclSyntax`, so a consumer can modify declaration attributes, generic
-constraints, inheritance, or members through normal SwiftSyntax operations. Rewriting generated
-implementation members makes the consumer responsible for their continued compatibility.
+`StreamPartialCustomization` adds declaration attributes, conformances, and members to the
+generated `Partial` without rewriting its syntax. The existing `additionalMembers` builder is
+still supported; its members and customization members are both appended after generated members.
+Avoid repeating generated conformances or member names. The result is a `StructDeclSyntax` for
+consumers that need other syntax changes, though rewriting generated implementation members makes
+the consumer responsible for their continued compatibility.
 
 The regular initializer validates the plan and throws `StreamObjectGenerationError`. Macros
 that have already emitted their own diagnostics can use `StreamObjectGeneration(diagnosedFields:)`
@@ -133,7 +136,16 @@ partial struct and the payload namespaces. The partial's view gains `ResolvedVie
 `resolved`, which borrow whichever single case has arrived, or report `.unresolved` or
 `.ambiguous`. The member hooks and `onFieldRecognized` work as for structs, and
 `fieldIdentifiers` supplies each case's identity. Raw-value partials are library types, so
-non-empty hooks throw `hooksRequireObjectRepresentation`.
+non-empty hooks or partial customizations throw `hooksRequireObjectRepresentation`.
+
+`partialCustomization` applies to the top-level generated `Partial`. For a case with associated
+values, `payloadCustomization` receives `StreamEnumPayloadInfo` with the case name, payload type
+name, and fields (including resolved positional names). Return `.generated(partial:)` to add
+attributes, conformances, or members to that payload's `Partial`. Return `.replacement` with a
+complete declaration to emit a custom payload namespace. A replacement must declare the expected
+payload type name and expose nested `Partial` and `Value` types with the members used by the enum's
+generated schema, view, and conversions. The callback runs once for each case with a payload; it
+does not run for raw-value representations or cases without associated values.
 
 `conversionsSyntax` returns `streamPartialValue`, `init?(_:)`, and `init?(streamPartial:)`. The
 strict conversion requires exactly one case to be present and its payload to be complete. With a

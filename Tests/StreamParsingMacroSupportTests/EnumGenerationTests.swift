@@ -212,6 +212,54 @@ struct `StreamEnumGeneration tests` {
   }
 
   @Test
+  func `Primary And Payload Partials Accept Customization`() throws {
+    let generation = try self.eventGeneration()
+    let source = try generation.partialSyntax(
+      in: BasicMacroExpansionContext(),
+      partialCustomization: StreamPartialCustomization(
+        conformances: [TypeSyntax("PrimaryPartialProtocol")],
+        members: MemberBlockItemListSyntax { DeclSyntax("var primaryMarker: Bool { true }") }
+      ),
+      payloadCustomization: { info in
+        #expect(info.caseName.text == "event")
+        #expect(info.payloadTypeName.text == "EventArguments")
+        #expect(info.fields.map(\.name.text) == ["createdAt", "_1"])
+        return .generated(partial: StreamPartialCustomization(
+          conformances: [TypeSyntax("PayloadPartialProtocol")],
+          members: MemberBlockItemListSyntax { DeclSyntax("var payloadMarker: Bool { true }") }
+        ))
+      }
+    ).description
+
+    self.expectContains(source, "Sendable, PrimaryPartialProtocol")
+    self.expectContains(source, "Sendable, PayloadPartialProtocol")
+    self.expectContains(source, "var primaryMarker: Bool")
+    self.expectContains(source, "var payloadMarker: Bool")
+    self.expectParses(source)
+  }
+
+  @Test
+  func `Payload Declaration Can Be Replaced`() throws {
+    let generation = try self.eventGeneration()
+    let source = try generation.partialSyntax(
+      in: BasicMacroExpansionContext(),
+      payloadCustomization: { info in
+        .replacement(DeclSyntax("""
+          enum \(info.payloadTypeName) {
+            struct Partial { var replacementMarker = true }
+            struct Value {}
+          }
+          """))
+      }
+    ).description
+
+    self.expectContains(source, "enum EventArguments {")
+    self.expectContains(source, "var replacementMarker = true")
+    expectNoDifference(source.contains("struct Value: StreamParsingCore.StreamParseable"), false)
+    self.expectParses(source)
+  }
+
+  @Test
   func `Unsafe Views Produce An Escapable Resolved View`() throws {
     let generation = try self.eventGeneration(
       configuration: StreamGenerationConfiguration(viewMode: .unsafe)
@@ -316,6 +364,12 @@ struct `StreamEnumGeneration tests` {
       try generation.partialSyntax(
         in: BasicMacroExpansionContext(),
         onFieldRecognized: { partial, _ in "\(partial).marker += 1" }
+      )
+    }
+    #expect(throws: StreamObjectGenerationError.hooksRequireObjectRepresentation) {
+      try generation.partialSyntax(
+        in: BasicMacroExpansionContext(),
+        partialCustomization: StreamPartialCustomization(conformances: [TypeSyntax("Marker")])
       )
     }
   }

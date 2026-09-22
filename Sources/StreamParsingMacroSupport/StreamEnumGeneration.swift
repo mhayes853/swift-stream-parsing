@@ -59,6 +59,29 @@ public struct StreamParseableEnumCase: Sendable {
   }
 }
 
+/// Information supplied when customizing an associated-value case's payload namespace.
+public struct StreamEnumPayloadInfo {
+  public let caseName: TokenSyntax
+  public let payloadTypeName: TokenSyntax
+  /// Fields in declaration order, with wildcard names resolved to positional names.
+  public let fields: [StreamParseableField]
+
+  public init(caseName: TokenSyntax, payloadTypeName: TokenSyntax, fields: [StreamParseableField]) {
+    self.caseName = caseName
+    self.payloadTypeName = payloadTypeName
+    self.fields = fields
+  }
+}
+
+/// Selects generated or caller-supplied syntax for a case's entire payload namespace.
+public enum StreamEnumPayloadCustomization {
+  /// Generate the usual namespace, adding syntax to its nested `Partial`.
+  case generated(partial: StreamPartialCustomization)
+  /// Use a complete declaration supplied by the caller. It must expose the expected nested
+  /// `Partial` and `Value` types used by the generated enum's schema and conversions.
+  case replacement(DeclSyntax)
+}
+
 /// A reusable plan for generating a stream enum's partial and conversions.
 public struct StreamEnumGeneration: Sendable {
   /// The cases in stable generated order.
@@ -85,6 +108,8 @@ public struct StreamEnumGeneration: Sendable {
   }
 
   private struct Payload: Sendable {
+    let caseName: TokenSyntax
+    let typeNameToken: TokenSyntax
     let typeName: String
     /// Whether each associated value is labelled, parallel to `generation.fields`.
     let isLabeled: [Bool]
@@ -180,9 +205,12 @@ public struct StreamEnumGeneration: Sendable {
           }
           return field
         }
+        let typeNameToken = enumCase.payloadTypeName
+          ?? .identifier(Self.defaultPayloadTypeName(forCaseNamed: StreamObjectGeneration.bareName(enumCase.name)))
         payload = Payload(
-          typeName: enumCase.payloadTypeName?.trimmedDescription
-            ?? Self.defaultPayloadTypeName(forCaseNamed: StreamObjectGeneration.bareName(enumCase.name)),
+          caseName: enumCase.name,
+          typeNameToken: typeNameToken,
+          typeName: typeNameToken.trimmedDescription,
           isLabeled: enumCase.associatedValues.map { $0.name.tokenKind != .wildcard },
           generation: try generation(fields)
         )
@@ -223,12 +251,20 @@ public struct StreamEnumGeneration: Sendable {
   /// partial struct, whose view gains `ResolvedView` and `resolved`, followed by one namespace per
   /// case with associated values, holding that payload's `Partial` and `Value`.
   ///
-  /// The hooks apply to the top-level object partial exactly as in
-  /// `StreamObjectGeneration.structDeclarationSyntax`. `ResolvedView` and `resolved` are reserved
-  /// view member names. A raw-value partial is a library type, so non-empty hooks throw
+  /// `partialCustomization` and the existing hooks apply to the top-level object partial.
+  /// `payloadCustomization` runs for each case with associated values. Its `.generated` result
+  /// customizes that payload's `Partial`; `.replacement` emits an entire caller-built payload
+  /// namespace. A replacement must expose the expected nested `Partial` and `Value` interfaces.
+  /// `ResolvedView` and `resolved` are reserved view member names. A raw-value partial is a
+  /// library type, so non-empty customizations or hooks throw
   /// `StreamObjectGenerationError.hooksRequireObjectRepresentation`.
   public func partialSyntax(
     in context: some MacroExpansionContext,
+    partialCustomization: StreamPartialCustomization = StreamPartialCustomization(),
+    payloadCustomization:
+      (StreamEnumPayloadInfo) throws -> StreamEnumPayloadCustomization = { _ in
+        .generated(partial: StreamPartialCustomization())
+      },
     @MemberBlockItemListBuilder additionalMembers:
       () throws -> MemberBlockItemListSyntax = { [] },
     @MemberBlockItemListBuilder additionalViewMembers:
@@ -237,7 +273,8 @@ public struct StreamEnumGeneration: Sendable {
       (ExprSyntax, ExprSyntax) throws -> CodeBlockItemListSyntax = { _, _ in [] }
   ) throws -> MemberBlockItemListSyntax {
     guard let object = self.object else {
-      guard try additionalMembers().isEmpty, try additionalViewMembers().isEmpty,
+      guard partialCustomization.isEmpty,
+        try additionalMembers().isEmpty, try additionalViewMembers().isEmpty,
         try onFieldRecognized(ExprSyntax("self"), ExprSyntax("field")).isEmpty
       else {
         throw StreamObjectGenerationError.hooksRequireObjectRepresentation
@@ -254,6 +291,7 @@ public struct StreamEnumGeneration: Sendable {
     let resolved = streamParsedMembers(self.resolvedViewSource())
     let partial = try object.structDeclarationSyntax(
       in: context,
+      partialCustomization: partialCustomization,
       additionalMembers: additionalMembers,
       additionalViewMembers: {
         resolved
@@ -264,6 +302,19 @@ public struct StreamEnumGeneration: Sendable {
     var sources = [partial.trimmedDescription]
     for payload in self.entries.compactMap(\.payload) {
       let generation = payload.generation
+      let customization = try payloadCustomization(StreamEnumPayloadInfo(
+        caseName: payload.caseName,
+        payloadTypeName: payload.typeNameToken,
+        fields: generation.fields
+      ))
+      let partialCustomization: StreamPartialCustomization
+      switch customization {
+      case .replacement(let declaration):
+        sources.append(declaration.trimmedDescription)
+        continue
+      case .generated(let customization):
+        partialCustomization = customization
+      }
       let stored = generation.fields
         .map { "\(self.access)var \(StreamObjectGeneration.memberName($0.name)): \($0.type.trimmedDescription)" }
         .joined(separator: "\n")
@@ -273,7 +324,9 @@ public struct StreamEnumGeneration: Sendable {
       sources.append(
         """
         \(self.access)enum \(payload.typeName) {
-        \(streamIndented(try generation.structDeclarationSyntax(in: context).trimmedDescription, by: 2))
+        \(streamIndented(try generation.structDeclarationSyntax(
+          in: context, partialCustomization: partialCustomization
+        ).trimmedDescription, by: 2))
 
           \(self.access)struct Value: \(TypeSyntax.streamParseable) {
         \(streamIndented(stored, by: 4))

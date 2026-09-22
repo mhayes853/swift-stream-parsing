@@ -228,6 +228,33 @@ public struct StreamParseableField: Sendable {
   }
 }
 
+/// Additive syntax for a generated object or enum payload `Partial` struct.
+///
+/// Members are appended after generated members. The caller is responsible for avoiding names
+/// and conformances already supplied by the generator.
+public struct StreamPartialCustomization {
+  /// Attributes applied to the `Partial` declaration itself.
+  public var attributes: AttributeListSyntax
+  /// Protocols added after the generated conformances.
+  public var conformances: [TypeSyntax]
+  /// Properties, initializers, methods, and other declarations inside `Partial`.
+  public var members: MemberBlockItemListSyntax
+
+  public init(
+    attributes: AttributeListSyntax = AttributeListSyntax([]),
+    conformances: [TypeSyntax] = [],
+    members: MemberBlockItemListSyntax = MemberBlockItemListSyntax([])
+  ) {
+    self.attributes = attributes
+    self.conformances = conformances
+    self.members = members
+  }
+
+  var isEmpty: Bool {
+    self.attributes.isEmpty && self.conformances.isEmpty && self.members.isEmpty
+  }
+}
+
 /// An invalid combination in an object-generation description.
 #if compiler(>=6.2.3)
 @nonexhaustive
@@ -609,6 +636,8 @@ public struct StreamObjectGeneration: Sendable {
 
   /// Generates a complete stream-compatible struct and builds additive customizations.
   ///
+  /// `partialCustomization` adds attributes, conformances, and members to the generated struct.
+  /// Its members and `additionalMembers` are appended after generated members.
   /// Additional stored members must provide default values and satisfy `Sendable`.
   /// Recognition runs once per declared key, including aliases and repeats, before its
   /// value is applied. Unknown keys are not reported. An empty body installs no hook.
@@ -616,6 +645,7 @@ public struct StreamObjectGeneration: Sendable {
   /// Use `fieldIdentifiers` to compare that identifier with a declared field.
   public func structDeclarationSyntax(
     in context: some MacroExpansionContext,
+    partialCustomization: StreamPartialCustomization = StreamPartialCustomization(),
     @MemberBlockItemListBuilder additionalMembers:
       () throws -> MemberBlockItemListSyntax = { [] },
     @MemberBlockItemListBuilder additionalViewMembers:
@@ -625,6 +655,8 @@ public struct StreamObjectGeneration: Sendable {
   ) rethrows -> StructDeclSyntax {
     let format = BasicFormat(indentationWidth: .spaces(2))
     let additions = try additionalMembers().formatted(using: format).cast(MemberBlockItemListSyntax.self)
+    let customizedMembers = partialCustomization.members.formatted(using: format)
+      .cast(MemberBlockItemListSyntax.self)
     let viewAdditions = try additionalViewMembers().formatted(using: format).cast(MemberBlockItemListSyntax.self)
     let fieldParameter = context.makeUniqueName("streamRecognizedField")
     let body = try onFieldRecognized(
@@ -659,6 +691,7 @@ public struct StreamObjectGeneration: Sendable {
       members.append(self.member(handler))
     }
     members.append(contentsOf: self.terminated(additions))
+    members.append(contentsOf: self.terminated(customizedMembers))
     if let lastIndex = members.indices.last {
       members[lastIndex].trailingTrivia = .newline
     }
@@ -677,6 +710,27 @@ public struct StreamObjectGeneration: Sendable {
     )
     declarationMembers.append(contentsOf: members.indented(by: .spaces(2)))
     declaration.memberBlock.members = declarationMembers
+    for var attribute in partialCustomization.attributes {
+      if !attribute.trailingTrivia.description.contains("\n") {
+        attribute.trailingTrivia += .newline
+      }
+      declaration.attributes.append(attribute)
+    }
+    if !partialCustomization.conformances.isEmpty {
+      var inheritedTypes = declaration.inheritanceClause!.inheritedTypes
+      let lastIndex = inheritedTypes.index(before: inheritedTypes.endIndex)
+      inheritedTypes[lastIndex].type = inheritedTypes[lastIndex].type.trimmed
+      inheritedTypes[lastIndex].trailingComma = .commaToken(trailingTrivia: .space)
+      for (index, type) in partialCustomization.conformances.enumerated() {
+        let isLast = index == partialCustomization.conformances.count - 1
+        inheritedTypes.append(InheritedTypeSyntax(
+          type: type.trimmed,
+          trailingComma: isLast ? nil : .commaToken(trailingTrivia: .space),
+          trailingTrivia: isLast ? .space : nil
+        ))
+      }
+      declaration.inheritanceClause!.inheritedTypes = inheritedTypes
+    }
     return declaration
   }
 

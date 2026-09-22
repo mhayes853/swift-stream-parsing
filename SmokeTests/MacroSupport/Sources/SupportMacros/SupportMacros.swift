@@ -209,6 +209,11 @@ struct SupportActivityMacro: ExtensionMacro {
             StreamParseableField(name: .wildcardToken(), type: IdentifierTypeSyntax(name: .identifier("String")))
           ],
           payloadTypeName: .identifier("ChargeArguments")
+        ),
+        StreamParseableEnumCase(
+          name: .identifier("refund"),
+          associatedValues: [StreamParseableField(name: .identifier("code"), type: TypeSyntax("Int"))],
+          payloadTypeName: .identifier("RefundArguments")
         )
       ],
       representation: .caseKeyedObject,
@@ -217,6 +222,35 @@ struct SupportActivityMacro: ExtensionMacro {
     )
     let partial = try generation.partialSyntax(
       in: context,
+      partialCustomization: StreamPartialCustomization(
+        conformances: [TypeSyntax("SmokePartial")],
+        members: MemberBlockItemListSyntax { DeclSyntax("public var marker: Int { 1 }") }
+      ),
+      payloadCustomization: { info in
+        if info.caseName.text == "charge" {
+          return .generated(partial: StreamPartialCustomization(
+            conformances: [TypeSyntax("SmokePartial")],
+            members: MemberBlockItemListSyntax { DeclSyntax("public var marker: Int { 7 }") }
+          ))
+        }
+        let payload = try StreamObjectGeneration(
+          fields: info.fields,
+          configuration: generation.configuration
+        )
+        let payloadPartial = try payload.structDeclarationSyntax(in: context)
+        let conversions = try payload.conversionsSyntax()
+        return .replacement(DeclSyntax("""
+          public enum \(info.payloadTypeName) {
+            \(payloadPartial)
+
+            public struct Value: StreamParsingCore.StreamParseable {
+              public var code: Int
+              public typealias Partial = \(info.payloadTypeName).Partial
+              \(conversions)
+            }
+          }
+          """))
+      },
       additionalMembers: {
         DeclSyntax("public var recognized: [StreamParsingCore.StreamFieldID] = []")
         DeclSyntax("public static var chargeField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[1].identifier) }")
