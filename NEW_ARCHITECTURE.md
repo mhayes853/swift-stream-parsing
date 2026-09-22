@@ -7521,6 +7521,67 @@ Dictionary -1.3%), so it is the tail's size, not the new symbol. Raw Twitter esc
 tail: its runs are a few bytes long (`\/` in URLs), where a staged block is a store the 16-byte
 fast path of `bufferStringRun` already was.
 
+#### Lending `StreamString`'s tail to the scan (built, measured, rejected)
+
+Staging left one copy in the escaped value's path: the parser's 4 KB buffer flushes into the
+`StreamString` through `stringChunk`, and `append` copies it again into the value's tail block. The
+experiment removed that copy by letting a sink lend storage. `StreamParseSink` gained
+`stringStorage() -> StreamStringStorage?` (a base pointer, the address of the value's count, and a
+capacity) and a static `lendsStringStorage`; `PartialSink` answered with the `StreamString`'s
+writable tail when the value was homogeneous string storage; the staging scan stored straight into
+the block; a commit was one add to the count cell, no call. To hand out the count's address,
+`StreamString`'s tail count moved out of the block header into the struct's first field, and
+`blocks` became `ContiguousArray<StreamBlock<UInt8>>` so a block's memory could be lent by
+reference. Patch and its tests: `~/.cache/sspab/s13/rejected_lend/`.
+
+Five snapshots. The first was -8.0% mean (GitHub -27.7%, Qwen structured -30.2%, Twitter full
+-21.4%): a parser field `lentCount` tested on every path put the lend branches into every sink's
+specialisation, the counting sink's tail included (593 -> 744 instructions). The static
+`lendsStringStorage` folded them away and the mean was still -5.6%, all of it in `StreamString`
+itself, found through the benchmark's own counters before any assembly: typed GitHub went from 156
+retains / 996 releases to 988 / 1,827. Three causes, each confirmed on an eleven-variant `-emit-sil`
+repro:
+
+- `[StreamBlock<UInt8>]` is bridgeable, so every `.count` read paid a tag check (typed GitHub -15%,
+  Twitter full -9% alone). `ContiguousArray` does not.
+- `blocks = []` allocates; `ContiguousArray()` is the immortal empty storage.
+- **An `init()` that assigns its fields in the body, once one field is an optional class
+  reference, keeps `self` on the stack and returns through an outlined copy and destroy: two
+  retains and two releases per constructed value, per string field of every parsed element.**
+  Property defaults with an empty `init() {}` lower to ten constant stores and no ARC at all. An
+  `@inline(__always)` memberwise initialiser in between still kept two.
+
+With those fixed the mean was +0.1% and the lend was live only where a value's first escape came
+with a long clean prefix. LLM's strings average ~1.9 KB and nearly all hit an escape inside 64
+bytes, so the lend could engage only by promoting the value early, and an early promotion is the
+doubling schedule: 512 -> 1024 -> 2048, three blocks, a spine, three seals per string. Retrying the
+lend once 64 buffered bytes were in hand, written inside the tail's per-run loop, was typed LLM
+-22% and Twitter -31% (spills in the loop); outlined, better but not clean; moved to the buffer-full
+flush only, the final shape. Five rounds, four-way, floor +-0.1% (CITM raw -1.5%):
+
+| row | raw (`- bulk`) | typed (`- bulk discarding`) |
+| --- | ---: | ---: |
+| GSoC | -2.0% | +4.1% (16KB +4.1%) |
+| LLM message | -0.2% | -1.4% (16KB -1.0%) |
+| Twitter | +0.1% | -1.7% (16KB -1.5%) |
+| Twitter escaped | -0.4% | -0.5% (byte-fed -1.9%) |
+| GitHub | | -1.1% |
+| Twitter spaced | | -0.9% |
+| Canada | | -0.6% (16KB -0.6%) |
+| Qwen workspace / structured | | -0.6% / -0.2% |
+| Retention 100 users | | +5.8% |
+| **mean** | | **-0.04%** |
+
+GSoC is the one corpus whose strings are long and clean, and it gains what the copy cost. The row
+the work was for loses, and the reason is a bound rather than a tuning gap: a lend pays only for a
+string longer than the parser's buffer, and promoting once at the value's end into an exactly sized
+block, with one L1-hot copy of at most 4 KB, is cheaper than three allocations that avoid it.
+Retention has no escape and never reaches the tail; +5.8% is the same layout lottery the staging
+change paid -3.1% into. Rejected: a second sink requirement, a public storage type, a
+reference-typed `StreamString` and an `@unchecked Sendable` for a mean of zero. What it leaves
+behind is the four codegen findings above and the counters as the first diagnostic; the `init()`
+finding applies to every value type the typed layer constructs per element.
+
 #### Skipping a subtree inside the block walk (built, measured, rejected)
 
 When a sink answers `.skip` at a container open the block walk returns and the dispatcher re-enters
