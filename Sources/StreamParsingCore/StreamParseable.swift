@@ -44,7 +44,10 @@ extension StreamParseable where Partial == Self {
 
 // The fallback for a partial with nothing worth preserving piecewise (a scalar, or an enum with a
 // default case). A type with members must not take this: it discards every member that arrived.
+// These defaults are `@inlinable` so a conformance in another module specializes them rather than
+// calling the generic entry point with witness tables.
 extension StreamParseable where Self: StreamInitializable {
+  @inlinable
   public static func streamValueOrInitial(from partial: Partial) -> Self {
     Self(streamPartial: partial) ?? Self.streamInitialValue()
   }
@@ -52,12 +55,14 @@ extension StreamParseable where Self: StreamInitializable {
 
 extension StreamParseable
 where Self: RawRepresentable, RawValue: StreamParseable, Partial == RawValue.Partial {
+  @inlinable
   public var streamPartialValue: Partial {
     self.rawValue.streamPartialValue
   }
 
   // An uncovered raw value is exactly the failure the strict conversion reports. An enum that would
   // rather default conforms to `StreamInitializable`, picking up the fallback above.
+  @inlinable
   public init?(streamPartial: Partial) {
     guard let rawValue = RawValue(streamPartial: streamPartial),
       let value = Self(rawValue: rawValue)

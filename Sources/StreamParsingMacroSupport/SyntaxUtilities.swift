@@ -35,6 +35,32 @@ func streamGenericArguments(_ type: some TypeSyntaxProtocol) -> GenericArgumentL
     ?? type.as(MemberTypeSyntax.self)?.genericArgumentClause?.arguments
 }
 
+/// Indents every non-empty line of `text` by `spaces`.
+func streamIndented(_ text: String, by spaces: Int) -> String {
+  let padding = String(repeating: " ", count: spaces)
+  return text.split(separator: "\n", omittingEmptySubsequences: false)
+    .map { $0.isEmpty ? "" : padding + $0 }
+    .joined(separator: "\n")
+}
+
+/// `signature { body }`, with `body` on its own lines one level in.
+func streamDeclarationSource(_ signature: String, body: String) -> String {
+  "\(signature) {\n\(streamIndented(body, by: 2))\n}"
+}
+
+/// The arm label matching exactly `key` in a `switch` over `input.paddedLeadingWord()`, where
+/// `byteCount` is `input`'s length.
+func streamWordCaseLabel(
+  _ key: String,
+  input: String,
+  byteCount: some ExprSyntaxProtocol
+) -> String {
+  let condition = streamRemainingUTF8Condition(StreamUTF8Match(key), byteCount: byteCount) {
+    ExprSyntax("\(raw: input).paddedWord(at: \(raw: $0))")
+  }
+  return "case \(streamUTF8WordLiteral(key, at: 0)) where \(condition)"
+}
+
 private func streamPaddedWord(in utf8: [UInt8], at start: Int) -> UInt64 {
   utf8.dropFirst(start).prefix(8).enumerated()
     .reduce(into: UInt64(0)) { word, element in

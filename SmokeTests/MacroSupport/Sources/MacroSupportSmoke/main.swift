@@ -11,6 +11,22 @@ macro SupportMatcher() = #externalMacro(module: "SupportMacros", type: "SupportM
 macro SupportFullPartial() =
   #externalMacro(module: "SupportMacros", type: "SupportFullPartialMacro")
 
+@attached(
+  extension,
+  conformances: StreamParseable,
+  names: named(Accumulator), named(Partial), named(streamPartialValue), named(init),
+  named(streamValueOrInitial)
+)
+macro SupportModel() = #externalMacro(module: "SupportMacros", type: "SupportModelMacro")
+
+@attached(
+  extension,
+  conformances: StreamParseable,
+  names: named(Partial), named(ChargeArguments), named(RefundArguments), named(streamPartialValue), named(init),
+  named(streamValueOrInitial)
+)
+macro SupportActivity() = #externalMacro(module: "SupportMacros", type: "SupportActivityMacro")
+
 @SupportPartial
 struct Customer {}
 
@@ -19,6 +35,31 @@ struct Lookup {}
 
 @SupportFullPartial
 public struct CustomCustomer {}
+
+/// Whole cents on the wire, doubled to half-cents in the model.
+public enum Cents: StreamCompletedValueConversion {
+  public typealias Source = Int
+  public static func convertToValue(_ source: borrowing Source.View) -> Int { source.value * 2 }
+  public static func convertFromValue(_ value: Int) -> Int { value / 2 }
+}
+
+public protocol SmokePartial {
+  var marker: Int { get }
+}
+
+@SupportActivity
+public enum Activity: Equatable {
+  case idle
+  case charge(total: Int, String)
+  case refund(code: Int)
+}
+
+@SupportModel
+public struct Invoice: Equatable {
+  public var number: String
+  var total: Int
+  var retries: Int
+}
 
 var stream = PartialsStream<Customer.Partial>(from: .json())
 try stream.next(#"{"customer_name":"Ada","customer_id":42,"tags":["swift","macros"]}"#.utf8)
@@ -80,4 +121,31 @@ var optional = PartialsStream<Customer.Partial?>(from: .json())
 try optional.next(#"{"name":"A","customer_id":1}"#.utf8)
 let optionalResult = try optional.finish()
 precondition(optionalResult?.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField])
+var invoiceStream = PartialsStream<Invoice.Partial>(from: .json())
+try invoiceStream.next(#"{"number":"A-1","total":21}"#.utf8)
+let invoice = try invoiceStream.finish()
+precondition(Invoice(streamPartial: invoice) == Invoice(number: "A-1", total: 42, retries: 3))
+precondition(Invoice(Invoice(number: "B", total: 8, retries: 0).streamPartialValue) == Invoice(number: "B", total: 8, retries: 3))
+precondition(Invoice(Invoice.Partial()) == nil)
+precondition(Invoice(orInitial: Invoice.Partial()) == Invoice(number: "", total: -1, retries: 3))
+var activityStream = PartialsStream<Activity.Partial>(from: .json())
+try activityStream.next(#"{"charge":{"total":21,"_1":"card"}}"#.utf8)
+let activity = try activityStream.finish()
+precondition(Activity(activity) == .charge(total: 42, "card"))
+precondition(activity.recognized == [Activity.Partial.chargeField])
+precondition(activity.marker == 3)
+precondition(activity.charge?.marker == 2)
+precondition(Activity.ChargeArguments.Partial.firstStorageType == "StreamParsingCore.ConvertedPartial<Cents>?")
+precondition(Activity(Activity.charge(total: 8, "x").streamPartialValue) == .charge(total: 8, "x"))
+precondition(Activity(Activity.Partial()) == nil)
+precondition(Activity(orInitial: Activity.Partial()) == .idle)
+var chargeOnly = Activity.Partial()
+chargeOnly.charge = Activity.ChargeArguments.Partial(_1: "cash")
+precondition(Activity(chargeOnly) == nil)
+precondition(Activity.streamValueOrInitial(from: chargeOnly) == .idle)
+var refundStream = PartialsStream<Activity.Partial>(from: .json())
+try refundStream.next(#"{"refund":{"code":17}}"#.utf8)
+let refund = try refundStream.finish()
+precondition(Activity(refund) == .refund(code: 17))
+precondition(Activity(Activity.refund(code: 23).streamPartialValue) == .refund(code: 23))
 print("Macro support smoke passed")

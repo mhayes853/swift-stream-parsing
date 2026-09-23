@@ -140,9 +140,141 @@ struct SupportFullPartialMacro: MemberMacro {
   }
 }
 
+/// A downstream macro that also makes the whole type `StreamParseable`.
+///
+/// `total` is internal on a public type, so this host knows `streamPartialValue` cannot be
+/// inlined and says so; the plan itself only sees the partial's access.
+struct SupportModelMacro: ExtensionMacro {
+  static func expansion(
+    of node: AttributeSyntax,
+    attachedTo declaration: some DeclGroupSyntax,
+    providingExtensionsOf type: some TypeSyntaxProtocol,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [ExtensionDeclSyntax] {
+    let generation = try StreamObjectGeneration(
+      fields: [
+        StreamParseableField(
+          name: .identifier("number"),
+          type: IdentifierTypeSyntax(name: .identifier("String"))
+        ),
+        StreamParseableField(
+          name: .identifier("total"),
+          type: IdentifierTypeSyntax(name: .identifier("Int")),
+          completedConversion: IdentifierTypeSyntax(name: .identifier("Cents")),
+          defaultValue: IntegerLiteralExprSyntax(-1)
+        )
+      ],
+      configuration: StreamGenerationConfiguration(
+        accessLevel: .public,
+        names: StreamGeneratedNames(partialType: .identifier("Accumulator"))
+      )
+    )
+    let partial = try generation.structDeclarationSyntax(in: context)
+    let conversions = try generation.conversionsSyntax(
+      unparsedMembers: [StreamUnparsedMember(name: .identifier("retries"), value: IntegerLiteralExprSyntax(3))],
+      partialValueInlining: .never
+    )
+    return [
+      try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+        partial
+        conversions
+      }
+    ]
+  }
+}
+
+/// A downstream enum macro using what `@StreamParseable` cannot spell: a converted associated
+/// value, a custom payload name, and partial hooks.
+struct SupportActivityMacro: ExtensionMacro {
+  static func expansion(
+    of node: AttributeSyntax,
+    attachedTo declaration: some DeclGroupSyntax,
+    providingExtensionsOf type: some TypeSyntaxProtocol,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [ExtensionDeclSyntax] {
+    let generation = try StreamEnumGeneration(
+      cases: [
+        StreamParseableEnumCase(name: .identifier("idle")),
+        StreamParseableEnumCase(
+          name: .identifier("charge"),
+          associatedValues: [
+            StreamParseableField(
+              name: .identifier("total"),
+              type: IdentifierTypeSyntax(name: .identifier("Int")),
+              completedConversion: IdentifierTypeSyntax(name: .identifier("Cents")),
+              defaultValue: IntegerLiteralExprSyntax(-1)
+            ),
+            StreamParseableField(name: .wildcardToken(), type: IdentifierTypeSyntax(name: .identifier("String")))
+          ],
+          payloadTypeName: .identifier("ChargeArguments")
+        ),
+        StreamParseableEnumCase(
+          name: .identifier("refund"),
+          associatedValues: [StreamParseableField(name: .identifier("code"), type: TypeSyntax("Int"))],
+          payloadTypeName: .identifier("RefundArguments")
+        )
+      ],
+      representation: .caseKeyedObject,
+      defaultCase: .identifier("idle"),
+      configuration: StreamGenerationConfiguration(accessLevel: .public)
+    )
+    let partial = try generation.partialSyntax(
+      in: context,
+      partialCustomization: StreamPartialCustomization(
+        conformances: [TypeSyntax("SmokePartial")],
+        members: MemberBlockItemListSyntax {
+          DeclSyntax("public var marker: Int { \(raw: String(generation.partialFields!.count)) }")
+        }
+      ),
+      payloadCustomization: { info in
+        if info.caseName.text == "charge" {
+          return .generated(partial: StreamPartialCustomization(
+            conformances: [TypeSyntax("SmokePartial")],
+            members: MemberBlockItemListSyntax {
+              DeclSyntax("public var marker: Int { \(raw: String(info.partialFields.count)) }")
+              DeclSyntax("public static var firstStorageType: String { \(StringLiteralExprSyntax(content: info.partialFields[0].storageType.trimmedDescription)) }")
+            }
+          ))
+        }
+        let payload = try StreamObjectGeneration(
+          fields: info.fields,
+          configuration: generation.configuration
+        )
+        let payloadPartial = try payload.structDeclarationSyntax(in: context)
+        let conversions = try payload.conversionsSyntax()
+        return .replacement(DeclSyntax("""
+          public enum \(info.payloadTypeName) {
+            \(payloadPartial)
+
+            public struct Value: StreamParsingCore.StreamParseable {
+              public var code: Int
+              public typealias Partial = \(info.payloadTypeName).Partial
+              \(conversions)
+            }
+          }
+          """))
+      },
+      additionalMembers: {
+        DeclSyntax("public var recognized: [StreamParsingCore.StreamFieldID] = []")
+        DeclSyntax("public static var chargeField: StreamParsingCore.StreamFieldID { \(generation.fieldIdentifiers[1].identifier) }")
+      },
+      onFieldRecognized: { partial, field in "\(partial).recognized.append(\(field))" }
+    )
+    return [
+      try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSyntax.streamParseable)") {
+        partial
+        generation.conversionsSyntax()
+      }
+    ]
+  }
+}
+
 @main
 struct SupportPlugin: CompilerPlugin {
   let providingMacros: [Macro.Type] = [
-    SupportPartialMacro.self, SupportFullPartialMacro.self, SupportMatcherMacro.self
+    SupportPartialMacro.self, SupportFullPartialMacro.self, SupportMatcherMacro.self,
+    SupportModelMacro.self, SupportActivityMacro.self
   ]
 }

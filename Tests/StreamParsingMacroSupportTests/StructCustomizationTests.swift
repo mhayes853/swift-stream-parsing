@@ -72,6 +72,30 @@ struct StructCustomizationTests {
     #expect(!declaration.description.contains("streamDidRecognizeField"))
   }
 
+  @Test
+  func partialCustomizationAddsDeclarationSyntaxAndKeepsExistingMembers() throws {
+    var attributes = Parser.parse(source: "@available(*, deprecated)\nstruct Placeholder {}").statements
+      .first!.item.as(StructDeclSyntax.self)!.attributes
+    attributes[attributes.startIndex].trailingTrivia = []
+    let declaration = try self.generation().structDeclarationSyntax(
+      in: BasicMacroExpansionContext(),
+      partialCustomization: StreamPartialCustomization(
+        attributes: attributes,
+        conformances: [TypeSyntax("CustomPartialProtocol")],
+        members: MemberBlockItemListSyntax {
+          DeclSyntax("var convertedName: String? { name.map(String.init(streamPartial:)) }")
+        }
+      ),
+      additionalMembers: { DeclSyntax("var legacyMember: Int { 1 }") }
+    )
+    let source = declaration.description
+    #expect(!Parser.parse(source: source).hasError)
+    #expect(source.contains("@available(*, deprecated)"))
+    #expect(source.contains("Sendable, CustomPartialProtocol"))
+    #expect(source.contains("var convertedName: String?"))
+    #expect(source.contains("var legacyMember: Int"))
+  }
+
   @Test(arguments: [0, 1, 2])
   func customizationBuilderFailuresPropagate(builder: Int) throws {
     let generation = try self.generation()
