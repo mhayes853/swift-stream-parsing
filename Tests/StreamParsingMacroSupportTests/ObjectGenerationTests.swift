@@ -151,6 +151,10 @@ struct `StreamObjectGeneration tests` {
     )
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
 
+    expectNoDifference(generation.partialFields.map(\.storageType.trimmedDescription), [
+      "StreamParsingCore.ConvertedPartial<Conversions.Value>?", "[Model.Item].Partial"
+    ])
+
     self.expectContains(
       source,
       "var `default`: StreamParsingCore.ConvertedPartial<Conversions.Value>?"
@@ -159,6 +163,39 @@ struct `StreamObjectGeneration tests` {
     self.expectContains(source, "key: \"legacy_default\"")
     self.expectContains(source, "initialCapacity: 32")
     self.expectContains(source, "_streamWithConverted(&p.pointee.`default`)")
+  }
+
+  @Test
+  func `Partial Field Descriptors Match Generated Storage`() throws {
+    let fields = [
+      StreamParseableField(name: .identifier("class"), type: TypeSyntax("String"), keys: ["kind", "class"]),
+      StreamParseableField(
+        name: .identifier("amount"), type: TypeSyntax("Int"),
+        completedConversion: TypeSyntax("Cents")
+      ),
+      StreamParseableField(name: .identifier("items"), type: TypeSyntax("[String: Item]")),
+    ]
+    let optional = try StreamObjectGeneration(fields: fields)
+    let descriptors = optional.partialFields
+    expectNoDifference(descriptors.map(\.memberName.text), ["`class`", "amount", "items"])
+    expectNoDifference(descriptors.map(\.unescapedName), ["class", "amount", "items"])
+    expectNoDifference(descriptors.map(\.keys), [["kind", "class"], ["amount"], ["items"]])
+    expectNoDifference(descriptors.map(\.storageType.trimmedDescription), [
+      "String.Partial?",
+      "StreamParsingCore.ConvertedPartial<Cents>?",
+      "StreamParsingCore.StreamDictionary<Item.Partial>?",
+    ])
+
+    let initialized = try StreamObjectGeneration(fields: fields, partialMembers: .streamInitialValue)
+    expectNoDifference(initialized.partialFields.map(\.storageType.trimmedDescription), [
+      "String.Partial",
+      "StreamParsingCore.ConvertedPartial<Cents>",
+      "StreamParsingCore.StreamDictionary<Item.Partial>",
+    ])
+    let source = try initialized.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    for field in initialized.partialFields {
+      self.expectContains(source, "var \(field.memberName.text): \(field.storageType.trimmedDescription)")
+    }
   }
 
   @Test

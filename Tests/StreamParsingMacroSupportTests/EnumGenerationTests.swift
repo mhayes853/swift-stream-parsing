@@ -190,6 +190,12 @@ struct `StreamEnumGeneration tests` {
     let generation = try self.eventGeneration()
     let source = try generation.partialSyntax(in: BasicMacroExpansionContext()).description
 
+    expectNoDifference(generation.partialFields?.map(\.memberName.text), ["`default`", "event"])
+    expectNoDifference(generation.partialFields?.map(\.storageType.trimmedDescription), [
+      "StreamParsingCore.StreamEmptyObject.Partial?", "EventArguments.Partial?"
+    ])
+    expectNoDifference(generation.partialFields?.map(\.keys), [["default"], ["event", "happening"]])
+
     self.expectContains(source, "var `default`: StreamParsingCore.StreamEmptyObject.Partial?")
     self.expectContains(source, "var event: EventArguments.Partial?")
     self.expectContains(source, "key: \"happening\"")
@@ -224,6 +230,16 @@ struct `StreamEnumGeneration tests` {
         #expect(info.caseName.text == "event")
         #expect(info.payloadTypeName.text == "EventArguments")
         #expect(info.fields.map(\.name.text) == ["createdAt", "_1"])
+        #expect(info.partialFields.map(\.unescapedName) == ["createdAt", "_1"])
+        #expect(info.partialFields.map(\.storageType.trimmedDescription) == [
+          "StreamParsingCore.ConvertedPartial<UnixSeconds>?", "String.Partial?"
+        ])
+        #expect(info.partialFields.map(\.keys) == [["createdAt"], ["_1"]])
+        let manuallyCreated = StreamEnumPayloadInfo(
+          caseName: info.caseName, payloadTypeName: info.payloadTypeName, fields: info.fields
+        )
+        #expect(manuallyCreated.partialFields.map(\.storageType.trimmedDescription)
+          == info.partialFields.map(\.storageType.trimmedDescription))
         return .generated(partial: StreamPartialCustomization(
           conformances: [TypeSyntax("PayloadPartialProtocol")],
           members: MemberBlockItemListSyntax { DeclSyntax("var payloadMarker: Bool { true }") }
@@ -236,6 +252,25 @@ struct `StreamEnumGeneration tests` {
     self.expectContains(source, "var primaryMarker: Bool")
     self.expectContains(source, "var payloadMarker: Bool")
     self.expectParses(source)
+  }
+
+  @Test
+  func `Payload Info Accepts Caller Supplied Descriptors`() {
+    let descriptor = StreamPartialFieldDescriptor(
+      memberName: .identifier("custom"),
+      unescapedName: "custom",
+      storageType: TypeSyntax("Custom.Partial?"),
+      keys: ["wireKey"]
+    )
+    let info = StreamEnumPayloadInfo(
+      caseName: .identifier("event"),
+      payloadTypeName: .identifier("EventArguments"),
+      fields: [],
+      partialFields: [descriptor]
+    )
+    #expect(info.partialFields[0].memberName.text == "custom")
+    #expect(info.partialFields[0].storageType.trimmedDescription == "Custom.Partial?")
+    #expect(info.partialFields[0].keys == ["wireKey"])
   }
 
   @Test
@@ -321,6 +356,7 @@ struct `StreamEnumGeneration tests` {
   @Test
   func `Empty Case Keyed Enums Still Convert`() throws {
     let generation = try StreamEnumGeneration(cases: [], representation: .caseKeyedObject)
+    expectNoDifference(generation.partialFields?.count, 0)
     let partial = try generation.partialSyntax(in: BasicMacroExpansionContext()).description
     let source = generation.conversionsSyntax().description
 
@@ -354,6 +390,7 @@ struct `StreamEnumGeneration tests` {
       cases: [StreamParseableEnumCase(name: .identifier("live"))],
       representation: .stringRawValue
     )
+    #expect(generation.partialFields == nil)
     #expect(throws: StreamObjectGenerationError.hooksRequireObjectRepresentation) {
       try generation.partialSyntax(
         in: BasicMacroExpansionContext(),

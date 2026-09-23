@@ -65,11 +65,29 @@ public struct StreamEnumPayloadInfo {
   public let payloadTypeName: TokenSyntax
   /// Fields in declaration order, with wildcard names resolved to positional names.
   public let fields: [StreamParseableField]
+  /// The generated payload `Partial` storage fields, in the same order as `fields`.
+  public let partialFields: [StreamPartialFieldDescriptor]
 
   public init(caseName: TokenSyntax, payloadTypeName: TokenSyntax, fields: [StreamParseableField]) {
+    self.init(
+      caseName: caseName,
+      payloadTypeName: payloadTypeName,
+      fields: fields,
+      partialFields: StreamObjectGeneration(diagnosedFields: fields).partialFields
+    )
+  }
+
+  /// Creates payload customization information with explicitly supplied partial field metadata.
+  public init(
+    caseName: TokenSyntax,
+    payloadTypeName: TokenSyntax,
+    fields: [StreamParseableField],
+    partialFields: [StreamPartialFieldDescriptor]
+  ) {
     self.caseName = caseName
     self.payloadTypeName = payloadTypeName
     self.fields = fields
+    self.partialFields = partialFields
   }
 }
 
@@ -240,6 +258,12 @@ public struct StreamEnumGeneration: Sendable {
     self.object?.fieldIdentifiers ?? []
   }
 
+  /// The generated top-level object `Partial` fields, or `nil` for a raw-value representation.
+  /// An empty case-keyed enum returns an empty array.
+  public var partialFields: [StreamPartialFieldDescriptor]? {
+    self.object?.partialFields
+  }
+
   private var access: String { self.configuration.accessPrefix }
   private var inline: String { self.configuration.inlinableAttribute() }
 
@@ -305,7 +329,8 @@ public struct StreamEnumGeneration: Sendable {
       let customization = try payloadCustomization(StreamEnumPayloadInfo(
         caseName: payload.caseName,
         payloadTypeName: payload.typeNameToken,
-        fields: generation.fields
+        fields: generation.fields,
+        partialFields: generation.partialFields
       ))
       let partialCustomization: StreamPartialCustomization
       switch customization {

@@ -224,13 +224,18 @@ struct SupportActivityMacro: ExtensionMacro {
       in: context,
       partialCustomization: StreamPartialCustomization(
         conformances: [TypeSyntax("SmokePartial")],
-        members: MemberBlockItemListSyntax { DeclSyntax("public var marker: Int { 1 }") }
+        members: MemberBlockItemListSyntax {
+          DeclSyntax("public var marker: Int { \(raw: String(generation.partialFields!.count)) }")
+        }
       ),
       payloadCustomization: { info in
         if info.caseName.text == "charge" {
           return .generated(partial: StreamPartialCustomization(
             conformances: [TypeSyntax("SmokePartial")],
-            members: MemberBlockItemListSyntax { DeclSyntax("public var marker: Int { 7 }") }
+            members: MemberBlockItemListSyntax {
+              DeclSyntax("public var marker: Int { \(raw: String(info.partialFields.count)) }")
+              DeclSyntax("public static var firstStorageType: String { \(StringLiteralExprSyntax(content: info.partialFields[0].storageType.trimmedDescription)) }")
+            }
           ))
         }
         let payload = try StreamObjectGeneration(

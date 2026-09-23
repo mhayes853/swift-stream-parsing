@@ -32,6 +32,13 @@ conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize 
 with their stream initial values instead of making them optional. A field created without `keys`
 matches only its own name, without backticks.
 
+`generation.partialFields` describes the stored properties before syntax generation. Each
+`StreamPartialFieldDescriptor` supplies the emitted member name, its unescaped name, its exact
+storage type, and all decoded routing keys. The storage type reflects optional-member mode,
+completed-value conversions, and container lowering. It is syntax, not a resolved Swift type.
+Keys preserve their supplied order; the generator does not select a preferred output key when
+aliases exist.
+
 `TypeSyntax.streamParseable`, `.streamParseableObject`, and `.streamInitializable` spell the
 library protocols that generated declarations conform to, fully qualified so a host's
 conformance clauses do not depend on imports or local names.
@@ -137,6 +144,12 @@ partial struct and the payload namespaces. The partial's view gains `ResolvedVie
 `.ambiguous`. The member hooks and `onFieldRecognized` work as for structs, and
 `fieldIdentifiers` supplies each case's identity. Raw-value partials are library types, so
 non-empty hooks or partial customizations throw `hooksRequireObjectRepresentation`.
+
+`StreamEnumGeneration.partialFields` describes the top-level object partial before generation;
+it is `nil` for raw-value representations and empty for a case-keyed enum without cases.
+`StreamEnumPayloadInfo.partialFields` describes each payload's generated partial, with positional
+names such as `_1` resolved. Both use the same descriptor type as object generation, so a macro
+can build top-level and payload customizations without generating and inspecting plain partials.
 
 `partialCustomization` applies to the top-level generated `Partial`. For a case with associated
 values, `payloadCustomization` receives `StreamEnumPayloadInfo` with the case name, payload type

@@ -228,6 +228,26 @@ public struct StreamParseableField: Sendable {
   }
 }
 
+/// A stored field as emitted in a generated object `Partial`.
+public struct StreamPartialFieldDescriptor: Sendable {
+  /// The generated member identifier, escaped with backticks when needed.
+  public let memberName: TokenSyntax
+  /// The member name without backticks.
+  public let unescapedName: String
+  /// The exact generated property type, including any optional wrapper.
+  public let storageType: TypeSyntax
+  /// Byte-exact decoded keys that route to this member, in their supplied order.
+  public let keys: [String]
+
+  /// Creates a descriptor for a stored field in a generated `Partial`.
+  public init(memberName: TokenSyntax, unescapedName: String, storageType: TypeSyntax, keys: [String]) {
+    self.memberName = memberName
+    self.unescapedName = unescapedName
+    self.storageType = storageType
+    self.keys = keys
+  }
+}
+
 /// Additive syntax for a generated object or enum payload `Partial` struct.
 ///
 /// Members are appended after generated members. The caller is responsible for avoiding names
@@ -301,6 +321,21 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
 public struct StreamObjectGeneration: Sendable {
   /// The fields in stable generated order.
   public let fields: [StreamParseableField]
+  /// The generated `Partial` storage fields, in the same order as `fields`.
+  ///
+  /// `storageType` reflects `partialMembers`, converted values, and container lowering. These
+  /// descriptors describe emitted syntax rather than resolving Swift type aliases.
+  public var partialFields: [StreamPartialFieldDescriptor] {
+    self.fields.map { field in
+      StreamPartialFieldDescriptor(
+        memberName: .identifier(Self.memberName(field.name)),
+        unescapedName: Self.bareName(field.name),
+        storageType: TypeSyntax("\(raw: self.memberType(field))"),
+        keys: field.keys
+      )
+    }
+  }
+
   /// The representation used for required partial members.
   public let partialMembers: StreamPartialMembers
   /// Options shared by every generated component.
