@@ -2661,6 +2661,12 @@ member and still refuses a non-optional one through the disfavoured overload.
 
 ### `streamElementSchema`: the type answers, not the spelling
 
+(Since renamed along with the schema cache's `StreamSchema.Usage`: `streamElementSchema` and
+`streamElementInitialValue()` are `streamArrayElementSchema` and `streamInitialArrayElement()`,
+dictionaries read the new `streamDictionaryValueSchema`/`streamInitialDictionaryValue()` pair, which
+defaults to them, and `streamContainerSchema`/`_streamContainerPrepare` are
+`streamObjectMemberSchema`/`_streamObjectMemberPrepare`. The names below are as they were.)
+
 Option C fixed the crash and left a cliff. `fieldShape` reads syntax, so only the sugared
 spellings reached the new builders:
 

@@ -20,7 +20,7 @@ public func _streamSchema<T: StreamParseableObject>(for type: T.Type) -> StreamS
 @_disfavoredOverload
 @inlinable
 public func _streamSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema {
-  T.streamContainerSchema
+  T.streamObjectMemberSchema
 }
 
 // Delegates to the core's scalar constructors, which root conformances also use, so a type cannot
@@ -57,13 +57,13 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
 // occurrence. The overload
 // pair mirrors `_streamEnterField`'s, so nil here means the entry answers nil too.
 @inlinable
-public func _streamContainerSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema? {
-  T.streamContainerSchema
+public func _streamObjectMemberSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema? {
+  T.streamObjectMemberSchema
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamContainerSchema<T>(for type: T.Type) -> StreamSchema? {
+public func _streamObjectMemberSchema<T>(for type: T.Type) -> StreamSchema? {
   nil
 }
 
@@ -158,7 +158,7 @@ public func _streamFieldRoute<T: StreamParseableObject>(
   _ value: inout T?, schema: StreamSchema?
 ) -> StreamFieldRoute {
   StreamFieldRoute(
-    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamContainerPrepare)
+    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamObjectMemberPrepare)
   )
 }
 
@@ -166,7 +166,7 @@ public func _streamFieldRoute<T: StreamParseableObject>(
 public func _streamFieldRoute<T: StreamParseableObject>(
   _ value: inout T, schema: StreamSchema?
 ) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamContainerPrepare)
+  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare)
 }
 
 // No built-in container spelling: resolve through the actual partial storage type, which covers
@@ -177,7 +177,7 @@ public func _streamFieldRoute<T: StreamContainerPartial>(
   _ value: inout T?, schema: StreamSchema?
 ) -> StreamFieldRoute {
   StreamFieldRoute(
-    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamContainerPrepare)
+    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamObjectMemberPrepare)
   )
 }
 
@@ -186,7 +186,7 @@ public func _streamFieldRoute<T: StreamContainerPartial>(
 public func _streamFieldRoute<T: StreamContainerPartial>(
   _ value: inout T, schema: StreamSchema?
 ) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamContainerPrepare)
+  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare)
 }
 
 // A type none of the protocols describe stays on the closures.

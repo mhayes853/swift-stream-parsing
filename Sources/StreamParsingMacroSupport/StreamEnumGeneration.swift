@@ -3,9 +3,7 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// How an enum appears in the stream.
-#if compiler(>=6.2.3)
 @nonexhaustive
-#endif
 public enum StreamEnumRepresentation: Hashable, Sendable {
   /// A string such as `"live"`, matched against each case's keys. A partial string resolves to
   /// the shortest case it is a prefix of, so `live` may later become `livestream`.

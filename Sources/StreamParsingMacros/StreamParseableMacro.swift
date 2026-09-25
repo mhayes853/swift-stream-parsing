@@ -413,7 +413,7 @@ extension DeclModifierListSyntax {
 extension StreamParseableMacro {
   struct StoredProperty {
     /// The bare name, with no backticks: the default JSON key, and the stem of every derived
-    /// identifier (`streamContainerSchema_x`).
+    /// identifier (`streamObjectMemberSchema_x`).
     let name: String
     let type: TypeSyntax
     let keyNames: [String]

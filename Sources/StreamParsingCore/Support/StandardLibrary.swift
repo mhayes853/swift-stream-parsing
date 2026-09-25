@@ -86,7 +86,7 @@ where Value: StreamParseableRoot {
   @inlinable
   public static var streamSchema: StreamSchema {
     _streamCachedSchema(for: Self.self) {
-      _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
+      _streamDictionarySchema(Value.self, value: Value.streamDictionaryValueSchema)
     }
   }
 }
@@ -304,30 +304,32 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 }
 
 // The two positions an optional can occupy. A bare optional root has no owner, so `streamSchema`
-// above materialises per token. An optional *element*'s container opened the slot, so this is the
-// wrapped closures with only `applyNull` replaced: one schema call per token, the whole 2.4x, and
-// a requirement rather than macro sugar so `Array<Int?>` and a `StreamArray<Int?>` root match.
+// above materialises per token. An optional array element's container opened the slot, so this is
+// the wrapped closures with only `applyNull` replaced: one schema call per token, the whole 2.4x,
+// and a requirement rather than macro sugar so `Array<Int?>` and a `StreamArray<Int?>` root match.
+// A dictionary value is the same kind of slot and takes these through the `streamDictionaryValue`
+// defaults.
 extension Optional where Wrapped: StreamParseableRoot {
   @inlinable
-  public static var streamElementSchema: StreamSchema {
+  public static var streamArrayElementSchema: StreamSchema {
     _streamOptionalElementSchema(Wrapped.self, base: Wrapped.streamSchema)
   }
 
   @inlinable
-  public static func streamElementInitialValue() -> Self { .some(Wrapped.streamInitialValue()) }
+  public static func streamInitialArrayElement() -> Self { .some(Wrapped.streamInitialValue()) }
 }
 
 extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {
   @inlinable
-  public static var streamContainerSchema: StreamSchema {
-    Wrapped.streamContainerSchema
+  public static var streamObjectMemberSchema: StreamSchema {
+    Wrapped.streamObjectMemberSchema
   }
 
   @inlinable
-  public static var _streamContainerPrepare: StreamFieldPrepare? {
+  public static var _streamObjectMemberPrepare: StreamFieldPrepare? {
     { storage, capacity in
       _streamMaterializeOptional(storage, as: Wrapped.self)
-      Wrapped._streamContainerPrepare?(storage, capacity)
+      Wrapped._streamObjectMemberPrepare?(storage, capacity)
     }
   }
 }

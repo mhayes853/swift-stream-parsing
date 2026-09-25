@@ -122,8 +122,8 @@ extension SinkOptionalElements.Partial: Equatable {}
 typealias SinkAliasedOptionals = [String?]
 
 // The same type, spelled four ways. `fieldShape` reads syntax, so only the sugared forms reach the
-// macro's optional builders; the rest resolve through `_streamContainerSchema` and the type. They
-// have to agree, and before `streamElementSchema` they did not: the sugared ones ran at
+// macro's optional builders; the rest resolve through `_streamObjectMemberSchema` and the type. They
+// have to agree, and before `streamArrayElementSchema` they did not: the sugared ones ran at
 // 32 ns/element and the others at 77, through `Optional`'s materialising wrapper. A typealias
 // cannot be fixed in the macro at all — it has no type information to resolve one with.
 @StreamParseable
@@ -287,7 +287,7 @@ struct `Partial sink tests` {
     expectNoDifference(dictionary["b"] ?? nil, nil)
 
     // Composed by the library rather than by the macro, so the inner element schema is resolved
-    // through `Element.streamElementSchema` twice over.
+    // through `Element.streamArrayElementSchema` twice over.
     var nested = StreamArray<StreamArray<Int?>>()
     try parsePartial("[[1,null]]", into: &nested, chunk: chunk)
     expectNoDifference(nested, [[1, nil]])

@@ -512,18 +512,28 @@ public protocol StreamParseableRoot: StreamInitializable {
   static var _streamArrayNumberAppender:
     (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? { get }
 
-  /// The schema this type is written through when a container holds it, and the value that
-  /// container opens its slot with.
+  /// The schema this type is written through as an array element, and the value the array opens
+  /// the element's slot with. ``StreamSchema/Usage/arrayElement``.
   ///
   /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only for
-  /// `Optional`: a container owns the slot it hands out and can open it already materialised, so an
+  /// `Optional`: an array owns the slot it hands out and can open it already materialised, so an
   /// optional element never checks for `nil` before a write, where a bare optional *root* must.
   /// Worth 2.4x on `[Int?]` (NEW_ARCHITECTURE.md, "The optional seam"). The defaults are the root
   /// forms, so every type but `Optional` conforms without saying anything.
-  static var streamElementSchema: StreamSchema { get }
+  static var streamArrayElementSchema: StreamSchema { get }
 
-  /// - SeeAlso: ``streamElementSchema``
-  static func streamElementInitialValue() -> Self
+  /// - SeeAlso: ``streamArrayElementSchema``
+  static func streamInitialArrayElement() -> Self
+
+  /// The schema this type is written through as a dictionary value, and the value the dictionary
+  /// opens the value's slot with. ``StreamSchema/Usage/dictionaryValue``.
+  ///
+  /// A dictionary owns the slot it opens under a key exactly as an array owns an element's, so
+  /// the defaults are the array-element forms, which is what `Optional` relies on.
+  static var streamDictionaryValueSchema: StreamSchema { get }
+
+  /// - SeeAlso: ``streamDictionaryValueSchema``
+  static func streamInitialDictionaryValue() -> Self
 
   /// What a whole-value `null` writes into a member of this type, or `nil` for a type that has
   /// no null of its own, whose optional member is cleared instead.
@@ -577,10 +587,16 @@ public protocol StreamParseableRoot: StreamInitializable {
 
 extension StreamParseableRoot {
   @inlinable
-  public static var streamElementSchema: StreamSchema { Self.streamSchema }
+  public static var streamArrayElementSchema: StreamSchema { Self.streamSchema }
 
   @inlinable
-  public static func streamElementInitialValue() -> Self { Self.streamInitialValue() }
+  public static func streamInitialArrayElement() -> Self { Self.streamInitialValue() }
+
+  @inlinable
+  public static var streamDictionaryValueSchema: StreamSchema { Self.streamArrayElementSchema }
+
+  @inlinable
+  public static func streamInitialDictionaryValue() -> Self { Self.streamInitialArrayElement() }
 
   @inlinable
   public static var _streamNullValue: Self? { nil }
@@ -614,29 +630,30 @@ extension StreamParseableRoot where View == StreamPointerView<Self> {
 /// need to expose their shape in source syntax. A partial whose storage is described directly by
 /// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
 public protocol StreamContainerPartial: StreamParseableRoot {
-  /// The schema a container entry installs on the frame it pushes.
+  /// The schema a container entry installs on the frame it pushes when this type is a declared
+  /// member of an object. ``StreamSchema/Usage/objectMember``.
   ///
   /// Separated from the frame so a caller can resolve it once and store it: `streamSchema` is a
   /// computed property on every generic partial, so reading it per entry allocates per container
   /// occurrence and leaves the entry's frame as the schema's only owner. The macro resolves it
   /// once per schema build, and the parent's field table owns the result.
-  static var streamContainerSchema: StreamSchema { get }
+  static var streamObjectMemberSchema: StreamSchema { get }
 
-  /// Makes the storage of a member of this type ready for ``streamContainerSchema`` to write
+  /// Makes the storage of a member of this type ready for ``streamObjectMemberSchema`` to write
   /// through, before the sink pushes a frame over it; runs once per container occurrence. `nil`
   /// for a type whose storage is its own value, which is every type but `Optional`, which
   /// materialises its payload here. The table stores it as the member's `prepare`.
-  static var _streamContainerPrepare: StreamFieldPrepare? { get }
+  static var _streamObjectMemberPrepare: StreamFieldPrepare? { get }
 }
 
 extension StreamContainerPartial {
   @inlinable
-  public static var streamContainerSchema: StreamSchema {
+  public static var streamObjectMemberSchema: StreamSchema {
     Self.streamSchema
   }
 
   @inlinable
-  public static var _streamContainerPrepare: StreamFieldPrepare? { nil }
+  public static var _streamObjectMemberPrepare: StreamFieldPrepare? { nil }
 }
 
 // Refines `StreamContainerPartial` so a nested object field's schema is hoisted by its parent
@@ -854,14 +871,14 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   // and the closure's only capture is the pointer. Building it inside the closure instead re-enters
   // the runtime's locking metadata cache per open and returns by value, a second whole-element copy.
   // The box is the schema's `templateOwner`, so it dies with the schema rather than per stream init.
-  let owner = _streamOwnedTemplate(Element.streamElementInitialValue())
+  let owner = _streamOwnedTemplate(Element.streamInitialArrayElement())
   nonisolated(unsafe) let template = owner.address(as: Element.self)
   // Chosen here, once, so a concrete element's closure is the template copy and nothing else.
   let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
   if Element._streamOpensByConstruction {
     appendElement = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
-        ._openElement(constructing: Element.streamElementInitialValue())
+        ._openElement(constructing: Element.streamInitialArrayElement())
     }
   } else {
     appendElement = { storage, _ in
@@ -1060,13 +1077,13 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 ) -> StreamSchema {
   // See `_streamArraySchema` for the template. A repeated key resumes its stored value and reads
   // nothing from it.
-  let owner = _streamOwnedTemplate(Value?.some(Value.streamElementInitialValue()))
+  let owner = _streamOwnedTemplate(Value?.some(Value.streamInitialDictionaryValue()))
   nonisolated(unsafe) let template = owner.address(as: Value?.self)
   // See `_streamArraySchema`.
   let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
   if Value._streamOpensByConstruction {
     enterKey = { storage, key in
-      let initial: Value? = .some(Value.streamElementInitialValue())
+      let initial: Value? = .some(Value.streamInitialDictionaryValue())
       return storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
         ._openValue(forKey: key, constructingSome: initial)
     }

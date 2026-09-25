@@ -64,8 +64,8 @@ struct `StreamObjectGeneration tests` {
     #expect(source.contains("StreamParsingCore._streamCachedSchema(for: Self.self)"))
     #expect(source.contains("route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.value)"))
     #expect(source.contains("element: T.Partial.streamSchema"))
-    #expect(source.contains("route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name)"))
-    #expect(source.contains("route: _streamFieldRoute(&p.pointee.kind, schema: streamContainerSchema_kind)"))
+    #expect(source.contains("route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name)"))
+    #expect(source.contains("route: _streamFieldRoute(&p.pointee.kind, schema: streamObjectMemberSchema_kind)"))
 
     let concrete = try StreamObjectGeneration(fields: fields)
     let concreteSource = try concrete.structDeclarationSyntax(in: BasicMacroExpansionContext())

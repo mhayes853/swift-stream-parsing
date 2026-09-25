@@ -165,18 +165,18 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-              let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_age = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "age", index: Self.StreamField.age,
-                    route: _streamFieldRoute(&p.pointee.age, schema: streamContainerSchema_age),
+                    route: _streamFieldRoute(&p.pointee.age, schema: streamObjectMemberSchema_age),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                   ),
                 ]
@@ -396,28 +396,28 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-              let streamContainerSchema_nickname = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_nickname = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "customKeyName", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "name2", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "a", index: Self.StreamField.nickname,
-                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamContainerSchema_nickname),
+                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamObjectMemberSchema_nickname),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.nickname, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "b", index: Self.StreamField.nickname,
-                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamContainerSchema_nickname),
+                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamObjectMemberSchema_nickname),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.nickname, in: p)
                   ),
                 ]
@@ -761,18 +761,18 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-              let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_age = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "age", index: Self.StreamField.age,
-                    route: _streamFieldRoute(&p.pointee.age, schema: streamContainerSchema_age),
+                    route: _streamFieldRoute(&p.pointee.age, schema: streamObjectMemberSchema_age),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                   ),
                 ]
@@ -954,12 +954,12 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_nickname = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_nickname = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "nickname", index: Self.StreamField.nickname,
-                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamContainerSchema_nickname),
+                    route: _streamFieldRoute(&p.pointee.nickname, schema: streamObjectMemberSchema_nickname),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.nickname, in: p)
                   ),
                 ]
@@ -1149,12 +1149,12 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_stored = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_stored = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "stored", index: Self.StreamField.stored,
-                    route: _streamFieldRoute(&p.pointee.stored, schema: streamContainerSchema_stored),
+                    route: _streamFieldRoute(&p.pointee.stored, schema: streamObjectMemberSchema_stored),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.stored, in: p)
                   ),
                 ]
@@ -1542,12 +1542,12 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_circle = _streamContainerSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
+              let streamObjectMemberSchema_circle = _streamObjectMemberSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "circle", index: Self.StreamField.circle,
-                    route: _streamFieldRoute(&p.pointee.circle, schema: streamContainerSchema_circle),
+                    route: _streamFieldRoute(&p.pointee.circle, schema: streamObjectMemberSchema_circle),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.circle, in: p)
                   ),
                 ]
@@ -1871,18 +1871,18 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_default = _streamContainerSchema(for: (DefaultPayload.Partial).self)
-              let streamContainerSchema_class = _streamContainerSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
+              let streamObjectMemberSchema_default = _streamObjectMemberSchema(for: (DefaultPayload.Partial).self)
+              let streamObjectMemberSchema_class = _streamObjectMemberSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "default", index: Self.StreamField.`default`,
-                    route: _streamFieldRoute(&p.pointee.`default`, schema: streamContainerSchema_default),
+                    route: _streamFieldRoute(&p.pointee.`default`, schema: streamObjectMemberSchema_default),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.`default`, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "class", index: Self.StreamField.`class`,
-                    route: _streamFieldRoute(&p.pointee.`class`, schema: streamContainerSchema_class),
+                    route: _streamFieldRoute(&p.pointee.`class`, schema: streamObjectMemberSchema_class),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.`class`, in: p)
                   ),
                 ]
@@ -2013,12 +2013,12 @@ extension BaseTestSuite {
               }
 
               static let streamSchema: StreamParsingCore.StreamSchema = {
-                let streamContainerSchema__0 = _streamContainerSchema(for: (String.Partial).self)
+                let streamObjectMemberSchema__0 = _streamObjectMemberSchema(for: (String.Partial).self)
                 let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                   [
                     StreamParsingCore.StreamField(
                       key: "_0", index: Self.StreamField._0,
-                      route: _streamFieldRoute(&p.pointee._0, schema: streamContainerSchema__0),
+                      route: _streamFieldRoute(&p.pointee._0, schema: streamObjectMemberSchema__0),
                       offset: StreamParsingCore._streamFieldOffset(&p.pointee._0, in: p)
                     ),
                   ]
@@ -2355,12 +2355,12 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                 ]
@@ -2542,12 +2542,12 @@ extension BaseTestSuite {
             }
 
             public static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                 ]
@@ -2723,12 +2723,12 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                 ]
@@ -2904,12 +2904,12 @@ extension BaseTestSuite {
             }
 
             fileprivate static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                 ]
@@ -3122,18 +3122,18 @@ extension BaseTestSuite {
             }
 
             public static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-              let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_age = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "age", index: Self.StreamField.age,
-                    route: _streamFieldRoute(&p.pointee.age, schema: streamContainerSchema_age),
+                    route: _streamFieldRoute(&p.pointee.age, schema: streamObjectMemberSchema_age),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                   ),
                 ]
@@ -3351,18 +3351,18 @@ extension BaseTestSuite {
             }
 
             public static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_name = _streamContainerSchema(for: (String.Partial).self)
-              let streamContainerSchema_age = _streamContainerSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_name = _streamObjectMemberSchema(for: (String.Partial).self)
+              let streamObjectMemberSchema_age = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "name", index: Self.StreamField.name,
-                    route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name),
+                    route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.name, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "age", index: Self.StreamField.age,
-                    route: _streamFieldRoute(&p.pointee.age, schema: streamContainerSchema_age),
+                    route: _streamFieldRoute(&p.pointee.age, schema: streamObjectMemberSchema_age),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.age, in: p)
                   ),
                 ]
@@ -3690,18 +3690,18 @@ extension BaseTestSuite {
             }
 
             public static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_circle = _streamContainerSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
-              let streamContainerSchema_square = _streamContainerSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
+              let streamObjectMemberSchema_circle = _streamObjectMemberSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
+              let streamObjectMemberSchema_square = _streamObjectMemberSchema(for: (StreamParsingCore.StreamEmptyObject.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "circle", index: Self.StreamField.circle,
-                    route: _streamFieldRoute(&p.pointee.circle, schema: streamContainerSchema_circle),
+                    route: _streamFieldRoute(&p.pointee.circle, schema: streamObjectMemberSchema_circle),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.circle, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "square", index: Self.StreamField.square,
-                    route: _streamFieldRoute(&p.pointee.square, schema: streamContainerSchema_square),
+                    route: _streamFieldRoute(&p.pointee.square, schema: streamObjectMemberSchema_square),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.square, in: p)
                   ),
                 ]
@@ -3909,18 +3909,18 @@ extension BaseTestSuite {
             }
 
             static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_items = _streamArraySchema(Item.Partial.self, element: _streamSchema(for: Item.Partial.self))
-              let streamContainerSchema_index = _streamDictionarySchema(Item.Partial.self, value: _streamSchema(for: Item.Partial.self))
+              let streamObjectMemberSchema_items = _streamArraySchema(Item.Partial.self, element: _streamSchema(for: Item.Partial.self))
+              let streamObjectMemberSchema_index = _streamDictionarySchema(Item.Partial.self, value: _streamSchema(for: Item.Partial.self))
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "items", index: Self.StreamField.items,
-                    route: _streamFieldRoute(&p.pointee.items, schema: streamContainerSchema_items, initialCapacity: 16),
+                    route: _streamFieldRoute(&p.pointee.items, schema: streamObjectMemberSchema_items, initialCapacity: 16),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.items, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "index", index: Self.StreamField.index,
-                    route: _streamFieldRoute(&p.pointee.index, schema: streamContainerSchema_index),
+                    route: _streamFieldRoute(&p.pointee.index, schema: streamObjectMemberSchema_index),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.index, in: p)
                   ),
                 ]
@@ -4188,13 +4188,13 @@ extension BaseTestSuite {
 
             static var streamSchema: StreamParsingCore.StreamSchema {
               StreamParsingCore._streamCachedSchema(for: Self.self) {
-                let streamContainerSchema_items = _streamArraySchema(Item.Partial.self, element: Item.Partial.streamSchema)
-                let streamContainerSchema_cursor = _streamContainerSchema(for: (String.Partial).self)
+                let streamObjectMemberSchema_items = _streamArraySchema(Item.Partial.self, element: Item.Partial.streamSchema)
+                let streamObjectMemberSchema_cursor = _streamObjectMemberSchema(for: (String.Partial).self)
                 let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                   [
                     StreamParsingCore.StreamField(
                       key: "items", index: Self.StreamField.items,
-                      route: _streamFieldRoute(&p.pointee.items, schema: streamContainerSchema_items),
+                      route: _streamFieldRoute(&p.pointee.items, schema: streamObjectMemberSchema_items),
                       offset: StreamParsingCore._streamFieldOffset(&p.pointee.items, in: p)
                     ),
                     StreamParsingCore.StreamField(
@@ -4204,7 +4204,7 @@ extension BaseTestSuite {
                     ),
                     StreamParsingCore.StreamField(
                       key: "cursor", index: Self.StreamField.cursor,
-                      route: _streamFieldRoute(&p.pointee.cursor, schema: streamContainerSchema_cursor),
+                      route: _streamFieldRoute(&p.pointee.cursor, schema: streamObjectMemberSchema_cursor),
                       offset: StreamParsingCore._streamFieldOffset(&p.pointee.cursor, in: p)
                     ),
                     StreamParsingCore.StreamField(
@@ -4706,24 +4706,24 @@ extension BaseTestSuite {
             }
 
             package static let streamSchema: StreamParsingCore.StreamSchema = {
-              let streamContainerSchema_class = _streamContainerSchema(for: (Int.Partial).self)
-              let streamContainerSchema_storage = _streamContainerSchema(for: (Int.Partial).self)
-              let streamContainerSchema_x = _streamContainerSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_class = _streamObjectMemberSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_storage = _streamObjectMemberSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_x = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(
                     key: "class", index: Self.StreamField.`class`,
-                    route: _streamFieldRoute(&p.pointee.`class`, schema: streamContainerSchema_class),
+                    route: _streamFieldRoute(&p.pointee.`class`, schema: streamObjectMemberSchema_class),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.`class`, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "storage", index: Self.StreamField.storage,
-                    route: _streamFieldRoute(&p.pointee.storage, schema: streamContainerSchema_storage),
+                    route: _streamFieldRoute(&p.pointee.storage, schema: streamObjectMemberSchema_storage),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.storage, in: p)
                   ),
                   StreamParsingCore.StreamField(
                     key: "x", index: Self.StreamField.x,
-                    route: _streamFieldRoute(&p.pointee.x, schema: streamContainerSchema_x),
+                    route: _streamFieldRoute(&p.pointee.x, schema: streamObjectMemberSchema_x),
                     offset: StreamParsingCore._streamFieldOffset(&p.pointee.x, in: p)
                   ),
                 ]

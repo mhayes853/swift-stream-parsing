@@ -461,7 +461,7 @@ where Element: StreamParseableRoot {
   @inlinable
   public static var streamSchema: StreamSchema {
     _streamCachedSchema(for: Self.self) {
-      _streamArraySchema(Element.self, element: Element.streamElementSchema)
+      _streamArraySchema(Element.self, element: Element.streamArrayElementSchema)
     }
   }
 

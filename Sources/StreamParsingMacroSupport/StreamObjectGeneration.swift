@@ -288,9 +288,7 @@ public struct StreamPartialCustomization {
 }
 
 /// An invalid combination in an object-generation description.
-#if compiler(>=6.2.3)
 @nonexhaustive
-#endif
 public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStringConvertible {
   /// Explicit inlining requires public or package access for the generated storage.
   case incompatibleInliningAccess
@@ -908,7 +906,7 @@ extension StreamObjectGeneration {
 
   private func schemaName(_ field: StreamParseableField) -> String {
     Self.memberName(
-      TokenSyntax.identifier("streamContainerSchema_\(Self.bareName(field.name))")
+      TokenSyntax.identifier("streamObjectMemberSchema_\(Self.bareName(field.name))")
     )
   }
 
@@ -916,7 +914,7 @@ extension StreamObjectGeneration {
   private func containerSchema(for field: StreamParseableField) -> (isContainer: Bool, expression: String) {
     switch self.fieldShape(field.type) {
     case .scalarOrObject:
-      (false, "_streamContainerSchema(for: (\(self.partialType(field))).self)")
+      (false, "_streamObjectMemberSchema(for: (\(self.partialType(field))).self)")
     case .array, .dictionary:
       (true, self.schemaExpression(field.type))
     }

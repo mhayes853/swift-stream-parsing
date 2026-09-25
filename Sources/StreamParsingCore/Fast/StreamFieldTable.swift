@@ -288,7 +288,7 @@ public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
   case .scalar:
     return StreamFieldRoute(.delegated, optional: false, schema: schema)
   default:
-    // An `Optional` root materialises itself here, as `_streamContainerPrepare` would.
+    // An `Optional` root materialises itself here, as `_streamObjectMemberPrepare` would.
     return StreamFieldRoute(
       .container, optional: false, schema: schema,
       prepare: { storage, _ in schema.prepareRoot(storage) }
