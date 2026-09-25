@@ -29,7 +29,7 @@ private struct OptionalSIMDPoint: Equatable {
 @Suite
 struct `Optional SIMD array route tests` {
   private func route(_ key: String) -> _StreamLeafRoute? {
-    OptionalSIMDArrays.Partial.streamFields
+    OptionalSIMDArrays.Partial.streamSchema.declaredFields
       .first { String(decoding: $0.key, as: UTF8.self) == key }?.schema?.leafRoute
   }
 
@@ -57,7 +57,7 @@ struct `Optional SIMD array route tests` {
     expectNoDifference(self.route("optionalArray"), .arraySIMD2Double)
     expectNoDifference(self.route("nested"), .generic)
     expectNoDifference(
-      OptionalSIMDArrays.Partial.streamFields
+      OptionalSIMDArrays.Partial.streamSchema.declaredFields
         .first { String(decoding: $0.key, as: UTF8.self) == "nested" }?
         .schema?.elementSchema?.leafRoute,
       .arrayOptionalSIMD2Double

@@ -33,6 +33,12 @@ public enum StreamFieldKind: UInt8, Sendable {
   /// child's `schema` (after its `prepare`, if any), through the schema's `enterField` closure with
   /// the entry's `index` when it does not. A scalar arriving here is a type mismatch.
   case container
+  /// A scalar member whose type the macro could not see -- a generic parameter's `Partial` -- and
+  /// whose schema has no kind the table writes. Applied through the entry's own `schema` at the
+  /// member's address with `wholeValueField`, never through the parent's closures, so a generic
+  /// `Partial` needs no stored static to reach its child's schema from. Last, so `isNumber`'s range
+  /// is untouched.
+  case delegated
 
   @inlinable
   public var isNumber: Bool {
@@ -77,8 +83,8 @@ public struct StreamField: Sendable {
   /// The key as declared, kept until the schema packs every entry's key into one blob.
   @usableFromInline var key: [UInt8]
 
-  /// For a `container` member, the child schema: the hoisted static the enclosing `Partial` owns.
-  /// The packed entry keeps only an unowned copy.
+  /// For a `container` or `delegated` member, the child schema, which the enclosing schema's
+  /// table owns. The packed entry keeps only an unowned copy.
   public var schema: StreamSchema?
 
   /// See ``StreamFieldPrepare``. Only a `container` member has one.
@@ -239,6 +245,128 @@ public func _streamBooleanFieldKind<T: StreamBooleanConvertible>(_ type: T.Type)
   T.self == Bool.self ? .bool : .custom
 }
 
+// MARK: - Routes classified from a schema
+
+// Overloads resolve where a generic is written, so for a member typed by a generic parameter's
+// `Partial` every `_streamFieldRoute` overload is inapplicable but the unconstrained one. These
+// classify from the member's schema instead, once, when the table is built: a kind the table
+// writes stays on the table (`Page<Int>` stores its `Int` exactly as a concrete type would), an
+// object or container is entered from the entry, and anything else is `delegated`.
+
+/// The route for an optional member of a type only known to be a `StreamParseableRoot`.
+@inlinable
+public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
+  _ value: inout T?
+) -> StreamFieldRoute {
+  let schema = T.streamSchema
+  switch schema.shape {
+  case .scalar where schema.scalarKind != .custom:
+    return StreamFieldRoute(
+      schema.scalarKind, optional: true, capacity: Int(schema.inlineCapacity)
+    )
+  case .scalar:
+    return StreamFieldRoute(.delegated, optional: true, schema: _streamDelegatedMemberSchema(T.self))
+  default:
+    return StreamFieldRoute(
+      .container, optional: true, schema: schema,
+      prepare: _streamOptionalPrepare(T.self, then: { storage, _ in schema.prepareRoot(storage) })
+    )
+  }
+}
+
+/// The route for an initialised member of a type only known to be a `StreamParseableRoot`.
+@inlinable
+public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
+  _ value: inout T
+) -> StreamFieldRoute {
+  let schema = T.streamSchema
+  switch schema.shape {
+  case .scalar where schema.scalarKind != .custom:
+    return StreamFieldRoute(
+      schema.scalarKind, optional: false, capacity: Int(schema.inlineCapacity)
+    )
+  case .scalar:
+    return StreamFieldRoute(.delegated, optional: false, schema: schema)
+  default:
+    // An `Optional` root materialises itself here, as `_streamContainerPrepare` would.
+    return StreamFieldRoute(
+      .container, optional: false, schema: schema,
+      prepare: { storage, _ in schema.prepareRoot(storage) }
+    )
+  }
+}
+
+/// The schema a `delegated` optional member is written through: `T`'s own, over the optional's
+/// offset-zero payload, materialised before each write. A whole-value null is `T`'s to resolve
+/// (`_streamNullValue`), not simply a clear as it is for `Optional`'s root schema, so a nullable
+/// `T` keeps a present null apart from an absent member.
+@inlinable
+public func _streamDelegatedMemberSchema<T: StreamParseableRoot>(_ type: T.Type) -> StreamSchema {
+  let base = T.streamSchema
+  return StreamSchema(
+    shape: .scalar,
+    applyString: { storage, field, bytes in
+      _streamMaterializeOptional(storage, as: T.self)
+      return base.applyString(storage, field, bytes)
+    },
+    applyNumber: { storage, field, bytes, info in
+      _streamMaterializeOptional(storage, as: T.self)
+      return base.applyNumber(storage, field, bytes, info)
+    },
+    applyBoolean: { storage, field, value in
+      _streamMaterializeOptional(storage, as: T.self)
+      return base.applyBoolean(storage, field, value)
+    },
+    applyNull: { storage, _ in
+      _streamDelegatedApplyNull(&storage.assumingMemoryBound(to: T?.self).pointee)
+    },
+    finishString: base.finishString
+  )
+}
+
+/// A whole-value null for an optional member of a type only known to be a `StreamParseableRoot`:
+/// its own null where it has one, otherwise a clear.
+@inlinable
+public func _streamDelegatedApplyNull<T: StreamParseableRoot>(_ value: inout T?) -> StreamApplyResult {
+  value = T._streamNullValue
+  return .applied
+}
+
+/// A whole-value null for an initialised member: its own null, or a mismatch.
+@inlinable
+public func _streamDelegatedApplyNull<T: StreamParseableRoot>(_ value: inout T) -> StreamApplyResult {
+  guard let null = T._streamNullValue else { return .unsupported }
+  value = null
+  return .applied
+}
+
+/// Materialises an optional member, then runs `inner` over the payload: a container's own prepare
+/// (`nil` for every type but `Optional`), or a delegated member's `prepareRoot`. Runs once per
+/// schema, so the template and inner prepare are resolved here, not per occurrence (measured: CITM
+/// +39.6%, see NEW_ARCHITECTURE.md). The template is already `.some` and is copy-initialised over
+/// the `nil`, which owns nothing, rather than assigned.
+@inlinable
+public func _streamOptionalPrepare<T: StreamParseableRoot>(
+  _ type: T.Type, then inner: StreamFieldPrepare?
+) -> StreamFieldPrepare {
+  let owner = _streamOwnedTemplate(T?.some(T.streamInitialValue()))
+  nonisolated(unsafe) let template = owner.address(as: T?.self)
+  return { [owner] storage, _ in
+    // Named so the capture is real: the box must die with the closure, not before it.
+    _ = owner
+    let pointer = storage.assumingMemoryBound(to: T?.self)
+    if pointer.pointee == nil {
+      // A constant after specialisation. See `_streamOpensByConstruction`.
+      if T._streamOpensByConstruction {
+        pointer.initialize(to: T.streamInitialValue())
+      } else {
+        _streamCopyInitialize(pointer, from: template)
+      }
+    }
+    inner?(storage, 0)
+  }
+}
+
 // MARK: - The packed table
 
 /// The entries of one object schema, in one allocation, with their keys packed behind them.
@@ -252,8 +380,9 @@ final class StreamFieldTable: @unchecked Sendable {
   @usableFromInline let keyBytes: UnsafeMutablePointer<UInt8>
   // Parallel to `entries`, off the entry so the match's stride stays forty bytes.
   @usableFromInline let prepares: UnsafeMutablePointer<StreamFieldPrepare?>
-  // The owners of every schema an entry points at unowned.
-  @usableFromInline let schemas: [StreamSchema]
+  // The members as declared: the owners of every schema an entry points at unowned, and what
+  // tests read a generated table back from.
+  @usableFromInline let declared: [StreamField]
 
   // Open-addressed slot table over `entries`, -1 where empty, built once (a field table never
   // grows). `nil` at or below `indexThreshold`, where a scan measures the same as a probe.
@@ -268,8 +397,7 @@ final class StreamFieldTable: @unchecked Sendable {
     self.count = fields.count
     self.entries = .allocate(capacity: Swift.max(fields.count, 1))
     self.prepares = .allocate(capacity: Swift.max(fields.count, 1))
-    // Closure, not `compactMap(\.schema)`: key paths cannot be lowered in embedded Swift.
-    self.schemas = fields.compactMap { $0.schema }
+    self.declared = fields
     if fields.count > Self.indexThreshold {
       // Half load, same as `StreamDictionary`'s table: linear probing degrades sharply past it.
       var capacity = 16

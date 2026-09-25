@@ -288,10 +288,46 @@ func checkCompletedConversions() {
   precondition(boolean.value == 1)
 }
 
+// MARK: - Delegated routes
+
+// How a generic `Partial` routes a member typed by its parameter: classified from the member's
+// schema when the table is built. Generic helpers, so they only have to lower cleanly here if
+// nothing in them reaches for a metatype at runtime.
+func checkDelegatedRoutes() {
+  // A kind the table writes stays on the table.
+  var count: Int? = nil
+  precondition(_streamDelegatedFieldRoute(&count).kind == .int)
+
+  // Anything else is applied through the member's own schema, which materialises the optional.
+  var converted: ConvertedPartial<NonnegativeConversion>? = nil
+  let route = _streamDelegatedFieldRoute(&converted)
+  precondition(route.kind == .delegated)
+  withUnsafeMutablePointer(to: &converted) { storage in
+    var sink = ConversionSmokeSink(root: UnsafeMutableRawPointer(storage), schema: route.schema!)
+    var parser = JSONParser()
+    let payload: StaticString = "21 "
+    payload.withUTF8Buffer { input in
+      for byte in input { try! parser.parse(byte: byte, into: &sink) }
+      try! parser.finish(into: &sink)
+    }
+    precondition(sink.streamFailure == nil)
+  }
+  precondition(converted?.value == 42)
+
+  // A null is the member type's own where it has one, and a clear where it does not.
+  var nullable: Int?? = .some(5)
+  precondition(_streamDelegatedApplyNull(&nullable) == .applied)
+  precondition(nullable == .some(nil))
+  var plain: Int? = 5
+  precondition(_streamDelegatedApplyNull(&plain) == .applied)
+  precondition(plain == nil)
+}
+
 @main
 struct EmbeddedSmoke {
   static func main() {
     checkCompletedConversions()
+    checkDelegatedRoutes()
     let payload: StaticString = """
       {"id":4217,"name":"Blob","tags":["a","b"],"active":true,"score":-1.5e2,\
       "address":{"city":"Brooklyn"},"missing":null}

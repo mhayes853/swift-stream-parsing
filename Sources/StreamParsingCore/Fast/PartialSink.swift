@@ -1,6 +1,6 @@
 // A `StreamFrame` whose schema is borrowed: the sink lowers every frame to this and never stores a
 // `StreamFrame`, so nothing it holds retains and push/pop is a store and a decrement. Sound only
-// while every schema a frame carries outlives the parse (a parent's hoisted `private static let`,
+// while every schema a frame carries outlives the parse (a child the parent's field table owns,
 // a container schema's captured child, `rootSchema`, `ignoredStreamSchema`), which
 // `StreamSchemaBorrowAudit` checks in debug builds. NEW_ARCHITECTURE.md, "Routing: frames borrow
 // their schema".
@@ -105,8 +105,8 @@ struct BorrowedFrame {
           """
           A StreamFrame's schema was deallocated while the sink still borrowed it, which means the \
           frame was its only owner. Schema \(borrow.identity) has to be stored somewhere that \
-          outlives the parse — the `private static let` the macro hoists onto the enclosing \
-          Partial, or a stored `let` next to the conformance that builds it.
+          outlives the parse — the parent's field table, which owns every schema its entries \
+          carry, or a stored `let` next to the conformance that builds it.
           """
         )
       }
@@ -753,12 +753,17 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         case .table:
           if field >= 0 {
             let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+            let kind = entry.pointee.kind
             let result =
-              entry.pointee.kind == .custom
+              kind == .custom
               ? top.pointee.schema.applyNumber(top.pointee.storage, entry.pointee.index, bytes, info)
-              : Self.writeTableNumber(
-                entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
-              )
+              : kind == .delegated
+                ? Self.delegateNumber(
+                  entry, top.pointee.storage + Int(entry.pointee.offset), bytes, info
+                )
+                : Self.writeTableNumber(
+                  entry, member: top.pointee.storage + Int(entry.pointee.offset), bytes, info
+                )
             if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
           }
           return
@@ -799,12 +804,15 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         case .table:
           if field >= 0 {
             let entry = top.pointee.schema.fieldEntries.unsafelyUnwrapped + Int(field)
+            let kind = entry.pointee.kind
             let result =
-              entry.pointee.kind == .custom
+              kind == .custom
               ? top.pointee.schema.applyBoolean(top.pointee.storage, entry.pointee.index, value)
-              : Self.writeTableBoolean(
-                entry, member: top.pointee.storage + Int(entry.pointee.offset), value
-              )
+              : kind == .delegated
+                ? Self.delegateBoolean(entry, top.pointee.storage + Int(entry.pointee.offset), value)
+                : Self.writeTableBoolean(
+                  entry, member: top.pointee.storage + Int(entry.pointee.offset), value
+                )
             if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
           }
           return
@@ -859,7 +867,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
             let result =
               kind == .custom || kind == .container
               ? top.pointee.schema.applyNull(top.pointee.storage, entry.pointee.index)
-              : Self.writeTableNull(entry, member: top.pointee.storage + Int(entry.pointee.offset))
+              : kind == .delegated
+                ? Self.delegateNull(entry, top.pointee.storage + Int(entry.pointee.offset))
+                : Self.writeTableNull(entry, member: top.pointee.storage + Int(entry.pointee.offset))
             if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
           }
           return
@@ -1130,9 +1140,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private mutating func applyNumberNormally(_ bytes: Span<UInt8>, info: NumberInfo) {
     self.withScalarTarget(
       table: { entry, storage, schema in
-        entry.pointee.kind == .custom
-          ? schema.applyNumber(storage, entry.pointee.index, bytes, info)
-          : Self.writeTableNumber(entry, member: storage, bytes, info)
+        switch entry.pointee.kind {
+        case .custom: schema.applyNumber(storage, entry.pointee.index, bytes, info)
+        case .delegated: Self.delegateNumber(entry, storage, bytes, info)
+        default: Self.writeTableNumber(entry, member: storage, bytes, info)
+        }
       }
     ) { storage, field, schema in
       schema.applyNumber(storage, field, bytes, info)
@@ -1143,9 +1155,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private mutating func applyBooleanNormally(_ value: Bool) {
     self.withScalarTarget(
       table: { entry, storage, schema in
-        entry.pointee.kind == .custom
-          ? schema.applyBoolean(storage, entry.pointee.index, value)
-          : Self.writeTableBoolean(entry, member: storage, value)
+        switch entry.pointee.kind {
+        case .custom: schema.applyBoolean(storage, entry.pointee.index, value)
+        case .delegated: Self.delegateBoolean(entry, storage, value)
+        default: Self.writeTableBoolean(entry, member: storage, value)
+        }
       }
     ) { storage, field, schema in
       schema.applyBoolean(storage, field, value)
@@ -1156,9 +1170,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private mutating func applyNullNormally() {
     self.withScalarTarget(
       table: { entry, storage, schema in
-        entry.pointee.kind == .custom || entry.pointee.kind == .container
-          ? schema.applyNull(storage, entry.pointee.index)
-          : Self.writeTableNull(entry, member: storage)
+        switch entry.pointee.kind {
+        case .custom, .container: schema.applyNull(storage, entry.pointee.index)
+        case .delegated: Self.delegateNull(entry, storage)
+        default: Self.writeTableNull(entry, member: storage)
+        }
       }
     ) { storage, field, schema in
       schema.applyNull(storage, field)
@@ -1230,8 +1246,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     )
   }
 
-  // A table entry's target. For a kind the table writes, `storage` is the member's own address;
-  // a `custom` or `container` entry keeps the object's storage, which is what its closures take.
+  // A table entry's target. For a kind the table writes, `storage` is the member's own address,
+  // as it is for a `delegated` one, whose schema takes the member; a `custom` or `container` entry
+  // keeps the object's storage, which is what its closures take.
   @inline(__always)
   private static func tableTarget(
     _ entry: UnsafePointer<StreamFieldEntry>,
@@ -1277,7 +1294,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   }
 
   // The kinds the table writes, at the member's own address. `custom` is the caller's to route to
-  // the closure, so the schema never comes through here.
+  // the closure, so the schema never comes through here, and `delegated` to its own schema
+  // (`delegateNumber`); both are refused if they arrive.
   @inline(never)
   private static func writeTableNumber(
     _ entry: UnsafePointer<StreamFieldEntry>,
@@ -1312,7 +1330,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .int8: return Self.storeNumber(Int8.self, at: member, optional: optional, bytes, info)
     case .uint8: return Self.storeNumber(UInt8.self, at: member, optional: optional, bytes, info)
     case .float: return Self.storeNumber(Float.self, at: member, optional: optional, bytes, info)
-    case .custom, .bool, .streamString, .inlineString, .container:
+    case .custom, .bool, .streamString, .inlineString, .container, .delegated:
       return .unsupported
     }
   }
@@ -1380,7 +1398,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         of: 1, toByteOffset: _streamInlineStringByteOffset + Int(capacity), as: UInt8.self
       )
       return .applied
-    case .custom, .container:
+    case .custom, .container, .delegated:
       return .unsupported
     }
   }
@@ -1405,6 +1423,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     _ entry: UnsafePointer<StreamFieldEntry>,
     _ storage: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
+    // Ahead of the switch, as in `number`, and behind the schema word rather than the kind: a
+    // fourth arm, or a kind test SimplifyCFG folds into one, turns its compare chain into a jump
+    // table. No string kind the table writes carries a schema.
+    if entry.pointee.schemaBits != nil, entry.pointee.kind == .delegated {
+      return self.openDelegatedString(entry, storage)
+    }
     switch entry.pointee.kind {
     case .streamString:
       if entry.pointee.isOptional {
@@ -1445,6 +1469,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   ) -> StreamApplyResult {
     let storage = frame.pointee.storage
     let member = storage + Int(entry.pointee.offset)
+    // See `openTableString`.
+    if entry.pointee.schemaBits != nil, entry.pointee.kind == .delegated {
+      return Self.delegateString(entry, member, bytes)
+    }
     switch entry.pointee.kind {
     case .streamString:
       if entry.pointee.isOptional {
@@ -1472,6 +1500,77 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     default:
       return .unsupported
     }
+  }
+
+  // A `delegated` entry's own schema, borrowed: zero-ARC, as `ScalarTarget.withSchema`. The table
+  // owns it for as long as the parent schema lives.
+  @inline(__always)
+  private static func withDelegate<R>(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ body: (StreamSchema) -> R
+  ) -> R {
+    Unmanaged<StreamSchema>.fromOpaque(entry.pointee.schemaBits.unsafelyUnwrapped)
+      ._withUnsafeGuaranteedRef(body)
+  }
+
+  // A `delegated` entry's scalars, which the table writers refuse (their switches answer
+  // `.unsupported` for the kind). Tested by the callers ahead of the writer rather than inside it:
+  // in `writeTableNumber`, even a test calling out of line cost the inlining of every integer
+  // conversion (8 calls where the baseline has none), and a retry after the writer's refusal kept
+  // the token live across the call, three spills on every table number. Ahead of it, the call into
+  // the writer is the baseline's instruction for instruction, behind one byte compare.
+  @inline(never)
+  private static func delegateNumber(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer,
+    _ bytes: Span<UInt8>, _ info: NumberInfo
+  ) -> StreamApplyResult {
+    Self.withDelegate(entry) { $0.applyNumber(member, StreamSchema.wholeValueField, bytes, info) }
+  }
+
+  @inline(never)
+  private static func delegateBoolean(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer, _ value: Bool
+  ) -> StreamApplyResult {
+    Self.withDelegate(entry) { $0.applyBoolean(member, StreamSchema.wholeValueField, value) }
+  }
+
+  // Retargeted at the child with no entry, so the chunks and `stringEnd` take the closure route
+  // through `scalarTarget`, as an element or a dictionary value does.
+  @inline(never)
+  private mutating func openDelegatedString(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer
+  ) -> StreamApplyResult {
+    let target = ScalarTarget(
+      storage: member, schemaBits: entry.pointee.schemaBits.unsafelyUnwrapped,
+      field: StreamSchema.wholeValueField, entry: nil
+    )
+    self.scalarTarget = target
+    return target.withSchema { $0.applyString(member, StreamSchema.wholeValueField, Span()) }
+  }
+
+  // The whole-string form: open, append, finish, as `writeTableString` does for `custom`.
+  @inline(never)
+  private static func delegateString(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer,
+    _ bytes: Span<UInt8>
+  ) -> StreamApplyResult {
+    Self.withDelegate(entry) { child in
+      let whole = StreamSchema.wholeValueField
+      let opened = child.applyString(member, whole, Span())
+      if opened != .applied { return opened }
+      if bytes.count > 0 {
+        let result = child.applyString(member, whole, bytes)
+        if result != .applied { return result }
+      }
+      return child.finishString?(member, whole) ?? .applied
+    }
+  }
+
+  // The child decides what a null means, optional member or not.
+  @inline(never)
+  private static func delegateNull(
+    _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer
+  ) -> StreamApplyResult {
+    Self.withDelegate(entry) { $0.applyNull(member, StreamSchema.wholeValueField) }
   }
 
 

@@ -89,10 +89,6 @@ where Value: StreamParseableRoot {
       _streamDictionarySchema(Value.self, value: Value.streamElementSchema)
     }
   }
-
-  // See `StreamArray`: generic, so `Self()` pays the runtime metadata cache per open.
-  @inlinable
-  public static var _streamInitialValueIsExpensive: Bool { true }
 }
 
 // A value wider than the `UInt64` accumulator arrives flagged as overflowed with nothing usable,

@@ -2,7 +2,7 @@ import CustomDump
 import Testing
 
 import StreamParsing
-import StreamParsingCore
+@testable import StreamParsingCore
 
 // The field table is what `PartialSink` writes through, and two of its columns are load-bearing
 // in a way nothing else checks: the byte offset, taken by pointer arithmetic from a prototype
@@ -79,7 +79,7 @@ struct StreamFieldTableTests {
     @Test
     func `Offsets match MemoryLayout`() {
       typealias P = TableScalars.Partial
-      let fields = P.streamFields
+      let fields = P.streamSchema.declaredFields
       expectNoDifference(Int(self.entry("flag", in: fields).offset), MemoryLayout<P>.offset(of: \.flag)!)
       expectNoDifference(Int(self.entry("count", in: fields).offset), MemoryLayout<P>.offset(of: \.count)!)
       expectNoDifference(Int(self.entry("small", in: fields).offset), MemoryLayout<P>.offset(of: \.small)!)
@@ -96,14 +96,14 @@ struct StreamFieldTableTests {
       expectNoDifference(Int(self.entry("tags", in: fields).offset), MemoryLayout<P>.offset(of: \.tags)!)
 
       typealias I = TableInitialized.Partial
-      let initialized = I.streamFields
+      let initialized = I.streamSchema.declaredFields
       expectNoDifference(Int(self.entry("count", in: initialized).offset), MemoryLayout<I>.offset(of: \.count)!)
       expectNoDifference(Int(self.entry("name", in: initialized).offset), MemoryLayout<I>.offset(of: \.name)!)
     }
 
     @Test
     func `Kinds follow the member type`() {
-      let fields = TableScalars.Partial.streamFields
+      let fields = TableScalars.Partial.streamSchema.declaredFields
       expectNoDifference(self.entry("flag", in: fields).kind, .bool)
       expectNoDifference(self.entry("count", in: fields).kind, .int)
       expectNoDifference(self.entry("small", in: fields).kind, .int8)
@@ -118,12 +118,12 @@ struct StreamFieldTableTests {
       expectNoDifference(self.entry("text", in: fields).capacity, 64)
       // Every member of an optional-members partial is optional; none of an initialised one is.
       let allOptional = fields.allSatisfy { $0.isOptional }
-      let noneOptional = TableInitialized.Partial.streamFields.allSatisfy { !$0.isOptional }
+      let noneOptional = TableInitialized.Partial.streamSchema.declaredFields.allSatisfy { !$0.isOptional }
       expectNoDifference(allOptional, true)
       expectNoDifference(noneOptional, true)
-      expectNoDifference(self.entry("count", in: TableInitialized.Partial.streamFields).kind, .int)
+      expectNoDifference(self.entry("count", in: TableInitialized.Partial.streamSchema.declaredFields).kind, .int)
 
-      let custom = TableCustom.Partial.streamFields
+      let custom = TableCustom.Partial.streamSchema.declaredFields
       expectNoDifference(self.entry("temperature", in: custom).kind, .custom)
       expectNoDifference(self.entry("count", in: custom).kind, .int)
     }
@@ -133,7 +133,7 @@ struct StreamFieldTableTests {
     // to materialise or reserve first, and a member that needs neither carries none.
     @Test
     func `Container entries carry the child schema and a prepare only when needed`() {
-      let fields = TableScalars.Partial.streamFields
+      let fields = TableScalars.Partial.streamSchema.declaredFields
       expectNoDifference(self.entry("nested", in: fields).schema?.shape, .object)
       expectNoDifference(self.entry("scores", in: fields).schema?.shape, .array)
       expectNoDifference(self.entry("counts", in: fields).schema?.shape, .dictionary)
@@ -145,7 +145,7 @@ struct StreamFieldTableTests {
       expectNoDifference(self.entry("scores", in: fields).prepare != nil, true)
       expectNoDifference(self.entry("count", in: fields).prepare == nil, true)
 
-      let initialized = TableInitialized.Partial.streamFields
+      let initialized = TableInitialized.Partial.streamSchema.declaredFields
       expectNoDifference(self.entry("nested", in: initialized).schema?.shape, .object)
       expectNoDifference(self.entry("nested", in: initialized).prepare == nil, true)
       expectNoDifference(self.entry("scores", in: initialized).prepare == nil, true)
@@ -153,13 +153,13 @@ struct StreamFieldTableTests {
       expectNoDifference(self.entry("tags", in: initialized).prepare != nil, true)
       expectNoDifference(self.entry("tags", in: initialized).capacity, 16)
 
-      let custom = TableCustom.Partial.streamFields
+      let custom = TableCustom.Partial.streamSchema.declaredFields
       expectNoDifference(self.entry("temperature", in: custom).schema == nil, true)
     }
 
     @Test
     func `Aliased keys share an index`() {
-      let fields = TableScalars.Partial.streamFields
+      let fields = TableScalars.Partial.streamSchema.declaredFields
       expectNoDifference(
         self.entry("alias_a", in: fields).index, self.entry("alias_b", in: fields).index
       )

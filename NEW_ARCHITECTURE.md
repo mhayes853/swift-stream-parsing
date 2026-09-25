@@ -7734,6 +7734,8 @@ straight loss. The builders therefore choose between the two closure forms once,
 on `_streamInitialValueIsExpensive` (a `StreamParseableRoot` requirement, default `false`, `true` on
 the `StreamArray` and `StreamDictionary` conformances). The wins were kept in full, CITM returned
 to flat, and `Schema 48 members` to exactly +0.0% — the concrete path emits the identical closure.
+(58782b45 made every builder hoist its template and stopped reading the flag; it was deleted as dead
+code with generic `@StreamParseable` structs, whose builders choose on `_streamOpensByConstruction`.)
 
 The template is owned, not leaked. `_streamFieldRoute` runs once, from the macro's `streamFields`
 static, but the container builders are reached through `streamSchema`, a *computed* property that

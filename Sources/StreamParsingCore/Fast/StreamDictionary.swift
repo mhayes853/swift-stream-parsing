@@ -469,6 +469,52 @@ extension StreamDictionary {
     }
   }
 
+  /// The same open, initialising a new key's slot with `initial` -- again already the `.some` --
+  /// rather than a copy of a template: for a value whose copy costs more than its construction
+  /// (`StreamParseableRoot._streamOpensByConstruction`). A separate method rather than a flag on
+  /// the one above, for the reason given there.
+  @inlinable
+  public mutating func _openValue(
+    forKey key: Span<UInt8>,
+    constructingSome initial: @autoclosure () -> Value?
+  ) -> UnsafeMutableRawPointer {
+    self.drainPending()
+    // `pendingSlot < 0` and `pendingValue == nil` are the same state; `drainPending()` has just
+    // established it, and the initialise below depends on it.
+    assert(self.pendingValue == nil)
+    var isNew = false
+    key.withUnsafeBufferPointer { buffer in
+      let hash = Self.hash(buffer)
+      var vacantBucket = -1
+      // Probed through the two buffers rather than through `self`: see `slot(entries:table:...)`.
+      let existing = self.entries.withUnsafeBufferPointer { entries in
+        self.table.withUnsafeBufferPointer { table in
+          Self.slot(
+            entries: entries, table: table, forKey: buffer, hash: hash, vacantBucket: &vacantBucket
+          )
+        }
+      }
+      if let existing {
+        self.pendingSlot = existing
+        self.pendingValue = self.storedValues[Int(existing)]
+      } else {
+        self.pendingSlot = self.appendEntry(
+          forKey: String(decoding: buffer, as: UTF8.self),
+          hash: hash,
+          vacantBucket: vacantBucket
+        )
+        isNew = true
+      }
+    }
+    guard isNew else {
+      return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
+    }
+    return withUnsafeMutablePointer(to: &self.pendingValue) { box in
+      box.initialize(to: initial())
+      return UnsafeMutableRawPointer(box)
+    }
+  }
+
   /// The same, for a value passed in by value: the scalar kinds the sink opens directly.
   @inlinable
   public mutating func _openValue(

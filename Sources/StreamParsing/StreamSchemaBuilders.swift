@@ -52,8 +52,9 @@ public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
 // MARK: - Hoisted container schemas
 
 // The schema a field's container entry installs, or nil for non-container storage. The macro
-// calls this once per field into a `private static let`, so it outlives every frame that borrows
-// it; reading `T.streamSchema` in the entry allocated one per container occurrence. The overload
+// calls this once per field per schema build, and the field table owns the result, so it outlives
+// every frame that borrows it; reading `T.streamSchema` in the entry allocated one per container
+// occurrence. The overload
 // pair mirrors `_streamEnterField`'s, so nil here means the entry answers nil too.
 @inlinable
 public func _streamContainerSchema<T: StreamContainerPartial>(for type: T.Type) -> StreamSchema? {
@@ -157,7 +158,7 @@ public func _streamFieldRoute<T: StreamParseableObject>(
   _ value: inout T?, schema: StreamSchema?
 ) -> StreamFieldRoute {
   StreamFieldRoute(
-    .container, optional: true, schema: schema, prepare: _streamOptionalContainerPrepare(T.self)
+    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamContainerPrepare)
   )
 }
 
@@ -176,7 +177,7 @@ public func _streamFieldRoute<T: StreamContainerPartial>(
   _ value: inout T?, schema: StreamSchema?
 ) -> StreamFieldRoute {
   StreamFieldRoute(
-    .container, optional: true, schema: schema, prepare: _streamOptionalContainerPrepare(T.self)
+    .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamContainerPrepare)
   )
 }
 
@@ -199,28 +200,6 @@ public func _streamFieldRoute<T>(_ value: inout T?, schema: StreamSchema?) -> St
 @inlinable
 public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> StreamFieldRoute {
   StreamFieldRoute(.custom, optional: false)
-}
-
-// Materialises an optional container member, then lets the wrapped type prepare its storage.
-// Runs once per schema, so the template and inner prepare are resolved here, not per occurrence
-// (measured: CITM +39.6%, see NEW_ARCHITECTURE.md). The template is already `.some` and is
-// copy-initialised over the `nil`, which owns nothing, rather than assigned.
-@inlinable
-public func _streamOptionalContainerPrepare<T: StreamContainerPartial>(
-  _ type: T.Type
-) -> StreamFieldPrepare {
-  let owner = _streamOwnedTemplate(T?.some(T.streamInitialValue()))
-  nonisolated(unsafe) let template = owner.address(as: T?.self)
-  let inner = T._streamContainerPrepare
-  return { [owner] storage, _ in
-    // Named so the capture is real: the box must die with the closure, not before it.
-    _ = owner
-    let pointer = storage.assumingMemoryBound(to: T?.self)
-    if pointer.pointee == nil {
-      _streamCopyInitialize(pointer, from: template)
-    }
-    inner?(storage, 0)
-  }
 }
 
 // MARK: - Field routes with a capacity

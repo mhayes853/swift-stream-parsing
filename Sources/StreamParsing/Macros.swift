@@ -12,6 +12,19 @@
 /// with ``StreamParseableDefault()`` or `StreamInitializable`. A partial `String`-raw value resolves
 /// to the shortest case it prefixes (`live` may become `livestream`); `Partial.View.resolved` reads
 /// whichever case has arrived so far.
+///
+/// A generic struct, or a struct nested in a generic type, is supported; a generic enum is not.
+/// A parameter a parsed property uses must be constrained to ``StreamParseable``. Its `Partial` is
+/// not `Sendable`, because the members' partials are not known to be and a macro cannot add a
+/// conditional conformance to a nested type; declare it where it holds:
+///
+/// ```swift
+/// @StreamParseable struct Page<Item: StreamParseable> { var items: [Item] }
+/// extension Page.Partial: Sendable where Item.Partial: Sendable {}
+/// ```
+///
+/// A `null` for a property typed by the parameter is the parameter's own, so `Page<Int?>` reads
+/// one as a present `nil`, as `Codable` does.
 @attached(
   extension,
   conformances: StreamParseable,

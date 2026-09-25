@@ -527,6 +527,72 @@ struct BenchmarkTwitterUserMatched: Equatable, Codable {
   var followers_count: Int = 0
 }
 
+// The matched model with every member behind a generic parameter, the control for the generic
+// lowering: `BenchmarkTwitterGeneric` must parse as fast as `BenchmarkTwitterMatched`, since each
+// leaf still classifies to the kind the concrete overloads pick.
+@StreamParseable
+struct BenchmarkGenericTwitter<Tweet: StreamParseable & Equatable>: Equatable {
+  var statuses: [Tweet]
+}
+
+@StreamParseable
+struct BenchmarkGenericTweet<
+  ID: StreamParseable & Equatable, Text: StreamParseable & Equatable,
+  User: StreamParseable & Equatable
+>: Equatable {
+  var id: ID
+  var text: Text
+  var user: User
+}
+
+@StreamParseable
+struct BenchmarkGenericTwitterUser<
+  Text: StreamParseable & Equatable, Count: StreamParseable & Equatable
+>: Equatable {
+  var name: Text
+  var screen_name: Text
+  var followers_count: Count
+}
+
+typealias BenchmarkTwitterGeneric = BenchmarkGenericTwitter<
+  BenchmarkGenericTweet<Int, String, BenchmarkGenericTwitterUser<String, Int>>
+>
+
+// A string the table has no layout for: a concrete member of it is `custom` (the parent's apply
+// closures), a generic one `delegated` (its own schema). The pair below prices one against the
+// other.
+struct BenchmarkText: StreamStringConvertible, StreamParseable, StreamParseableRoot, Equatable {
+  typealias Partial = Self
+  var storage = StreamString()
+  static func streamInitialValue() -> Self { Self() }
+  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+    self.storage.streamAppend(utf8: bytes)
+  }
+}
+
+@StreamParseable
+struct BenchmarkTwitterCustomText: Equatable {
+  var statuses: [BenchmarkTweetCustomText] = []
+}
+
+@StreamParseable
+struct BenchmarkTweetCustomText: Equatable {
+  var id: Int = 0
+  var text: BenchmarkText = BenchmarkText()
+  var user: BenchmarkTwitterUserCustomText = BenchmarkTwitterUserCustomText()
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserCustomText: Equatable {
+  var name: BenchmarkText = BenchmarkText()
+  var screen_name: BenchmarkText = BenchmarkText()
+  var followers_count: Int = 0
+}
+
+typealias BenchmarkTwitterGenericCustomText = BenchmarkGenericTwitter<
+  BenchmarkGenericTweet<Int, BenchmarkText, BenchmarkGenericTwitterUser<BenchmarkText, Int>>
+>
+
 // Every key the corpus actually contains, at every depth (73% of statuses carry a populated
 // `retweeted_status`, one level deep — it never recurses further in this corpus; `place`,
 // `coordinates`, `geo`, and `contributors` are always JSON `null` here, so their Swift type is

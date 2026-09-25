@@ -115,18 +115,30 @@ public struct StreamGenerationConfiguration: Sendable {
   public var inlining: StreamInliningMode
   /// Names shared by the generated declarations.
   public var names: StreamGeneratedNames
+  /// The generic parameters in scope where the `Partial` is declared: the host type's own and
+  /// those of any generic type enclosing it.
+  ///
+  /// A non-empty list selects the generic lowering. A type in a generic context cannot declare
+  /// stored statics, so its schema is served by the per-type schema cache rather than held in a
+  /// `static let`, and the `Partial` does not declare `Sendable`, whose members' partials are not
+  /// known to be. A field whose type names one of these parameters is routed from its schema at
+  /// build time, because the overloads that route a concrete type resolve before the parameter is
+  /// known.
+  public var genericParameters: [TokenSyntax]
 
   /// Creates a generation configuration.
   public init(
     viewMode: StreamViewMode = .packageDefault,
     accessLevel: StreamGeneratedAccessLevel = .internal,
     inlining: StreamInliningMode = .automatic,
-    names: StreamGeneratedNames = StreamGeneratedNames()
+    names: StreamGeneratedNames = StreamGeneratedNames(),
+    genericParameters: [TokenSyntax] = []
   ) {
     self.viewMode = viewMode
     self.accessLevel = accessLevel
     self.inlining = inlining
     self.names = names
+    self.genericParameters = genericParameters
   }
 
   /// The access modifier and its trailing space, or nothing for internal access.
@@ -453,6 +465,19 @@ public struct StreamObjectGeneration: Sendable {
 
   /// Generates the cached initial-value template and its conformance witness.
   private func initialValueMembers() -> MemberBlockItemListSyntax {
+    if self.isGeneric {
+      // No stored template in a generic context, and a container should not copy one either: a
+      // bound generic struct's copy goes through its metadata (`_streamOpensByConstruction`).
+      return self.members(
+        """
+        \(self.inline)\(self.access)static func streamInitialValue() -> Self {
+          Self()
+        }
+
+        \(self.inline)\(self.access)static var _streamOpensByConstruction: Bool { true }
+        """
+      )
+    }
     let templateAccess = self.inlinable ? "@usableFromInline " : "private "
     return self.members(
       """
@@ -544,8 +569,9 @@ public struct StreamObjectGeneration: Sendable {
   private func fieldIdentifierDeclaration() -> EnumDeclSyntax {
     let constants = self.fields.enumerated()
       .map { index, field in
-        self.inlinable
-          ? "  @inlinable static var \(Self.memberName(field.name)): Int32 { \(index) }"
+        // A type nested in a generic context is generic too, so it has no stored statics either.
+        self.inlinable || self.isGeneric
+          ? "  \(self.inline)static var \(Self.memberName(field.name)): Int32 { \(index) }"
           : "  static let \(Self.memberName(field.name)): Int32 = \(index)"
       }
       .joined(separator: "\n")
@@ -603,41 +629,51 @@ public struct StreamObjectGeneration: Sendable {
     )
   }
 
-  /// Generates the field routing and offset table.
-  private func fieldTableProperty() -> VariableDeclSyntax {
+  /// Generates the complete object `StreamSchema` property.
+  ///
+  /// One build for every type: the child schemas and the field table are locals, owned by the
+  /// schema they end up in (`StreamFieldTable.fields`). A concrete `Partial` runs it once into a
+  /// `static let`; a generic one cannot declare a stored static, so the per-type schema cache
+  /// runs it once per specialisation.
+  private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
+    let recognition = recognitionHandler.map {
+      "  onFieldRecognized: { storage, field in storage.assumingMemoryBound(to: Self.self).pointee.\($0.text)(field) },\n"
+    } ?? ""
+    let locals = self.schemaPlan.containerSchemas.map { $0 + "\n" }.joined()
     let entries = self.schemaPlan.fields.joined(separator: "\n")
-    return self.declaration(
-      """
-      \(self.access)static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
-        of: Self.self, prototype: Self()
-      ) { p in
+    let build = """
+      \(locals)let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
         [
       \(entries)
         ]
       }
-      """,
-      as: VariableDeclSyntax.self
-    )
-  }
-
-  /// Generates the complete object `StreamSchema` property.
-  private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
-    let converted = self.fields.filter { $0.completedConversion != nil }
-    let finish = self.finishStringArgument(for: converted)
-    let recognition = recognitionHandler.map {
-      "  onFieldRecognized: { storage, field in storage.assumingMemoryBound(to: Self.self).pointee.\($0.text)(field) },\n"
-    } ?? ""
-    return self.declaration(
-      """
-      \(self.access)static let streamSchema = StreamParsingCore.StreamSchema(
+      return StreamParsingCore.StreamSchema(
         shape: .object,
         matchField: Self.streamMatchField,
       \(recognition)  applyString: Self.streamApplyString,
         applyNumber: Self.streamApplyNumber,
         applyBoolean: Self.streamApplyBoolean,
         applyNull: Self.streamApplyNull,
-      \(finish)  fields: Self.streamFields
+        fields: streamFields
       )
+      """
+    if self.isGeneric {
+      return self.declaration(
+        """
+        \(self.inline)\(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
+          StreamParsingCore._streamCachedSchema(for: Self.self) {
+        \(streamIndented(build, by: 4))
+          }
+        }
+        """,
+        as: VariableDeclSyntax.self
+      )
+    }
+    return self.declaration(
+      """
+      \(self.access)static let streamSchema: StreamParsingCore.StreamSchema = {
+      \(streamIndented(build, by: 2))
+      }()
       """,
       as: VariableDeclSyntax.self
     )
@@ -649,12 +685,10 @@ public struct StreamObjectGeneration: Sendable {
     if !self.fields.isEmpty {
       result.append(self.member(self.fieldIdentifierDeclaration()))
     }
-    result.append(contentsOf: self.members(self.schemaPlan.containerSchemas.joined(separator: "\n")))
     result.append(self.member(self.matchFieldFunction()))
     for operation in [StreamApplyOperation.string, .number, .boolean, .null] {
       result.append(self.member(self.applyFunction(for: operation)))
     }
-    result.append(self.member(self.fieldTableProperty()))
     result.append(self.member(self.schemaProperty(recognitionHandler: recognitionHandler)))
     return result
   }
@@ -730,10 +764,14 @@ public struct StreamObjectGeneration: Sendable {
     if let lastIndex = members.indices.last {
       members[lastIndex].trailingTrivia = .newline
     }
+    // Not `Sendable` in a generic context: a member's partial is not known to be, a conditional
+    // conformance can only be declared in an extension, and neither macro role can add one to a
+    // nested type. The host declares it (`extension Page.Partial: Sendable where ...`).
+    let sendable = self.isGeneric ? "" : ", Sendable"
     var declaration = self.declaration(
       """
       \(self.access)struct \(partialName): \(TypeSyntax.streamParseable),
-        \(TypeSyntax.streamParseableObject), Sendable {
+        \(TypeSyntax.streamParseableObject)\(sendable) {
         \(self.access)typealias Partial = Self
       }
       """,
@@ -788,6 +826,28 @@ extension StreamObjectGeneration {
   var access: String { self.configuration.accessPrefix }
   var inlinable: Bool { self.configuration.isInlinable(self.configuration.inlining) }
   var inline: String { self.configuration.inlinableAttribute() }
+  var isGeneric: Bool { !self.configuration.genericParameters.isEmpty }
+
+  /// Whether `type` names one of the generic parameters in scope, anywhere in its spelling.
+  func mentionsGenericParameter(_ type: some SyntaxProtocol) -> Bool {
+    guard self.isGeneric else { return false }
+    let names = Set(self.configuration.genericParameters.map(\.text))
+    return type.tokens(viewMode: .sourceAccurate).contains { token in
+      guard case .identifier(let text) = token.tokenKind, names.contains(text) else { return false }
+      return token.parent?.is(IdentifierTypeSyntax.self) ?? false
+    }
+  }
+
+  /// Whether a field is routed from its schema at build time (`_streamDelegatedFieldRoute`)
+  /// rather than by the overloads: a converted member, which `ConvertedPartial`'s own schema
+  /// applies, and a scalar or object member of a generic parameter's type, whose overloads
+  /// resolve before the parameter is known. The table then applies it without the parent's
+  /// closures, so its only apply arm is the null a container entry sends there.
+  func isDelegated(_ field: StreamParseableField) -> Bool {
+    if field.completedConversion != nil { return true }
+    guard case .scalarOrObject = self.fieldShape(field.type) else { return false }
+    return self.mentionsGenericParameter(field.type)
+  }
 
   private func buildPlan() -> SchemaPlan {
     var result = SchemaPlan()
@@ -802,44 +862,45 @@ extension StreamObjectGeneration {
       let schema = self.schemaName(field)
       let capacity =
         field.initialCapacity.map { ", initialCapacity: \($0.trimmedDescription)" } ?? ""
+      let delegated = self.isDelegated(field)
+      // A delegated route classifies from the schema, so a capacity hint rides on the entry,
+      // where the table reads it for a string kind and nothing else does.
+      let route =
+        delegated
+        ? "StreamParsingCore._streamDelegatedFieldRoute(&\(target))"
+        : "_streamFieldRoute(&\(target), schema: \(schema)\(capacity))"
+      let entryCapacity =
+        delegated ? field.initialCapacity.map { ", capacity: \($0.trimmedDescription)" } ?? "" : ""
       for key in field.keys {
         result.fields.append(
           """
               StreamParsingCore.StreamField(
                 key: \(StringLiteralExprSyntax(content: key).trimmedDescription), index: \(fieldID),
-                route: _streamFieldRoute(&\(target), schema: Self.\(schema)\(capacity)),
-                offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)
+                route: \(route),
+                offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)\(entryCapacity)
               ),
           """
         )
       }
-      let container = self.containerSchema(for: field, named: schema)
-      result.containerSchemas.append(container.declaration)
-      let isContainer = container.isContainer
+      if delegated {
+        // Resolved from the member's type at run time: `streamApplyNull`'s overloads cannot see
+        // through a generic parameter's partial.
+        result.apply[.null, default: []]
+          .append("  case \(fieldID): return StreamParsingCore._streamDelegatedApplyNull(&\(target))")
+        continue
+      }
+      let (isContainer, expression) = self.containerSchema(for: field)
+      result.containerSchemas.append("let \(schema) = \(expression)")
       for operation in [StreamApplyOperation.string, .number, .boolean, .null]
       where !isContainer || operation == .null {
-        if field.completedConversion != nil, operation != .null {
-          let (method, args) =
-            switch operation {
-            case .string: ("applyString", "bytes")
-            case .number: ("applyNumber", "bytes, info")
-            case .boolean: ("applyBoolean", "value")
-            case .null: fatalError()
-            }
-          result.apply[operation, default: []]
-            .append(
-              "  case \(fieldID): return _streamWithConverted(&\(target)) { Self.\(schema)!.\(method)($0, StreamParsingCore.StreamSchema.wholeValueField, \(args)) }"
-            )
-        } else {
-          let expression =
-            switch operation {
-            case .string: "streamApply(&\(target), utf8: bytes\(capacity))"
-            case .number: "streamApply(&\(target), bytes: bytes, info: info)"
-            case .boolean: "streamApply(&\(target), boolean: value)"
-            case .null: "StreamParsing.streamApplyNull(&\(target))"
-            }
-          result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
-        }
+        let expression =
+          switch operation {
+          case .string: "streamApply(&\(target), utf8: bytes\(capacity))"
+          case .number: "streamApply(&\(target), bytes: bytes, info: info)"
+          case .boolean: "streamApply(&\(target), boolean: value)"
+          case .null: "StreamParsing.streamApplyNull(&\(target))"
+          }
+        result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
       }
     }
     return result
@@ -851,44 +912,13 @@ extension StreamObjectGeneration {
     )
   }
 
-  private func finishStringArgument(for fields: [StreamParseableField]) -> String {
-    guard !fields.isEmpty else { return "" }
-    let branches =
-      fields.map {
-        let name = Self.memberName($0.name)
-        return
-          "case Self.StreamField.\(name): return _streamWithConverted(&p.pointee.\(name)) { Self.\(self.schemaName($0))!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied }"
-      }
-      .joined(separator: "\n")
-    return """
-        finishString: { storage, field in
-          let p = storage.assumingMemoryBound(to: Self.self)
-          switch field {
-          \(branches)
-          default: return .applied
-          }
-        },
-
-      """
-  }
-
-  private func containerSchema(
-    for field: StreamParseableField,
-    named schema: String
-  ) -> (isContainer: Bool, declaration: String) {
-    switch field.completedConversion == nil ? self.fieldShape(field.type) : .scalarOrObject {
+  /// Whether a non-delegated field enters a container, and the schema its route carries.
+  private func containerSchema(for field: StreamParseableField) -> (isContainer: Bool, expression: String) {
+    switch self.fieldShape(field.type) {
     case .scalarOrObject:
-      let access =
-        field.completedConversion != nil && self.inlinable ? "@usableFromInline" : "private"
-      return (
-        false,
-        "\(access) static let \(schema) = _streamContainerSchema(for: (\(self.partialType(field))).self)"
-      )
+      (false, "_streamContainerSchema(for: (\(self.partialType(field))).self)")
     case .array, .dictionary:
-      return (
-        true,
-        "private static let \(schema) = \(self.schemaExpression(field.type))"
-      )
+      (true, self.schemaExpression(field.type))
     }
   }
 
@@ -938,7 +968,12 @@ extension StreamObjectGeneration {
     case .dictionary(let value):
       self.containerSchemaExpression("Dictionary", element: value, label: "value")
     case .scalarOrObject:
-      "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
+      // A generic parameter's partial is only known as a `StreamParseableRoot`, so every
+      // `_streamSchema(for:)` overload but the placeholder is inapplicable; its own requirement
+      // is exact.
+      self.mentionsGenericParameter(type)
+        ? "\(type.streamUnwrappedOptionalType.trimmedDescription).Partial.streamSchema"
+        : "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
     }
   }
 

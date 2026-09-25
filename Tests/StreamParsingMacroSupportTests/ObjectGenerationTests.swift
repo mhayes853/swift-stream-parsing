@@ -43,6 +43,38 @@ struct `StreamObjectGeneration tests` {
     )
   }
 
+  // The full expansion is pinned in `StreamParseableMacroTests` ("Generic Struct"); this checks the
+  // properties a generic context forces, through the public configuration alone.
+  @Test
+  func `Generic Parameters Select The Static Free Lowering`() throws {
+    let fields = [
+      StreamParseableField(name: .identifier("value"), type: TypeSyntax("T?")),
+      StreamParseableField(name: .identifier("values"), type: TypeSyntax("[T]")),
+      StreamParseableField(name: .identifier("name"), type: TypeSyntax("String")),
+      // Names `T` only as a member of another type, which is not the parameter.
+      StreamParseableField(name: .identifier("kind"), type: TypeSyntax("Other.T")),
+    ]
+    let generic = try StreamObjectGeneration(
+      fields: fields,
+      configuration: StreamGenerationConfiguration(genericParameters: [.identifier("T")])
+    )
+    let source = try generic.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    #expect(!source.contains("static let"))
+    #expect(!source.contains("Sendable"))
+    #expect(source.contains("StreamParsingCore._streamCachedSchema(for: Self.self)"))
+    #expect(source.contains("route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.value)"))
+    #expect(source.contains("element: T.Partial.streamSchema"))
+    #expect(source.contains("route: _streamFieldRoute(&p.pointee.name, schema: streamContainerSchema_name)"))
+    #expect(source.contains("route: _streamFieldRoute(&p.pointee.kind, schema: streamContainerSchema_kind)"))
+
+    let concrete = try StreamObjectGeneration(fields: fields)
+    let concreteSource = try concrete.structDeclarationSyntax(in: BasicMacroExpansionContext())
+      .description
+    #expect(concreteSource.contains("static let streamSchema"))
+    #expect(concreteSource.contains("Sendable"))
+    #expect(!concreteSource.contains("_streamDelegatedFieldRoute"))
+  }
+
   @Test
   func `Concrete Type Syntax Builds A Complete Struct`() throws {
     let payloadType = IdentifierTypeSyntax(name: TokenSyntax.identifier("Payload"))
@@ -162,7 +194,12 @@ struct `StreamObjectGeneration tests` {
     self.expectContains(source, "var items: [Model.Item].Partial")
     self.expectContains(source, "key: \"legacy_default\"")
     self.expectContains(source, "initialCapacity: 32")
-    self.expectContains(source, "_streamWithConverted(&p.pointee.`default`)")
+    self.expectContains(
+      source, "route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.`default`)"
+    )
+    self.expectContains(
+      source, "case Self.StreamField.`default`: return StreamParsingCore._streamDelegatedApplyNull(&p.pointee.`default`)"
+    )
   }
 
   @Test

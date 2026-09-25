@@ -79,8 +79,6 @@ extension BaseTestSuite {
               }
             }
 
-            @usableFromInline static let streamContainerSchema_createdAt = _streamContainerSchema(for: (StreamParsingCore.ConvertedPartial<Seconds>).self)
-
             @inlinable public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_6974 where key.count == 4:
@@ -96,12 +94,8 @@ extension BaseTestSuite {
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyString($0, StreamParsingCore.StreamSchema.wholeValueField, bytes)
-                }
+
               default:
                 return .unsupported
               }
@@ -111,12 +105,8 @@ extension BaseTestSuite {
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyNumber($0, StreamParsingCore.StreamSchema.wholeValueField, bytes, info)
-                }
+
               default:
                 return .unsupported
               }
@@ -125,12 +115,8 @@ extension BaseTestSuite {
             @inlinable public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyBoolean($0, StreamParsingCore.StreamSchema.wholeValueField, value)
-                }
+
               default:
                 return .unsupported
               }
@@ -142,49 +128,37 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.createdAt:
-                return StreamParsing.streamApplyNull(&p.pointee.createdAt)
+                return StreamParsingCore._streamDelegatedApplyNull(&p.pointee.createdAt)
               default:
                 return .unsupported
               }
             }
 
-            public static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
-              of: Self.self, prototype: Self()
-            ) { p in
-              [
-                StreamParsingCore.StreamField(
-                  key: "time", index: Self.StreamField.createdAt,
-                  route: _streamFieldRoute(&p.pointee.createdAt, schema: Self.streamContainerSchema_createdAt),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                ),
-                StreamParsingCore.StreamField(
-                  key: "created", index: Self.StreamField.createdAt,
-                  route: _streamFieldRoute(&p.pointee.createdAt, schema: Self.streamContainerSchema_createdAt),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                ),
-              ]
-            }
-
-            public static let streamSchema = StreamParsingCore.StreamSchema(
-              shape: .object,
-              matchField: Self.streamMatchField,
-              applyString: Self.streamApplyString,
-              applyNumber: Self.streamApplyNumber,
-              applyBoolean: Self.streamApplyBoolean,
-              applyNull: Self.streamApplyNull,
-              finishString: { storage, field in
-                let p = storage.assumingMemoryBound(to: Self.self)
-                switch field {
-                case Self.StreamField.createdAt:
-                  return _streamWithConverted(&p.pointee.createdAt) {
-                    Self.streamContainerSchema_createdAt!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied
-                  }
-                default:
-                  return .applied
-                }
-              },
-              fields: Self.streamFields
-            )
+            public static let streamSchema: StreamParsingCore.StreamSchema = {
+              let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
+                [
+                  StreamParsingCore.StreamField(
+                    key: "time", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                  StreamParsingCore.StreamField(
+                    key: "created", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                ]
+              }
+              return StreamParsingCore.StreamSchema(
+                shape: .object,
+                matchField: Self.streamMatchField,
+                applyString: Self.streamApplyString,
+                applyNumber: Self.streamApplyNumber,
+                applyBoolean: Self.streamApplyBoolean,
+                applyNull: Self.streamApplyNull,
+                fields: streamFields
+              )
+            }()
 
           }
 

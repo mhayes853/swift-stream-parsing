@@ -465,12 +465,6 @@ where Element: StreamParseableRoot {
     }
   }
 
-  // A generic type cannot hold a stored static, so `streamInitialValue()` is a real `Self()` that
-  // forms `Array<Element>` metadata through the runtime's locking cache: containers holding these
-  // should hoist a template. See NEW_ARCHITECTURE.md.
-  @inlinable
-  public static var _streamInitialValueIsExpensive: Bool { true }
-
   /// A borrowed window onto the array, for reading elements or spans of elements without copying
   /// the array or any element in it.
   ///
@@ -651,6 +645,31 @@ extension StreamArray {
       let payload = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Element.self)
       slot.moveInitialize(from: payload, count: 1)
       _streamCopyInitialize(payload, from: template)
+      return UnsafeMutableRawPointer(box)
+    }
+    self.advance()
+    return address
+  }
+
+  /// The same open, initialising the vacated space with `initial` rather than a copy of a
+  /// template: for an element whose copy costs more than its construction
+  /// (`StreamParseableRoot._streamOpensByConstruction`). `initial` is only evaluated once the
+  /// closed element has moved out.
+  @inlinable
+  @inline(__always)
+  public mutating func _openElement(
+    constructing initial: @autoclosure () -> Element
+  ) -> UnsafeMutableRawPointer {
+    guard self.pending != nil else {
+      self.pending = initial()
+      return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
+    }
+    let slot = self.nextSlot()
+    let address = withUnsafeMutablePointer(to: &self.pending) {
+      box -> UnsafeMutableRawPointer in
+      let payload = UnsafeMutableRawPointer(box).assumingMemoryBound(to: Element.self)
+      slot.moveInitialize(from: payload, count: 1)
+      payload.initialize(to: initial())
       return UnsafeMutableRawPointer(box)
     }
     self.advance()

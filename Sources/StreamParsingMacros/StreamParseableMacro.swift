@@ -41,8 +41,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       return try Self.enumMemberExpansion(declaration: enumDecl, in: sink)
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
-    guard structDecl.genericParameterClause == nil else { return [] }
-
     guard !Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members) else {
       return []
     }
@@ -68,6 +66,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let sink = DiagnosticSink(context)
     if let enumDecl = declaration.as(EnumDeclSyntax.self) {
       guard !Self.diagnoseGenericParameters(enumDecl.genericParameterClause, in: sink),
+        !Self.diagnoseGenericContext(enumDecl, lexicalContext: context.lexicalContext, in: sink),
         !Self.diagnoseIndirectEnum(enumDecl, in: sink),
         !Self.diagnoseSelfReferentialPayloads(
           enumDecl, lexicalContext: context.lexicalContext, in: sink
@@ -80,9 +79,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
-    guard !Self.diagnoseGenericParameters(structDecl.genericParameterClause, in: sink) else {
-      return []
-    }
+    let genericParameters = Self.genericParameters(
+      of: structDecl, lexicalContext: context.lexicalContext
+    )
 
     // The fully qualified name, so a nested type extends `Outer.Inner` rather than a name that
     // does not exist at file scope.
@@ -119,7 +118,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let partialStruct = try Self.objectGeneration(
       for: properties,
       accessLevel: accessLevel,
-      membersMode: membersMode
+      membersMode: membersMode,
+      genericParameters: genericParameters
     )
     .structDeclarationSyntax(in: context)
     return [
@@ -172,9 +172,9 @@ extension StreamParseableMacro {
     Diagnostic(node: node, message: MacroExpansionErrorMessage(message))
   }
 
-  // A `Partial` nested in a generic context cannot hold the `static let`s it needs ("static
+  // An enum's lowerings still hold `static let`s, which a generic context cannot declare ("static
   // stored properties not supported in generic types"), so say so instead of expanding into code
-  // that cannot compile.
+  // that cannot compile. Structs take the generic lowering instead.
   static func diagnoseGenericParameters(
     _ clause: GenericParameterClauseSyntax?,
     in context: DiagnosticSink
@@ -184,6 +184,59 @@ extension StreamParseableMacro {
       Self.error(clause, "@StreamParseable does not support generic types.")
     )
     return true
+  }
+
+  // The same limit for an enum nested in a generic type, which is generic without saying so.
+  static func diagnoseGenericContext(
+    _ declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax],
+    in context: DiagnosticSink
+  ) -> Bool {
+    guard !Self.enclosingGenericParameters(lexicalContext, skipping: declaration.name.text).isEmpty
+    else { return false }
+    context.diagnose(
+      Self.error(
+        declaration.name,
+        "@StreamParseable does not support enums nested in generic types."
+      )
+    )
+    return true
+  }
+
+  // The generic parameters in scope for a struct's `Partial`: its own, then those of every type
+  // enclosing it. An extension of a generic type declares none it can see, so a type nested there
+  // is still expanded as concrete; nothing syntactic can tell.
+  static func genericParameters(
+    of declaration: StructDeclSyntax,
+    lexicalContext: [Syntax]
+  ) -> [TokenSyntax] {
+    let own = declaration.genericParameterClause?.parameters.map(\.name.trimmed) ?? []
+    return own + Self.enclosingGenericParameters(lexicalContext, skipping: declaration.name.text)
+  }
+
+  // The innermost lexical context may be the declaration itself, which is skipped by name.
+  static func enclosingGenericParameters(
+    _ lexicalContext: [Syntax],
+    skipping name: String
+  ) -> [TokenSyntax] {
+    var parameters = [TokenSyntax]()
+    for (index, node) in lexicalContext.enumerated() {
+      if index == 0, node.asProtocol(NamedDeclSyntax.self)?.name.text == name { continue }
+      let clause: GenericParameterClauseSyntax?
+      if let type = node.as(StructDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(EnumDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(ClassDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(ActorDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else {
+        continue
+      }
+      parameters += clause?.parameters.map(\.name.trimmed) ?? []
+    }
+    return parameters
   }
 
   static func isIndirect(_ declaration: EnumDeclSyntax) -> Bool {
@@ -245,7 +298,8 @@ extension StreamParseableMacro {
   static func objectGeneration(
     for properties: [StoredProperty],
     accessLevel: StreamGeneratedAccessLevel,
-    membersMode: StreamPartialMembers
+    membersMode: StreamPartialMembers,
+    genericParameters: [TokenSyntax] = []
   ) -> StreamObjectGeneration {
     let fields = properties.compactMap { property -> StreamParseableField? in
       guard !property.isIgnored else { return nil }
@@ -266,7 +320,8 @@ extension StreamParseableMacro {
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
         accessLevel: accessLevel,
-        inlining: .automatic
+        inlining: .automatic,
+        genericParameters: genericParameters
       )
     )
   }
