@@ -57,6 +57,11 @@ private struct DefaultCached: Equatable {
   var id: Int
 }
 
+// Counts builds from a `@Sendable` closure; the tests that use it run on one thread.
+private final class BuildCounter: @unchecked Sendable {
+  var count = 0
+}
+
 // MARK: - Tests
 
 @Suite
@@ -112,29 +117,44 @@ struct `Schema Cache Tests` {
   }
 
   @Test
-  func `An Entry Is The Cache's Slot For Its Key`() {
+  func `An Entry Owns Its Build`() {
     let cache = StreamSchemaCache()
-    let entry = cache.entry(for: Int.self)
-    #expect(cache.entry(for: Int.self) === entry)
-    #expect(cache.entry(for: Int.self, usage: .arrayElement) !== entry)
-    #expect(cache.count == 0)
-
-    var builds = 0
-    let first = entry.schema {
-      builds += 1
+    let builds = BuildCounter()
+    let entry = cache.entry(for: Int.self) {
+      builds.count += 1
       return StreamSchema(shape: .scalar)
     }
-    #expect(entry.schema { StreamSchema(shape: .scalar) } === first)
-    #expect(builds == 1)
+    #expect(cache.count == 0)
+    // The first closure for a key is kept; a later one gets the same entry and is dropped.
+    #expect(cache.entry(for: Int.self) { fatalError("the first build is kept") } === entry)
+    #expect(cache.entry(for: Int.self, usage: .arrayElement) { StreamSchema(shape: .scalar) } !== entry)
+
+    let first = entry.schema
+    #expect(entry.schema === first)
+    #expect(builds.count == 1)
     // Read by type or through the entry, it is the same schema.
-    #expect(cache.schema(for: Int.self) { StreamSchema(shape: .scalar) } === first)
+    #expect(cache.schema(for: Int.self) { fatalError("already cached") } === first)
     #expect(cache.contains(Int.self))
     #expect(cache.count == 1)
 
+    // After removal a read by type rebuilds with the entry's closure, not its own.
     #expect(cache.removeSchema(for: Int.self) === first)
-    #expect(entry.schema { StreamSchema(shape: .scalar) } !== first)
+    let rebuilt = cache.schema(for: Int.self) { fatalError("the entry's build is used") }
+    #expect(rebuilt !== first)
+    #expect(builds.count == 2)
+    #expect(entry.schema === rebuilt)
+
     cache.removeAll()
     #expect(cache.count == 0)
+  }
+
+  @Test
+  func `An Entry Keeps A Schema Read By Type Before It Existed`() {
+    let cache = StreamSchemaCache()
+    let early = cache.schema(for: Int.self) { StreamSchema(shape: .scalar) }
+    let entry = cache.entry(for: Int.self) { fatalError("already cached") }
+    #expect(entry.schema === early)
+    #expect(cache.count == 1)
   }
 
   @Test

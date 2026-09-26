@@ -7902,8 +7902,9 @@ Stream Flat struct - discarding (ns)      2845-3033        3037-3253      3043-3
 (Ranges are over three pad-control layouts per side.) The lookup -- a lock round trip, the key
 hashed through `Hasher`, the dictionary probed, `shared` retained around the call -- was 85 ns a
 stream, 5-10% of a 120-byte document. So a concrete `Partial` keeps its `StreamSchemaCache.Entry`
-in a `private static let streamSchemaEntry` and reads through it: a lock round trip and a load,
-level with the `static let` in the read row. Two details were measured on the way. A hit by type
+in a `private static let streamSchemaEntry`, which also owns its build closure so that every read
+of the key builds the same way, and reads through it: a lock round trip and a load, level with the
+`static let` in the read row. Two details were measured on the way. A hit by type
 returns only the schema: returning the entry too cost a retain and release, 50 ns a read on
 `StreamArray<Int>`. Each cache and entry holds the one lock itself, because reaching the global
 cost a `swift_once` call per read. And the table and each entry's schema are

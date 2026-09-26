@@ -30,10 +30,10 @@
 /// }
 ///
 /// extension Point: StreamParseableRoot {
-///   private static let schemaEntry = StreamSchemaCache.shared.entry(for: Self.self)
-///   static var streamSchema: StreamSchema {
-///     Self.schemaEntry.schema { StreamSchema(shape: .object, ...) }
+///   private static let schemaEntry = StreamSchemaCache.shared.entry(for: Point.self) {
+///     StreamSchema(shape: .object, ...)
 ///   }
+///   static var streamSchema: StreamSchema { Self.schemaEntry.schema }
 /// }
 /// ```
 ///
@@ -64,8 +64,10 @@ public final class StreamSchemaCache: @unchecked Sendable {
       }
     }
 
-    // Guarded by `lock`. Entries are never removed, only emptied: a `static let` may hold one, and
-    // a second entry for the same key would cache beside it, unseen by `count` and `removeAll()`.
+    // Guarded by `lock`. An entry handed out is never removed, only emptied: a `static let` may
+    // hold it, and a second entry for the same key would cache beside it, unseen by `count` and
+    // `removeAll()`. One a read by type made, which has no build of its own and is never handed
+    // out, is replaced when `entry(for:usage:build:)` supplies one.
     // Unchecked because the lock already serialises every access: the dynamic check was a
     // `swift_beginAccess`/`swift_endAccess` pair per read, ~40 ns on `StreamArray<Int>`.
     @exclusivity(unchecked) private var entries: [Key: Entry] = [:]
@@ -76,9 +78,11 @@ public final class StreamSchemaCache: @unchecked Sendable {
   /// Creates an empty cache.
   public init() {}
 
-  /// The schema cached for `type` in `usage`, building and storing it with `build` if there is none.
+  /// The schema cached for `type` in `usage`, building and storing it if there is none.
   ///
-  /// `build` runs outside the cache's lock, because a schema build reads its members' schemas,
+  /// A miss builds with the entry's own closure when ``entry(for:usage:build:)`` supplied one, so
+  /// every read of a key builds the same way, and with `build` otherwise. It runs outside the
+  /// cache's lock, because a schema build reads its members' schemas,
   /// which may be cached here too. Two threads that miss at once both build, and the first to
   /// finish is the one every caller gets. So `build` may run more than once -- and on Embedded
   /// Swift it runs on every call -- and must have no side effects. It must not read the schema
@@ -99,19 +103,33 @@ public final class StreamSchemaCache: @unchecked Sendable {
     #endif
   }
 
-  /// The entry holding `type`'s schema for `usage`, for a concrete type to keep in a `static let`.
+  /// The entry holding `type`'s schema for `usage`, built by `build`, for a concrete type to keep
+  /// in a `static let`.
+  ///
+  /// The entry owns its build, so every read of it -- and every read of the key by type -- builds
+  /// the same way, on first read and again after removal. The first closure supplied for a key is
+  /// the one kept; a later call returns the same entry and drops its own. `build` follows the
+  /// contract of ``schema(for:usage:build:)``, and must be `@Sendable` because the entry keeps it
+  /// and any thread may run it.
   ///
   /// Reading through the entry skips the lookup by type; the entry is still this cache's, so
   /// ``count``, ``contains(_:usage:)`` and removal see what it holds.
   public func entry<T: StreamParseableRoot>(
     for type: T.Type,
-    usage: StreamSchema.Usage = .root
+    usage: StreamSchema.Usage = .root,
+    build: @escaping @Sendable () -> StreamSchema
   ) -> Entry {
     #if hasFeature(Embedded)
-      Entry()
+      Entry(build: build)
     #else
       let key = Key(type: ObjectIdentifier(type), usage: usage)
-      return self.lock.withLock { _ in self.entry(for: key) }
+      return self.lock.withLock { _ in
+        if let existing = self.entries[key], existing.build != nil { return existing }
+        let entry = Entry(build: build)
+        entry.cached = self.entries[key]?.cached
+        self.entries[key] = entry
+        return entry
+      }
     #endif
   }
 
@@ -124,7 +142,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
       false
     #else
       let key = Key(type: ObjectIdentifier(type), usage: usage)
-      return self.lock.withLock { _ in self.entries[key]?.schema != nil }
+      return self.lock.withLock { _ in self.entries[key]?.cached != nil }
     #endif
   }
 
@@ -142,8 +160,8 @@ public final class StreamSchemaCache: @unchecked Sendable {
       let key = Key(type: ObjectIdentifier(type), usage: usage)
       return self.lock.withLock { _ in
         guard let entry = self.entries[key] else { return nil }
-        defer { entry.schema = nil }
-        return entry.schema
+        defer { entry.cached = nil }
+        return entry.cached
       }
     #endif
   }
@@ -155,8 +173,8 @@ public final class StreamSchemaCache: @unchecked Sendable {
       _ = self.lock.withLock { _ in
         var removed: [StreamSchema] = []
         for entry in self.entries.values {
-          if let schema = entry.schema { removed.append(schema) }
-          entry.schema = nil
+          if let schema = entry.cached { removed.append(schema) }
+          entry.cached = nil
         }
         return removed
       }
@@ -169,7 +187,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
       0
     #else
       self.lock.withLock { _ in
-        self.entries.values.reduce(0) { $0 + ($1.schema == nil ? 0 : 1) }
+        self.entries.values.reduce(0) { $0 + ($1.cached == nil ? 0 : 1) }
       }
     #endif
   }
@@ -178,56 +196,58 @@ public final class StreamSchemaCache: @unchecked Sendable {
     // Caller holds the lock.
     private func entry(for key: Key) -> Entry {
       if let entry = self.entries[key] { return entry }
-      let entry = Entry()
+      let entry = Entry(build: nil)
       self.entries[key] = entry
       return entry
     }
 
     // A hit touches only the schema: handing the entry out too cost a retain and release, 50 ns a
-    // read on `StreamArray<Int>`.
+    // read on `StreamArray<Int>`. A miss prefers the entry's own build.
     @usableFromInline
     func schema(for key: Key, build: () -> StreamSchema) -> StreamSchema {
-      if let cached = self.lock.withLock({ _ in self.entries[key]?.schema }) {
+      if let cached = self.lock.withLock({ _ in self.entries[key]?.cached }) {
         return cached
       }
-      let built = build()
+      let owned = self.lock.withLock { _ in self.entries[key]?.build }
+      let built = owned?() ?? build()
       return self.lock.withLock { _ in self.entry(for: key).storeLocked(built) }
     }
   #endif
 }
 
 extension StreamSchemaCache {
-  /// One type's schema for one usage in a ``StreamSchemaCache``.
+  /// One type's schema for one usage in a ``StreamSchemaCache``, and the closure that builds it.
   ///
-  /// Made by ``StreamSchemaCache/entry(for:usage:)``, for a concrete type to keep in a
+  /// Made by ``StreamSchemaCache/entry(for:usage:build:)``, for a concrete type to keep in a
   /// `static let`: reading through it costs a lock round trip, where a read by type also hashes.
   public final class Entry: @unchecked Sendable {
+    // Nil only for an entry a read by type made, which is never handed out.
+    let build: (@Sendable () -> StreamSchema)?
+
     #if hasFeature(Embedded)
       // Published once and never released: removal does nothing on Embedded.
       private let published = Atomic<UnsafeRawPointer?>(nil)
     #else
       // Guarded by `lock`, so unchecked for the reason `entries` is.
-      @exclusivity(unchecked) var schema: StreamSchema?
+      @exclusivity(unchecked) var cached: StreamSchema?
       // See `StreamSchemaCache.lock`.
       private let lock = _streamSchemaCacheLock
     #endif
 
-    init() {}
+    init(build: (@Sendable () -> StreamSchema)?) {
+      self.build = build
+    }
 
-    /// The schema this entry holds, building and storing it with `build` if there is none.
-    ///
-    /// The same contract as ``StreamSchemaCache/schema(for:usage:build:)``: `build` may run more
-    /// than once, must have no side effects, and must not read the schema it is building.
-    public func schema(build: () -> StreamSchema) -> StreamSchema {
+    /// The schema, built by the entry's own closure on the first read and after removal.
+    public var schema: StreamSchema {
       #if hasFeature(Embedded)
         if let pointer = self.published.load(ordering: .acquiring) {
           return Unmanaged<StreamSchema>.fromOpaque(pointer).takeUnretainedValue()
         }
-        return self.store(build())
       #else
-        if let cached = self.lock.withLock({ _ in self.schema }) { return cached }
-        return self.store(build())
+        if let cached = self.lock.withLock({ _ in self.cached }) { return cached }
       #endif
+      return self.store(self.build.unsafelyUnwrapped())
     }
 
     // The first schema stored wins; a racing build's is dropped.
@@ -248,8 +268,8 @@ extension StreamSchemaCache {
     #if !hasFeature(Embedded)
       // Caller holds the lock.
       func storeLocked(_ built: StreamSchema) -> StreamSchema {
-        if let existing = self.schema { return existing }
-        self.schema = built
+        if let existing = self.cached { return existing }
+        self.cached = built
         return built
       }
     #endif

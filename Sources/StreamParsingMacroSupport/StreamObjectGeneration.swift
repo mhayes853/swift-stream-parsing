@@ -639,16 +639,38 @@ public struct StreamObjectGeneration: Sendable {
   ///
   /// One build for every type, run once into the configured `StreamSchemaCache`: the child
   /// schemas and the field table are locals, owned by the schema they end up in
-  /// (`StreamFieldTable.fields`). A concrete `Partial` reads through the cache entry it keeps in
-  /// a `static let`; a generic one cannot declare a stored static, so it reads by type, and its
-  /// property is `@inlinable` so the build specialises in the client.
+  /// (`StreamFieldTable.fields`). A concrete `Partial` hands the build to the cache entry it keeps
+  /// in a `static let` and reads through that; a generic one cannot declare a stored static, so it
+  /// reads by type, and its property is `@inlinable` so the build specialises in the client.
   private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
+    if self.isGeneric {
+      return self.declaration(
+        """
+        \(self.inline)\(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
+          \(self.schemaCache).schema(for: Self.self) {
+        \(streamIndented(self.schemaBuild(recognitionHandler: recognitionHandler), by: 4))
+          }
+        }
+        """,
+        as: VariableDeclSyntax.self
+      )
+    }
+    return self.declaration(
+      """
+      \(self.access)static var streamSchema: StreamParsingCore.StreamSchema { Self.streamSchemaEntry.schema }
+      """,
+      as: VariableDeclSyntax.self
+    )
+  }
+
+  /// The body that builds the object schema, ending in its `return`.
+  private func schemaBuild(recognitionHandler: TokenSyntax?) -> String {
     let recognition = recognitionHandler.map {
       "  onFieldRecognized: { storage, field in storage.assumingMemoryBound(to: Self.self).pointee.\($0.text)(field) },\n"
     } ?? ""
     let locals = self.schemaPlan.containerSchemas.map { $0 + "\n" }.joined()
     let entries = self.schemaPlan.fields.joined(separator: "\n")
-    let build = """
+    return """
       \(locals)let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
         [
       \(entries)
@@ -664,28 +686,6 @@ public struct StreamObjectGeneration: Sendable {
         fields: streamFields
       )
       """
-    if self.isGeneric {
-      return self.declaration(
-        """
-        \(self.inline)\(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
-          \(self.schemaCache).schema(for: Self.self) {
-        \(streamIndented(build, by: 4))
-          }
-        }
-        """,
-        as: VariableDeclSyntax.self
-      )
-    }
-    return self.declaration(
-      """
-      \(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
-        Self.streamSchemaEntry.schema {
-      \(streamIndented(build, by: 4))
-        }
-      }
-      """,
-      as: VariableDeclSyntax.self
-    )
   }
 
   /// The configured cache, coerced so a leading-dot member resolves inside the `Partial`.
@@ -695,11 +695,14 @@ public struct StreamObjectGeneration: Sendable {
     } ?? "StreamParsingCore.StreamSchemaCache.shared"
   }
 
-  /// A concrete `Partial`'s entry in its cache: its schema read skips the lookup by type.
-  private func schemaEntryProperty() -> VariableDeclSyntax {
+  /// A concrete `Partial`'s entry in its cache, which owns the build: its schema read skips the
+  /// lookup by type.
+  private func schemaEntryProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
     self.declaration(
       """
-      private static let streamSchemaEntry = \(self.schemaCache).entry(for: Self.self)
+      private static let streamSchemaEntry = \(self.schemaCache).entry(for: Self.self) {
+      \(streamIndented(self.schemaBuild(recognitionHandler: recognitionHandler), by: 2))
+      }
       """,
       as: VariableDeclSyntax.self
     )
@@ -716,7 +719,7 @@ public struct StreamObjectGeneration: Sendable {
       result.append(self.member(self.applyFunction(for: operation)))
     }
     if !self.isGeneric {
-      result.append(self.member(self.schemaEntryProperty()))
+      result.append(self.member(self.schemaEntryProperty(recognitionHandler: recognitionHandler)))
     }
     result.append(self.member(self.schemaProperty(recognitionHandler: recognitionHandler)))
     return result

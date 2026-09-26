@@ -328,18 +328,9 @@ func checkDelegatedRoutes() {
 // Embedded Swift has no metatype identity, so a read by type builds every time; an entry, which
 // is what a generated concrete `Partial` reads through, publishes what it builds once.
 func checkSchemaCache() {
-  let entry = StreamSchemaCache.shared.entry(for: Int.self)
-  var builds = 0
-  let first = entry.schema {
-    builds &+= 1
-    return StreamSchema(shape: .scalar)
-  }
-  let second = entry.schema {
-    builds &+= 1
-    return StreamSchema(shape: .scalar)
-  }
-  precondition(first === second)
-  precondition(builds == 1)
+  let entry = StreamSchemaCache.shared.entry(for: Int.self) { StreamSchema(shape: .scalar) }
+  let first = entry.schema
+  precondition(entry.schema === first)
 
   let a = StreamSchemaCache.shared.schema(for: Int.self) { StreamSchema(shape: .scalar) }
   let b = StreamSchemaCache.shared.schema(for: Int.self) { StreamSchema(shape: .scalar) }

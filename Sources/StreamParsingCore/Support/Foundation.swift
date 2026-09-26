@@ -69,11 +69,11 @@
       static let phoneticRepresentation: Int32 = 6
     }
 
-    private static let streamSchemaEntry = StreamSchemaCache.shared.entry(for: Self.self)
+    private static let streamSchemaEntry = StreamSchemaCache.shared.entry(
+      for: PersonNameComponents.self
+    ) { PersonNameComponents.makeStreamSchema() }
 
-    public static var streamSchema: StreamSchema {
-      Self.streamSchemaEntry.schema { Self.makeStreamSchema() }
-    }
+    public static var streamSchema: StreamSchema { Self.streamSchemaEntry.schema }
 
     private static func makeStreamSchema() -> StreamSchema {
       StreamSchema(

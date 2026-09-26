@@ -278,12 +278,16 @@ extension Pair: StreamParseableRoot where A: StreamParseableRoot, B: StreamParse
 }
 
 extension Point: StreamParseableRoot {
-  private static let schemaEntry = StreamSchemaCache.shared.entry(for: Self.self)
-  static var streamSchema: StreamSchema {
-    Self.schemaEntry.schema { StreamSchema(shape: .object, ...) }
+  private static let schemaEntry = StreamSchemaCache.shared.entry(for: Point.self) {
+    StreamSchema(shape: .object, ...)
   }
+  static var streamSchema: StreamSchema { Self.schemaEntry.schema }
 }
 ```
+
+An entry owns its build closure, which is `@Sendable` because the entry keeps it: every read of
+the entry, and a read of the same key by type, builds with it, on first read and after removal.
+The first closure supplied for a key is the one kept.
 
 Key each schema with `Self.self` and the usage the requirement serves. A schema cached under
 another type's key writes through a layout it does not describe. The build closure may run more

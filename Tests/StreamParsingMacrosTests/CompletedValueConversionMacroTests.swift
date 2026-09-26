@@ -134,34 +134,34 @@ extension BaseTestSuite {
               }
             }
 
-            private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self)
+            private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self) {
+              let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
+                [
+                  StreamParsingCore.StreamField(
+                    key: "time", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                  StreamParsingCore.StreamField(
+                    key: "created", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                ]
+              }
+              return StreamParsingCore.StreamSchema(
+                shape: .object,
+                matchField: Self.streamMatchField,
+                applyString: Self.streamApplyString,
+                applyNumber: Self.streamApplyNumber,
+                applyBoolean: Self.streamApplyBoolean,
+                applyNull: Self.streamApplyNull,
+                fields: streamFields
+              )
+            }
 
             public static var streamSchema: StreamParsingCore.StreamSchema {
-              Self.streamSchemaEntry.schema {
-                let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
-                  [
-                    StreamParsingCore.StreamField(
-                      key: "time", index: Self.StreamField.createdAt,
-                      route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
-                      offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                    ),
-                    StreamParsingCore.StreamField(
-                      key: "created", index: Self.StreamField.createdAt,
-                      route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
-                      offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                    ),
-                  ]
-                }
-                return StreamParsingCore.StreamSchema(
-                  shape: .object,
-                  matchField: Self.streamMatchField,
-                  applyString: Self.streamApplyString,
-                  applyNumber: Self.streamApplyNumber,
-                  applyBoolean: Self.streamApplyBoolean,
-                  applyNull: Self.streamApplyNull,
-                  fields: streamFields
-                )
-              }
+              Self.streamSchemaEntry.schema
             }
 
           }

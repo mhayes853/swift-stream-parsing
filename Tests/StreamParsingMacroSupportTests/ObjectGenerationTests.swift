@@ -75,7 +75,11 @@ struct `StreamObjectGeneration tests` {
         "private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self)"
       )
     )
-    #expect(concreteSource.contains("Self.streamSchemaEntry.schema {"))
+    #expect(
+      concreteSource.contains(
+        "static var streamSchema: StreamParsingCore.StreamSchema { Self.streamSchemaEntry.schema }"
+      )
+    )
     #expect(concreteSource.contains("Sendable"))
     #expect(!concreteSource.contains("_streamDelegatedFieldRoute"))
   }
