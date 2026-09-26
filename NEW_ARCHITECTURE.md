@@ -7920,6 +7920,13 @@ the concrete `Partial`s moved onto the cache, would have rebuilt every schema on
 `static let` never had. The entry fixes that as well: on Embedded it publishes its schema once with
 an atomic compare-exchange, and removal does nothing.
 
+The library's conformances that rebuilt a schema on every read now read the cache as well:
+`InlineArray`, SIMD vectors of non-`Double` scalars (the `Double` ones keep their immortal globals,
+which the sink pushes by identity), `Optional`'s element schema under `.arrayElement`, and
+`PersonNameComponents` through an entry. `Tagged` forwards its raw value's schema and builds none.
+The scalar defaults (`_streamNumberSchema` and its siblings) still build per read: one allocation,
+about what a lookup by type costs.
+
 Related: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because
 `StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a
 `@usableFromInline` body does not travel with it. At b01cfd6 the specialised `drainPending` called

@@ -222,5 +222,36 @@ struct `Schema Cache Tests` {
     let array = StreamArray<Int>.streamSchema
     #expect(StreamSchemaCache.shared.contains(StreamArray<Int>.self))
     #expect(StreamSchemaCache.shared.schema(for: StreamArray<Int>.self) { fatalError() } === array)
+
+    if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+      #expect(InlineArray<3, Int>.streamSchema === InlineArray<3, Int>.streamSchema)
+    }
+    #expect(SIMD2<Float>.streamSchema === SIMD2<Float>.streamSchema)
+    #expect(SIMD4<Int>.streamSchema === SIMD4<Int>.streamSchema)
+    #expect(StreamSchemaCache.shared.contains(SIMD2<Float>.self))
+  }
+
+  // An optional element's schema differs from its root schema, so the two are cached apart.
+  @Test
+  func `Optional Caches Its Element Schema Under Its Own Usage`() {
+    let element = Int?.streamArrayElementSchema
+    #expect(Int?.streamArrayElementSchema === element)
+    #expect(Int?.streamDictionaryValueSchema === element)
+    #expect(Int?.streamSchema !== element)
+    #expect(StreamSchemaCache.shared.contains(Int?.self, usage: .arrayElement))
+    #expect(StreamSchemaCache.shared.contains(Int?.self))
   }
 }
+
+#if Foundation && canImport(Foundation)
+  import Foundation
+
+  extension `Schema Cache Tests` {
+    @Test
+    func `Person Name Components Read Through Their Entry`() {
+      let schema = PersonNameComponents.streamSchema
+      #expect(PersonNameComponents.streamSchema === schema)
+      #expect(StreamSchemaCache.shared.contains(PersonNameComponents.self))
+    }
+  }
+#endif

@@ -312,7 +312,9 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 extension Optional where Wrapped: StreamParseableRoot {
   @inlinable
   public static var streamArrayElementSchema: StreamSchema {
-    _streamOptionalElementSchema(Wrapped.self, base: Wrapped.streamSchema)
+    StreamSchemaCache.shared.schema(for: Self.self, usage: .arrayElement) {
+      _streamOptionalElementSchema(Wrapped.self, base: Wrapped.streamSchema)
+    }
   }
 
   @inlinable
