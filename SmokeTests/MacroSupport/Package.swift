@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
   name: "MacroSupportSmoke",
+  platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6), .visionOS(.v1)],
   traits: [.trait(name: "LifetimeView")],
   dependencies: [
     .package(
