@@ -184,6 +184,25 @@ public final class StreamSchema: @unchecked Sendable {
     }
   }
 
+  /// Which of a type's schemas is meant: the one for where the parser meets a value, relative to
+  /// whatever holds it.
+  ///
+  /// Each usage has its own requirement, which defaults to ``root``'s, so the schemas differ only
+  /// for a type that says otherwise -- `Optional`, whose element and value slots are opened already
+  /// materialised. ``StreamSchemaCache`` keys each entry by type and usage.
+  @nonexhaustive
+  public enum Usage: Hashable, Sendable {
+    /// The document's root: ``StreamParseableRoot/streamSchema``.
+    case root
+    /// An element of an array: ``StreamParseableRoot/streamArrayElementSchema``.
+    case arrayElement
+    /// A value in a dictionary: ``StreamParseableRoot/streamDictionaryValueSchema``.
+    case dictionaryValue
+    /// A declared member of an object, entered as its own frame:
+    /// ``StreamContainerPartial/streamObjectMemberSchema``.
+    case objectMember
+  }
+
   public let shape: Shape
 
   /// Prepares root storage before a container frame begins writing through this schema.

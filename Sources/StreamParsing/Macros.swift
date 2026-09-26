@@ -25,6 +25,20 @@
 ///
 /// A `null` for a property typed by the parameter is the parameter's own, so `Page<Int?>` reads
 /// one as a present `nil`, as `Codable` does.
+///
+/// The generated schema is built once and kept in `schemaCache`, ``StreamSchemaCache/shared`` by
+/// default. Name another stored instance to control those schemas' lifetime; it is evaluated
+/// inside the generated `Partial`, so qualify it fully or use a leading dot (`Self` would name the
+/// `Partial`):
+///
+/// ```swift
+/// enum ToolSchemas { static let cache = StreamSchemaCache() }
+///
+/// @StreamParseable(schemaCache: ToolSchemas.cache) struct ToolCall { var name: String }
+/// ```
+///
+/// A public generic type's schema property is `@inlinable`, so its cache must be `public` or
+/// `@usableFromInline`. An enum with a raw type has no generated schema, and rejects the argument.
 @attached(
   extension,
   conformances: StreamParseable,
@@ -34,7 +48,10 @@
   arbitrary
 )
 @attached(member, names: named(streamPartialValue))
-public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
+public macro StreamParseable(
+  partialMembers: PartialMembersMode = .optional,
+  schemaCache: StreamSchemaCache = .shared
+) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 
 /// Declares a custom key name for the property inside the generated `Partial`.

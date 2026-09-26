@@ -460,7 +460,7 @@ where Element: StreamParseableRoot {
   // the closure still forms at the use site. See NEW_ARCHITECTURE.md.
   @inlinable
   public static var streamSchema: StreamSchema {
-    _streamCachedSchema(for: Self.self) {
+    StreamSchemaCache.shared.schema(for: Self.self) {
       _streamArraySchema(Element.self, element: Element.streamArrayElementSchema)
     }
   }

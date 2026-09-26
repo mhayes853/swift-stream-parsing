@@ -85,7 +85,7 @@ where Value: StreamParseableRoot {
   // module with `Value` concrete and `_openValue(forKey:copyingSome:)` specialises. Cached.
   @inlinable
   public static var streamSchema: StreamSchema {
-    _streamCachedSchema(for: Self.self) {
+    StreamSchemaCache.shared.schema(for: Self.self) {
       _streamDictionarySchema(Value.self, value: Value.streamDictionaryValueSchema)
     }
   }
@@ -224,7 +224,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
   // a `StreamSchema` per *token*. Cached per wrapped type too, or an `Optional` root rebuilt a
   // dozen closure contexts per `PartialsStream.init`.
   public static var streamSchema: StreamSchema {
-    _streamCachedSchema(for: Self.self) { Self._streamOptionalRootSchemaBody() }
+    StreamSchemaCache.shared.schema(for: Self.self) { Self._streamOptionalRootSchemaBody() }
   }
 
   static func _streamOptionalRootSchemaBody() -> StreamSchema {

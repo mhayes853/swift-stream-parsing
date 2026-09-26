@@ -119,7 +119,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       for: properties,
       accessLevel: accessLevel,
       membersMode: membersMode,
-      genericParameters: genericParameters
+      genericParameters: genericParameters,
+      schemaCache: Self.argument(named: "schemaCache", of: node)
     )
     .structDeclarationSyntax(in: context)
     return [
@@ -299,7 +300,8 @@ extension StreamParseableMacro {
     for properties: [StoredProperty],
     accessLevel: StreamGeneratedAccessLevel,
     membersMode: StreamPartialMembers,
-    genericParameters: [TokenSyntax] = []
+    genericParameters: [TokenSyntax] = [],
+    schemaCache: ExprSyntax? = nil
   ) -> StreamObjectGeneration {
     let fields = properties.compactMap { property -> StreamParseableField? in
       guard !property.isIgnored else { return nil }
@@ -321,7 +323,8 @@ extension StreamParseableMacro {
         viewMode: .packageDefault,
         accessLevel: accessLevel,
         inlining: .automatic,
-        genericParameters: genericParameters
+        genericParameters: genericParameters,
+        schemaCache: schemaCache
       )
     )
   }

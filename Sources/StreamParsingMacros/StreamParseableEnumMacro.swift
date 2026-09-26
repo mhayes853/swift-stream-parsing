@@ -209,11 +209,17 @@ extension StreamParseableMacro {
     if Self.argument(named: "partialMembers", of: node) != nil {
       Self.diagnosePartialMembersOnEnum(in: node, context: context)
     }
+    let schemaCache = Self.argument(named: "schemaCache", of: node)
+    if let schemaCache, !Self.hasGeneratedSchema(rawKind) {
+      Self.diagnoseSchemaCacheOnRawValueEnum(schemaCache, context: context)
+    }
     if !cases.contains(where: \.isDefault), !Self.namesAnInitialValue(in: declaration) {
       Self.diagnoseMissingDefaultCase(in: declaration, context: context)
     }
 
-    let generation = Self.enumGeneration(for: declaration, rawKind: rawKind, cases: cases)
+    let generation = Self.enumGeneration(
+      for: declaration, rawKind: rawKind, cases: cases, schemaCache: schemaCache
+    )
     var members =
       Self.hasExistingPartial(in: declaration.memberBlock.members)
       ? MemberBlockItemListSyntax([]) : try generation.partialSyntax(in: expansionContext)
@@ -231,7 +237,8 @@ extension StreamParseableMacro {
   static func enumGeneration(
     for declaration: EnumDeclSyntax,
     rawKind: EnumRawKind,
-    cases: [EnumCase]
+    cases: [EnumCase],
+    schemaCache: ExprSyntax? = nil
   ) -> StreamEnumGeneration {
     let representation: StreamEnumRepresentation =
       switch rawKind {
@@ -258,7 +265,8 @@ extension StreamParseableMacro {
       defaultCase: cases.first(where: \.isDefault).map { .identifier($0.reference) },
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
-        accessLevel: Self.generatedAccessLevel(for: declaration.modifiers)
+        accessLevel: Self.generatedAccessLevel(for: declaration.modifiers),
+        schemaCache: schemaCache
       )
     )
   }
@@ -456,6 +464,27 @@ extension StreamParseableMacro {
       Self.error(
         caseDecl,
         "@StreamParseableDefault is already declared on an earlier case."
+      )
+    )
+  }
+
+  // Only the case-keyed object form generates a `Partial` with a schema of its own.
+  static func hasGeneratedSchema(_ rawKind: EnumRawKind) -> Bool {
+    if case .none = rawKind { return true }
+    return false
+  }
+
+  static func diagnoseSchemaCacheOnRawValueEnum(
+    _ argument: ExprSyntax,
+    context: DiagnosticSink
+  ) {
+    context.diagnose(
+      Self.error(
+        argument,
+        """
+        @StreamParseable(schemaCache:) does not apply to an enum with a raw type. Its partial is \
+        StreamString or the raw type itself, and neither has a generated schema to cache.
+        """
       )
     )
   }

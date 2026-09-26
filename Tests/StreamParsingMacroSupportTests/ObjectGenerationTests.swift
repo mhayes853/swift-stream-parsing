@@ -61,7 +61,7 @@ struct `StreamObjectGeneration tests` {
     let source = try generic.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
     #expect(!source.contains("static let"))
     #expect(!source.contains("Sendable"))
-    #expect(source.contains("StreamParsingCore._streamCachedSchema(for: Self.self)"))
+    #expect(source.contains("StreamParsingCore.StreamSchemaCache.shared.schema(for: Self.self)"))
     #expect(source.contains("route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.value)"))
     #expect(source.contains("element: T.Partial.streamSchema"))
     #expect(source.contains("route: _streamFieldRoute(&p.pointee.name, schema: streamObjectMemberSchema_name)"))
@@ -70,9 +70,54 @@ struct `StreamObjectGeneration tests` {
     let concrete = try StreamObjectGeneration(fields: fields)
     let concreteSource = try concrete.structDeclarationSyntax(in: BasicMacroExpansionContext())
       .description
-    #expect(concreteSource.contains("static let streamSchema"))
+    #expect(
+      concreteSource.contains(
+        "private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self)"
+      )
+    )
+    #expect(concreteSource.contains("Self.streamSchemaEntry.schema {"))
     #expect(concreteSource.contains("Sendable"))
     #expect(!concreteSource.contains("_streamDelegatedFieldRoute"))
+  }
+
+  // Only a generic build has to be emitted in the client to specialise; a concrete one already is.
+  @Test
+  func `Only A Generic Schema Property Is Inlinable`() throws {
+    let fields = [StreamParseableField(name: .identifier("value"), type: TypeSyntax("T"))]
+    let generic = try StreamObjectGeneration(
+      fields: fields,
+      configuration: StreamGenerationConfiguration(
+        accessLevel: .public,
+        genericParameters: [.identifier("T")]
+      )
+    )
+    let genericSource = try generic.structDeclarationSyntax(in: BasicMacroExpansionContext())
+      .description
+    #expect(genericSource.contains("@inlinable public static var streamSchema"))
+
+    let concrete = try StreamObjectGeneration(
+      fields: [StreamParseableField(name: .identifier("value"), type: TypeSyntax("Int"))],
+      configuration: StreamGenerationConfiguration(accessLevel: .public)
+    )
+    let concreteSource = try concrete.structDeclarationSyntax(in: BasicMacroExpansionContext())
+      .description
+    #expect(concreteSource.contains("\n  public static var streamSchema"))
+    #expect(!concreteSource.contains("@inlinable public static var streamSchema"))
+  }
+
+  @Test
+  func `Schema Cache Expression Is Coerced Inside The Partial`() throws {
+    let generation = try StreamObjectGeneration(
+      fields: [StreamParseableField(name: .identifier("value"), type: TypeSyntax("Int"))],
+      configuration: StreamGenerationConfiguration(schemaCache: ExprSyntax("Schemas.cache"))
+    )
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
+      .description
+    self.expectContains(
+      source,
+      "(Schemas.cache as StreamParsingCore.StreamSchemaCache).entry(for: Self.self)"
+    )
+    #expect(!source.contains("StreamSchemaCache.shared"))
   }
 
   @Test
@@ -100,7 +145,7 @@ struct `StreamObjectGeneration tests` {
       "streamApply(&p.pointee.payload, utf8: bytes)"
     )
     self.expectContains(source, "enum StreamField")
-    self.expectContains(source, "static let streamSchema")
+    self.expectContains(source, "static var streamSchema")
   }
 
   @Test

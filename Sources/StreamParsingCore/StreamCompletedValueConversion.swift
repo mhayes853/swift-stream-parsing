@@ -158,7 +158,7 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
   }
 
   public static var streamSchema: StreamSchema {
-    _streamCachedSchema(for: Self.self) {
+    StreamSchemaCache.shared.schema(for: Self.self) {
       let source = Strategy.Source.streamSchema
       return StreamSchema(
         shape: source.shape,

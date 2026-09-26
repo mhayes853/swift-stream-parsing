@@ -118,13 +118,19 @@ public struct StreamGenerationConfiguration: Sendable {
   /// The generic parameters in scope where the `Partial` is declared: the host type's own and
   /// those of any generic type enclosing it.
   ///
-  /// A non-empty list selects the generic lowering. A type in a generic context cannot declare
-  /// stored statics, so its schema is served by the per-type schema cache rather than held in a
-  /// `static let`, and the `Partial` does not declare `Sendable`, whose members' partials are not
-  /// known to be. A field whose type names one of these parameters is routed from its schema at
-  /// build time, because the overloads that route a concrete type resolve before the parameter is
-  /// known.
+  /// A non-empty list selects the generic lowering. The `Partial` does not declare `Sendable`,
+  /// whose members' partials are not known to be, and its schema property is `@inlinable` under
+  /// the inlining policy, so the schema is built where the parameters are concrete. A field whose
+  /// type names one of these parameters is routed from its schema at build time, because the
+  /// overloads that route a concrete type resolve before the parameter is known.
   public var genericParameters: [TokenSyntax]
+  /// The `StreamSchemaCache` the generated schema is built into and read from, or `nil` for
+  /// `StreamSchemaCache.shared`.
+  ///
+  /// Emitted inside the generated `Partial`, coerced to `StreamSchemaCache`, so a leading-dot
+  /// member such as `.shared` resolves; `Self` in it names the `Partial`. An inlinable schema
+  /// property (see `inlining`) can only name a cache that is `public` or `@usableFromInline`.
+  public var schemaCache: ExprSyntax?
 
   /// Creates a generation configuration.
   public init(
@@ -132,13 +138,15 @@ public struct StreamGenerationConfiguration: Sendable {
     accessLevel: StreamGeneratedAccessLevel = .internal,
     inlining: StreamInliningMode = .automatic,
     names: StreamGeneratedNames = StreamGeneratedNames(),
-    genericParameters: [TokenSyntax] = []
+    genericParameters: [TokenSyntax] = [],
+    schemaCache: ExprSyntax? = nil
   ) {
     self.viewMode = viewMode
     self.accessLevel = accessLevel
     self.inlining = inlining
     self.names = names
     self.genericParameters = genericParameters
+    self.schemaCache = schemaCache
   }
 
   /// The access modifier and its trailing space, or nothing for internal access.
@@ -629,10 +637,11 @@ public struct StreamObjectGeneration: Sendable {
 
   /// Generates the complete object `StreamSchema` property.
   ///
-  /// One build for every type: the child schemas and the field table are locals, owned by the
-  /// schema they end up in (`StreamFieldTable.fields`). A concrete `Partial` runs it once into a
-  /// `static let`; a generic one cannot declare a stored static, so the per-type schema cache
-  /// runs it once per specialisation.
+  /// One build for every type, run once into the configured `StreamSchemaCache`: the child
+  /// schemas and the field table are locals, owned by the schema they end up in
+  /// (`StreamFieldTable.fields`). A concrete `Partial` reads through the cache entry it keeps in
+  /// a `static let`; a generic one cannot declare a stored static, so it reads by type, and its
+  /// property is `@inlinable` so the build specialises in the client.
   private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
     let recognition = recognitionHandler.map {
       "  onFieldRecognized: { storage, field in storage.assumingMemoryBound(to: Self.self).pointee.\($0.text)(field) },\n"
@@ -659,7 +668,7 @@ public struct StreamObjectGeneration: Sendable {
       return self.declaration(
         """
         \(self.inline)\(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
-          StreamParsingCore._streamCachedSchema(for: Self.self) {
+          \(self.schemaCache).schema(for: Self.self) {
         \(streamIndented(build, by: 4))
           }
         }
@@ -669,9 +678,28 @@ public struct StreamObjectGeneration: Sendable {
     }
     return self.declaration(
       """
-      \(self.access)static let streamSchema: StreamParsingCore.StreamSchema = {
-      \(streamIndented(build, by: 2))
-      }()
+      \(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
+        Self.streamSchemaEntry.schema {
+      \(streamIndented(build, by: 4))
+        }
+      }
+      """,
+      as: VariableDeclSyntax.self
+    )
+  }
+
+  /// The configured cache, coerced so a leading-dot member resolves inside the `Partial`.
+  private var schemaCache: String {
+    self.configuration.schemaCache.map {
+      "(\($0.trimmedDescription) as StreamParsingCore.StreamSchemaCache)"
+    } ?? "StreamParsingCore.StreamSchemaCache.shared"
+  }
+
+  /// A concrete `Partial`'s entry in its cache: its schema read skips the lookup by type.
+  private func schemaEntryProperty() -> VariableDeclSyntax {
+    self.declaration(
+      """
+      private static let streamSchemaEntry = \(self.schemaCache).entry(for: Self.self)
       """,
       as: VariableDeclSyntax.self
     )
@@ -686,6 +714,9 @@ public struct StreamObjectGeneration: Sendable {
     result.append(self.member(self.matchFieldFunction()))
     for operation in [StreamApplyOperation.string, .number, .boolean, .null] {
       result.append(self.member(self.applyFunction(for: operation)))
+    }
+    if !self.isGeneric {
+      result.append(self.member(self.schemaEntryProperty()))
     }
     result.append(self.member(self.schemaProperty(recognitionHandler: recognitionHandler)))
     return result

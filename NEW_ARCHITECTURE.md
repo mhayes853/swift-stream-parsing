@@ -7887,6 +7887,39 @@ at a container rebuilt the whole schema, template allocation included. It is cac
 type (`_streamCachedSchema`); the `@inlinable` stays, because the closure handed to the cache is
 still formed at the use site and still specialises — only the cache probe is out of line.
 
+That cache is now public, `StreamSchemaCache` (`StreamSchemaCache.swift`), keyed by type and
+`StreamSchema.Usage`, and `@StreamParseable` builds into it too (`shared`, or its `schemaCache:`
+argument) rather than into a `static let`. Moving the generated concrete `Partial`s onto it measured
+what a lookup by type costs on this x86 box, with a `Setup` row per read (`SetupBenchmarks.swift`):
+
+```
+                                          static let     lookup by type     entry
+Setup Flat struct - schema read (ns)        151-197          262-285        163-201
+Layer Flat struct bulk - stream (MB/s)        52-56            46-49          50-55
+Stream Flat struct - discarding (ns)      2845-3033        3037-3253      3043-3143
+```
+
+(Ranges are over three pad-control layouts per side.) The lookup -- a lock round trip, the key
+hashed through `Hasher`, the dictionary probed, `shared` retained around the call -- was 85 ns a
+stream, 5-10% of a 120-byte document. So a concrete `Partial` keeps its `StreamSchemaCache.Entry`
+in a `private static let streamSchemaEntry` and reads through it: a lock round trip and a load,
+level with the `static let` in the read row. Two details were measured on the way. A hit by type
+returns only the schema: returning the entry too cost a retain and release, 50 ns a read on
+`StreamArray<Int>`. And each cache and entry holds the one lock itself, because reaching the global
+cost a `swift_once` call per read.
+
+What remains on that 120-byte document's partial-sink row (61-62 MB/s against 62-67 over the
+same layouts) is not the lock: a variant reading the entry with no lock at all, racy and for
+measurement only, measured the same. The per-iteration code differs from the `static let` build
+only in a call to `Entry.schema(build:)` where there was a `swift_retain`. Every real-world row
+stayed within placement range (Twitter 1248-1260 against 1142-1246, Canada 359-361 against
+352-373).
+
+Embedded Swift has no metatype identity, so a read by type builds every time there -- which, with
+the concrete `Partial`s moved onto the cache, would have rebuilt every schema on every read where a
+`static let` never had. The entry fixes that as well: on Embedded it publishes its schema once with
+an atomic compare-exchange, and removal does nothing.
+
 Related: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because
 `StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a
 `@usableFromInline` body does not travel with it. At b01cfd6 the specialised `drainPending` called

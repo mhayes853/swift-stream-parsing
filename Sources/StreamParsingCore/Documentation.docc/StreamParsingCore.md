@@ -251,3 +251,46 @@ and converted. Nonoptional converted members need a declared default for total m
 conversion. Optional members preserve the existing missing/null behavior; `observeField`
 can distinguish those states. Model-to-partial conversion calls `convertFromValue`, without
 repeating `convertToValue`. Conversion errors use typed `throws` and remain concrete in the partial, including in Embedded Swift.
+
+## Schemas and the schema cache
+
+A ``StreamParseableRoot`` describes how the parser writes into it with a ``StreamSchema``. A type
+can have one schema for each ``StreamSchema/Usage``, meaning where the parser meets the value:
+``StreamParseableRoot/streamSchema`` at the root,
+``StreamParseableRoot/streamArrayElementSchema`` as an array element,
+``StreamParseableRoot/streamDictionaryValueSchema`` as a dictionary value, and
+``StreamContainerPartial/streamObjectMemberSchema`` as a declared member of an object. Every usage
+defaults to the root schema. Only `Optional` differs, because the slot of an array element or
+dictionary value it sits in is opened already materialised.
+
+A schema is read when a stream starts and whenever a parent schema is built, never per token. Build
+it once and keep it in a ``StreamSchemaCache``. A generic type reads it by type; a concrete type
+keeps its ``StreamSchemaCache/Entry`` in a `static let`, which skips the lookup and costs about what
+reading a `static let` schema would:
+
+```swift
+extension Pair: StreamParseableRoot where A: StreamParseableRoot, B: StreamParseableRoot {
+  static var streamSchema: StreamSchema {
+    StreamSchemaCache.shared.schema(for: Self.self) {
+      StreamSchema(shape: .object, ...)
+    }
+  }
+}
+
+extension Point: StreamParseableRoot {
+  private static let schemaEntry = StreamSchemaCache.shared.entry(for: Self.self)
+  static var streamSchema: StreamSchema {
+    Self.schemaEntry.schema { StreamSchema(shape: .object, ...) }
+  }
+}
+```
+
+Key each schema with `Self.self` and the usage the requirement serves. A schema cached under
+another type's key writes through a layout it does not describe. The build closure may run more
+than once: two threads that miss at once both build, and on Embedded Swift a read by type is not
+cached. So it must have no side effects, and must not read the schema it is building.
+
+`@StreamParseable` keeps its schemas in ``StreamSchemaCache/shared``, or in the cache its
+`schemaCache:` argument names. A stream owns every schema it uses, so removing them
+(``StreamSchemaCache/removeAll()``) never affects a stream in flight. It also frees nothing a cached
+parent still holds: memory is released along ownership, not cache boundaries.
