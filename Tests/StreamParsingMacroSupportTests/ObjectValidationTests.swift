@@ -1,0 +1,177 @@
+import CustomDump
+import StreamParsingMacroSupport
+import SwiftParser
+import SwiftSyntax
+import SwiftSyntaxMacroExpansion
+import Testing
+
+@Suite
+struct `StreamObjectGeneration validation tests` {
+  @Test
+  func `Conflicting Fields And Keys Are Rejected`() {
+    let first = self.field(name: "first", key: "value")
+    #expect(throws: StreamObjectGenerationError.duplicateField("first")) {
+      try StreamObjectGeneration(fields: [first, first])
+    }
+    #expect(throws: StreamObjectGenerationError.duplicateKey("value")) {
+      try StreamObjectGeneration(fields: [first, self.field(name: "second", key: "value")])
+    }
+    #expect(throws: StreamObjectGenerationError.emptyFieldName) {
+      try StreamObjectGeneration(fields: [self.field(name: "", key: "value")])
+    }
+    #expect(throws: StreamObjectGenerationError.invalidFieldName("bad`name")) {
+      try StreamObjectGeneration(fields: [self.field(name: "bad`name", key: "value")])
+    }
+  }
+
+  @Test
+  func `Diagnosed Fields Can Still Produce Recovery Syntax`() throws {
+    let fields = [self.field(name: "first", key: "value"), self.field(name: "second", key: "value")]
+    #expect(throws: StreamObjectGenerationError.duplicateKey("value")) {
+      try StreamObjectGeneration(fields: fields)
+    }
+    let generation = StreamObjectGeneration(diagnosedFields: fields)
+    let declaration = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
+    #expect(!Parser.parse(source: declaration.description).hasError)
+    #expect(declaration.description.contains("var first:"))
+    #expect(declaration.description.contains("var second:"))
+  }
+
+  @Test
+  func `Canonical Unicode Keys Keep Distinct Byte Routes`() throws {
+    let generation = try StreamObjectGeneration(fields: [
+      self.field(name: "composed", key: "é"),
+      self.field(name: "decomposed", key: "e\u{301}")
+    ])
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    expectNoDifference(source.contains("key.count == 2"), true)
+    expectNoDifference(source.contains("key.count == 3"), true)
+  }
+
+  @Test
+  func `Incompatible Inlining Access Is Rejected`() {
+    #expect(throws: StreamObjectGenerationError.incompatibleInliningAccess) {
+      try StreamObjectGeneration(
+        fields: [self.field(name: "value", key: "value")],
+        configuration: StreamGenerationConfiguration(inlining: .always)
+      )
+    }
+  }
+
+  @Test
+  func `Concrete Conversion Type Nodes Need No Wrapping`() throws {
+    let field = StreamParseableField(
+      name: TokenSyntax.identifier("value"),
+      type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Date")),
+      keys: ["value"],
+      completedConversion: IdentifierTypeSyntax(name: TokenSyntax.identifier("EpochSeconds"))
+    )
+    let generation = try StreamObjectGeneration(fields: [field])
+    expectNoDifference(
+      try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description.contains("var value: StreamParsingCore.ConvertedPartial<EpochSeconds>?"),
+      true
+    )
+  }
+
+  @Test
+  func `Optional Concrete Syntax Nodes Need No Wrapping`() throws {
+    let capacity: IntegerLiteralExprSyntax? = IntegerLiteralExprSyntax(
+      literal: .integerLiteral("8")
+    )
+    let conversion: IdentifierTypeSyntax? = nil
+    let field = StreamParseableField(
+      name: TokenSyntax.identifier("values"),
+      type: ArrayTypeSyntax(element: IdentifierTypeSyntax(name: TokenSyntax.identifier("Int"))),
+      keys: ["values"],
+      initialCapacity: capacity,
+      completedConversion: conversion
+    )
+    let generation = try StreamObjectGeneration(fields: [field])
+    expectNoDifference(
+      try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description.contains("initialCapacity: 8"),
+      true
+    )
+  }
+
+  @Test
+  func `Concrete Capacity And Conversion Nodes Need No Wrapping`() {
+    let field = StreamParseableField(
+      name: TokenSyntax.identifier("value"),
+      type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Date")),
+      keys: ["value"],
+      initialCapacity: IntegerLiteralExprSyntax(literal: .integerLiteral("8")),
+      completedConversion: IdentifierTypeSyntax(name: TokenSyntax.identifier("EpochSeconds"))
+    )
+    #expect(
+      throws: StreamObjectGenerationError.initialCapacityWithCompletedConversion(field: "value")
+    ) {
+      try StreamObjectGeneration(fields: [field])
+    }
+  }
+
+  @Test(arguments: [StreamViewMode.lifetime, .unsafe])
+  func `Complete Declarations Survive Serialization`(mode: StreamViewMode) throws {
+    let generation = try StreamObjectGeneration(
+      fields: [
+        self.field(name: "default", key: "\n\0\"\\"),
+        self.field(name: "two names", key: "other")
+      ],
+      configuration: StreamGenerationConfiguration(viewMode: mode, accessLevel: .public)
+    )
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    expectNoDifference(Parser.parse(source: source).hasError, false)
+    expectNoDifference(source.contains("var `default`:"), true)
+  }
+
+  @Test
+  func `Empty Keys Are Checked Before Loading The Leading Word`() throws {
+    let generation = try StreamObjectGeneration(fields: [self.field(name: "empty", key: "")])
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    let emptyCheck = try #require(source.range(of: "guard !key.isEmpty"))
+    let load = try #require(source.range(of: "paddedLeadingWord"))
+    expectNoDifference(emptyCheck.lowerBound < load.lowerBound, true)
+    expectNoDifference(
+      Parser.parse(source: source).hasError,
+      false
+    )
+  }
+
+  @Test(arguments: [StreamViewMode.lifetime, .unsafe])
+  func `Generated Declarations Do Not Contain Comments`(mode: StreamViewMode) throws {
+    let generation = try StreamObjectGeneration(
+      fields: [self.field(name: "url", key: "https://example.com")],
+      configuration: StreamGenerationConfiguration(viewMode: mode)
+    )
+    let comments = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).tokens(viewMode: .sourceAccurate)
+      .flatMap { Array($0.leadingTrivia) + Array($0.trailingTrivia) }
+      .filter {
+        switch $0 {
+        case .lineComment, .docLineComment, .blockComment, .docBlockComment: true
+        default: false
+        }
+      }
+    expectNoDifference(comments.isEmpty, true)
+  }
+
+  @Test
+  func `Renaming A Complete Partial Updates Its Storage References`() throws {
+    let generation = try StreamObjectGeneration(
+      fields: [self.field(name: "value", key: "value")],
+      configuration: StreamGenerationConfiguration(
+        names: StreamGeneratedNames(partialType: .identifier("Storage"))
+      )
+    )
+    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
+    expectNoDifference(source.contains("struct Storage:"), true)
+    expectNoDifference(source.contains("UnsafeMutablePointer<Storage>"), true)
+    expectNoDifference(Parser.parse(source: source).hasError, false)
+  }
+
+  private func field(name: String, key: String) -> StreamParseableField {
+    StreamParseableField(
+      name: TokenSyntax.identifier(name),
+      type: IdentifierTypeSyntax(name: TokenSyntax.identifier("String")),
+      keys: [key]
+    )
+  }
+}

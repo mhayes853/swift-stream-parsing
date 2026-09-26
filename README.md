@@ -95,6 +95,117 @@ extension Profile: StreamParsingCore.StreamParseable {
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
+### Enums
+
+`@StreamParseable` also applies to enums, in whichever of three forms matches how the enum is
+spelled. Each one parses what `Codable` produces for the same declaration, so there is no second
+wire format to learn:
+
+| spelling | JSON | `Partial` |
+| --- | --- | --- |
+| `enum Stage: String` | `"live"` | `StreamString` |
+| `enum Stage: Int` | `5` | `Int` |
+| `enum Stage` (no raw type) | `{"live":{}}` | a generated struct |
+
+```swift
+@StreamParseable
+enum Stage: String {
+  @StreamParseableDefault
+  case unknown
+  case live
+  case livestream
+}
+```
+
+`@StreamParseableDefault` names the case a *total* conversion falls back to when the stream
+produced nothing the enum can represent. The strict conversion still declines — the two exist to
+say different things:
+
+```swift
+Stage(streamPartial: partial)            // nil for a value no case declares
+Stage(orInitial: partial)                 // .unknown for the same value
+Stage.streamValueOrInitial(from: partial) // .unknown, the same total conversion
+```
+
+An enum must name a fallback, either this way or by conforming to `StreamInitializable`, because
+`streamValueOrInitial` has to be able to produce one.
+
+Cases can accept extra spellings without changing what the enum emits:
+
+```swift
+@StreamParseable
+enum Stage: String {
+  @StreamParseableDefault
+  case unknown
+
+  // Parses any of the three; still emits "live".
+  @StreamParseableMember(keyNames: ["LIVE", "running"])
+  case live
+}
+```
+
+#### Resolving a case mid-stream
+
+A string value arrives in pieces and carries no "this is finished" signal, so reading a partial
+mid-value has to assume something. The rule is **the shortest case the bytes so far are still a
+prefix of**:
+
+| bytes so far | resolves to |
+| --- | --- |
+| `""` | `nil` — a prefix of everything, so it says nothing |
+| `"liv"` | `.live` |
+| `"live"` | `.live` |
+| `"lives"` | `.livestream` |
+| `"livid"` | `nil` |
+
+The consequence worth planning for: a case can be **superseded**, not merely filled in. Above,
+`.live` becomes `.livestream` as more bytes land. This only affects `String`-raw enums — a number
+and an object key both arrive whole, so those two resolve or they do not.
+
+#### Cases with associated values
+
+A raw-less enum's cases can carry associated values, still matching `Codable`'s own wire format
+for the same declaration:
+
+```swift
+@StreamParseable
+enum Block: Codable {
+  @StreamParseableDefault
+  case unknown
+  case text(TextBlock)                 // {"text":{"_0":{...}}}
+  case image(url: String, width: Int)  // {"image":{"url":"...","width":...}}
+}
+```
+
+Each associated value keys its field the same way `Codable`'s synthesis does: a written label
+(`url`, `width`), or a positional `_0`, `_1`, ... for an unlabeled one — counted over every
+parameter in that case, labeled ones included. Every associated value's type has to itself be
+`StreamParseable` (`String`/`Int`/etc. already are).
+
+`init?(streamPartial:)` and `streamValueOrInitial(from:)` work exactly as they do for a no-payload
+enum — declining unless exactly one case's key arrived, and requiring that case's payload to be
+complete. A payload-bearing `@StreamParseableDefault` case fills its associated values from their
+own initial values, recursively, the same way a struct's members do.
+
+`Partial.View` additionally gets a `resolved` property: a borrowed, mid-stream read of whichever
+case's key has arrived so far, without materializing an owned snapshot of it.
+
+```swift
+stream.withView { partial in
+  switch partial.resolved {
+  case .unresolved: break
+  case .ambiguous: break
+  case .unknown: break
+  case .text(let view):
+    if let body = view._0 {
+      print(body.body?.value)  // TextBlock's own `body: String` field
+    }
+  case .image(let view):
+    print(view.url?.value, view.width?.value)
+  }
+}
+```
+
 You can also parse partials from an AsyncSequence of bytes or byte chunks.
 
 ```swift
@@ -111,20 +222,19 @@ for try await profilePartial in partials {
 }
 ```
 
+## Examples
+
+The [LLMExtraction](Examples/LLMExtraction) example parses a local LLM's structured output token by token, logging the typed partial after every chunk.
+
 ## Parsers
 
-The library comes with built-in JSON and YAML parsers. You can pass a custom configuration to either parser to customize key decoding behavior.
+The JSON parser accepts only strict JSON.
 
 ### JSON
 
 ```swift
-let configuration = JSONStreamParserConfiguration(
-  syntaxOptions: [.comments, .trailingCommas],
-  keyDecodingStrategy: .convertFromSnakeCase
-)
-
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json(configuration: configuration))
+  .partials(of: Profile.Partial.self, from: .json())
 ```
 
 ### YAML
@@ -158,10 +268,55 @@ let partials = try snakeCaseYAML.utf8.partials(
 ## Traits
 
 While the core library itself has 0 dependencies, you can enable the following package traits to integrate with additional dependencies:
-- `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
-- `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
-- `StreamParsingTagged` interops the library with `Tagged`.
-- `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `SwiftCollections` interops the library with types from Swift Collections.
+- `Foundation` interops the library with types from Foundation (enabled by default).
+- `Tagged` interops the library with `Tagged`.
+- `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
+
+Without `LifetimeView`, macro-generated `Partial.View` and the core collection views are escapable,
+pointer-backed `@unsafe` types. This keeps macro consumers on standard Swift settings, but the
+caller must keep the originating stream alive and must not retain or use a view across parser
+mutation. Unsafe APIs are acknowledged explicitly:
+
+```swift
+let title = unsafe stream.withView { view in
+  unsafe view.title?.value
+}
+```
+
+Enable `LifetimeView` to keep the same `View` name and API while making it `~Escapable` and tying
+its projections to the stream with compiler-checked lifetimes. Package traits do not enable
+compiler experiments in a consuming target, so that target must also enable `Lifetimes`:
+
+```swift
+dependencies: [
+  .package(
+    url: "https://github.com/mhayes853/swift-stream-parsing",
+    from: "0.5.0",
+    traits: ["LifetimeView"]
+  )
+],
+targets: [
+  .target(
+    name: "MyTarget",
+    dependencies: [.product(name: "StreamParsing", package: "swift-stream-parsing")],
+    swiftSettings: [.enableExperimentalFeature("Lifetimes")]
+  )
+]
+```
+
+## Building compatible macros
+
+`StreamParsingMacroSupport` is a SwiftSyntax library for other macro implementations. It
+generates partial storage, views, optimized object schemas, enums in each `@StreamParseable`
+representation, conversions between the whole type and its partial, and UTF-8 matching syntax. Its
+component APIs let a macro compose those pieces with its own declarations, and the
+`LifetimeView` trait selects the default view generation mode.
+
+Add the `StreamParsingMacroSupport` product to your macro target. Generated client code uses
+`StreamParsing`. See the [macro support guide](Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md)
+and the [downstream macro example](SmokeTests/MacroSupport/Sources/SupportMacros/SupportMacros.swift).
 
 ## Documentation
 
@@ -187,7 +342,7 @@ dependencies: [
     url: "https://github.com/mhayes853/swift-stream-parsing",
     from: "0.5.0",
     // You can omit the traits if you don't need any of them.
-    traits: ["StreamParsingSwiftCollections"]
+    traits: ["SwiftCollections"]
   ),
 ]
 ```
