@@ -66,7 +66,9 @@ public final class StreamSchemaCache: @unchecked Sendable {
 
     // Guarded by `lock`. Entries are never removed, only emptied: a `static let` may hold one, and
     // a second entry for the same key would cache beside it, unseen by `count` and `removeAll()`.
-    private var entries: [Key: Entry] = [:]
+    // Unchecked because the lock already serialises every access: the dynamic check was a
+    // `swift_beginAccess`/`swift_endAccess` pair per read, ~40 ns on `StreamArray<Int>`.
+    @exclusivity(unchecked) private var entries: [Key: Entry] = [:]
     // `_streamSchemaCacheLock`, held so a read does not call `swift_once` to reach the global.
     private let lock = _streamSchemaCacheLock
   #endif
@@ -204,8 +206,8 @@ extension StreamSchemaCache {
       // Published once and never released: removal does nothing on Embedded.
       private let published = Atomic<UnsafeRawPointer?>(nil)
     #else
-      // Guarded by `lock`.
-      var schema: StreamSchema?
+      // Guarded by `lock`, so unchecked for the reason `entries` is.
+      @exclusivity(unchecked) var schema: StreamSchema?
       // See `StreamSchemaCache.lock`.
       private let lock = _streamSchemaCacheLock
     #endif

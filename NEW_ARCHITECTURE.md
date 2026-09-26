@@ -7905,8 +7905,11 @@ stream, 5-10% of a 120-byte document. So a concrete `Partial` keeps its `StreamS
 in a `private static let streamSchemaEntry` and reads through it: a lock round trip and a load,
 level with the `static let` in the read row. Two details were measured on the way. A hit by type
 returns only the schema: returning the entry too cost a retain and release, 50 ns a read on
-`StreamArray<Int>`. And each cache and entry holds the one lock itself, because reaching the global
-cost a `swift_once` call per read.
+`StreamArray<Int>`. Each cache and entry holds the one lock itself, because reaching the global
+cost a `swift_once` call per read. And the table and each entry's schema are
+`@exclusivity(unchecked)`: as class `var`s read inside the lock's closure they drew a dynamic
+`swift_beginAccess`/`swift_endAccess` pair, which the lock makes redundant -- the read by type went
+from 265-312 ns to 261-280 against the old cache's 230-266 (`Setup StreamArray<Int>`).
 
 What remains on that 120-byte document's partial-sink row (61-62 MB/s against 62-67 over the
 same layouts) is not the lock: a variant reading the entry with no lock at all, racy and for
