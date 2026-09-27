@@ -39,6 +39,12 @@
 ///
 /// A public generic type's schema property is `@inlinable`, so its cache must be `public` or
 /// `@usableFromInline`. An enum with a raw type has no generated schema, and rejects the argument.
+///
+/// `keyDecodingStrategy` derives the key of each property, case and associated value label that
+/// does not name its own with ``StreamParseableMember(key:initialCapacity:)``; see
+/// ``StreamKeyDecodingStrategy``. A built-in strategy is applied as the macro expands, so its keys
+/// are checked for collisions at compile time. Any other expression is evaluated when the schema is
+/// built, like `schemaCache`. An enum with a raw type has no keys to convert, and rejects it.
 @attached(
   extension,
   conformances: StreamParseable,
@@ -50,6 +56,7 @@
 @attached(member, names: named(streamPartialValue))
 public macro StreamParseable(
   partialMembers: PartialMembersMode = .optional,
+  keyDecodingStrategy: StreamKeyDecodingStrategy = .useDefaultKeys,
   schemaCache: StreamSchemaCache = .shared
 ) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")

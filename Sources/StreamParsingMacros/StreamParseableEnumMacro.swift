@@ -24,6 +24,9 @@ extension StreamParseableMacro {
     /// Every spelling that resolves to this case. One entry unless
     /// `@StreamParseableMember(keyNames:)` added aliases.
     let matchNames: [String]
+    /// Whether `matchNames` is the case name alone, for the enum's key decoding strategy to
+    /// convert: a raw-less case without `@StreamParseableMember`.
+    let convertsKeys: Bool
     let isDefault: Bool
     /// The case's associated values, in declaration order. Empty for a case with none — a raw-
     /// value enum can never have any, since Swift itself rejects associated values on a case of
@@ -80,8 +83,10 @@ extension StreamParseableMacro {
   static func enumCases(
     in declaration: EnumDeclSyntax,
     rawKind: EnumRawKind,
+    keyDecodingStrategy: ExprSyntax? = nil,
     context: DiagnosticSink
   ) -> [EnumCase] {
+    let keyDecoding = StreamGenerationConfiguration(keyDecodingStrategy: keyDecodingStrategy)
     var cases = [EnumCase]()
     var sawDefault = false
     var seenMatchNames = Set<String>()
@@ -114,25 +119,35 @@ extension StreamParseableMacro {
           }
         }
 
-        let keyNames = Self.keyNames(
-          for: caseDecl.attributes, defaultName: defaultName, context: context
-        )
+        let explicitKeyNames = Self.explicitKeyNames(for: caseDecl.attributes, context: context)
 
         // `@StreamParseableMember` means "alias" for a `String`-raw case and "rename" for a
         // raw-less one. A raw-raw case emits its raw value as its partial, so that spelling must
         // stay matchable or the type would not round trip; renaming it is done by writing the raw
         // value. A raw-less case has no wire form of its own, so naming its key replaces it.
-        var matchNames = keyNames
+        var matchNames = explicitKeyNames ?? [defaultName]
         if case .string = rawKind, !matchNames.contains(defaultName) {
           matchNames.insert(defaultName, at: 0)
         }
+        let convertsKeys = Self.hasGeneratedSchema(rawKind) && explicitKeyNames == nil
 
         // A second case answering to a name already taken emits an unreachable arm, and two
         // cases whose names differ only in case share one generated payload type.
-        for name in matchNames where !seenMatchNames.insert(name).inserted {
-          context.diagnose(
-            Self.error(element, "Name '\(name)' is already claimed by another case.")
+        for name in matchNames {
+          Self.claimKey(
+            of: name, converting: convertsKeys, by: keyDecoding, in: &seenMatchNames,
+            noun: "Name", claimant: "case", at: element, context: context
           )
+        }
+        // Swift already keeps labels apart; only a conversion can bring two together.
+        if keyDecodingStrategy != nil {
+          var seenLabels = Set<String>()
+          for value in associatedValues where value.isLabeled {
+            Self.claimKey(
+              of: value.label, converting: true, by: keyDecoding, in: &seenLabels,
+              claimant: "associated value", at: element, context: context
+            )
+          }
         }
         if case .none = rawKind {
           if bareName == "unresolved" || bareName == "ambiguous" {
@@ -166,6 +181,7 @@ extension StreamParseableMacro {
           EnumCase(
             reference: element.name.trimmedDescription,
             matchNames: matchNames,
+            convertsKeys: convertsKeys,
             isDefault: isDefaultDecl && !sawDefault,
             associatedValues: associatedValues
           )
@@ -204,21 +220,42 @@ extension StreamParseableMacro {
     expansionContext: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
     let rawKind = Self.enumRawKind(for: declaration)
-    let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
+    // Only an object's keys convert; a raw value is a value, and the argument is diagnosed.
+    var keyDecodingStrategy = Self.argument(named: "keyDecodingStrategy", of: node)
+    if let strategy = keyDecodingStrategy, !Self.hasGeneratedSchema(rawKind) {
+      Self.diagnoseArgumentOnRawValueEnum(
+        strategy, label: "keyDecodingStrategy",
+        reason: "Its cases are read from values, not keys; write the raw value the stream sends.",
+        context: context
+      )
+      keyDecodingStrategy = nil
+    }
+    let cases = Self.enumCases(
+      in: declaration, rawKind: rawKind, keyDecodingStrategy: keyDecodingStrategy,
+      context: context
+    )
     Self.diagnoseUnsupportedRawType(in: declaration, rawKind: rawKind, context: context)
     if Self.argument(named: "partialMembers", of: node) != nil {
       Self.diagnosePartialMembersOnEnum(in: node, context: context)
     }
     let schemaCache = Self.argument(named: "schemaCache", of: node)
     if let schemaCache, !Self.hasGeneratedSchema(rawKind) {
-      Self.diagnoseSchemaCacheOnRawValueEnum(schemaCache, context: context)
+      Self.diagnoseArgumentOnRawValueEnum(
+        schemaCache, label: "schemaCache",
+        reason: """
+          Its partial is StreamString or the raw type itself, and neither has a generated schema \
+          to cache.
+          """,
+        context: context
+      )
     }
     if !cases.contains(where: \.isDefault), !Self.namesAnInitialValue(in: declaration) {
       Self.diagnoseMissingDefaultCase(in: declaration, context: context)
     }
 
     let generation = Self.enumGeneration(
-      for: declaration, rawKind: rawKind, cases: cases, schemaCache: schemaCache
+      for: declaration, rawKind: rawKind, cases: cases, schemaCache: schemaCache,
+      keyDecodingStrategy: keyDecodingStrategy
     )
     var members =
       Self.hasExistingPartial(in: declaration.memberBlock.members)
@@ -238,7 +275,8 @@ extension StreamParseableMacro {
     for declaration: EnumDeclSyntax,
     rawKind: EnumRawKind,
     cases: [EnumCase],
-    schemaCache: ExprSyntax? = nil
+    schemaCache: ExprSyntax? = nil,
+    keyDecodingStrategy: ExprSyntax? = nil
   ) -> StreamEnumGeneration {
     let representation: StreamEnumRepresentation =
       switch rawKind {
@@ -250,11 +288,14 @@ extension StreamParseableMacro {
       StreamParseableEnumCase(
         name: .identifier(enumCase.reference),
         keys: enumCase.matchNames,
+        convertsKeys: enumCase.convertsKeys,
         associatedValues: enumCase.associatedValues.map { value in
           StreamParseableField(
             name: value.isLabeled ? .identifier(value.label) : .wildcardToken(),
             type: value.type,
-            keys: [value.label]
+            keys: [value.label],
+            // `_0`, `_1`, ... are positions, not names, and `Codable` does not convert them.
+            convertsKeys: value.isLabeled
           )
         }
       )
@@ -266,7 +307,8 @@ extension StreamParseableMacro {
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
         accessLevel: Self.generatedAccessLevel(for: declaration.modifiers),
-        schemaCache: schemaCache
+        schemaCache: schemaCache,
+        keyDecodingStrategy: keyDecodingStrategy
       )
     )
   }
@@ -474,17 +516,16 @@ extension StreamParseableMacro {
     return false
   }
 
-  static func diagnoseSchemaCacheOnRawValueEnum(
+  static func diagnoseArgumentOnRawValueEnum(
     _ argument: ExprSyntax,
+    label: String,
+    reason: String,
     context: DiagnosticSink
   ) {
     context.diagnose(
       Self.error(
         argument,
-        """
-        @StreamParseable(schemaCache:) does not apply to an enum with a raw type. Its partial is \
-        StreamString or the raw type itself, and neither has a generated schema to cache.
-        """
+        "@StreamParseable(\(label):) does not apply to an enum with a raw type. \(reason)"
       )
     )
   }

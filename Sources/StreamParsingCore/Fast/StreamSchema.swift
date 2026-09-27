@@ -492,7 +492,16 @@ public final class StreamSchema: @unchecked Sendable {
     case .dictionary: .dictionary
     case .ignore: .ignore
     }
-    self.matchField = matchField ?? { _ in -1 }
+    // A table without a matcher -- keys a strategy converted when the schema was built, which no
+    // generated word switch can hold -- answers through the table, so a schema that wraps this one
+    // and forwards `matchField` still matches. The sink matches through the table either way.
+    if let matchField {
+      self.matchField = matchField
+    } else if let fields {
+      self.matchField = { key in fields.fieldIdentifier(for: key) }
+    } else {
+      self.matchField = { _ in -1 }
+    }
     self.onFieldRecognized = onFieldRecognized
     self.applyString = applyString
     self.applyNumber = applyNumber

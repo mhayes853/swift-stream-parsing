@@ -86,7 +86,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     // The fully qualified name, so a nested type extends `Outer.Inner` rather than a name that
     // does not exist at file scope.
     let typeName = type.trimmedDescription
-    let properties = Self.storedProperties(in: structDecl, context: sink)
+    let keyDecodingStrategy = Self.argument(named: "keyDecodingStrategy", of: node)
+    let properties = Self.storedProperties(
+      in: structDecl, keyDecodingStrategy: keyDecodingStrategy, context: sink
+    )
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
     let accessLevel = Self.generatedAccessLevel(for: structDecl.modifiers)
     let membersMode = Self.partialMembersMode(from: node, context: sink)
@@ -120,7 +123,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       accessLevel: accessLevel,
       membersMode: membersMode,
       genericParameters: genericParameters,
-      schemaCache: Self.argument(named: "schemaCache", of: node)
+      schemaCache: Self.argument(named: "schemaCache", of: node),
+      keyDecodingStrategy: keyDecodingStrategy
     )
     .structDeclarationSyntax(in: context)
     return [
@@ -301,7 +305,8 @@ extension StreamParseableMacro {
     accessLevel: StreamGeneratedAccessLevel,
     membersMode: StreamPartialMembers,
     genericParameters: [TokenSyntax] = [],
-    schemaCache: ExprSyntax? = nil
+    schemaCache: ExprSyntax? = nil,
+    keyDecodingStrategy: ExprSyntax? = nil
   ) -> StreamObjectGeneration {
     let fields = properties.compactMap { property -> StreamParseableField? in
       guard !property.isIgnored else { return nil }
@@ -309,6 +314,7 @@ extension StreamParseableMacro {
         name: .identifier(property.name),
         type: property.type,
         keys: property.keyNames,
+        convertsKeys: property.convertsKeys,
         initialCapacity: property.initialCapacity.map {
           ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
@@ -324,7 +330,8 @@ extension StreamParseableMacro {
         accessLevel: accessLevel,
         inlining: .automatic,
         genericParameters: genericParameters,
-        schemaCache: schemaCache
+        schemaCache: schemaCache,
+        keyDecodingStrategy: keyDecodingStrategy
       )
     )
   }
@@ -420,6 +427,9 @@ extension StreamParseableMacro {
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
+    /// Whether `keyNames` is the name alone, for the type's key decoding strategy to convert. A
+    /// key written with `@StreamParseableMember` is never converted.
+    let convertsKeys: Bool
     let initialCapacity: Int?
     let isIgnored: Bool
     /// The declaration's own access level and `@usableFromInline`, which decide whether an
@@ -445,10 +455,12 @@ extension StreamParseableMacro {
 
   private static func storedProperties(
     in declaration: StructDeclSyntax,
+    keyDecodingStrategy: ExprSyntax? = nil,
     context: DiagnosticSink
   ) -> [StoredProperty] {
     var properties = [StoredProperty]()
     var seenKeys = Set<String>()
+    let keyDecoding = StreamGenerationConfiguration(keyDecodingStrategy: keyDecodingStrategy)
     for member in declaration.memberBlock.members {
       guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
         continue
@@ -457,9 +469,10 @@ extension StreamParseableMacro {
       // A duplicate key emits a second, permanently unreachable `case` arm: Swift does not
       // diagnose duplicate integer patterns that carry a `where` clause.
       for property in declared where !property.isIgnored {
-        for key in property.keyNames where !seenKeys.insert(key).inserted {
-          context.diagnose(
-            Self.error(variableDecl, "Key '\(key)' is already claimed by another property.")
+        for name in property.keyNames {
+          Self.claimKey(
+            of: name, converting: property.convertsKeys, by: keyDecoding, in: &seenKeys,
+            claimant: "property", at: variableDecl, context: context
           )
         }
       }
@@ -543,10 +556,9 @@ extension StreamParseableMacro {
       )
     }
 
-    let keyNames =
+    let explicitKeyNames =
       isIgnored
-      ? [propertyName]
-      : Self.keyNames(for: variableDecl.attributes, defaultName: propertyName, context: context)
+      ? nil : Self.explicitKeyNames(for: variableDecl.attributes, context: context)
     let capacity = isIgnored ? nil : Self.initialCapacity(for: variableDecl, context: context)
     if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
       context.diagnose(
@@ -585,7 +597,8 @@ extension StreamParseableMacro {
     return StoredProperty(
       name: propertyName,
       type: type,
-      keyNames: keyNames,
+      keyNames: explicitKeyNames ?? [propertyName],
+      convertsKeys: !isIgnored && explicitKeyNames == nil,
       initialCapacity: capacity,
       isIgnored: isIgnored,
       access: Self.declaredAccess(of: variableDecl.modifiers),
@@ -623,11 +636,12 @@ extension StreamParseableMacro {
     }
   }
 
-  static func keyNames(
+  /// The keys a `@StreamParseableMember` writes out, or `nil` when the declaration is read from its
+  /// name, which a key decoding strategy converts.
+  static func explicitKeyNames(
     for declAttributes: AttributeListSyntax,
-    defaultName: String,
     context: DiagnosticSink
-  ) -> [String] {
+  ) -> [String]? {
     var names = [String]()
     for attribute in Self.attributes(named: "StreamParseableMember", in: declAttributes) {
       let keyExpression = Self.argument(named: "key", of: attribute)
@@ -658,7 +672,28 @@ extension StreamParseableMacro {
         names.append(contentsOf: keyNames)
       }
     }
-    return names.isEmpty ? [defaultName] : names
+    return names.isEmpty ? nil : names
+  }
+
+  /// Claims the key `name` is read from in `seen`, and diagnoses one already claimed. A key a
+  /// strategy converts only when the schema is built is unknown here; the built table checks it.
+  static func claimKey(
+    of name: String,
+    converting: Bool,
+    by keyDecoding: StreamGenerationConfiguration,
+    in seen: inout Set<String>,
+    noun: String = "Key",
+    claimant: String,
+    at node: some SyntaxProtocol,
+    context: DiagnosticSink
+  ) {
+    guard let key = converting ? keyDecoding.decodedKey(for: name) : name,
+      !seen.insert(key).inserted
+    else { return }
+    let origin = key == name ? "" : " (converted from '\(name)')"
+    context.diagnose(
+      Self.error(node, "\(noun) '\(key)'\(origin) is already claimed by another \(claimant).")
+    )
   }
 
   static func initialCapacity(

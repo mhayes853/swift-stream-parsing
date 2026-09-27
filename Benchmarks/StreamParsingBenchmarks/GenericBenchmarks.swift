@@ -12,6 +12,9 @@ import StreamParsingCore
 //   has no layout for, so the concrete model applies them through the parent's closures (`custom`)
 //   and the generic one through their own schema (`delegated`).
 // - The cross-module pair: the same, across the module boundary a library user's model sits behind.
+// - `Twitter snake strategy` / `Twitter custom strategy` / `Twitter`: camelCase members whose keys
+//   a key decoding strategy derives, during expansion and when the schema is built. The tables are
+//   the same, so all three should be at parity.
 
 func genericBenchmarks() {
   let generic = expectParses {
@@ -31,6 +34,16 @@ func genericBenchmarks() {
     try streamBulkDiscarding(Payloads.twitter, as: CrossModuleTwitterGeneric.Partial.self)
   }
   precondition(crossModule.statuses?[0].user?.screen_name == "ayuu0123")
+  let snakeStrategy = expectParses {
+    try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitterSnakeStrategy.Partial.self)
+  }
+  precondition(snakeStrategy.statuses?[0].user?.screenName == "ayuu0123")
+  precondition(snakeStrategy.statuses?[0].user?.followersCount != nil)
+  let customStrategy = expectParses {
+    try streamBulkDiscarding(Payloads.twitter, as: BenchmarkTwitterCustomStrategy.Partial.self)
+  }
+  precondition(customStrategy.statuses?[0].user?.screenName == "ayuu0123")
+  precondition(customStrategy.statuses?[0].user?.followersCount != nil)
 
   addGenericBulkDiscardingRow("Twitter generic", as: BenchmarkTwitterGeneric.Partial.self)
   addGenericBulkDiscardingRow("Twitter custom text", as: BenchmarkTwitterCustomText.Partial.self)
@@ -42,6 +55,12 @@ func genericBenchmarks() {
   )
   addGenericBulkDiscardingRow(
     "Twitter generic cross-module", as: CrossModuleTwitterGeneric.Partial.self
+  )
+  addGenericBulkDiscardingRow(
+    "Twitter snake strategy", as: BenchmarkTwitterSnakeStrategy.Partial.self
+  )
+  addGenericBulkDiscardingRow(
+    "Twitter custom strategy", as: BenchmarkTwitterCustomStrategy.Partial.self
   )
 }
 

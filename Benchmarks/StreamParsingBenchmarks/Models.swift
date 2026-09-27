@@ -527,6 +527,54 @@ struct BenchmarkTwitterUserMatched: Equatable, Codable {
   var followers_count: Int = 0
 }
 
+// The matched model with camelCase members and a key decoding strategy: the built-in one converts
+// the names as the macro expands, the custom one when the schema is built. Either way the field
+// tables hold the same keys as `BenchmarkTwitterMatched`'s, which names them itself, so all three
+// must parse at parity.
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTwitterSnakeStrategy: Equatable {
+  var statuses: [BenchmarkTweetSnakeStrategy] = []
+}
+
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTweetSnakeStrategy: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUserSnakeStrategy = BenchmarkTwitterUserSnakeStrategy()
+}
+
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTwitterUserSnakeStrategy: Equatable {
+  var name: String = ""
+  var screenName: String = ""
+  var followersCount: Int = 0
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTwitterCustomStrategy: Equatable {
+  var statuses: [BenchmarkTweetCustomStrategy] = []
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTweetCustomStrategy: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUserCustomStrategy = BenchmarkTwitterUserCustomStrategy()
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTwitterUserCustomStrategy: Equatable {
+  var name: String = ""
+  var screenName: String = ""
+  var followersCount: Int = 0
+}
+
 // The matched model with every member behind a generic parameter, the control for the generic
 // lowering: `BenchmarkTwitterGeneric` must parse as fast as `BenchmarkTwitterMatched`, since each
 // leaf still classifies to the kind the concrete overloads pick.

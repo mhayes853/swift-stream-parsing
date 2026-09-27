@@ -394,6 +394,7 @@ final class StreamFieldTable: @unchecked Sendable {
 
   @usableFromInline
   init(_ fields: [StreamField]) {
+    Self.requireDistinctKeys(fields)
     self.count = fields.count
     self.entries = .allocate(capacity: Swift.max(fields.count, 1))
     self.prepares = .allocate(capacity: Swift.max(fields.count, 1))
@@ -430,6 +431,36 @@ final class StreamFieldTable: @unchecked Sendable {
       (self.prepares + index).initialize(to: field.prepare)
       keyStart &+= field.key.count
     }
+  }
+
+  // A second entry under a key is unreachable: both matches return the first. Keys a macro
+  // writes are diagnosed as it expands, but a custom key decoding strategy's exist only here.
+  // Quadratic in the field count, once per schema build, and never per key.
+  private static func requireDistinctKeys(_ fields: [StreamField]) {
+    for later in fields.indices {
+      for earlier in 0..<later where fields[earlier].key == fields[later].key {
+        #if hasFeature(Embedded)
+          preconditionFailure("stream field key is claimed by more than one field")
+        #else
+          let key = String(decoding: fields[later].key, as: UTF8.self)
+          preconditionFailure("stream field key '\(key)' is claimed by more than one field")
+        #endif
+      }
+    }
+  }
+
+  /// The field identifier `key` selects, or -1: what a schema's `matchField` answers.
+  @usableFromInline
+  func fieldIdentifier(for key: Span<UInt8>) -> Int32 {
+    let entry =
+      if let index = self.index {
+        streamMatchFieldIndexed(
+          self.entries, index: index, mask: self.indexMask, keyBytes: self.keyBytes, key
+        )
+      } else {
+        streamMatchField(self.entries, count: self.count, keyBytes: self.keyBytes, key)
+      }
+    return entry < 0 ? -1 : self.entries[Int(entry)].index
   }
 
   deinit {

@@ -95,6 +95,27 @@ extension Profile: StreamParsingCore.StreamParseable {
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
+### Key names
+
+Each member is read from the key it's named after. `keyDecodingStrategy` derives the keys from the names instead, like `JSONDecoder`'s, and `@StreamParseableMember` names a member's keys outright, which no strategy converts:
+
+```swift
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct Tweet {
+  var createdAt: String          // "created_at"
+  var inReplyToStatusID: Int?    // "in_reply_to_status_id"
+  @StreamParseableMember(key: "full_text")
+  var text: String
+}
+
+@StreamParseable(keyDecodingStrategy: .custom { "x_" + $0 })
+struct Extension {
+  var requestID: String          // "x_requestID"
+}
+```
+
+The keys are derived once, as the macro expands for a built-in strategy and when the type's schema is built otherwise, so a strategy costs nothing while parsing. Each `@StreamParseable` type declares its own strategy; a member type follows the strategy it declares.
+
 ### Enums
 
 `@StreamParseable` also applies to enums, in whichever of three forms matches how the enum is
