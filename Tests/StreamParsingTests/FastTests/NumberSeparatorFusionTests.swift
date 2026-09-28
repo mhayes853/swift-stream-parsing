@@ -130,6 +130,8 @@ struct `Number separator fusion tests` {
     "[[1, 2], [3, 4]]", "[[1,2],[3,4]]", "[1, true, 2, null, 3, false]", "[1, [2, 3], 4]",
     #"{"a":1, "b":2}"#, #"{"a":[1, 2, 3], "b":[4,5]}"#, #"[{"a":1}, {"a":2}]"#,
     "[1, 2, 3", "[1, 2,", "[1, 2, ", "[1, -", "[1,", "1", "[1]", "[-0, 0.0, -0.0e0]",
+    "[1,\n  2,\n  3]", "[1,\r\n\t2,\r\n\t3]", "[1,\n\n2]", "[1, \n 2]", "[1,\n    -2.5]",
+    "[\n  1,\n  2\n]", "[1,\n  2,\n  ", "[1,\n  -", "[1,\n  [2,\n  3]]",
   ])
   func `Fused separators produce the byte-fed call sequence`(text: String) {
     Self.expectAgreement(text)
@@ -140,6 +142,8 @@ struct `Number separator fusion tests` {
     "[1, 1e]", "[1, +2]", "[1, .5]", "[1, 2]]", "[1, 2}", "[1, 2, ]", "[1, ,2]", "[1,, 2]",
     #"{"a":1, 2}"#, #"{"a":1,2}"#, #"{"a":1, "b"}"#, "1, 2", "1,2", "[1, 2] 3", "[1, 2],",
     "[1, -2-]", "[1, 2e5e]", "[1, 12345678901234567890123]", "[1, 2\u{0}]",
+    "[1,\n  x]", "[1,\n\u{1}2]", "[1,\n  2,\n  \u{1}3]", "[1,\n  2,\n   \u{0}]", "[1,\n \u{1} 2]", "[1,\n  ]", "[1,\n  01]", "[1,\n  2x]",
+    "[1,\n  1.2.3]", "[1,\n  ,2]",
   ])
   func `Rejected documents report the byte-fed error at the same byte`(text: String) {
     Self.expectAgreement(text)
@@ -150,6 +154,7 @@ struct `Number separator fusion tests` {
     Self.expectAgreement("[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]", refusing: refusing)
     Self.expectAgreement("[1,2,3,4,5,6,7,8,9,10]", refusing: refusing)
     Self.expectAgreement("[[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]", refusing: refusing)
+    Self.expectAgreement("[\n  1,\n  2,\n  3,\n  4,\n  5,\n  6,\n  7,\n  8,\n  9,\n  10\n]", refusing: refusing)
   }
 
   @Test
@@ -162,6 +167,24 @@ struct `Number separator fusion tests` {
     Self.expectAgreement(pairs)
     let indented = "[\n" + (0..<200).map { "    \($0)" }.joined(separator: ",\n") + "\n]"
     Self.expectAgreement(indented)
+    // The fused loop predicts each run's width from the last: widths that change, runs of eight
+    // spaces and more (past the 8-byte count), and a newline run that is not all spaces.
+    let widths = [0, 2, 2, 4, 1, 8, 9, 16, 3, 3, 0, 7, 8, 8]
+    let ragged = "[" + widths.enumerated().map { index, width in
+      "\n" + String(repeating: " ", count: width) + "\(index)"
+    }.joined(separator: ",") + "]"
+    Self.expectAgreement(ragged)
+    let mixedRuns = "[" + (0..<60).map { index in
+      ["\n  ", "\n\t", "\n \t ", "\r\n  ", "\n  "][index % 5] + "\(index)"
+    }.joined(separator: ",") + "]"
+    Self.expectAgreement(mixedRuns)
+    // Arrays of arrays enter the fused loop once per inner array, with the prediction carried
+    // over from the last one -- and across a parser's inner arrays at different depths.
+    let nestedPairs = "[" + (0..<40).map { index in
+      let pad = String(repeating: " ", count: 2 + (index % 3) * 2)
+      return "\n  [\n\(pad)\(index).5,\n\(pad)-\(index)\n  ]"
+    }.joined(separator: ",") + "\n]"
+    Self.expectAgreement(nestedPairs)
     let mixed = "[" + (0..<100).map { "\($0), \"s\($0)\"" }.joined(separator: ", ") + "]"
     // String values are cut by the chunking, so this one compares only the chunkings that keep
     // each string whole against the bulk parse.

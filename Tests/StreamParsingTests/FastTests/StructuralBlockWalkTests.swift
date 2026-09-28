@@ -156,6 +156,14 @@ struct StructuralBlockWalkTests {
     add("mismatched close", #"[1,2}"#)
     add("mismatched close object", #"{"a":1]"#)
     add("trailing content", #"{"a":1} x"#)
+    // Indented numeric arrays, which the walk hands to `fuseNumberRun`.
+    add("indented numbers", "{\"v\": [\n    -0.12345678,\n    1,\n    2.5e3,\n    0\n  ]}")
+    add("indented numbers then string", "[\n  1,\n  2,\n  \"s\",\n  3\n]")
+    add("indented number error", "[\n  1,\n  2x,\n  3\n]")
+    add("indented bad number", "[\n  1,\n  1.2.3\n]")
+    add("indented control byte", "[\n  1,\n \u{1} 2\n]")
+    add("indented trailing comma", "[\n  1,\n  2,\n]")
+    add("indented pairs", "[\n  [\n    1.5,\n    -2\n  ],\n  [\n    3,\n    4e1\n  ]\n]")
     // A key's closing quote followed by something other than its colon.
     add("key then comma", #"{"a","b":1}"#)
     add("key then close", #"{"a"}"#)

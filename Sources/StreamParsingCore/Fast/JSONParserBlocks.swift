@@ -321,6 +321,28 @@
                 return at
               }
               state = .afterValue
+              // An array's `,` after the number: the numbers behind it are `fuseNumberRun`'s, as
+              // they are on the ladder. Measured: an indented numeric array cost the walk 274
+              // instructions a number (the comma's trip round the mask loop, the number arm's
+              // dispatch, a classify per three or four numbers) against the fused loop's ~200.
+              // It returns past the block as often as not; the grid moves with it.
+              if depth > 0, end &+ 1 < to,
+                base.load(fromByteOffset: end, as: UInt8.self) == .asciiComma,
+                !Self.topIsObject(depth: depth, containers: containers)
+              {
+                let resume = try self.fuseNumberRun(base: base, comma: end, to: to, into: &sink)
+                guard resume >= 0 else {
+                  // A number the chunk cut, from its first byte, reset for `.number`.
+                  state = .number
+                  return ~resume
+                }
+                if resume &- p >= 64 {
+                  p = resume
+                  continue outer
+                }
+                mask &= UInt64.max &<< UInt64(resume &- p)
+                continue
+              }
               if end &- p >= 64 {
                 p = end
                 continue outer

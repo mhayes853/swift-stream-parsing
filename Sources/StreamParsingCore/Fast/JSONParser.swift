@@ -63,9 +63,14 @@ public struct JSONParser: ~Copyable {
   // The depth the current skip ends at; a close back to it leaves skip mode. Valid only while
   // `state` is a skipping state, and bounded by `maximumDepth`, so a byte.
   @usableFromInline var skipEndDepth: UInt8 = 0
-  // Offset 9 is padding; any new one-byte field belongs there. Measured: anywhere earlier shifts
-  // `literalKind`/`literalIndex` to offset 5/6 and the literal path's fused halfword store stops
-  // being two-byte aligned -- every `consumeStructuralRun` specialisation turned `strh` into `sturh`.
+  // `fuseNumberRun`'s indentation prediction, kept across calls: an indented array of arrays
+  // (`[\n  [\n    x,\n    y\n  ],`) enters it once per inner array, and a prediction that
+  // started from zero each time missed on every call (indented pairs -7.2% raw). Any value is
+  // correct; a stale one costs one miss. At offset 9, the padding byte: any new one-byte field
+  // belongs here. Measured: anywhere earlier shifts `literalKind`/`literalIndex` to offset 5/6 and
+  // the literal path's fused halfword store stops being two-byte aligned -- every
+  // `consumeStructuralRun` specialisation turned `strh` into `sturh`.
+  @usableFromInline var numberRunIndent: UInt8 = 0
 
   // Four hex digits and a surrogate half: sixteen bits each, exactly.
   @usableFromInline var unicodeValue: UInt16 = 0
@@ -737,16 +742,18 @@ public struct JSONParser: ~Copyable {
   }
 
   // The numbers of an array, taken without going back through the ladder: after a number and its
-  // `,`, at most one space and the next number's first byte are taken here, and the loop goes
-  // round with that byte. That is the separator shape of every numeric array in the corpus (Mesh
-  // `, `, Canada `,`), and it spares the two ladder steps between the numbers -- one of them the
-  // whitespace scan, a 16-byte vector scan for a run that is one byte long. Anything else (a
-  // newline, two spaces, a bracket, a string) falls out at the comma, so the walk's signal still
-  // sees an indented array. What the loop accepts, the ladder accepted: an array's `,` in
-  // `.afterValue` goes to `.value`, one space is a whitespace run, and the number is the ladder's
-  // number arm again. Nothing here opens or closes a container, so `depth` and `containers` stay
-  // the ladder's. A sink rejection throws inside `emitNumber`, at the number it rejected, so no
-  // fusion runs past it.
+  // `,`, the whitespace run and the next number's first byte are taken here, and the loop goes
+  // round with that byte. It spares the two ladder steps between the numbers -- one of them the
+  // whitespace scan, a 16-byte vector scan for a run that is one byte long -- or, in the block
+  // walk, the comma's trip round the mask loop and the number arm's dispatch. One space (Mesh
+  // `, `) is tested first and alone; any other run (an indented array's newline and indentation)
+  // goes through `streamWhitespaceEnd`. Measured: an indented array left to the walk cost 274
+  // instructions a number against 196 here, and a `,\n` array left to the ladder 367. Anything
+  // else (a bracket, a string, a stray control byte) falls out at the comma. What the loop
+  // accepts, the ladder accepted: an array's `,` in `.afterValue` goes to `.value`, the run is a
+  // whitespace run, and the number is the ladder's number arm again. Nothing here opens or closes
+  // a container, so `depth` and `containers` stay the caller's. A sink rejection throws inside
+  // `emitNumber`, at the number it rejected, so no fusion runs past it.
   //
   // Out of line, and entered only at an array's comma. Measured: the same loop inside the ladder's
   // number arm reallocated the whole structural run (the `PartialSink` copy +88 stack accesses)
@@ -766,12 +773,45 @@ public struct JSONParser: ~Copyable {
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
     var comma = comma
+    // The previous run's indentation, the prediction for the next (see below).
+    var indent = Int(self.numberRunIndent)
     while true {
       var start = comma &+ 1
       var byte = base.load(fromByteOffset: start, as: UInt8.self)
       if byte == .asciiSpace, start &+ 1 < to {
         start &+= 1
         byte = base.load(fromByteOffset: start, as: UInt8.self)
+      }
+      if byte <= .asciiSpace {
+        // An indented array's run: a newline and the same indentation as the last one. The
+        // spaces are counted in one 8-byte load (the zero bytes of `word ^ 0x20...`, trailing in
+        // little-endian order), but that count only *checks* the prediction: the next number's
+        // address is `start + 1 + indent`, from a register, so the number scan does not wait on
+        // the load. Measured: taking the address from the count cost `,\n` arrays 7 cycles a
+        // number (IPC 5.9 -> 4.3), and the vector scan cost indented ones 8 (IPC 5.3 -> 3.9).
+        // A miss (the first run, a changed indent, eight or more spaces) takes the scanner,
+        // which the compiler cannot fold into the hit. Only exact spaces count, so a control byte
+        // in the run is never skipped: it is the byte the checks below stop on.
+        if byte == .asciiLineFeed, start &+ 9 <= to {
+          let word = UInt64(
+            littleEndian: base.loadUnaligned(fromByteOffset: start &+ 1, as: UInt64.self)
+          )
+          let spaces = (word ^ 0x2020_2020_2020_2020).trailingZeroBitCount &>> 3
+          if _fastPath(spaces == indent) {
+            start &+= 1 &+ indent
+          } else {
+            indent = spaces
+            self.numberRunIndent = UInt8(truncatingIfNeeded: spaces)
+            start = streamWhitespaceEnd(base: base, from: start, to: to)
+            guard start < to else { return comma }
+          }
+          byte = base.load(fromByteOffset: start, as: UInt8.self)
+        }
+        if byte <= .asciiSpace {
+          start = streamWhitespaceEnd(base: base, from: start, to: to)
+          guard start < to else { return comma }
+          byte = base.load(fromByteOffset: start, as: UInt8.self)
+        }
       }
       guard byte == .asciiDash || byte &- .asciiZero < 10 else { return comma }
       let end = streamNumberRunEnd(base: base, from: start, to: to)
