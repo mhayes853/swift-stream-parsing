@@ -40,10 +40,13 @@ struct TraceBundle: Encodable {
 /// The structural run's moving 64-byte grid, recorded from the shipped C classifier and checked
 /// against the real block walk.
 ///
-/// A case is a complete parser input. Every block carries the classifier's three masks and the
-/// exact token-start visits produced by clearing `starts`; the real `consumeStructuralBlocks`
-/// call then has to return at the same byte (including the complemented give-up result), and a
-/// full parse with the block walk enabled has to emit the same event stream as the scalar copy.
+/// A case is a complete parser input. The walk is entered where the ladder's shipped signal
+/// (`JSONParser.signalsBlockWalk`) first fires outside a string, with the state a scalar parse of
+/// the prefix leaves; every block then carries the classifier's masks, its `ladder_block` verdict
+/// and the exact token-start visits produced by clearing `starts`. The real
+/// `consumeStructuralBlocks`, called from the same byte in the same state, has to return where the
+/// mirror stopped, and a full parse with the block walk enabled has to emit the same event stream
+/// as the scalar copy.
 struct StructuralBlockTrace: Encodable {
   var cases: [Case]
   var verified: Bool
@@ -53,11 +56,18 @@ struct StructuralBlockTrace: Encodable {
     var purpose: String
     var sample: String
     var bytes: [UInt8]
+    /// The whitespace byte the ladder signals on, and the byte after it that completes the signal.
+    var entry: Int
+    var entryState: String
     var blocks: [Block]
+    /// Where the walk returned, and why: `needsScalar`, `ladderBlock`, `done`, `tokenCut` or
+    /// `tail` (fewer than 64 bytes left).
     var end: Int
+    var exit: String
     var shippedEnd: Int
-    var gaveUp: Bool
-    var shippedGaveUp: Bool
+    /// Where the ladder resumes: the walk's return with any whitespace skipped, as
+    /// `structuralBlocksFromLadder` does, so it never lands on a byte that could signal again.
+    var resume: Int
     var eventsMatch: Bool
     var verified: Bool
   }
@@ -69,13 +79,14 @@ struct StructuralBlockTrace: Encodable {
     var starts: [Bool]
     var quotes: [Bool]
     var backslashes: [Bool]
+    var scalarEnds: [Bool]
     var startCount: Int
-    var noOuterWhitespace: Bool
+    /// Whitespace bytes outside a string, and whether any two of them are adjacent (a run).
+    var outerWhitespace: Int
+    var outerWhitespaceRun: Bool
+    var ladderBlock: Bool
     var nonASCII: Bool
     var needsScalar: Bool
-    var strikeBefore: Int
-    var strikeAfter: Int
-    var givesUp: Bool
     var visits: [Visit]
   }
 
@@ -86,6 +97,10 @@ struct StructuralBlockTrace: Encodable {
     var next: Int
     var maskAfter: [Bool]
     var reanchors: Bool
+    /// What was taken with the token without a trip round the mask loop: `colon` for a key's
+    /// colon, `numberRun` for the numbers `fuseNumberRun` took after an array's comma.
+    var fused: String?
+    var fusedNumbers: Int
   }
 }
 

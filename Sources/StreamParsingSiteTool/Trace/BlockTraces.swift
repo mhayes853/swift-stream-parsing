@@ -13,21 +13,28 @@ enum BlockTraces {
     #if arch(arm64)
       let cases = try [
         self.structuralCase(
-          name: "moving grid",
-          purpose: "A long string crosses byte 64. Its own scanner finishes it, then the next 64-byte grid starts at the closing quote instead of re-reading the string interior.",
+          name: "indented document",
+          purpose: "The ladder signals on the newline after `{`: whitespace followed by more whitespace. A long string crosses byte 64, so the grid re-anchors at its closing quote; every key takes its colon with it; the array's comma hands the indented numbers to fuseNumberRun.",
           sample: """
             {
               "message": "this string crosses the first sixty-four-byte block boundary cleanly",
-              "items": [1, 2, 3],
+              "scores": [
+                12,
+                7,
+                31,
+                5
+              ],
               "active": true,
               "profile": {"id": 42, "ok": null},
               "tail": "done"
             }
             """),
         self.structuralCase(
-          name: "four strikes",
-          purpose: "Compact strings contain no whitespace outside strings. Four consecutive classified blocks make the parser leave the block walk for the scalar copy.",
-          sample: "[" + Array(repeating: "\"abcdefghij\"", count: 28).joined(separator: ",") + "]")
+          name: "handed back",
+          purpose: "The first block has indentation and a string, so the walk takes it. The next is minified strings: no whitespace outside a string, nothing for the walk to buy. `ladder_block` hands it back to the ladder, which comes back at the next indentation it meets.",
+          sample: "{\n  \"ids\": ["
+            + (0..<12).map { "\"id-abcdef\($0)\"" }.joined(separator: ",")
+            + "],\n  \"n\": 1\n}")
       ]
       return StructuralBlockTrace(cases: cases, verified: cases.allSatisfy(\.verified))
     #else
@@ -157,44 +164,78 @@ enum BlockTraces {
       -> StructuralBlockTrace.Case
     {
       let bytes = Array(sample.utf8)
-      var blocks: [StructuralBlockTrace.Block] = []
-      var p = 0
-      var strikes = 0
-      var gaveUp = false
+      let entry = try self.signalOffset(bytes)
 
-      bytes.withUnsafeBytes { raw in
-        let base = raw.baseAddress!
+      // The state the ladder holds when it signals: a scalar parse of everything before the
+      // signalled byte. The same parser then runs the shipped walk from there.
+      var parser = JSONParser()
+      parser.blockWalkEnabled = false
+      var prefixSink = RecordingSink()
+      try Array(bytes[..<entry]).withUnsafeBufferPointer { buffer in
+        try parser.parse(buffer, into: &prefixSink)
+      }
+      let entryState = String(describing: parser.state)
+
+      var blocks: [StructuralBlockTrace.Block] = []
+      var p = entry
+      var exit = "tail"
+      var depth = parser.depth
+      var containers = parser.containers
+      var expectsKey = parser.state == .key || parser.state == .firstKey
+      // `fuseNumberRun` keeps its indentation prediction in the parser, so the mirror's calls go
+      // through one scratch parser, as the shipped walk's go through one.
+      var fuser = JSONParser()
+      var fuserSink = RecordingSink()
+
+      // A buffer of its own rather than `withUnsafeBytes`: a typed-throws closure around this body
+      // crashes the 6.4 SIL ownership verifier.
+      let storage = UnsafeMutableRawBufferPointer.allocate(byteCount: bytes.count, alignment: 16)
+      defer { storage.deallocate() }
+      storage.copyBytes(from: bytes)
+      do {
+        let base = UnsafeRawPointer(storage.baseAddress!)
+        fuserSink.base = base
+        fuserSink.count = bytes.count
         outer: while p &+ 64 <= bytes.count {
           let classes = stream_parsing_classify_structural_block(
             base.advanced(by: p).assumingMemoryBound(to: UInt8.self), 0, 0)
-          let before = strikes
-          if classes.no_outer_whitespace != 0 || classes.starts.nonzeroBitCount >= 48 {
-            strikes &+= 1
-          } else if strikes != 0 {
-            strikes = 0
-          }
-          let stopsAtGate = strikes >= 4
           var mask = classes.starts
           var visits: [StructuralBlockTrace.Visit] = []
           var reanchor: Int?
+          let outer = self.outerWhitespace(bytes, from: p)
+          let takes = classes.needs_scalar == 0 && classes.ladder_block == 0
 
-          if classes.needs_scalar == 0 && !stopsAtGate {
+          if takes {
             while mask != 0 {
               let bit = mask.trailingZeroBitCount
               let at = p &+ bit
               let byte = bytes[at]
               var next = at &+ 1
               var kind = self.structuralKind(byte)
+              var fused: String?
+              var fusedNumbers = 0
+              var stop: String?
 
               if byte == UInt8(ascii: "\"") {
-                kind = "quoted token"
                 let throughOpening = bit == 63 ? UInt64.max : (UInt64(1) &<< UInt64(bit &+ 1)) &- 1
                 let closers = classes.quote & ~throughOpening
+                let close: Int
                 if closers != 0 {
-                  next = p &+ closers.trailingZeroBitCount &+ 1
+                  close = p &+ closers.trailingZeroBitCount
                 } else {
-                  let run = streamStringRun(base: base, from: at &+ 1, to: bytes.count)
-                  next = min(run.end &+ 1, bytes.count)
+                  close = streamStringRun(base: base, from: at &+ 1, to: bytes.count).end
+                }
+                next = close &+ 1
+                if expectsKey {
+                  kind = "key"
+                  expectsKey = false
+                  // The colon is taken with an in-block key when it sits against the quote.
+                  if closers != 0, close &- p != 63, bytes[close &+ 1] == UInt8(ascii: ":") {
+                    next = close &+ 2
+                    fused = "colon"
+                  }
+                } else {
+                  kind = "string"
                 }
               } else if byte == UInt8(ascii: "t") || byte == UInt8(ascii: "n") {
                 kind = "literal"
@@ -204,69 +245,165 @@ enum BlockTraces {
                 next = at &+ 5
               } else if byte == UInt8(ascii: "-") || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte) {
                 kind = "number"
-                next = streamNumberRunEnd(base: base, from: at, to: bytes.count)
+                let ends = classes.scalar_end & (UInt64.max &<< UInt64(bit))
+                var end = p &+ ends.trailingZeroBitCount
+                if ends == 0 {
+                  end = streamNumberRunEnd(base: base, from: end, to: bytes.count)
+                  if end >= bytes.count {
+                    stop = "tokenCut"
+                    end = at
+                  }
+                }
+                next = end
+                if stop == nil, depth > 0, end &+ 1 < bytes.count, bytes[end] == UInt8(ascii: ","),
+                  !JSONParser.topIsObject(depth: depth, containers: containers)
+                {
+                  let before = fuserSink.events.count
+                  let resume = try fuser.fuseNumberRun(
+                    base: base, comma: end, to: bytes.count, into: &fuserSink)
+                  if resume < 0 {
+                    next = ~resume
+                    stop = "tokenCut"
+                  } else {
+                    next = resume
+                  }
+                  fusedNumbers = fuserSink.events.count &- before
+                  if fusedNumbers > 0 { fused = "numberRun" }
+                }
+              } else if byte == UInt8(ascii: "{") || byte == UInt8(ascii: "[") {
+                JSONParser.pushContainer(object: byte == UInt8(ascii: "{"), depth: &depth, containers: &containers)
+                expectsKey = byte == UInt8(ascii: "{")
+              } else if byte == UInt8(ascii: "}") || byte == UInt8(ascii: "]") {
+                depth &-= 1
+                if depth == 0 { stop = "done" }
+              } else if byte == UInt8(ascii: ",") {
+                expectsKey = JSONParser.topIsObject(depth: depth, containers: containers)
+              }
+
+              if let stop {
+                visits.append(
+                  StructuralBlockTrace.Visit(
+                    offset: at, byte: byte, kind: kind, next: next,
+                    maskAfter: self.maskBits(0), reanchors: false, fused: fused,
+                    fusedNumbers: fusedNumbers))
+                exit = stop
+                blocks.append(self.block(blocks.count, p: p, bytes: bytes, classes: classes, outer: outer, visits: visits))
+                p = next
+                break outer
               }
 
               let movesGrid = next &- p >= 64
               if movesGrid {
                 mask = 0
                 reanchor = next
-              } else if next == at &+ 1 {
-                mask &= mask &- 1
               } else {
                 mask &= UInt64.max &<< UInt64(next &- p)
               }
               visits.append(
                 StructuralBlockTrace.Visit(
                   offset: at, byte: byte, kind: kind, next: next,
-                  maskAfter: self.maskBits(mask), reanchors: movesGrid))
+                  maskAfter: self.maskBits(mask), reanchors: movesGrid, fused: fused,
+                  fusedNumbers: fusedNumbers))
               if movesGrid { break }
             }
           }
 
-          blocks.append(
-            StructuralBlockTrace.Block(
-              index: blocks.count, offset: p, bytes: Array(bytes[p..<(p + 64)]),
-              starts: self.maskBits(classes.starts), quotes: self.maskBits(classes.quote),
-              backslashes: self.maskBits(classes.backslash),
-              startCount: classes.starts.nonzeroBitCount,
-              noOuterWhitespace: classes.no_outer_whitespace != 0,
-              nonASCII: classes.non_ascii != 0, needsScalar: classes.needs_scalar != 0,
-              strikeBefore: before, strikeAfter: strikes, givesUp: stopsAtGate, visits: visits))
-
-          if classes.needs_scalar != 0 { break outer }
-          if stopsAtGate {
-            gaveUp = true
+          blocks.append(self.block(blocks.count, p: p, bytes: bytes, classes: classes, outer: outer, visits: visits))
+          if classes.needs_scalar != 0 {
+            exit = "needsScalar"
+            break outer
+          }
+          if classes.ladder_block != 0 {
+            exit = "ladderBlock"
             break outer
           }
           p = reanchor ?? (p &+ 64)
         }
       }
 
-      var parser = JSONParser()
       var state = parser.state
-      var depth = parser.depth
-      var containers = parser.containers
+      var shippedDepth = parser.depth
+      var shippedContainers = parser.containers
       var sink = RecordingSink()
-      let shippedResult = try bytes.withUnsafeBytes { raw -> Int in
+      let shippedEnd = try bytes.withUnsafeBytes { raw -> Int in
         sink.base = raw.baseAddress
         sink.count = bytes.count
         return try parser.consumeStructuralBlocks(
-          base: raw.baseAddress!, from: 0, to: bytes.count, state: &state, depth: &depth,
-          containers: &containers, into: &sink)
+          base: raw.baseAddress!, from: entry, to: bytes.count, state: &state, depth: &shippedDepth,
+          containers: &shippedContainers, into: &sink)
       }
-      let shippedGaveUp = shippedResult < 0
-      let shippedEnd = shippedGaveUp ? ~shippedResult : shippedResult
+      let resume = bytes.withUnsafeBytes { raw in
+        state.isStructural ? streamWhitespaceEnd(base: raw.baseAddress!, from: p, to: bytes.count) : p
+      }
 
       let blockEvents = try self.parseEvents(bytes, blockWalkEnabled: true)
       let scalarEvents = try self.parseEvents(bytes, blockWalkEnabled: false)
       let eventsMatch = self.eventsEqual(blockEvents, scalarEvents)
-      let verified = p == shippedEnd && gaveUp == shippedGaveUp && eventsMatch
+      let verified = p == shippedEnd && depth == shippedDepth && eventsMatch
 
       return StructuralBlockTrace.Case(
-        name: name, purpose: purpose, sample: sample, bytes: bytes, blocks: blocks, end: p,
-        shippedEnd: shippedEnd, gaveUp: gaveUp, shippedGaveUp: shippedGaveUp,
-        eventsMatch: eventsMatch, verified: verified)
+        name: name, purpose: purpose, sample: sample, bytes: bytes, entry: entry,
+        entryState: entryState, blocks: blocks, end: p, exit: exit, shippedEnd: shippedEnd,
+        resume: resume, eventsMatch: eventsMatch, verified: verified)
+    }
+
+    /// Where the ladder first signals: a whitespace byte outside a string, followed by the byte
+    /// the shipped `signalsBlockWalk` accepts, with a whole block ahead.
+    private static func signalOffset(_ bytes: [UInt8]) throws -> Int {
+      var inString = false
+      var escaped = false
+      for i in 0..<(bytes.count &- 64) {
+        let byte = bytes[i]
+        if inString {
+          if escaped { escaped = false }
+          else if byte == UInt8(ascii: "\\") { escaped = true }
+          else if byte == UInt8(ascii: "\"") { inString = false }
+          continue
+        }
+        if byte == UInt8(ascii: "\"") { inString = true; continue }
+        if byte <= 0x20, JSONParser.signalsBlockWalk(byte, bytes[i &+ 1]) { return i }
+      }
+      struct NoSignal: Error {}
+      throw NoSignal()
+    }
+
+    private static func outerWhitespace(_ bytes: [UInt8], from p: Int) -> (count: Int, run: Bool) {
+      // Quote parity from the grid's first byte, which the walk guarantees is outside a string.
+      var inString = false
+      var escaped = false
+      var count = 0
+      var run = false
+      var previous = false
+      for i in p..<(p &+ 64) {
+        let byte = bytes[i]
+        var outerSpace = false
+        if inString {
+          if escaped { escaped = false }
+          else if byte == UInt8(ascii: "\\") { escaped = true }
+          else if byte == UInt8(ascii: "\"") { inString = false }
+        } else if byte == UInt8(ascii: "\"") {
+          inString = true
+        } else if streamIsWhitespace(byte) {
+          outerSpace = true
+          count &+= 1
+          if previous { run = true }
+        }
+        previous = outerSpace
+      }
+      return (count, run)
+    }
+
+    private static func block(
+      _ index: Int, p: Int, bytes: [UInt8], classes: stream_parsing_structural_classes,
+      outer: (count: Int, run: Bool), visits: [StructuralBlockTrace.Visit]
+    ) -> StructuralBlockTrace.Block {
+      StructuralBlockTrace.Block(
+        index: index, offset: p, bytes: Array(bytes[p..<(p + 64)]),
+        starts: self.maskBits(classes.starts), quotes: self.maskBits(classes.quote),
+        backslashes: self.maskBits(classes.backslash), scalarEnds: self.maskBits(classes.scalar_end),
+        startCount: classes.starts.nonzeroBitCount, outerWhitespace: outer.count,
+        outerWhitespaceRun: outer.run, ladderBlock: classes.ladder_block != 0,
+        nonASCII: classes.non_ascii != 0, needsScalar: classes.needs_scalar != 0, visits: visits)
     }
 
     private static func parseEvents(_ bytes: [UInt8], blockWalkEnabled: Bool) throws

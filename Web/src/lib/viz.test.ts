@@ -54,12 +54,26 @@ describe("blockStep", () => {
 });
 
 describe("block-walk timelines", () => {
-  it("keeps the moving grid and four-strike verdict in order", () => {
-    const moving = structuralBlockTimeline(traces.structuralBlocks.cases[0]);
-    const gated = structuralBlockTimeline(traces.structuralBlocks.cases[1]);
-    expect(moving[0].op).toBe("classify");
+  it("opens on the ladder's signal and closes on the walk's exit", () => {
+    const [indented, handedBack] = traces.structuralBlocks.cases;
+    const moving = structuralBlockTimeline(indented);
+    expect(moving[0]).toMatchObject({ op: "signal", cursor: indented.entry });
+    expect(moving[1].op).toBe("classify");
+    // The long string re-anchors the second grid at its closing quote, not at entry + 64.
     expect(moving.some((step) => step.op === "advance" && step.next === 85)).toBe(true);
-    expect(gated.at(-1)).toMatchObject({ op: "give up", next: 195 });
+    expect(moving.at(-1)).toMatchObject({ op: "return", next: indented.resume });
+
+    const back = structuralBlockTimeline(handedBack);
+    expect(handedBack.exit).toBe("ladderBlock");
+    expect(handedBack.blocks.at(-1)?.ladderBlock).toBe(true);
+    expect(back.at(-1)).toMatchObject({ op: "hand back", next: handedBack.resume });
+  });
+
+  it("records the colon and the number run the walk takes with a token", () => {
+    const visits = traces.structuralBlocks.cases[0].blocks.flatMap((block) => block.visits);
+    expect(visits.filter((visit) => visit.fused === "colon").length).toBeGreaterThan(1);
+    const run = visits.find((visit) => visit.fused === "numberRun");
+    expect(run?.fusedNumbers).toBeGreaterThan(0);
   });
 
   it("settles each skip block's carries after its bracket visits", () => {

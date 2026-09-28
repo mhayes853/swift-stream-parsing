@@ -229,6 +229,7 @@ enum RoutingTraces {
     case .streamString: "streamString"
     case .inlineString: "inlineString"
     case .container: "container"
+    case .delegated: "delegated"
     }
   }
 

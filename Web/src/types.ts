@@ -244,6 +244,9 @@ export interface StructuralBlockVisit {
   next: number;
   maskAfter: boolean[];
   reanchors: boolean;
+  /** What the arm took with the token: a key's `colon`, or the `numberRun` fuseNumberRun took. */
+  fused?: "colon" | "numberRun";
+  fusedNumbers: number;
 }
 
 export interface StructuralBlock {
@@ -253,26 +256,30 @@ export interface StructuralBlock {
   starts: boolean[];
   quotes: boolean[];
   backslashes: boolean[];
+  scalarEnds: boolean[];
   startCount: number;
-  noOuterWhitespace: boolean;
+  outerWhitespace: number;
+  outerWhitespaceRun: boolean;
+  ladderBlock: boolean;
   nonASCII: boolean;
   needsScalar: boolean;
-  strikeBefore: number;
-  strikeAfter: number;
-  givesUp: boolean;
   visits: StructuralBlockVisit[];
 }
+
+export type StructuralExit = "tail" | "ladderBlock" | "needsScalar" | "done" | "tokenCut";
 
 export interface StructuralBlockCase {
   name: string;
   purpose: string;
   sample: string;
   bytes: number[];
+  entry: number;
+  entryState: string;
   blocks: StructuralBlock[];
   end: number;
+  exit: StructuralExit;
   shippedEnd: number;
-  gaveUp: boolean;
-  shippedGaveUp: boolean;
+  resume: number;
   eventsMatch: boolean;
   verified: boolean;
 }

@@ -36,7 +36,7 @@ export function blockStep(index: number, perBlock: number): { block: number; op:
 }
 
 export interface StructuralTimelineStep {
-  op: "classify" | "gate" | "visit" | "advance" | "give up";
+  op: "signal" | "classify" | "verdict" | "visit" | "advance" | "hand back" | "return";
   block: number;
   visit?: number;
   cursor?: number;
@@ -44,11 +44,20 @@ export interface StructuralTimelineStep {
   mask: boolean[];
 }
 
+/**
+ * The walk as the parser runs it: the ladder's signal, then per block the classify, the
+ * `needs_scalar`/`ladder_block` verdict, one step per token start, and either the next grid or the
+ * return to the ladder. The last block's closing step says why the walk stopped.
+ */
 export function structuralBlockTimeline(trace: StructuralBlockCase): StructuralTimelineStep[] {
-  const steps: StructuralTimelineStep[] = [];
+  const first = trace.blocks[0];
+  const steps: StructuralTimelineStep[] = [
+    { op: "signal", block: 0, cursor: trace.entry, next: trace.entry, mask: first?.starts ?? [] }
+  ];
   for (const block of trace.blocks) {
+    const last = block.index === trace.blocks.length - 1;
     steps.push({ op: "classify", block: block.index, next: block.offset, mask: block.starts });
-    steps.push({ op: "gate", block: block.index, next: block.offset, mask: block.starts });
+    steps.push({ op: "verdict", block: block.index, next: block.offset, mask: block.starts });
     for (const [visit, token] of block.visits.entries()) {
       steps.push({
         op: "visit",
@@ -59,13 +68,23 @@ export function structuralBlockTimeline(trace: StructuralBlockCase): StructuralT
         mask: token.maskAfter
       });
     }
-    const last = block.visits.at(-1);
-    steps.push({
-      op: block.givesUp ? "give up" : "advance",
-      block: block.index,
-      next: last?.reanchors ? last.next : block.givesUp ? block.offset : block.offset + 64,
-      mask: last?.maskAfter ?? block.starts
-    });
+    const tail = block.visits.at(-1);
+    const mask = tail?.maskAfter ?? block.starts;
+    if (!last) {
+      steps.push({
+        op: "advance",
+        block: block.index,
+        next: tail?.reanchors ? tail.next : block.offset + 64,
+        mask
+      });
+    } else {
+      steps.push({
+        op: trace.exit === "ladderBlock" || trace.exit === "needsScalar" ? "hand back" : "return",
+        block: block.index,
+        next: trace.resume,
+        mask
+      });
+    }
   }
   return steps;
 }

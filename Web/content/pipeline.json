@@ -19,7 +19,7 @@
         "title": "A switch over thirteen states, and structural bytes taken in runs",
         "detail": [
           "`parse` is 1284 bytes, 322 instructions, 18 calls and no vector instruction: it decides what the next byte is and calls the function for that token class. A byte's cost is that round trip rather than its own work — so `},{\"` and `\":`, a fifth of token dense JSON and always in clusters, are taken by a loop that stays put while the state is structural, and a value that finishes inside the chunk is settled there too.",
-          "For the length of a run the state, the depth and the container stack sit in locals, the stack being one `UInt64` whose bit *n* says whether depth *n* is an object — which is why nesting stops at sixty-four rather than spilling. Where the input is dense one NEON classification of sixty-four bytes replaces the scans in front of each token. A fully windowed walk exists behind a threshold and is off by default: it loses 4–36% wherever a document is not structurally dense."
+          "For the length of a run the state, the depth and the container stack sit in locals, the stack being one `UInt64` whose bit *n* says whether depth *n* is an object — which is why nesting stops at sixty-four rather than spilling. Where there is indentation, or a string after whitespace, one NEON classification of sixty-four bytes replaces the scans in front of each token; the ladder signals it from two bytes at the cursor, and the walk hands back any block with nothing to buy. There is one walk: the windowed path that indexed 32 KB ahead is deleted."
         ],
         "stage": "dispatch",
         "node": [
@@ -46,10 +46,11 @@
       },
       {
         "title": "A number is scanned greedily, then parsed by the narrowest kernel that fits it",
-        "detail": "One pass finds the token's end. An unsigned integer of up to eight digits is parsed with no loop and no data dependent branch, from the eight bytes *ending* at the token: those are already consumed input, so one `end >= 8` test makes the read safe and the bytes masked off become leading zeros. Floats are accumulated and finished by Eisel-Lemire rather than a `String` round trip. Either way the number is emitted once and whole — `1`, `12`, `123` are not prefixes of the value the way partial string content is.",
+        "detail": "One pass finds the token's end — or, inside the block walk, one bit in a mask the classifier already produced. An unsigned integer of up to eight digits is parsed with no loop and no data dependent branch, from the eight bytes *ending* at the token: those are already consumed input, so one `end >= 8` test makes the read safe and the bytes masked off become leading zeros. Floats are accumulated and finished by Eisel-Lemire rather than a `String` round trip. An array's numbers after the first are taken by one out-of-line loop, comma and whitespace included. Either way the number is emitted once and whole — `1`, `12`, `123` are not prefixes of the value the way partial string content is.",
         "stage": "numbers",
         "node": [
           "number-scan",
+          "number-run",
           "short-integer",
           "eisel-lemire"
         ]
@@ -163,9 +164,23 @@
         ]
       },
       {
+        "title": "How the bytes are walked depends on the bytes, not on history",
+        "detail": [
+          "The block walk does not pay everywhere: Mesh and Canada ran faster on the scalar ladder. It used to decide that by counting — four losing blocks in a row gave the walk up, 64 KB of chunks re-armed it, and a windowed path waited behind a size threshold. So the same document could parse one way at 2 KB chunks and another at 8 KB, and its first 256 bytes decided the next 64 KB.",
+          "Both are gone. The ladder enters the walk on two bytes at the cursor — whitespace followed by whitespace or a quote — and the walk returns any block the classifier marks as the ladder's. Against the counting gate that was +0.23% over 41 rows, with typed Mesh the one real loss at -5.5%, kept as the price of a parser with no hidden state about which path it is on."
+        ],
+        "node": [
+          "structural-blocks"
+        ],
+        "doc": [
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/when-the-walk-runs-a-signal-in-the-ladder-a-verdict-per-block",
+          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/windowed-mode-is-gone"
+        ]
+      },
+      {
         "title": "The experiments that lost are kept too",
         "detail": [
-          "Thirty of the recorded experiments were rejected against twenty-five landed, and several of the rejections are the counterintuitive ones above: a change that is free by construction, a fusion that hits 100% of the time, a word compare replacing a byte loop. Each is kept with the measurement that settled it, because the argument for building it is just as convincing the second time somebody makes it. The Experiments view above lists them together."
+          "Thirty-two of the recorded experiments were rejected against twenty-eight landed, and several of the rejections are the counterintuitive ones above: a change that is free by construction, a fusion that hits 100% of the time, a word compare replacing a byte loop. Each is kept with the measurement that settled it, because the argument for building it is just as convincing the second time somebody makes it. The Experiments view above lists them together."
         ],
         "doc": [
           "design-decisions/literals-are-already-fast-enough-to-be-unmeasurable"
@@ -227,23 +242,25 @@
         "This is where that contract is kept. Everything downstream works on one chunk, a base pointer and a count. `parse(_:into:)` decides how that chunk is walked, and makes sure the sink ends the call holding everything the chunk produced, including when the call throws."
       ],
       "prose": [
-        "There are three entry points. The buffer form does one length test to pick a walk, then wraps the loop in a handler that settles a pending `stringBegin` and commits the sink before an error propagates. `parse(byte:)` first tests for byte-fed input's most common shape, an ordinary ASCII byte inside a string value, and emits it as one `stringChunk` without entering the dispatcher. `finish(into:)` is the other end: a document that ends in a number only finds out the number is complete there, and an unclosed string or container is reported there.",
+        "There are three entry points, and one walk behind them. The buffer form runs the dispatcher over the chunk, wrapped in a handler that settles a pending `stringBegin` and commits the sink before an error propagates. `parse(byte:)` first tests for byte-fed input's most common shape, an ordinary ASCII byte inside a string value, and emits it as one `stringChunk` without entering the dispatcher. `finish(into:)` is the other end: a document that ends in a number only finds out the number is complete there, and an unclosed string or container is reported there.",
         "The ordering in the error handler matters. Everything emitted ahead of a grammar error still belongs to the sink, so a destination that rejected something earlier gets to report *its* failure rather than having the parser's take precedence.",
-        "The chunk's address is never stored. It is threaded down into the walk and on into every emission, because the run loop already holds it in a register. What the parser *does* store is laid out to a cache line, with everything a parse reads or writes in the first sixty-four bytes."
+        "The chunk's address is never stored. It is threaded down into the walk and on into every emission, because the run loop already holds it in a register. What the parser *does* store is laid out to a cache line, with everything a parse reads or writes in the first sixty-four bytes.",
+        "There used to be a second walk. Chunks past `windowThreshold` could be indexed 32 KB ahead in C and walked from the index; the threshold defaulted to `.max`, the path won only Canada and Mesh, and it lost 17–30% on the typed string-heavy rows. It was deleted with its indexer and its long-decimal kernel, about 2,300 lines, and with it the last threshold compare in `parse`: whether the block walk runs is now decided by the bytes at the cursor, not by the size of the chunk or what the parser saw before."
       ],
       "evidence": {
         "doc": [
           "design-decisions/buffering",
           "known-gaps",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/parse-byte-s-one-shape-fast-path",
-          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/jsonparser-s-field-order-is-a-cache-line-decision"
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/jsonparser-s-field-order-is-a-cache-line-decision",
+          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/windowed-mode-is-gone"
         ],
         "source": [
           "JSONParser.swift:parse",
+          "JSONParser.swift:parseDispatching",
           "JSONParser.swift:JSONParser",
           "JSONParser.swift:finish",
           "JSONParserEvents.swift:emissionSpan",
-          "JSONParser.swift:parsePastThreshold",
           "JSONParserEvents.swift:deliverStringByte"
         ],
         "asm": [
@@ -252,25 +269,19 @@
       },
       "next": [
         {
-          "to": "window-gate",
-          "kind": "branch",
-          "label": "n ≥ windowThreshold",
-          "when": "The chunk is large enough to index ahead of the walk. `parsePastThreshold` takes it, and runs `parseWindowed` unless a given-up block walk is due a re-probe, in which case it counts the chunk and walks it with the ordinary dispatcher."
-        },
-        {
           "to": "dispatcher",
-          "kind": "branch",
-          "label": "otherwise",
-          "when": "The ordinary path: the bytes are walked directly by `parseDispatching`, which is force-inlined so the loop's layout is what it was when it lived here."
+          "kind": "step",
+          "label": "walk the chunk",
+          "when": "The only walk: `parseDispatching` runs the dispatcher's loop over the bytes, force-inlined so the loop's layout is what it was when it lived here."
         },
         {
           "to": "buffering",
           "kind": "step",
           "label": "on the way out",
-          "when": "Both walks end the same way — `settlePendingStringBegin`, then `commitSink`, then the consumed-byte count advances. This also runs on the error path, which is the point: what was emitted before a grammar error still belongs to the sink."
+          "when": "The walk ends the same way whether it finished or threw — `settlePendingStringBegin`, then `commitSink`, then the consumed-byte count advances. Running on the error path is the point: what was emitted before a grammar error still belongs to the sink."
         }
       ],
-      "invokes": "One length test picks the walk, and the whole call is wrapped in a handler that commits to the sink before any error propagates.",
+      "invokes": "The whole call is wrapped in a handler that commits to the sink before any error propagates; inside it, one loop runs the dispatcher until the chunk is spent.",
       "ordering": "ordered",
       "steps": [
         {
@@ -316,9 +327,9 @@
               "label": "what the parser does hold"
             },
             {
-              "to": "gate",
+              "to": "dispatching",
               "kind": "step",
-              "label": "pick a walk"
+              "label": "walk the chunk"
             }
           ],
           "ordering": "ordered"
@@ -327,52 +338,16 @@
           "id": "layout",
           "title": "one cache line of state",
           "kicker": "64 bytes",
-          "detail": "Field order here is a cache-line decision, not a taste one. Everything a parse reads or writes lives in the first sixty-four bytes; past them sit `ownsBuffer`, which only the deinit reads, and the window telemetry, which is dead for any parser that never crosses `windowThreshold` — the default. The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free on arm64, where `ldrb`/`ldrh` zero-extend, while packing per-byte state into shared words would turn plain stores into read-modify-writes on the string and unicode paths and break the store fusion the compiler already performs on the adjacent flags — it emits one `strh` for `isKeyToken` and `keyContainsNonASCII`. The buffer is split out of its `UnsafeMutableBufferPointer` so its capacity sits next to the count the append guard compares against: one eight-byte load answers both.",
+          "detail": "Field order here is a cache-line decision, not a taste one. Everything a parse reads or writes lives in the first sixty-four bytes, and past them sits `ownsBuffer`, which only the deinit reads; with the window fields and the block walk's strike state gone the struct is 72 bytes. The small fields are narrowed to their real ranges rather than bit-packed: narrowing is free on arm64, where `ldrb`/`ldrh` zero-extend, while packing per-byte state into shared words would turn plain stores into read-modify-writes on the string and unicode paths and break the store fusion the compiler already performs on the adjacent flags — it emits one `strh` for `isKeyToken` and `keyContainsNonASCII`. Where a new byte goes matters too: `fuseNumberRun`'s indentation prediction sits in the padding byte at offset 9, because anywhere earlier moved the literal fields off two-byte alignment and every `strh` in the structural run became `sturh`. Size itself is a placement lottery rather than a cache-line effect: a sweep of seven otherwise identical builds from 80 to 128 bytes was flat to 104 and worst at 128.",
           "source": "JSONParser.swift:JSONParser",
           "next": []
-        },
-        {
-          "id": "gate",
-          "title": "n vs windowThreshold",
-          "kicker": "one compare",
-          "detail": "One compare picks the walk. The threshold defaults to `Int.max`, so the windowed path is off unless a caller asks for it — with one exception: while a given-up structural block walk is waiting to be re-probed, the gate lowers the default to 4 KB so bulk-sized chunks are routed past it and counted.",
-          "source": "JSONParser.swift:parse",
-          "ordering": "ordered",
-          "next": [
-            {
-              "to": "windowed",
-              "kind": "branch",
-              "label": "n ≥ threshold",
-              "when": "Long enough to be worth indexing 32 KB ahead of the walk, or a bulk chunk the lowered threshold sent to be counted."
-            },
-            {
-              "to": "dispatching",
-              "kind": "branch",
-              "label": "n < threshold",
-              "when": "The ordinary path: the dispatcher walks the bytes itself."
-            }
-          ]
-        },
-        {
-          "id": "windowed",
-          "title": "parsePastThreshold",
-          "kicker": "window or re-probe",
-          "detail": "Out of line, so the test for a pending re-probe is not in front of every `parse` call. With a re-probe due it counts the chunk's kilobytes toward the 64 KB countdown and, if the gate lowered the threshold, walks the chunk with the dispatcher and commits exactly as `parse` does; otherwise it runs the indexed walk, whose own node covers what it does and why it is gated.",
-          "source": "JSONParser.swift:parsePastThreshold",
-          "next": [
-            {
-              "to": "commit",
-              "kind": "return",
-              "label": "the walk finished, or threw"
-            }
-          ]
         },
         {
           "id": "dispatching",
           "title": "parseDispatching",
           "kicker": "13 states",
-          "detail": "The switch-per-state loop that owns every token class.",
-          "source": "JSONParser.swift:parse",
+          "detail": "The switch-per-state loop that owns every token class. It is the only walk: the windowed path that once sat beside it behind `windowThreshold` is deleted.",
+          "source": "JSONParser.swift:parseDispatching",
           "next": [
             {
               "to": "commit",
@@ -563,188 +538,6 @@
       ]
     },
     {
-      "id": "window-gate",
-      "stage": "entry",
-      "title": "The windowed walk",
-      "kicker": "gated",
-      "viz": null,
-      "why": [
-        "The dispatcher decides what to do one token at a time. In a document made of short tokens, such as canada.json's coordinate arrays or a mesh, a decision comes every few bytes. Finding every structural byte in a large window first, in one vectorised pass, lets the walk follow a precomputed index instead of making each of those decisions against the bytes.",
-        "The step is gated because the trade only pays on structurally dense input. Where strings are long or chunks are small, building the index costs more than it saves, so the parser has to be able to decline it up front and to stop indexing partway through a document when the windows turn sparse."
-      ],
-      "prose": [
-        "Chunks of at least `windowThreshold` bytes take this path. The threshold defaults to `.max`, so the windowed walk is opt-in per parser. The block walk's re-probe also lowers it temporarily, to count bulk chunks through the same entry, and in that case the chunk is walked by the ordinary dispatcher.",
-        "Measured across the full corpus, the windowed walk loses 4–36% on string-heavy and sub-window payloads: the index costs more to build than the walk saves whenever the document is not structurally dense. It probes density per window and routes sparse windows back to the dispatcher."
-      ],
-      "evidence": {
-        "doc": [
-          "the-windowed-walk-first-pass",
-          "stage-1-extraction-the-census-and-the-budget",
-          "index-cost-three-moves-and-what-each-one-bought",
-          "shape-loops-the-walk-stops-being-a-state-machine"
-        ],
-        "source": [
-          "JSONParserWindow.swift:parseWindowed",
-          "StreamParsingShims.h:stream_parsing_index_window",
-          "JSONParserShapes.swift:consumeObjectMembers"
-        ],
-        "asm": []
-      },
-      "next": [
-        {
-          "to": "dispatcher",
-          "kind": "branch",
-          "label": "window not dense enough",
-          "when": "Density is probed per window. When the index stops paying for itself the remaining bytes go through the ordinary dispatch loop, which is also what happens for the whole chunk when the gate is off."
-        }
-      ],
-      "invokes": "Indexes a 32 KB window, walks the index rather than the bytes, and measures density as it goes.",
-      "steps": [
-        {
-          "id": "scratch",
-          "title": "one scratch allocation",
-          "kicker": "reused",
-          "detail": "Held on the parser and reused across calls: 32 KB of `UInt32` positions plus two bitmap planes, one for the blocks that need a scan and one for the blocks holding non-ASCII.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "next": [
-            {
-              "to": "boundary",
-              "kind": "step",
-              "label": "walk the chunk"
-            }
-          ]
-        },
-        {
-          "id": "boundary",
-          "title": "is the cursor at a token boundary?",
-          "kicker": "state test",
-          "detail": "A window may start only outside a string with nothing buffered, because the indexer carries no state across windows. Anything else is the dispatcher's.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "ordering": "ordered",
-          "next": [
-            {
-              "to": "done",
-              "kind": "branch",
-              "label": "the chunk is consumed",
-              "when": "The walk ends where a bulk parse would, with the same events already delivered."
-            },
-            {
-              "to": "dispatchOnce",
-              "kind": "branch",
-              "label": "mid-token",
-              "when": "Inside a string, a buffered number, an escape in flight: one dispatcher step at a time until the cursor is back at a boundary."
-            },
-            {
-              "to": "density",
-              "kind": "branch",
-              "label": "structural, nothing buffered",
-              "when": "The cursor is at a token boundary outside any string, which is the only state the indexer can be started from."
-            }
-          ]
-        },
-        {
-          "id": "dispatchOnce",
-          "title": "one dispatcher step",
-          "kicker": "one token",
-          "detail": "The same handler the bulk path would have run, so the sink cannot tell which walk produced the events.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "next": [
-            {
-              "to": "boundary",
-              "kind": "return",
-              "label": "look again"
-            }
-          ]
-        },
-        {
-          "id": "density",
-          "title": "windowDensity vs 3",
-          "kicker": "entries per 64B",
-          "detail": "Entries per 64 bytes, measured on the last window that was indexed. Census: llm_message 0.7 and gsoc-2018 2.1 against citm 6.0, github 6.4, twitter 7.4 and canada 9.5.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "ordering": "ordered",
-          "next": [
-            {
-              "to": "sparse",
-              "kind": "branch",
-              "label": "below 3, probed recently",
-              "when": "String interior with little structure: the index costs more to build than the walk saves, so the span is the dispatcher's."
-            },
-            {
-              "to": "index",
-              "kind": "branch",
-              "label": "dense, or every eighth window",
-              "when": "Every eighth window is indexed regardless, so a document that turns dense again is noticed within one window."
-            }
-          ]
-        },
-        {
-          "id": "sparse",
-          "title": "hand the span to the dispatcher",
-          "kicker": "32 KB, unindexed",
-          "detail": "Bounded by where the steps stop, not by what they scan — a handler may overrun the span, as a string longer than it would — so the sink sees exactly the chunks a bulk parse produces.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "next": [
-            {
-              "to": "boundary",
-              "kind": "return",
-              "label": "the cursor left the span"
-            }
-          ]
-        },
-        {
-          "id": "index",
-          "title": "stream_parsing_index_window",
-          "kicker": "C, 32 KB",
-          "detail": "Stage one, in C: every position the walk must visit, written eight slots at a time. The whole loop is across the boundary because the shuffle it needs takes a target attribute Swift cannot spell.",
-          "source": "StreamParsingShims.h:stream_parsing_index_window",
-          "next": [
-            {
-              "to": "walk",
-              "kind": "step",
-              "label": "walk the index, not the bytes"
-            }
-          ]
-        },
-        {
-          "id": "walk",
-          "title": "consumeWindow",
-          "kicker": "extents known",
-          "detail": "The dispatcher's structural arms restated over known token extents. It still hands back every token a window cuts and every key with an escape in it — both cold — and the cursor comes back short of the window end when it does.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "next": [
-            {
-              "to": "members",
-              "kind": "detail",
-              "label": "what an object arm reads"
-            },
-            {
-              "to": "boundary",
-              "kind": "return",
-              "label": "a token was handed back"
-            }
-          ],
-          "ordering": "ordered"
-        },
-        {
-          "id": "members",
-          "title": "consumeObjectMembers",
-          "kicker": "entries, not bytes",
-          "detail": "The object arm of the indexed walk: key, colon and value come out of the index rather than from a scan. The index does not promise a scalar directly after a quote an entry of its own, so the gap between a key's closing quote and its colon is checked before either the key is emitted or the colon consumed — compact JSON takes the adjacent-colon compare and never scans whitespace at all. A complete key and colon can also be the last bytes of an incomplete chunk, so the value is left pending before its first byte is inspected; it belongs to the next parse call. Either check failing hands the cursor back to the dispatcher with the state set, rather than guessing.",
-          "source": "JSONParserShapes.swift:consumeObjectMembers",
-          "next": []
-        },
-        {
-          "id": "done",
-          "title": "the chunk is consumed",
-          "kicker": "same events",
-          "detail": "Same events, same spans, same error reasons and offsets, same rejection points as the unwindowed walk. That contract is why the arms are restated rather than rewritten.",
-          "source": "JSONParserWindow.swift:parseWindowed",
-          "next": []
-        }
-      ]
-    },
-    {
       "id": "dispatcher",
       "stage": "dispatch",
       "title": "parseDispatching",
@@ -755,7 +548,7 @@
         "Once the position is data, the parse loop is a switch over it. It reads the state, runs the handler for the token class that state names, and comes back. Every other step on the page chart is one of those handlers or something a handler calls."
       ],
       "prose": [
-        "The main loop is a switch over the parser's state that calls out to a handler per token class, and then re-enters. The switch is written once, in `dispatchOnce`, which is forced inline into the bulk loop and is also what `parse(byte:)` and the windowed walk's seam run, so the three cannot drift apart. Read on the release binary the dispatcher is a pure dispatcher with no SIMD in it: every token class is a separate function.",
+        "The main loop is a switch over the parser's state that calls out to a handler per token class, and then re-enters. The switch is written once, in `dispatchOnce`, which is forced inline into the bulk loop and is also the per-byte loop in `parse(byte:)`, so the two cannot drift apart. Read on the release binary the dispatcher is a pure dispatcher with no SIMD in it: every token class is a separate function.",
         "Keeping it that way takes explicit attributes, because of register pressure: anything inlined here is paid for by every document, including ones that never execute it. The same state-ladder transformation that made the structural step faster was applied to this loop and measured worse."
       ],
       "evidence": {
@@ -767,7 +560,7 @@
         "source": [
           "JSONParser.swift:parseDispatching",
           "JSONParser.swift:State",
-          "JSONParserWindow.swift:dispatchOnce"
+          "JSONParser.swift:dispatchOnce"
         ],
         "asm": [
           "JSONParser.parse"
@@ -820,8 +613,8 @@
           "id": "loop",
           "title": "dispatchOnce: switch self.state",
           "kicker": "a jump table",
-          "detail": "Thirteen cases over one `UInt8`, lowered as a jump table. Exactly one arm runs per iteration and each returns the new cursor. It is `@inline(__always)` rather than plain `@inlinable`: left to the optimizer the bulk loop called out once per iteration, which is what the loop exists to avoid. The same function is the per-byte loop in `parse(byte:)` and the windowed walk's fall-back seam.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "detail": "Thirteen cases over one `UInt8`, lowered as a jump table. Exactly one arm runs per iteration and each returns the new cursor. It is `@inline(__always)` rather than plain `@inlinable`: left to the optimizer the bulk loop called out once per iteration, which is what the loop exists to avoid. The same function is the per-byte loop in `parse(byte:)`.",
+          "source": "JSONParser.swift:dispatchOnce",
           "ordering": "unordered",
           "next": [
             {
@@ -860,8 +653,8 @@
           "id": "structural",
           "title": "consumeStructuralRun",
           "kicker": "a call",
-          "detail": "`consumeStructuralRun`, out of line: the structural state machine folded into a run loop, with the 64-byte block walk in front of it.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "detail": "`consumeStructuralRun`, out of line: the structural state machine folded into a run loop. On arm64 and AVX2 x86 a chunk of 64 bytes or more gets the copy of the loop that can signal the 64-byte block walk.",
+          "source": "JSONParser.swift:dispatchOnce",
           "next": [
             {
               "to": "advance",
@@ -875,7 +668,7 @@
           "title": "consumeStringRun / consumeKeyRun",
           "kicker": "a call",
           "detail": "Every token class is its own function precisely so this loop is not. A string value's first escape leaves `consumeStringRun` again, for `coalescedEscapedStringTail`.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "source": "JSONParser.swift:dispatchOnce",
           "next": [
             {
               "to": "advance",
@@ -889,7 +682,7 @@
           "title": "escape, then hex digits",
           "kicker": "one byte",
           "detail": "`consumeEscape` and `consumeUnicodeDigit`: the cold spellings, kept for the escape a chunk boundary cuts and for the ones carrying diagnostics.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "source": "JSONParser.swift:dispatchOnce",
           "next": [
             {
               "to": "advance",
@@ -903,7 +696,7 @@
           "title": "consumeNumber / consumeLiteral",
           "kicker": "a call",
           "detail": "The number arm and the literal arm, for a token the run handed back or one a chunk cut.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "source": "JSONParser.swift:dispatchOnce",
           "next": [
             {
               "to": "advance",
@@ -917,7 +710,7 @@
           "title": "consumeSkipRun",
           "kicker": "no events",
           "detail": "Structural-speed scanning with no events but the matching close.",
-          "source": "JSONParserWindow.swift:dispatchOnce",
+          "source": "JSONParser.swift:dispatchOnce",
           "next": [
             {
               "to": "advance",
@@ -965,12 +758,12 @@
       "viz": "containers",
       "why": [
         "Between tokens the parser is in a structural state, expecting a value, a key, a comma, a colon or a close. Those bytes are where the grammar is checked and where container events come from, and in object-heavy JSON they come in runs: `},{\"`, `\":`, `[[`. If every structural byte went back through the dispatcher, each one would pay for a switch, a call and a return on top of its own work.",
-        "The run keeps the loop in one function for as long as the state stays structural, with the nesting held in registers. Everything else on the structural path starts from here: the 64-byte block walk when there is room ahead, the whitespace scan before each byte, and the in-run paths that finish short values without leaving."
+        "The run keeps the loop in one function for as long as the state stays structural, with the nesting held in registers. Everything else on the structural path starts from here: the whitespace scan before each byte, the 64-byte block walk that scan can hand over to, and the in-run paths that finish short values without leaving."
       ],
       "prose": [
         "Nesting is held in two values: `depth`, and a single `UInt64` where bit *n* is 1 if the container at depth *n* is an object and 0 if it is an array. That is sixty-four levels of nesting in one register. Depth beyond that is rejected rather than spilled, which is why the ceiling exists.",
         "`state`, `depth` and `containers` are copied into locals for the duration of the run and written back on every exit. Left as fields they lived in memory: the release build stored `state` at the end of one byte and loaded it back at the start of the next, and that store-to-load round trip, not the switch, was the loop-carried dependency.",
-        "On arm64, and on x86 with the AVX2 classifier, a structural boundary with 64 bytes ahead first enters a block walk. The scalar copy is still the edge path and the authority for anything the classifier declines. The two copies are one `@_transparent` body with a `blocks` literal at each call site, so the scalar copy compiles to the code it was before the walk existed. On x86 the block copy is a call rather than a second inlined body, because inlining both moved `self` out of its register and the scalar loop paid for it."
+        "On arm64, and on x86 with the AVX2 classifier, a chunk of at least 64 bytes runs a second copy of the loop that can enter a block walk. It enters from the whitespace slow path: a whitespace byte followed by more whitespace or by a quote, with a whole block ahead. The two copies are one `@_transparent` body with a `blocks` literal at each call site, so the scalar copy compiles to the code it was before the walk existed and a byte-fed chunk pays one size compare to reach it. On x86 the block copy is a call rather than a second inlined body, because inlining both moved `self` out of its register and the scalar loop paid for it."
       ],
       "evidence": {
         "doc": [
@@ -978,10 +771,14 @@
           "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count",
           "design-decisions/the-run-loop-subsumes-the-transition-it-would-have-been-fused-with",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/two-copies-of-the-structural-run-and-why-the-body-must-be-_transparent",
-          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/reading-an-escaped-string-value-inside-the-structural-run"
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/reading-an-escaped-string-value-inside-the-structural-run",
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/when-the-walk-runs-a-signal-in-the-ladder-a-verdict-per-block"
         ],
         "source": [
           "JSONParser.swift:consumeStructuralRun",
+          "JSONParser.swift:structuralRun",
+          "JSONParser.swift:signalsBlockWalk",
+          "JSONParser.swift:structuralBlocksFromLadder",
           "JSONParserBlocks.swift:consumeStructuralBlocks",
           "JSONParser.swift:State",
           "JSONParser.swift:consumeEscapedStringInRun"
@@ -995,14 +792,14 @@
         {
           "to": "structural-blocks",
           "kind": "branch",
-          "label": "64 bytes ahead, gate open",
-          "when": "On arm64, or on x86 with AVX2, the parser is at a token boundary with no token in flight and the block walk has not given up on this payload's shape — or has been re-armed by the 64 KB re-probe since."
+          "label": "whitespace, then whitespace or `\"`",
+          "when": "The whitespace slow path found a whitespace byte followed by more whitespace (indentation) or by a quote (a string next), with 64 bytes ahead: exactly the two scans the walk replaces. One masked bitmap test and one branch. A minified document never gets here, and nothing is remembered between signals."
         },
         {
           "to": "whitespace-compare",
           "kind": "branch",
-          "label": "edge or scalar handoff",
-          "when": "Fewer than 64 bytes remain, a block contains something the classifier declines, or a token crosses the grid in a form the block path hands back. `streamWhitespaceEndByte` resumes at exactly that byte."
+          "label": "whitespace, no signal",
+          "when": "A byte ≤ 0x20 that does not signal — a lone separator space before a number, as all of Mesh is, or fewer than 64 bytes left — goes to `streamWhitespaceEndByte`, which hands back the byte it stopped on."
         },
         {
           "to": "state-ladder",
@@ -1011,7 +808,7 @@
           "when": "`consumeStructural`, folded in `@_transparent`, advances `state`, `depth` and `containers`. All three are locals for the duration of the run and are written back on every exit, the throwing ones included."
         }
       ],
-      "invokes": "At the top of each structural-loop iteration, the arm64 copy tries a 64-byte block. The same loop then owns the scalar edge: whitespace scan, state ladder, and another turn until the state stops being structural.",
+      "invokes": "Each iteration loads one byte. Above 0x20 it goes straight to the ladder; at or below, the `blocks` copy tests the two-byte signal and either calls the block walk or scans the whitespace, and the ladder then takes the byte either one returns.",
       "ordering": "ordered",
       "steps": [
         {
@@ -1030,32 +827,60 @@
         },
         {
           "id": "mode",
-          "title": "is a whole block available?",
-          "kicker": "gate open",
-          "detail": "The block verdict is read once at the function entry; at each token boundary, 64 remaining bytes choose the block walk. On x86 the verdict also carries whether the CPU has the AVX2 classifier at all — a machine without it starts every parse already given up — so the entry test is the availability test too. The byte-fed and short-tail path reaches the scalar scan without paying for the classifier.",
-          "source": "JSONParser.swift:consumeStructuralRun",
+          "title": "byte ≤ 0x20?",
+          "kicker": "one compare",
+          "detail": "The scan's one-compare fast path, spelled in the loop so the walk's signal sits behind it: a token with no whitespace in front of it — every token of a minified document — pays nothing. Which copy of the loop is running was settled once at entry, by `to - from >= 64` (size first, so a byte-fed call pays one compare) and on x86 by whether the CPU has the AVX2 classifier.",
+          "source": "JSONParser.swift:structuralRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "signal",
+              "kind": "branch",
+              "label": "whitespace, blocks copy",
+              "when": "A whitespace byte with 64 bytes ahead, in the copy of the loop that can walk blocks."
+            },
+            {
+              "to": "scan",
+              "kind": "branch",
+              "label": "whitespace, scalar copy",
+              "when": "A short chunk, byte-fed input, or a CPU without the block classifier."
+            },
+            {
+              "to": "ladder",
+              "kind": "branch",
+              "label": "byte > 0x20",
+              "when": "A structural byte or a token's first byte, already in a register."
+            }
+          ]
+        },
+        {
+          "id": "signal",
+          "title": "signalsBlockWalk(byte, next)",
+          "kicker": "one branch",
+          "detail": "`(streamWhitespaceBitmap >> byte) & (signalBitmap >> next) & 1`: the byte is whitespace and the one after it is whitespace or a quote. One AND of two masking shifts and one branch; it was two dependent branches with an overshift guard, and fusing them was +2.4..+2.8% on the pretty-printed raw rows. The masking shift aliases `next` modulo 64, so `I J M \\` b` and high bytes signal falsely — none can follow whitespace outside a string, so a false signal sends the walk a block it hands straight back. The signal is exact whitespace, not `<= 0x20`: a stray control byte signalling would loop between ladder and walk.",
+          "source": "JSONParser.swift:signalsBlockWalk",
           "ordering": "ordered",
           "next": [
             {
               "to": "wide",
               "kind": "branch",
-              "label": "64 bytes remain",
-              "when": "The parser is at a structural boundary and the block gate has not given up."
+              "label": "signalled",
+              "when": "Indentation, or a string after whitespace."
             },
             {
               "to": "scan",
               "kind": "branch",
-              "label": "scalar edge",
-              "when": "The tail is short, the CPU has no block classifier, or the gate has given up on this payload until the next re-probe."
+              "label": "not signalled",
+              "when": "A lone space before anything but a quote — Mesh's `, ` before every number is the case this exists for: -7.0% raw / -10.6% typed when it was walked."
             }
           ]
         },
         {
           "id": "wide",
-          "title": "consumeStructuralBlocks",
-          "kicker": "moving 64-byte grid",
-          "detail": "Classifies a block, walks `starts` with trailing-zero counts, and returns the first byte it will not settle. A negative result is the complemented cursor: the gate gave up, and the scalar copy runs until `probeBlockWalk` re-arms the walk 64 KB of bulk-sized chunks later. A string value whose scan stops on a backslash with its closing quote in the chunk is finished by `consumeEscapedStringInRun` without leaving the run; that call zeroes `self.depth` so it cannot fuse the following comma against the stale stack the fields hold, and the run takes the comma itself.",
-          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "title": "structuralBlocksFromLadder",
+          "kicker": "state through the fields",
+          "detail": "The ladder writes `state`, `depth` and `containers` back to the parser's fields and calls out; the walk reads them there and writes them back. Handing the walk the ladder's own locals `inout` made them address-taken and put their stores in the run's entry block, on every byte-fed call (Mesh -7.3%, Canada -4.0%). A second exit from the loop to an outer driver was measured too, and cost the rows that never signal 2–6%. What comes back is the walk's cursor with any whitespace skipped, so the ladder dispatches a token and never re-tests the signal on the byte it just handed over.",
+          "source": "JSONParser.swift:structuralBlocksFromLadder",
           "ordering": "ordered",
           "next": [
             {
@@ -1065,15 +890,10 @@
               "when": "A string, number or skipped subtree needs its dispatcher arm."
             },
             {
-              "to": "scan",
-              "kind": "branch",
-              "label": "hands back one byte",
-              "when": "The block path declines at a byte but leaves a structural state for the unchanged scalar loop."
-            },
-            {
-              "to": "mode",
-              "kind": "return",
-              "label": "whole blocks consumed"
+              "to": "ladder",
+              "kind": "step",
+              "label": "dispatch the byte it returns",
+              "when": "The walk handed a block back, ran out of whole blocks, or stopped at something only the scalar loop judges."
             }
           ]
         },
@@ -1127,7 +947,7 @@
             {
               "to": "mode",
               "kind": "return",
-              "label": "still structural"
+              "label": "still structural: next byte"
             }
           ]
         },
@@ -1173,26 +993,32 @@
       "viz": "structuralBlocks",
       "why": [
         "The scalar structural run still visits every byte between tokens: whitespace behind a compare, then a string scan per key and value. In pretty-printed or object-heavy JSON most of those bytes are not tokens. Classifying 64 bytes at once produces a mask of where each token starts, and the walk jumps from start to start with `trailingZeroBitCount` without looking at the bytes in between.",
-        "It sits in front of the scalar run and does not replace it. The scalar copy still handles the last bytes of a chunk, anything the classifier declines, and payloads where classifying does not remove enough work to pay for itself. That last case is why the walk counts strikes and can give up."
+        "It replaces two of the ladder's scans, whitespace runs and string extents, and nothing else pays for the classifier: a block of numbers with lone separator spaces runs faster on the ladder. So the walk runs where one of those two scans is about to happen — the ladder signals on indentation or a string after whitespace — and hands back any block that holds neither. Both tests read only the bytes at hand; nothing is counted or remembered between blocks."
       ],
       "prose": [
-        "One classification replaces the whitespace scan before every token, the string scan before every in-place key or value, and the per-string high-bit reduction. `starts` contains the opening quote or first candidate byte of each token; `quote` pairs string extents; `backslash` decides whether an extent can stay in place. On arm64 the NEON kernel is inlined at the call site; on x86 the AVX2 twin is a call per block.",
+        "One classification replaces the whitespace scan before every token, the string scan before every in-place key or value, the number scan, and the per-string high-bit reduction. `starts` holds the first byte of each token; `quote` pairs string extents; `backslash` decides whether an extent can stay in place; `scalar_end` — whitespace, `,` and the brackets — gives a number's end as the first set bit above it. On arm64 the NEON kernel is inlined at the call site; on x86 the AVX2 twin is a call per block.",
         "The grid moves with completed tokens. If a long string or token crosses byte 64, its existing scanner finishes it and the next classification begins at that end rather than at the old fixed boundary. Every classification therefore starts with zero quote and escape carries, and long string interiors are not classified again.",
-        "The classifier only pays on shapes where it removes whitespace work. A block with no whitespace outside strings, or at least 48 start candidates, is one strike. Four consecutive strikes store a give-up verdict and the unchanged scalar copy takes over — but not for good: every 64 KB of bulk-sized chunks the verdict is re-armed and the next chunk is walked from its first block, so a stream that changes shape is judged again. A probe that fails again costs four blocks per 64 KB."
+        "A token takes the separator after it where that saves a trip round the mask loop. A key whose colon sits against its closing quote moves straight to `.value` (typed Twitter +5.9%, CITM +4.5%). A number in an array whose comma follows it hands the rest of the array to `fuseNumberRun`, which walks an indented array ~80 instructions a number cheaper than the mask loop did (numbers indented +45% raw / +37% typed). The same fusion for a value's comma was measured, +0.5% typed for seven copies of the tail, and not kept.",
+        "`ladder_block` is the classifier's verdict that a block holds nothing to buy: no whitespace outside a string, or no string and no whitespace run. The walk returns such a block to the ladder, which comes back at the next indentation or string after whitespace. It replaced a strike gate that counted blocks, gave up after four and re-armed after 64 KB of chunks — which parsed the same document differently at 2 KB chunks than at 8 KB. Against it, typed rows +0.3..+2.7% and Mesh typed -5.5%: Mesh's separators now put every number through the signal test on the way to the scan."
       ],
       "evidence": {
         "doc": [
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-structural-block-walk",
-          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-block-walk-s-gate-whitespace-outside-strings",
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/when-the-walk-runs-a-signal-in-the-ladder-a-verdict-per-block",
+          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/number-extents-from-the-block-masks",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-the-key-s-colon-taken-with-the-key-in-the-block-walk",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/rejected-the-value-s-comma-taken-with-the-value-in-the-block-walk",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-indented-number-arrays-leave-the-walk-for-fusenumberrun-with-a-predicted-indent",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/skipping-a-subtree-inside-the-block-walk-built-measured-rejected",
           "design-notes-relocated-from-source-comments/scanners-and-c-shims-streamscanners-swift-streamparsingshims/the-structural-block-classifier-s-two-table-encoding"
         ],
         "source": [
           "JSONParserBlocks.swift:consumeStructuralBlocks",
           "StreamParsingShims.h:stream_parsing_classify_structural_block",
-          "JSONParser.swift:consumeStructuralRun",
-          "JSONParserBlocks.swift:probeBlockWalk",
-          "JSONParser.swift:parsePastThreshold"
+          "JSONParser.swift:structuralBlocksFromLadder",
+          "JSONParser.swift:signalsBlockWalk",
+          "JSONParser.swift:fuseNumberRun",
+          "JSONParser.swift:emitNumber"
         ],
         "asm": [
           "JSONParser.consumeStructuralBlocks"
@@ -1206,20 +1032,40 @@
           "when": "The block walk restates the scalar ladder's checks and event order over mask-selected token starts."
         },
         {
+          "to": "number-run",
+          "kind": "branch",
+          "label": "a number, then an array's comma",
+          "when": "The number arm emits the number it found with `scalar_end`, and when the byte there is a comma inside an array the numbers behind it are `fuseNumberRun`'s. The grid moves to wherever it stops."
+        },
+        {
           "to": "structural-run",
           "kind": "return",
-          "label": "scalar handoff or next turn",
-          "when": "An unsettled byte returns to the scalar edge at its exact offset; exhausted and re-anchored grids return to the structural loop."
+          "label": "hand back to the ladder",
+          "when": "A block that is the ladder's (`ladder_block`), one only the scalar loop judges (`needs_scalar`), a token the chunk cuts, the root value closing, or fewer than 64 bytes left. The ladder resumes past any whitespace."
         }
       ],
       "ordering": "unordered",
-      "invokes": "An outer loop classifies a moving 64-byte grid. An inner loop repeatedly takes `starts.trailingZeroBitCount`, consumes that token extent, and clears every candidate it covered.",
+      "invokes": "Entered from the ladder's signal. An outer loop classifies a moving 64-byte grid and returns any block that is the ladder's; an inner loop takes `starts.trailingZeroBitCount`, consumes that token (and the separator after it, where it can), and clears every candidate it covered.",
       "steps": [
+        {
+          "id": "entry",
+          "title": "the ladder signalled",
+          "kicker": "state in the fields",
+          "detail": "`structuralBlocksFromLadder` stands on a whitespace byte followed by whitespace or a quote, with a whole block ahead, and has written `state`, `depth` and `containers` to the parser's fields. The first grid starts on that whitespace byte, so it always holds either a run or a quote and is never the ladder's.",
+          "source": "JSONParser.swift:structuralBlocksFromLadder",
+          "next": [
+            {
+              "to": "classify",
+              "kind": "step",
+              "label": "classify from the cursor"
+            }
+          ]
+        },
         {
           "id": "classify",
           "title": "classify 64 bytes",
           "kicker": "4 × 16-byte loads",
-          "detail": "The C kernel returns `starts`, unescaped quote bits, every backslash bit, the high-byte flag, the scalar-decline flag and the two gate signals — on x86 the gate verdict whole, because baseline x86-64 has no `popcnt` and counting `starts` in Swift was seventeen instructions a block. The structural walk always supplies zero carries because it completes every token it starts before moving its grid.",
+          "detail": "The C kernel returns `starts`, unescaped quote bits, every backslash bit, `scalar_end`, the high-byte flag, the scalar-decline flag and `ladder_block`. `scalar_end` is two class bits the lookups already produce (COMMA | BRACK) ORed with whitespace — four `cmtst` and one movemask. `ladder_block` is computed in the kernel rather than handed out as more masks, because a flag is cheaper than another 64-bit field in the struct. The walk always supplies zero carries because it completes every token it starts before moving its grid.",
           "source": "StreamParsingShims.h:stream_parsing_classify_structural_block",
           "ordering": "ordered",
           "next": [
@@ -1230,32 +1076,16 @@
               "when": "A control byte inside a string or a byte outside strings that the wide path will not judge. The scalar loop re-reads from the block's first byte so errors keep their offsets."
             },
             {
-              "to": "gate",
+              "to": "handback",
               "kind": "branch",
-              "label": "the block is accepted",
-              "when": "Every byte belongs to a class the block path can settle."
-            }
-          ]
-        },
-        {
-          "id": "gate",
-          "title": "update consecutive strikes",
-          "kicker": "0…4",
-          "detail": "No whitespace outside strings or 48+ `starts` bits adds one strike; a useful block resets a nonzero count. Consecutive rather than cumulative preserves the measured GSoC gain across its occasional compact block.",
-          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
-          "ordering": "ordered",
-          "next": [
-            {
-              "to": "giveup",
-              "kind": "branch",
-              "label": "strike 4",
-              "when": "The walk stores `blockWalkGivenUp`, starts the 64 KB re-probe countdown, lowers a default `windowThreshold` to 4 KB so bulk chunks are counted, and returns the complemented cursor before visiting this block's starts."
+              "label": "ladder_block != 0",
+              "when": "No whitespace outside a string, or no string and no whitespace run outside one: neither of the two scans the walk replaces is in this block."
             },
             {
               "to": "mask",
               "kind": "branch",
-              "label": "the gate stays open",
-              "when": "The block remains worth walking, or has not yet accumulated four consecutive losing signals."
+              "label": "the walk takes the block",
+              "when": "Whitespace to skip or strings to pair, and every byte in a class the block path can settle."
             }
           ]
         },
@@ -1268,10 +1098,22 @@
           "ordering": "ordered",
           "next": [
             {
+              "to": "string",
+              "kind": "branch",
+              "label": "a quote",
+              "when": "A key or a string value, in a state that admits one — ahead of the ladder, as in `consumeStructural`."
+            },
+            {
+              "to": "number",
+              "kind": "branch",
+              "label": "a digit or `-`",
+              "when": "A value state and a number's first byte."
+            },
+            {
               "to": "extent",
               "kind": "branch",
-              "label": "a start bit remains",
-              "when": "The byte itself selects the matching scalar-ladder arm."
+              "label": "any other start bit",
+              "when": "A bracket, a separator or a literal: the byte selects the matching scalar-ladder arm."
             },
             {
               "to": "advance",
@@ -1282,23 +1124,104 @@
           ]
         },
         {
-          "id": "extent",
-          "title": "settle one token extent",
-          "kicker": "quotes, literal or scanner",
-          "detail": "Quotes pair an in-block string immediately; a backslash inside that extent selects the existing escape decoder. Literal words are checked whole. Numbers still use `streamNumberRunEnd`, because only its grammar walk preserves the error byte for shapes such as `12abc`.",
+          "id": "string",
+          "title": "pair the quotes",
+          "kicker": "quote mask",
+          "detail": "The first quote bit above the opening one is the closing quote. A backslash bit between them sends a value to the escape decoder and a key back to the scalar loop; no closing quote in the block means the string scanner finishes the token past the grid. A clean value is one `string` record in place; a clean key is emitted in place and, when the byte against its closing quote is `:` and inside the block, the colon is taken with it and the state goes straight to `.value`. On the ladder that fusion deleted nothing and was rejected; here it deletes a whole trip round this loop per member.",
           "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
           "ordering": "ordered",
           "next": [
             {
               "to": "reanchor",
               "kind": "branch",
-              "label": "the token ends past byte 63",
-              "when": "The existing token scanner completed a long string, literal or number beyond this grid."
+              "label": "the string ends past byte 63",
+              "when": "The scanner completed a long string beyond this grid."
             },
             {
               "to": "mask",
               "kind": "return",
-              "label": "clear through the token"
+              "label": "clear through the token (and colon)"
+            }
+          ]
+        },
+        {
+          "id": "number",
+          "title": "first scalar_end bit above it",
+          "kicker": "rbit, clz",
+          "detail": "`scalar_end & (~0 << bit)`, then `trailingZeroBitCount`: the number's end in one step instead of `streamNumberRunEnd`'s dependent load, lookup and movemask per token. That bit is where a *valid* number ends; a malformed one (`12abc`) runs past its real end, fails `emitNumber` before anything is emitted, and goes back to the scalar loop at its first byte, which reports the `a` as it always has. A number that runs out of the block is scanned from the block edge.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "scalar",
+              "kind": "branch",
+              "label": "malformed, or cut by the chunk",
+              "when": "`emitNumber` threw `.invalidNumber`, or the scan from the edge reached the chunk end: the token goes back whole, at its first byte."
+            },
+            {
+              "to": "fuse",
+              "kind": "branch",
+              "label": "an array's comma follows",
+              "when": "Inside an array, with the comma and one more byte in the chunk."
+            },
+            {
+              "to": "mask",
+              "kind": "return",
+              "label": "clear through the number"
+            }
+          ]
+        },
+        {
+          "id": "fuse",
+          "title": "fuseNumberRun",
+          "kicker": "the rest of the array",
+          "detail": "The numbers behind the comma are taken by the same out-of-line loop the ladder's number arm uses, whitespace runs included. An indented array cost the walk ~275 instructions a number — the comma's trip round this loop, the number arm's dispatch, a classify every three or four numbers — against ~200 there. It returns past the block as often as not, and the grid moves with it.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "reanchor",
+              "kind": "branch",
+              "label": "it stopped past byte 63",
+              "when": "The array ran on beyond this grid."
+            },
+            {
+              "to": "scalar",
+              "kind": "branch",
+              "label": "a number the chunk cut",
+              "when": "Returned as `~start`, reset for `.number` to buffer from its first byte."
+            },
+            {
+              "to": "mask",
+              "kind": "return",
+              "label": "clear through the last number"
+            }
+          ]
+        },
+        {
+          "id": "extent",
+          "title": "settle one byte or literal",
+          "kicker": "the ladder's arms",
+          "detail": "Brackets push and pop the container word, commas and colons move the state, and `true`/`false`/`null` are one 32-bit compare each. A container the sink declines leaves for the skip scanner. The root closing returns at once.",
+          "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "reanchor",
+              "kind": "branch",
+              "label": "a literal ends past byte 63",
+              "when": "Rare, but the grid moves the same way."
+            },
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "depth reaches 0, or a skip",
+              "when": "The root value closed, or the sink declined a subtree and the state is `.skipping`."
+            },
+            {
+              "to": "mask",
+              "kind": "return",
+              "label": "clear the bit"
             }
           ]
         },
@@ -1320,7 +1243,7 @@
           "id": "advance",
           "title": "p += 64",
           "kicker": "zero-carry edge",
-          "detail": "The exhausted mask proves no token is open at the edge, so the next block is classified independently.",
+          "detail": "The exhausted mask proves no token is open at the edge, so the next block is classified independently. With fewer than 64 bytes left the walk returns and the ladder finishes the chunk.",
           "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
           "next": [
             {
@@ -1331,42 +1254,28 @@
           ]
         },
         {
+          "id": "handback",
+          "title": "return p",
+          "kicker": "the ladder's block",
+          "detail": "The block goes back to the ladder from its first byte with the state as the walk left it. Nothing is recorded: no strike, no verdict, so the next indentation or string after whitespace signals the walk again, and a document parses the same way whatever its chunk sizes. `structuralBlocksFromLadder` skips the whitespace it returns to, so at least one token is consumed per hand-off and the two cannot bounce.",
+          "source": "JSONParser.swift:structuralBlocksFromLadder",
+          "next": []
+        },
+        {
           "id": "scalar",
           "title": "return p unchanged",
           "kicker": "scalar authority",
-          "detail": "The block is handed back from its first byte with parser state untouched. The unchanged scalar copy remains the code that diagnoses it.",
+          "detail": "The block, or the token, is handed back from its first byte with parser state untouched. The unchanged scalar copy remains the code that diagnoses it.",
           "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
           "next": []
         },
         {
-          "id": "giveup",
-          "title": "return ~p",
-          "kicker": "until re-probed",
-          "detail": "The complemented cursor carries the verdict without another mutable local in the structural loop. The dispatcher re-enters once and the entry test selects the scalar copy from then on.",
+          "id": "done",
+          "title": "return past the byte",
+          "kicker": "state left behind",
+          "detail": "`.done` or `.skipping` is not structural, so the ladder breaks out and the dispatcher picks the next arm.",
           "source": "JSONParserBlocks.swift:consumeStructuralBlocks",
-          "next": [
-            {
-              "to": "reprobe",
-              "kind": "branch",
-              "label": "64 KB of ≥ 4 KB chunks later",
-              "when": "`parsePastThreshold` counts every bulk-sized chunk the lowered threshold sends it. Smaller chunks keep the verdict."
-            }
-          ],
-          "ordering": "ordered"
-        },
-        {
-          "id": "reprobe",
-          "title": "probeBlockWalk",
-          "kicker": "re-arm",
-          "detail": "The countdown ran out: the threshold goes back to `Int.max`, the verdict and the strikes are cleared, and the chunk that ran it out is walked from its first block. A caller-set `windowThreshold` is left alone and its chunks count toward the same countdown.",
-          "source": "JSONParserBlocks.swift:probeBlockWalk",
-          "next": [
-            {
-              "to": "classify",
-              "kind": "return",
-              "label": "the next structural boundary"
-            }
-          ]
+          "next": []
         }
       ]
     },
@@ -1390,11 +1299,13 @@
           "two-dispatchers-one-transformation-opposite-signs/rejected-the-structural-step-s-byte-ladder",
           "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count/peeling-the-colon-two-ways",
           "the-structural-run-is-limited-by-its-size-not-by-its-iteration-count/what-the-four-say-together",
-          "structural-dispatch-the-state-machine-was-living-in-memory/fusing-the-colon-after-a-key-measured-across-seven-variants-and-rejected"
+          "structural-dispatch-the-state-machine-was-living-in-memory/fusing-the-colon-after-a-key-measured-across-seven-variants-and-rejected",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-fusenumberrun-an-array-s-numbers-taken-without-the-ladder"
         ],
         "source": [
           "JSONParser.swift:consumeStructural",
-          "JSONParser.swift:fuseAfterValue"
+          "JSONParser.swift:fuseAfterValue",
+          "JSONParser.swift:fuseNumberRun"
         ],
         "asm": [
           "JSONParser.consumeStructural"
@@ -1406,6 +1317,12 @@
           "kind": "branch",
           "label": "byte opens a value",
           "when": "A `\"`, a digit, or a literal's first byte. Rather than return to the dispatcher, the run tries to finish the token where it stands."
+        },
+        {
+          "to": "number-run",
+          "kind": "branch",
+          "label": "a number, then an array's comma",
+          "when": "The number arm emitted a number whose terminator was in the chunk, and the byte there is a comma inside an array: the numbers behind it are `fuseNumberRun`'s."
         }
       ],
       "invokes": "Advances one byte, then answers whether the run continues.",
@@ -1518,7 +1435,7 @@
               "to": "number",
               "kind": "branch",
               "label": "a digit or `-`",
-              "when": "Returns true. The run steps the cursor back and lets `.number` re-read the first byte."
+              "when": "Scanned, parsed and emitted in the run when the terminator is in the chunk; otherwise handed back for `.number`."
             }
           ]
         },
@@ -1540,9 +1457,9 @@
         },
         {
           "id": "number",
-          "title": "return true",
-          "kicker": "hands the byte back",
-          "detail": "The one rung that ends the run without an error.",
+          "title": "emit in the run, or hand back",
+          "kicker": "then maybe fuse",
+          "detail": "With its terminator in the chunk the number is `streamNumberRunEnd`'s extent, `emitNumber`'s parse and one record, and the run carries on. When the byte after it is an array's comma, `fuseNumberRun` takes the numbers behind it. A number the chunk cuts returns true, the run steps the cursor back, and `.number` re-reads the first byte — the one rung that ends the run without an error.",
           "source": "JSONParser.swift:consumeStructural",
           "next": []
         },
@@ -1580,7 +1497,7 @@
           "id": "colon",
           "title": "`:` and nothing else",
           "kicker": "1 compare",
-          "detail": "The narrowest rung. Peeling it out of the ladder was measured and rejected.",
+          "detail": "The narrowest rung. Peeling it out of the ladder was measured and rejected; the block walk, where a colon costs a whole trip round its mask loop, takes it with the key instead.",
           "source": "JSONParser.swift:consumeStructural",
           "next": []
         },
@@ -1592,7 +1509,8 @@
           "source": "JSONParser.swift:consumeStructural",
           "next": []
         }
-      ]
+      ],
+      "ordering": "ordered"
     },
     {
       "id": "in-run-values",
@@ -2324,7 +2242,7 @@
         "This step does the decoding and decides how the result is delivered. In real text escapes are short and frequent, so delivering each fragment as its own call would turn one string into dozens of sink calls. Coalescing into the parser's buffer keeps it to one call per buffer-full."
       ],
       "prose": [
-        "An escape ends the zero-copy string run. From a string value's first backslash on, `coalescedEscapedStringTail` decodes each escape into the parser's own buffer, copies the literal runs between them in behind it, and hands the sink one `stringChunk` per buffer-full rather than one per fragment. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
+        "An escape ends the zero-copy string run. From a string value's first backslash on, `coalescedEscapedStringTail` decodes each escape into the parser's own buffer, and the scan that finds the literal run between two escapes copies it in behind as it reads — each sixteen-byte block is stored from the register the terminator test already loaded. The sink gets one `stringChunk` per buffer-full rather than one per fragment. `\\uXXXX` sequences are decoded to UTF-8 bytes inside the parser — including surrogate pairs, which have to be held across the gap between the two halves and can be cut by a chunk boundary in the middle.",
         "Every sink takes that path. The fragments an escape leaves are tiny — 57% of `llm_message`'s string chunks were a single byte — so an accumulating sink saves many times the copy in calls it no longer makes, while a sink whose calls are nearly free pays for the copy (`FastCountingSink` on LLM message reads ~11% slower). That was judged a better price than a second delivery mode: chunk boundaries were never promised.",
         "Nothing here produces a `Unicode.Scalar` or a `String`. That keeps the Unicode data tables out of the binary, which is what lets the core build under Embedded Swift."
       ],
@@ -2334,7 +2252,9 @@
           "design-decisions/fast-interface-a-token-granular-sink",
           "adversarial-round-string-shapes-whitespace-and-two-blind-spots",
           "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/coalescing-escaped-string-content",
-          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-escape-scratch-a-reserved-region-not-a-stack-local"
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/the-escape-scratch-a-reserved-region-not-a-stack-local",
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/staging-the-escaped-string-tail-the-scan-s-load-is-the-copy",
+          "design-notes-relocated-from-source-comments/raw-parser-jsonparser-swift/lending-streamstring-s-tail-to-the-scan-built-measured-rejected"
         ],
         "source": [
           "JSONParser.swift:consumeEscape",
@@ -2345,6 +2265,7 @@
           "JSONParserEvents.swift:recordInlineChunk",
           "JSONParser.swift:coalescedEscapedStringTail",
           "JSONParser.swift:fusedEscapeEnd",
+          "StreamScanners.swift:streamStringRunStaging",
           "JSONParser.swift:bufferStringRun",
           "JSONParser.swift:bufferStringScratch",
           "JSONParser.swift:flushStringBuffer"
@@ -2359,7 +2280,7 @@
           "id": "backslash",
           "title": "the run stopped on a backslash",
           "kicker": "one byte ahead",
-          "detail": "The string scan ends at the backslash and the selector is the next byte. A string value's backslash sends the rest of the value to the coalescing tail; the per-byte escape states, keys and the windowed walk take the same decoders but emit each escape on its own.",
+          "detail": "The string scan ends at the backslash and the selector is the next byte. A string value's backslash sends the rest of the value to the coalescing tail; the per-byte escape states and keys take the same decoders but emit each escape on its own.",
           "ordering": "ordered",
           "next": [
             {
@@ -2380,7 +2301,7 @@
           "id": "tail",
           "title": "coalescedEscapedStringTail",
           "kicker": "@inline(never)",
-          "detail": "Decodes the escape that sent it here, then loops: scan a run, append it to the buffer, and at the next backslash decode again. The quote flushes the buffer and emits `stringEnd`; so does every other non-throwing exit, so a chunk that cuts the value resumes exactly where fragment-by-fragment delivery would have.",
+          "detail": "Decodes the escape that sent it here, then loops: scan a run into the buffer, and at the next backslash decode again. The quote flushes the buffer and emits `stringEnd`; so does every other non-throwing exit, so a chunk that cuts the value resumes exactly where fragment-by-fragment delivery would have. The runs between escapes are short — `llm_message` holds 14,222 escapes, and the runs between them have a median of 14 bytes.",
           "source": "JSONParser.swift:coalescedEscapedStringTail",
           "ordering": "ordered",
           "next": [
@@ -2426,9 +2347,23 @@
         },
         {
           "id": "runs",
+          "title": "streamStringRunStaging",
+          "kicker": "the load is the copy",
+          "detail": "`streamStringRun` with one store added: each sixteen-byte block is written behind `bufferCount` from the register the terminator test reads, so when the scan knows where the run ends the run is already in the buffer. Whole blocks are stored, and the lanes past a terminator are junk that nothing counts until `bufferCount` moves over them — after the surrogate and UTF-8 checks, so a throw leaves the buffer as it was. Before, each run was paid for twice: the scan, then a `memmove` of a different length every time. LLM message +5.7% raw / +5.8% typed. A block is staged only while all sixteen bytes fit under the capacity and before the chunk end; what is left goes through `bufferStringRun`, which flushes before it copies, so a run as long as the buffer now passes through it rather than going to the sink in place. Lending `StreamString`'s own tail to this scan, to remove the flush copy too, was built and measured at -0.04% mean, and not kept.",
+          "source": "StreamScanners.swift:streamStringRunStaging",
+          "next": [
+            {
+              "to": "leftover",
+              "kind": "detail",
+              "label": "what staging leaves"
+            }
+          ]
+        },
+        {
+          "id": "leftover",
           "title": "bufferStringRun",
           "kicker": "one 16-byte store",
-          "detail": "A run of at most sixteen bytes is one unaligned 16-byte load and store rather than a `memmove` call, under two slack checks: sixteen readable bytes before the chunk end, and sixteen writable before the end of the allocation, which is the buffer plus the reserved scratch behind it. A run at least as long as the buffer flushes and goes to the sink in place.",
+          "detail": "The rest of a run staging could not take. A run of at most sixteen bytes is one unaligned 16-byte load and store rather than a `memmove` call, under two slack checks: sixteen readable bytes before the chunk end, and sixteen writable before the end of the allocation, which is the buffer plus the reserved scratch behind it.",
           "source": "JSONParser.swift:bufferStringRun",
           "next": []
         },
@@ -2742,8 +2677,8 @@
         "The sink receives each number once, whole, with its digits already accumulated into a magnitude and a decimal exponent (`NumberInfo`). Scanning to the end first and classifying afterwards lets the parser choose a kernel by the token's length and shape, instead of testing for a sign, a dot and an exponent as each byte arrives."
       ],
       "prose": [
-        "When the terminator is in the chunk, the structural run scans, parses and emits the number without leaving the run. The `.number` state handles the rest: a token the chunk cuts, which is buffered whole, and every number fed one byte at a time. A number is the one token whose first byte belongs to the token itself, so in those cases the run hands that byte back rather than consuming it.",
-        "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most: floats gained 17.6%. It is also the row that pins the limit. One-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there."
+        "When the terminator is in the chunk, the structural run scans, parses and emits the number without leaving the run, and an array's comma after it hands the rest of the array to `fuseNumberRun`. In the block walk the scan is not needed at all: the number's end is the first `scalar_end` bit above it. The `.number` state handles the rest: a token the chunk cuts, which is buffered whole, and every number fed one byte at a time. A number is the one token whose first byte belongs to the token itself, so in those cases the run hands that byte back rather than consuming it.",
+        "The terminator search uses the same fused movemask as the string scan, and it is the row where that change paid most: floats gained 17.6%. It is also the row that pins the limit. One-to-three-digit tokens lose 7.5% to *any* movemask spelling, because the per-lane ladder's moves issue in parallel with the loop test while a movemask makes the lane strictly serial. Three separate variants confirmed no formulation beats the ladder there. The block walk sidesteps the limit rather than beating it: its movemask is paid once per 64 bytes, and every number in the block reads its end out of a general register."
       ],
       "evidence": {
         "doc": [
@@ -2751,7 +2686,8 @@
           "numbers-whole-greedy-scan-structured-parse",
           "numbers-whole-greedy-scan-structured-parse/digit-block-width",
           "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/landed-the-arm64-movemask-and-the-lane-the-mask-already-held",
-          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/rejected-a-bitmap-peel-in-front-of-the-number-scanner"
+          "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/rejected-a-bitmap-peel-in-front-of-the-number-scanner",
+          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/number-extents-from-the-block-masks"
         ],
         "source": [
           "StreamScanners.swift:streamNumberRunEnd",
@@ -2902,6 +2838,245 @@
           "kicker": "NumberInfo",
           "detail": "Sign, integer digits, fraction, exponent — walked once, in order, over bytes already known to be in the class. The result is a `NumberInfo`: the digits with the dot removed, the power of ten they are scaled by, and the flags a destination needs to reject a value its type cannot hold.",
           "source": "StreamParseSink.swift:NumberInfo",
+          "next": []
+        }
+      ]
+    },
+    {
+      "id": "number-run",
+      "stage": "numbers",
+      "title": "fuseNumberRun",
+      "kicker": "an array's numbers",
+      "viz": null,
+      "why": [
+        "A numeric array is the one shape where a separator comes before every token: `[1.5, 2.5, 3.5]`, or the same with a newline and indentation between each. On the ladder each number costs the comma's step and then a whitespace scan — a sixteen-byte vector scan for a run that is often one byte long — before the number's own work. In the block walk the comma is a trip round the mask loop and the number a dispatch through its arm, with a classification every few numbers.",
+        "This loop takes the comma, the whitespace and the next number in one go and goes round with the byte after it, until something that is not a number follows a comma. What it accepts is exactly what the ladder accepted, so events, offsets and error reasons do not change."
+      ],
+      "prose": [
+        "It is entered only at an array's comma after a number the ladder or the block walk just emitted, and it is out of line on purpose. The same loop inline in the ladder's number arm was Mesh's best result (+25.6% typed) and cost the rows that never reach it — typed Twitter escaped -1.6%, raw LLM -1.8%, byte-fed number rows -1.6..-3.0% — because a loop inside the `@_transparent` ladder reallocates every path through it. Outlined, the ladder is back to its baseline code and Canada does better than inline.",
+        "After a newline it predicts the indentation is the one it saw last, takes the next number's address from that register, and checks the guess with one 8-byte count of spaces. Taking the address from the count directly made the number scan wait on a load, an `eor` and a `clz` (IPC 5.9 → 4.3); a predicted branch breaks that dependency. The prediction is a parser field so it survives across calls: an array of arrays enters once per inner array, and a per-call prediction missed every time."
+      ],
+      "evidence": {
+        "doc": [
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-fusenumberrun-an-array-s-numbers-taken-without-the-ladder",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-indented-number-arrays-leave-the-walk-for-fusenumberrun-with-a-predicted-indent",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon/measured-the-whole-series-against-where-it-started",
+          "separators-after-the-token-number-arrays-and-the-key-s-colon"
+        ],
+        "source": [
+          "JSONParser.swift:fuseNumberRun",
+          "JSONParser.swift:JSONParser",
+          "StreamScanners.swift:streamWhitespaceEnd",
+          "StreamScanners.swift:streamNumberRunEnd",
+          "JSONParser.swift:emitNumber"
+        ],
+        "asm": [
+          "JSONParser.fuseNumberRun"
+        ]
+      },
+      "next": [
+        {
+          "to": "number-scan",
+          "kind": "detail",
+          "label": "each number: scan, then emit",
+          "when": "Every number it takes is the ladder's number arm again: `streamNumberRunEnd` for the extent and `emitNumber` for the parse, so the short-integer and Eisel-Lemire kernels are reached the same way."
+        }
+      ],
+      "invokes": "A `while true` loop: step over the comma, take one space or a whole whitespace run, emit the number there, and go round while a comma follows. It returns where the caller resumes in `.afterValue`.",
+      "ordering": "ordered",
+      "steps": [
+        {
+          "id": "comma",
+          "title": "the comma after a number",
+          "kicker": "entry",
+          "detail": "`comma` is the `,` after a number the caller just emitted, with at least one byte after it in the chunk. Nothing here opens or closes a container, so `depth` and `containers` stay the caller's.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "next": [
+            {
+              "to": "space",
+              "kind": "step",
+              "label": "the byte after it"
+            }
+          ]
+        },
+        {
+          "id": "space",
+          "title": "one space?",
+          "kicker": "Mesh's `, `",
+          "detail": "A single space is tested first and alone and stepped over: every separator in Mesh and in `json.dumps` output is exactly `, `.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "newline",
+              "kind": "branch",
+              "label": "still ≤ 0x20",
+              "when": "A newline and indentation, or some other run."
+            },
+            {
+              "to": "first",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "The next token's first byte."
+            }
+          ]
+        },
+        {
+          "id": "newline",
+          "title": "a newline: predict the indent",
+          "kicker": "8-byte check",
+          "detail": "With nine bytes in the chunk, the eight after the newline are loaded and `(word ^ 0x2020…) .trailingZeroBitCount >> 3` counts their leading spaces. That count only checks the prediction; the address of the next number is `start + 1 + indent` from a register, so the scan does not wait for the load. Anything that is not a newline goes to the scanner.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "first",
+              "kind": "branch",
+              "label": "spaces == indent",
+              "when": "The same indentation as last time: the predicted, common case."
+            },
+            {
+              "to": "miss",
+              "kind": "branch",
+              "label": "a different count",
+              "when": "The first run, a changed indent, eight or more spaces, or tabs."
+            },
+            {
+              "to": "scan",
+              "kind": "branch",
+              "label": "not a newline",
+              "when": "A tab, a carriage return, or a newline too near the chunk end."
+            }
+          ]
+        },
+        {
+          "id": "miss",
+          "title": "remember, then scan",
+          "kicker": "numberRunIndent",
+          "detail": "The new count is stored in `numberRunIndent`, the padding byte at offset 9, and the run goes through `streamWhitespaceEnd`. The miss path must call the scanner: a miss the compiler can fold is merged back into the data-dependent form.",
+          "source": "JSONParser.swift:JSONParser",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "first",
+              "kind": "step",
+              "label": "the byte after the run"
+            },
+            {
+              "to": "decline",
+              "kind": "branch",
+              "label": "the run reaches the chunk end",
+              "when": "Only whitespace was left."
+            }
+          ]
+        },
+        {
+          "id": "scan",
+          "title": "streamWhitespaceEnd",
+          "kicker": "any run",
+          "detail": "Any other whitespace run. Only exact whitespace counts, so a stray control byte is never skipped: it is the byte the next check stops on, and the ladder reports it.",
+          "source": "StreamScanners.swift:streamWhitespaceEnd",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "first",
+              "kind": "step",
+              "label": "the byte after the run"
+            },
+            {
+              "to": "decline",
+              "kind": "branch",
+              "label": "the run reaches the chunk end",
+              "when": "Only whitespace was left."
+            }
+          ]
+        },
+        {
+          "id": "first",
+          "title": "`-` or a digit?",
+          "kicker": "one compare",
+          "detail": "`byte == '-' || byte - '0' < 10`. Anything else — a bracket, a string, a literal, an error — is not this loop's.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "number",
+              "kind": "branch",
+              "label": "a number",
+              "when": "The array continues with a number."
+            },
+            {
+              "to": "decline",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "The ladder takes it from the comma, which it would have reached anyway."
+            }
+          ]
+        },
+        {
+          "id": "number",
+          "title": "streamNumberRunEnd, emitNumber",
+          "kicker": "the ladder's arm",
+          "detail": "The same scan and emit as the ladder's number arm. A sink rejection throws inside `emitNumber`, at the number it rejected, so no fusion runs past it.",
+          "source": "JSONParser.swift:emitNumber",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "cut",
+              "kind": "branch",
+              "label": "the scan reached the chunk end",
+              "when": "The number may continue in the next chunk."
+            },
+            {
+              "to": "again",
+              "kind": "step",
+              "label": "emitted"
+            }
+          ]
+        },
+        {
+          "id": "again",
+          "title": "another comma?",
+          "kicker": "loop",
+          "detail": "The byte at the number's end, with one more after it in the chunk.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "space",
+              "kind": "return",
+              "label": "`,`: go round"
+            },
+            {
+              "to": "done",
+              "kind": "branch",
+              "label": "anything else",
+              "when": "`]`, whitespace, or the chunk end: the ladder takes it in `.afterValue`."
+            }
+          ]
+        },
+        {
+          "id": "decline",
+          "title": "return comma",
+          "kicker": "nothing taken",
+          "detail": "The ladder resumes at the comma in `.afterValue`, exactly where it would have been.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "next": []
+        },
+        {
+          "id": "cut",
+          "title": "return ~start",
+          "kicker": "reset for .number",
+          "detail": "The complement tells the caller a number is cut; it is reset so `.number` buffers it from its first byte.",
+          "source": "JSONParser.swift:fuseNumberRun",
+          "next": []
+        },
+        {
+          "id": "done",
+          "title": "return end",
+          "kicker": ".afterValue",
+          "detail": "The end of the last number emitted.",
+          "source": "JSONParser.swift:fuseNumberRun",
           "next": []
         }
       ]
@@ -4019,7 +4194,8 @@
         "A schema describes how a type's members map onto tokens. It is a reference rather than a value, and frames borrow it `unowned(unsafe)` — a retain and release per container open was showing up in the profile.",
         "Two rewrites were measured and rejected: replacing the closures with a witness metatype, and a family of alternative unowned spellings. What did work was narrower — a borrowed frame type, plus a tripwire to catch the lifetime assumption if it stops holding.",
         "Two codegen traps are recorded here: taking a strong parameter from an `unowned(unsafe)` source reintroduces the retain, and `if let` on an `unowned(unsafe)` optional does the same.",
-        "An element's initial value is a pointer, not a closure: one template per schema, allocated once and leaked, copied straight into the element's slot. That replaced a pair of initial-value closures chosen per element type, which is itself a landed experiment the closures were the result of."
+        "An element's initial value is a pointer, not a closure: one template per schema, allocated once and leaked, copied straight into the element's slot. That replaced a pair of initial-value closures chosen per element type, which is itself a landed experiment the closures were the result of.",
+        "Built schemas live in `StreamSchemaCache`, keyed by type and usage; `@StreamParseable` builds into the shared cache or one it is given. A lookup by type — a lock, the key hashed, the dictionary probed — measured 85 ns a stream, 5–10% of a 120-byte document, so a generated `Partial` keeps its cache entry in a `static let` and reads through that instead: a lock round trip and a load, level with the old `static let` schema. On Embedded Swift, which has no metatype identity, the entry publishes its schema once with a compare-exchange."
       ],
       "evidence": {
         "doc": [
@@ -4034,7 +4210,8 @@
         "source": [
           "StreamSchema.swift:StreamSchema",
           "StreamCopyInitialize.swift:_streamCopyInitialize",
-          "StreamEmptyObject.swift:StreamEmptyObject"
+          "StreamEmptyObject.swift:StreamEmptyObject",
+          "StreamSchemaCache.swift:StreamSchemaCache"
         ],
         "asm": []
       },

@@ -1114,25 +1114,6 @@ mark {
 }
 .block-mask i.current { outline: 2px solid var(--text-primary); outline-offset: 1px; }
 
-.strike-meter {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  margin: 10px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-1);
-  font-size: 10.5px;
-  color: var(--text-muted);
-}
-.strike-meter > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.strike-meter i { height: 8px; border-radius: 999px; background: var(--grid); }
-.strike-meter i.on, .strike-meter i.new { background: var(--series-2); }
-.strike-meter i.new { animation: lane-chg 620ms ease-out; }
-.strike-meter strong { color: var(--text-primary); font-family: var(--font-mono); }
-
 @keyframes mask-clear {
   from { transform: scale(1.18); background: color-mix(in srgb, var(--series-2) 34%, var(--surface-1)); }
   to { transform: none; background: var(--surface-1); }
@@ -1200,8 +1181,7 @@ mark {
 @media (prefers-reduced-motion: reduce) {
   .vec-row.now .vec-lane,
   .vec-lane.chg,
-  .block-mask i.cleared,
-  .strike-meter i.new { animation: none; }
+  .block-mask i.cleared { animation: none; }
   .tape-byte { transition: none; }
   .vec-op-row .sym { transition: none; }
 }
