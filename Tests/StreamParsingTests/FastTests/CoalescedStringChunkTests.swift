@@ -314,7 +314,18 @@ struct `Coalesced string chunk tests` {
       Array(pieces.dropFirst().joined()) == Array(("\n" + String(repeating: "y", count: 5000)).utf8)
     )
     #expect(pieces.count <= 4)
-    #expect(pieces.dropFirst().allSatisfy { $0.count <= 4096 })
+    #if arch(x86_64)
+      // x86 stages only two blocks (`streamStringRunStaging`); the rest of the run is at least as
+      // long as the buffer, so `bufferStringRun` flushes what was staged and hands the remainder
+      // over in place, uncopied. Nothing that went through the buffer outgrows it.
+      #expect(
+        pieces.dropFirst().allSatisfy { piece in
+          piece.count <= 4096 || piece.allSatisfy { $0 == UInt8(ascii: "y") }
+        }
+      )
+    #else
+      #expect(pieces.dropFirst().allSatisfy { $0.count <= 4096 })
+    #endif
   }
 
   // The tail's scan stages each run into the buffer as it reads it, sixteen bytes a store, for as
