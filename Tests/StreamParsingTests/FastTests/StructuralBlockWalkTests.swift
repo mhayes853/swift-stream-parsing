@@ -156,6 +156,13 @@ struct StructuralBlockWalkTests {
     add("mismatched close", #"[1,2}"#)
     add("mismatched close object", #"{"a":1]"#)
     add("trailing content", #"{"a":1} x"#)
+    // A key's closing quote followed by something other than its colon.
+    add("key then comma", #"{"a","b":1}"#)
+    add("key then close", #"{"a"}"#)
+    add("key then value", #"{"a"1}"#)
+    add("key then double colon", #"{"a"::1}"#)
+    add("key colon close", #"{"a":}"#)
+    add("key spaced colon", "{\"a\" :1,\"b\"\n:\"x\",\"c\"\t: true}")
     add("bad number", #"[1.2.3]"#)
     add("leading zero", #"[01]"#)
     add("control in string", Array(#"{"a":"x"#.utf8) + [0x01] + Array(#"y"}"#.utf8))

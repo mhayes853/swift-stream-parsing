@@ -172,6 +172,23 @@
                 base: base, from: at &+ 1, to: closeAt, containsNonASCII: containsNonASCII,
                 into: &sink
               )
+              // The colon, taken with its key: it sits against the closing quote in every style
+              // producers emit (`"k":`, `"k": `, indented), so this is not a spacing bet, and it
+              // spares each member a whole trip round the mask loop for a byte that emits nothing.
+              // `closeBit != 63` keeps the load inside the block (and so inside the chunk). Any
+              // other byte -- `"k" :`, or an error -- goes round the loop as before, and the
+              // `.afterKey` arm names it at the same offset.
+              if closeBit != 63,
+                base.load(fromByteOffset: closeAt &+ 1, as: UInt8.self) == .asciiColon
+              {
+                state = .value
+                if closeBit == 62 {
+                  p = closeAt &+ 2
+                  continue outer
+                }
+                mask &= UInt64.max &<< UInt64(closeBit &+ 2)
+                continue
+              }
               state = .afterKey
             }
             if closeBit == 63 {
