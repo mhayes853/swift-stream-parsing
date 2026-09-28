@@ -130,6 +130,7 @@ let benchmarks: @Sendable () -> Void = {
   typedShapeBenchmarks()
   enumBenchmarks()
   parserShapeBenchmarks()
+  separatorShapeBenchmarks()
   realWorldBenchmarks()
   streamingAPIBenchmarks()
   retentionBenchmarks()
