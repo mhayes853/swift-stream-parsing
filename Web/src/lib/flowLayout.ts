@@ -14,18 +14,35 @@ const MIN_NODE_W = 146;
 const MAX_NODE_W = 210;
 const MIN_RAIL_W = 250;
 const MAX_RAIL_W = 320;
+// What the rail may give up when the columns do not fit at their minimum width: the card's text
+// column is `railW - 2 * RAIL_GAP`, and below ~200px its edge list wraps a word a line.
+const RAIL_FLOOR = 236;
 const MIN_LANE_W = 112;
 const MAX_LANE_W = 132;
+// How far the whole drawing may shrink to fit before the page chart scrolls instead. Past this the
+// 12.5px titles fall under ~10px, which is where a scroll box reads better than a squint.
+export const MIN_SCALE = 0.8;
 
 export function layoutFor(available: number, columns: number, rail: boolean) {
   // Rounded: a fractional node width puts every rect edge and centred label on a half pixel.
-  const railW = rail ? Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W)) : 0;
+  let railW = rail ? Math.round(clamp(available * 0.26, MIN_RAIL_W, MAX_RAIL_W)) : 0;
   const laneW = Math.round(clamp((available - railW) * 0.13, MIN_LANE_W, MAX_LANE_W));
+  // The widest row at its narrowest. When that does not fit beside the rail, the rail gives way
+  // first -- down to its floor -- because the nodes' titles are the thing being read.
+  const narrowest = columns * (MIN_NODE_W + COL_GAP) - COL_GAP + PAD * 2;
+  if (rail && available - railW - laneW < narrowest) {
+    railW = Math.max(RAIL_FLOOR, available - laneW - narrowest);
+  }
   const forColumns = available - railW - laneW - PAD * 2;
   const nodeW = Math.floor(clamp((forColumns + COL_GAP) / columns - COL_GAP, MIN_NODE_W, MAX_NODE_W));
   const content = columns * (nodeW + COL_GAP) - COL_GAP;
   const graphWidth = laneW + content + PAD * 2;
-  return { nodeW, laneW, railW, content, graphWidth, width: graphWidth + railW };
+  const width = graphWidth + railW;
+  // Still wider than the container: the drawing is scaled to fit rather than cut off at the right,
+  // which is where the hover card lives. Measured at a 1280px window: five columns, the lane and
+  // the rail's floor need 1194px of a 1132px box. Only a narrow window scrolls.
+  const scale = width > available ? Math.max(MIN_SCALE, available / width) : 1;
+  return { nodeW, laneW, railW, content, graphWidth, width, scale };
 }
 
 export interface PlacedNode {
@@ -57,6 +74,8 @@ export interface FlowLayout {
   edges: FlowEdge[];
   geo: ReturnType<typeof layoutFor>;
   width: number;
+  /** Applied to the whole stage, card included, so the card's coordinates stay the layout's. */
+  scale: number;
   height: number;
   titleChars: number;
   laneChars: number;
@@ -119,6 +138,7 @@ export function layoutFlow(
     edges,
     geo,
     width: geo.width,
+    scale: geo.scale,
     height: stages.length * (NODE_H + ROW_GAP) + TOP + PAD,
     titleChars: Math.max(12, Math.floor((geo.nodeW - 26) / 6.7)),
     laneChars: Math.max(8, Math.floor((geo.laneW - 34) / 7.2))

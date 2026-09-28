@@ -29,7 +29,7 @@ export function FlowChart({
     () => layoutFlow(pipeline, sections, available, canHover),
     [pipeline, sections, available, canHover]
   );
-  const { placed, byId, edges, geo, width, height } = layout;
+  const { placed, byId, edges, geo, width, height, scale } = layout;
   const nodeW = geo.nodeW;
 
   const active = hovered ?? selected?.id ?? null;
@@ -47,117 +47,129 @@ export function FlowChart({
 
   return (
     <div className="flow-scroll" ref={scrollRef}>
-      <div className="flow-stage" style={{ width, height }}>
-        <svg
-          className="flow"
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          role="img"
-          aria-label="Flow chart of the parse path. Select a step to open its evidence."
+      {/* The outer box takes the scaled size, so the page lays out around what is drawn; the
+          stage keeps layout coordinates and the transform scales nodes, arrows and card together. */}
+      <div className="flow-fit" style={{ width: width * scale, height: height * scale }}>
+        <div
+          className="flow-stage"
+          style={{
+            width,
+            height,
+            transform: scale === 1 ? undefined : `scale(${scale})`,
+            transformOrigin: "0 0"
+          }}
         >
-          <defs>
-            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0,0 L8,4 L0,8 z" fill="var(--text-muted)" />
-            </marker>
-            <marker id="arrow-lit" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0,0 L8,4 L0,8 z" fill="var(--series-1)" />
-            </marker>
-            <marker id="arrow-leader" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
-              <path d="M0,0 L8,4 L0,8 z" fill="var(--series-1)" opacity="0.5" />
-            </marker>
-          </defs>
+          <svg
+            className="flow"
+            width={width}
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            role="img"
+            aria-label="Flow chart of the parse path. Select a step to open its evidence."
+          >
+            <defs>
+              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M0,0 L8,4 L0,8 z" fill="var(--text-muted)" />
+              </marker>
+              <marker id="arrow-lit" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M0,0 L8,4 L0,8 z" fill="var(--series-1)" />
+              </marker>
+              <marker id="arrow-leader" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L8,4 L0,8 z" fill="var(--series-1)" opacity="0.5" />
+              </marker>
+            </defs>
 
-          {layout.rows.map((row, i) => (
-            <g key={row.stage.id} id={laneID(row.stage.id)}>
-              <line
-                x1={geo.laneW + PAD - 12}
-                y1={rowRuleY(row)}
-                x2={geo.graphWidth - PAD}
-                y2={rowRuleY(row)}
-                stroke="var(--grid)"
-                strokeWidth={1}
-              />
-              <text x={PAD} y={row.y + 18} className="flow-lane-index">
-                {String(i + 1).padStart(2, "0")}
-              </text>
-              {wrap(row.stage.title, layout.laneChars, 3).map((line, j) => (
-                <text key={j} x={PAD + 26} y={row.y + 18 + j * 15} className="flow-lane-title">
-                  {line}
+            {layout.rows.map((row, i) => (
+              <g key={row.stage.id} id={laneID(row.stage.id)}>
+                <line
+                  x1={geo.laneW + PAD - 12}
+                  y1={rowRuleY(row)}
+                  x2={geo.graphWidth - PAD}
+                  y2={rowRuleY(row)}
+                  stroke="var(--grid)"
+                  strokeWidth={1}
+                />
+                <text x={PAD} y={row.y + 18} className="flow-lane-index">
+                  {String(i + 1).padStart(2, "0")}
                 </text>
-              ))}
-            </g>
-          ))}
+                {wrap(row.stage.title, layout.laneChars, 3).map((line, j) => (
+                  <text key={j} x={PAD + 26} y={row.y + 18 + j * 15} className="flow-lane-title">
+                    {line}
+                  </text>
+                ))}
+              </g>
+            ))}
 
-          {edges.map((edge) => {
-            const lit = isLit(edge);
-            return (
-              <path
-                key={edge.id}
-                d={edge.d}
-                fill="none"
-                stroke={lit ? "var(--series-1)" : "var(--text-muted)"}
-                strokeWidth={lit ? 2 : 1.25}
-                strokeDasharray={DASH[edge.spec.kind]}
-                opacity={active ? (lit ? 1 : 0.22) : 0.6}
-                markerEnd={lit ? "url(#arrow-lit)" : "url(#arrow)"}
+            {edges.map((edge) => {
+              const lit = isLit(edge);
+              return (
+                <path
+                  key={edge.id}
+                  d={edge.d}
+                  fill="none"
+                  stroke={lit ? "var(--series-1)" : "var(--text-muted)"}
+                  strokeWidth={lit ? 2 : 1.25}
+                  strokeDasharray={DASH[edge.spec.kind]}
+                  opacity={active ? (lit ? 1 : 0.22) : 0.6}
+                  markerEnd={lit ? "url(#arrow-lit)" : "url(#arrow)"}
+                />
+              );
+            })}
+
+            {edges.map((edge) => {
+              const lit = isLit(edge);
+              return (
+                <EdgeLabel
+                  key={edge.id}
+                  x={edge.mx}
+                  y={edge.my}
+                  label={edge.spec.label}
+                  ordinal={edge.ordinal}
+                  lit={lit}
+                  opacity={active ? (lit ? 1 : 0.14) : 0.72}
+                />
+              );
+            })}
+
+            {placed.map((p) => (
+              <FlowNode
+                key={p.node.id}
+                placed={p}
+                nodeW={nodeW}
+                titleChars={layout.titleChars}
+                selected={selected?.id === p.node.id}
+                dimmed={!!active && !near.has(p.node.id)}
+                onSelect={() => onSelect(p.node)}
+                onHover={(on) => setHovered(on ? p.node.id : null)}
               />
-            );
-          })}
+            ))}
 
-          {edges.map((edge) => {
-            const lit = isLit(edge);
-            return (
-              <EdgeLabel
-                key={edge.id}
-                x={edge.mx}
-                y={edge.my}
-                label={edge.spec.label}
-                ordinal={edge.ordinal}
-                lit={lit}
-                opacity={active ? (lit ? 1 : 0.14) : 0.72}
-              />
-            );
-          })}
-
-          {placed.map((p) => (
-            <FlowNode
-              key={p.node.id}
-              placed={p}
-              nodeW={nodeW}
-              titleChars={layout.titleChars}
-              selected={selected?.id === p.node.id}
-              dimmed={!!active && !near.has(p.node.id)}
-              onSelect={() => onSelect(p.node)}
-              onHover={(on) => setHovered(on ? p.node.id : null)}
-            />
-          ))}
+            {card && activeNode && (
+              <g className="flow-leader" aria-hidden="true">
+                <path
+                  d={leaderPath(activeNode, card.left, card.top + 26, nodeW)}
+                  fill="none"
+                  stroke="var(--series-1)"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  opacity={0.5}
+                  markerEnd="url(#arrow-leader)"
+                />
+              </g>
+            )}
+          </svg>
 
           {card && activeNode && (
-            <g className="flow-leader" aria-hidden="true">
-              <path
-                d={leaderPath(activeNode, card.left, card.top + 26, nodeW)}
-                fill="none"
-                stroke="var(--series-1)"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                opacity={0.5}
-                markerEnd="url(#arrow-leader)"
-              />
-            </g>
+            <CallCard
+              node={activeNode.node}
+              titleOf={(id) => byId.get(id)?.node.title}
+              left={card.left}
+              top={card.top}
+              width={card.width}
+              onMeasure={setCardHeight}
+            />
           )}
-        </svg>
-
-        {card && activeNode && (
-          <CallCard
-            node={activeNode.node}
-            titleOf={(id) => byId.get(id)?.node.title}
-            left={card.left}
-            top={card.top}
-            width={card.width}
-            onMeasure={setCardHeight}
-          />
-        )}
+        </div>
       </div>
     </div>
   );

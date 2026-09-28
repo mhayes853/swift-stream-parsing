@@ -90,6 +90,25 @@ describe("page chart layout", () => {
     expect(flowLayoutFor(1130, 4, false).railW).toBe(0);
   });
 
+  it("fits the widest row inside the container, giving up rail before scaling", () => {
+    const columns = Math.max(
+      ...pipeline.stages.map((stage) => pipeline.nodes.filter((n) => n.stage === stage.id).length)
+    );
+    // 1132 is the scroll box at a 1280px window, where five columns once ran 116px off the right.
+    for (const available of [1132, 1180, 1250, 1400]) {
+      for (const rail of [true, false]) {
+        const geo = flowLayoutFor(available, columns, rail);
+        expect(geo.width * geo.scale).toBeLessThanOrEqual(available + 0.5);
+        if (rail) expect(geo.railW).toBeGreaterThanOrEqual(236);
+      }
+    }
+    // Wide enough: nothing shrinks and the rail keeps its full minimum.
+    expect(flowLayoutFor(1400, columns, true)).toMatchObject({ scale: 1 });
+    expect(flowLayoutFor(1400, columns, true).railW).toBeGreaterThanOrEqual(250);
+    // Narrow: the scale stops at its floor and the page chart scrolls instead.
+    expect(flowLayoutFor(PAGE_WIDTHS[1], columns, false).scale).toBeGreaterThanOrEqual(0.8);
+  });
+
   for (const width of PAGE_WIDTHS) {
     for (const rail of [true, false]) {
       it(`places every node once, in its stage's row, at ${width}px${rail ? " with the rail" : ""}`, () => {
