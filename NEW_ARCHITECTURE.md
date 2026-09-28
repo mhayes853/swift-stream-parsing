@@ -601,9 +601,9 @@ above is a memcpy benchmark by comparison, and this is the number worth quoting.
 
 ### Phase 0b — Embedded smoke (done)
 
-- `EmbeddedSmoke/` builds and **links** a freestanding wasm executable, since the failures that
+- `SmokeTests/` builds and **links** the `EmbeddedSmoke` freestanding wasm executable, since the failures that
   matter are link time and do not appear on Darwin.
-- `swiftly run +6.3.2 swift build --package-path EmbeddedSmoke --swift-sdk swift-6.3.2-RELEASE_wasm-embedded`
+- `swiftly run +6.3.2 swift build --package-path SmokeTests --product EmbeddedSmoke --swift-sdk swift-6.3.2-RELEASE_wasm-embedded`
 - Does not depend on the core yet; gains that once the old parser is removed.
 
 ### Phase 1 — Safe wins and test infrastructure (done)
@@ -2660,6 +2660,12 @@ was declared. It emits the same `streamApplyNull(&target)` line now, which clear
 member and still refuses a non-optional one through the disfavoured overload.
 
 ### `streamElementSchema`: the type answers, not the spelling
+
+(Since renamed along with the schema cache's `StreamSchema.Usage`: `streamElementSchema` and
+`streamElementInitialValue()` are `streamArrayElementSchema` and `streamInitialArrayElement()`,
+dictionaries read the new `streamDictionaryValueSchema`/`streamInitialDictionaryValue()` pair, which
+defaults to them, and `streamContainerSchema`/`_streamContainerPrepare` are
+`streamObjectMemberSchema`/`_streamObjectMemberPrepare`. The names below are as they were.)
 
 Option C fixed the crash and left a cliff. `fieldShape` reads syntax, so only the sugared
 spellings reached the new builders:
@@ -7093,6 +7099,180 @@ cycle (an element copy the old design also paid, plus a block and the reseat) is
 byte. The realistic shape, the latest state held while chunks arrive, sits between the two: the
 harness table above, -16% at 64-byte chunks.
 
+## One parse path: windowed mode removed, number extents from the block masks
+
+Two changes, 2026-09-20/21, measured separately. Harness `~/.cache/sspab/s13`; every A/B is two
+prebuilt binaries interleaved, best-of-rounds p0. The machine was under heavy unrelated load
+throughout (load average 110-260), so the floor is about +-1.5% on p0 and the p50 columns drift;
+effects below that are not claimed.
+
+### Windowed mode is gone
+
+`JSONParserWindow.swift`, `JSONParserShapes.swift`, the C window indexer
+(`stream_parsing_index_window`, all of `StreamParsingShims.c`), the long-decimal kernel
+(`stream_parsing_decimal32`) and `windowThreshold` on both `JSONParser` and `JSONStreamFormat` are
+deleted: about 2,300 lines. The path was off in every shipped configuration (`windowThreshold`
+defaulted to `.max`) and by `2d1109c` won only Canada (+21.6% raw / +1.9% typed) and Mesh (+28.2%
+/ +6.8%), losing 17-30% on the typed string-heavy rows. A mode an end user has to benchmark to
+choose is not worth that. The sections above that describe it are history.
+
+Two things survived the deletion:
+
+* `dispatchOnce` moved into `JSONParser.swift` unchanged; `parse(byte:)` and the bulk loop share it.
+* The block walk's re-probe hook. It rode on `windowThreshold` (lowered to 4 KB while a probe was
+  due, so `parse`'s one compare served both). It is now a private `blockWalkProbeThreshold` with
+  the same compare in the same place, and `parsePastThreshold` became `parseProbing`. With that,
+  `parse` and `consumeStructuralRun` are opcode-identical to the pre-deletion binary for both the
+  counting sink and `PartialSink`.
+
+**`JSONParser`'s size is a placement lottery, not a cache-line effect -- measured, after a false
+start.** Removing the window fields shrank `JSONParser` from 96 to 80 bytes, which moves
+`PartialSink` inside `PartialsStream` (`storage` 8 bytes, then the parser, then the 136-byte sink;
+the whole struct is 8-aligned and lands at an arbitrary 16-byte stack phase). The first A/B of the
+deletion, taken at load average 170-260 against a binary that still held the windowed code, read
+Dictionary 128 keys -3.9% and GitHub typed -3.0% with every hot typed function opcode-identical, and
+two reserved `UInt64`s were added to hold 96 bytes. A clean sweep did not bear that out. Seven
+binaries identical but for the number of reserved words, 5 interleaved rounds with rotating order,
+load ~15, best-of-5 p0 relative to 96 bytes (the 96-byte binary run twice is the noise floor):
+
+| row | 80 | 88 | 96 | 96 again | 104 | 112 | 128 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dictionary 128 keys - discarding | -0.8% | -0.8% | 0 | 0.0% | 0.0% | -0.7% | +0.1% |
+| GitHub events - bulk discarding | +0.2% | -0.1% | 0 | +0.2% | +0.2% | -0.7% | -2.9% |
+| Twitter - bulk discarding | +0.3% | +0.2% | 0 | +0.1% | +0.4% | -1.3% | -2.2% |
+| Twitter full - bulk discarding | +0.2% | -1.0% | 0 | +0.3% | +0.7% | -0.8% | -3.0% |
+| Twitter full - 16KB chunks discarding | -0.4% | -1.3% | 0 | -0.2% | +0.3% | -1.3% | -3.1% |
+| Canada - bulk discarding | -1.1% | +0.1% | 0 | +0.1% | +0.1% | -0.4% | -0.1% |
+| Retention 100 users - window 16 | -0.3% | 0.0% | 0 | 0.0% | -0.1% | -0.3% | -4.0% |
+| Twitter - bulk (raw) | -0.5% | -0.2% | 0 | -0.2% | -0.4% | -0.4% | -0.1% |
+| mean of 11 rows | -0.20% | -0.22% | 0 | +0.09% | +0.25% | -0.69% | -1.77% |
+
+80 against 96 is -0.2%, inside the floor on all but two rows, so the reserved words were removed.
+Padding to 128 -- "two whole cache lines" -- is the *worst* point, -3..-4% on three typed rows with
+hot code identical to the 96-byte build (13 of 14 hot symbols hash-equal; `parse` grows by the two
+by-value prologue instructions). The response is neither monotone nor 64-periodic, which is what
+sink placement against an unaligned frame looks like and what a line-containment effect would not.
+Two consequences. No padding constant can be principled here, because the parser starts 8 bytes
+into a struct Swift will not align past 16 (`@_alignment(64)` is rejected: "cannot increase
+alignment above maximum alignment of 16"); deterministic placement needs parser, sink and value in
+one explicitly 64-aligned heap allocation with `PartialsStream` as a handle. And a single A/B under
+load is not evidence for a layout effect of a few percent: the sweep with a duplicated reference is
+the protocol.
+
+**The aligned box: built, measured, rejected.** `PartialsStream` as `{ box, flags }` over one
+allocation laid out `[JSONParser @0 | PartialSink @128 | Value @320]`, every part on a line
+boundary; 793 tests pass; `parse`, `consumeStructuralRun`, the block walk and every `PartialSink`
+entry point opcode-identical (they always ran through `inout` addresses), the chunked driver 170 ->
+147 instructions with the 240-byte struct out of its frame. Four-way, 5 rotated rounds, 20 typed
+rows, against the inline 80-byte struct (run twice: floor +0.03% mean, +-0.3% a row):
+
+| | box, 16-aligned | box, 64-aligned |
+| --- | ---: | ---: |
+| Twitter bulk / 16 KB | -1.0 / -1.1% | -0.9 / -1.2% |
+| GitHub / LLM / GSoC | -0.7 / -0.7 / -0.6% | -0.7 / -0.8 / -0.5% |
+| Canada / Mesh | +0.4 / +0.3% | +0.4 / +0.3% |
+| Twitter escaped byte by byte | 0.0% | 0.0% |
+| mean of 20 | -0.10% | -0.28% |
+
+The 64-aligned and 16-aligned boxes are indistinguishable, so line alignment buys nothing -- as it
+should not: the data is L1-resident and no 8-aligned field on a 16-aligned base can split a line.
+The box itself costs the string and object rows about a point with identical code; the likeliest
+reason (not proven) is that the inline parser and sink share the always-hot stack lines and page of
+the frame that spills around them, and the box gives them their own. The inline struct at 80 bytes
+already sits in the flat part of the size sweep (80-104 within +-0.5%), so the box would buy
+determinism nobody needs for ~0.3%. Patch kept at `~/.cache/sspab/s13/aligned_box.patch`. What the
+sweep does leave behind is a rule: a change that grows `JSONParser` past ~104 bytes must be swept,
+not A/B'd once.
+
+### Number extents from the block masks
+
+The walk already took a string's extent from the quote mask and the next token from `starts`, but a
+number still ran `streamNumberRunEnd` -- a dependent `ldr q`/`ushr`/`tbl`/`and`/`tbl`/`cmtst`/
+`shrn`/`fmov`/`rbit`/`clz` chain per token, the same shape of cost the walk exists to remove. The
+old source comment gave the reason: `12abc` must report `unexpectedToken` at the `a`, which a mask
+over a looser byte class would not.
+
+The classifier now hands out one more mask, `scalar_end`: whitespace, `,` and the four brackets --
+every byte that ends a number in a *valid* document. It is `whitespace | vtst(c, COMMA|BRACK)`,
+two class bits the lookups already produce, so it costs four `cmtst` and one movemask (the walk's
+specialisation grew 61 instructions in all, error path included). The number arm is then
+
+```
+lsl   x8, x13, x23          ; bits at and above the token
+ldr   x10, [sp, #0x68]      ; scalar_end (spilled: the walk has no register to spare)
+ands  x8, x8, x10
+rbit  x8, x8
+clz   x8, x8
+add   x25, x8, x19          ; end
+b.eq  <runs out of the block>
+```
+
+followed directly by the short-integer kernel with the length already known.
+
+**Error parity is by construction, not by case analysis.** The set is disjoint from the number
+class, so the mask extent is never shorter than `streamNumberRunEnd`'s. Where it is longer the token
+is malformed; `emitNumber` validates the whole extent before it emits anything and every failure in
+it is `.invalidNumber`, so the walk catches exactly that reason and hands the token back to the
+scalar loop at its first byte with the state untouched. The scalar loop then scans, emits `12`, and
+reports the `a` -- the code that has always reported it. Valid documents never take the catch.
+`Number extents read from the block masks agree with the ladder` sweeps ~65 valid and malformed
+shapes across every block alignment against the ladder; flipping the caught reason fails it with
+6,570 mismatches.
+
+Two codegen notes. `emitNumber` is `@inline(__always)`: giving it a second call site (one for the
+mask extent, one for the block-edge fallback) cost the walk 118 instructions and 16 stack accesses,
+so both paths compute `end` and share one emit. And a number that runs out of its block resumes the
+scalar scan at the block edge, not at the token: nothing before the edge ends it, and a malformed
+prefix is caught by the same hand-back.
+
+**Measured, as shipped (gate unchanged), 3 rounds, 30 rows:** mean +0.3%, worst -1.1% (CITM 16 KB
+typed), best +2.0%; raw GitHub +2.0, Twitter +1.5, CITM +1.5. Nothing outside the floor in either
+direction -- expected, because the gate keeps the number-heavy payloads out of the walk entirely.
+
+**Measured with the gate forced open, walk with mask extents vs walk with the scan, 3 rounds:**
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Mesh | +20.4% | +12.7% |
+| Canada | +3.9% | +8.3% |
+| Numbers small integers | +31.9% | -- |
+| Numbers large integers | +10.6% | +3.1% |
+| Numbers floats | +8.4% | +2.6% |
+| Qwen 3 workspace edit | +5.0% | +0.9% |
+| Twitter / GitHub / CITM | +2.0 / +2.2 / +0.9% | +0.7 / +0.4 / +0.3% |
+| GSoC / LLM | -0.2 / -0.2% | -0.6 / 0.0% |
+
+This is also the answer to "no movemask spelling can beat the ladder on 1-3 digit tokens"
+(`streamNumberRunEndShimmed`): that finding was about paying the vector-to-GPR latency *per
+number*. Here it is paid once per 64 bytes and every number in the block reads its end out of a
+general register.
+
+**It does not make the gate removable.** The ungated walk (mask extents in) against the shipped,
+gated parser, 3 rounds:
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Canada | -5.1% | -8.5% |
+| Mesh | -7.4% | -11.6% |
+| Qwen 3 workspace edit | -27.6% | -2.1% |
+| Qwen 3 structured response | -11.6% | -0.6% |
+| LLM message | -2.1% | -2.6% |
+| Twitter escaped | -3.7% | -1.9% |
+| Numbers wide exponent floats / large integers | -28% / -25% | -15% / -9% |
+| Twitter / CITM / GitHub / GSoC | within +-1% | within +-1% |
+
+Mesh's walk penalty went from the census's -26.4% to -7.4%, so the extents bought most of what
+they could; what is left is the classifier itself on blocks with no whitespace to skip, plus a
+re-anchor per long token (an 18-byte Canada float crosses a block edge more than one time in four).
+An unconditional walk needs either a cheaper classifier for whitespace-free blocks or an entry
+condition that is a function of the bytes at the cursor rather than of history. The second is what
+landed: see "When the walk runs: a signal in the ladder, a verdict per block" in the design notes.
+A `Twitter spaced` corpus (Python `json.dumps` separators) was added for it, because no existing
+row had one-byte whitespace in front of strings.
+
+Literals needed nothing: `true`/`false`/`null` have been a 32-bit word compare inside the walk since
+"String values and literals finish inside the structural run", and the walk restates that arm.
+
 ## Design notes relocated from source comments
 
 These notes were the rationale in the source comments at their call sites, moved here when those
@@ -7110,10 +7290,12 @@ the call site; on x86 the AVX2 twin in `AVX2.c`, called once per block because i
 inlined. (The kernel's class encoding is in "The structural block classifier's two-table
 encoding" below.)
 
-Per block it deletes three things. The whitespace scan that precedes every token: whitespace is
+Per block it deletes four things. The whitespace scan that precedes every token: whitespace is
 simply absent from the `starts` mask, so "the next token" is one `rbit`/`clz`. The string scan that
 precedes every key and string value: the extent is the pair of quote bits, and "does it contain an
-escape" is an AND against the backslash mask. And the per-string high-bit reduction:
+escape" is an AND against the backslash mask. The number scan: the extent is the first `scalar_end`
+bit above the token (see "Number extents from the block masks"). And the per-string high-bit
+reduction:
 `containsNonASCII` becomes the block's own flag, so the ~99% of blocks with no high byte never call
 the validator at all.
 
@@ -7148,64 +7330,263 @@ skip block scanner" below): it is where the classifier's two tables and four spl
 and hoisting into `d8` puts a save/restore pair in the prologue of whatever function owns the loop.
 `consumeStructuralRun`'s prologue is the one every byte-fed token pays and must not grow.
 
-#### The block walk's gate: whitespace outside strings
+#### When the walk runs: a signal in the ladder, a verdict per block
 
-The classifier does not pay on every payload, so the walk gates itself off. Two signals, one strike
-each, counted per classified block; four consecutive strikes and the walk is done with that parser
-(`blockWalkGivenUp`, reset by `reset()`). Both signals were chosen off a census of the classifier's
-own masks over the corpus, in bytes per classified block:
+The classifier does not pay on every payload, so the walk does not run on every payload. What
+decides is two tests, both functions of the bytes at the cursor and nothing else -- no counters, no
+verdict carried between blocks, no dependence on how the input was chunked.
 
-| corpus | raw delta | ws outside strings | in-string | starts |
-| --- | --- | --- | --- | --- |
-| CITM catalog | +37.9% | 46.3 | 8.5 | 9.4 |
-| GitHub events | +31.8% | 17.0 | 39.7 | 7.9 |
-| Twitter | +24.2% | 21.9 | 32.2 | 10.5 |
-| GSoC 2018 | +15.2% | 19.0 | 39.9 | 5.7 |
-| LLM message | −0.1% | 0.0 | 53.6 | 11.4 |
-| Twitter escaped | −4.1% | 0.0 | 49.5 | 15.3 |
-| Canada | −5.7% | 0.0 | 0.0 | 64.0 |
-| Qwen workspace | (−25.8% typed) | 0.0 | 56.9 | 8.1 |
-| Qwen structured | (−11.5% typed) | 0.0 | 54.6 | 10.0 |
-| Mesh | −26.4% | 6.7 | 0.0 | 57.3 |
+**In: the ladder signals.** In the whitespace slow path of `structuralRun(blocks: true)`: a
+whitespace byte followed by more whitespace or by a quote, with 64 bytes ahead. **Out: the block is
+the ladder's.** `ladder_block` from the classifier: no whitespace outside a string at all, or no
+string and no whitespace *run* outside one. Both say the same thing from two sides. The walk
+replaces exactly two of the ladder's scans -- whitespace runs and string extents (numbers are a wash:
+see "Number extents from the block masks") -- so it runs where there is indentation or a string
+after whitespace, and nowhere else.
 
-The split is total: every corpus the walk wins on has 17 or more whitespace bytes per block
-*outside* its strings, and every corpus it loses on has none. That is the whole mechanism — the
-ladder's whitespace scan is a SIMD loop entered once per token, and replacing it with a `tzcnt` is
-what the classifier is actually buying. With no whitespace to skip there is nothing left to buy: the
-walk re-reads the same byte the ladder would have, through 139 more instructions per block. A dense
-`starts` mask catches the one shape that has whitespace but still nothing to skip — `Mesh`, a run of
-numbers — and is kept as a second strike for it. (The same split showed in "Cheap first tiers: one
-of three landed, and the census said which": the whitespace peel's flat documents were the ones
-with almost no whitespace outside strings.)
+The census that fixed the rule, whitespace runs outside strings:
 
-Not one block of CITM, Twitter, GitHub or GSoC is whitespace-free, so four strikes never fire on
-them; Canada, Mesh, both Qwen payloads and Twitter escaped strike on essentially every block and are
-out of the walk within four.
+| corpus | runs | one byte | two or more |
+| --- | ---: | ---: | ---: |
+| CITM catalog | 76,337 | 33.9% | 66.1% |
+| Twitter | 28,826 | 46.3% | 53.7% |
+| GitHub events | 2,526 | 45.2% | 54.8% |
+| GSoC 2018 | 41,713 | 45.5% | 54.5% |
+| Twitter spaced | (Python `json.dumps`) | 100% | 0% |
+| Mesh | 73,024 | 100% | 0% |
+| Canada / LLM / Twitter escaped / Qwen | <= 18 | -- | -- |
 
-**A given-up walk is re-armed every 64 KB of bulk-sized chunks**, so a long stream that changes
-shape — a document per chunk, or a payload that turns from numbers to prose — is judged again rather
-than by its first four blocks forever. `parsePastThreshold` counts the chunks: while a countdown is
-live the default `windowThreshold` drops to 4 KB so bulk chunks reach it, and the chunk that runs it
-out is walked from its first block. A probe that fails again costs four blocks per 64 KB, ~0.15% at
-Mesh's per-block loss. A caller-set threshold is left alone.
+Every pretty-printed corpus signals at each member's indentation. The minified ones never reach the
+slow path. The two all-one-byte corpora are the pair that whitespace shape alone cannot separate,
+and they want opposite things: Mesh (every separator in front of a number) is -7.0% raw / -10.6%
+typed in the walk, Twitter spaced (the same separators in front of strings) is -5.0% typed kept on
+the ladder. The quote is what tells them apart, on the way in and on the way out.
 
-**Strikes are consecutive, not cumulative**, and that is a measurement rather than a preference.
-`GSoC 2018` averages 19 whitespace bytes per block and wins 18%, but it holds the odd whitespace-free
-block; counting those up over its 13,343 blocks reached four and threw the win away (+18.1% →
-−0.8%).
+A block the walk refuses where it was entered cannot loop: `structuralBlocksFromLadder` skips the
+whitespace it was entered on and the ladder dispatches the byte it returns without re-testing the
+signal, so at least one token is consumed per hand-off. The signal tests exact whitespace, not
+`<= space`, so a stray control byte goes to the ladder's error arm (`A block the walk refuses where
+it was signalled cannot loop`).
 
-On x86 the kernel hands the verdict back whole (a `strike` field). Baseline x86-64 has no `popcnt`,
-so computing `starts.nonzeroBitCount` in Swift was a 17-instruction bit-twiddling sequence on every
-block of every payload the walk wins on — those always have whitespace and so never short-circuit
-past it. On x86 the same flag also carries whether the CPU has the AVX2 classifier at all
-(`streamHasAVX2BlockKernels`): a machine without it starts every document already given up, which
-makes the run's entry test the availability test too, with no third load and no read of the lazily
-initialised global on any parse path.
+**What it replaced.** The previous gate counted strikes per block (no whitespace outside strings,
+or 48+ `starts`), gave the walk up after four in a row, and re-armed it after 64 KB of chunks of
+at least 4 KB -- through a threshold compare in `parse` on every call. It made the same document
+parse differently at 2 KB chunks than at 8 KB, and let a document's first 256 bytes decide its next
+64 KB. Its census and the reasoning behind each constant are in git history (`8cab8fb` and before).
 
-**Verdict and strike count are two adjacent bytes, not one packed byte.** Packing them so the run's
-entry test would be a single load was measured and is worse: `Mesh - bulk` −4.0% against −8.8% and
-`Canada - bulk` −1.9% against −4.6%, interleaved and reproduced. Two plain `Bool` loads cost less
-than one load plus the mask, and the read-modify-write the walk needs to set a bit costs more still.
+**Measured against that gate, 4 interleaved rounds, the gated build run twice as the floor (+0.08%
+mean, +-0.4% a row), best-of-4 p0:**
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| CITM catalog | -1.4% | +2.7% |
+| Twitter full | -- | +2.5% |
+| Dictionary 128 keys / Retention 100 users | -- | +2.1 / +2.0% |
+| LLM message | -1.2% | +1.6% |
+| GitHub events | -0.6% | +1.5% |
+| GSoC 2018 | -0.6% | +1.1% |
+| Qwen 3 workspace edit / structured | -0.7 / -1.6% | +1.1 / +0.3% |
+| Twitter / Twitter escaped / Twitter spaced | -0.3 / -0.7 / -1.0% | +0.8 / +0.6 / +0.4% |
+| byte-fed rows (6) | +0.3 .. +2.7% | |
+| Canada | +1.2% | -1.4% |
+| Mesh | -3.9% | **-5.5%** |
+| mean of 41 rows | | +0.23% |
+
+`parse` lost ten instructions (the threshold compare and its out-of-line probe path), the walk
+forty, and `JSONParser` is 72 bytes. Mesh is the one real loss, reproduced in a second run (-5.6%):
+its separators put every number through the whitespace slow path, where the signal now costs a
+bitmap test, a load and a second bitmap test before the scan. Under the old gate Mesh ran the
+`blocks: false` copy, which has none of it.
+
+**The spellings that lost**, in the order tried (typed rows unless marked):
+
+| spelling | what happened |
+| --- | --- |
+| signal on any whitespace byte; walk left only on a whitespace-free block | Mesh -7.0% raw / -10.6%: it enters on `, ` and stays |
+| signal as `return ~i` to an outer driver loop that calls the walk | rows that never signal -1..-3% (Canada -1.9%, Mesh -2.9%): a second exit from the ladder's loop |
+| the same signal as `i = ~i; break` | 169 stack accesses against 191, and *worse*: Canada -5.2%, Mesh -6.0% |
+| two whitespace bytes only (no quote) | Twitter spaced -5.0%: Python-style objects want the walk |
+| signal read off the scan's results (run >= 2, or stopped on a quote) | Mesh -3.2% but Canada raw -7.1%, Qwen raw -5.5%, `Pretty printed users - 64B` -10.6%, Qwen typed -1.6% |
+| lookahead byte reused: when it is neither whitespace nor a quote it goes straight to the dispatch (`i += 1; byte = next`), skipping the scan | Mesh +3.6% (raw +2.1%), and the rest down: Twitter escaped -3.5%, Retention -2.9%, Canada -2.6%, Qwen -2.6/-2.4%, Twitter full -2.1%; raw Canada -4.5%, Qwen -5.2/-5.0% (mean -1.43%, floor -0.22%). 21 fewer instructions and 19 fewer stack accesses in the `NullSink` run; the compiler gave the shortcut its own edge into the token dispatch (and a free `next >= 0x40` tier) |
+| the same, as `i += 1; continue` (no new edge into the dispatch; the byte is reloaded at the loop head) | 8 rounds, Mesh floor 0.0%: Mesh **+2.8%**, Mesh 16KB +0.7%, raw Mesh -2.4%; CITM -0.5%, Canada 0.0%; Twitter spaced -2.8% and Twitter escaped -2.4% on rows whose floor read -1.6% and -1.8% in that run. Not rejected by these numbers alone; re-tried on top of the fused signal below and closed there (Mesh -3.8%, LLM -2.5%) |
+
+(An earlier revision of this table had the raw and typed columns of these two rows swapped -- `- bulk`
+is the raw row, `- bulk discarding` the typed one -- and rejected the second spelling for a typed
+Mesh loss that was the raw row's.)
+
+**The signal, fused: one branch.** The two halves of the signal were two dependent branches, and
+the second was dearer than its source read. At the raw site (`consumeStructuralRun`, `NullSink`):
+
+```asm
+lsr   x12, x19, x10         ; whitespace bitmap >> byte   (x19 hoisted; no guard, byte <= 0x20)
+tbz   w12, #0, scan         ; branch 1
+ldrb  w11, [x11, #1]        ; next
+cmp   x11, #0x3f            ; overshift guard: Swift's `>>` is 0 past 63
+lsl   x11, x15, x11
+mov   x12, #0x2600
+movk  x12, #0x5, lsl #32    ; the ws|quote bitmap, re-materialised on every visit
+and   x11, x11, x12
+ccmp  x11, #0, #4, ls
+b.ne  walk                  ; branch 2
+```
+
+Now `(streamWhitespaceBitmap &>> byte) & (signalBitmap &>> next) & 1`, one AND and one branch:
+
+```asm
+ldrb  w11, [x11, #1]
+lsr   x12, x19, x10
+and   x12, x12, #1
+lsl   x11, x12, x11         ; (0 or 1) << next
+mov   x12, #0x2600
+movk  x12, #0x5, lsl #32    ; still re-materialised
+tst   x11, x12
+b.ne  walk
+```
+
+The masking shift is exact for `byte` (it is `<= space` here) and aliases modulo 64 for `next`:
+`I J M \` b` and the same values with the high bit set signal falsely after whitespace. None can
+follow whitespace outside a string, so a false signal sends the walk a block it hands straight
+back, and the ladder reports the byte at the offset the `blocks: false` copy reports (`Bytes that
+alias into the signal after whitespace report the same error`). One trap on the way: `signalBitmap`
+as a `static let` reached the specialised loop through its lazy addressor -- a `bl` and two spills
+per visit; it is a computed `static var`, as `streamWhitespaceBitmap` is.
+
+Two variants, 5 interleaved rounds against 06dc4a3 run twice (floor 0.00% mean, <= +-0.3% a row
+except one +0.8%), best-of-5 p0. `sig` is the fused test; `sigfus` is the fused test with the
+`i += 1; continue` shortcut from the table above on its miss path:
+
+| row | `sig` raw / typed | `sigfus` raw / typed |
+| --- | ---: | ---: |
+| GSoC 2018 | +2.8 / +1.0% (16KB +0.9%) | +2.3 / +0.3% |
+| CITM catalog | +2.4 / +0.7% (16KB +1.2%) | +0.8 / +1.2% |
+| GitHub events | +0.6 / +0.5% | +0.5 / +0.8% |
+| Twitter / spaced / full | +0.8 / +0.8 / -- ; +0.4 / +0.2 / +0.3% | +0.9 / +1.0 / -- ; +0.7 / +0.1 / +0.8% |
+| Qwen 3 structured / workspace edit | 0.0 / 0.0 ; +0.7 / 0.0% | +0.8 / +1.1 ; -0.1 / -1.0% |
+| LLM message | -1.3 / 0.0% (16KB +0.2%) | +1.5 / **-2.5%** (16KB -2.2%) |
+| Mesh | -2.0 / -0.9% (16KB +0.5%) | +2.2 / **-3.8%** (16KB -0.6%) |
+| Twitter escaped | +0.7 / -0.3% | +0.9 / -0.9% |
+| Canada (24 whitespace bytes: never signals) | -1.3 / -2.6% (16KB -2.6%) | +0.1 / -4.5% |
+| Retention 100 users / Dictionary 128 keys (minified: never signal) | +3.2 / +0.8% | +3.0 / +2.3% |
+| mean of 34 rows | +0.22% | +0.11% |
+
+`sig` landed: every typed row that runs the signal is +0.2..+1.0% but Mesh (-0.9%) and Twitter
+escaped (-0.3%), and the pretty-printed raw rows are +2.4..+2.8%. Mesh did not move because the
+test was never its cost: the whitespace scan after a miss is. The three rows that never execute the
+signal are the layout lottery again -- Retention and Dictionary 128 keys, which lost -3.1% / -1.7%
+to layout when the string staging landed, came back with opcode-identical code, and Canada took the
+-2.6% instead. `sigfus` is closed: the shortcut that measured Mesh +2.8% on its own does not
+compose with the fused test (the miss path became three branches and gained a stack store), and
+LLM typed -2.5% / Mesh typed -3.8% are real. What Mesh has left is the comma-fusion inside the walk
+that the census priced at 0.3-4% and put aside as a numeric-array optimisation.
+
+#### Staging the escaped string tail: the scan's load is the copy
+
+A profile of the typed `LLM message` row (xctrace, standalone `-O` harness) says the row is an
+escape-cycle benchmark, not a long-string one. 97% of its bytes are string content, and that content
+holds 14,222 escapes (`\n` 10.3k, `\"` 3.9k): 13.7k runs between escapes, median 14 bytes, mean 75.
+`coalescedEscapedStringTail` paid for each run twice -- `streamStringRun` to find its end, then
+`bufferStringRun` to copy it into the coalescing buffer, a libc `memmove` of a different length every
+time for anything over sixteen bytes. The raw counting sink copies nothing, so its whole 15.0%
+`_platform_memmove` self-time was that one `copyMemory`; the typed row's 18.6% is that plus
+`StreamString`'s own append of each flushed buffer.
+
+`streamStringRunStaging` is `streamStringRun` with one line added: each sixteen-byte block is stored
+behind `bufferCount` from the register the terminator test reads. When the scan knows where the run
+ends, the run is already in the buffer. Whole blocks are stored, so the lanes past a terminator are
+junk; nothing counts until `bufferCount` moves over it, and that happens after the surrogate and
+UTF-8 checks, so a throw leaves the buffer as it was. A block is staged only while all sixteen bytes
+fit under `bufferCapacity` and before `to`; whatever is left of a run goes through
+`bufferStringRun` as before, which flushes ahead of its copy, so order is kept. On x86_64 staging
+stops after two blocks and `streamStringRun` escalates a long run to the wide scanner as it did.
+
+One behaviour moved: a run at least as long as the whole buffer used to be handed over in place.
+The scan cannot know a run's length before it has staged the front of it, so such a run now passes
+through the buffer. Same bytes, different cuts, and cuts were never promised.
+
+Only the tail changed: 719 -> 594 instructions and 63 -> 37 stack accesses for `PartialSink`, 694 ->
+642 for the counting sink; the other 343 `JSONParser` symbols and 2,784 typed-layer symbols are
+opcode-identical. Six rounds, four-way (reference twice), floor +-0.1% on most rows, -0.8% at worst:
+
+| row | raw (`- bulk`) | typed (`- bulk discarding`) |
+| --- | ---: | ---: |
+| LLM message | +5.7% | +5.8% (16KB +5.9%) |
+| Twitter escaped | -3.2% | +1.3% (16KB +1.3%) |
+| GSoC | +0.9% | +1.5% |
+| Twitter | +0.5% | +1.0% |
+| CITM | +0.9% | -1.1% |
+| GitHub | -0.5% | -0.3% |
+| Qwen structured | 0.0% | -1.5% |
+| Twitter full | | -0.2% |
+| Dictionary 128 keys | | -1.7% |
+| Retention 100 users | | -3.1% |
+
+Retention and Dictionary hold no escape at all (generated user lists and counts), never reach the
+tail, and run opcode-identical code: the tail shrank by 500 bytes in a module-wide object and what
+sits behind it moved. Putting the new scanner in a file of its own changed nothing (Retention -3.2%,
+Dictionary -1.3%), so it is the tail's size, not the new symbol. Raw Twitter escaped does reach the
+tail: its runs are a few bytes long (`\/` in URLs), where a staged block is a store the 16-byte
+fast path of `bufferStringRun` already was.
+
+#### Lending `StreamString`'s tail to the scan (built, measured, rejected)
+
+Staging left one copy in the escaped value's path: the parser's 4 KB buffer flushes into the
+`StreamString` through `stringChunk`, and `append` copies it again into the value's tail block. The
+experiment removed that copy by letting a sink lend storage. `StreamParseSink` gained
+`stringStorage() -> StreamStringStorage?` (a base pointer, the address of the value's count, and a
+capacity) and a static `lendsStringStorage`; `PartialSink` answered with the `StreamString`'s
+writable tail when the value was homogeneous string storage; the staging scan stored straight into
+the block; a commit was one add to the count cell, no call. To hand out the count's address,
+`StreamString`'s tail count moved out of the block header into the struct's first field, and
+`blocks` became `ContiguousArray<StreamBlock<UInt8>>` so a block's memory could be lent by
+reference. Patch and its tests: `~/.cache/sspab/s13/rejected_lend/`.
+
+Five snapshots. The first was -8.0% mean (GitHub -27.7%, Qwen structured -30.2%, Twitter full
+-21.4%): a parser field `lentCount` tested on every path put the lend branches into every sink's
+specialisation, the counting sink's tail included (593 -> 744 instructions). The static
+`lendsStringStorage` folded them away and the mean was still -5.6%, all of it in `StreamString`
+itself, found through the benchmark's own counters before any assembly: typed GitHub went from 156
+retains / 996 releases to 988 / 1,827. Three causes, each confirmed on an eleven-variant `-emit-sil`
+repro:
+
+- `[StreamBlock<UInt8>]` is bridgeable, so every `.count` read paid a tag check (typed GitHub -15%,
+  Twitter full -9% alone). `ContiguousArray` does not.
+- `blocks = []` allocates; `ContiguousArray()` is the immortal empty storage.
+- **An `init()` that assigns its fields in the body, once one field is an optional class
+  reference, keeps `self` on the stack and returns through an outlined copy and destroy: two
+  retains and two releases per constructed value, per string field of every parsed element.**
+  Property defaults with an empty `init() {}` lower to ten constant stores and no ARC at all. An
+  `@inline(__always)` memberwise initialiser in between still kept two.
+
+With those fixed the mean was +0.1% and the lend was live only where a value's first escape came
+with a long clean prefix. LLM's strings average ~1.9 KB and nearly all hit an escape inside 64
+bytes, so the lend could engage only by promoting the value early, and an early promotion is the
+doubling schedule: 512 -> 1024 -> 2048, three blocks, a spine, three seals per string. Retrying the
+lend once 64 buffered bytes were in hand, written inside the tail's per-run loop, was typed LLM
+-22% and Twitter -31% (spills in the loop); outlined, better but not clean; moved to the buffer-full
+flush only, the final shape. Five rounds, four-way, floor +-0.1% (CITM raw -1.5%):
+
+| row | raw (`- bulk`) | typed (`- bulk discarding`) |
+| --- | ---: | ---: |
+| GSoC | -2.0% | +4.1% (16KB +4.1%) |
+| LLM message | -0.2% | -1.4% (16KB -1.0%) |
+| Twitter | +0.1% | -1.7% (16KB -1.5%) |
+| Twitter escaped | -0.4% | -0.5% (byte-fed -1.9%) |
+| GitHub | | -1.1% |
+| Twitter spaced | | -0.9% |
+| Canada | | -0.6% (16KB -0.6%) |
+| Qwen workspace / structured | | -0.6% / -0.2% |
+| Retention 100 users | | +5.8% |
+| **mean** | | **-0.04%** |
+
+GSoC is the one corpus whose strings are long and clean, and it gains what the copy cost. The row
+the work was for loses, and the reason is a bound rather than a tuning gap: a lend pays only for a
+string longer than the parser's buffer, and promoting once at the value's end into an exactly sized
+block, with one L1-hot copy of at most 4 KB, is cheaper than three allocations that avoid it.
+Retention has no escape and never reaches the tail; +5.8% is the same layout lottery the staging
+change paid -3.1% into. Rejected: a second sink requirement, a public storage type, a
+reference-typed `StreamString` and an `@unchecked Sendable` for a mean of zero. What it leaves
+behind is the four codegen findings above and the counters as the first diagnostic; the `init()`
+finding applies to every value type the typed layer constructs per element.
 
 #### Skipping a subtree inside the block walk (built, measured, rejected)
 
@@ -7505,7 +7886,9 @@ bit 7 0x80  BRACK  {5,7} x {B,D}       5B 5D 7B 7D
 ```
 
 `\`, `/`, `|`, `_`, every uppercase letter but E, every non-whitespace control byte and every byte
->= 0x80 is in no class at all, which is what `needs_scalar` reads. Neither `brackets` nor `op` is
+>= 0x80 is in no class at all, which is what `needs_scalar` reads. (`scalar_end` is the one mask
+read straight off two class bits, COMMA | BRACK — see "Number extents from the block masks".)
+Neither `brackets` nor `op` is
 computed here: the walk reads the four bracket bytes and the two operators it lands on out of the
 line the classifier just touched — two movemasks the skip classifier's shape pays for and this one
 does not.
@@ -7734,6 +8117,8 @@ straight loss. The builders therefore choose between the two closure forms once,
 on `_streamInitialValueIsExpensive` (a `StreamParseableRoot` requirement, default `false`, `true` on
 the `StreamArray` and `StreamDictionary` conformances). The wins were kept in full, CITM returned
 to flat, and `Schema 48 members` to exactly +0.0% — the concrete path emits the identical closure.
+(58782b45 made every builder hoist its template and stopped reading the flag; it was deleted as dead
+code with generic `@StreamParseable` structs, whose builders choose on `_streamOpensByConstruction`.)
 
 The template is owned, not leaked. `_streamFieldRoute` runs once, from the macro's `streamFields`
 static, but the container builders are reached through `streamSchema`, a *computed* property that
@@ -7947,6 +8332,50 @@ reason; see "`PartialsStream`'s entry points must stay `@inlinable`" below.)
 at a container rebuilt the whole schema, template allocation included. It is cached per element
 type (`_streamCachedSchema`); the `@inlinable` stays, because the closure handed to the cache is
 still formed at the use site and still specialises — only the cache probe is out of line.
+
+That cache is now public, `StreamSchemaCache` (`StreamSchemaCache.swift`), keyed by type and
+`StreamSchema.Usage`, and `@StreamParseable` builds into it too (`shared`, or its `schemaCache:`
+argument) rather than into a `static let`. Moving the generated concrete `Partial`s onto it measured
+what a lookup by type costs on this x86 box, with a `Setup` row per read (`SetupBenchmarks.swift`):
+
+```
+                                          static let     lookup by type     entry
+Setup Flat struct - schema read (ns)        151-197          262-285        163-201
+Layer Flat struct bulk - stream (MB/s)        52-56            46-49          50-55
+Stream Flat struct - discarding (ns)      2845-3033        3037-3253      3043-3143
+```
+
+(Ranges are over three pad-control layouts per side.) The lookup -- a lock round trip, the key
+hashed through `Hasher`, the dictionary probed, `shared` retained around the call -- was 85 ns a
+stream, 5-10% of a 120-byte document. So a concrete `Partial` keeps its `StreamSchemaCache.Entry`
+in a `private static let streamSchemaEntry`, which also owns its build closure so that every read
+of the key builds the same way, and reads through it: a lock round trip and a load, level with the
+`static let` in the read row. Two details were measured on the way. A hit by type
+returns only the schema: returning the entry too cost a retain and release, 50 ns a read on
+`StreamArray<Int>`. Each cache and entry holds the one lock itself, because reaching the global
+cost a `swift_once` call per read. And the table and each entry's schema are
+`@exclusivity(unchecked)`: as class `var`s read inside the lock's closure they drew a dynamic
+`swift_beginAccess`/`swift_endAccess` pair, which the lock makes redundant -- the read by type went
+from 265-312 ns to 261-280 against the old cache's 230-266 (`Setup StreamArray<Int>`).
+
+What remains on that 120-byte document's partial-sink row (61-62 MB/s against 62-67 over the
+same layouts) is not the lock: a variant reading the entry with no lock at all, racy and for
+measurement only, measured the same. The per-iteration code differs from the `static let` build
+only in a call to `Entry.schema(build:)` where there was a `swift_retain`. Every real-world row
+stayed within placement range (Twitter 1248-1260 against 1142-1246, Canada 359-361 against
+352-373).
+
+Embedded Swift has no metatype identity, so a read by type builds every time there -- which, with
+the concrete `Partial`s moved onto the cache, would have rebuilt every schema on every read where a
+`static let` never had. The entry fixes that as well: on Embedded it publishes its schema once with
+an atomic compare-exchange, and removal does nothing.
+
+The library's conformances that rebuilt a schema on every read now read the cache as well:
+`InlineArray`, SIMD vectors of non-`Double` scalars (the `Double` ones keep their immortal globals,
+which the sink pushes by identity), `Optional`'s element schema under `.arrayElement`, and
+`PersonNameComponents` through an entry. `Tagged` forwards its raw value's schema and builds none.
+The scalar defaults (`_streamNumberSchema` and its siblings) still build per read: one allocation,
+about what a lookup by type costs.
 
 Related: `StreamArray.sealedCount` is `@inlinable` rather than merely `@usableFromInline` because
 `StreamDictionary.drainPending` is inlinable and specialises in the *client* module, where a

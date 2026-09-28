@@ -4,7 +4,7 @@ import Testing
 extension BaseTestSuite {
   @Suite struct CompletedValueConversionMacroTests {
     @Test func generatesConversionStorageAndBothDirections() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         public struct Event {
@@ -37,10 +37,6 @@ extension BaseTestSuite {
               self.createdAt = createdAt
             }
 
-            // Cached rather than re-evaluated: `Self()` walks every default expression fresh, which
-            // for a large nested struct is a long chain of small copies. Every member's own `Partial`
-            // is `Sendable` (every leaf and every "Fast" container conforms), which is what makes
-            // `Self` itself `Sendable` here and lets the template be a plain `static let`.
             @usableFromInline static let _streamInitialValueTemplate: Self = Self()
 
             @inlinable public static func streamInitialValue() -> Self {
@@ -61,7 +57,7 @@ extension BaseTestSuite {
                 self._streamStorage = storage.assumingMemoryBound(to: Partial.self)
               }
 
-            @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
+              @inlinable public var createdAt: StreamParsingCore.ConvertedPartial<Seconds>.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.createdAt) else {
@@ -83,8 +79,6 @@ extension BaseTestSuite {
               }
             }
 
-            @usableFromInline static let streamContainerSchema_createdAt = _streamContainerSchema(for: (StreamParsingCore.ConvertedPartial<Seconds>).self)
-
             @inlinable public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
               switch key.paddedLeadingWord() {
               case 0x0000_0000_656D_6974 where key.count == 4:
@@ -100,12 +94,8 @@ extension BaseTestSuite {
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyString($0, StreamParsingCore.StreamSchema.wholeValueField, bytes)
-                }
+
               default:
                 return .unsupported
               }
@@ -115,12 +105,8 @@ extension BaseTestSuite {
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
               _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyNumber($0, StreamParsingCore.StreamSchema.wholeValueField, bytes, info)
-                }
+
               default:
                 return .unsupported
               }
@@ -129,12 +115,8 @@ extension BaseTestSuite {
             @inlinable public static func streamApplyBoolean(
               _ storage: UnsafeMutableRawPointer, _ field: Int32, _ value: Bool
             ) -> StreamParsingCore.StreamApplyResult {
-              let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
-              case Self.StreamField.createdAt:
-                return _streamWithConverted(&p.pointee.createdAt) {
-                  Self.streamContainerSchema_createdAt!.applyBoolean($0, StreamParsingCore.StreamSchema.wholeValueField, value)
-                }
+
               default:
                 return .unsupported
               }
@@ -146,56 +128,48 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.createdAt:
-                return StreamParsing.streamApplyNull(&p.pointee.createdAt)
+                return StreamParsingCore._streamDelegatedApplyNull(&p.pointee.createdAt)
               default:
                 return .unsupported
               }
             }
 
-            public static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
-              of: Self.self, prototype: Self()
-            ) { p in
-              [
-                StreamParsingCore.StreamField(
-                  key: "time", index: Self.StreamField.createdAt,
-                  route: _streamFieldRoute(&p.pointee.createdAt, schema: Self.streamContainerSchema_createdAt),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                ),
-                StreamParsingCore.StreamField(
-                  key: "created", index: Self.StreamField.createdAt,
-                  route: _streamFieldRoute(&p.pointee.createdAt, schema: Self.streamContainerSchema_createdAt),
-                  offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
-                ),
-              ]
+            private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self) {
+              let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
+                [
+                  StreamParsingCore.StreamField(
+                    key: "time", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                  StreamParsingCore.StreamField(
+                    key: "created", index: Self.StreamField.createdAt,
+                    route: StreamParsingCore._streamDelegatedFieldRoute(&p.pointee.createdAt),
+                    offset: StreamParsingCore._streamFieldOffset(&p.pointee.createdAt, in: p)
+                  ),
+                ]
+              }
+              return StreamParsingCore.StreamSchema(
+                shape: .object,
+                matchField: Self.streamMatchField,
+                applyString: Self.streamApplyString,
+                applyNumber: Self.streamApplyNumber,
+                applyBoolean: Self.streamApplyBoolean,
+                applyNull: Self.streamApplyNull,
+                fields: streamFields
+              )
             }
 
-            public static let streamSchema = StreamParsingCore.StreamSchema(
-              shape: .object,
-              matchField: Self.streamMatchField,
-              applyString: Self.streamApplyString,
-              applyNumber: Self.streamApplyNumber,
-              applyBoolean: Self.streamApplyBoolean,
-              applyNull: Self.streamApplyNull,
-              finishString: { storage, field in
-                let p = storage.assumingMemoryBound(to: Self.self)
-                switch field {
-                case Self.StreamField.createdAt:
-                  return _streamWithConverted(&p.pointee.createdAt) {
-                    Self.streamContainerSchema_createdAt!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied
-                  }
-                default:
-                  return .applied
-                }
-              },
-              fields: Self.streamFields
-            )
+            public static var streamSchema: StreamParsingCore.StreamSchema {
+              Self.streamSchemaEntry.schema
+            }
+
           }
 
           @inlinable public init?(_ partial: Partial) {
             self.init(streamPartial: partial)
           }
 
-          /// Fails when the stream did not produce a member this type has no way to do without.
           public init?(streamPartial partial: Partial) {
             guard
               let createdAt = _streamConvertedValue(partial.createdAt)
@@ -205,8 +179,6 @@ extension BaseTestSuite {
             self.createdAt = createdAt
           }
 
-          /// Fills members the stream did not produce with their initial values, keeping the ones
-          /// it did.
           public init(orInitial partial: Partial) {
             self.createdAt = _streamConvertedValue(partial.createdAt) ?? (Date(timeIntervalSince1970: 0))
           }
@@ -220,7 +192,7 @@ extension BaseTestSuite {
     }
 
     @Test func requiresDefaultForNonoptionalConvertedMembers() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -241,7 +213,7 @@ extension BaseTestSuite {
     }
 
     @Test func rejectsDuplicateStrategies() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -265,7 +237,7 @@ extension BaseTestSuite {
     }
 
     @Test func rejectsCapacityHintOnConvertedMember() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {
@@ -288,7 +260,7 @@ extension BaseTestSuite {
     }
 
     @Test func requiresTypeLiteral() {
-      assertMacro {
+      assertStreamParsingMacro {
         """
         @StreamParseable
         struct Event {

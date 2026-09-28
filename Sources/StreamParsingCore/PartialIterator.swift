@@ -73,8 +73,12 @@ extension Sequence where Element == UInt8 {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseable>(
     of type: Value.Type,
     from format: JSONStreamFormat,
@@ -103,9 +107,13 @@ extension Sequence where Element == UInt8 {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
   @_disfavoredOverload
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat,
@@ -133,8 +141,12 @@ extension Sequence where Element == UInt8 {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseableRoot>(
     initialValue: Value,
     from format: JSONStreamFormat,
@@ -165,8 +177,12 @@ extension Sequence where Element: Sequence<UInt8> {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseable>(
     of type: Value.Type,
     from format: JSONStreamFormat,
@@ -195,9 +211,13 @@ extension Sequence where Element: Sequence<UInt8> {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
   @_disfavoredOverload
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseableRoot>(
     of type: Value.Type,
     from format: JSONStreamFormat,
@@ -225,8 +245,12 @@ extension Sequence where Element: Sequence<UInt8> {
   }
 
   /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Views cannot escape the callback.
+  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
+  /// views are unsafe and must not be retained or used across parser mutation.
   /// A parser or callback error stops consumption immediately and is rethrown.
+#if !LifetimeView
+  @unsafe
+#endif
   public func withPartialViews<Value: StreamParseableRoot>(
     initialValue: Value,
     from format: JSONStreamFormat,

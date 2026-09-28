@@ -99,9 +99,9 @@ struct SkipBlockScanTests {
   // `chunk == nil` selects the dedicated byte-fed entry point, which drives one byte through the
   // dispatcher at a time and so can never reach the block path either.
   private static func run(
-    _ bytes: [UInt8], chunk: Int?, skipFromDepth: Int, windowThreshold: Int = .max
+    _ bytes: [UInt8], chunk: Int?, skipFromDepth: Int
   ) -> Outcome {
-    var parser = JSONParser(windowThreshold: windowThreshold)
+    var parser = JSONParser()
     var sink = ProbeSink(skipFromDepth: skipFromDepth)
     var error: JSONParsingError?
     do {
@@ -130,8 +130,7 @@ struct SkipBlockScanTests {
     _ bytes: [UInt8],
     _ label: @autoclosure () -> String,
     chunks: [Int?] = [nil, 1, 7, 63, 64, 65, 66, 127, 1000, .max],
-    depths: [Int] = [1, 2],
-    windowed: Bool = true
+    depths: [Int] = [1, 2]
   ) {
     for depth in depths {
       let expected = Self.run(bytes, chunk: 63, skipFromDepth: depth)
@@ -141,12 +140,6 @@ struct SkipBlockScanTests {
           expectNoDifference(
             actual, expected, "\(label()) depth \(depth) chunk \(chunk.map(String.init) ?? "byte)")"
           )
-        }
-      }
-      if windowed {
-        let actual = Self.run(bytes, chunk: .max, skipFromDepth: depth, windowThreshold: 1)
-        if actual != expected {
-          expectNoDifference(actual, expected, "\(label()) depth \(depth) windowed")
         }
       }
     }

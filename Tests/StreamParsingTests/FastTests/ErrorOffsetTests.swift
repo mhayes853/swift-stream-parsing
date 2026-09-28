@@ -184,28 +184,6 @@ struct `Error offset tests` {
     }
   }
 
-  // The same feed through the windowed walk: a one byte `windowThreshold` sends every chunk to
-  // `parseWindowed`, which is the only production caller of the `coalescing: false` escape
-  // decoder for a string *value* (`JSONParserWindow.scanStringValue`). It is driven the way
-  // `WindowedParserTests` drives it rather than with a 32 KB chunk, so the offsets under test are
-  // the document's own and do not have to be read through a pad.
-  private static func windowedSinkFailure<S: StreamParseSink>(
-    _ json: String, sink: consuming S
-  ) -> JSONParsingError? {
-    var parser = JSONParser(windowThreshold: 1)
-    var sink = sink
-    let bytes = Array(json.utf8)
-    do {
-      try bytes.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-      try parser.finish(into: &sink)
-      return nil
-    } catch let error as JSONParsingError {
-      return error
-    } catch {
-      return nil
-    }
-  }
-
   @Test(arguments: 0...5)
   func `Reports a rejected number at its own token, not the next`(splitAt: Int) {
     let error = Self.sinkFailure("[1,2]", sink: RejectingSink(rejecting: .number), splitAt: splitAt)
@@ -267,9 +245,7 @@ struct `Error offset tests` {
   // from `consumeEscape`, and the offset a plain string chunk reports from its own last byte.
   //
   // `fusedUnicodeEscapeEnd` used to report at the escape's *selector* instead, which is the first
-  // hex digit once `emitScratch` adds one: four bytes early for `\u0041`, ten for a pair. Only
-  // the windowed walk reaches that entry for a string value, and no row here had a `\u` in it,
-  // which is why it survived.
+  // hex digit once `emitScratch` adds one: four bytes early for `\u0041`, ten for a pair.
   @Test(arguments: [
     (Self.simpleEscape, 8),  // `["\u0041x"]`: the escape ends at byte 7
     (Self.pairEscape, 14),  // `["\uD83D\uDE00x"]`: the pair ends at byte 13
@@ -282,9 +258,6 @@ struct `Error offset tests` {
     let bytewise = Self.bytewiseSinkFailure(json, sink: RejectingSink(rejecting: .stringChunk))
     expectNoDifference(bytewise?.reason, .sinkRejectedToken(rejection))
     expectNoDifference(bytewise?.byteOffset, offset, "byte by byte")
-
-    let windowed = Self.windowedSinkFailure(json, sink: RejectingSink(rejecting: .stringChunk))
-    expectNoDifference(windowed, bytewise, "windowed")
 
     // Feeding the escape across a chunk boundary puts it back on the per byte states inside a
     // bulk parse, so the bulk dispatcher reports the same offset there too.

@@ -316,6 +316,7 @@ extension StreamDictionary where Value: StreamParseableRoot {
   /// its existing slot (see `pendingSlot`), so that position can briefly hold a stale value while
   /// the live one sits in `pendingValue`. `subscript(key:)` routes around that by checking the
   /// pending entry first; a raw span would not.
+#if LifetimeView
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
 
@@ -366,6 +367,53 @@ extension StreamDictionary where Value: StreamParseableRoot {
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
     View(storage)
   }
+#else
+  /// An unsafe zero-copy window onto the dictionary.
+  ///
+  /// The view may escape, so every access requires the caller to ensure that its originating
+  /// stream is still alive and that parsing has not invalidated the addressed storage.
+  @unsafe
+  public struct View: ~Copyable {
+    @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
+
+    @usableFromInline
+    init(_ storage: UnsafeMutableRawPointer) {
+      self.storage = storage.assumingMemoryBound(to: StreamDictionary<Value>.self)
+    }
+
+    /// The number of entries.
+    @inlinable
+    public var count: Int { self.storage.pointee.count }
+
+    /// A copy of the whole dictionary, for callers that want an escaping snapshot.
+    @inlinable
+    public var value: StreamDictionary<Value> { self.storage.pointee }
+
+    /// A view onto the value stored under `key`, or `nil` when there is no such entry.
+    public subscript(key: String) -> Value.View? {
+      let address: UnsafeMutableRawPointer?
+      if self.storage.pointee.pendingEntryKey == key {
+        address =
+          self.storage.pointee.pendingValue == nil
+          ? nil
+          : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+            UnsafeMutableRawPointer($0)
+          }
+      } else if let slot = self.storage.pointee.slot(forKey: key) {
+        address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+      } else {
+        address = nil
+      }
+      guard let address else { return nil }
+      return Value.streamView(address)
+    }
+  }
+
+  @unsafe
+  public static func streamView(_ storage: UnsafeMutableRawPointer) -> View {
+    View(storage)
+  }
+#endif
 }
 
 // MARK: - Parsing support
@@ -417,6 +465,52 @@ extension StreamDictionary {
     }
     return withUnsafeMutablePointer(to: &self.pendingValue) { box in
       _streamCopyInitialize(box, from: template)
+      return UnsafeMutableRawPointer(box)
+    }
+  }
+
+  /// The same open, initialising a new key's slot with `initial` -- again already the `.some` --
+  /// rather than a copy of a template: for a value whose copy costs more than its construction
+  /// (`StreamParseableRoot._streamOpensByConstruction`). A separate method rather than a flag on
+  /// the one above, for the reason given there.
+  @inlinable
+  public mutating func _openValue(
+    forKey key: Span<UInt8>,
+    constructingSome initial: @autoclosure () -> Value?
+  ) -> UnsafeMutableRawPointer {
+    self.drainPending()
+    // `pendingSlot < 0` and `pendingValue == nil` are the same state; `drainPending()` has just
+    // established it, and the initialise below depends on it.
+    assert(self.pendingValue == nil)
+    var isNew = false
+    key.withUnsafeBufferPointer { buffer in
+      let hash = Self.hash(buffer)
+      var vacantBucket = -1
+      // Probed through the two buffers rather than through `self`: see `slot(entries:table:...)`.
+      let existing = self.entries.withUnsafeBufferPointer { entries in
+        self.table.withUnsafeBufferPointer { table in
+          Self.slot(
+            entries: entries, table: table, forKey: buffer, hash: hash, vacantBucket: &vacantBucket
+          )
+        }
+      }
+      if let existing {
+        self.pendingSlot = existing
+        self.pendingValue = self.storedValues[Int(existing)]
+      } else {
+        self.pendingSlot = self.appendEntry(
+          forKey: String(decoding: buffer, as: UTF8.self),
+          hash: hash,
+          vacantBucket: vacantBucket
+        )
+        isNew = true
+      }
+    }
+    guard isNew else {
+      return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
+    }
+    return withUnsafeMutablePointer(to: &self.pendingValue) { box in
+      box.initialize(to: initial())
       return UnsafeMutableRawPointer(box)
     }
   }

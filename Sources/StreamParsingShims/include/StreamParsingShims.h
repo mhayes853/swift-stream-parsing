@@ -7,8 +7,8 @@
 
 // MARK: - simdjson stage 1's two bit algorithms
 //
-// Shared by the window indexer (StreamParsingShims.c) and the classifiers below. They live in
-// the header rather than that translation unit because the classifiers are inlined into Swift.
+// Shared by the block classifiers below (and their AVX2 twins). They live in the header because
+// the NEON classifiers are inlined into Swift.
 
 // Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
 // carries "the previous block ended inside an odd run" in and out.
@@ -67,6 +67,14 @@ typedef struct {
   // Every `\` byte, escaped or not. The walk tests this over a string's extent: a string with no
   // backslash between its quotes is emitted in place, one with any goes to the escape decoder.
   uint64_t backslash;
+  // Every byte that ends a number in a valid document: whitespace, `,` and the four brackets
+  // (`[` and `{` ride along on the bracket class bit; they cost nothing and end nothing valid).
+  // Not masked by `in_string`: the walk reads it only above a number's first byte, which is
+  // outside every string, and the first set bit there is the number's end. The set is disjoint
+  // from the number class, so that extent is never shorter than `streamNumberRunEnd`'s; where it
+  // is longer the token is malformed (`12abc`), the whole-token parse rejects it, and the walk
+  // hands the token back to the scalar loop, which reports it as it always has.
+  uint64_t scalar_end;
   // Carry out: all ones if the byte after this block lies inside a string, zero otherwise.
   uint64_t in_string;
   // Carry out: 1 if this block ends inside an odd-length backslash run.
@@ -80,22 +88,15 @@ typedef struct {
   // string, so this is the caller's `containsNonASCII` for the strings it emits; the validator
   // then runs each string's own extent and reports at the byte it finds, as the scalar path does.
   uint32_t non_ascii;
-  // Nonzero: the block holds no whitespace *outside* a string -- the walk's gate signal, computed
-  // here rather than handed out as a mask because one `bic` + `cmp` beats another 64-bit field in
-  // the struct. Whitespace inside a string is deliberately excluded: those bytes the walk skips
-  // with its cursor anyway, so the classifier saves nothing on them.
-  uint32_t no_outer_whitespace;
-  // Nonzero: the block is a strike against the walk -- `no_outer_whitespace`, or at least
-  // `STREAM_PARSING_BLOCK_WALK_DENSE_STARTS` bits in `starts`. Written by the AVX2 kernel only and
-  // read only on x86 (baseline x86-64 has no `popcnt`); arm64's Swift gate recomputes it from the
-  // two fields above. Sits in the struct's tail padding, so the size is the same either way.
-  uint32_t strike;
+  // Nonzero: the block is the scalar ladder's -- it holds nothing the walk buys. The walk replaces
+  // two of the ladder's scans, whitespace runs and string extents, so that is a block with no
+  // whitespace outside a string at all, or with no string and no whitespace *run* outside one (a
+  // lone separator space, as in `[1.5, 2.5]`, the ladder takes in its stride; measured: Mesh, all
+  // numbers and one-byte runs, -7.0% raw / -10.6% typed in the walk). A function of these 64
+  // bytes alone. Whitespace inside a string is excluded: the walk's cursor skips it anyway.
+  // Computed here rather than handed out as masks: a flag beats more 64-bit fields in the struct.
+  uint32_t ladder_block;
 } stream_parsing_structural_classes;
-
-// The gate's second strike: a block with at least this many token-start candidates has
-// whitespace but nothing to skip (JSONParserBlocks.swift). One constant for both spellings of the
-// gate -- the Swift one on arm64 and the AVX2 kernel's `strike`.
-#define STREAM_PARSING_BLOCK_WALK_DENSE_STARTS 48
 
 // The one SIMD operation Swift's SIMD API cannot express: a byte table lookup, `tbl` on arm64.
 // The `ext_vector_type` signature imports as `SIMD16<UInt8>`, and `static inline` folds the call
@@ -327,8 +328,9 @@ stream_parsing_classify_structural_block(
   // kept for a carrying caller.)
   if (quote == 0 && in_string == ~(uint64_t)0) {
     // Edge to edge inside a string: no byte of it is whitespace outside one, by construction.
-    out.no_outer_whitespace = 1;
+    out.ladder_block = 1;
     out.starts = 0;
+    out.scalar_end = 0;
     out.needs_scalar = vminvq_u8(vminq_u8(vminq_u8(v0, v1), vminq_u8(v2, v3))) < 0x20;
     return out;
   }
@@ -374,25 +376,23 @@ stream_parsing_classify_structural_block(
   uint64_t control = stream_parsing_movemask4(
     vcltq_u8(v0, space), vcltq_u8(v1, space), vcltq_u8(v2, space), vcltq_u8(v3, space)
   );
+  // COMMA (0x04) and BRACK (0x80): a test of two class bits the lookups above already produced.
+  const uint8x16_t separator_bits = vdupq_n_u8(0x84);
+  uint64_t separator = stream_parsing_movemask4(
+    vtstq_u8(c0, separator_bits), vtstq_u8(c1, separator_bits),
+    vtstq_u8(c2, separator_bits), vtstq_u8(c3, separator_bits)
+  );
 
-  out.no_outer_whitespace = (whitespace & ~in_string) == 0;
+  // Nothing here for the walk to buy: no string (whose extent it reads off `quote`) and no
+  // whitespace *run* outside one (the scan it replaces; a lone separator space the ladder takes in
+  // its stride). See the field's comment.
+  uint64_t outer_whitespace = whitespace & ~in_string;
+  out.ladder_block =
+    (outer_whitespace == 0) | ((quote == 0) & ((outer_whitespace & (outer_whitespace << 1)) == 0));
   out.starts = (~(in_string | whitespace | quote)) | (quote & in_string);
+  out.scalar_end = whitespace | separator;
   out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
   return out;
-}
-#endif
-
-#if !(defined(__aarch64__) && defined(__ARM_NEON))
-// The window indexer's portable path needs the parity too. The block classifiers' x86 twins in
-// AVX2.c use `pclmulqdq` instead; every other architecture keeps the scalar loops.
-static inline uint64_t stream_parsing_prefix_xor(uint64_t bitmask) {
-  bitmask ^= bitmask << 1;
-  bitmask ^= bitmask << 2;
-  bitmask ^= bitmask << 4;
-  bitmask ^= bitmask << 8;
-  bitmask ^= bitmask << 16;
-  bitmask ^= bitmask << 32;
-  return bitmask;
 }
 #endif
 
@@ -420,7 +420,7 @@ ptrdiff_t stream_parsing_string_run_avx2(const void *base, ptrdiff_t from, ptrdi
                                          int *out_non_ascii);
 
 // Whether the two block classifiers below may be called: AVX2 plus PCLMULQDQ (the quote parity)
-// and POPCNT (the structural kernel's gate strike). A separate question from
+// and POPCNT (no longer used by either kernel; every AVX2 part has it). A separate question from
 // `stream_parsing_has_avx2` so a (hypothetical) AVX2 part without either keeps the validator and
 // the string scanner. Resolved on first use and cached with the same probe.
 int stream_parsing_has_avx2_block_kernels(void);
@@ -435,131 +435,6 @@ stream_parsing_structural_classes stream_parsing_classify_structural_block(
     const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
 
 #endif  // __x86_64__
-
-#include <stddef.h>
-
-// Stage-1 window indexer: one pass over `len` bytes in 64-byte blocks, writing to `indices` every
-// chunk-relative position a consuming walk must visit; returns how many. `needs_scan`/`non_ascii`
-// flag blocks holding a backslash or control byte / a byte >= 0x80. Requires len <= 32 KB starting
-// at a token boundary outside any string, len+8 slots in `indices`, (len+4095)/4096 words per bitmap.
-size_t stream_parsing_index_window(const uint8_t *p, size_t len, uint32_t base,
-                                   uint32_t *indices, uint64_t *needs_scan,
-                                   uint64_t *non_ascii);
-
-// A simple decimal of more than sixteen bytes, parsed in one pass from a known extent: one vector
-// classification gates the shape (optional '-', digits, at most one interior '.', no exponent, no
-// leading zero, at most 19 digits) and the digits accumulate unvalidated; anything else returns 0.
-// Reads 32 bytes from `p`. Measured: +24% on Canada's long floats, a loss short -- hence the gate.
-STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_swar8(uint64_t w) {
-  w -= 0x3030303030303030ULL;
-  w = (w * 10) + (w >> 8);
-  w = (((w & 0x000000FF000000FFULL) * (100 + (1000000ULL << 32)))
-       + (((w >> 16) & 0x000000FF000000FFULL) * (1 + (10000ULL << 32)))) >> 32;
-  return w;
-}
-
-// Reads in eight-byte words, so the `count % 8 != 0` tail loads up to seven bytes past `q + count`.
-// In bounds only because `stream_parsing_decimal32` rejects `len > 21` and passes slices of the same
-// `p`, so the furthest byte is `p + 27`, inside its 32 mapped bytes (`JSONParserShapes.parseNumber`
-// guarantees `from &+ 32 <= chunkEnd`). Loosening `len <= 21` without revisiting this reads OOB.
-STREAM_PARSING_SIMD_SHIM uint64_t stream_parsing_decimal_digits(const uint8_t *q, unsigned count) {
-  static const uint64_t pow10[8] = {
-    1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL
-  };
-  uint64_t value = 0;
-  while (count >= 8) {
-    uint64_t w;
-    __builtin_memcpy(&w, q, 8);
-    value = value * 100000000ULL + stream_parsing_swar8(w);
-    q += 8;
-    count -= 8;
-  }
-  if (count > 0) {
-    uint64_t w;
-    __builtin_memcpy(&w, q, 8);
-    // Left-justify the remaining digits into an eight-digit field padded with '0' in front.
-    w = (w << ((8 - count) * 8)) | (0x3030303030303030ULL >> (count * 8));
-    value = value * pow10[count] + stream_parsing_swar8(w);
-  }
-  return value;
-}
-
-STREAM_PARSING_SIMD_SHIM void stream_parsing_decimal_classify(
-  const uint8_t *p, uint32_t *digits, uint32_t *dots
-) {
-#if defined(__aarch64__) && defined(__ARM_NEON)
-  uint8x16_t v0 = vld1q_u8(p);
-  uint8x16_t v1 = vld1q_u8(p + 16);
-  const uint8x16_t zero = vdupq_n_u8('0');
-  const uint8x16_t nine = vdupq_n_u8(9);
-  const uint8x16_t dot = vdupq_n_u8('.');
-  const uint8x16_t bit_mask = {
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80
-  };
-  uint8x16_t d0 = vandq_u8(vcleq_u8(vsubq_u8(v0, zero), nine), bit_mask);
-  uint8x16_t d1 = vandq_u8(vcleq_u8(vsubq_u8(v1, zero), nine), bit_mask);
-  uint8x16_t s = vpaddq_u8(d0, d1);
-  s = vpaddq_u8(s, s);
-  s = vpaddq_u8(s, s);
-  *digits = vgetq_lane_u32(vreinterpretq_u32_u8(s), 0);
-  uint8x16_t t = vpaddq_u8(vandq_u8(vceqq_u8(v0, dot), bit_mask), vandq_u8(vceqq_u8(v1, dot), bit_mask));
-  t = vpaddq_u8(t, t);
-  t = vpaddq_u8(t, t);
-  *dots = vgetq_lane_u32(vreinterpretq_u32_u8(t), 0);
-#else
-  uint32_t d = 0, o = 0;
-  for (int i = 0; i < 32; i++) {
-    if ((uint8_t)(p[i] - '0') <= 9) { d |= 1u << i; }
-    if (p[i] == '.') { o |= 1u << i; }
-  }
-  *digits = d;
-  *dots = o;
-#endif
-}
-
-STREAM_PARSING_SIMD_SHIM int stream_parsing_decimal32(
-  const uint8_t *p, size_t len, uint64_t *magnitude, int32_t *exponent,
-  uint32_t *digit_count, uint32_t *flags
-) {
-  static const uint64_t pow10[20] = {
-    1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL, 100000ULL, 1000000ULL, 10000000ULL, 100000000ULL,
-    1000000000ULL, 10000000000ULL, 100000000000ULL, 1000000000000ULL, 10000000000000ULL,
-    100000000000000ULL, 1000000000000000ULL, 10000000000000000ULL, 100000000000000000ULL,
-    1000000000000000000ULL, 10000000000000000000ULL
-  };
-  if (len == 0 || len > 21) { return 0; }
-  uint32_t digits, dots;
-  stream_parsing_decimal_classify(p, &digits, &dots);
-  unsigned start = p[0] == '-';
-  if (start >= len) { return 0; }
-  uint32_t body = ((1u << len) - 1u) & ~((1u << start) - 1u);
-  uint32_t dot = dots & body;
-  if (((digits | dot) & body) != body) { return 0; }
-  if (dot & (dot - 1)) { return 0; }
-  unsigned count = (unsigned)len - start - (dot != 0);
-  if (count > 19) { return 0; }
-  unsigned int_digits, frac_digits, dot_at = 0;
-  if (dot) {
-    dot_at = (unsigned)__builtin_ctz(dot);
-    if (dot_at == start || dot_at == len - 1) { return 0; }
-    int_digits = dot_at - start;
-    frac_digits = (unsigned)len - dot_at - 1;
-  } else {
-    int_digits = count;
-    frac_digits = 0;
-  }
-  if (int_digits > 1 && p[start] == '0') { return 0; }
-  uint64_t value = stream_parsing_decimal_digits(p + start, int_digits);
-  if (frac_digits) {
-    value = value * pow10[frac_digits] + stream_parsing_decimal_digits(p + dot_at + 1, frac_digits);
-  }
-  *magnitude = value;
-  *exponent = -(int32_t)frac_digits;
-  *digit_count = count;
-  *flags = start | (dot != 0 ? 2u : 0u);
-  return 1;
-}
 
 // The Eisel-Lemire power-of-ten table, defined in `Pow10_128.c` and generated -- see the header
 // comment there. The array is declared incomplete because Swift imports a sized C array as a

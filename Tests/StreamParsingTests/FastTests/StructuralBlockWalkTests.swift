@@ -72,10 +72,9 @@ struct StructuralBlockWalkTests {
 
   // `chunk == nil` selects the byte-fed entry point, which can never reach the block path.
   private static func run(
-    _ bytes: [UInt8], chunk: Int?, blocks: Bool, rearmGate: Bool = false,
-    windowThreshold: Int = .max
+    _ bytes: [UInt8], chunk: Int?, blocks: Bool
   ) -> Outcome {
-    var parser = JSONParser(windowThreshold: windowThreshold)
+    var parser = JSONParser()
     parser.blockWalkEnabled = blocks
     var sink = ProbeSink()
     var outcome = Outcome(calls: [], errorReason: nil, errorOffset: nil)
@@ -85,12 +84,6 @@ struct StructuralBlockWalkTests {
           var index = 0
           while index < input.count {
             let end = Swift.min(index &+ chunk, input.count)
-            // The gate (JSONParserBlocks.swift) is a performance verdict, and on a payload with
-            // no whitespace outside its strings it switches the walk off after four blocks --
-            // which would leave the corpora below comparing two scalar paths to each other.
-            // Clearing it per chunk re-arms the walk every `chunk` bytes, so the differential
-            // still covers the whole file rather than its first 256 bytes.
-            if rearmGate { parser.blockWalkGivenUp = !parser.blockKernelsAvailable }
             try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
             index = end
           }
@@ -163,6 +156,21 @@ struct StructuralBlockWalkTests {
     add("mismatched close", #"[1,2}"#)
     add("mismatched close object", #"{"a":1]"#)
     add("trailing content", #"{"a":1} x"#)
+    // Indented numeric arrays, which the walk hands to `fuseNumberRun`.
+    add("indented numbers", "{\"v\": [\n    -0.12345678,\n    1,\n    2.5e3,\n    0\n  ]}")
+    add("indented numbers then string", "[\n  1,\n  2,\n  \"s\",\n  3\n]")
+    add("indented number error", "[\n  1,\n  2x,\n  3\n]")
+    add("indented bad number", "[\n  1,\n  1.2.3\n]")
+    add("indented control byte", "[\n  1,\n \u{1} 2\n]")
+    add("indented trailing comma", "[\n  1,\n  2,\n]")
+    add("indented pairs", "[\n  [\n    1.5,\n    -2\n  ],\n  [\n    3,\n    4e1\n  ]\n]")
+    // A key's closing quote followed by something other than its colon.
+    add("key then comma", #"{"a","b":1}"#)
+    add("key then close", #"{"a"}"#)
+    add("key then value", #"{"a"1}"#)
+    add("key then double colon", #"{"a"::1}"#)
+    add("key colon close", #"{"a":}"#)
+    add("key spaced colon", "{\"a\" :1,\"b\"\n:\"x\",\"c\"\t: true}")
     add("bad number", #"[1.2.3]"#)
     add("leading zero", #"[01]"#)
     add("control in string", Array(#"{"a":"x"#.utf8) + [0x01] + Array(#"y"}"#.utf8))
@@ -254,6 +262,100 @@ struct StructuralBlockWalkTests {
     }
   }
 
+  // The walk reads a number's end off the block's `scalar_end` mask (whitespace, `,`, brackets)
+  // rather than scanning the number class. Every shape where those two disagree -- a number run
+  // into a letter, a quote, a colon, a stray sign -- has to come out of the scalar ladder's mouth
+  // unchanged, and every valid terminator has to end the token where the ladder ends it. The
+  // trailing pad keeps a whole block ahead of the token at every alignment, so the mask path (not
+  // the block-edge fallback) is what runs.
+  @Test
+  func `Number extents read from the block masks agree with the ladder`() {
+    let bodies = [
+      // Valid, one per terminator.
+      "[1,2]", "[1 ,2]", "[1\n,2]", "[1\t]", "[1\r\n]", "[ 1 ]", "{\"a\":1}", "{\"a\":1 }",
+      "[[1],[2]]", "[-0]", "[0]", "[1.5,2.5e3,-1E-2,1e+9]", "[12345678,123456789,1234567890123456789]",
+      "[0.1234567890123456789,99999999999999999999999]", "7", "7 ", "-7.25e1\n",
+      // Malformed: the mask extent is longer than the number class run.
+      "[12abc]", "[12abc,1]", "[12 abc]", "[12\"x\"]", "{\"a\":12:3}", "[12true]", "[1e5x,2]",
+      "[12\\n]", "[12_000]", "[1/2]", "[0x10]", "[1'2]", "12abc", "12\"",
+      // Malformed inside the number class: the grammar walk's own rejections.
+      "[1.2.3]", "[01]", "[-]", "[--1]", "[1-2]", "[1+2]", "[1e]", "[1e+]", "[1.]", "[-.5]",
+      "[1..2]", "[1ee2]", "[+1]", "[.5]", "[1.e2]", "[00]", "[-01]",
+      // Long enough to cross a block edge at several pads: the edge fallback scans from the edge,
+      // so garbage on either side of it has to come back to the ladder too.
+      "[12abc345,1]", "[1234567890123456789012345abc,1]", "[123456789012345678901234567890,1]",
+      "[1234567890.1234567890e-1234567890 ,1]", "[1234567890123456789\"x\"]",
+      // Openers directly after a number: on the bracket class bit, so they end the extent.
+      "[12[3]]", "[12{}]", "{\"a\":12{\"b\":1}}",
+      // Mismatched or stray closers after a number.
+      "[1}", "{\"a\":1]", "1]", "1}", "1,",
+    ]
+    let tail = Array(repeating: UInt8(0x20), count: 64)
+    for pad in 0..<66 {
+      let spaces = Array(repeating: UInt8(0x20), count: pad)
+      for body in bodies {
+        Self.expectAgreement(
+          spaces + Array(body.utf8) + tail, "\(body.debugDescription) pad \(pad)", chunks: [63, 64, 100, 4096, .max]
+        )
+      }
+    }
+  }
+
+  // The ladder signals for the walk on indentation (two whitespace bytes, a block ahead) and the
+  // walk hands back any block it will not judge. Bytes that look like whitespace to a `<= space`
+  // test but are not -- and blocks the walk refuses right where it was entered -- must end in the
+  // ladder's error arm (or carry on), never in the two handing the same byte back and forth.
+  @Test
+  func `A block the walk refuses where it was signalled cannot loop`() {
+    let tail = String(repeating: " ", count: 80)
+    let bodies: [[UInt8]] = [
+      Array("[1,\n  ".utf8) + [0x01] + Array(" 2]\(tail)".utf8),
+      Array("[1,".utf8) + [0x01, 0x01] + Array("2]\(tail)".utf8),
+      Array("[1,\n".utf8) + [0x00, 0x00] + Array("2]\(tail)".utf8),
+      Array("[1,\n  \"caf".utf8) + [0xC3, 0xA9] + Array("\",\n  2]\(tail)".utf8),
+      Array("[1,\n  ".utf8) + [0xC3, 0xA9] + Array(",\n  2]\(tail)".utf8),
+      Array("{\n  \"a\\u0041\": 1,\n  \"b\": 2\n}\(tail)".utf8),
+      Array("[\n  1,\n  \\ ,\n 2]\(tail)".utf8),
+    ]
+    for pad in [0, 1, 31, 62, 63, 64] {
+      let spaces = Array(repeating: UInt8(0x20), count: pad)
+      for (index, body) in bodies.enumerated() {
+        Self.expectAgreement(spaces + body, "refused block \(index) pad \(pad)", chunks: [64, 100, 4096, .max])
+      }
+    }
+  }
+
+  // The signal's second bitmap test is a masking shift, so the bytes whose low six bits are a
+  // whitespace or quote value (`I J M \` b`, and the same values with the high bit set) alias
+  // into the signal after a whitespace byte. None is valid outside a string: the walk hands the
+  // block back, and the ladder reports the byte the `blocks: false` copy reports.
+  @Test
+  func `Bytes that alias into the signal after whitespace report the same error`() {
+    let tail = String(repeating: " ", count: 80)
+    let aliases: [UInt8] = [
+      0x49, 0x4A, 0x4D, 0x60, 0x62, 0x89, 0x8A, 0x8D, 0xA0, 0xA2, 0xC9, 0xCA, 0xCD, 0xE0, 0xE2,
+    ]
+    for alias in aliases {
+      for whitespace: UInt8 in [0x20, 0x0A, 0x09, 0x0D] {
+        let bodies: [[UInt8]] = [
+          Array("[1,".utf8) + [whitespace, alias] + Array("2]\(tail)".utf8),
+          Array("{\"a\":".utf8) + [whitespace, alias] + Array("}\(tail)".utf8),
+          Array("[".utf8) + [whitespace, alias] + Array("]\(tail)".utf8),
+          Array("[\n  1,".utf8) + [whitespace, alias] + Array("\n  2]\(tail)".utf8),
+        ]
+        for pad in [0, 1, 63, 64] {
+          let spaces = Array(repeating: UInt8(0x20), count: pad)
+          for (index, body) in bodies.enumerated() {
+            Self.expectAgreement(
+              spaces + body, "alias \(alias) after \(whitespace) body \(index) pad \(pad)",
+              chunks: [64, 100, 4096, .max]
+            )
+          }
+        }
+      }
+    }
+  }
+
   // The depth cap, with the breaching bracket at every offset modulo the grid.
   @Test
   func `The depth cap reports the same byte at every chunking`() {
@@ -307,7 +409,7 @@ struct StructuralBlockWalkTests {
   }
 
   private static func runSkipping(
-    _ bytes: [UInt8], chunk: Int, blocks: Bool, skipFromDepth: Int, rearmGate: Bool = false
+    _ bytes: [UInt8], chunk: Int, blocks: Bool, skipFromDepth: Int
   ) -> Outcome {
     var parser = JSONParser()
     parser.blockWalkEnabled = blocks
@@ -318,7 +420,6 @@ struct StructuralBlockWalkTests {
         var index = 0
         while index < input.count {
           let end = Swift.min(index &+ chunk, input.count)
-          if rearmGate { parser.blockWalkGivenUp = !parser.blockKernelsAvailable }
           try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
           index = end
         }
@@ -339,7 +440,7 @@ struct StructuralBlockWalkTests {
   @Test(
     arguments: [
       "canada", "citm_catalog", "github_events", "gsoc-2018", "llm_message", "mesh", "twitter",
-      "twitterescaped",
+      "twitterescaped", "twitterspaced",
     ]
   )
   func `Benchmark corpora parse identically on both paths`(name: String) throws {
@@ -360,22 +461,20 @@ struct StructuralBlockWalkTests {
     }
   }
 
-  // The same corpora with the gate held open. Five blocks per chunk is four strikes plus one, so
-  // the walk is alive for most of every chunk on `Canada`, `Mesh`, `LLM message` and
-  // `Twitter escaped` -- the four the gate exists for, and therefore the four whose block path
-  // the test above would otherwise stop exercising after the first 256 bytes.
+  // The same corpora at small chunkings, so every hand-off between the ladder and the walk also
+  // meets a chunk edge.
   @Test(
     arguments: [
       "canada", "citm_catalog", "github_events", "gsoc-2018", "llm_message", "mesh", "twitter",
-      "twitterescaped",
+      "twitterescaped", "twitterspaced",
     ]
   )
-  func `Benchmark corpora agree with the gate held open`(name: String) throws {
+  func `Benchmark corpora agree at small chunkings`(name: String) throws {
     let bytes = try #require(streamBenchmarkCorpus(name))
     for chunk in [320, 4096] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
       #expect(expected.errorReason == nil, "\(name) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))")
-      let actual = Self.run(bytes, chunk: chunk, blocks: true, rearmGate: true)
+      let actual = Self.run(bytes, chunk: chunk, blocks: true)
       #expect(actual.errorReason == expected.errorReason, "\(name) chunk \(chunk)")
       #expect(actual.errorOffset == expected.errorOffset, "\(name) chunk \(chunk)")
       #expect(actual.calls.count == expected.calls.count, "\(name) chunk \(chunk)")
@@ -418,11 +517,11 @@ struct StructuralBlockWalkTests {
 
   // The same, over whole corpora: a skipped subtree that outlives its block has to reach
   // `consumeSkipRun` in the state the ladder would have left it in, and these payloads hold
-  // thousands of them. The gate is held open so the walk is alive across the whole file.
+  // thousands of them.
   @Test(
     arguments: [
       "canada", "citm_catalog", "github_events", "gsoc-2018", "llm_message", "mesh", "twitter",
-      "twitterescaped",
+      "twitterescaped", "twitterspaced",
     ]
   )
   func `Benchmark corpora agree with a skipping sink`(name: String) throws {
@@ -437,7 +536,7 @@ struct StructuralBlockWalkTests {
           "\(name) skip>=\(skipFromDepth) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))"
         )
         let actual = Self.runSkipping(
-          bytes, chunk: chunk, blocks: true, skipFromDepth: skipFromDepth, rearmGate: true
+          bytes, chunk: chunk, blocks: true, skipFromDepth: skipFromDepth
         )
         #expect(
           actual.errorReason == expected.errorReason,
@@ -462,95 +561,36 @@ struct StructuralBlockWalkTests {
     }
   }
 
-  // MARK: - The re-probe
+  // MARK: - Shape changes
 
-  // A stream that changes shape under one parser: compact numbers (no whitespace outside strings,
-  // so every block strikes), then pretty-printed objects the walk wins on, then compact numbers
-  // again. The friendly middle is twice the probe interval, so a re-probe has to land inside it.
+  // A stream that changes shape under one parser: compact numbers (nothing for the walk, so the
+  // ladder never signals), then pretty-printed objects (indentation and strings, so it does at
+  // every member), then Python-style separators (`", "`: strings bring the walk in, bare numbers
+  // send the block back), then compact numbers again. Entry and exit are functions of the bytes
+  // at the cursor, so the hand-offs land wherever the shapes meet; the sink must not be able to
+  // tell where that was.
   private static let shapeShiftingDocument: [UInt8] = {
-    let interval = Int(JSONParser.blockWalkProbeKilobytes) &* 1024
     var text = "["
     for index in 0..<700 { text += "\(1_000_000 &+ index)," }
-    let friendlyStart = text.utf8.count
-    var index = 0
-    while text.utf8.count - friendlyStart < 2 * interval {
+    for index in 0..<400 {
       text += "\n  {\n    \"id\": \(index),\n    \"name\": \"element \(index)\",\n"
       text += "    \"tags\": [ \"alpha\", \"beta\" ],\n    \"ok\": true\n  },"
-      index += 1
     }
+    for index in 0..<400 {
+      text += " {\"id\": \(index), \"name\": \"element \(index)\", \"v\": [1.5, 2.5, \(index)]},"
+    }
+    for index in 0..<400 { text += " \(index).25, -\(index)e3, \(index)," }
     for index in 0..<900 { text += "\(2_000_000 &+ index)," }
     return Array((text + "0]").utf8)
   }()
 
-  @Test(arguments: [JSONParser.blockWalkProbeChunk, 16_384])
-  func `A given-up walk is re-armed when the stream turns block friendly`(chunk: Int) throws {
+  @Test(arguments: [64, 100, 4096, 16_384, Int.max])
+  func `A stream that changes shape agrees with the ladder`(chunk: Int) {
     let bytes = Self.shapeShiftingDocument
-    var parser = JSONParser()
-    var sink = ProbeSink()
-    var givenUpAfterChunk = [Bool]()
-    try bytes.withUnsafeBufferPointer { input in
-      var index = 0
-      while index < input.count {
-        let end = Swift.min(index &+ chunk, input.count)
-        try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
-        givenUpAfterChunk.append(parser.blockWalkGivenUp)
-        index = end
-      }
-    }
-    try parser.finish(into: &sink)
-    guard parser.blockKernelsAvailable else { return }
-
-    // Out on the compact prefix, back within one probe interval of input, live across the friendly
-    // part, and out again on the compact tail -- which only the walk running again can decide.
-    #expect(givenUpAfterChunk.first == true)
-    let interval = Int(JSONParser.blockWalkProbeKilobytes) &* 1024
-    let rearmedBy = (interval &+ chunk &- 1) / chunk &+ 1
-    let rearmed = try #require(givenUpAfterChunk.firstIndex(of: false), "never re-armed")
-    #expect(rearmed <= rearmedBy)
-    let friendlyEnd = bytes.count &- 900 &* 8 &- 2
-    #expect(givenUpAfterChunk[rearmed..<(friendlyEnd / chunk)].allSatisfy { !$0 })
-    #expect(givenUpAfterChunk.last == true)
-
     let expected = Self.run(bytes, chunk: chunk, blocks: false)
     #expect(expected.errorReason == nil)
-    #expect(sink.calls == expected.calls)
-  }
-
-  // A caller-set threshold is never lowered: below the probe chunk every chunk is windowed anyway,
-  // above it the windowed chunks do the counting. Either way the sink sees what the ladder sends.
-  @Test(arguments: [1, 8_192])
-  func `The re-probe leaves a caller-set window threshold alone`(threshold: Int) {
-    let bytes = Self.shapeShiftingDocument
-    for chunk in [JSONParser.blockWalkProbeChunk, 16_384] {
-      let expected = Self.run(bytes, chunk: chunk, blocks: false, windowThreshold: threshold)
-      #expect(expected.errorReason == nil)
-      let actual = Self.run(bytes, chunk: chunk, blocks: true, windowThreshold: threshold)
-      #expect(actual == expected, "threshold \(threshold) chunk \(chunk)")
-    }
-  }
-
-  // Only the gate's own give-up starts a countdown: a parser that starts given up -- the verdict an
-  // x86 CPU without the AVX2 classifier is initialised with -- stays given up whatever it is fed.
-  @Test
-  func `A walk given up without the gate is never re-armed`() throws {
-    let bytes = Self.shapeShiftingDocument
-    var parser = JSONParser()
-    parser.blockWalkGivenUp = true
-    var sink = ProbeSink()
-    try bytes.withUnsafeBufferPointer { input in
-      var index = 0
-      while index < input.count {
-        let end = Swift.min(index &+ JSONParser.blockWalkProbeChunk, input.count)
-        try parser.parse(UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink)
-        let givenUp = parser.blockWalkGivenUp
-        let countdown = parser.blockWalkProbeCountdown
-        #expect(givenUp)
-        #expect(countdown == 0)
-        index = end
-      }
-    }
-    try parser.finish(into: &sink)
-    #expect(sink.calls == Self.run(bytes, chunk: JSONParser.blockWalkProbeChunk, blocks: false).calls)
+    let actual = Self.run(bytes, chunk: chunk, blocks: true)
+    #expect(actual == expected, "chunk \(chunk)")
   }
 
   @Test(arguments: ["64KB", "512KB", "DeepNested64"])

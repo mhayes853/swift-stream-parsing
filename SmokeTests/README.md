@@ -1,13 +1,33 @@
-# EmbeddedSmoke
+# Smoke tests
 
-Builds and links `StreamParsingCore` into a freestanding executable under Embedded Swift, then
-parses a payload through the real parser and a hand written sink.
+`MacroSupport` is a separate downstream package whose own macro imports the public
+`StreamParsingMacroSupport` product. It composes partial storage, schemas and a custom view,
+then compiles and executes both UTF-8 matching strategies. Run it in both modes:
 
 ```sh
-swiftly run +6.4.x-snapshot-2026-08-01 swift build --package-path EmbeddedSmoke \
+swift run --package-path SmokeTests/MacroSupport --disable-experimental-prebuilts MacroSupportSmoke
+swift run --package-path SmokeTests/MacroSupport --traits LifetimeView --disable-experimental-prebuilts MacroSupportSmoke
+```
+
+The fixture forwards its trait to the dependency, checking that the macro support target and
+runtime choose the same default view mode across a package boundary.
+
+`NoLifetimeSmoke` expands and runs `@StreamParseable` without enabling `LifetimeView`,
+`Lifetimes`, or `AddressableTypes`:
+
+```sh
+swift run --package-path SmokeTests NoLifetimeSmoke
+```
+
+`EmbeddedSmoke` builds and links `StreamParsingCore` into a freestanding executable under
+Embedded Swift, then parses a payload through the real parser and a hand-written sink:
+
+```sh
+swiftly run +6.4.x-snapshot-2026-08-01 swift build --package-path SmokeTests \
+  --product EmbeddedSmoke \
   --swift-sdk swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-01-a_wasm-embedded
 
-wasmer run EmbeddedSmoke/.build/out/Products/Debug-webassembly-wasm32/EmbeddedSmoke.wasm
+wasmer run SmokeTests/.build/out/Products/Debug-webassembly-wasm32/EmbeddedSmoke.wasm
 ```
 
 Existentials, dynamic casts, metatypes, key paths, untyped `throws` and unspecialized generics
@@ -22,7 +42,7 @@ is gated out under `hasFeature(Embedded)`, since the 6.3 embedded SDK has no con
 target with no scheduler has no use for an async byte stream.
 
 ```sh
-swiftly run +6.3.2 swift build --package-path EmbeddedSmoke \
+swiftly run +6.3.2 swift build --package-path SmokeTests --product EmbeddedSmoke \
   --swift-sdk swift-6.3.2-RELEASE_wasm-embedded
 ```
 

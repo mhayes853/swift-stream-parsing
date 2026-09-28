@@ -186,19 +186,14 @@ private struct UnregisteredObservationRoot: StreamParseableRoot {
 
   @Test func aliasesEscapesAndAllChunkBoundaries() throws {
     let bytes = Array(#"{"heading":"a\u00e9😀","child":{"title":"nested"},"count":12}"#.utf8)
-    for threshold in [0, Int.max] {
-      for split in 0...bytes.count {
-        let chunks = [Array(bytes[..<split]), Array(bytes[split...])]
-        var iterator =
-          try chunks.partialIterator(
-            of: ObservedModel.self,
-            from: .json(windowThreshold: threshold)
-          )
-          .observeField(\.title)
-        var final: PartialUpdate<ObservedField<StreamString>>?
-        while let update = try iterator.next() { final = update }
-        #expect(final == .init(value: .complete("aé😀"), isComplete: true))
-      }
+    for split in 0...bytes.count {
+      let chunks = [Array(bytes[..<split]), Array(bytes[split...])]
+      var iterator =
+        try chunks.partialIterator(of: ObservedModel.self, from: .json())
+        .observeField(\.title)
+      var final: PartialUpdate<ObservedField<StreamString>>?
+      while let update = try iterator.next() { final = update }
+      #expect(final == .init(value: .complete("aé😀"), isComplete: true))
     }
   }
 

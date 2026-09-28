@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import CompilerPluginSupport
@@ -29,25 +29,30 @@ let package = Package(
   products: [
     .library(name: "StreamParsing", targets: ["StreamParsing"]),
     .library(name: "StreamParsingCore", targets: ["StreamParsingCore"]),
+    .library(name: "StreamParsingMacroSupport", targets: ["StreamParsingMacroSupport"]),
   ],
   traits: [
     .trait(
-      name: "StreamParsingSwiftCollections",
+      name: "SwiftCollections",
       description: "Adds integrations for swift-collections types."
     ),
     .trait(
-      name: "StreamParsingTagged",
+      name: "Tagged",
       description: "Adds integrations for Tagged."
     ),
     .trait(
-      name: "StreamParsingFoundation",
+      name: "Foundation",
       description: "Adds integrations for Foundation types."
     ),
     .trait(
-      name: "StreamParsingCoreGraphics",
+      name: "CoreGraphics",
       description: "Adds integrations for CoreGraphics types."
     ),
-    .default(enabledTraits: ["StreamParsingFoundation", "StreamParsingCoreGraphics"])
+    .trait(
+      name: "LifetimeView",
+      description: "Enables compiler-checked nonescapable stream views."
+    ),
+    .default(enabledTraits: ["Foundation", "CoreGraphics"])
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
@@ -61,9 +66,12 @@ let package = Package(
   targets: [
     .target(
       name: "StreamParsing",
-      dependencies: ["StreamParsingCore", "StreamParsingMacros"],
-      swiftSettings: suppressedAssociatedTypes + lifetimes + addressableTypes
+      dependencies: ["StreamParsingCore", "StreamParsingKeyDecoding", "StreamParsingMacros"],
+      swiftSettings: suppressedAssociatedTypes
     ),
+    // The built-in key conversions the macro and `StreamKeyDecodingStrategy` share. No
+    // dependencies, so it builds for the host and the target alike.
+    .target(name: "StreamParsingKeyDecoding"),
     // C interoperability target. Executable shims live as inline functions in the header so
     // their scalar/NEON forms can disappear into Swift callers; generated lookup-table storage
     // stays in translation units so importing the header cannot instantiate duplicate tables.
@@ -75,12 +83,12 @@ let package = Package(
         .product(
           name: "Collections",
           package: "swift-collections",
-          condition: .when(traits: ["StreamParsingSwiftCollections"])
+          condition: .when(traits: ["SwiftCollections"])
         ),
         .product(
           name: "Tagged",
           package: "swift-tagged",
-          condition: .when(traits: ["StreamParsingTagged"])
+          condition: .when(traits: ["Tagged"])
         )
       ],
       swiftSettings: [
@@ -104,10 +112,22 @@ let package = Package(
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + lifetimes + addressableTypes
     ),
+    .target(
+      name: "StreamParsingMacroSupport",
+      dependencies: [
+        "StreamParsingKeyDecoding",
+        .product(name: "SwiftBasicFormat", package: "swift-syntax"),
+        .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
+      ]
+    ),
     .macro(
       name: "StreamParsingMacros",
       dependencies: [
+        "StreamParsingMacroSupport",
         .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+        .product(name: "SwiftParser", package: "swift-syntax"),
         .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
       ]
     ),
@@ -123,6 +143,15 @@ let package = Package(
       resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + lifetimes + addressableTypes
+    ),
+    .testTarget(
+      name: "StreamParsingMacroSupportTests",
+      dependencies: [
+        "StreamParsingMacroSupport",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+        .product(name: "SwiftParser", package: "swift-syntax"),
+        .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax")
+      ]
     ),
     .testTarget(
       name: "StreamParsingMacrosTests",

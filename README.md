@@ -95,6 +95,27 @@ extension Profile: StreamParsingCore.StreamParseable {
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
+### Key names
+
+Each member is read from the key it's named after. `keyDecodingStrategy` derives the keys from the names instead, like `JSONDecoder`'s, and `@StreamParseableMember` names a member's keys outright, which no strategy converts:
+
+```swift
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct Tweet {
+  var createdAt: String          // "created_at"
+  var inReplyToStatusID: Int?    // "in_reply_to_status_id"
+  @StreamParseableMember(key: "full_text")
+  var text: String
+}
+
+@StreamParseable(keyDecodingStrategy: .custom { "x_" + $0 })
+struct Extension {
+  var requestID: String          // "x_requestID"
+}
+```
+
+The keys are derived once, as the macro expands for a built-in strategy and when the type's schema is built otherwise, so a strategy costs nothing while parsing. Each `@StreamParseable` type declares its own strategy; a member type follows the strategy it declares.
+
 ### Enums
 
 `@StreamParseable` also applies to enums, in whichever of three forms matches how the enum is
@@ -123,7 +144,8 @@ say different things:
 
 ```swift
 Stage(streamPartial: partial)            // nil for a value no case declares
-Stage.streamValueOrInitial(from: partial) // .unknown for the same value
+Stage(orInitial: partial)                 // .unknown for the same value
+Stage.streamValueOrInitial(from: partial) // .unknown, the same total conversion
 ```
 
 An enum must name a fallback, either this way or by conforming to `StreamInitializable`, because
@@ -221,6 +243,10 @@ for try await profilePartial in partials {
 }
 ```
 
+## Examples
+
+The [LLMExtraction](Examples/LLMExtraction) example parses a local LLM's structured output token by token, logging the typed partial after every chunk.
+
 ## Parsers
 
 The JSON parser accepts only strict JSON.
@@ -263,10 +289,55 @@ let partials = try snakeCaseYAML.utf8.partials(
 ## Traits
 
 While the core library itself has 0 dependencies, you can enable the following package traits to integrate with additional dependencies:
-- `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
-- `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
-- `StreamParsingTagged` interops the library with `Tagged`.
-- `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `SwiftCollections` interops the library with types from Swift Collections.
+- `Foundation` interops the library with types from Foundation (enabled by default).
+- `Tagged` interops the library with `Tagged`.
+- `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
+
+Without `LifetimeView`, macro-generated `Partial.View` and the core collection views are escapable,
+pointer-backed `@unsafe` types. This keeps macro consumers on standard Swift settings, but the
+caller must keep the originating stream alive and must not retain or use a view across parser
+mutation. Unsafe APIs are acknowledged explicitly:
+
+```swift
+let title = unsafe stream.withView { view in
+  unsafe view.title?.value
+}
+```
+
+Enable `LifetimeView` to keep the same `View` name and API while making it `~Escapable` and tying
+its projections to the stream with compiler-checked lifetimes. Package traits do not enable
+compiler experiments in a consuming target, so that target must also enable `Lifetimes`:
+
+```swift
+dependencies: [
+  .package(
+    url: "https://github.com/mhayes853/swift-stream-parsing",
+    from: "0.5.0",
+    traits: ["LifetimeView"]
+  )
+],
+targets: [
+  .target(
+    name: "MyTarget",
+    dependencies: [.product(name: "StreamParsing", package: "swift-stream-parsing")],
+    swiftSettings: [.enableExperimentalFeature("Lifetimes")]
+  )
+]
+```
+
+## Building compatible macros
+
+`StreamParsingMacroSupport` is a SwiftSyntax library for other macro implementations. It
+generates partial storage, views, optimized object schemas, enums in each `@StreamParseable`
+representation, conversions between the whole type and its partial, and UTF-8 matching syntax. Its
+component APIs let a macro compose those pieces with its own declarations, and the
+`LifetimeView` trait selects the default view generation mode.
+
+Add the `StreamParsingMacroSupport` product to your macro target. Generated client code uses
+`StreamParsing`. See the [macro support guide](Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md)
+and the [downstream macro example](SmokeTests/MacroSupport/Sources/SupportMacros/SupportMacros.swift).
 
 ## Documentation
 
@@ -292,7 +363,7 @@ dependencies: [
     url: "https://github.com/mhayes853/swift-stream-parsing",
     from: "0.5.0",
     // You can omit the traits if you don't need any of them.
-    traits: ["StreamParsingSwiftCollections"]
+    traits: ["SwiftCollections"]
   ),
 ]
 ```

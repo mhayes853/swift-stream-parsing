@@ -1,4 +1,4 @@
-#if StreamParsingTagged
+#if Tagged
   import Tagged
 
   // MARK: - Conversion protocols

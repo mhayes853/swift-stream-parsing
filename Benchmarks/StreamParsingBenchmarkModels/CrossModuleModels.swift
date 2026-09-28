@@ -17,6 +17,54 @@ public struct CrossModuleProfile {
   public var isActive: Bool = false
 }
 
+// MARK: - Twitter matched (mirrors `BenchmarkTwitterMatched`), concrete and generic
+
+@StreamParseable
+public struct CrossModuleTwitterMatched {
+  public var statuses: [CrossModuleTweetMatched] = []
+}
+
+@StreamParseable
+public struct CrossModuleTweetMatched {
+  public var id: Int = 0
+  public var text: String = ""
+  public var user: CrossModuleTwitterUserMatched = CrossModuleTwitterUserMatched()
+}
+
+@StreamParseable
+public struct CrossModuleTwitterUserMatched {
+  public var name: String = ""
+  public var screen_name: String = ""
+  public var followers_count: Int = 0
+}
+
+// Mirrors `BenchmarkGenericTwitter` and its members. Public, so the generated members are
+// `@inlinable` and specialise in the client, which is what a library user's generic model gets.
+@StreamParseable
+public struct CrossModuleGenericTwitter<Tweet: StreamParseable> {
+  public var statuses: [Tweet]
+}
+
+@StreamParseable
+public struct CrossModuleGenericTweet<
+  ID: StreamParseable, Text: StreamParseable, User: StreamParseable
+> {
+  public var id: ID
+  public var text: Text
+  public var user: User
+}
+
+@StreamParseable
+public struct CrossModuleGenericTwitterUser<Text: StreamParseable, Count: StreamParseable> {
+  public var name: Text
+  public var screen_name: Text
+  public var followers_count: Count
+}
+
+public typealias CrossModuleTwitterGeneric = CrossModuleGenericTwitter<
+  CrossModuleGenericTweet<Int, String, CrossModuleGenericTwitterUser<String, Int>>
+>
+
 // MARK: - Twitter full (mirrors `BenchmarkTwitterFull`)
 
 @StreamParseable

@@ -184,6 +184,25 @@ public final class StreamSchema: @unchecked Sendable {
     }
   }
 
+  /// Which of a type's schemas is meant: the one for where the parser meets a value, relative to
+  /// whatever holds it.
+  ///
+  /// Each usage has its own requirement, which defaults to ``root``'s, so the schemas differ only
+  /// for a type that says otherwise -- `Optional`, whose element and value slots are opened already
+  /// materialised. ``StreamSchemaCache`` keys each entry by type and usage.
+  @nonexhaustive
+  public enum Usage: Hashable, Sendable {
+    /// The document's root: ``StreamParseableRoot/streamSchema``.
+    case root
+    /// An element of an array: ``StreamParseableRoot/streamArrayElementSchema``.
+    case arrayElement
+    /// A value in a dictionary: ``StreamParseableRoot/streamDictionaryValueSchema``.
+    case dictionaryValue
+    /// A declared member of an object, entered as its own frame:
+    /// ``StreamContainerPartial/streamObjectMemberSchema``.
+    case objectMember
+  }
+
   public let shape: Shape
 
   /// Prepares root storage before a container frame begins writing through this schema.
@@ -215,6 +234,8 @@ public final class StreamSchema: @unchecked Sendable {
   }
 
   @usableFromInline let keyRouting: KeyRouting
+  // Only key recognition consults hooks; scalar/container routing retains its original flag.
+  @usableFromInline let keyDispatch: _StreamKeyDispatch
 
   // The field table (StreamFieldTable.swift), or nil for a schema that routes keys through
   // `matchField`. Every macro-generated object schema carries one. The owner is `fields`; the
@@ -228,6 +249,9 @@ public final class StreamSchema: @unchecked Sendable {
   // The open-addressed index over `fields`, or nil below `StreamFieldTable.indexThreshold`.
   @usableFromInline let fieldIndex: UnsafePointer<Int32>?
   @usableFromInline let fieldIndexMask: Int
+
+  /// The members the field table was built from, in declaration order; empty without a table.
+  var declaredFields: [StreamField] { self.fields?.declared ?? [] }
 
   // The schema an array's elements or a dictionary's values are written through. Data on the
   // parent, not a value the closure returns: returning a `StreamFrame` meant a retain on the way
@@ -327,6 +351,10 @@ public final class StreamSchema: @unchecked Sendable {
   // to write its completed value. Ordinary schemas carry nil; ordinary frames stay 24 bytes.
   @usableFromInline let completedValue: _StreamCompletedValueHooks?
 
+  /// Called once for each recognized object key, before its value is applied.
+  /// Aliases share an identifier; unknown keys are not reported. Nil incurs no hook dispatch.
+  public let onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)?
+
 
 
   // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
@@ -335,6 +363,7 @@ public final class StreamSchema: @unchecked Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
+    onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>
     ) -> StreamApplyResult = { _, _, _ in .unsupported },
@@ -363,6 +392,7 @@ public final class StreamSchema: @unchecked Sendable {
       shape: shape,
       prepareRoot: prepareRoot,
       matchField: matchField,
+      onFieldRecognized: onFieldRecognized,
       applyString: applyString,
       applyNumber: applyNumber,
       applyBoolean: applyBoolean,
@@ -385,6 +415,7 @@ public final class StreamSchema: @unchecked Sendable {
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
+    onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>
     ) -> StreamApplyResult = { _, _, _ in .unsupported },
@@ -455,7 +486,23 @@ public final class StreamSchema: @unchecked Sendable {
       shape == .dictionary
       ? .dictionary
       : (fields != nil ? .table : (matchField == nil ? .ignore : .match))
-    self.matchField = matchField ?? { _ in -1 }
+    self.keyDispatch = switch self.keyRouting {
+    case .table: onFieldRecognized == nil ? .table : .observedTable
+    case .match: onFieldRecognized == nil ? .match : .observedMatch
+    case .dictionary: .dictionary
+    case .ignore: .ignore
+    }
+    // A table without a matcher -- keys a strategy converted when the schema was built, which no
+    // generated word switch can hold -- answers through the table, so a schema that wraps this one
+    // and forwards `matchField` still matches. The sink matches through the table either way.
+    if let matchField {
+      self.matchField = matchField
+    } else if let fields {
+      self.matchField = { key in fields.fieldIdentifier(for: key) }
+    } else {
+      self.matchField = { _ in -1 }
+    }
+    self.onFieldRecognized = onFieldRecognized
     self.applyString = applyString
     self.applyNumber = applyNumber
     self.applyBoolean = applyBoolean
@@ -493,38 +540,64 @@ public protocol StreamParseableRoot: StreamInitializable {
   static var _streamArrayNumberAppender:
     (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? { get }
 
-  /// The schema this type is written through when a container holds it, and the value that
-  /// container opens its slot with.
+  /// The schema this type is written through as an array element, and the value the array opens
+  /// the element's slot with. ``StreamSchema/Usage/arrayElement``.
   ///
   /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only for
-  /// `Optional`: a container owns the slot it hands out and can open it already materialised, so an
+  /// `Optional`: an array owns the slot it hands out and can open it already materialised, so an
   /// optional element never checks for `nil` before a write, where a bare optional *root* must.
   /// Worth 2.4x on `[Int?]` (NEW_ARCHITECTURE.md, "The optional seam"). The defaults are the root
   /// forms, so every type but `Optional` conforms without saying anything.
-  static var streamElementSchema: StreamSchema { get }
+  static var streamArrayElementSchema: StreamSchema { get }
 
-  /// - SeeAlso: ``streamElementSchema``
-  static func streamElementInitialValue() -> Self
+  /// - SeeAlso: ``streamArrayElementSchema``
+  static func streamInitialArrayElement() -> Self
 
-  /// Whether building ``streamElementInitialValue()`` is worth hoisting out of a container's
-  /// per-element closure into a captured template.
+  /// The schema this type is written through as a dictionary value, and the value the dictionary
+  /// opens the value's slot with. ``StreamSchema/Usage/dictionaryValue``.
   ///
-  /// True for exactly one case: a *generic* container element (a nested `StreamArray`/
-  /// `StreamDictionary`) has no stored static to cache a template in, so `Self()` re-enters the
-  /// runtime's locking generic-metadata caches on every open. A blanket hoist is a loss — it buys a
-  /// concrete partial a closure context it did not have. Hence the flag; `false` is right for every
-  /// concrete conformer.
-  static var _streamInitialValueIsExpensive: Bool { get }
+  /// A dictionary owns the slot it opens under a key exactly as an array owns an element's, so
+  /// the defaults are the array-element forms, which is what `Optional` relies on.
+  static var streamDictionaryValueSchema: StreamSchema { get }
+
+  /// - SeeAlso: ``streamDictionaryValueSchema``
+  static func streamInitialDictionaryValue() -> Self
+
+  /// What a whole-value `null` writes into a member of this type, or `nil` for a type that has
+  /// no null of its own, whose optional member is cleared instead.
+  ///
+  /// The macro decides this from a member's declared type (`streamApplyNull`'s overloads) except
+  /// where that type is a generic parameter's `Partial`, which the overloads cannot see through.
+  /// Defaults to ``StreamNullable/streamNullValue()`` for a nullable type, so `Box<Int?>` takes a
+  /// `null` as `.some(nil)` -- a present null, as `Codable` reads it -- where a concrete `Int?`
+  /// member, whose optionality is written, has only the one `nil`.
+  static var _streamNullValue: Self? { get }
+
+  /// Whether a container opens a slot of this type by constructing ``streamInitialValue()``
+  /// rather than copying the template its schema hoisted.
+  ///
+  /// True for the `Partial` the macro generates for a generic struct, and `false` for everything
+  /// else. A bound generic struct's copy is not emitted field by field: it fetches the type's
+  /// metadata and calls its value witness, which walks the fields through metadata too. Measured
+  /// on the matched Twitter model, one generic level cost 1.5% per element opened that way, while
+  /// constructing is the specialised `init`'s inline stores. A concrete `Partial` keeps the
+  /// template: its copy is inline, and its `streamInitialValue()` is itself a copy of one.
+  static var _streamOpensByConstruction: Bool { get }
 
   /// A borrowed window onto the value, for reading part of it without copying the whole.
   ///
   /// Defaults to ``StreamPointerView``, which is what a scalar wants. A type with members worth
   /// reading one at a time overrides it with a projection whose accessors copy only what they return.
   ///
-  /// `~Escapable`, so "must outlive the view" on ``streamView(_:)`` is checked rather than merely
-  /// documented. There is deliberately no `= Self` fallback: a mix of Escapable `Self` views and
-  /// `~Escapable` projections makes per-field code generation ambiguous (the macro's `partialStructView`).
+  /// With the `LifetimeView` trait this is `~Escapable`, so "must outlive the view" on
+  /// ``streamView(_:)`` is compiler-checked rather than merely documented. Without the trait,
+  /// views are escapable unsafe pointer projections and callers must uphold that invariant.
+  /// There is deliberately no `= Self` fallback because the macro generates member projections.
+#if LifetimeView
   associatedtype View: ~Copyable, ~Escapable
+#else
+  associatedtype View: ~Copyable
+#endif
 
   /// Builds a view over a value at `storage`.
   ///
@@ -532,26 +605,48 @@ public protocol StreamParseableRoot: StreamInitializable {
   /// call site: the pointer itself carries no lifetime of its own, but the dependency still
   /// forces callers through an API shape (like a `withView`-style closure) that cannot let the
   /// view outlive the call that produced it.
+#if LifetimeView
   @_lifetime(borrow storage)
+#else
+  @unsafe
+#endif
   static func streamView(_ storage: UnsafeMutableRawPointer) -> View
 }
 
 extension StreamParseableRoot {
   @inlinable
-  public static var streamElementSchema: StreamSchema { Self.streamSchema }
+  public static var streamArrayElementSchema: StreamSchema { Self.streamSchema }
 
   @inlinable
-  public static func streamElementInitialValue() -> Self { Self.streamInitialValue() }
+  public static func streamInitialArrayElement() -> Self { Self.streamInitialValue() }
 
   @inlinable
-  public static var _streamInitialValueIsExpensive: Bool { false }
+  public static var streamDictionaryValueSchema: StreamSchema { Self.streamArrayElementSchema }
+
+  @inlinable
+  public static func streamInitialDictionaryValue() -> Self { Self.streamInitialArrayElement() }
+
+  @inlinable
+  public static var _streamNullValue: Self? { nil }
+
+  @inlinable
+  public static var _streamOpensByConstruction: Bool { false }
+}
+
+extension StreamParseableRoot where Self: StreamNullable {
+  @inlinable
+  public static var _streamNullValue: Self? { Self.streamNullValue() }
 }
 
 extension StreamParseableRoot where View == StreamPointerView<Self> {
   // A correct snapshot without a recursive rebuild: every container the parser writes into holds
   // its open element in an inline slot, so a copy shares only storage that is sealed and never
   // written again, and the open element's own buffers copy on write at the next append.
+#if LifetimeView
   @_lifetime(borrow storage)
+#else
+  @unsafe
+#endif
   public static func streamView(_ storage: UnsafeMutableRawPointer) -> StreamPointerView<Self> {
     StreamPointerView(storage)
   }
@@ -563,29 +658,30 @@ extension StreamParseableRoot where View == StreamPointerView<Self> {
 /// need to expose their shape in source syntax. A partial whose storage is described directly by
 /// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
 public protocol StreamContainerPartial: StreamParseableRoot {
-  /// The schema a container entry installs on the frame it pushes.
+  /// The schema a container entry installs on the frame it pushes when this type is a declared
+  /// member of an object. ``StreamSchema/Usage/objectMember``.
   ///
   /// Separated from the frame so a caller can resolve it once and store it: `streamSchema` is a
   /// computed property on every generic partial, so reading it per entry allocates per container
-  /// occurrence and leaves the entry's frame as the schema's only owner. The macro hoists this into
-  /// a `private static let` on the generated `Partial`.
-  static var streamContainerSchema: StreamSchema { get }
+  /// occurrence and leaves the entry's frame as the schema's only owner. The macro resolves it
+  /// once per schema build, and the parent's field table owns the result.
+  static var streamObjectMemberSchema: StreamSchema { get }
 
-  /// Makes the storage of a member of this type ready for ``streamContainerSchema`` to write
+  /// Makes the storage of a member of this type ready for ``streamObjectMemberSchema`` to write
   /// through, before the sink pushes a frame over it; runs once per container occurrence. `nil`
   /// for a type whose storage is its own value, which is every type but `Optional`, which
   /// materialises its payload here. The table stores it as the member's `prepare`.
-  static var _streamContainerPrepare: StreamFieldPrepare? { get }
+  static var _streamObjectMemberPrepare: StreamFieldPrepare? { get }
 }
 
 extension StreamContainerPartial {
   @inlinable
-  public static var streamContainerSchema: StreamSchema {
+  public static var streamObjectMemberSchema: StreamSchema {
     Self.streamSchema
   }
 
   @inlinable
-  public static var _streamContainerPrepare: StreamFieldPrepare? { nil }
+  public static var _streamObjectMemberPrepare: StreamFieldPrepare? { nil }
 }
 
 // Refines `StreamContainerPartial` so a nested object field's schema is hoisted by its parent
@@ -803,14 +899,24 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   // and the closure's only capture is the pointer. Building it inside the closure instead re-enters
   // the runtime's locking metadata cache per open and returns by value, a second whole-element copy.
   // The box is the schema's `templateOwner`, so it dies with the schema rather than per stream init.
-  let owner = _streamOwnedTemplate(Element.streamElementInitialValue())
+  let owner = _streamOwnedTemplate(Element.streamInitialArrayElement())
   nonisolated(unsafe) let template = owner.address(as: Element.self)
-  return StreamSchema(
-    shape: .array,
-    appendElement: { storage, _ in
+  // Chosen here, once, so a concrete element's closure is the template copy and nothing else.
+  let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
+  if Element._streamOpensByConstruction {
+    appendElement = { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
+        ._openElement(constructing: Element.streamInitialArrayElement())
+    }
+  } else {
+    appendElement = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
         ._openElement(copying: template)
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .array,
+    appendElement: appendElement,
     appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
     // Deliberately *not* guarded on `element.shape == .scalar` the way the three sibling builders are:
@@ -885,6 +991,7 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     // handing `base.matchField` over unconditionally would make `matchField != nil` true and route
     // every key through the closure that the `ignore` case exists to skip.
     matchField: base.ignoresKeys ? nil : base.matchField,
+    onFieldRecognized: base.onFieldRecognized,
     applyString: base.applyString,
     applyNumber: base.applyNumber,
     applyBoolean: base.applyBoolean,
@@ -932,12 +1039,22 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
   let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
   nonisolated(unsafe) let template = owner.address(as: Wrapped?.self)
-  return StreamSchema(
-    shape: .array,
-    appendElement: { storage, _ in
+  // See `_streamArraySchema`.
+  let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
+  if Wrapped._streamOpensByConstruction {
+    appendElement = { storage, _ in
+      storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
+        ._openElement(constructing: .some(Wrapped.streamInitialValue()))
+    }
+  } else {
+    appendElement = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
         ._openElement(copying: template)
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .array,
+    appendElement: appendElement,
     elementSchema: element,
     // Unguarded for the reason `_streamArraySchema` gives: an optional SIMD element has shape
     // `.array`, and the guard demoted `.arrayOptionalSIMD2Double` and its siblings to `.generic`.
@@ -957,12 +1074,23 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   // optional deeper than the element templates above: see `_openValue(forKey:copyingSome:)`.
   let owner = _streamOwnedTemplate(Wrapped??.some(.some(Wrapped.streamInitialValue())))
   nonisolated(unsafe) let template = owner.address(as: Wrapped??.self)
-  return StreamSchema(
-    shape: .dictionary,
-    enterKey: { storage, key in
+  // See `_streamArraySchema`.
+  let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
+  if Wrapped._streamOpensByConstruction {
+    enterKey = { storage, key in
+      let initial: Wrapped?? = .some(.some(Wrapped.streamInitialValue()))
+      return storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
+        ._openValue(forKey: key, constructingSome: initial)
+    }
+  } else {
+    enterKey = { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
         ._openValue(forKey: key, copyingSome: template)
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .dictionary,
+    enterKey: enterKey,
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
     inlineCapacity: value.inlineCapacity,
@@ -977,14 +1105,25 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 ) -> StreamSchema {
   // See `_streamArraySchema` for the template. A repeated key resumes its stored value and reads
   // nothing from it.
-  let owner = _streamOwnedTemplate(Value?.some(Value.streamElementInitialValue()))
+  let owner = _streamOwnedTemplate(Value?.some(Value.streamInitialDictionaryValue()))
   nonisolated(unsafe) let template = owner.address(as: Value?.self)
-  return StreamSchema(
-    shape: .dictionary,
-    enterKey: { storage, key in
+  // See `_streamArraySchema`.
+  let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
+  if Value._streamOpensByConstruction {
+    enterKey = { storage, key in
+      let initial: Value? = .some(Value.streamInitialDictionaryValue())
+      return storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
+        ._openValue(forKey: key, constructingSome: initial)
+    }
+  } else {
+    enterKey = { storage, key in
       storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
         ._openValue(forKey: key, copyingSome: template)
-    },
+    }
+  }
+  return StreamSchema(
+    shape: .dictionary,
+    enterKey: enterKey,
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
     inlineCapacity: valueSchema.inlineCapacity,
@@ -1011,3 +1150,14 @@ extension StreamParseableRoot where Self: StreamBooleanConvertible {
     public static var streamObservationFields: [PartialKeyPath<Self>] { [] }
   }
 #endif
+
+// Kept separate from KeyRouting so instrumentation does not add cases to scalar hot paths.
+@usableFromInline
+enum _StreamKeyDispatch: UInt8, Sendable {
+  case match
+  case dictionary
+  case ignore
+  case table
+  case observedTable
+  case observedMatch
+}

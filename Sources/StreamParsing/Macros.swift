@@ -12,6 +12,39 @@
 /// with ``StreamParseableDefault()`` or `StreamInitializable`. A partial `String`-raw value resolves
 /// to the shortest case it prefixes (`live` may become `livestream`); `Partial.View.resolved` reads
 /// whichever case has arrived so far.
+///
+/// A generic struct, or a struct nested in a generic type, is supported; a generic enum is not.
+/// A parameter a parsed property uses must be constrained to ``StreamParseable``. Its `Partial` is
+/// not `Sendable`, because the members' partials are not known to be and a macro cannot add a
+/// conditional conformance to a nested type; declare it where it holds:
+///
+/// ```swift
+/// @StreamParseable struct Page<Item: StreamParseable> { var items: [Item] }
+/// extension Page.Partial: Sendable where Item.Partial: Sendable {}
+/// ```
+///
+/// A `null` for a property typed by the parameter is the parameter's own, so `Page<Int?>` reads
+/// one as a present `nil`, as `Codable` does.
+///
+/// The generated schema is built once and kept in `schemaCache`, ``StreamSchemaCache/shared`` by
+/// default. Name another stored instance to control those schemas' lifetime; it is evaluated
+/// inside the generated `Partial`, so qualify it fully or use a leading dot (`Self` would name the
+/// `Partial`):
+///
+/// ```swift
+/// enum ToolSchemas { static let cache = StreamSchemaCache() }
+///
+/// @StreamParseable(schemaCache: ToolSchemas.cache) struct ToolCall { var name: String }
+/// ```
+///
+/// A public generic type's schema property is `@inlinable`, so its cache must be `public` or
+/// `@usableFromInline`. An enum with a raw type has no generated schema, and rejects the argument.
+///
+/// `keyDecodingStrategy` derives the key of each property, case and associated value label that
+/// does not name its own with ``StreamParseableMember(key:initialCapacity:)``; see
+/// ``StreamKeyDecodingStrategy``. A built-in strategy is applied as the macro expands, so its keys
+/// are checked for collisions at compile time. Any other expression is evaluated when the schema is
+/// built, like `schemaCache`. An enum with a raw type has no keys to convert, and rejects it.
 @attached(
   extension,
   conformances: StreamParseable,
@@ -21,7 +54,11 @@
   arbitrary
 )
 @attached(member, names: named(streamPartialValue))
-public macro StreamParseable(partialMembers: PartialMembersMode = .optional) =
+public macro StreamParseable(
+  partialMembers: PartialMembersMode = .optional,
+  keyDecodingStrategy: StreamKeyDecodingStrategy = .useDefaultKeys,
+  schemaCache: StreamSchemaCache = .shared
+) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 
 /// Declares a custom key name for the property inside the generated `Partial`.

@@ -8,8 +8,7 @@
   // starts on. See NEW_ARCHITECTURE.md, "The structural block walk".
   extension JSONParser {
     // Entered with a structural state, no token in flight and a whole block ahead. Returns where
-    // the scalar loop resumes (`~p` once the gate gives up), `state`/`depth`/`containers` written
-    // back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
+    // the scalar loop resumes, `state`/`depth`/`containers` written back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
     // save/restore in the prologue of `consumeStructuralRun`, which every byte-fed token pays.
     @inlinable
     @inline(never)
@@ -33,34 +32,10 @@
         // Anything unusual is the scalar loop's, from this block's first byte, so the byte an
         // error names is the byte the scalar loop names.
         if classes.needs_scalar != 0 { return p }
-        // The gate: a block strikes with no whitespace outside strings (nothing for the `tzcnt` to
-        // buy over the ladder's scan) or dense `starts` (Mesh); four in a row give the walk up
-        // until `probeBlockWalk` re-arms it. Census in NEW_ARCHITECTURE.md. x86 gets the verdict
-        // whole from the kernel: baseline x86-64 has no `popcnt` (`nonzeroBitCount` was 17
-        // instructions a block).
-        #if arch(x86_64)
-          let strike = classes.strike != 0
-        #else
-          let strike =
-            classes.no_outer_whitespace != 0
-            || classes.starts.nonzeroBitCount >= Int(STREAM_PARSING_BLOCK_WALK_DENSE_STARTS)
-        #endif
-        if strike {
-          self.blockWalkStrikes &+= 1
-          if self.blockWalkStrikes >= 4 {
-            self.blockWalkGivenUp = true
-            self.blockWalkProbeCountdown = Self.blockWalkProbeKilobytes
-            if self.windowThreshold == .max {
-              self.windowThreshold = Self.blockWalkProbeChunk
-              self.blockWalkProbeLowered = true
-            }
-            return ~p
-          }
-        } else if self.blockWalkStrikes != 0 {
-          // Consecutive, not cumulative. Measured: counting GSoC's odd whitespace-free blocks up
-          // reached four and threw its win away (+18.1% -> -0.8%).
-          self.blockWalkStrikes = 0
-        }
+        // Nothing in the block for the walk to buy (the field's comment says what that means), so
+        // it is the ladder's, which comes back at the next indentation or string it meets. A
+        // function of this block alone -- no strikes, no verdict, no history.
+        if classes.ladder_block != 0 { return p }
         let containsNonASCII = classes.non_ascii != 0
         var mask = classes.starts
 
@@ -197,6 +172,23 @@
                 base: base, from: at &+ 1, to: closeAt, containsNonASCII: containsNonASCII,
                 into: &sink
               )
+              // The colon, taken with its key: it sits against the closing quote in every style
+              // producers emit (`"k":`, `"k": `, indented), so this is not a spacing bet, and it
+              // spares each member a whole trip round the mask loop for a byte that emits nothing.
+              // `closeBit != 63` keeps the load inside the block (and so inside the chunk). Any
+              // other byte -- `"k" :`, or an error -- goes round the loop as before, and the
+              // `.afterKey` arm names it at the same offset.
+              if closeBit != 63,
+                base.load(fromByteOffset: closeAt &+ 1, as: UInt8.self) == .asciiColon
+              {
+                state = .value
+                if closeBit == 62 {
+                  p = closeAt &+ 2
+                  continue outer
+                }
+                mask &= UInt64.max &<< UInt64(closeBit &+ 2)
+                continue
+              }
               state = .afterKey
             }
             if closeBit == 63 {
@@ -299,19 +291,58 @@
               mask &= UInt64.max &<< UInt64(bit &+ 4)
               continue
             case .asciiDash, .asciiZero ... .asciiNine:
-              // The extent is deliberately *not* taken from the masks: `12abc` has to report
-              // `unexpectedToken` at the `a`, which is what the grammar walk behind
-              // `streamNumberRunEnd` does and what a mask over the number's byte class would not.
-              let end = streamNumberRunEnd(base: base, from: at, to: to)
-              guard end < to else {
-                // The token may continue in the next chunk, so it goes to the per-byte path
-                // whole, exactly as the scalar arm hands it over.
-                self.resetNumber()
-                state = .number
+              // The extent is the first `scalar_end` bit above the token: one `tzcnt` in place of
+              // `streamNumberRunEnd`'s dependent load/lookup/movemask chain per number. That bit
+              // is where a *valid* number ends; a malformed one (`12abc`) runs on to it, fails
+              // the whole-token parse before anything is emitted, and goes back to the scalar
+              // loop at its first byte with the state untouched -- so `12abc` still reports
+              // `unexpectedToken` at the `a`, from the code that has always reported it.
+              let ends = classes.scalar_end & (UInt64.max &<< UInt64(bit))
+              var end = p &+ ends.trailingZeroBitCount
+              if ends == 0 {
+                // The number runs out of the block (`end` is `p + 64` here, which the loop bound
+                // keeps inside the chunk). Nothing up to there ends it, so the scalar scan picks
+                // up at the edge rather than at the token's first byte.
+                end = streamNumberRunEnd(base: base, from: end, to: to)
+                guard end < to else {
+                  // The token may continue in the next chunk, so it goes to the per-byte path
+                  // whole, exactly as the scalar arm hands it over.
+                  self.resetNumber()
+                  state = .number
+                  return at
+                }
+              }
+              // One emit site: `emitNumber` is forced inline, and a second copy of it cost the
+              // walk 118 instructions and 16 stack accesses.
+              do throws(JSONParsingError) {
+                try self.emitNumber(base: base, from: at, to: end, into: &sink, reportAt: end)
+              } catch {
+                guard case .invalidNumber = error.reason else { throw error }
                 return at
               }
-              try self.emitNumber(base: base, from: at, to: end, into: &sink, reportAt: end)
               state = .afterValue
+              // An array's `,` after the number: the numbers behind it are `fuseNumberRun`'s, as
+              // they are on the ladder. Measured: an indented numeric array cost the walk 274
+              // instructions a number (the comma's trip round the mask loop, the number arm's
+              // dispatch, a classify per three or four numbers) against the fused loop's ~200.
+              // It returns past the block as often as not; the grid moves with it.
+              if depth > 0, end &+ 1 < to,
+                base.load(fromByteOffset: end, as: UInt8.self) == .asciiComma,
+                !Self.topIsObject(depth: depth, containers: containers)
+              {
+                let resume = try self.fuseNumberRun(base: base, comma: end, to: to, into: &sink)
+                guard resume >= 0 else {
+                  // A number the chunk cut, from its first byte, reset for `.number`.
+                  state = .number
+                  return ~resume
+                }
+                if resume &- p >= 64 {
+                  p = resume
+                  continue outer
+                }
+                mask &= UInt64.max &<< UInt64(resume &- p)
+                continue
+              }
               if end &- p >= 64 {
                 p = end
                 continue outer
@@ -402,35 +433,3 @@
     }
   }
 #endif
-
-// The re-probe: a given-up walk is re-armed once `blockWalkProbeKilobytes` of chunks of at least
-// `blockWalkProbeChunk` bytes have gone by, so a stream that changes shape is judged again. A
-// failed probe is at most four blocks walked per 64 KB, ~0.15% at Mesh's per-block loss (-26.4%).
-// Smaller chunks keep the verdict; a caller-set `windowThreshold` is left alone, its chunks count.
-extension JSONParser {
-  @inlinable package static var blockWalkProbeKilobytes: UInt8 { 64 }
-  @inlinable package static var blockWalkProbeChunk: Int { 4096 }
-
-  // While a re-probe is due the default `windowThreshold` is lowered to `blockWalkProbeChunk`, so
-  // `parsePastThreshold` gets every bulk-sized chunk and counts it here before parsing it: the one
-  // that runs the countdown out is walked from its first block. Only the gate's give-up starts a
-  // countdown, and the gate only runs with the kernels.
-  @usableFromInline
-  @inline(never)
-  mutating func probeBlockWalk(count n: Int) {
-    let kilobytes = n &>> 10
-    if kilobytes < Int(self.blockWalkProbeCountdown) {
-      self.blockWalkProbeCountdown &-= UInt8(truncatingIfNeeded: kilobytes)
-      return
-    }
-    self.blockWalkProbeCountdown = 0
-    if self.blockWalkProbeLowered {
-      self.windowThreshold = .max
-      self.blockWalkProbeLowered = false
-    }
-    if self.blockKernelsAvailable {
-      self.blockWalkGivenUp = false
-      self.blockWalkStrikes = 0
-    }
-  }
-}

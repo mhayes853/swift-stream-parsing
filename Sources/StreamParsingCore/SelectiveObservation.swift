@@ -70,6 +70,9 @@ extension PartialIterator {
   /// Projection preserves the selected representation, including optional values. It does
   /// not infer field presence, JSON null, or token completion unavailable in that representation.
   @inlinable
+#if !LifetimeView
+  @unsafe
+#endif
   public consuming func project<Output>(
     _ transform: @escaping (borrowing Value.View) throws -> Output
   ) -> ProjectedPartialIterator<Value, Base, Bytes, Output> {

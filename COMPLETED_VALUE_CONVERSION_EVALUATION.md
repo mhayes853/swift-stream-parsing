@@ -8,7 +8,7 @@ ordinary 24-byte parser frames. No JSON scanning kernel or SIMD/SWAR algorithm c
 
 ## Tests
 
-`swift test --traits StreamParsingSwiftCollections,StreamParsingTagged --no-parallel`:
+`swift test --traits SwiftCollections,Tagged --no-parallel`:
 **834 tests in 83 suites passed**, with the same two known Unicode issues.
 The release benchmark product also built successfully.
 

@@ -71,7 +71,7 @@ struct `Stream Schema Lifetime Tests` {
     weak var box: _StreamTemplateStorage?
     do {
       // Built directly rather than through the cache, so the schema really is released here.
-      let schema = _streamArraySchema(Int.self, element: Int.streamElementSchema)
+      let schema = _streamArraySchema(Int.self, element: Int.streamArrayElementSchema)
       box = schema.templateOwner
       #expect(box != nil)
     }
@@ -82,7 +82,7 @@ struct `Stream Schema Lifetime Tests` {
   func `Dictionary Schema Frees Its Template When Released`() {
     weak var box: _StreamTemplateStorage?
     do {
-      let schema = _streamDictionarySchema(Int.self, value: Int.streamElementSchema)
+      let schema = _streamDictionarySchema(Int.self, value: Int.streamArrayElementSchema)
       box = schema.templateOwner
       #expect(box != nil)
     }
@@ -94,8 +94,8 @@ struct `Stream Schema Lifetime Tests` {
     weak var arrayBox: _StreamTemplateStorage?
     weak var dictionaryBox: _StreamTemplateStorage?
     do {
-      let array = _streamOptionalArraySchema(Int.self, element: Int.streamElementSchema)
-      let dictionary = _streamOptionalDictionarySchema(Int.self, value: Int.streamElementSchema)
+      let array = _streamOptionalArraySchema(Int.self, element: Int.streamArrayElementSchema)
+      let dictionary = _streamOptionalDictionarySchema(Int.self, value: Int.streamArrayElementSchema)
       arrayBox = array.templateOwner
       dictionaryBox = dictionary.templateOwner
       #expect(arrayBox != nil)

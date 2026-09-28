@@ -31,6 +31,35 @@ jobs:
         run: >-
           swift test --configuration ${{ matrix.config }}
           --enable-all-traits --disable-experimental-prebuilts
+      - name: Run the no-lifetime macro smoke test
+        if: matrix.config == 'debug'
+        run: >-
+          swift run --package-path SmokeTests
+          --disable-experimental-prebuilts NoLifetimeSmoke
+      - name: Run downstream macro support smoke tests
+        if: matrix.config == 'debug'
+        run: |
+          swift run --package-path SmokeTests/MacroSupport --disable-experimental-prebuilts MacroSupportSmoke
+          swift run --package-path SmokeTests/MacroSupport --traits LifetimeView --disable-experimental-prebuilts MacroSupportSmoke
+
+  llm-extraction:
+    name: LLMExtraction example (macOS)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26.5
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app
+      # The example downloads its model on first run; keep it between runs.
+      - name: Cache the model
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/swift-stream-parsing-examples
+          key: llm-extraction-LFM2.5-230M-Q4_K_M
+      # Exits non-zero if the download, generation, or parsing fails, or if the parsed
+      # partial does not convert to a complete `Extraction`.
+      - name: Run the example
+        working-directory: Examples/LLMExtraction
+        run: swift run
 
   linux:
     name: Linux (Swift 6.4 nightly)
@@ -107,12 +136,12 @@ jobs:
               --wildcards '*/wasmtime'
       - name: Build the smoke executable
         run: >-
-          swift build --package-path EmbeddedSmoke
+          swift build --package-path SmokeTests --product EmbeddedSmoke
           --swift-sdk "$WASM_SDK_NAME"
       - name: Run it
         run: |
           bin=$(
-            swift build --package-path EmbeddedSmoke \
+            swift build --package-path SmokeTests \
               --swift-sdk "$WASM_SDK_NAME" --show-bin-path
           )
           wasmtime "$bin/EmbeddedSmoke.wasm"

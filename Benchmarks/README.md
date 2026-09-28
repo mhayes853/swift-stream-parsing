@@ -59,12 +59,9 @@ They are therefore comparable to the parser's typed bulk convenience rows, not t
 counting-sink rows. (`Real Twitter full - JSONDecoder Codable` is Foundation only: it is the
 comparator for the 26-field `Real Twitter full - bulk discarding` row.)
 
-Two axes are gated rather than swept across every corpus. A `- 16KB chunks*` row is registered
+One axis is gated rather than swept across every corpus. A `- 16KB chunks*` row is registered
 only where the payload is larger than one 16 KB chunk, because below that the chunked feed is the
-bulk row under another name. A `- ...windowed` row is registered only for Canada and Mesh:
-`windowThreshold` defaults to `.max`, so no shipped configuration takes that path, and the
-full-corpus A/B in `NEW_ARCHITECTURE.md` has it losing on everything but number batches. Those two
-corpora keep a control so a future change to the windowed path has something to move.
+bulk row under another name.
 
 ## Payloads
 
@@ -76,7 +73,9 @@ the corpus comparable parsers publish against, so these numbers can be read next
 else's at the level of input shape. The numbers are not direct parser shoot-out results: the raw
 rows stream events into a counting sink and the convenience rows materialize Swift partials,
 whereas commonly published yyjson and simdjson results generally build or query their own data
-representations.
+representations. `twitterspaced.json` is `twitter.json` re-serialised with Python's default
+`json.dumps` (`", "` and `": "` separators, no indentation, `ensure_ascii=False`): the shape most
+tool-call output arrives in, where every whitespace run outside a string is exactly one byte.
 
 `llm_message.json` is an assistant message of long escaped markdown, fenced code and tool-use
 objects. `Payloads.swift` also generates realistic Qwen 3 structured outputs: the canonical JSON

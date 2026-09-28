@@ -118,18 +118,14 @@ private struct ObjectConversionModel {
   @Test func wholeEscapedEmptyAndEverySplit() throws {
     for json in [#"{"text":"hello"}"#, #"{"alias":"h\u00e9llo"}"#, #"{"text":""}"#] {
       let bytes = Array(json.utf8)
-      for threshold in [0, Int.max] {
-        for split in 0...bytes.count {
-          TextConversion.calls.withLock { $0 = (0, 0) }
-          var stream = PartialsStream<ConversionModel.Partial>(
-            from: .json(windowThreshold: threshold)
-          )
-          try stream.next(bytes[..<split])
-          try stream.next(bytes[split...])
-          let final = try stream.finish()
-          #expect(final.text?.value == String(final.text!.source).uppercased())
-          #expect(TextConversion.calls.withLock { $0.to } == 1)
-        }
+      for split in 0...bytes.count {
+        TextConversion.calls.withLock { $0 = (0, 0) }
+        var stream = PartialsStream<ConversionModel.Partial>(from: .json())
+        try stream.next(bytes[..<split])
+        try stream.next(bytes[split...])
+        let final = try stream.finish()
+        #expect(final.text?.value == String(final.text!.source).uppercased())
+        #expect(TextConversion.calls.withLock { $0.to } == 1)
       }
     }
   }
@@ -222,16 +218,12 @@ private struct ObjectConversionModel {
           #expect(stream.current.object?.conversionError == .invalid)
         }
       } else {
-        for threshold in [0, Int.max] {
-          var stream = PartialsStream<ConversionModel.Partial>(
-            from: .json(windowThreshold: threshold)
-          )
-          do {
-            try stream.next(json.utf8)
-            Issue.record("Expected conversion failure")
-          } catch let error as JSONParsingError {
-            #expect(error.reason == .sinkRejectedToken(.init(reason: .conversionFailed)))
-          }
+        var stream = PartialsStream<ConversionModel.Partial>(from: .json())
+        do {
+          try stream.next(json.utf8)
+          Issue.record("Expected conversion failure")
+        } catch let error as JSONParsingError {
+          #expect(error.reason == .sinkRejectedToken(.init(reason: .conversionFailed)))
         }
       }
     }

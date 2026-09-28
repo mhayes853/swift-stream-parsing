@@ -13,6 +13,8 @@ import StreamParsingCore
 //   citm_catalog     deep nesting and heavily repeated keys, ~1.6 MB
 //   gsoc-2018        large with long string values, ~3.2 MB
 //   twitterescaped   the same document as twitter with every non-ASCII byte as a \u escape
+//   twitterspaced    the same document as Python's `json.dumps` writes it: one-space separators,
+//                    no indentation, ~481 KB
 //   github_events    a small API response, ~64 KB
 //   llm_message      an assistant message: long escaped markdown, tool-use objects, small ints
 //   qwen3 calls      small and medium Hermes-style tool arguments, including nested source edits
@@ -20,12 +22,6 @@ import StreamParsingCore
 // Three of these are larger than any cache level the parse runs in, which nothing else in the
 // suite was. Validation is unconditional now, so there is no configuration axis here any more —
 // these rows measure the parser as it ships.
-
-// Windowed rows are gated to these two corpora. `windowThreshold` defaults to `.max` -- the path
-// is off in every shipped configuration -- and the full-corpus A/B recorded in NEW_ARCHITECTURE.md
-// has it losing 4-36% on string-heavy and sub-window payloads. Canada and Mesh are the number-batch
-// documents where it was ever competitive, so they keep a control; the other 37 rows are gone.
-private let windowedCorpora: Set<String> = ["Canada", "Mesh"]
 
 // 16 KB is a TLS record, which is the granularity a document this size actually arrives at. Below
 // that the "chunked" feed is one slice, i.e. the bulk row under a different name, so it is gated on
@@ -35,6 +31,7 @@ private let chunkSize = 16_384
 private let realWorldPayloads: [(String, [UInt8])] = [
   ("Twitter", Payloads.twitter),
   ("Twitter escaped", Payloads.twitterEscaped),
+  ("Twitter spaced", Payloads.twitterSpaced),
   ("Canada", Payloads.canada),
   ("CITM catalog", Payloads.citmCatalog),
   ("GSoC 2018", Payloads.gsoc2018),
@@ -89,21 +86,6 @@ private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
         blackHole(
           expectParses {
             try streamDiscardingChunks(payload, chunk: chunkSize, as: Value.self)
-          }
-        )
-      }
-    }
-  }
-
-  // The same convenience-layer parse through the windowed path, which is where number batches
-  // reach `PartialSink`. The row above is its gate-off control.
-  if windowedCorpora.contains(name) {
-    Benchmark("Real \(name) - bulk discarding windowed", configuration: payloadConfiguration) {
-      benchmark in
-      measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(
-          expectParses {
-            try streamBulkDiscarding(payload, as: Value.self, format: .json(windowThreshold: 1))
           }
         )
       }
@@ -254,17 +236,6 @@ private func addRealWorldFastRows() {
         }
       }
     }
-
-    // The same bulk feed through the windowed path (JSONParserWindow.swift), which the gate takes
-    // for any chunk at or above the threshold. Both variants live in one binary so they can be
-    // interleaved in one run.
-    if windowedCorpora.contains(name) {
-      Benchmark("Real \(name) - bulk windowed", configuration: payloadConfiguration) { benchmark in
-        measurePayloadThroughput(benchmark, payload: payload) {
-          blackHole(expectParses { try runFastParser(payload, chunk: .max, windowThreshold: 1) })
-        }
-      }
-    }
   }
 
   // Byte by byte on the two documents whose content is hardest for the resume path — every
@@ -298,6 +269,11 @@ private func addRealWorldBaselineConvenienceRows() {
     payload: Payloads.twitterEscaped,
     as: BenchmarkTwitterMatched.Partial.self,
     includeByteByByte: true
+  )
+  addRealWorldConvenienceRows(
+    "Twitter spaced",
+    payload: Payloads.twitterSpaced,
+    as: BenchmarkTwitterMatched.Partial.self
   )
   addRealWorldConvenienceRows(
     "Twitter full",

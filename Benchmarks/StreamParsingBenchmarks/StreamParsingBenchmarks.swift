@@ -130,6 +130,7 @@ let benchmarks: @Sendable () -> Void = {
   typedShapeBenchmarks()
   enumBenchmarks()
   parserShapeBenchmarks()
+  separatorShapeBenchmarks()
   realWorldBenchmarks()
   streamingAPIBenchmarks()
   retentionBenchmarks()
@@ -141,6 +142,8 @@ let benchmarks: @Sendable () -> Void = {
   }
   keyLookupBenchmarks()
   crossModuleBenchmarks()
+  genericBenchmarks()
+  setupBenchmarks()
 }
 
 // MARK: - Helpers

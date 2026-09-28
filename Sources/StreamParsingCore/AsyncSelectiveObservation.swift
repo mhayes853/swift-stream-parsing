@@ -3,6 +3,9 @@
     /// Projects directly from the parser's borrowed view, without a whole-root snapshot.
     /// Shares the source's single-subscriber contract. Field state is only as rich as the
     /// selected representation; document completion is carried separately in `PartialUpdate`.
+#if !LifetimeView
+    @unsafe
+#endif
     public func project<Output>(
       _ transform: @escaping @Sendable (borrowing Element.View) throws -> Output
     ) -> AsyncProjectedPartialsSequence<Element, Base, Seq, Output> {

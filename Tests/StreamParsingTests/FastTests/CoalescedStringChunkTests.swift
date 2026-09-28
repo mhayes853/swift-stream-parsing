@@ -84,12 +84,13 @@ struct `Coalesced string chunk tests` {
 
   // The shared `feed` helper, with the sink told which call it is in.
   static func record(
-    _ bytes: [UInt8], chunk: Int, rejectAtString: Int? = nil, rejectAtChunk: Int? = nil
+    _ bytes: [UInt8], chunk: Int, rejectAtString: Int? = nil, rejectAtChunk: Int? = nil,
+    bufferCapacity: Int = 4096
   ) -> (events: [Tagged], error: JSONParsingError?) {
     var sink = RecordingSink()
     sink.rejectAtString = rejectAtString
     sink.rejectAtChunk = rejectAtChunk
-    var parser = JSONParser()
+    var parser = JSONParser(bufferCapacity: bufferCapacity)
     var error: JSONParsingError?
     do {
       try bytes.withUnsafeBufferPointer { input throws(JSONParsingError) in
@@ -151,12 +152,14 @@ struct `Coalesced string chunk tests` {
   // deduped against the document's own length rather than run twice.
   static func expectEquivalent(
     _ bytes: [UInt8], _ label: String, rejectAtString: Int? = nil,
-    chunks: [Int] = [Int.max, 2, 7, 64, 1000],
+    chunks: [Int] = [Int.max, 2, 7, 64, 1000], bufferCapacity: Int = 4096,
     byteFed oracle: (events: [Tagged], error: JSONParsingError?)? = nil
   ) {
     let byteFed = oracle ?? Self.record(bytes, chunk: 1, rejectAtString: rejectAtString)
     for chunk in Set(chunks.map { min($0, bytes.count) }).sorted() {
-      let chunked = Self.record(bytes, chunk: chunk, rejectAtString: rejectAtString)
+      let chunked = Self.record(
+        bytes, chunk: chunk, rejectAtString: rejectAtString, bufferCapacity: bufferCapacity
+      )
       let coalesced = Outcome(events: Self.folding(chunked.events), error: chunked.error)
       let fragmented = Outcome(
         events: Self.folding(byteFed.events) { $0 / chunk }, error: byteFed.error
@@ -294,18 +297,73 @@ struct `Coalesced string chunk tests` {
   }
 
   @Test
-  func `A run as long as the buffer is handed over in place`() {
-    // The 5,000 `y`s would not fit behind the decoded `\n`, and a run at least as long as the
-    // whole buffer is its own chunk: the `\n` flushes alone and the run is not copied.
+  func `A run longer than the buffer passes through it whole`() {
+    // The scan stages a run into the buffer as it reads it, before it can know the run's length,
+    // so the 5,000 `y`s fill the buffer behind the decoded `\n`, flush, and the remainder follows.
+    // Where the cuts fall is a tuning matter; what is pinned is the content, the zero-copy prefix
+    // ahead of the first escape, and that no chunk outgrows the buffer.
     let json =
       "[\"" + String(repeating: "x", count: 5000) + "\\n" + String(repeating: "y", count: 5000)
       + "\"]"
+    let pieces = Self.chunks(json).map { tagged -> [UInt8] in
+      guard case .stringChunk(let bytes) = tagged.event else { return [] }
+      return bytes
+    }
+    #expect(pieces.first == Array(String(repeating: "x", count: 5000).utf8))
     #expect(
-      Self.chunks(json) == [
-        Self.chunk(0, String(repeating: "x", count: 5000)), Self.chunk(0, "\n"),
-        Self.chunk(0, String(repeating: "y", count: 5000))
-      ]
+      Array(pieces.dropFirst().joined()) == Array(("\n" + String(repeating: "y", count: 5000)).utf8)
     )
+    #expect(pieces.count <= 4)
+    #expect(pieces.dropFirst().allSatisfy { $0.count <= 4096 })
+  }
+
+  // The tail's scan stages each run into the buffer as it reads it, sixteen bytes a store, for as
+  // long as a whole block fits; the rest of a run goes through `bufferStringRun`. Small buffers
+  // put that seam, and the flush behind it, inside every run length from zero to five blocks, with
+  // the run's terminator on every lane. The oracle is byte fed with the default buffer.
+  @Test(arguments: [16, 17, 24, 31, 32, 33, 47, 48, 64, 100])
+  func `Staged runs agree with the byte fed parse at every buffer seam`(bufferCapacity: Int) {
+    var json = "[\"lead"
+    for length in 0...80 {
+      json += "\\n" + String(repeating: "abcdefghij", count: 8).prefix(length)
+    }
+    json += "\\t" + String(repeating: "é日本😀z", count: 9) + "\\\"" + String(repeating: "q", count: 200)
+    json += "\"]"
+    let bytes = Array(json.utf8)
+    Self.expectEquivalent(
+      bytes, "buffer \(bufferCapacity)", chunks: [Int.max, 7, 64, 1000],
+      bufferCapacity: bufferCapacity, byteFed: Self.record(bytes, chunk: 1)
+    )
+  }
+
+  // What a staged block holds is not content until the checks pass: a control byte or a bad
+  // sequence inside a run that was already stored fails with the byte fed parse's error, and
+  // nothing of the stored block leaks out. (Content coalesced ahead of a throw is dropped, as it
+  // always was -- only non-throwing exits flush -- so delivery is a prefix, not an equal.)
+  @Test(arguments: [24, 4096])
+  func `A staged run that fails delivers nothing the byte fed parse did not`(bufferCapacity: Int) {
+    let documents: [(String, [UInt8])] = [
+      ("control byte", Array("[\"ab\\n0123456789abcdef0123".utf8) + [0x01] + Array("tail\"]".utf8)),
+      ("bad utf8", Array("[\"ab\\n0123456789abcdef0123".utf8) + [0xC3, 0x28] + Array("tail\"]".utf8)),
+      ("overlong", Array("[\"ab\\nxy".utf8) + [0xC0, 0x80] + Array("0123456789abcdef\"]".utf8))
+    ]
+    func content(_ events: [Tagged]) -> [UInt8] {
+      events.flatMap { tagged -> [UInt8] in
+        guard case .stringChunk(let bytes) = tagged.event else { return [] }
+        return bytes
+      }
+    }
+    for (label, bytes) in documents {
+      let byteFed = Self.record(bytes, chunk: 1)
+      for chunk in [Int.max, 64] {
+        let chunked = Self.record(bytes, chunk: chunk, bufferCapacity: bufferCapacity)
+        #expect(chunked.error == byteFed.error, "\(label) chunk \(chunk)")
+        #expect(chunked.error != nil, "\(label) chunk \(chunk)")
+        #expect(
+          content(byteFed.events).starts(with: content(chunked.events)), "\(label) chunk \(chunk)"
+        )
+      }
+    }
   }
 
   @Test
