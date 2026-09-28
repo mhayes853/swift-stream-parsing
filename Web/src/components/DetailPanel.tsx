@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loadAssembly, loadSources } from "../data";
+import { loadAssembly } from "../data";
 import { spanOf } from "../lib/dates";
 import {
   byVerdictThenAge,
@@ -16,7 +16,7 @@ import { AlgorithmChart } from "./AlgorithmChart";
 import { Recorded, RecordedDetail } from "./dates";
 import { Reaches } from "./FlowChart";
 import { Code } from "./highlight";
-import { useEscape } from "./hooks";
+import { type Sources, useEscape, useSources } from "./hooks";
 import { inline, Markdown, VerdictChip } from "./Markdown";
 
 type Tab = "explanation" | "experiments" | "source" | "assembly";
@@ -82,22 +82,6 @@ export function DetailPanel({
       </aside>
     </>
   );
-}
-
-interface Sources {
-  value: Record<string, SourceDecl[]> | null;
-  error: string | null;
-}
-
-function useSources(): Sources {
-  const [sources, setSources] = useState<Sources>({ value: null, error: null });
-  useEffect(() => {
-    loadSources().then(
-      (bundle) => setSources({ value: bundle.sources, error: null }),
-      (e) => setSources({ value: null, error: String(e) })
-    );
-  }, []);
-  return sources;
 }
 
 function Explanation({

@@ -9,8 +9,14 @@ byte). Every arrow carries its label — a verb phrase, or the condition under w
 Hovering a node opens a card describing how it reaches what it calls; selecting one opens its
 animation, prose, experiments, source and assembly.
 
+Two more views are about the library rather than the parse path. **Tests** walks the guarantees
+the suites carry (`content/tests.json`), each with the tests that check it, their own comments, and
+a trace of the shipped parser cut at every byte. **Macros** explains why `StreamParsingMacroSupport`
+exists and draws real expansions from the macro snapshot tests, region by region
+(`content/macros.json`).
+
 ```sh
-./Web/generate          # rebuild content.json, traces.json and the assembly snapshots
+./Web/generate          # rebuild content.json, library.json, traces.json and the assembly snapshots
 cd Web && npm install && npm run dev
 npm test                # unit tests for src/lib, and React Testing Library tests for the views
 ```
@@ -21,7 +27,8 @@ npm test                # unit tests for src/lib, and React Testing Library test
 markdown grammar (`markdown.ts`), the experiments search (`search.ts`), both charts' layouts
 (`flowLayout.ts`, `algorithmLayout.ts`, over the shared `graph.ts`), the tokenizers
 (`highlight.ts`), how evidence is split, sorted and counted (`evidence.ts`), dates (`dates.ts`),
-the payload deltas (`payloads.ts`) and the arithmetic the animations draw (`viz.ts`). Each has a
+the payload deltas (`payloads.ts`), the test guarantees (`tests.ts`), how a macro expansion
+divides into regions and what its key words spell (`macros.ts`) and the arithmetic the animations draw (`viz.ts`). Each has a
 `*.test.ts` beside it. `src/components/` and `src/viz/` render what those return.
 
 The tests read the committed bundles in `generated/` through `src/test/fixtures.ts`, so they check

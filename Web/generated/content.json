@@ -54484,15 +54484,15 @@
     ],
     "title" : "New Architecture"
   },
-  "generatedAt" : "2026-09-28T21:38:32Z",
+  "generatedAt" : "2026-09-28T22:31:18Z",
   "sources" : {
 
   },
   "stats" : {
     "codeBlockCount" : 24,
     "datedSections" : 326,
-    "declCount" : 1787,
-    "fileCount" : 57,
+    "declCount" : 2121,
+    "fileCount" : 68,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
     "lastRecorded" : "2026-09-28T14:36:45-07:00",
     "sectionCount" : 326,

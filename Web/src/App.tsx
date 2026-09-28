@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo } from "react";
+import macrosData from "../content/macros.json";
 import pipelineData from "../content/pipeline.json";
+import testsData from "../content/tests.json";
 import { DetailPanel } from "./components/DetailPanel";
 import { FlowChart } from "./components/FlowChart";
 import { Graveyard } from "./components/Graveyard";
+import { MacrosView } from "./components/MacrosView";
 import { How, Lede, Why } from "./components/Overview";
 import { Payloads } from "./components/Payloads";
-import { useBundles, useRoute, useTheme } from "./components/hooks";
+import { TestsView } from "./components/TestsView";
+import { useBundles, useLibrary, useRoute, useTheme } from "./components/hooks";
 import { span } from "./lib/dates";
 import { experimentTotal, sectionsByPath } from "./lib/evidence";
 import { VIEWS } from "./lib/route";
-import type { Pipeline, PipelineNode } from "./types";
+import type { MacrosContent, Pipeline, PipelineNode, TestsContent } from "./types";
 
 const pipeline = pipelineData as Pipeline;
+const testsContent = testsData as TestsContent;
+const macrosContent = macrosData as unknown as MacrosContent;
 const nodeIds = new Set(pipeline.nodes.map((n) => n.id));
 
 export function App() {
@@ -30,6 +36,8 @@ export function App() {
   const sections = useMemo(() => sectionsByPath(sectionList ?? []), [sectionList]);
   const titleOf = useCallback((id: string) => pipeline.nodes.find((n) => n.id === id)?.title, []);
   const select = useCallback((node: PipelineNode) => go({ view: "flow", node: node.id }), [go]);
+  const openNode = useCallback((id: string) => go({ view: "flow", node: id }), [go]);
+  const { library, error: libraryError } = useLibrary(view === "tests" || view === "macros");
 
   if (error) {
     return (
@@ -124,6 +132,25 @@ export function App() {
         )}
         {view === "graveyard" && <Graveyard sections={sectionList ?? []} />}
         {view === "payloads" && <Payloads sections={sectionList ?? []} />}
+        {view === "tests" && (
+          <TestsView
+            content={testsContent}
+            library={library}
+            error={libraryError}
+            traces={traces}
+            titleOf={titleOf}
+            onNode={openNode}
+          />
+        )}
+        {view === "macros" && (
+          <MacrosView
+            content={macrosContent}
+            library={library}
+            error={libraryError}
+            titleOf={titleOf}
+            onNode={openNode}
+          />
+        )}
       </main>
 
       {selected && (

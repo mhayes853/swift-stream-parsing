@@ -8,6 +8,8 @@ describe("route", () => {
     expect(parseRoute("#/flow/structural-run", ids)).toEqual({ view: "flow", node: "structural-run" });
     expect(parseRoute("#/graveyard", ids)).toEqual({ view: "graveyard", node: null });
     expect(parseRoute("#/payloads", ids)).toEqual({ view: "payloads", node: null });
+    expect(parseRoute("#/tests", ids)).toEqual({ view: "tests", node: null });
+    expect(parseRoute("#/macros", ids)).toEqual({ view: "macros", node: null });
   });
 
   it("falls back to the parse path with nothing open", () => {

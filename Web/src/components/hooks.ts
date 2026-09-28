@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { loadContent, loadTraces } from "../data";
+import { loadContent, loadLibrary, loadSources, loadTraces } from "../data";
 import { formatRoute, parseRoute, type Route } from "../lib/route";
-import type { ContentBundle, TraceBundle } from "../types";
+import type { ContentBundle, LibraryBundle, SourceDecl, TraceBundle } from "../types";
 
 export function useInnerWidth<T extends HTMLElement>(initial: number) {
   const ref = useRef<T>(null);
@@ -96,4 +96,37 @@ export function useRoute(nodeIds: ReadonlySet<string>) {
   }, []);
 
   return { route, go, closeNode };
+}
+
+export interface Sources {
+  value: Record<string, SourceDecl[]> | null;
+  error: string | null;
+}
+
+/** The declaration bodies, fetched the first time something asks for them. */
+export function useSources(): Sources {
+  const [sources, setSources] = useState<Sources>({ value: null, error: null });
+  useEffect(() => {
+    loadSources().then(
+      (bundle) => setSources({ value: bundle.sources, error: null }),
+      (e) => setSources({ value: null, error: String(e) })
+    );
+  }, []);
+  return sources;
+}
+
+/** `library.json`, for the Tests and Macros views; fetched when one of them is first opened. */
+export function useLibrary(enabled: boolean): { library: LibraryBundle | null; error: string | null } {
+  const [state, setState] = useState<{ library: LibraryBundle | null; error: string | null }>({
+    library: null,
+    error: null
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    loadLibrary().then(
+      (library) => setState({ library, error: null }),
+      (e) => setState({ library: null, error: String(e) })
+    );
+  }, [enabled]);
+  return state;
 }

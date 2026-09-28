@@ -1,4 +1,4 @@
-import type { ContentBundle, SourceBundle, TraceBundle } from "./types";
+import type { ContentBundle, LibraryBundle, SourceBundle, TraceBundle } from "./types";
 
 // Relative to the document, not a base path, so one build works from any host or subpath.
 function assetURL(name: string): string {
@@ -24,6 +24,16 @@ export function loadSources(): Promise<SourceBundle> {
     throw error;
   });
   return sourcesPromise;
+}
+
+// Only the Tests and Macros views read this, so it loads when one of them is first opened.
+let libraryPromise: Promise<LibraryBundle> | null = null;
+export function loadLibrary(): Promise<LibraryBundle> {
+  libraryPromise ??= json<LibraryBundle>("library.json").catch((error) => {
+    libraryPromise = null;
+    throw error;
+  });
+  return libraryPromise;
 }
 
 const asmCache = new Map<string, Promise<string>>();

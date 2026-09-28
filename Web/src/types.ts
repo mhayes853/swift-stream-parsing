@@ -635,4 +635,93 @@ export interface TraceBundle {
   streamString: StreamStringTrace;
   collections: CollectionTrace;
   views: ViewTrace;
+  chunkCuts: ChunkCutTrace;
+}
+
+export type Delivery = "head" | "tail" | "both" | "finish";
+
+/** A document cut at every byte, and which call delivered each of its tokens at each cut. */
+export interface ChunkCutTrace {
+  sample: string;
+  bytes: number[];
+  tokens: { kind: string; text: string }[];
+  splits: { at: number; delivery: Delivery[] }[];
+  verified: boolean;
+}
+
+// MARK: - The library views (library.json, content/tests.json, content/macros.json)
+
+export interface TestCase {
+  key: string;
+  name: string;
+  file: string;
+  target: string;
+  suite?: string;
+  line: number;
+  parameterized: boolean;
+}
+
+export interface TestTarget {
+  name: string;
+  path: string;
+  files: number;
+  tests: number;
+  parameterized: number;
+}
+
+export interface MacroSnapshot {
+  input: string;
+  expansion?: string;
+  diagnostics?: string;
+}
+
+export interface LibraryBundle {
+  generatedAt: string;
+  tests: { targets: TestTarget[]; cases: TestCase[] };
+  decls: Record<string, SourceDecl>;
+  snapshots: Record<string, MacroSnapshot>;
+  guides: Record<string, { path: string; title: string; sections: DocSection[] }>;
+}
+
+export interface Technique {
+  id: string;
+  title: string;
+  detail: string;
+  refs: string[];
+}
+
+export interface Guarantee {
+  id: string;
+  title: string;
+  why: string[];
+  technique: string[];
+  suites: string[];
+  tests: string[];
+  showcase: string;
+  node: string[];
+  viz?: "chunkCuts";
+}
+
+export interface TestsContent {
+  version: number;
+  lede: string[];
+  techniques: Technique[];
+  guarantees: Guarantee[];
+}
+
+export interface MacroRegion {
+  id: string;
+  title: string;
+  detail: string;
+  step: string;
+  node?: string;
+}
+
+export interface MacrosContent {
+  version: number;
+  lede: string[];
+  why: { title: string; detail: string[]; guide: string[]; source: string[] }[];
+  chart: PipelineNode;
+  regions: MacroRegion[];
+  examples: { test: string; title: string; detail: string }[];
 }

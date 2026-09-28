@@ -41,10 +41,24 @@ How the content is sourced, and therefore what you have to touch:
   source of truth. `Sources/StreamParsingSiteTool` extracts them into `Web/generated/content.json`
   by heading slug and by declaration name. Adding a section to the doc needs no explorer change
   beyond pointing at it.
-- **`Web/content/pipeline.json` is the only hand-authored file in the explorer.** It holds the
+- **`Web/content/pipeline.json` is the hand-authored file for the parse path.** It holds the
   node graph (including `next`, which is what the flow chart draws), the short prose per node, and
   the *references* — doc slugs, `File.swift:symbol` pairs, assembly symbols. A new experiment
   attaches to the node it belongs to by adding its slug to that node's evidence list.
+- **The Tests and Macros views have one hand-authored file each, on the same terms.**
+  `Web/content/tests.json` selects the guarantees the suites carry and cites tests, suites and
+  helpers as `File.swift:name` (the name without its backticks); what each test does is read out of
+  its own leading comment and body, which `TestExtractor` lifts from `Tests/` and the smoke
+  packages into `Web/generated/library.json`. `Web/content/macros.json` holds why the macro support
+  library exists (citing `readme:` and `macro-support:` guide sections and declarations), a chart
+  in the same shape as a node's `steps` — validated by the same `validateSteps` — and the region
+  legend for expansions. The expansions themselves are the `assertStreamParsingMacro` snapshots in
+  the macro tests, so a changed expansion changes the site in the commit that changes the snapshot;
+  which lines belong to which region is decided by `Web/src/lib/macros.ts`, whose tests hold every
+  region it emits to the legend. A renamed test, retitled guide section or deleted generator
+  function fails `./Web/generate content` exactly as a dangling pipeline reference does. A new test
+  worth a reader's attention is added to a guarantee's `tests`; a new macro feature worth showing
+  is a new snapshot test plus an entry in `examples`.
 - **The landing page's explanation is in the same file, under `overview`.** The chart says what
   the steps are and each node says why that step exists, but neither answers what a reader arrives
   asking: what shape is this parser, and why that shape. `how` summarises the walk; `why` is one

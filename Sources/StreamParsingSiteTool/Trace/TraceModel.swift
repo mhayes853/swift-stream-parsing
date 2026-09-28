@@ -35,6 +35,7 @@ struct TraceBundle: Encodable {
   var streamString: StreamStringTrace
   var collections: CollectionTrace
   var views: ViewTrace
+  var chunkCuts: ChunkCutTrace
 }
 
 /// The structural run's moving 64-byte grid, recorded from the shipped C classifier and checked

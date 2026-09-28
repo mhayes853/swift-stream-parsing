@@ -1,6 +1,19 @@
 import { vi } from "vitest";
 import pipelineJson from "../../content/pipeline.json";
-import type { ContentBundle, DocHistory, DocSection, Pipeline, SourceBundle, TraceBundle, Verdict } from "../types";
+import testsJson from "../../content/tests.json";
+import macrosJson from "../../content/macros.json";
+import type {
+  ContentBundle,
+  DocHistory,
+  DocSection,
+  LibraryBundle,
+  MacrosContent,
+  Pipeline,
+  SourceBundle,
+  TestsContent,
+  TraceBundle,
+  Verdict
+} from "../types";
 
 const files = Object.fromEntries(
   Object.entries(
@@ -18,6 +31,9 @@ export const pipeline = pipelineJson as Pipeline;
 export const content = JSON.parse(generated("content.json")) as ContentBundle;
 export const traces = JSON.parse(generated("traces.json")) as TraceBundle;
 export const sources = JSON.parse(generated("sources.json")) as SourceBundle;
+export const library = JSON.parse(generated("library.json")) as LibraryBundle;
+export const testsContent = testsJson as TestsContent;
+export const macrosContent = macrosJson as unknown as MacrosContent;
 
 export function serveGenerated(fail: (path: string) => boolean = () => false) {
   const fetchStub = vi.fn(async (input: string | URL | Request) => {

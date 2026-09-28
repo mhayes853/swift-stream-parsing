@@ -46,8 +46,14 @@ if only == "all" || only == "content" {
     docWarnings.append("\(doc.sections.count - dated) section(s) carry no date")
   }
 
+  // The macro targets are indexed with the library: the Macros view's chart cites the generator
+  // the way a parse path node cites a kernel, and the downstream example is the proof a macro
+  // outside the package can use it.
   let swift = try SourceExtractor(roots: [
-    path("Sources", "StreamParsingCore"), path("Sources", "StreamParsing")
+    path("Sources", "StreamParsingCore"), path("Sources", "StreamParsing"),
+    path("Sources", "StreamParsingMacroSupport"), path("Sources", "StreamParsingMacros"),
+    path("Sources", "StreamParsingKeyDecoding"),
+    path("SmokeTests", "MacroSupport", "Sources", "SupportMacros")
   ]).extract()
 
   var sources = swift.decls
@@ -111,6 +117,59 @@ if only == "all" || only == "content" {
     for warning in docWarnings { print("warning: \(warning)") }
     print("note: no pipeline.json yet; skipping reference validation")
   }
+
+  // MARK: Library
+
+  // The Tests and Macros views. Validated against the same source index and node list as the
+  // pipeline, so a renamed generator function or a deleted node breaks these citations too.
+  let library = try TestExtractor(root: root).extract()
+  var guides: [String: DocBundle] = [:]
+  for (id, file) in [
+    ("macro-support", "Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md"),
+    ("readme", "README.md")
+  ] {
+    guard let text = try? String(contentsOfFile: path(file), encoding: .utf8) else {
+      fail("cannot read \(file)")
+    }
+    guides[id] = DocumentExtractor(path: file, text: text).extract().0
+  }
+  func decodeContent<T: Decodable>(_ name: String, as type: T.Type) -> T {
+    let file = path("Web", "content", name)
+    guard let data = FileManager.default.contents(atPath: file) else { fail("cannot read \(file)") }
+    do { return try JSONDecoder().decode(T.self, from: data) } catch {
+      fail("\(name) is not valid: \(error)")
+    }
+  }
+  let testsContent = decodeContent("tests.json", as: TestsContent.self)
+  let macrosContent = decodeContent("macros.json", as: MacrosContent.self)
+  let pipelineNodeIDs = Set(
+    decodeContent("pipeline.json", as: Pipeline.self).nodes.map(\.id))
+  let libraryReport = ReferenceReport.validateLibrary(
+    tests: testsContent, macros: macrosContent, library: library.decls,
+    snapshots: library.snapshots, guides: guides, sources: sources, nodeIDs: pipelineNodeIDs)
+  for warning in libraryReport.warnings { print("warning: \(warning)") }
+  if !libraryReport.errors.isEmpty {
+    for e in libraryReport.errors { FileHandle.standardError.write(Data("error: \(e)\n".utf8)) }
+    fail("\(libraryReport.errors.count) dangling reference(s) in tests.json / macros.json")
+  }
+  let cited = ReferenceReport.libraryCitations(tests: testsContent, macros: macrosContent)
+  let libraryBundle = LibraryBundle(
+    generatedAt: timestamp, tests: library.index,
+    decls: Dictionary(uniqueKeysWithValues: cited.compactMap { key in
+      library.decls[key]?.first.map { (key, $0) }
+    }),
+    snapshots: library.snapshots.filter { entry in
+      cited.contains(entry.key) || macrosContent.examples.contains { $0.test == entry.key }
+    }, guides: guides)
+  try encoder.encode(libraryBundle).write(
+    to: URL(fileURLWithPath: path("Web", "generated", "library.json")))
+  let testCount = library.index.targets.reduce(0) { $0 + $1.tests }
+  print(
+    """
+    library.json: \(testCount) tests across \(library.index.targets.count) targets, \
+    \(testsContent.guarantees.count) guarantees citing \(cited.count) declarations, \
+    \(libraryBundle.snapshots.count) macro expansions, \(macrosContent.chart.steps.count) chart steps
+    """)
 
   // Split on write. The declaration bodies are ~80% of the bytes and are only needed once a
   // detail panel's Source tab is opened, so the walkthrough does not wait on them.
@@ -192,7 +251,11 @@ if only == "all" || only == "traces" {
       sample: #"{"id":7,"tag":"a\"b","ok":true,"none":null,"xs":[1,2]}"#),
     dispositions: dispositions, skipRun: skipRun, skipBlocks: try BlockTraces.skip(),
     fieldMatch: RoutingTraces.fieldMatch(),
-    frames: frames, streamString: streamString, collections: collections, views: views)
+    frames: frames, streamString: streamString, collections: collections, views: views,
+    // Under 64 bytes so no chunk reaches the block walk, and holding each token that behaves
+    // differently when cut: a key, a string with an escape, a number, a literal and a nested array.
+    chunkCuts: try TestTraces.chunkCuts(
+      sample: #"{"id":42,"name":"Ad\u00e9","tags":["x"],"ok":true,"n":-1.5}"#))
 
   let out = path("Web", "generated", "traces.json")
   try encoder.encode(traces).write(to: URL(fileURLWithPath: out))
@@ -205,7 +268,7 @@ if only == "all" || only == "traces" {
       traces.sinkCalls.verified, traces.dispositions.verified, traces.skipRun.verified,
       traces.skipBlocks.verified,
       traces.fieldMatch.verified, traces.frames.verified, traces.streamString.verified,
-      traces.collections.verified, traces.views.verified
+      traces.collections.verified, traces.views.verified, traces.chunkCuts.verified
     ].filter { !$0 }.count + traces.number.cases.filter { !$0.verified }.count
   print(
     """

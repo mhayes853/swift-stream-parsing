@@ -1,5 +1,1232 @@
 {
   "arch" : "arm64",
+  "chunkCuts" : {
+    "bytes" : [
+      123,
+      34,
+      105,
+      100,
+      34,
+      58,
+      52,
+      50,
+      44,
+      34,
+      110,
+      97,
+      109,
+      101,
+      34,
+      58,
+      34,
+      65,
+      100,
+      92,
+      117,
+      48,
+      48,
+      101,
+      57,
+      34,
+      44,
+      34,
+      116,
+      97,
+      103,
+      115,
+      34,
+      58,
+      91,
+      34,
+      120,
+      34,
+      93,
+      44,
+      34,
+      111,
+      107,
+      34,
+      58,
+      116,
+      114,
+      117,
+      101,
+      44,
+      34,
+      110,
+      34,
+      58,
+      45,
+      49,
+      46,
+      53,
+      125
+    ],
+    "sample" : "{\"id\":42,\"name\":\"Ad\\u00e9\",\"tags\":[\"x\"],\"ok\":true,\"n\":-1.5}",
+    "splits" : [
+      {
+        "at" : 1,
+        "delivery" : [
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 2,
+        "delivery" : [
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 3,
+        "delivery" : [
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 4,
+        "delivery" : [
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 5,
+        "delivery" : [
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 6,
+        "delivery" : [
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 7,
+        "delivery" : [
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 8,
+        "delivery" : [
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 9,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 10,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 11,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 12,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 13,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 14,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 15,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 16,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 17,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 18,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 19,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 20,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 21,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 22,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 23,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 24,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 25,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 26,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 27,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 28,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 29,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 30,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 31,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 32,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 33,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 34,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 35,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 36,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 37,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "both",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 38,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 39,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 40,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 41,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 42,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 43,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 44,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 45,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 46,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 47,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 48,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 49,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 50,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 51,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 52,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 53,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 54,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 55,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 56,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 57,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      },
+      {
+        "at" : 58,
+        "delivery" : [
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "head",
+          "tail",
+          "tail"
+        ]
+      }
+    ],
+    "tokens" : [
+      {
+        "kind" : "beginObject",
+        "text" : "{"
+      },
+      {
+        "kind" : "key",
+        "text" : "id"
+      },
+      {
+        "kind" : "number",
+        "text" : "42"
+      },
+      {
+        "kind" : "key",
+        "text" : "name"
+      },
+      {
+        "kind" : "string",
+        "text" : "Adé"
+      },
+      {
+        "kind" : "key",
+        "text" : "tags"
+      },
+      {
+        "kind" : "beginArray",
+        "text" : "["
+      },
+      {
+        "kind" : "string",
+        "text" : "x"
+      },
+      {
+        "kind" : "endArray",
+        "text" : "]"
+      },
+      {
+        "kind" : "key",
+        "text" : "ok"
+      },
+      {
+        "kind" : "boolean",
+        "text" : "true"
+      },
+      {
+        "kind" : "key",
+        "text" : "n"
+      },
+      {
+        "kind" : "number",
+        "text" : "-1.5"
+      },
+      {
+        "kind" : "endObject",
+        "text" : "}"
+      }
+    ],
+    "verified" : true
+  },
   "collections" : {
     "array" : {
       "blockCapacity" : 32,
@@ -3050,7 +4277,7 @@
     ],
     "verified" : true
   },
-  "generatedAt" : "2026-09-28T21:38:32Z",
+  "generatedAt" : "2026-09-28T22:31:18Z",
   "number" : {
     "cases" : [
       {

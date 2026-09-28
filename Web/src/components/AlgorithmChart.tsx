@@ -18,10 +18,13 @@ import { inline } from "./Markdown";
 
 export function AlgorithmChart({
   node,
-  decls
+  decls,
+  heading = "Inside this step"
 }: {
   node: PipelineNode;
   decls: Record<string, SourceDecl[]> | null;
+  /** The chart is a node's own algorithm in the detail panel, and the macro pipeline on its page. */
+  heading?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -43,7 +46,7 @@ export function AlgorithmChart({
   return (
     <section className="algo">
       <header className="algo-head">
-        <h3>Inside this step</h3>
+        <h3>{heading}</h3>
         <p>
           {node.steps.length} steps, {edges.length} arrows. Select one to read what it does.
         </p>
