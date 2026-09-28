@@ -15,7 +15,9 @@ extension InlineArray: StreamInitializable where Element: StreamInitializable {
 extension InlineArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
   public static var streamSchema: StreamSchema {
-    _streamInlineArraySchema(Self.self, element: Element.streamElementSchema)
+    StreamSchemaCache.shared.schema(for: Self.self) {
+      _streamInlineArraySchema(Self.self, element: Element.streamArrayElementSchema)
+    }
   }
 }
 

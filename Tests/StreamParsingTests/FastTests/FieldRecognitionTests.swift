@@ -51,8 +51,7 @@ struct FieldRecognitionTests {
       var sink = PartialSink(root: storage, schema: schema)
       _ = sink.beginObject()
       for key in ["value", "alias", "other", "unknown", "value"] {
-        let bytes = Array(key.utf8)
-        bytes.withUnsafeBufferPointer { sink.key(Span(_unsafeElements: $0)) }
+        Array(key.utf8).withUnsafeBufferPointer { sink.key(Span(_unsafeElements: $0)) }
         sink.boolean(true)
       }
       sink.endObject()
@@ -83,11 +82,11 @@ struct FieldRecognitionTests {
     withUnsafeMutablePointer(to: &value) { storage in
       var sink = PartialSink(root: storage, schema: schema)
       _ = sink.beginObject()
-      let key = Array("value".utf8)
-      key.withUnsafeBufferPointer { sink.key(Span(_unsafeElements: $0)) }
+      Array("value".utf8).withUnsafeBufferPointer { sink.key(Span(_unsafeElements: $0)) }
       #expect(storage.pointee.recognized == [_streamFieldID(17)])
-      let text = Array("wrong type".utf8)
-      text.withUnsafeBufferPointer { sink.string(Span(_unsafeElements: $0)) }
+      Array("wrong type".utf8).withUnsafeBufferPointer {
+        sink.string(Span(_unsafeElements: $0))
+      }
       #expect(sink.streamFailure != nil)
       #expect(storage.pointee.recognized.count == 1)
       sink.endObject()

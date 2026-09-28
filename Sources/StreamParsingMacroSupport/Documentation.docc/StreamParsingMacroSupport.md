@@ -32,6 +32,24 @@ conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize 
 with their stream initial values instead of making them optional. A field created without `keys`
 matches only its own name, without backticks.
 
+Every `Partial` builds its schema, together with its field table and child schemas, once into a
+`StreamSchemaCache`: `StreamSchemaCache.shared`, or the instance
+`StreamGenerationConfiguration.schemaCache` names. That expression is emitted inside the `Partial`
+and coerced to `StreamSchemaCache`, so a leading-dot member resolves and `Self` names the
+`Partial`. A concrete `Partial` evaluates it once, into the `private static let streamSchemaEntry`
+it reads through; a generic one, which cannot declare a stored static, evaluates it and reads by
+type on every read.
+
+Set `StreamGenerationConfiguration.genericParameters` when the `Partial` is declared in a generic
+context: the host type's parameters and those of every generic type enclosing it. The schema
+property is then `@inlinable` under the inlining policy, so the schema is built where the
+parameters are concrete; an inlinable property can only name a `public` or `@usableFromInline`
+cache. It omits `Sendable` from the `Partial`, because the members' partials are not known to be
+`Sendable`. It also routes
+a field whose type names a parameter from that field's schema when the table is built, because
+the overloads that route concrete types resolve before the parameter is known. An extension of a
+generic type exposes no parameters syntactically, so a type nested in one cannot be detected.
+
 `generation.partialFields` describes the stored properties before syntax generation. Each
 `StreamPartialFieldDescriptor` supplies the emitted member name, its unescaped name, its exact
 storage type, and all decoded routing keys. The storage type reflects optional-member mode,

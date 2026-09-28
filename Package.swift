@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import CompilerPluginSupport
@@ -66,9 +66,12 @@ let package = Package(
   targets: [
     .target(
       name: "StreamParsing",
-      dependencies: ["StreamParsingCore", "StreamParsingMacros"],
+      dependencies: ["StreamParsingCore", "StreamParsingKeyDecoding", "StreamParsingMacros"],
       swiftSettings: suppressedAssociatedTypes
     ),
+    // The built-in key conversions the macro and `StreamKeyDecodingStrategy` share. No
+    // dependencies, so it builds for the host and the target alike.
+    .target(name: "StreamParsingKeyDecoding"),
     // C interoperability target. Executable shims live as inline functions in the header so
     // their scalar/NEON forms can disappear into Swift callers; generated lookup-table storage
     // stays in translation units so importing the header cannot instantiate duplicate tables.
@@ -96,6 +99,7 @@ let package = Package(
     .target(
       name: "StreamParsingMacroSupport",
       dependencies: [
+        "StreamParsingKeyDecoding",
         .product(name: "SwiftBasicFormat", package: "swift-syntax"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
         .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),

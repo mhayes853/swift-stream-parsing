@@ -41,8 +41,6 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       return try Self.enumMemberExpansion(declaration: enumDecl, in: sink)
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
-    guard structDecl.genericParameterClause == nil else { return [] }
-
     guard !Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members) else {
       return []
     }
@@ -68,6 +66,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let sink = DiagnosticSink(context)
     if let enumDecl = declaration.as(EnumDeclSyntax.self) {
       guard !Self.diagnoseGenericParameters(enumDecl.genericParameterClause, in: sink),
+        !Self.diagnoseGenericContext(enumDecl, lexicalContext: context.lexicalContext, in: sink),
         !Self.diagnoseIndirectEnum(enumDecl, in: sink),
         !Self.diagnoseSelfReferentialPayloads(
           enumDecl, lexicalContext: context.lexicalContext, in: sink
@@ -80,14 +79,17 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
-    guard !Self.diagnoseGenericParameters(structDecl.genericParameterClause, in: sink) else {
-      return []
-    }
+    let genericParameters = Self.genericParameters(
+      of: structDecl, lexicalContext: context.lexicalContext
+    )
 
     // The fully qualified name, so a nested type extends `Outer.Inner` rather than a name that
     // does not exist at file scope.
     let typeName = type.trimmedDescription
-    let properties = Self.storedProperties(in: structDecl, context: sink)
+    let keyDecodingStrategy = Self.argument(named: "keyDecodingStrategy", of: node)
+    let properties = Self.storedProperties(
+      in: structDecl, keyDecodingStrategy: keyDecodingStrategy, context: sink
+    )
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
     let accessLevel = Self.generatedAccessLevel(for: structDecl.modifiers)
     let membersMode = Self.partialMembersMode(from: node, context: sink)
@@ -119,7 +121,10 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let partialStruct = try Self.objectGeneration(
       for: properties,
       accessLevel: accessLevel,
-      membersMode: membersMode
+      membersMode: membersMode,
+      genericParameters: genericParameters,
+      schemaCache: Self.argument(named: "schemaCache", of: node),
+      keyDecodingStrategy: keyDecodingStrategy
     )
     .structDeclarationSyntax(in: context)
     return [
@@ -172,9 +177,9 @@ extension StreamParseableMacro {
     Diagnostic(node: node, message: MacroExpansionErrorMessage(message))
   }
 
-  // A `Partial` nested in a generic context cannot hold the `static let`s it needs ("static
+  // An enum's lowerings still hold `static let`s, which a generic context cannot declare ("static
   // stored properties not supported in generic types"), so say so instead of expanding into code
-  // that cannot compile.
+  // that cannot compile. Structs take the generic lowering instead.
   static func diagnoseGenericParameters(
     _ clause: GenericParameterClauseSyntax?,
     in context: DiagnosticSink
@@ -184,6 +189,59 @@ extension StreamParseableMacro {
       Self.error(clause, "@StreamParseable does not support generic types.")
     )
     return true
+  }
+
+  // The same limit for an enum nested in a generic type, which is generic without saying so.
+  static func diagnoseGenericContext(
+    _ declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax],
+    in context: DiagnosticSink
+  ) -> Bool {
+    guard !Self.enclosingGenericParameters(lexicalContext, skipping: declaration.name.text).isEmpty
+    else { return false }
+    context.diagnose(
+      Self.error(
+        declaration.name,
+        "@StreamParseable does not support enums nested in generic types."
+      )
+    )
+    return true
+  }
+
+  // The generic parameters in scope for a struct's `Partial`: its own, then those of every type
+  // enclosing it. An extension of a generic type declares none it can see, so a type nested there
+  // is still expanded as concrete; nothing syntactic can tell.
+  static func genericParameters(
+    of declaration: StructDeclSyntax,
+    lexicalContext: [Syntax]
+  ) -> [TokenSyntax] {
+    let own = declaration.genericParameterClause?.parameters.map(\.name.trimmed) ?? []
+    return own + Self.enclosingGenericParameters(lexicalContext, skipping: declaration.name.text)
+  }
+
+  // The innermost lexical context may be the declaration itself, which is skipped by name.
+  static func enclosingGenericParameters(
+    _ lexicalContext: [Syntax],
+    skipping name: String
+  ) -> [TokenSyntax] {
+    var parameters = [TokenSyntax]()
+    for (index, node) in lexicalContext.enumerated() {
+      if index == 0, node.asProtocol(NamedDeclSyntax.self)?.name.text == name { continue }
+      let clause: GenericParameterClauseSyntax?
+      if let type = node.as(StructDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(EnumDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(ClassDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else if let type = node.as(ActorDeclSyntax.self) {
+        clause = type.genericParameterClause
+      } else {
+        continue
+      }
+      parameters += clause?.parameters.map(\.name.trimmed) ?? []
+    }
+    return parameters
   }
 
   static func isIndirect(_ declaration: EnumDeclSyntax) -> Bool {
@@ -245,7 +303,10 @@ extension StreamParseableMacro {
   static func objectGeneration(
     for properties: [StoredProperty],
     accessLevel: StreamGeneratedAccessLevel,
-    membersMode: StreamPartialMembers
+    membersMode: StreamPartialMembers,
+    genericParameters: [TokenSyntax] = [],
+    schemaCache: ExprSyntax? = nil,
+    keyDecodingStrategy: ExprSyntax? = nil
   ) -> StreamObjectGeneration {
     let fields = properties.compactMap { property -> StreamParseableField? in
       guard !property.isIgnored else { return nil }
@@ -253,6 +314,7 @@ extension StreamParseableMacro {
         name: .identifier(property.name),
         type: property.type,
         keys: property.keyNames,
+        convertsKeys: property.convertsKeys,
         initialCapacity: property.initialCapacity.map {
           ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
@@ -266,7 +328,10 @@ extension StreamParseableMacro {
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
         accessLevel: accessLevel,
-        inlining: .automatic
+        inlining: .automatic,
+        genericParameters: genericParameters,
+        schemaCache: schemaCache,
+        keyDecodingStrategy: keyDecodingStrategy
       )
     )
   }
@@ -358,10 +423,13 @@ extension DeclModifierListSyntax {
 extension StreamParseableMacro {
   struct StoredProperty {
     /// The bare name, with no backticks: the default JSON key, and the stem of every derived
-    /// identifier (`streamContainerSchema_x`).
+    /// identifier (`streamObjectMemberSchema_x`).
     let name: String
     let type: TypeSyntax
     let keyNames: [String]
+    /// Whether `keyNames` is the name alone, for the type's key decoding strategy to convert. A
+    /// key written with `@StreamParseableMember` is never converted.
+    let convertsKeys: Bool
     let initialCapacity: Int?
     let isIgnored: Bool
     /// The declaration's own access level and `@usableFromInline`, which decide whether an
@@ -387,10 +455,12 @@ extension StreamParseableMacro {
 
   private static func storedProperties(
     in declaration: StructDeclSyntax,
+    keyDecodingStrategy: ExprSyntax? = nil,
     context: DiagnosticSink
   ) -> [StoredProperty] {
     var properties = [StoredProperty]()
     var seenKeys = Set<String>()
+    let keyDecoding = StreamGenerationConfiguration(keyDecodingStrategy: keyDecodingStrategy)
     for member in declaration.memberBlock.members {
       guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
         continue
@@ -399,9 +469,10 @@ extension StreamParseableMacro {
       // A duplicate key emits a second, permanently unreachable `case` arm: Swift does not
       // diagnose duplicate integer patterns that carry a `where` clause.
       for property in declared where !property.isIgnored {
-        for key in property.keyNames where !seenKeys.insert(key).inserted {
-          context.diagnose(
-            Self.error(variableDecl, "Key '\(key)' is already claimed by another property.")
+        for name in property.keyNames {
+          Self.claimKey(
+            of: name, converting: property.convertsKeys, by: keyDecoding, in: &seenKeys,
+            claimant: "property", at: variableDecl, context: context
           )
         }
       }
@@ -485,10 +556,9 @@ extension StreamParseableMacro {
       )
     }
 
-    let keyNames =
+    let explicitKeyNames =
       isIgnored
-      ? [propertyName]
-      : Self.keyNames(for: variableDecl.attributes, defaultName: propertyName, context: context)
+      ? nil : Self.explicitKeyNames(for: variableDecl.attributes, context: context)
     let capacity = isIgnored ? nil : Self.initialCapacity(for: variableDecl, context: context)
     if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
       context.diagnose(
@@ -527,7 +597,8 @@ extension StreamParseableMacro {
     return StoredProperty(
       name: propertyName,
       type: type,
-      keyNames: keyNames,
+      keyNames: explicitKeyNames ?? [propertyName],
+      convertsKeys: !isIgnored && explicitKeyNames == nil,
       initialCapacity: capacity,
       isIgnored: isIgnored,
       access: Self.declaredAccess(of: variableDecl.modifiers),
@@ -565,11 +636,12 @@ extension StreamParseableMacro {
     }
   }
 
-  static func keyNames(
+  /// The keys a `@StreamParseableMember` writes out, or `nil` when the declaration is read from its
+  /// name, which a key decoding strategy converts.
+  static func explicitKeyNames(
     for declAttributes: AttributeListSyntax,
-    defaultName: String,
     context: DiagnosticSink
-  ) -> [String] {
+  ) -> [String]? {
     var names = [String]()
     for attribute in Self.attributes(named: "StreamParseableMember", in: declAttributes) {
       let keyExpression = Self.argument(named: "key", of: attribute)
@@ -600,7 +672,28 @@ extension StreamParseableMacro {
         names.append(contentsOf: keyNames)
       }
     }
-    return names.isEmpty ? [defaultName] : names
+    return names.isEmpty ? nil : names
+  }
+
+  /// Claims the key `name` is read from in `seen`, and diagnoses one already claimed. A key a
+  /// strategy converts only when the schema is built is unknown here; the built table checks it.
+  static func claimKey(
+    of name: String,
+    converting: Bool,
+    by keyDecoding: StreamGenerationConfiguration,
+    in seen: inout Set<String>,
+    noun: String = "Key",
+    claimant: String,
+    at node: some SyntaxProtocol,
+    context: DiagnosticSink
+  ) {
+    guard let key = converting ? keyDecoding.decodedKey(for: name) : name,
+      !seen.insert(key).inserted
+    else { return }
+    let origin = key == name ? "" : " (converted from '\(name)')"
+    context.diagnose(
+      Self.error(node, "\(noun) '\(key)'\(origin) is already claimed by another \(claimant).")
+    )
   }
 
   static func initialCapacity(

@@ -527,6 +527,120 @@ struct BenchmarkTwitterUserMatched: Equatable, Codable {
   var followers_count: Int = 0
 }
 
+// The matched model with camelCase members and a key decoding strategy: the built-in one converts
+// the names as the macro expands, the custom one when the schema is built. Either way the field
+// tables hold the same keys as `BenchmarkTwitterMatched`'s, which names them itself, so all three
+// must parse at parity.
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTwitterSnakeStrategy: Equatable {
+  var statuses: [BenchmarkTweetSnakeStrategy] = []
+}
+
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTweetSnakeStrategy: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUserSnakeStrategy = BenchmarkTwitterUserSnakeStrategy()
+}
+
+@StreamParseable(keyDecodingStrategy: .convertFromSnakeCase)
+struct BenchmarkTwitterUserSnakeStrategy: Equatable {
+  var name: String = ""
+  var screenName: String = ""
+  var followersCount: Int = 0
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTwitterCustomStrategy: Equatable {
+  var statuses: [BenchmarkTweetCustomStrategy] = []
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTweetCustomStrategy: Equatable {
+  var id: Int = 0
+  var text: String = ""
+  var user: BenchmarkTwitterUserCustomStrategy = BenchmarkTwitterUserCustomStrategy()
+}
+
+@StreamParseable(
+  keyDecodingStrategy: .custom { StreamKeyDecodingStrategy.convertFromSnakeCase.key(for: $0) }
+)
+struct BenchmarkTwitterUserCustomStrategy: Equatable {
+  var name: String = ""
+  var screenName: String = ""
+  var followersCount: Int = 0
+}
+
+// The matched model with every member behind a generic parameter, the control for the generic
+// lowering: `BenchmarkTwitterGeneric` must parse as fast as `BenchmarkTwitterMatched`, since each
+// leaf still classifies to the kind the concrete overloads pick.
+@StreamParseable
+struct BenchmarkGenericTwitter<Tweet: StreamParseable & Equatable>: Equatable {
+  var statuses: [Tweet]
+}
+
+@StreamParseable
+struct BenchmarkGenericTweet<
+  ID: StreamParseable & Equatable, Text: StreamParseable & Equatable,
+  User: StreamParseable & Equatable
+>: Equatable {
+  var id: ID
+  var text: Text
+  var user: User
+}
+
+@StreamParseable
+struct BenchmarkGenericTwitterUser<
+  Text: StreamParseable & Equatable, Count: StreamParseable & Equatable
+>: Equatable {
+  var name: Text
+  var screen_name: Text
+  var followers_count: Count
+}
+
+typealias BenchmarkTwitterGeneric = BenchmarkGenericTwitter<
+  BenchmarkGenericTweet<Int, String, BenchmarkGenericTwitterUser<String, Int>>
+>
+
+// A string the table has no layout for: a concrete member of it is `custom` (the parent's apply
+// closures), a generic one `delegated` (its own schema). The pair below prices one against the
+// other.
+struct BenchmarkText: StreamStringConvertible, StreamParseable, StreamParseableRoot, Equatable {
+  typealias Partial = Self
+  var storage = StreamString()
+  static func streamInitialValue() -> Self { Self() }
+  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+    self.storage.streamAppend(utf8: bytes)
+  }
+}
+
+@StreamParseable
+struct BenchmarkTwitterCustomText: Equatable {
+  var statuses: [BenchmarkTweetCustomText] = []
+}
+
+@StreamParseable
+struct BenchmarkTweetCustomText: Equatable {
+  var id: Int = 0
+  var text: BenchmarkText = BenchmarkText()
+  var user: BenchmarkTwitterUserCustomText = BenchmarkTwitterUserCustomText()
+}
+
+@StreamParseable
+struct BenchmarkTwitterUserCustomText: Equatable {
+  var name: BenchmarkText = BenchmarkText()
+  var screen_name: BenchmarkText = BenchmarkText()
+  var followers_count: Int = 0
+}
+
+typealias BenchmarkTwitterGenericCustomText = BenchmarkGenericTwitter<
+  BenchmarkGenericTweet<Int, BenchmarkText, BenchmarkGenericTwitterUser<BenchmarkText, Int>>
+>
+
 // Every key the corpus actually contains, at every depth (73% of statuses carry a populated
 // `retweeted_status`, one level deep — it never recurses further in this corpus; `place`,
 // `coordinates`, `geo`, and `contributors` are always JSON `null` here, so their Swift type is

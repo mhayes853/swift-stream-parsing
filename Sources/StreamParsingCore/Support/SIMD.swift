@@ -22,17 +22,29 @@ extension SIMD4: StreamInitializable where Scalar: StreamInitializable {
 
 extension SIMD2: StreamParseableRoot
 where Scalar: StreamNumberConvertible & StreamInitializable {
-  public static var streamSchema: StreamSchema { _streamSIMD2Schema(Self.self) }
+  public static var streamSchema: StreamSchema {
+    // `Double` lanes have one immortal schema, which the sink also pushes directly.
+    guard Scalar.self != Double.self else { return _streamSIMD2Schema(Self.self) }
+    return StreamSchemaCache.shared.schema(for: Self.self) { _streamSIMD2Schema(Self.self) }
+  }
 }
 
 extension SIMD3: StreamParseableRoot
 where Scalar: StreamNumberConvertible & StreamInitializable {
-  public static var streamSchema: StreamSchema { _streamSIMD3Schema(Self.self) }
+  public static var streamSchema: StreamSchema {
+    // `Double` lanes have one immortal schema, which the sink also pushes directly.
+    guard Scalar.self != Double.self else { return _streamSIMD3Schema(Self.self) }
+    return StreamSchemaCache.shared.schema(for: Self.self) { _streamSIMD3Schema(Self.self) }
+  }
 }
 
 extension SIMD4: StreamParseableRoot
 where Scalar: StreamNumberConvertible & StreamInitializable {
-  public static var streamSchema: StreamSchema { _streamSIMD4Schema(Self.self) }
+  public static var streamSchema: StreamSchema {
+    // `Double` lanes have one immortal schema, which the sink also pushes directly.
+    guard Scalar.self != Double.self else { return _streamSIMD4Schema(Self.self) }
+    return StreamSchemaCache.shared.schema(for: Self.self) { _streamSIMD4Schema(Self.self) }
+  }
 }
 
 extension SIMD2: StreamContainerPartial

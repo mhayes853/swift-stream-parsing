@@ -3,9 +3,7 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// How an enum appears in the stream.
-#if compiler(>=6.2.3)
 @nonexhaustive
-#endif
 public enum StreamEnumRepresentation: Hashable, Sendable {
   /// A string such as `"live"`, matched against each case's keys. A partial string resolves to
   /// the shortest case it is a prefix of, so `live` may later become `livestream`.
@@ -24,6 +22,10 @@ public struct StreamParseableEnumCase: Sendable {
   /// `.stringRawValue`: the raw value and its aliases. `.caseKeyedObject`: the object keys.
   /// `.numericRawValue` ignores them.
   public var keys: [String]
+  /// Whether `keys` are declared names the configuration's `keyDecodingStrategy` converts, as
+  /// `StreamParseableField.convertsKeys`. Only `.caseKeyedObject` converts: a raw value is a value,
+  /// not a key.
+  public var convertsKeys: Bool
   /// One field per associated value, in declaration order. A wildcard name (`_`) is an
   /// unlabelled value: it is named `_<position>`, and keyed that way when it has no keys.
   public var associatedValues: [StreamParseableField]
@@ -35,16 +37,19 @@ public struct StreamParseableEnumCase: Sendable {
   public init(
     name: TokenSyntax,
     keys: some Sequence<String>,
+    convertsKeys: Bool = false,
     associatedValues: [StreamParseableField] = [],
     payloadTypeName: TokenSyntax? = nil
   ) {
     self.name = name
     self.keys = Array(keys)
+    self.convertsKeys = convertsKeys
     self.associatedValues = associatedValues
     self.payloadTypeName = payloadTypeName
   }
 
-  /// Creates a case whose only key is its name, without backticks.
+  /// Creates a case whose only key is its name, without backticks, converted by the
+  /// configuration's `keyDecodingStrategy`.
   public init(
     name: TokenSyntax,
     associatedValues: [StreamParseableField] = [],
@@ -53,6 +58,7 @@ public struct StreamParseableEnumCase: Sendable {
     self.init(
       name: name,
       keys: [StreamObjectGeneration.bareName(name)],
+      convertsKeys: true,
       associatedValues: associatedValues,
       payloadTypeName: payloadTypeName
     )
@@ -245,7 +251,8 @@ public struct StreamEnumGeneration: Sendable {
         StreamParseableField(
           name: enumCase.name,
           type: TypeSyntax("\(raw: entry.payload?.typeName ?? "StreamParsingCore.StreamEmptyObject")"),
-          keys: enumCase.keys
+          keys: enumCase.keys,
+          convertsKeys: enumCase.convertsKeys
         )
       }
     )

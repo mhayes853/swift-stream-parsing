@@ -1,3 +1,4 @@
+internal import StreamParsingKeyDecoding
 import SwiftBasicFormat
 import SwiftSyntax
 import SwiftSyntaxBuilder
@@ -115,18 +116,100 @@ public struct StreamGenerationConfiguration: Sendable {
   public var inlining: StreamInliningMode
   /// Names shared by the generated declarations.
   public var names: StreamGeneratedNames
+  /// The generic parameters in scope where the `Partial` is declared: the host type's own and
+  /// those of any generic type enclosing it.
+  ///
+  /// A non-empty list selects the generic lowering. The `Partial` does not declare `Sendable`,
+  /// whose members' partials are not known to be, and its schema property is `@inlinable` under
+  /// the inlining policy, so the schema is built where the parameters are concrete. A field whose
+  /// type names one of these parameters is routed from its schema at build time, because the
+  /// overloads that route a concrete type resolve before the parameter is known.
+  public var genericParameters: [TokenSyntax]
+  /// The `StreamSchemaCache` the generated schema is built into and read from, or `nil` for
+  /// `StreamSchemaCache.shared`.
+  ///
+  /// Emitted inside the generated `Partial`, coerced to `StreamSchemaCache`, so a leading-dot
+  /// member such as `.shared` resolves; `Self` in it names the `Partial`. An inlinable schema
+  /// property (see `inlining`) can only name a cache that is `public` or `@usableFromInline`.
+  public var schemaCache: ExprSyntax?
+  /// A `StreamKeyDecodingStrategy` for the keys of fields that convert theirs
+  /// (`StreamParseableField.convertsKeys`), or `nil` to use those keys as they are.
+  ///
+  /// A built-in strategy spelled as a member (`.convertFromSnakeCase`, optionally qualified with
+  /// `StreamKeyDecodingStrategy`) is applied during generation, so the generated keys are
+  /// literals; see `decodedKey(for:)`. Any other expression is emitted into the schema build,
+  /// evaluated there on the same terms as `schemaCache`, and converts each key as the schema is
+  /// built. Raw-value enum representations have no object keys, and ignore it.
+  public var keyDecodingStrategy: ExprSyntax? {
+    didSet { self.keyDecoding = KeyDecoding(self.keyDecodingStrategy) }
+  }
+  /// `keyDecodingStrategy`, classified once.
+  var keyDecoding: KeyDecoding
 
   /// Creates a generation configuration.
   public init(
     viewMode: StreamViewMode = .packageDefault,
     accessLevel: StreamGeneratedAccessLevel = .internal,
     inlining: StreamInliningMode = .automatic,
-    names: StreamGeneratedNames = StreamGeneratedNames()
+    names: StreamGeneratedNames = StreamGeneratedNames(),
+    genericParameters: [TokenSyntax] = [],
+    schemaCache: ExprSyntax? = nil,
+    keyDecodingStrategy: ExprSyntax? = nil
   ) {
     self.viewMode = viewMode
     self.accessLevel = accessLevel
     self.inlining = inlining
     self.names = names
+    self.genericParameters = genericParameters
+    self.schemaCache = schemaCache
+    self.keyDecodingStrategy = keyDecodingStrategy
+    self.keyDecoding = KeyDecoding(keyDecodingStrategy)
+  }
+
+  /// The key `keyDecodingStrategy` gives a converted `name` during generation: `name` itself
+  /// without a strategy, the converted name under a built-in one, and `nil` under any other
+  /// expression, whose keys are only known once the schema is built.
+  public func decodedKey(for name: String) -> String? {
+    switch self.keyDecoding {
+    case .none: name
+    case .builtIn(let conversion): conversion.key(for: name)
+    case .atSchemaBuild: nil
+    }
+  }
+
+  /// What a `keyDecodingStrategy` expression does to the keys it converts.
+  enum KeyDecoding: Sendable {
+    /// No strategy, or `.useDefaultKeys`: the names are the keys.
+    case none
+    /// A built-in strategy, applied during generation.
+    case builtIn(StreamDefaultKeyConversion)
+    /// Any other expression, evaluated when the schema is built.
+    case atSchemaBuild
+
+    init(_ strategy: ExprSyntax?) {
+      guard let strategy else {
+        self = .none
+        return
+      }
+      guard let member = strategy.as(MemberAccessExprSyntax.self),
+        member.declName.argumentNames == nil,
+        member.base.map({
+          ["StreamKeyDecodingStrategy", "StreamParsing.StreamKeyDecodingStrategy"]
+            .contains($0.trimmedDescription)
+        }) ?? true
+      else {
+        self = .atSchemaBuild
+        return
+      }
+      switch member.declName.baseName.text {
+      case "useDefaultKeys": self = .none
+      case "convertFromSnakeCase": self = .builtIn(.snakeCase)
+      case "convertFromScreamingSnakeCase": self = .builtIn(.screamingSnakeCase)
+      case "convertFromKebabCase": self = .builtIn(.kebabCase)
+      case "convertFromPascalCase": self = .builtIn(.pascalCase)
+      default: self = .atSchemaBuild
+      }
+    }
   }
 
   /// The access modifier and its trailing space, or nothing for internal access.
@@ -177,8 +260,12 @@ public struct StreamParseableField: Sendable {
   public var name: TokenSyntax
   /// The completed property's declared type.
   public var type: TypeSyntax
-  /// Byte-exact decoded keys that select this field.
+  /// Byte-exact decoded keys that select this field; declared names when `convertsKeys`.
   public var keys: [String]
+  /// Whether `keys` are declared names for the configuration's `keyDecodingStrategy` to convert,
+  /// rather than the keys themselves. A field whose only key is its name converts it; one whose
+  /// keys were written out does not. Nothing is converted without a strategy.
+  public var convertsKeys: Bool
   /// An optional initial capacity expression for streaming containers.
   public var initialCapacity: ExprSyntax?
   /// A type conforming to `StreamCompletedValueConversion`.
@@ -194,6 +281,7 @@ public struct StreamParseableField: Sendable {
     name: TokenSyntax,
     type: some TypeSyntaxProtocol,
     keys: some Sequence<String>,
+    convertsKeys: Bool = false,
     initialCapacity: (any ExprSyntaxProtocol)? = nil,
     completedConversion: (any TypeSyntaxProtocol)? = nil,
     defaultValue: (any ExprSyntaxProtocol)? = nil
@@ -201,15 +289,18 @@ public struct StreamParseableField: Sendable {
     self.name = name
     self.type = TypeSyntax(type)
     self.keys = Array(keys)
+    self.convertsKeys = convertsKeys
     self.initialCapacity = initialCapacity.map { ExprSyntax($0) }
     self.completedConversion = completedConversion.map { TypeSyntax($0) }
     self.defaultValue = defaultValue.map { ExprSyntax($0) }
   }
 
-  /// Creates a field whose only key is its name, without backticks.
+  /// Creates a field whose only key is its name, without backticks, converted by the
+  /// configuration's `keyDecodingStrategy`.
   ///
   /// A wildcard name (`_`), which only an enum's unlabelled associated value may use, gets no
-  /// key; the enum generation assigns its positional `_<index>` name and key.
+  /// key; the enum generation assigns its positional `_<index>` name and key, which no strategy
+  /// converts, as `Codable` does not.
   public init(
     name: TokenSyntax,
     type: some TypeSyntaxProtocol,
@@ -221,6 +312,7 @@ public struct StreamParseableField: Sendable {
       name: name,
       type: type,
       keys: name.tokenKind == .wildcard ? [] : [StreamObjectGeneration.bareName(name)],
+      convertsKeys: name.tokenKind != .wildcard,
       initialCapacity: initialCapacity,
       completedConversion: completedConversion,
       defaultValue: defaultValue
@@ -236,7 +328,8 @@ public struct StreamPartialFieldDescriptor: Sendable {
   public let unescapedName: String
   /// The exact generated property type, including any optional wrapper.
   public let storageType: TypeSyntax
-  /// Byte-exact decoded keys that route to this member, in their supplied order.
+  /// Byte-exact decoded keys that route to this member, in their supplied order. For a field whose
+  /// keys a strategy converts only when the schema is built, the declared names.
   public let keys: [String]
 
   /// Creates a descriptor for a stored field in a generated `Partial`.
@@ -276,9 +369,7 @@ public struct StreamPartialCustomization {
 }
 
 /// An invalid combination in an object-generation description.
-#if compiler(>=6.2.3)
 @nonexhaustive
-#endif
 public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStringConvertible {
   /// Explicit inlining requires public or package access for the generated storage.
   case incompatibleInliningAccess
@@ -319,7 +410,9 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
 
 /// A reusable plan for generating object partial-storage syntax.
 public struct StreamObjectGeneration: Sendable {
-  /// The fields in stable generated order.
+  /// The fields in stable generated order, with the keys a built-in `keyDecodingStrategy`
+  /// converted already in place. A field still marked `convertsKeys` has its keys converted when
+  /// the schema is built.
   public let fields: [StreamParseableField]
   /// The generated `Partial` storage fields, in the same order as `fields`.
   ///
@@ -351,7 +444,7 @@ public struct StreamObjectGeneration: Sendable {
     partialMembers: StreamPartialMembers = .optional,
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) throws {
-    let fields = Array(fields)
+    let fields = Self.resolvingKeys(of: Array(fields), configuration: configuration)
     if configuration.inlining == .always,
       configuration.accessLevel != .public, configuration.accessLevel != .package
     {
@@ -371,7 +464,8 @@ public struct StreamObjectGeneration: Sendable {
       if field.completedConversion != nil, field.initialCapacity != nil {
         throw StreamObjectGenerationError.initialCapacityWithCompletedConversion(field: name)
       }
-      for key in field.keys {
+      // A key converted when the schema is built is unknown here; the built table checks it.
+      for key in field.keys where !field.convertsKeys {
         guard keys.insert(Array(key.utf8)).inserted else {
           throw StreamObjectGenerationError.duplicateKey(key)
         }
@@ -395,7 +489,7 @@ public struct StreamObjectGeneration: Sendable {
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) {
     self.init(
-      fields: Array(fields),
+      fields: Self.resolvingKeys(of: Array(fields), configuration: configuration),
       partialMembers: partialMembers,
       configuration: configuration,
       isValidated: false
@@ -414,6 +508,33 @@ public struct StreamObjectGeneration: Sendable {
     self.isValidated = isValidated
     self.schemaPlan = SchemaPlan()
     self.schemaPlan = self.buildPlan()
+  }
+
+  /// `fields` with the keys a strategy converts during generation converted, and marked as no
+  /// longer converting. Under a strategy evaluated when the schema is built, they stay marked.
+  private static func resolvingKeys(
+    of fields: [StreamParseableField],
+    configuration: StreamGenerationConfiguration
+  ) -> [StreamParseableField] {
+    let conversion: StreamDefaultKeyConversion?
+    switch configuration.keyDecoding {
+    case .none: conversion = nil
+    case .builtIn(let builtIn): conversion = builtIn
+    case .atSchemaBuild: return fields
+    }
+    return fields.map { field in
+      guard field.convertsKeys else { return field }
+      var field = field
+      if let conversion { field.keys = field.keys.map(conversion.key(for:)) }
+      field.convertsKeys = false
+      return field
+    }
+  }
+
+  /// The strategy that converts some field's keys when the schema is built, which leaves no word
+  /// switch to generate: the schema matches through its field table alone.
+  private var keyDecodingAtSchemaBuild: ExprSyntax? {
+    self.fields.contains(where: \.convertsKeys) ? self.configuration.keyDecodingStrategy : nil
   }
 
   /// Generates the stored properties of the partial representation.
@@ -453,6 +574,19 @@ public struct StreamObjectGeneration: Sendable {
 
   /// Generates the cached initial-value template and its conformance witness.
   private func initialValueMembers() -> MemberBlockItemListSyntax {
+    if self.isGeneric {
+      // No stored template in a generic context, and a container should not copy one either: a
+      // bound generic struct's copy goes through its metadata (`_streamOpensByConstruction`).
+      return self.members(
+        """
+        \(self.inline)\(self.access)static func streamInitialValue() -> Self {
+          Self()
+        }
+
+        \(self.inline)\(self.access)static var _streamOpensByConstruction: Bool { true }
+        """
+      )
+    }
     let templateAccess = self.inlinable ? "@usableFromInline " : "private "
     return self.members(
       """
@@ -544,8 +678,9 @@ public struct StreamObjectGeneration: Sendable {
   private func fieldIdentifierDeclaration() -> EnumDeclSyntax {
     let constants = self.fields.enumerated()
       .map { index, field in
-        self.inlinable
-          ? "  @inlinable static var \(Self.memberName(field.name)): Int32 { \(index) }"
+        // A type nested in a generic context is generic too, so it has no stored statics either.
+        self.inlinable || self.isGeneric
+          ? "  \(self.inline)static var \(Self.memberName(field.name)): Int32 { \(index) }"
           : "  static let \(Self.memberName(field.name)): Int32 = \(index)"
       }
       .joined(separator: "\n")
@@ -603,41 +738,80 @@ public struct StreamObjectGeneration: Sendable {
     )
   }
 
-  /// Generates the field routing and offset table.
-  private func fieldTableProperty() -> VariableDeclSyntax {
-    let entries = self.schemaPlan.fields.joined(separator: "\n")
+  /// Generates the complete object `StreamSchema` property.
+  ///
+  /// One build for every type, run once into the configured `StreamSchemaCache`: the child
+  /// schemas and the field table are locals, owned by the schema they end up in
+  /// (`StreamFieldTable.fields`). A concrete `Partial` hands the build to the cache entry it keeps
+  /// in a `static let` and reads through that; a generic one cannot declare a stored static, so it
+  /// reads by type, and its property is `@inlinable` so the build specialises in the client.
+  private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
+    if self.isGeneric {
+      return self.declaration(
+        """
+        \(self.inline)\(self.access)static var streamSchema: StreamParsingCore.StreamSchema {
+          \(self.schemaCache).schema(for: Self.self) {
+        \(streamIndented(self.schemaBuild(recognitionHandler: recognitionHandler), by: 4))
+          }
+        }
+        """,
+        as: VariableDeclSyntax.self
+      )
+    }
     return self.declaration(
       """
-      \(self.access)static let streamFields: [StreamParsingCore.StreamField] = StreamParsingCore._streamFields(
-        of: Self.self, prototype: Self()
-      ) { p in
-        [
-      \(entries)
-        ]
-      }
+      \(self.access)static var streamSchema: StreamParsingCore.StreamSchema { Self.streamSchemaEntry.schema }
       """,
       as: VariableDeclSyntax.self
     )
   }
 
-  /// Generates the complete object `StreamSchema` property.
-  private func schemaProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
-    let converted = self.fields.filter { $0.completedConversion != nil }
-    let finish = self.finishStringArgument(for: converted)
+  /// The body that builds the object schema, ending in its `return`.
+  private func schemaBuild(recognitionHandler: TokenSyntax?) -> String {
     let recognition = recognitionHandler.map {
       "  onFieldRecognized: { storage, field in storage.assumingMemoryBound(to: Self.self).pointee.\($0.text)(field) },\n"
     } ?? ""
-    return self.declaration(
-      """
-      \(self.access)static let streamSchema = StreamParsingCore.StreamSchema(
+    var locals = self.schemaPlan.containerSchemas.map { $0 + "\n" }.joined()
+    // Converted keys have no word switch; the schema derives its matcher from the table.
+    var matcher = "  matchField: Self.streamMatchField,\n"
+    if let strategy = self.keyDecodingAtSchemaBuild {
+      let type = "StreamParsing.StreamKeyDecodingStrategy"
+      locals += "let streamKeyDecodingStrategy = (\(strategy.trimmedDescription) as \(type))\n"
+      matcher = ""
+    }
+    let entries = self.schemaPlan.fields.joined(separator: "\n")
+    return """
+      \(locals)let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
+        [
+      \(entries)
+        ]
+      }
+      return StreamParsingCore.StreamSchema(
         shape: .object,
-        matchField: Self.streamMatchField,
-      \(recognition)  applyString: Self.streamApplyString,
+      \(matcher)\(recognition)  applyString: Self.streamApplyString,
         applyNumber: Self.streamApplyNumber,
         applyBoolean: Self.streamApplyBoolean,
         applyNull: Self.streamApplyNull,
-      \(finish)  fields: Self.streamFields
+        fields: streamFields
       )
+      """
+  }
+
+  /// The configured cache, coerced so a leading-dot member resolves inside the `Partial`.
+  private var schemaCache: String {
+    self.configuration.schemaCache.map {
+      "(\($0.trimmedDescription) as StreamParsingCore.StreamSchemaCache)"
+    } ?? "StreamParsingCore.StreamSchemaCache.shared"
+  }
+
+  /// A concrete `Partial`'s entry in its cache, which owns the build: its schema read skips the
+  /// lookup by type.
+  private func schemaEntryProperty(recognitionHandler: TokenSyntax?) -> VariableDeclSyntax {
+    self.declaration(
+      """
+      private static let streamSchemaEntry = \(self.schemaCache).entry(for: Self.self) {
+      \(streamIndented(self.schemaBuild(recognitionHandler: recognitionHandler), by: 2))
+      }
       """,
       as: VariableDeclSyntax.self
     )
@@ -649,12 +823,15 @@ public struct StreamObjectGeneration: Sendable {
     if !self.fields.isEmpty {
       result.append(self.member(self.fieldIdentifierDeclaration()))
     }
-    result.append(contentsOf: self.members(self.schemaPlan.containerSchemas.joined(separator: "\n")))
-    result.append(self.member(self.matchFieldFunction()))
+    if self.keyDecodingAtSchemaBuild == nil {
+      result.append(self.member(self.matchFieldFunction()))
+    }
     for operation in [StreamApplyOperation.string, .number, .boolean, .null] {
       result.append(self.member(self.applyFunction(for: operation)))
     }
-    result.append(self.member(self.fieldTableProperty()))
+    if !self.isGeneric {
+      result.append(self.member(self.schemaEntryProperty(recognitionHandler: recognitionHandler)))
+    }
     result.append(self.member(self.schemaProperty(recognitionHandler: recognitionHandler)))
     return result
   }
@@ -730,10 +907,14 @@ public struct StreamObjectGeneration: Sendable {
     if let lastIndex = members.indices.last {
       members[lastIndex].trailingTrivia = .newline
     }
+    // Not `Sendable` in a generic context: a member's partial is not known to be, a conditional
+    // conformance can only be declared in an extension, and neither macro role can add one to a
+    // nested type. The host declares it (`extension Page.Partial: Sendable where ...`).
+    let sendable = self.isGeneric ? "" : ", Sendable"
     var declaration = self.declaration(
       """
       \(self.access)struct \(partialName): \(TypeSyntax.streamParseable),
-        \(TypeSyntax.streamParseableObject), Sendable {
+        \(TypeSyntax.streamParseableObject)\(sendable) {
         \(self.access)typealias Partial = Self
       }
       """,
@@ -788,13 +969,35 @@ extension StreamObjectGeneration {
   var access: String { self.configuration.accessPrefix }
   var inlinable: Bool { self.configuration.isInlinable(self.configuration.inlining) }
   var inline: String { self.configuration.inlinableAttribute() }
+  var isGeneric: Bool { !self.configuration.genericParameters.isEmpty }
+
+  /// Whether `type` names one of the generic parameters in scope, anywhere in its spelling.
+  func mentionsGenericParameter(_ type: some SyntaxProtocol) -> Bool {
+    guard self.isGeneric else { return false }
+    let names = Set(self.configuration.genericParameters.map(\.text))
+    return type.tokens(viewMode: .sourceAccurate).contains { token in
+      guard case .identifier(let text) = token.tokenKind, names.contains(text) else { return false }
+      return token.parent?.is(IdentifierTypeSyntax.self) ?? false
+    }
+  }
+
+  /// Whether a field is routed from its schema at build time (`_streamDelegatedFieldRoute`)
+  /// rather than by the overloads: a converted member, which `ConvertedPartial`'s own schema
+  /// applies, and a scalar or object member of a generic parameter's type, whose overloads
+  /// resolve before the parameter is known. The table then applies it without the parent's
+  /// closures, so its only apply arm is the null a container entry sends there.
+  func isDelegated(_ field: StreamParseableField) -> Bool {
+    if field.completedConversion != nil { return true }
+    guard case .scalarOrObject = self.fieldShape(field.type) else { return false }
+    return self.mentionsGenericParameter(field.type)
+  }
 
   private func buildPlan() -> SchemaPlan {
     var result = SchemaPlan()
     for field in self.fields {
       let member = Self.memberName(field.name)
       let fieldID = "Self.StreamField.\(member)"
-      for key in field.keys {
+      for key in field.keys where !field.convertsKeys {
         let label = streamWordCaseLabel(key, input: "key", byteCount: ExprSyntax("key.count"))
         result.matches.append("  \(label): return \(fieldID)")
       }
@@ -802,44 +1005,48 @@ extension StreamObjectGeneration {
       let schema = self.schemaName(field)
       let capacity =
         field.initialCapacity.map { ", initialCapacity: \($0.trimmedDescription)" } ?? ""
+      let delegated = self.isDelegated(field)
+      // A delegated route classifies from the schema, so a capacity hint rides on the entry,
+      // where the table reads it for a string kind and nothing else does.
+      let route =
+        delegated
+        ? "StreamParsingCore._streamDelegatedFieldRoute(&\(target))"
+        : "_streamFieldRoute(&\(target), schema: \(schema)\(capacity))"
+      let entryCapacity =
+        delegated ? field.initialCapacity.map { ", capacity: \($0.trimmedDescription)" } ?? "" : ""
       for key in field.keys {
+        let literal = StringLiteralExprSyntax(content: key).trimmedDescription
+        let keyExpression =
+          field.convertsKeys ? "streamKeyDecodingStrategy.key(for: \(literal))" : literal
         result.fields.append(
           """
               StreamParsingCore.StreamField(
-                key: \(StringLiteralExprSyntax(content: key).trimmedDescription), index: \(fieldID),
-                route: _streamFieldRoute(&\(target), schema: Self.\(schema)\(capacity)),
-                offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)
+                key: \(keyExpression), index: \(fieldID),
+                route: \(route),
+                offset: StreamParsingCore._streamFieldOffset(&\(target), in: p)\(entryCapacity)
               ),
           """
         )
       }
-      let container = self.containerSchema(for: field, named: schema)
-      result.containerSchemas.append(container.declaration)
-      let isContainer = container.isContainer
+      if delegated {
+        // Resolved from the member's type at run time: `streamApplyNull`'s overloads cannot see
+        // through a generic parameter's partial.
+        result.apply[.null, default: []]
+          .append("  case \(fieldID): return StreamParsingCore._streamDelegatedApplyNull(&\(target))")
+        continue
+      }
+      let (isContainer, expression) = self.containerSchema(for: field)
+      result.containerSchemas.append("let \(schema) = \(expression)")
       for operation in [StreamApplyOperation.string, .number, .boolean, .null]
       where !isContainer || operation == .null {
-        if field.completedConversion != nil, operation != .null {
-          let (method, args) =
-            switch operation {
-            case .string: ("applyString", "bytes")
-            case .number: ("applyNumber", "bytes, info")
-            case .boolean: ("applyBoolean", "value")
-            case .null: fatalError()
-            }
-          result.apply[operation, default: []]
-            .append(
-              "  case \(fieldID): return _streamWithConverted(&\(target)) { Self.\(schema)!.\(method)($0, StreamParsingCore.StreamSchema.wholeValueField, \(args)) }"
-            )
-        } else {
-          let expression =
-            switch operation {
-            case .string: "streamApply(&\(target), utf8: bytes\(capacity))"
-            case .number: "streamApply(&\(target), bytes: bytes, info: info)"
-            case .boolean: "streamApply(&\(target), boolean: value)"
-            case .null: "StreamParsing.streamApplyNull(&\(target))"
-            }
-          result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
-        }
+        let expression =
+          switch operation {
+          case .string: "streamApply(&\(target), utf8: bytes\(capacity))"
+          case .number: "streamApply(&\(target), bytes: bytes, info: info)"
+          case .boolean: "streamApply(&\(target), boolean: value)"
+          case .null: "StreamParsing.streamApplyNull(&\(target))"
+          }
+        result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
       }
     }
     return result
@@ -847,48 +1054,17 @@ extension StreamObjectGeneration {
 
   private func schemaName(_ field: StreamParseableField) -> String {
     Self.memberName(
-      TokenSyntax.identifier("streamContainerSchema_\(Self.bareName(field.name))")
+      TokenSyntax.identifier("streamObjectMemberSchema_\(Self.bareName(field.name))")
     )
   }
 
-  private func finishStringArgument(for fields: [StreamParseableField]) -> String {
-    guard !fields.isEmpty else { return "" }
-    let branches =
-      fields.map {
-        let name = Self.memberName($0.name)
-        return
-          "case Self.StreamField.\(name): return _streamWithConverted(&p.pointee.\(name)) { Self.\(self.schemaName($0))!.finishString?($0, StreamParsingCore.StreamSchema.wholeValueField) ?? .applied }"
-      }
-      .joined(separator: "\n")
-    return """
-        finishString: { storage, field in
-          let p = storage.assumingMemoryBound(to: Self.self)
-          switch field {
-          \(branches)
-          default: return .applied
-          }
-        },
-
-      """
-  }
-
-  private func containerSchema(
-    for field: StreamParseableField,
-    named schema: String
-  ) -> (isContainer: Bool, declaration: String) {
-    switch field.completedConversion == nil ? self.fieldShape(field.type) : .scalarOrObject {
+  /// Whether a non-delegated field enters a container, and the schema its route carries.
+  private func containerSchema(for field: StreamParseableField) -> (isContainer: Bool, expression: String) {
+    switch self.fieldShape(field.type) {
     case .scalarOrObject:
-      let access =
-        field.completedConversion != nil && self.inlinable ? "@usableFromInline" : "private"
-      return (
-        false,
-        "\(access) static let \(schema) = _streamContainerSchema(for: (\(self.partialType(field))).self)"
-      )
+      (false, "_streamObjectMemberSchema(for: (\(self.partialType(field))).self)")
     case .array, .dictionary:
-      return (
-        true,
-        "private static let \(schema) = \(self.schemaExpression(field.type))"
-      )
+      (true, self.schemaExpression(field.type))
     }
   }
 
@@ -938,7 +1114,12 @@ extension StreamObjectGeneration {
     case .dictionary(let value):
       self.containerSchemaExpression("Dictionary", element: value, label: "value")
     case .scalarOrObject:
-      "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
+      // A generic parameter's partial is only known as a `StreamParseableRoot`, so every
+      // `_streamSchema(for:)` overload but the placeholder is inapplicable; its own requirement
+      // is exact.
+      self.mentionsGenericParameter(type)
+        ? "\(type.streamUnwrappedOptionalType.trimmedDescription).Partial.streamSchema"
+        : "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
     }
   }
 
