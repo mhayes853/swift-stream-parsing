@@ -132,9 +132,7 @@ struct GenericReviewTests {
     bytes.withUnsafeBufferPointer { buffer in
       value.streamAppend(utf8: Span(_unsafeElements: buffer))
     }
-    withKnownIssue("Malformed lookahead advances one scalar after emitting a whole grapheme") {
-      #expect(Array(value.characters) == Array(String(value)))
-    }
+    #expect(Array(value.characters) == Array(String(value)))
   }
 }
 

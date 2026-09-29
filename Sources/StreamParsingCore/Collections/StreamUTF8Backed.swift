@@ -13,8 +13,9 @@ protocol _StreamUTF8Backed {
   /// The bytes in `range`, decoded with ill-formed sequences repaired.
   func decode(in range: Range<Int>) -> String
 
-  /// The scalar starting at `position`, repairing: a byte that does not begin a well-formed
-  /// sequence decodes as U+FFFD with length one.
+  /// The scalar starting at `position`, repairing as `String` does: a byte that cannot begin a
+  /// sequence decodes as U+FFFD with length one, and a sequence cut short as one U+FFFD spanning
+  /// its maximal subpart.
   func decodeScalar(at position: Int) -> (scalar: Unicode.Scalar, length: Int)
 
   /// The largest scalar-aligned offset at or before `limit`, so a window cut never tears a
@@ -57,11 +58,15 @@ extension _StreamUTF8Backed {
     while true {
       let window = self.decode(in: offset..<windowEnd)
       let first = window.first ?? "\u{FFFD}"
-      // A decode that did not round-trip its byte count hit ill-formed bytes: advance one scalar.
-      guard window.utf8.count == windowEnd &- offset else {
-        return (first, offset &+ self.decodeScalar(at: offset).length)
+      var end = offset &+ first.utf8.count
+      // A decode that did not round-trip its byte count repaired something, so the character's
+      // decoded length is not its byte length: walk its scalars back through the same repair.
+      // Returning after one scalar instead re-read a multi-scalar character's tail as the next
+      // character (`e\u{301}` then `\u{301}` again).
+      if window.utf8.count != windowEnd &- offset {
+        end = offset
+        for _ in first.unicodeScalars { end &+= self.decodeScalar(at: end).length }
       }
-      let end = offset &+ first.utf8.count
       if end < windowEnd || windowEnd == self.utf8Count { return (first, end) }
       let grown = self.scalarAlignedOffset(
         before: min(offset &+ (windowEnd &- offset) &* 2, self.utf8Count)

@@ -191,6 +191,26 @@ struct `Stream string tests` {
     expectNoDifference(value.unicodeScalars.index(before: 3), 2)
   }
 
+  // `[E2 82]` is the start of a three-byte sequence cut short by `b`: `String` repairs it as one
+  // U+FFFD, not one per byte, and the views claim to repair as `String` does.
+  @Test(arguments: [
+    [0x61, 0xE2, 0x82, 0x62], [0x61, 0xF0, 0x9F, 0x98, 0x62], [0x61, 0xF0, 0x9F], [0xE2, 0x82],
+    [0x65, 0xCC, 0x81, 0xFF], [0xFF, 0xCC, 0x81, 0x61], [0x61, 0xFF, 0x80, 0x62],
+  ] as [[UInt8]])
+  func `Ill-formed bytes repair as String repairs them`(bytes: [UInt8]) {
+    let value = self.accumulated(bytes, chunk: .max)
+    let repaired = String(decoding: bytes, as: UTF8.self)
+    expectNoDifference(Array(value.unicodeScalars), Array(repaired.unicodeScalars))
+    expectNoDifference(Array(value.characters), Array(repaired))
+    var backward = [Unicode.Scalar]()
+    var index = value.unicodeScalars.endIndex
+    while index > value.unicodeScalars.startIndex {
+      index = value.unicodeScalars.index(before: index)
+      backward.append(value.unicodeScalars[index])
+    }
+    expectNoDifference(backward.reversed(), Array(repaired.unicodeScalars))
+  }
+
   @Test
   func `Character Sequence Agrees With String, Clusters Included`() {
     // The family emoji is 25 bytes and the flag is a regional-indicator pair. Padding puts both

@@ -402,9 +402,9 @@ extension StreamString {
 extension StreamString: _StreamUTF8Backed {}
 
 extension StreamString {
-  // Decodes the scalar at `position`, repairing: a byte that does not begin a well-formed sequence
-  // is U+FFFD of length one, matching the `String` decode. The narrowed second-byte ranges reject
-  // overlong forms and surrogates.
+  // Decodes the scalar at `position`, repairing as the `String` decode does: a byte that cannot
+  // begin a sequence is U+FFFD of length one, and a sequence cut short is one U+FFFD over its
+  // maximal subpart. The narrowed second-byte ranges reject overlong forms and surrogates.
   @usableFromInline
   func decodeScalar(at position: Int) -> (scalar: Unicode.Scalar, length: Int) {
     let lead = self.utf8Byte(at: position)
@@ -421,20 +421,26 @@ extension StreamString {
     case 0xF4: length = 4; second = 0x80...0x8F
     default: return ("\u{FFFD}", 1)
     }
-    guard position &+ length <= self.utf8Count else { return ("\u{FFFD}", 1) }
+    // A sequence cut short -- by a byte that cannot continue it, or by the end -- is one U+FFFD
+    // spanning the lead and every byte that did continue it (the maximal subpart), as `String`
+    // repairs it.
+    let count = self.utf8Count
+    guard position &+ 1 < count else { return ("\u{FFFD}", 1) }
     let byte1 = self.utf8Byte(at: position &+ 1)
     guard second.contains(byte1) else { return ("\u{FFFD}", 1) }
     // The lead's payload mask follows from its length: 0x1F, 0x0F, 0x07 for two, three, four.
     var value = UInt32(lead & (0x7F &>> UInt8(length)))
     value = value &<< 6 | UInt32(byte1 & 0x3F)
     if length > 2 {
+      guard position &+ 2 < count else { return ("\u{FFFD}", 2) }
       let byte2 = self.utf8Byte(at: position &+ 2)
-      guard byte2 & 0xC0 == 0x80 else { return ("\u{FFFD}", 1) }
+      guard byte2 & 0xC0 == 0x80 else { return ("\u{FFFD}", 2) }
       value = value &<< 6 | UInt32(byte2 & 0x3F)
     }
     if length > 3 {
+      guard position &+ 3 < count else { return ("\u{FFFD}", 3) }
       let byte3 = self.utf8Byte(at: position &+ 3)
-      guard byte3 & 0xC0 == 0x80 else { return ("\u{FFFD}", 1) }
+      guard byte3 & 0xC0 == 0x80 else { return ("\u{FFFD}", 3) }
       value = value &<< 6 | UInt32(byte3 & 0x3F)
     }
     // In range and not a surrogate by the second-byte narrowing above.
@@ -498,8 +504,9 @@ extension StreamString {
   /// A bidirectional view of the accumulated bytes as Unicode scalars.
   ///
   /// Indices are byte offsets, the same currency as ``utf8``, so an index moves freely between
-  /// the two views. Ill-formed bytes decode as U+FFFD one byte at a time, matching the repairing
-  /// `String` decode. Table-free, so it stays inside the embedded subset.
+  /// the two views. Ill-formed bytes decode as the repairing `String` decode does: one U+FFFD per
+  /// byte that cannot begin a sequence, and one per sequence cut short. Table-free, so it stays
+  /// inside the embedded subset.
   public struct UnicodeScalarView: BidirectionalCollection {
     public typealias Element = Unicode.Scalar
 

@@ -194,6 +194,21 @@ struct `Stream inline string tests` {
     expectNoDifference(Array(value.unicodeScalars), ["a", "\u{FFFD}", "b"])
   }
 
+  // The inline type keeps its own `decodeScalar` (a load where a shared body would be a call), so
+  // it is held to the same repair as `StreamString`'s.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: [
+    [0x61, 0xE2, 0x82, 0x62], [0x61, 0xF0, 0x9F, 0x98, 0x62], [0x61, 0xF0, 0x9F],
+    [0x65, 0xCC, 0x81, 0xFF],
+  ] as [[UInt8]])
+  func `Ill-formed bytes repair as String repairs them`(bytes: [UInt8]) {
+    var value = StreamInlineString<16>()
+    _ = bytes.withUnsafeBufferPointer { value.streamAppend(utf8: Span(_unsafeElements: $0)) }
+    let repaired = String(decoding: bytes, as: UTF8.self)
+    expectNoDifference(Array(value.unicodeScalars), Array(repaired.unicodeScalars))
+    expectNoDifference(Array(value.characters), Array(repaired))
+  }
+
   // MARK: - Bridging and literals
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
