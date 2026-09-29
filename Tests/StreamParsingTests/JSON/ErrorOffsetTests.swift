@@ -120,11 +120,8 @@ struct `Error offset tests` {
     expectNoDifference(error, JSONParsingError(reason: reason, byteOffset: offset), "\(json)")
   }
   // A finished root container rests in `.done`, which reports a second document as trailing
-  // content; a finished root scalar rests in `.afterValue` at depth zero, which reports the same
+  // content; a finished root scalar rests in `.afterValue` at depth zero, which reported the same
   // second document as an unexpected token. Long whitespace runs reach the block walk's twin arm.
-  // Known issue: choosing the reason from the depth at the four `.afterValue` failure sites
-  // measured ~1% on typed rows (it reshuffled `consumeStructuralRun`'s registers), so it waits
-  // for a form that leaves the step alone.
   @Test(arguments: [
     ("1 2", 2), ("1,", 1), ("1]", 1), ("1}", 1), (#""a" "b""#, 4), ("true false", 5),
     ("null}", 4), ("-1.5e3 [", 7), ("1" + String(repeating: " ", count: 80) + "2", 81),
@@ -132,11 +129,10 @@ struct `Error offset tests` {
   func `A root scalar's trailing bytes report trailing content`(json: String, offset: Int) {
     let bytes = Array(json.utf8)
     let expected = JSONParsingError(reason: .trailingContent, byteOffset: offset)
-    // Bulk and byte fed only while this is a known issue; the fix should restore every split.
-    withKnownIssue("A root scalar rests in .afterValue, whose failures are unexpected tokens") {
-      expectNoDifference(Self.failure(bytes, splitAt: bytes.count), expected, "\(json)")
-      expectNoDifference(Self.bytewiseFailure(bytes), expected, "\(json) byte by byte")
+    for split in 0...bytes.count {
+      expectNoDifference(Self.failure(bytes, splitAt: split), expected, "\(json) split at \(split)")
     }
+    expectNoDifference(Self.bytewiseFailure(bytes), expected, "\(json) byte by byte")
   }
 
   // Inside a container the same bytes are still unexpected.

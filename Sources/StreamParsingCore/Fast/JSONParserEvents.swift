@@ -66,7 +66,22 @@ extension JSONParser {
     sink.commit()
     if case .sinkRejectedToken = error.reason { throw error }
     try self.checkEmission(&sink, at: n)
-    throw error
+    throw self.documentError(error)
+  }
+
+  // A finished root scalar rests in `.afterValue` at depth zero rather than in `.done` (moving it
+  // there would cost every scalar a compare), so what follows it is a second document, which
+  // `.done` reports as trailing content. The runs write `state` and `depth` back as they unwind,
+  // so the reason is chosen here, once, on the error path. Choosing it at the step's four failure
+  // sites instead (the depth in a register where there was an immediate) measured Canada typed
+  // -1.9% and the spaced-literal separators -3.7%.
+  @inlinable
+  @inline(never)
+  func documentError(_ error: JSONParsingError) -> JSONParsingError {
+    guard error.reason == .unexpectedToken, self.state == .afterValue, self.depth == 0 else {
+      return error
+    }
+    return JSONParsingError(reason: .trailingContent, byteOffset: error.byteOffset)
   }
 
   @inlinable
