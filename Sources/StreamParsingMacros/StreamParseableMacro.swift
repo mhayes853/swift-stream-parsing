@@ -508,6 +508,23 @@ extension StreamParseableMacro {
 
     var properties = [StoredProperty]()
     let bindings = Array(variableDecl.bindings)
+    // A `let` with an initial value is left out of `Partial` (see `storedProperty`), so a
+    // `@StreamParseableMember` on one would be dropped without a word, key and all. Once per
+    // declaration, and only when no binding in it is parsed; `@StreamParseableIgnored` alongside
+    // is already its own diagnostic.
+    if variableDecl.bindingSpecifier.tokenKind == .keyword(.let),
+      bindings.allSatisfy({ $0.initializer != nil }),
+      Self.attribute(named: "StreamParseableIgnored", in: variableDecl.attributes) == nil
+    {
+      self.diagnoseUnsupportedStreamParseableMember(
+        in: variableDecl,
+        message: """
+          A 'let' with an initial value is not parsed; make it 'var' or remove \
+          @StreamParseableMember.
+          """,
+        context: context
+      )
+    }
     for (index, binding) in bindings.enumerated() {
       if self.isComputedProperty(binding) {
         self.diagnoseUnsupportedStreamParseableMember(

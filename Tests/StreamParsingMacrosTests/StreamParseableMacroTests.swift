@@ -528,6 +528,31 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `StreamParseableMember Applied To An Initialized Let`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "full_name")
+          let name: String = "Blob"
+          var age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: "full_name")
+          ┬───────────────────────────────────────
+          ╰─ 🛑 A 'let' with an initial value is not parsed; make it 'var' or remove @StreamParseableMember.
+          let name: String = "Blob"
+          var age: Int
+        }
+        """
+      }
+    }
+
+    @Test
     func `StreamParseableMember Applied To Lazy Property`() {
       assertStreamParsingMacro {
         """
