@@ -172,11 +172,11 @@ extension BaseTestSuite {
 
           public init?(streamPartial partial: Partial) {
             guard
-              let createdAt = _streamConvertedValue(partial.createdAt)
+              let streamValue_createdAt = _streamConvertedValue(partial.createdAt)
             else {
               return nil
             }
-            self.createdAt = createdAt
+            self.createdAt = streamValue_createdAt
           }
 
           public init(orInitial partial: Partial) {

@@ -135,23 +135,25 @@ extension StreamObjectGeneration {
       "self.\(Self.memberName($0.name)) = \($0.value.trimmedDescription)"
     }
 
+    // The guard binds prefixed locals rather than the members' own names: a member named
+    // `partial` would otherwise shadow the parameter every later condition reads from.
     var strictLines = unparsedLines
     if !self.fields.isEmpty {
       let bindings = self.fields
         .map { field -> String in
           let name = Self.memberName(field.name)
+          let local = Self.streamValueLocal(field.name)
           guard field.completedConversion != nil else {
-            return "  let \(name) = Self._streamValue({ $0.\(name) }, partial.\(name))"
+            return "  let \(local) = Self._streamValue({ $0.\(name) }, partial.\(name))"
           }
           let helper =
             field.type.streamIsOptional ? "_streamOptionalConvertedValue" : "_streamConvertedValue"
-          return "  let \(name) = \(helper)(partial.\(name))"
+          return "  let \(local) = \(helper)(partial.\(name))"
         }
         .joined(separator: ",\n")
       strictLines = ["guard\n\(bindings)\nelse {\n  return nil\n}"]
         + self.fields.map {
-          let name = Self.memberName($0.name)
-          return "self.\(name) = \(name)"
+          "self.\(Self.memberName($0.name)) = \(Self.streamValueLocal($0.name))"
         }
         + unparsedLines
     }
@@ -180,6 +182,13 @@ extension StreamObjectGeneration {
       self.configuration.streamValueOrInitialSource,
     ]
     .joined(separator: "\n\n")
+  }
+
+  /// The strict initializer's local for a field's converted value, `streamValue_x`, derived from
+  /// the bare name like `streamObjectMemberSchema_x`. The prefix means no local is ever `partial`,
+  /// and distinct members get distinct locals; members themselves are only read qualified.
+  private static func streamValueLocal(_ name: TokenSyntax) -> String {
+    Self.memberName(.identifier("streamValue_\(Self.bareName(name))"))
   }
 }
 

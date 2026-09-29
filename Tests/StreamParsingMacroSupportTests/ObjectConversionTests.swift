@@ -55,17 +55,17 @@ struct `StreamObjectGeneration conversion tests` {
 
       public init?(streamPartial partial: Partial) {
         guard
-          let name = Self._streamValue({ $0.name }, partial.name),
-          let tags = Self._streamValue({ $0.tags }, partial.tags),
-          let createdAt = _streamConvertedValue(partial.createdAt),
-          let updatedAt = _streamOptionalConvertedValue(partial.updatedAt)
+          let streamValue_name = Self._streamValue({ $0.name }, partial.name),
+          let streamValue_tags = Self._streamValue({ $0.tags }, partial.tags),
+          let streamValue_createdAt = _streamConvertedValue(partial.createdAt),
+          let streamValue_updatedAt = _streamOptionalConvertedValue(partial.updatedAt)
         else {
           return nil
         }
-        self.name = name
-        self.tags = tags
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
+        self.name = streamValue_name
+        self.tags = streamValue_tags
+        self.createdAt = streamValue_createdAt
+        self.updatedAt = streamValue_updatedAt
         self.cache = nil
         self.retries = 3
       }
@@ -155,7 +155,9 @@ struct `StreamObjectGeneration conversion tests` {
     .description
 
     self.expectContains(source, "`default`: self.`default`.streamPartialValue")
-    self.expectContains(source, "let `default` = Self._streamValue({ $0.`default` }, partial.`default`)")
+    // The local is derived from the bare name, so it needs no backticks.
+    self.expectContains(source, "let streamValue_default = Self._streamValue({ $0.`default` }, partial.`default`)")
+    self.expectContains(source, "self.`default` = streamValue_default")
     self.expectContains(source, "self.`init` = nil")
     self.expectParses(source)
   }

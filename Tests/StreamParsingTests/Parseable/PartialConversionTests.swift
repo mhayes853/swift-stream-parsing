@@ -55,6 +55,14 @@ private struct WithIgnored: Equatable {
   var counted: Int = 7
 }
 
+// `partial` is also the name of the strict initializer's parameter, and it is not the last member,
+// so a generated local named after it would shadow the parameter `text` is then read from.
+@StreamParseable
+private struct Chunk: Equatable {
+  var partial: Bool
+  var text: String
+}
+
 // Deliberately does not call `finish()`: a truncated document is exactly what the strict
 // conversion is there to decline, and finishing would reject it before the conversion saw it.
 private func parse<T: StreamParseable>(_ json: String, as type: T.Type) throws -> T.Partial {
@@ -220,6 +228,20 @@ struct `Partial Conversion Tests` {
     let converted = try #require(WithIgnored(WithIgnored.Partial(id: 3)))
 
     expectNoDifference(converted, WithIgnored(id: 3, scratch: nil, counted: 7))
+  }
+
+  // MARK: - Member names
+
+  @Test
+  func `Converts A Member Named Like The Initializer Parameter`() throws {
+    let partial = try parse(#"{"partial":true,"text":"hi"}"#, as: Chunk.self)
+
+    expectNoDifference(Chunk(partial), Chunk(partial: true, text: "hi"))
+    expectNoDifference(
+      Chunk(orInitial: Chunk.Partial(partial: nil, text: "hi")),
+      Chunk(partial: false, text: "hi")
+    )
+    #expect(Chunk(Chunk.Partial(partial: true, text: nil)) == nil)
   }
 
   // MARK: - Round trip

@@ -204,15 +204,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let age = Self._streamValue({ $0.age
+              let streamValue_age = Self._streamValue({ $0.age
               }, partial.age)
             else {
               return nil
             }
-            self.name = name
-            self.age = age
+            self.name = streamValue_name
+            self.age = streamValue_age
           }
 
           init(orInitial partial: Partial) {
@@ -449,15 +449,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let nickname = Self._streamValue({ $0.nickname
+              let streamValue_nickname = Self._streamValue({ $0.nickname
               }, partial.nickname)
             else {
               return nil
             }
-            self.name = name
-            self.nickname = nickname
+            self.name = streamValue_name
+            self.nickname = streamValue_nickname
           }
 
           init(orInitial partial: Partial) {
@@ -808,15 +808,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let age = Self._streamValue({ $0.age
+              let streamValue_age = Self._streamValue({ $0.age
               }, partial.age)
             else {
               return nil
             }
-            self.name = name
-            self.age = age
+            self.name = streamValue_name
+            self.age = streamValue_age
           }
 
           init(orInitial partial: Partial) {
@@ -999,12 +999,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let nickname = Self._streamValue({ $0.nickname
+              let streamValue_nickname = Self._streamValue({ $0.nickname
               }, partial.nickname)
             else {
               return nil
             }
-            self.nickname = nickname
+            self.nickname = streamValue_nickname
           }
 
           init(orInitial partial: Partial) {
@@ -1198,12 +1198,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let stored = Self._streamValue({ $0.stored
+              let streamValue_stored = Self._streamValue({ $0.stored
               }, partial.stored)
             else {
               return nil
             }
-            self.stored = stored
+            self.stored = streamValue_stored
           }
 
           init(orInitial partial: Partial) {
@@ -1880,12 +1880,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           init(orInitial partial: Partial) {
@@ -2297,12 +2297,12 @@ extension BaseTestSuite {
 
               init?(streamPartial partial: Partial) {
                 guard
-                  let _0 = Self._streamValue({ $0._0
+                  let streamValue__0 = Self._streamValue({ $0._0
                   }, partial._0)
                 else {
                   return nil
                 }
-                self._0 = _0
+                self._0 = streamValue__0
               }
 
               init(orInitial partial: Partial) {
@@ -2435,15 +2435,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let age = Self._streamValue({ $0.age
+              let streamValue_age = Self._streamValue({ $0.age
               }, partial.age)
             else {
               return nil
             }
-            self.name = name
-            self.age = age
+            self.name = streamValue_name
+            self.age = streamValue_age
           }
 
           init(orInitial partial: Partial) {
@@ -2632,12 +2632,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           init(orInitial partial: Partial) {
@@ -2823,12 +2823,12 @@ extension BaseTestSuite {
 
           public init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           public init(orInitial partial: Partial) {
@@ -3008,12 +3008,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           init(orInitial partial: Partial) {
@@ -3193,12 +3193,12 @@ extension BaseTestSuite {
 
           fileprivate init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           fileprivate init(orInitial partial: Partial) {
@@ -3421,15 +3421,15 @@ extension BaseTestSuite {
 
           public init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let age = Self._streamValue({ $0.age
+              let streamValue_age = Self._streamValue({ $0.age
               }, partial.age)
             else {
               return nil
             }
-            self.name = name
-            self.age = age
+            self.name = streamValue_name
+            self.age = streamValue_age
           }
 
           public init(orInitial partial: Partial) {
@@ -3654,15 +3654,15 @@ extension BaseTestSuite {
 
           public init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name),
-              let age = Self._streamValue({ $0.age
+              let streamValue_age = Self._streamValue({ $0.age
               }, partial.age)
             else {
               return nil
             }
-            self.name = name
-            self.age = age
+            self.name = streamValue_name
+            self.age = streamValue_age
           }
 
           public init(orInitial partial: Partial) {
@@ -4220,15 +4220,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let items = Self._streamValue({ $0.items
+              let streamValue_items = Self._streamValue({ $0.items
               }, partial.items),
-              let index = Self._streamValue({ $0.index
+              let streamValue_index = Self._streamValue({ $0.index
               }, partial.index)
             else {
               return nil
             }
-            self.items = items
-            self.index = index
+            self.items = streamValue_items
+            self.index = streamValue_index
           }
 
           init(orInitial partial: Partial) {
@@ -4510,20 +4510,20 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let items = Self._streamValue({ $0.items
+              let streamValue_items = Self._streamValue({ $0.items
               }, partial.items),
-              let featured = Self._streamValue({ $0.featured
+              let streamValue_featured = Self._streamValue({ $0.featured
               }, partial.featured),
-              let cursor = Self._streamValue({ $0.cursor
+              let streamValue_cursor = Self._streamValue({ $0.cursor
               }, partial.cursor),
-              let doubled = _streamConvertedValue(partial.doubled)
+              let streamValue_doubled = _streamConvertedValue(partial.doubled)
             else {
               return nil
             }
-            self.items = items
-            self.featured = featured
-            self.cursor = cursor
-            self.doubled = doubled
+            self.items = streamValue_items
+            self.featured = streamValue_featured
+            self.cursor = streamValue_cursor
+            self.doubled = streamValue_doubled
           }
 
           init(orInitial partial: Partial) {
@@ -4713,12 +4713,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let value = Self._streamValue({ $0.value
+              let streamValue_value = Self._streamValue({ $0.value
               }, partial.value)
             else {
               return nil
             }
-            self.value = value
+            self.value = streamValue_value
           }
 
           init(orInitial partial: Partial) {
@@ -5027,18 +5027,18 @@ extension BaseTestSuite {
 
           package init?(streamPartial partial: Partial) {
             guard
-              let `class` = Self._streamValue({ $0.`class`
+              let streamValue_class = Self._streamValue({ $0.`class`
               }, partial.`class`),
-              let storage = Self._streamValue({ $0.storage
+              let streamValue_storage = Self._streamValue({ $0.storage
               }, partial.storage),
-              let x = Self._streamValue({ $0.x
+              let streamValue_x = Self._streamValue({ $0.x
               }, partial.x)
             else {
               return nil
             }
-            self.`class` = `class`
-            self.storage = storage
-            self.x = x
+            self.`class` = streamValue_class
+            self.storage = streamValue_storage
+            self.x = streamValue_x
             self.note = nil
           }
 
@@ -5236,12 +5236,12 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let name = Self._streamValue({ $0.name
+              let streamValue_name = Self._streamValue({ $0.name
               }, partial.name)
             else {
               return nil
             }
-            self.name = name
+            self.name = streamValue_name
           }
 
           init(orInitial partial: Partial) {

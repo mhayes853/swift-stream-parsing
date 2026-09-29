@@ -105,6 +105,15 @@ private enum Note: Codable, Equatable {
   case empty(reason: String)
 }
 
+// A payload label named like the strict initializer's parameter, ahead of another label: the
+// payload `Value`'s conversion must not shadow the parameter `text` is read from.
+@StreamParseable
+private enum Edit: Codable, Equatable {
+  @StreamParseableDefault
+  case idle
+  case edit(partial: Bool, text: String)
+}
+
 // MARK: - Helpers
 
 private func parsePartial<T: StreamParseable>(
@@ -415,6 +424,21 @@ struct `Enum Parseable Tests` {
     expectNoDifference(
       String(decoding: try encoder.encode(Block.image(url: "u", width: 3)), as: UTF8.self),
       #"{"image":{"url":"u","width":3}}"#
+    )
+  }
+
+  @Test
+  func `Reads a payload label named like the initializer parameter`() throws {
+    let json = #"{"edit":{"partial":true,"text":"hi"}}"#
+    let partial = try parsePartial(json, as: Edit.self)
+    expectNoDifference(Edit(streamPartial: partial), .edit(partial: true, text: "hi"))
+    expectNoDifference(
+      Edit(streamPartial: partial),
+      try JSONDecoder().decode(Edit.self, from: Data(json.utf8))
+    )
+    expectNoDifference(
+      Edit(streamPartial: Edit.edit(partial: false, text: "x").streamPartialValue),
+      .edit(partial: false, text: "x")
     )
   }
 

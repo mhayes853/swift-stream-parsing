@@ -82,8 +82,23 @@ private struct ObjectConversionModel {
   @StreamParseableMember(completedConversion: ObjectConversion.self)
   var object: String = "DEFAULT!"
 }
+// A converted member named like the strict initializer's parameter, read before another member.
+@StreamParseable
+private struct PartialNamedConversionModel {
+  @StreamParseableMember(completedConversion: NumberConversion.self)
+  var partial: Int = 10
+  var other: Int
+}
 
 @Suite(.serialized) struct CompletedValueConversionTests {
+  @Test func convertedMemberNamedPartialDoesNotShadowTheParameter() throws {
+    var stream = PartialsStream<PartialNamedConversionModel.Partial>(from: .json())
+    try stream.next(#"{"partial":4,"other":7}"#.utf8)
+    let converted = try #require(PartialNamedConversionModel(stream.current))
+    #expect(converted.partial == 8)
+    #expect(converted.other == 7)
+  }
+
   @Test func conversionErrorsKeepTheirConcreteTypes() throws {
     var stream = PartialsStream<ConvertedPartial<NumberConversion>>(from: .json())
     #expect(throws: JSONParsingError.self) { try stream.next("-1 ".utf8) }

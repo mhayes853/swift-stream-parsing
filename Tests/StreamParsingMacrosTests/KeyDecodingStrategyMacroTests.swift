@@ -205,15 +205,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let userID = Self._streamValue({ $0.userID
+              let streamValue_userID = Self._streamValue({ $0.userID
               }, partial.userID),
-              let text = Self._streamValue({ $0.text
+              let streamValue_text = Self._streamValue({ $0.text
               }, partial.text)
             else {
               return nil
             }
-            self.userID = userID
-            self.text = text
+            self.userID = streamValue_userID
+            self.text = streamValue_text
           }
 
           init(orInitial partial: Partial) {
@@ -425,15 +425,15 @@ extension BaseTestSuite {
 
           init?(streamPartial partial: Partial) {
             guard
-              let requestID = Self._streamValue({ $0.requestID
+              let streamValue_requestID = Self._streamValue({ $0.requestID
               }, partial.requestID),
-              let identifier = Self._streamValue({ $0.identifier
+              let streamValue_identifier = Self._streamValue({ $0.identifier
               }, partial.identifier)
             else {
               return nil
             }
-            self.requestID = requestID
-            self.identifier = identifier
+            self.requestID = streamValue_requestID
+            self.identifier = streamValue_identifier
           }
 
           init(orInitial partial: Partial) {
@@ -880,15 +880,15 @@ extension BaseTestSuite {
 
               init?(streamPartial partial: Partial) {
                 guard
-                  let userName = Self._streamValue({ $0.userName
+                  let streamValue_userName = Self._streamValue({ $0.userName
                   }, partial.userName),
-                  let _1 = Self._streamValue({ $0._1
+                  let streamValue__1 = Self._streamValue({ $0._1
                   }, partial._1)
                 else {
                   return nil
                 }
-                self.userName = userName
-                self._1 = _1
+                self.userName = streamValue_userName
+                self._1 = streamValue__1
               }
 
               init(orInitial partial: Partial) {
