@@ -33,7 +33,11 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
   ) throws -> [DeclSyntax] {
     let sink = DiagnosticSink()
     if let enumDecl = declaration.as(EnumDeclSyntax.self) {
-      guard enumDecl.genericParameterClause == nil, !Self.isIndirect(enumDecl),
+      // Every case the extension role declines has to be declined here too, or the lone
+      // `streamPartialValue` adds "cannot find type 'Partial'" to the real diagnostic.
+      guard enumDecl.genericParameterClause == nil,
+        !Self.diagnoseGenericContext(enumDecl, lexicalContext: context.lexicalContext, in: sink),
+        !Self.isIndirect(enumDecl),
         !Self.diagnoseSelfReferentialPayloads(
           enumDecl, lexicalContext: context.lexicalContext, in: sink
         )
