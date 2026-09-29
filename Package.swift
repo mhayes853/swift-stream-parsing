@@ -123,7 +123,7 @@ let package = Package(
         .product(name: "CustomDump", package: "swift-custom-dump"),
         .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
       ],
-      exclude: ["ParserTests/__Snapshots__"],
+      exclude: ["EndToEnd/__Snapshots__"],
       resources: [.process("Resources")],
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + lifetimes + addressableTypes

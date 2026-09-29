@@ -67,43 +67,6 @@ public func _streamObjectMemberSchema<T>(for type: T.Type) -> StreamSchema? {
   nil
 }
 
-// MARK: - Optional aware scalar application
-
-// Partial members are optional, so a value has to exist before it can be appended to.
-@inlinable
-public func streamApply<T: StreamStringConvertible>(
-  _ value: inout T?, utf8 bytes: Span<UInt8>
-) -> StreamApplyResult {
-  if value == nil { value = T.streamInitialValue() }
-  return value!.streamAppend(utf8: bytes)
-}
-
-@inlinable
-public func streamApply(
-  _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
-) -> StreamApplyResult {
-  if value == nil { value = StreamString() }
-  if bytes.isEmpty { value!.streamReserve(utf8ByteCount: initialCapacity) }
-  return value!.streamAppend(utf8: bytes)
-}
-
-@inlinable
-public func streamApply<T: StreamNumberConvertible>(
-  _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
-) -> StreamApplyResult {
-  guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
-  value = parsed
-  return .applied
-}
-
-@inlinable
-public func streamApply<T: StreamBooleanConvertible>(
-  _ value: inout T?, boolean: Bool
-) -> StreamApplyResult {
-  value = T(streamParsingBoolean: boolean)
-  return .applied
-}
-
 // MARK: - Field routes
 
 // What a member's type resolves to for the field table, by `streamApply`'s overload structure, so

@@ -79,18 +79,6 @@ extension Bool: StreamParseableRoot, StreamParseable {}
 // `Array` is a bridging destination, not a parse target: parsing into one writes through a raw
 // pointer into a buffer other values may share, which made kept states change after the fact.
 
-extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
-where Value: StreamParseableRoot {
-  // See `StreamArray.streamSchema`: `@inlinable` so the `enterKey` closure is emitted in the client
-  // module with `Value` concrete and `_openValue(forKey:copyingSome:)` specialises. Cached.
-  @inlinable
-  public static var streamSchema: StreamSchema {
-    StreamSchemaCache.shared.schema(for: Self.self) {
-      _streamDictionarySchema(Value.self, value: Value.streamDictionaryValueSchema)
-    }
-  }
-}
-
 // A value wider than the `UInt64` accumulator arrives flagged as overflowed with nothing usable,
 // so these two re-scan the token rather than narrowing their range to 64 bits.
 
