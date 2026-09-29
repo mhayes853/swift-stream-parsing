@@ -761,10 +761,12 @@ public struct JSONParser: ~Copyable {
         // address is `start + 1 + indent`, from a register, so the number scan does not wait on
         // the load. Measured: taking the address from the count cost `,\n` arrays 7 cycles a
         // number (IPC 5.9 -> 4.3), and the vector scan cost indented ones 8 (IPC 5.3 -> 3.9).
-        // A miss (the first run, a changed indent, eight or more spaces) takes the scanner,
-        // which the compiler cannot fold into the hit. Only exact spaces count, so a control byte
-        // in the run is never skipped: it is the byte the checks below stop on.
-        if byte == .asciiLineFeed, start &+ 9 <= to {
+        // A miss (the first run, a changed indent) takes the scanner, which the compiler cannot
+        // fold into the hit. A count of eight means *at least* eight, so a hit on it can land
+        // inside the run, where the whitespace check below finishes it. Only exact spaces count,
+        // so a control byte in the run is never skipped: it is the byte the checks below stop on.
+        // `<`, not `<=`: a hit moves `start` up to `start + 9`, which must still be in the chunk.
+        if byte == .asciiLineFeed, start &+ 9 < to {
           let word = UInt64(
             littleEndian: base.loadUnaligned(fromByteOffset: start &+ 1, as: UInt64.self)
           )

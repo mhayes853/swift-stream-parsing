@@ -194,4 +194,28 @@ struct `Number separator fusion tests` {
       expectNoDifference(Self.run(bytes, chunk: chunk), expected, "mixed chunk \(chunk)")
     }
   }
+
+  // A predicted indent of eight takes the hit path to `start + 9`, which is the chunk's end itself
+  // when the line feed sits nine bytes before it. The chunk lives in its own allocation here, with
+  // a digit behind it as a reused network buffer might have: a split of one contiguous array would
+  // hand the fusion the real next byte, which is why no split-based test saw the read.
+  @Test
+  func `An eight-space prediction at the chunk's end reads nothing past it`() throws {
+    let head = Array("[1,\n          2,\n        ".utf8)
+    let tail = Array("  3\n]".utf8)
+    #expect(head.count == 25)
+    let expected = Self.run(head + tail, chunk: nil)
+
+    let storage = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: head.count + 1)
+    defer { storage.deallocate() }
+    _ = storage.initialize(from: head + [UInt8(ascii: "7")])
+
+    var parser = JSONParser()
+    var sink = ProbeSink()
+    try parser.parse(UnsafeBufferPointer(rebasing: storage[0..<head.count]), into: &sink)
+    try tail.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+    try parser.finish(into: &sink)
+    expectNoDifference(sink.calls, expected.calls)
+    #expect(expected.errorReason == nil)
+  }
 }
