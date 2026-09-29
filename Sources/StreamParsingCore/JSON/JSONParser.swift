@@ -1425,7 +1425,7 @@ public struct JSONParser: ~Copyable {
     let info = NumberInfo(
       magnitude: magnitude,
       exponent: Int16(clamping: Int(signedExponent) &- fractionDigits),
-      digitCount: UInt16(truncatingIfNeeded: totalDigits),
+      digitCount: UInt16(clamping: totalDigits),
       flags: flags
     )
     try self.recordNumber(

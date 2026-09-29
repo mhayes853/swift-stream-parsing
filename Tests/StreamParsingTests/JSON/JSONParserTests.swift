@@ -244,4 +244,14 @@ struct `JSON parser tests` {
     let info = try #require(sink.numbers.first)
     expectNoDifference(info.flags.contains(.overflowed), true)
   }
+
+  // A `UInt16` count, filled by truncation, told a 65,537-digit token it had one digit. The
+  // exponent beside it clamps, and the count now does too.
+  @Test
+  func `A digit count past UInt16 clamps rather than wraps`() throws {
+    let sink = try parse("[1" + String(repeating: "0", count: 65_536) + "]")
+    let info = try #require(sink.numbers.first)
+    expectNoDifference(info.digitCount, .max)
+    expectNoDifference(info.flags.contains(.overflowed), true)
+  }
 }
