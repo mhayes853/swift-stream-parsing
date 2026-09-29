@@ -120,9 +120,7 @@ struct GenericReviewTests {
     let pending = stream.current["e\u{301}"]
     try stream.next("\"other\":2}".utf8)
     let closed = try stream.finish()["e\u{301}"]
-    withKnownIssue("Pending keys use String equality; stored keys use byte equality") {
-      #expect(pending == closed)
-    }
+    #expect(pending == closed)
   }
 
   @Test

@@ -33,6 +33,21 @@ struct `Stream view tests` {
 
   // MARK: - Reading through a view
 
+  // The last entry stays pending until the next key opens, and it was the one entry found by
+  // `String ==` -- canonical equivalence -- rather than by the byte-keyed table, so `"é"` read
+  // the pending `"e\u{301}"`'s value.
+  @Test
+  func `A dictionary view finds the pending entry by its bytes`() throws {
+    var stream = PartialsStream<StreamDictionary<Int>>(from: .json())
+    try stream.next(Array("{\"\u{E9}\":1,\"e\u{301}\":2,".utf8))
+    expectNoDifference(stream.current["\u{E9}"], 1)
+    expectNoDifference(stream.current["e\u{301}"], 2)
+    stream.withView { counts in
+      expectNoDifference(dictionaryValue(counts, "\u{E9}"), 1)
+      expectNoDifference(dictionaryValue(counts, "e\u{301}"), 2)
+    }
+  }
+
   @Test
   func `A view reads scalar members`() throws {
     let stream = try self.stream(#"{"id":42,"name":"Blob","active":true}"#)

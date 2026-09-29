@@ -313,6 +313,16 @@ extension `Stream dictionary tests` {
     #expect(reordered != values[0])
     expectNoDifference(Set(values + [reordered]).count, 2)
   }
+
+  // Keys are stored and looked up byte-wise, so equality is byte-wise too: under `String ==`
+  // these two compared equal while `"é"` found a value in only one of them.
+  @Test
+  func `Equality compares keys byte-wise, like lookup`() {
+    let composed: StreamDictionary<Int> = ["\u{E9}": 1]
+    let decomposed: StreamDictionary<Int> = ["e\u{301}": 1]
+    expectNoDifference(composed == decomposed, false)
+    expectNoDifference(composed == ["\u{E9}": 1], true)
+  }
 }
 
 // All generated keys land in slot zero for every table size used while these entries are

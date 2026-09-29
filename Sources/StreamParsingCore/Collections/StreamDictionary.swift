@@ -96,8 +96,10 @@ public struct StreamDictionary<Value> {
   ///   non-optional ``updateValue(_:forKey:)`` when a write must be total.
   public subscript(key: String) -> Value? {
     get {
-      if let pendingEntryKey, pendingEntryKey == key { return self.pendingValue }
+      // By slot, not by comparing `pendingEntryKey`: `String ==` is canonical equivalence, where
+      // the table is byte-keyed, so `"é"` found the pending `"e\u{301}"`'s value.
       guard let slot = self.slot(forKey: key) else { return nil }
+      if slot == self.pendingSlot { return self.pendingValue }
       return self.storedValues[Int(slot)]
     }
     set {
@@ -344,16 +346,19 @@ extension StreamDictionary where Value: StreamParseableRoot {
         // `~Escapable` view at a single exit. A view per branch is equivalent but leaves several
         // `Optional<Value.View>` stack slots for the optimizer to merge, which crashes
         // PredictableDeadAllocationElimination on Swift 6.3 (fixed in 6.4).
+        // The pending entry is found by slot, byte-wise, like every other (see `subscript(key:)`).
         let address: UnsafeMutableRawPointer?
-        if self.storage.pointee.pendingEntryKey == key {
-          address =
-            self.storage.pointee.pendingValue == nil
-            ? nil
-            : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
-              UnsafeMutableRawPointer($0)
-            }
-        } else if let slot = self.storage.pointee.slot(forKey: key) {
-          address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+        if let slot = self.storage.pointee.slot(forKey: key) {
+          if slot == self.storage.pointee.pendingSlot {
+            address =
+              self.storage.pointee.pendingValue == nil
+              ? nil
+              : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+                UnsafeMutableRawPointer($0)
+              }
+          } else {
+            address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+          }
         } else {
           address = nil
         }
@@ -391,16 +396,19 @@ extension StreamDictionary where Value: StreamParseableRoot {
 
     /// A view onto the value stored under `key`, or `nil` when there is no such entry.
     public subscript(key: String) -> Value.View? {
+      // The pending entry is found by slot, byte-wise, like every other (see `subscript(key:)`).
       let address: UnsafeMutableRawPointer?
-      if self.storage.pointee.pendingEntryKey == key {
-        address =
-          self.storage.pointee.pendingValue == nil
-          ? nil
-          : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
-            UnsafeMutableRawPointer($0)
-          }
-      } else if let slot = self.storage.pointee.slot(forKey: key) {
-        address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+      if let slot = self.storage.pointee.slot(forKey: key) {
+        if slot == self.storage.pointee.pendingSlot {
+          address =
+            self.storage.pointee.pendingValue == nil
+            ? nil
+            : withUnsafeMutablePointer(to: &self.storage.pointee.pendingValue) {
+              UnsafeMutableRawPointer($0)
+            }
+        } else {
+          address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+        }
       } else {
         address = nil
       }
@@ -562,11 +570,16 @@ extension StreamDictionary: Sequence, Collection {
 }
 
 extension StreamDictionary: Equatable where Value: Equatable {
-  // Order sensitive, because the whole point of this type is that it has one.
+  // Order sensitive, because the whole point of this type is that it has one. Keys compare
+  // byte-wise, as the table stores them: under `String ==`, `["é": 1] == ["e\u{301}": 1]` held
+  // while a lookup of `"é"` found a value in only one of them.
   public static func == (lhs: Self, rhs: Self) -> Bool {
     guard lhs.count == rhs.count else { return false }
-    for position in lhs.startIndex..<lhs.endIndex where lhs[position] != rhs[position] {
-      return false
+    for position in lhs.startIndex..<lhs.endIndex {
+      let (left, right) = (lhs[position], rhs[position])
+      guard left.value == right.value, left.key.utf8.elementsEqual(right.key.utf8) else {
+        return false
+      }
     }
     return true
   }
