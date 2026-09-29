@@ -145,11 +145,19 @@ public struct AsyncPartialsSequence<
       self.stream = stream
     }
 
+    // Every async driver (partials, selective and field observation) reads the base through
+    // here, and each finishes the document on `nil`. A base that answers cancellation with `nil`
+    // -- `AsyncStream` does -- has not reached the end of its input, so a cancelled task throws
+    // instead: finishing reported a truncated document as complete, or as a syntax error.
     func nextBaseElement() async throws -> Base.Element? {
       if self.baseIterator == nil {
         self.baseIterator = self.base.makeAsyncIterator()
       }
-      return try await self.baseIterator?.next()
+      guard let element = try await self.baseIterator?.next() else {
+        try Task.checkCancellation()
+        return nil
+      }
+      return element
     }
   }
 

@@ -146,6 +146,37 @@ struct `AsyncPartialsSequence Tests` {
     expectNoDifference(end, nil)
   }
 
+  // `AsyncStream` answers a cancelled consumer with `nil`, which is not the end of the document:
+  // finishing on it reported `12` of a `123` still in flight as the completed value, and an
+  // unfinished object as a syntax error rather than a cancellation.
+  @Test
+  func `Cancellation Is Not Reported As Document Completion`() async throws {
+    let (input, continuation) = AsyncStream<[UInt8]>.makeStream()
+    continuation.yield(Array("12".utf8))
+    let partials = Task { () throws -> [Int] in
+      withUnsafeCurrentTask { $0?.cancel() }
+      var partials = [Int]()
+      for try await partial in input.partials(initialValue: 0, from: .json()) {
+        partials.append(partial)
+      }
+      return partials
+    }
+    await #expect(throws: CancellationError.self) { _ = try await partials.value }
+
+    let (objects, objectContinuation) = AsyncStream<[UInt8]>.makeStream()
+    objectContinuation.yield(Array(#"{"id":4"#.utf8))
+    let updates = Task { () throws -> [PartialUpdate<AsyncModel.Partial>] in
+      withUnsafeCurrentTask { $0?.cancel() }
+      var updates = [PartialUpdate<AsyncModel.Partial>]()
+      let sequence = objects.partials(initialValue: AsyncModel.Partial(), from: .json())
+      for try await update in sequence.updates() { updates.append(update) }
+      return updates
+    }
+    await #expect(throws: CancellationError.self) { _ = try await updates.value }
+    continuation.finish()
+    objectContinuation.finish()
+  }
+
   @Test
   func `Iterator Copies Share One Subscription`() async throws {
     let partials = AsyncBytes(bytes: Array("1".utf8))
