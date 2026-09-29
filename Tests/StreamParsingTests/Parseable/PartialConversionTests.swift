@@ -63,6 +63,13 @@ private struct Chunk: Equatable {
   var text: String
 }
 
+// A lazy member is derived, like a computed one: it is not parsed, and its initializer sets it.
+@StreamParseable
+private struct WithLazy {
+  var id: Int
+  lazy var label: String = "#\(id)"
+}
+
 // Deliberately does not call `finish()`: a truncated document is exactly what the strict
 // conversion is there to decline, and finishing would reject it before the conversion saw it.
 private func parse<T: StreamParseable>(_ json: String, as type: T.Type) throws -> T.Partial {
@@ -228,6 +235,16 @@ struct `Partial Conversion Tests` {
     let converted = try #require(WithIgnored(WithIgnored.Partial(id: 3)))
 
     expectNoDifference(converted, WithIgnored(id: 3, scratch: nil, counted: 7))
+  }
+
+  // MARK: - Lazy members
+
+  @Test
+  func `Leaves A Lazy Member To Its Initializer`() throws {
+    var converted = try #require(WithLazy(try parse(#"{"id":3,"label":"x"}"#, as: WithLazy.self)))
+
+    #expect(converted.id == 3)
+    #expect(converted.label == "#3")
   }
 
   // MARK: - Member names

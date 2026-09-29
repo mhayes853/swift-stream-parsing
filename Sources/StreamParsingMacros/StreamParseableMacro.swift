@@ -493,6 +493,18 @@ extension StreamParseableMacro {
       )
       return []
     }
+    // A lazy property is derived, like a computed one: its initializer sets it on first read, so
+    // the generated initializers never have to, and that first read is mutating, so the
+    // non-mutating `streamPartialValue` getter cannot make it. Skipped the same way, and diagnosed
+    // only where `@StreamParseableMember` asks for it to be parsed.
+    if variableDecl.modifiers.contains(.lazy) {
+      self.diagnoseUnsupportedStreamParseableMember(
+        in: variableDecl,
+        message: "Lazy properties are not parsed by @StreamParseable.",
+        context: context
+      )
+      return []
+    }
 
     var properties = [StoredProperty]()
     let bindings = Array(variableDecl.bindings)
