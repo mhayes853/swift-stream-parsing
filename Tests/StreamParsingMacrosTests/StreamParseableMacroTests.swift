@@ -1686,6 +1686,100 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `128 Bit Integer Raw Value Enum`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        enum Priority: Int128 {
+          @StreamParseableDefault
+          case low = 0
+          case high = 10
+        }
+        """
+      } expansion: {
+        """
+        enum Priority: Int128 {
+          @StreamParseableDefault
+          case low = 0
+          case high = 10
+
+          var streamPartialValue: Partial {
+            self.rawValue
+          }
+        }
+
+        extension Priority: StreamParsingCore.StreamParseable {
+          typealias Partial = Int128
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          init?(streamPartial partial: Partial) {
+            self.init(rawValue: partial)
+          }
+
+          init(orInitial partial: Partial) {
+            self = Self(streamPartial: partial) ?? .low
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
+        }
+        """
+      }
+    }
+
+    // Implicit raw values: nothing marks this as a raw-value enum but the raw type itself, so an
+    // unrecognised `UInt128` would silently take the object form.
+    @Test
+    func `Unsigned 128 Bit Integer Raw Value Enum With Implicit Values`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        enum Priority: UInt128 {
+          @StreamParseableDefault
+          case low
+          case high
+        }
+        """
+      } expansion: {
+        """
+        enum Priority: UInt128 {
+          @StreamParseableDefault
+          case low
+          case high
+
+          var streamPartialValue: Partial {
+            self.rawValue
+          }
+        }
+
+        extension Priority: StreamParsingCore.StreamParseable {
+          typealias Partial = UInt128
+
+          init?(_ partial: Partial) {
+            self.init(streamPartial: partial)
+          }
+
+          init?(streamPartial partial: Partial) {
+            self.init(rawValue: partial)
+          }
+
+          init(orInitial partial: Partial) {
+            self = Self(streamPartial: partial) ?? .low
+          }
+
+          static func streamValueOrInitial(from partial: Partial) -> Self {
+            Self(orInitial: partial)
+          }
+        }
+        """
+      }
+    }
+
+    @Test
     func `Raw Less Enum Uses The Codable Object Form`() {
       assertStreamParsingMacro {
         """

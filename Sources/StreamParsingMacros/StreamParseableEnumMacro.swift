@@ -65,8 +65,8 @@ extension StreamParseableMacro {
   // guessing wrong would silently parse a completely different document;
   // `diagnoseUnsupportedRawType` catches what this list does not claim.
   static let scalarRawTypeNames: Set<String> = [
-    "Int", "Int8", "Int16", "Int32", "Int64",
-    "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+    "Int", "Int8", "Int16", "Int32", "Int64", "Int128",
+    "UInt", "UInt8", "UInt16", "UInt32", "UInt64", "UInt128",
     "Double", "Float"
   ]
 

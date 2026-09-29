@@ -65,6 +65,15 @@ private enum Priority: Int, Equatable {
   case high = 10
 }
 
+// Past `UInt64`, so only the 128-bit raw form can read it.
+@available(StreamParsing128BitIntegers, *)
+@StreamParseable
+private enum WideID: Int128, Equatable {
+  @StreamParseableDefault
+  case zero = 0
+  case max = 170141183460469231731687303715884105727
+}
+
 @StreamParseable
 private enum Figure: Codable, Equatable {
   @StreamParseableDefault
@@ -425,6 +434,15 @@ struct `Enum Parseable Tests` {
       String(decoding: try encoder.encode(Block.image(url: "u", width: 3)), as: UTF8.self),
       #"{"image":{"url":"u","width":3}}"#
     )
+  }
+
+  @available(StreamParsing128BitIntegers, *)
+  @Test
+  func `Reads a 128-bit integer raw value`() throws {
+    let partial = try parsePartial("170141183460469231731687303715884105727 ", as: WideID.self)
+    expectNoDifference(WideID(streamPartial: partial), .max)
+    expectNoDifference(WideID(streamPartial: WideID.max.streamPartialValue), .max)
+    expectNoDifference(WideID.streamValueOrInitial(from: 5), .zero)
   }
 
   @Test
