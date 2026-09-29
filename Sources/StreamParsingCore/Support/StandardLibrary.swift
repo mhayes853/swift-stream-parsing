@@ -283,6 +283,9 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
         ? wrapped.leafRoute
         : .generic,
       fixedElementCount: wrapped.fixedElementCount,
+      // The sink reads a container frame's `inlineCapacity` to open an inline-string element and
+      // to place its null tag, so an optional container root carries its wrapped container's.
+      inlineCapacity: wrapped.inlineCapacity,
       // No materialising closure in front of the table's store: `prepareRoot` materialises the
       // optional root before any frame is pushed over it.
       fields: wrapped.fields,

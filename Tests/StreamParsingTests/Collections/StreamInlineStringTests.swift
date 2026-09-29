@@ -434,4 +434,23 @@ struct `Stream inline string tests` {
   func `A type mismatch is still a mismatch, not a capacity failure`() {
     expectNoDifference(self.failure(#"{"title":42}"#), .typeMismatch)
   }
+
+  // An optional container root is the materialising wrapper around its container's schema, and
+  // the sink reads the container frame's `inlineCapacity` to open an inline-string element and to
+  // place an optional element's null tag. Dropped, every element overflowed a capacity of zero.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: [1, 4, Int.max])
+  func `Optional container roots keep their elements' capacity`(chunk: Int) throws {
+    var array: StreamArray<StreamInlineString<16>>? = nil
+    try parsePartial(#"["one","two"]"#, into: &array, chunk: chunk)
+    expectNoDifference(array.map { $0.map(String.init) }, ["one", "two"])
+
+    var dictionary: StreamDictionary<StreamInlineString<16>>? = nil
+    try parsePartial(#"{"a":"first"}"#, into: &dictionary, chunk: chunk)
+    expectNoDifference(dictionary?["a"].map(String.init), "first")
+
+    var optionals: StreamArray<StreamInlineString<16>?>? = nil
+    try parsePartial(#"["one",null]"#, into: &optionals, chunk: chunk)
+    expectNoDifference(optionals.map { $0.map { $0.map(String.init) } }, ["one", nil])
+  }
 }
