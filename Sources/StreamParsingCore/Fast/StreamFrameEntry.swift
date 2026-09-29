@@ -22,6 +22,14 @@ public func _streamMemberAddress<T: StreamParseableRoot>(
   UnsafeMutableRawPointer(value)
 }
 
+// Conformed to by `Optional` alone, so a schema builder can ask once, while it builds, whether a
+// slot's type is itself optional -- the one case where an opened slot can still be `nil` one level
+// down. Never asked per token.
+@usableFromInline
+protocol _StreamOptionalMarker {}
+
+extension Optional: _StreamOptionalMarker {}
+
 // Materializes an optional in place so the wrapped type's schema applies to the same address.
 @inlinable
 public func _streamMaterializeOptional<Wrapped: StreamInitializable>(

@@ -320,8 +320,14 @@ extension Optional where Wrapped: StreamParseableRoot {
     }
   }
 
+  // Materialised all the way down. For `T?` this is `.some(T.streamInitialValue())`, the same
+  // value as ever: only `Optional` overrides the requirement. For `T??` it is `.some(.some(...))`
+  // rather than `.some(nil)`, because the element schema writes through the inner optional's
+  // payload -- a struct's field table, a vector's lanes -- and a `nil` there has no payload.
   @inlinable
-  public static func streamInitialArrayElement() -> Self { .some(Wrapped.streamInitialValue()) }
+  public static func streamInitialArrayElement() -> Self {
+    .some(Wrapped.streamInitialArrayElement())
+  }
 }
 
 extension Optional: StreamContainerPartial where Wrapped: StreamContainerPartial {

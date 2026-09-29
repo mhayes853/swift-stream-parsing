@@ -67,12 +67,30 @@ public func _streamInlineArraySchema<let count: Int, Element: StreamParseableRoo
       && MemoryLayout<InlineArray<count, Element>>.size == count * MemoryLayout<Element>.stride,
     "InlineArray storage does not match the stride the parser addresses elements through"
   )
-  // No `appendElement`: the sink addresses element `i` as `storage + i * elementStride`, bounds
-  // checked against `fixedElementCount`.
+  let stride = MemoryLayout<Element>.stride
+  // The sink addresses element `i` as `storage + i * elementStride`, bounds checked against
+  // `fixedElementCount`, and needs no `appendElement` -- except for an optional element. Its slot
+  // starts `nil`, and the element schema's fast writes (a struct's field table, a vector's lanes)
+  // go straight into the payload on the promise that `prepareRoot` materialised it, which the sink
+  // only does for the document root. So an optional element opens through a closure that
+  // prepares the slot: one indirect call per element, for this case alone, decided here once.
+  // `elementStride` zero is what sends the sink to the closure.
+  let optionalElement = Element.self is any _StreamOptionalMarker.Type
+  let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
+  if optionalElement {
+    appendElement = { storage, index in
+      let slot = storage + Int(index) &* stride
+      element.prepareRoot(slot)
+      return slot
+    }
+  } else {
+    appendElement = { _, _ in nil }
+  }
   return StreamSchema(
     shape: .array,
+    appendElement: appendElement,
     elementSchema: element,
-    elementStride: Int32(MemoryLayout<Element>.stride),
+    elementStride: optionalElement ? 0 : Int32(stride),
     leafRoute: .inlineArray,
     // The sink reads the *container* frame's `inlineCapacity` when it opens an inline-string
     // element (`openKnownStringSlot`) and writes an element's null tag (`applyKnownNull`), so it is

@@ -219,8 +219,6 @@ struct `InlineArray parsing tests` {
   @Test
   func `Optional fixed-lane elements are materialised before they are written`() throws {
     let vectors = try self.parse("[[1,2],null]", as: InlineArray<2, SIMD2<Double>?>.self)
-    withKnownIssue("Fixed-lane elements are stored without materialising the optional") {
-      expectNoDifference([vectors[0], vectors[1]], [SIMD2(1, 2), nil])
-    }
+    expectNoDifference([vectors[0], vectors[1]], [SIMD2(1, 2), nil])
   }
 }

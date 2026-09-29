@@ -73,6 +73,18 @@ enum _StreamLeafRoute: UInt8, Sendable {
     }
   }
 
+  // The lane route that stores through the schema's `applyNumber` rather than a typed lane store,
+  // for a vector one optional deeper than the typed routes' storage types describe.
+  @usableFromInline
+  var closureLaneRoute: Self {
+    switch self.fixedSIMDLaneCount {
+    case 2: .simd2Number
+    case 3: .simd3Number
+    case 4: .simd4Number
+    default: self
+    }
+  }
+
   @usableFromInline
   var usesFrameElementIndex: Bool {
     self == .inlineArray || self.fixedSIMDLaneCount != 0
@@ -999,11 +1011,17 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     scalarOptional: true,
     elementKind: base.elementKind,
     elementOptional: base.elementOptional,
+    // A `T??` element (`Wrapped` itself optional) never takes an optional twin: those routes bind
+    // the storage as `T?`, one optional too shallow, and `SIMD2<Double>??` lost its lanes to that.
+    // Its lanes go through the base's closures instead, which materialise and store. Asked once,
+    // while the schema is built.
     leafRoute: base.leafRoute == .inlineArray
       ? .inlineArray
-      : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
-        ? .optionalValue(base.leafRoute)
-        : .generic),
+      : Wrapped.self is any _StreamOptionalMarker.Type
+        ? base.leafRoute.closureLaneRoute
+        : (base.shape == .scalar || base.leafRoute.fixedSIMDLaneCount != 0
+          ? .optionalValue(base.leafRoute)
+          : .generic),
     fixedElementCount: base.fixedElementCount,
     inlineCapacity: base.inlineCapacity,
     fields: base.fields,
