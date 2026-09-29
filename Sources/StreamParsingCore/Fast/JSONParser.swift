@@ -1,3 +1,31 @@
+// MARK: - Error
+
+public struct JSONParsingError: Error, Hashable, Sendable {
+  public enum Reason: Hashable, Sendable {
+    case unexpectedToken
+    case invalidNumber
+    case invalidLiteral
+    case invalidEscape
+    case invalidUTF8
+    case unterminatedString
+    case unterminatedContainer
+    case trailingContent
+    case depthExceeded
+    case bufferExhausted
+    case sinkRejectedToken(StreamSinkFailure)
+  }
+
+  public var reason: Reason
+  public var byteOffset: Int
+
+  public init(reason: Reason, byteOffset: Int) {
+    self.reason = reason
+    self.byteOffset = byteOffset
+  }
+}
+
+// MARK: - JSONParser
+
 public struct JSONParser: ~Copyable {
   // Structural states first, with `done` grouped among them, so `isStructural` is one unsigned
   // compare. `consumeStructuralRun` asks it once per byte; nothing else reads the numeric values.

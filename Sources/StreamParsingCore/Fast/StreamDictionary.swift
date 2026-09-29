@@ -624,18 +624,6 @@ extension StreamDictionary: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
 
-extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
-where Value: StreamParseableRoot {
-  // See `StreamArray.streamSchema`: `@inlinable` so the `enterKey` closure is emitted in the client
-  // module with `Value` concrete and `_openValue(forKey:copyingSome:)` specialises. Cached.
-  @inlinable
-  public static var streamSchema: StreamSchema {
-    StreamSchemaCache.shared.schema(for: Self.self) {
-      _streamDictionarySchema(Value.self, value: Value.streamDictionaryValueSchema)
-    }
-  }
-}
-
 extension StreamDictionary: StreamParseable where Value: StreamParseableRoot {
   public typealias Partial = Self
 }
