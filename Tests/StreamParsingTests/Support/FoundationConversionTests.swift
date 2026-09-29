@@ -44,6 +44,19 @@
 
     // MARK: - Decimal
 
+    // `Decimal(UInt64)` moves a magnitude's trailing zeros into its own exponent, so a token whose
+    // exponent is in range can still put the combined one past 127, where the initializer answers
+    // NaN rather than failing.
+    @Test(arguments: ["100e126", "10e127", "1000000000000000000e110"])
+    func `Decimal whose trailing zeros carry the exponent out of range still converts`(
+      literal: String
+    ) throws {
+      var value = FoundationValues.Partial()
+      try parsePartial(#"{"amount":\#(literal)}"#, into: &value)
+      expectNoDifference(value.amount?.isNaN, false)
+      expectNoDifference(value.amount, Decimal(string: literal))
+    }
+
     // Decimal is built from the magnitude and decimal exponent the parser already accumulated,
     // so these are exact. Going through Double, as the registration based path did, loses every
     // one of them.

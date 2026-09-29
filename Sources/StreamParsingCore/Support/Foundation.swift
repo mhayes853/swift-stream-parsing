@@ -31,11 +31,19 @@
         return
       }
 
-      self = Decimal(
+      let value = Decimal(
         sign: info.flags.contains(.negative) ? .minus : .plus,
         exponent: Int(info.exponent),
         significand: Decimal(info.magnitude)
       )
+      // The guard above bounds the token's exponent, not the result's: `Decimal(UInt64)` folds a
+      // magnitude's trailing zeros into its own exponent, so `100e126` still lands past 127.
+      guard value.isNaN else {
+        self = value
+        return
+      }
+      guard let fallback = streamParseDecimalFallback(bytes) else { return nil }
+      self = fallback
     }
   }
 
