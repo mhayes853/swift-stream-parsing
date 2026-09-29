@@ -5376,6 +5376,34 @@ extension BaseTestSuite {
       }
     }
 
+    // The attribute is read once per declaration, not once per case it declares.
+    @Test
+    func `Case Attribute Diagnosed Once For A Multi Case Declaration`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        enum E {
+          @StreamParseableDefault
+          case idle
+          @StreamParseableMember(key: "")
+          case a, b
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        enum E {
+          @StreamParseableDefault
+          case idle
+          @StreamParseableMember(key: "")
+          ┬──────────────────────────────
+          ╰─ 🛑 @StreamParseableMember(key:) must not be empty.
+          case a, b
+        }
+        """
+      }
+    }
+
     @Test
     func `Enum Case Named Like A Generated View Member`() {
       assertStreamParsingMacro {

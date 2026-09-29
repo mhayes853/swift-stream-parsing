@@ -102,6 +102,9 @@ extension StreamParseableMacro {
       if isDefaultDecl, sawDefault {
         Self.diagnoseDuplicateDefaultCase(in: caseDecl, context: context)
       }
+      // The attributes belong to the declaration, so they are read (and diagnosed) once, not once
+      // per case it declares.
+      let explicitKeyNames = Self.explicitKeyNames(for: caseDecl.attributes, context: context)
 
       for element in caseDecl.elements {
         let associatedValues = Self.associatedValues(in: element.parameterClause)
@@ -118,8 +121,6 @@ extension StreamParseableMacro {
             Self.diagnoseNonLiteralRawValue(in: element, context: context)
           }
         }
-
-        let explicitKeyNames = Self.explicitKeyNames(for: caseDecl.attributes, context: context)
 
         // `@StreamParseableMember` means "alias" for a `String`-raw case and "rename" for a
         // raw-less one. A raw-raw case emits its raw value as its partial, so that spelling must
