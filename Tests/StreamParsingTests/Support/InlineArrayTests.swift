@@ -20,6 +20,13 @@ private struct InlineArrayFields {
   var children: InlineArray<2, InlineArrayChild> = InlineArray { _ in InlineArrayChild() }
 }
 
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+@StreamParseable
+private struct OptionalInlineArrayFields {
+  var names: InlineArray<2, String?> = InlineArray(repeating: nil)
+  var lists: InlineArray<2, [Int]?> = InlineArray(repeating: nil)
+}
+
 @Suite
 struct `InlineArray parsing tests` {
   private func parse<Root: StreamParseableRoot>(
@@ -169,5 +176,51 @@ struct `InlineArray parsing tests` {
   @Test(arguments: ["[1,2,3]", "[1,2,3,4]"])
   func `More elements than the arity is a capacity failure`(json: String) {
     expectNoDifference(self.failure(json, as: InlineArray<2, Int>.self), .capacityExceeded)
+  }
+
+  // An `InlineArray` slot exists before the document reaches it, so an optional element starts
+  // `nil` and has to be materialised by its first write. A `StreamArray` opens its element `.some`
+  // and writes straight through; these slots were written through the same way, into a payload
+  // that was not there.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: [Int.max, 7, 1])
+  func `Optional elements are materialised before they are written`(chunk: Int) throws {
+    let strings = try self.parse(#"["ab",null]"#, as: InlineArray<2, String?>.self, chunk: chunk)
+    expectNoDifference([strings[0], strings[1]], ["ab", nil])
+
+    let streamed = try self.parse(#"["ab","cd"]"#, as: InlineArray<2, StreamString?>.self, chunk: chunk)
+    expectNoDifference([streamed[0].map(String.init), streamed[1].map(String.init)], ["ab", "cd"])
+
+    let arrays = try self.parse("[[1],null]", as: InlineArray<2, StreamArray<Int>?>.self, chunk: chunk)
+    expectNoDifference([arrays[0].map(Array.init), arrays[1].map(Array.init)], [[1], nil])
+
+    let numbers = try self.parse("[1,null,3]", as: InlineArray<3, Int?>.self, chunk: chunk)
+    expectNoDifference([numbers[0], numbers[1], numbers[2]], [1, nil, 3])
+
+    var fields = OptionalInlineArrayFields.Partial()
+    try parsePartial(#"{"names":["a",null],"lists":[null,[2,3]]}"#, into: &fields, chunk: chunk)
+    expectNoDifference(fields.names.map { [$0[0].map(String.init), $0[1].map(String.init)] }, ["a", nil])
+    expectNoDifference(fields.lists.map { [$0[0].map(Array.init), $0[1].map(Array.init)] }, [nil, [2, 3]])
+  }
+
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test
+  func `Optional elements the document has not reached yet are nil`() throws {
+    var stream = PartialsStream<InlineArray<2, String?>>(from: .json())
+    try stream.next(Array(#"["ab","#.utf8))
+    expectNoDifference([stream.current[0], stream.current[1]], ["ab", nil])
+  }
+
+  // Still open: a fixed-lane element (a SIMD vector, a nested `InlineArray`) is written lane by
+  // lane through its stride, with no schema closure to materialise the optional first, so the
+  // lanes land in the payload of a `nil`. Materialising at the slot needs a per-element prepare
+  // in the sink's indexed open, which is a hot path.
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test
+  func `Optional fixed-lane elements are materialised before they are written`() throws {
+    let vectors = try self.parse("[[1,2],null]", as: InlineArray<2, SIMD2<Double>?>.self)
+    withKnownIssue("Fixed-lane elements are stored without materialising the optional") {
+      expectNoDifference([vectors[0], vectors[1]], [SIMD2(1, 2), nil])
+    }
   }
 }

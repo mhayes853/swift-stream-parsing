@@ -14,9 +14,15 @@ extension InlineArray: StreamInitializable where Element: StreamInitializable {
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension InlineArray: StreamParseableRoot, StreamContainerPartial
 where Element: StreamParseableRoot {
+  // `streamSchema`, not `streamArrayElementSchema`: the two differ only for `Optional`, whose
+  // element form writes straight through a slot its container opened `.some`. An `InlineArray`
+  // opens nothing -- every slot exists from the start, and an optional one starts `nil` -- so its
+  // elements take the materialising form an optional root takes. That leaves a slot the document
+  // has not reached `nil`, and gives up the typed stores for `Int?`-like elements, which were the
+  // only optional elements that worked: they write the whole `Optional`.
   public static var streamSchema: StreamSchema {
     StreamSchemaCache.shared.schema(for: Self.self) {
-      _streamInlineArraySchema(Self.self, element: Element.streamArrayElementSchema)
+      _streamInlineArraySchema(Self.self, element: Element.streamSchema)
     }
   }
 }
