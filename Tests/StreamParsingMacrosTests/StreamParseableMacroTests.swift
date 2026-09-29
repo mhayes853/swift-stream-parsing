@@ -788,6 +788,33 @@ extension BaseTestSuite {
       }
     }
 
+    // An initialized `let` is left out of `Partial` whatever its pattern, so only the `var` is
+    // diagnosed.
+    @Test
+    func `Tuple Pattern Stored Property`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Point {
+          var (x, y): (Int, Int)
+          let (u, v): (Int, Int) = (1, 2)
+          var z: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Point {
+          var (x, y): (Int, Int)
+              ┬─────
+              ╰─ 🛑 Stored properties must bind a single name.
+          let (u, v): (Int, Int) = (1, 2)
+          var z: Int
+        }
+        """
+      }
+    }
+
     @Test
     func `Non-String Key Literal`() {
       assertStreamParsingMacro {

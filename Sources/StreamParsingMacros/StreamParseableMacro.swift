@@ -518,7 +518,17 @@ extension StreamParseableMacro {
         continue
       }
 
+      // A tuple pattern binds several properties at once, which the macro does not split, so they
+      // would be absent from `Partial` and left unassigned by the generated initializers. A `let`
+      // with an initial value is the exception: it is left out of `Partial` anyway.
       guard let identifierPattern = binding.pattern.as(IdentifierPatternSyntax.self) else {
+        let isInitializedLet =
+          variableDecl.bindingSpecifier.tokenKind == .keyword(.let) && binding.initializer != nil
+        if !isInitializedLet {
+          context.diagnose(
+            Self.error(binding.pattern, "Stored properties must bind a single name.")
+          )
+        }
         continue
       }
 
