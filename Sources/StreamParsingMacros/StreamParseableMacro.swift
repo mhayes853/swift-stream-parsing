@@ -522,10 +522,7 @@ extension StreamParseableMacro {
         continue
       }
 
-      // `var a, b: Int` annotates only the last binding; the earlier ones share that type.
-      guard
-        let type = bindings[index...].lazy.compactMap({ $0.typeAnnotation?.type }).first
-      else {
+      guard let type = Self.declaredType(ofBindingAt: index, in: bindings) else {
         context.diagnose(Self.error(binding, "Stored properties must declare an explicit type."))
         continue
       }
@@ -541,6 +538,26 @@ extension StreamParseableMacro {
       )
     }
     return properties
+  }
+
+  // `var a, b: Int` annotates only the last binding; the earlier ones share that type. Swift
+  // carries an annotation back only over plain names with neither a type nor an initializer, and
+  // only from a single name that has no initializer itself, so `var name = "Blob", age: Int`
+  // leaves `name` untyped rather than an `Int`.
+  private static func declaredType(
+    ofBindingAt index: Int,
+    in bindings: [PatternBindingSyntax]
+  ) -> TypeSyntax? {
+    if let type = bindings[index].typeAnnotation?.type { return type }
+    guard bindings[index].initializer == nil else { return nil }
+    for binding in bindings[(index + 1)...] {
+      guard binding.pattern.is(IdentifierPatternSyntax.self) else { return nil }
+      if let type = binding.typeAnnotation?.type {
+        return binding.initializer == nil ? type : nil
+      }
+      guard binding.initializer == nil else { return nil }
+    }
+    return nil
   }
 
   private static func storedProperty(

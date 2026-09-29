@@ -764,6 +764,30 @@ extension BaseTestSuite {
       }
     }
 
+    // Only a binding with neither a type nor an initializer takes a later binding's type, so
+    // `name` is not an `Int` here. `var a, b: Int` still types both, as the nested package test
+    // below shows.
+    @Test
+    func `Initialized Binding Does Not Take A Later Binding's Type`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Person {
+          var name = "Blob", age: Int
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          var name = "Blob", age: Int
+              ┬─────────────
+              ╰─ 🛑 Stored properties must declare an explicit type.
+        }
+        """
+      }
+    }
+
     @Test
     func `Non-String Key Literal`() {
       assertStreamParsingMacro {
