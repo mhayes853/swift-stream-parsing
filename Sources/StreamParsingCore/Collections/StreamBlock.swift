@@ -30,7 +30,7 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   }
 
   deinit {
-    _ = self.withUnsafeMutablePointers { header, elements in
+    self.withUnsafeMutablePointers { header, elements in
       Self.destroy(elements, count: header.pointee.count)
     }
   }

@@ -206,23 +206,6 @@ struct `Stream scanner tests` {
     }
   }
 
-  // MARK: - ASCII detection
-
-  @Test
-  func `Non-ASCII detection matches a naive scan at every length`() {
-    for length in 0...40 {
-      for position in 0..<max(length, 1) {
-        var bytes = [UInt8](repeating: 0x61, count: length)
-        if length > 0 { bytes[position] = 0xC3 }
-        let expected = bytes.contains { $0 >= 0x80 }
-        let actual = Self.withBase(bytes) {
-          streamContainsNonASCII(base: $0, from: 0, to: length)
-        }
-        expectNoDifference(actual, expected, "length \(length) position \(position)")
-      }
-    }
-  }
-
   // MARK: - Digit runs
 
   // The block path only engages past eight bytes and hands the remainder to a scalar tail, so

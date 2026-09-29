@@ -812,23 +812,6 @@ package func streamDecodeSimpleEscape(_ byte: UInt8) -> UInt8? {
   return decoded == 0 ? nil : decoded
 }
 
-// Lets the full UTF-8 validator run only on the rare non-ASCII run.
-@inlinable
-@inline(__always)
-package func streamContainsNonASCII(base: UnsafeRawPointer, from: Int, to: Int) -> Bool {
-  var i = from
-  while i &+ streamScannerVectorWidth <= to {
-    let chunk = base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
-    if streamVectorContainsNonASCII(chunk) { return true }
-    i &+= streamScannerVectorWidth
-  }
-  while i < to {
-    if base.load(fromByteOffset: i, as: UInt8.self) >= .utf8ContinuationFloor { return true }
-    i &+= 1
-  }
-  return false
-}
-
 // MARK: - UTF-8 validation
 
 // Keiser and Lemire's lookup validator ("Validating UTF-8 In Less Than One Instruction Per Byte"):

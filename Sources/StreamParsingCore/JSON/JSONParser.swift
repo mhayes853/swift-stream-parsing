@@ -852,7 +852,7 @@ public struct JSONParser: ~Copyable {
     to: Int,
     into sink: inout Sink
   ) throws(JSONParsingError) -> Int {
-    var i = from
+    let i = from
     let run = streamStringRun(base: base, from: i, to: to)
     if self.stringBeginPending {
       self.stringBeginPending = false

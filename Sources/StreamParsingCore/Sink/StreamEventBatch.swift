@@ -52,22 +52,9 @@ public struct StreamEventBatch: ~Escapable {
   @usableFromInline let bufferBase: UnsafePointer<UInt8>
   public let count: Int
 
-  @_lifetime(borrow recordBase)
-  @usableFromInline
-  init(
-    recordBase: UnsafePointer<StreamEventRecord>, infoBase: UnsafePointer<NumberInfo>,
-    count: Int, bytesBase: UnsafePointer<UInt8>, bufferBase: UnsafePointer<UInt8>
-  ) {
-    self.recordBase = recordBase
-    self.infoBase = infoBase
-    self.count = count
-    self.bytesBase = bytesBase
-    self.bufferBase = bufferBase
-  }
-
-  // A batch over caller-owned memory, for the benchmark suite's replay rows
-  // (`PartialSinkReplayBenchmarks.swift`). Not API: nothing checks that the pointers agree with the
-  // records.
+  // A batch over caller-owned memory: what `StreamEventBatchingSink` hands its consumer, and SPI so
+  // a benchmark can replay recorded events. Not API: nothing checks that the pointers agree with
+  // the records.
   @_spi(Benchmarks)
   @_lifetime(borrow recordBase)
   public init(

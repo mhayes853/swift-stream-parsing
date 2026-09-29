@@ -604,8 +604,6 @@ where Element: StreamParseableRoot {
 
 extension StreamArray: StreamParseable where Element: StreamParseableRoot {
   public typealias Partial = Self
-
-  public var streamPartialValue: Self { self }
 }
 
 // MARK: - Parsing support

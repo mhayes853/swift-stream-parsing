@@ -5,7 +5,7 @@
 // Measured: blocking the *entry* storage the way `StreamArray` blocks elements cost 2x on the
 // discarding path, and key-with-hash in one array beat a heads/next pair; keep both forms.
 @usableFromInline
-struct StreamDictionaryEntry: Hashable, Sendable {
+struct StreamDictionaryEntry: Sendable {
   @usableFromInline var hash: UInt64
   @usableFromInline var key: String
 
@@ -621,8 +621,6 @@ where Value: StreamParseableRoot {
 
 extension StreamDictionary: StreamParseable where Value: StreamParseableRoot {
   public typealias Partial = Self
-
-  public var streamPartialValue: Self { self }
 }
 
 // Compares a stored entry's key against a key span, reached through the entry's address so that

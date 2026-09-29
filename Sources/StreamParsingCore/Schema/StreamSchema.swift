@@ -756,17 +756,6 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   )
 }
 
-/// A value copied from at a stable address for the rest of the process, leaked on purpose.
-///
-/// Superseded by `_streamOwnedTemplate`, which ties the same allocation to the schema that
-/// captures it; kept because it is public API a client (or an older macro expansion) may call.
-@inlinable
-public func _streamLeakedTemplate<T>(_ value: T) -> UnsafePointer<T> {
-  let template = UnsafeMutablePointer<T>.allocate(capacity: 1)
-  template.initialize(to: value)
-  return UnsafePointer(template)
-}
-
 extension StreamParseableRoot {
   @inlinable
   public static var _streamArrayNumberAppender:
@@ -854,6 +843,11 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
   )
 }
 
+// The macro emits this and `_streamOptionalDictionarySchema` for a `[T?]` / `[String: T?]` member,
+// spelling the name by interpolation (`containerSchemaExpression`), so a grep for the full name
+// finds only this declaration. A root or bound generic reaches the same shape through
+// `Optional.streamArrayElementSchema` instead.
+//
 // An array whose elements are optional. The element is opened as `.some` rather than `nil`, which
 // is the whole reason the element schema above can write straight through: `Optional`'s own
 // `streamInitialValue()` is `nil`, and applying the wrapped type's schema to the `.none`
