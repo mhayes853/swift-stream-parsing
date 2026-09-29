@@ -213,6 +213,7 @@ extension StreamParseableMacro {
 extension StreamParseableMacro {
   static func enumMemberExpansion(
     declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax],
     in context: DiagnosticSink
   ) throws -> [DeclSyntax] {
     guard !Self.hasExistingStreamPartialValue(in: declaration.memberBlock.members) else {
@@ -220,7 +221,9 @@ extension StreamParseableMacro {
     }
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
-    let generation = Self.enumGeneration(for: declaration, rawKind: rawKind, cases: cases)
+    let generation = Self.enumGeneration(
+      for: declaration, lexicalContext: lexicalContext, rawKind: rawKind, cases: cases
+    )
     return [Self.splitConversions(generation.conversionsSyntax()).streamPartialValue]
   }
 
@@ -266,8 +269,8 @@ extension StreamParseableMacro {
     }
 
     let generation = Self.enumGeneration(
-      for: declaration, rawKind: rawKind, cases: cases, schemaCache: schemaCache,
-      keyDecodingStrategy: keyDecodingStrategy
+      for: declaration, lexicalContext: expansionContext.lexicalContext, rawKind: rawKind,
+      cases: cases, schemaCache: schemaCache, keyDecodingStrategy: keyDecodingStrategy
     )
     var members =
       Self.hasExistingPartial(in: declaration.memberBlock.members)
@@ -285,6 +288,7 @@ extension StreamParseableMacro {
 
   static func enumGeneration(
     for declaration: EnumDeclSyntax,
+    lexicalContext: [Syntax],
     rawKind: EnumRawKind,
     cases: [EnumCase],
     schemaCache: ExprSyntax? = nil,
@@ -318,7 +322,7 @@ extension StreamParseableMacro {
       defaultCase: cases.first(where: \.isDefault).map { .identifier($0.reference) },
       configuration: StreamGenerationConfiguration(
         viewMode: .packageDefault,
-        accessLevel: Self.generatedAccessLevel(for: declaration.modifiers),
+        accessLevel: Self.generatedAccessLevel(for: declaration, lexicalContext: lexicalContext),
         schemaCache: schemaCache,
         keyDecodingStrategy: keyDecodingStrategy
       )

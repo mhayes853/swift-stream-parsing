@@ -42,7 +42,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
           enumDecl, lexicalContext: context.lexicalContext, in: sink
         )
       else { return [] }
-      return try Self.enumMemberExpansion(declaration: enumDecl, in: sink)
+      return try Self.enumMemberExpansion(
+        declaration: enumDecl, lexicalContext: context.lexicalContext, in: sink
+      )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
     guard !Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members) else {
@@ -53,7 +55,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     return [
       try Self.conversions(
         for: properties,
-        accessLevel: Self.generatedAccessLevel(for: structDecl.modifiers),
+        accessLevel: Self.generatedAccessLevel(
+          for: structDecl, lexicalContext: context.lexicalContext
+        ),
         membersMode: .optional
       )
       .streamPartialValue
@@ -95,7 +99,9 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       in: structDecl, keyDecodingStrategy: keyDecodingStrategy, context: sink
     )
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
-    let accessLevel = Self.generatedAccessLevel(for: structDecl.modifiers)
+    let accessLevel = Self.generatedAccessLevel(
+      for: structDecl, lexicalContext: context.lexicalContext
+    )
     let membersMode = Self.partialMembersMode(from: node, context: sink)
     let conformance = Self.conformanceClause(for: structDecl)
     var conversionMembers = try Self.conversions(
@@ -392,6 +398,47 @@ extension StreamParseableMacro {
     case "fileprivate": .fileprivate
     default: .internal
     }
+  }
+
+  // The same, for the declaration as it sits in its lexical context. A type that writes no access
+  // modifier of its own directly inside `public extension` is public, so its conformance is too,
+  // and its generated members have to follow the extension's modifier rather than default to
+  // internal. Only the nearest context counts: a type's members never inherit from further out.
+  static func generatedAccessLevel(
+    for declaration: some DeclGroupSyntax & NamedDeclSyntax,
+    lexicalContext: [Syntax]
+  ) -> StreamGeneratedAccessLevel {
+    guard !Self.hasExplicitAccess(declaration.modifiers),
+      let enclosing = Self.enclosingContext(lexicalContext, skipping: declaration.name.text)?
+        .as(ExtensionDeclSyntax.self)
+    else {
+      return Self.generatedAccessLevel(for: declaration.modifiers)
+    }
+    return Self.generatedAccessLevel(for: enclosing.modifiers)
+  }
+
+  // Whether the getter's access is written at all; `private(set)` alone is not.
+  private static func hasExplicitAccess(_ modifiers: DeclModifierListSyntax) -> Bool {
+    modifiers.contains { modifier in
+      guard modifier.detail == nil else { return false }
+      switch modifier.name.tokenKind {
+      case .keyword(.public), .keyword(.open), .keyword(.package), .keyword(.internal),
+        .keyword(.fileprivate), .keyword(.private):
+        return true
+      default:
+        return false
+      }
+    }
+  }
+
+  // The innermost lexical context around the declaration, which may itself be first and is
+  // skipped by name, as in `enclosingGenericParameters`.
+  private static func enclosingContext(_ lexicalContext: [Syntax], skipping name: String) -> Syntax? {
+    for (index, node) in lexicalContext.enumerated() {
+      if index == 0, node.asProtocol(NamedDeclSyntax.self)?.name.text == name { continue }
+      return node
+    }
+    return nil
   }
 
   static func partialMembersMode(

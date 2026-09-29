@@ -70,6 +70,26 @@ private struct WithLazy {
   lazy var label: String = "#\(id)"
 }
 
+// Declared in access-modified extensions with no modifier of their own, so both types (and their
+// conformances) take the extension's access, and the generated members have to match it.
+public struct AccessOuter {}
+
+public extension AccessOuter {
+  @StreamParseable
+  struct Inner: Equatable {
+    public var x: Int
+  }
+}
+
+package extension AccessOuter {
+  @StreamParseable
+  enum Kind: String {
+    @StreamParseableDefault
+    case a
+    case b
+  }
+}
+
 // Deliberately does not call `finish()`: a truncated document is exactly what the strict
 // conversion is there to decline, and finishing would reject it before the conversion saw it.
 private func parse<T: StreamParseable>(_ json: String, as type: T.Type) throws -> T.Partial {
@@ -235,6 +255,15 @@ struct `Partial Conversion Tests` {
     let converted = try #require(WithIgnored(WithIgnored.Partial(id: 3)))
 
     expectNoDifference(converted, WithIgnored(id: 3, scratch: nil, counted: 7))
+  }
+
+  // MARK: - Access
+
+  @Test
+  func `Converts Types Declared In Access Modified Extensions`() throws {
+    let inner = try parse(#"{"x":4}"#, as: AccessOuter.Inner.self)
+    expectNoDifference(AccessOuter.Inner(inner), AccessOuter.Inner(x: 4))
+    expectNoDifference(AccessOuter.Kind(streamPartial: StreamString("b")), .b)
   }
 
   // MARK: - Lazy members
