@@ -42,12 +42,16 @@ public protocol StreamNullable: SendableMetatype {
 // MARK: - Integers
 
 extension FixedWidthInteger {
-  // A token carrying an exponent is rejected rather than scaled. Inlinable so a specialised caller
+  // A token carrying a fraction or an exponent part is rejected rather than scaled, even when it
+  // scales by nothing: `1e0` is written as a float, as `1.0` is. Inlinable so a specialised caller
   // gets a specialised conversion: through the protocol witness alone it paid a metadata lookup
   // per number, Mesh at half speed.
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    guard !info.flags.contains(.fraction), info.exponent == 0 else { return nil }
+    // One mask test on the raw bits. The parser only sets a nonzero `exponent` alongside one of
+    // the two flags; the compare keeps a hand-built `NumberInfo` honest.
+    let notInteger = NumberInfo.Flags.fraction.rawValue | NumberInfo.Flags.exponent.rawValue
+    guard info.flags.rawValue & notInteger == 0, info.exponent == 0 else { return nil }
 
     // The accumulator flags anything it could not hold in a UInt64, which includes values that
     // do fit the destination: UInt64.max is twenty digits. Walking the token settles it rather

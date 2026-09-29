@@ -84,6 +84,17 @@ struct `Stream convertible tests` {
     }
   }
 
+  // An exponent part makes a token a number written as a float, as a fraction does, even when it
+  // scales by nothing: `1e0` is `1.0`, which no integer destination accepts.
+  @Test(arguments: ["1.0", "1e0", "1E0", "1e+0", "1e-0", "-1e00", "0e0"])
+  func `A zero exponent still marks a token as not an integer`(json: String) {
+    var parsed = 7
+    #expect(throws: (any Error).self, "\(json)") { try parsePartial(json, into: &parsed) }
+    expectNoDifference(parsed, 7, "\(json)")
+    var unsigned: UInt8 = 7
+    #expect(throws: (any Error).self, "\(json)") { try parsePartial(json, into: &unsigned) }
+  }
+
   // `-0` is JSON's zero with a sign, which every destination can hold: `UInt("-0")` is 0, and
   // `JSONDecoder` decodes it as one. Any other negative still has no unsigned value.
   @Test
