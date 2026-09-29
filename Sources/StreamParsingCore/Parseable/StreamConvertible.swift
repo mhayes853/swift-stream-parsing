@@ -59,7 +59,12 @@ extension FixedWidthInteger {
     }
 
     if info.flags.contains(.negative) {
-      guard Self.isSigned else { return nil }
+      // `-0` is zero, which an unsigned type holds; any other negative is out of its range.
+      guard Self.isSigned else {
+        guard info.magnitude == 0 else { return nil }
+        self = 0
+        return
+      }
       // Integer-to-integer `init?(exactly:)` folds to a range compare, so the objection the
       // floating-point path below raises against `init(exactly:)` does not apply here. The bound is
       // in `Self.Magnitude`, not `UInt64`: widening the other way traps past 64 bits.

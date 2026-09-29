@@ -84,6 +84,24 @@ struct `Stream convertible tests` {
     }
   }
 
+  // `-0` is JSON's zero with a sign, which every destination can hold: `UInt("-0")` is 0, and
+  // `JSONDecoder` decodes it as one. Any other negative still has no unsigned value.
+  @Test
+  func `Negative zero converts to an unsigned zero`() throws {
+    Self.span("-0") { bytes in
+      let info = Self.info(0, digits: 1, flags: .negative)
+      expectNoDifference(UInt(streamParsing: bytes, info: info), 0)
+      expectNoDifference(UInt8(streamParsing: bytes, info: info), 0)
+      expectNoDifference(Int(streamParsing: bytes, info: info), 0)
+    }
+    Self.span("-1") { bytes in
+      expectNoDifference(UInt(streamParsing: bytes, info: Self.info(1, digits: 1, flags: .negative)), nil)
+    }
+    var parsed: UInt64 = 7
+    try parsePartial("-0", into: &parsed)
+    expectNoDifference(parsed, 0)
+  }
+
   // MARK: - 128 bit integers
 
   // The accumulator's magnitude is a UInt64, so these two types are the only ones that can hold
