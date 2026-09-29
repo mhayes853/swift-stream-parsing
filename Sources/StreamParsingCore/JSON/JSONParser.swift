@@ -668,24 +668,24 @@ public struct JSONParser: ~Copyable {
     } else if raw == State.afterValue.rawValue {
       switch byte {
       case .asciiComma:
-        guard depth > 0 else { try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at) }
+        guard depth > 0 else { try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at) }
         state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
       case .asciiArrayEnd:
         guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
-          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+          try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endArray, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       case .asciiObjectEnd:
         guard Self.topIsObject(depth: depth, containers: containers) else {
-          try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+          try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
         }
         try self.record(.endObject, start: at, length: 1, end: cursor, base: base, into: &sink)
         depth &-= 1
         state = depth == 0 ? .done : .afterValue
       default:
-        try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+        try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
       }
 
     } else if raw <= State.firstKey.rawValue {
@@ -1918,6 +1918,18 @@ public struct JSONParser: ~Copyable {
   @inline(never)
   static func fail(_ error: JSONParsingError) throws(JSONParsingError) -> Never {
     throw error
+  }
+
+  // A finished root scalar rests in `.afterValue` at depth zero rather than in `.done` (moving it
+  // there would cost every scalar a compare), so whatever follows it is a second document, which
+  // `.done` reports as trailing content. Chosen here, out of line, so each failure site in the
+  // step passes the depth it already holds where it passed a reason.
+  @inlinable
+  @inline(never)
+  static func failAfterValue(depth: Int, byteOffset: Int) throws(JSONParsingError) -> Never {
+    throw JSONParsingError(
+      reason: depth == 0 ? .trailingContent : .unexpectedToken, byteOffset: byteOffset
+    )
   }
 
   @inlinable

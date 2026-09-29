@@ -119,6 +119,31 @@ struct `Error offset tests` {
     let error = Self.failure(bytes, splitAt: bytes.count)
     expectNoDifference(error, JSONParsingError(reason: reason, byteOffset: offset), "\(json)")
   }
+  // A finished root container rests in `.done`, which reports a second document as trailing
+  // content; a finished root scalar rests in `.afterValue` at depth zero, which reported the same
+  // second document as an unexpected token. Long whitespace runs reach the block walk's twin arm.
+  @Test(arguments: [
+    ("1 2", 2), ("1,", 1), ("1]", 1), ("1}", 1), (#""a" "b""#, 4), ("true false", 5),
+    ("null}", 4), ("-1.5e3 [", 7), ("1" + String(repeating: " ", count: 80) + "2", 81),
+  ])
+  func `A root scalar's trailing bytes report trailing content`(json: String, offset: Int) {
+    let bytes = Array(json.utf8)
+    let expected = JSONParsingError(reason: .trailingContent, byteOffset: offset)
+    for split in 0...bytes.count {
+      expectNoDifference(Self.failure(bytes, splitAt: split), expected, "\(json) split at \(split)")
+    }
+    expectNoDifference(Self.bytewiseFailure(bytes), expected, "\(json) byte by byte")
+  }
+
+  // Inside a container the same bytes are still unexpected.
+  @Test(arguments: [("[1 2]", 3), ("[1}", 2), (#"{"a":1]"#, 6), ("[[1],}", 5)])
+  func `A nested value's stray bytes stay unexpected tokens`(json: String, offset: Int) {
+    let bytes = Array(json.utf8)
+    let expected = JSONParsingError(reason: .unexpectedToken, byteOffset: offset)
+    expectNoDifference(Self.failure(bytes, splitAt: bytes.count), expected, "\(json)")
+    expectNoDifference(Self.bytewiseFailure(bytes), expected, "\(json) byte by byte")
+  }
+
 
   @Test
   func `Reports end of input for errors finish detects`() {

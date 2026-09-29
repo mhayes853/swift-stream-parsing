@@ -357,12 +357,12 @@
             switch byte {
             case .asciiComma:
               guard depth > 0 else {
-                try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+                try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
               }
               state = Self.topIsObject(depth: depth, containers: containers) ? .key : .value
             case .asciiArrayEnd:
               guard depth > 0, !Self.topIsObject(depth: depth, containers: containers) else {
-                try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+                try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
               }
               try self.record(
                 .endArray, start: at, length: 1, end: at &+ 1, base: base, into: &sink
@@ -375,7 +375,7 @@
               state = .afterValue
             case .asciiObjectEnd:
               guard Self.topIsObject(depth: depth, containers: containers) else {
-                try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+                try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
               }
               try self.record(
                 .endObject, start: at, length: 1, end: at &+ 1, base: base, into: &sink
@@ -387,7 +387,7 @@
               }
               state = .afterValue
             default:
-              try Self.fail(.unexpectedToken, byteOffset: self.consumedByteCount &+ at)
+              try Self.failAfterValue(depth: depth, byteOffset: self.consumedByteCount &+ at)
             }
 
           } else if raw <= State.firstKey.rawValue {
