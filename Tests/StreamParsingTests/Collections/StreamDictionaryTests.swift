@@ -314,6 +314,15 @@ extension `Stream dictionary tests` {
     expectNoDifference(Set(values + [reordered]).count, 2)
   }
 
+  // Printed as `Dictionary` prints: debug-form keys and values, `[:]` when empty. Interpolated,
+  // `["k": "v, w"]` read as `[k: v, w]`.
+  @Test
+  func `Description prints like Dictionary`() {
+    let values: StreamDictionary<String> = ["k": "v, w"]
+    expectNoDifference(values.description, #"["k": "v, w"]"#)
+    expectNoDifference(StreamDictionary<Int>().description, "[:]")
+  }
+
   // Keys are stored and looked up byte-wise, so equality is byte-wise too: under `String ==`
   // these two compared equal while `"é"` found a value in only one of them.
   @Test

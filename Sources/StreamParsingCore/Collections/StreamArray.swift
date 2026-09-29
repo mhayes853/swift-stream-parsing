@@ -404,10 +404,11 @@ extension StreamArray: Hashable where Element: Hashable {
 extension StreamArray: @unchecked Sendable where Element: Sendable {}
 
 #if !hasFeature(Embedded)
-  // Interpolating an unconstrained `Element` is reflection, outside the Embedded subset.
+  // Reflection, outside the Embedded subset. Elements print as `Array` prints them, debug form:
+  // interpolated, `["a, b", "c"]` read as three elements.
   extension StreamArray: CustomStringConvertible {
     public var description: String {
-      "[" + self.map { "\($0)" }.joined(separator: ", ") + "]"
+      "[" + self.map { String(reflecting: $0) }.joined(separator: ", ") + "]"
     }
   }
 

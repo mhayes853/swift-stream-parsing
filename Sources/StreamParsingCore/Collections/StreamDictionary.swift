@@ -590,11 +590,15 @@ extension StreamDictionary: Equatable where Value: Equatable {
 extension StreamDictionary: Sendable where Value: Sendable {}
 
 #if !hasFeature(Embedded)
-  // Interpolating an unconstrained `Value` is `String(describing:)`, i.e. reflection, which is
-  // outside the embedded subset.
+  // Reflection, which is outside the embedded subset. Keys and values print as `Dictionary`
+  // prints them, debug form, and the empty dictionary is `[:]`.
   extension StreamDictionary: CustomStringConvertible {
     public var description: String {
-      "[" + self.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + "]"
+      guard !self.isEmpty else { return "[:]" }
+      return "["
+        + self.map { "\(String(reflecting: $0.key)): \(String(reflecting: $0.value))" }
+          .joined(separator: ", ")
+        + "]"
     }
   }
 

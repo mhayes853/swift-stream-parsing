@@ -5,6 +5,14 @@ import Testing
 
 @Suite
 struct `Stream array tests` {
+  // Printed as `Array` prints: debug-form elements. Interpolated, `["a, b", "c"]` read as three.
+  @Test
+  func `Description prints like Array`() {
+    let values: StreamArray<String> = ["a, b", "c"]
+    expectNoDifference(values.description, ["a, b", "c"].description)
+    expectNoDifference(StreamArray<Int>().description, [Int]().description)
+  }
+
   @Test
   func `Initial Capacity Reserves The Spine And First Tail`() {
     let array = StreamArray<Int>(initialCapacity: 1_000)
