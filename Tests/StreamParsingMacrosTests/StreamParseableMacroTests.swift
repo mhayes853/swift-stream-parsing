@@ -5080,7 +5080,34 @@ extension BaseTestSuite {
           @StreamParseableDefault
           case unresolved
                ┬─────────
-               ╰─ 🛑 Case 'unresolved' collides with the generated 'ResolvedView.unresolved' sentinel. Rename the case, or give it a key with @StreamParseableMember.
+               ╰─ 🛑 Case 'unresolved' collides with the generated 'ResolvedView.unresolved' sentinel. Rename the case; @StreamParseableMember(key: "unresolved") keeps its wire name.
+        }
+        """
+      }
+    }
+
+    @Test
+    func `Enum Case Named Like A Generated View Member`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        enum E {
+          @StreamParseableDefault
+          case resolved
+          case ResolvedView(Int)
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        enum E {
+          @StreamParseableDefault
+          case resolved
+               ┬───────
+               ╰─ 🛑 Case 'resolved' collides with the generated 'View.resolved' property. Rename the case; @StreamParseableMember(key: "resolved") keeps its wire name.
+          case ResolvedView(Int)
+               ┬────────────────
+               ╰─ 🛑 Case 'ResolvedView' collides with the generated 'View.ResolvedView' enum. Rename the case; @StreamParseableMember(key: "ResolvedView") keeps its wire name.
         }
         """
       }

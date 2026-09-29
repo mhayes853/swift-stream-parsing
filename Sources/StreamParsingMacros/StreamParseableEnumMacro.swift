@@ -150,13 +150,24 @@ extension StreamParseableMacro {
           }
         }
         if case .none = rawKind {
-          if bareName == "unresolved" || bareName == "ambiguous" {
+          // The object form's view names a member after every case, next to its own `resolved`
+          // and `ResolvedView`, and `ResolvedView` names a case after every case, next to its two
+          // sentinels. The check is on the Swift name, which is what the members are named after;
+          // a key only changes the wire name, so the fix is renaming and keeping the key.
+          let generated: String? =
+            switch bareName {
+            case "unresolved", "ambiguous": "'ResolvedView.\(bareName)' sentinel"
+            case "resolved": "'View.resolved' property"
+            case "ResolvedView": "'View.ResolvedView' enum"
+            default: nil
+            }
+          if let generated {
             context.diagnose(
               Self.error(
                 element,
                 """
-                Case '\(bareName)' collides with the generated 'ResolvedView.\(bareName)' \
-                sentinel. Rename the case, or give it a key with @StreamParseableMember.
+                Case '\(bareName)' collides with the generated \(generated). Rename the case; \
+                @StreamParseableMember(key: "\(bareName)") keeps its wire name.
                 """
               )
             )
