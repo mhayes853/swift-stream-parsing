@@ -74,8 +74,9 @@ to generate recovery syntax without repeating validation. Invalid input may stil
 Swift. The built-in macro uses these same public APIs.
 
 `TypeSyntaxProtocol.streamIsOptional` and `.streamUnwrappedOptionalType` inspect explicit optional
-syntax on both concrete and type-erased nodes. They preserve optional container elements and do
-not resolve type aliases.
+syntax on both concrete and type-erased nodes. `.streamUnwrappedOptionalType` removes one layer, so
+`Int??` unwraps to `Optional<Int>`. They preserve optional container elements and do not resolve
+type aliases.
 
 ## Convert between the whole type and its partial
 

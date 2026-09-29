@@ -2,22 +2,29 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 
 extension TypeSyntaxProtocol {
-  /// Removes every explicit optional layer (`T?`, `Optional<T>`, or `Swift.Optional<T>`).
-  /// Does not resolve type aliases or unwrap optional elements inside containers.
+  /// Removes one explicit optional layer (`T?`, `Optional<T>`, or `Swift.Optional<T>`), the layer
+  /// a partial member flattens: `T?` has the partial `T.Partial?`, so `T??` has
+  /// `Optional<T>.Partial?`. What remains is spelled `Optional<T>` rather than `T?`, so that
+  /// `.Partial` can follow it. Does not resolve type aliases or unwrap optional elements inside
+  /// containers.
+  ///
+  /// One layer, not every layer: stripping them all described a `T??` member's storage as `T?`, and
+  /// the schemas built for that shape read and wrote the deeper storage as the shallower type.
   public var streamUnwrappedOptionalType: TypeSyntax {
-    var type = TypeSyntax(self)
-    while true {
-      if let optional = type.as(OptionalTypeSyntax.self) {
-        type = optional.wrappedType
-      } else if streamTypeName(type) == "Optional",
-        let arguments = streamGenericArguments(type), arguments.count == 1,
-        case .type(let wrapped) = arguments.first!.argument
-      {
-        type = wrapped
-      } else {
-        return type
-      }
+    let type = TypeSyntax(self)
+    let wrapped: TypeSyntax
+    if let optional = type.as(OptionalTypeSyntax.self) {
+      wrapped = optional.wrappedType
+    } else if streamTypeName(type) == "Optional",
+      let arguments = streamGenericArguments(type), arguments.count == 1,
+      case .type(let argument) = arguments.first!.argument
+    {
+      wrapped = argument
+    } else {
+      return type
     }
+    guard let sugar = wrapped.as(OptionalTypeSyntax.self) else { return wrapped }
+    return TypeSyntax("Optional<\(raw: sugar.wrappedType.trimmedDescription)>")
   }
 
   /// Whether the type has a syntactically explicit optional layer.

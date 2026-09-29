@@ -5491,12 +5491,12 @@ extension BaseTestSuite {
 
             package var `class`: Int.Partial?
             package var storage: Int.Partial?
-            package var x: Int.Partial?
+            package var x: Optional<Int>.Partial?
 
             package init(
               `class`: Int.Partial? = nil,
               storage: Int.Partial? = nil,
-              x: Int.Partial? = nil
+              x: Optional<Int>.Partial? = nil
             ) {
               self.`class` = `class`
               self.storage = storage
@@ -5543,13 +5543,13 @@ extension BaseTestSuite {
                 }
               }
 
-              @inlinable package var x: Int.Partial.View? {
+              @inlinable package var x: Optional<Int>.Partial.View? {
                 @_lifetime(borrow self)
                 get {
                   guard let address = StreamParsingCore._streamMemberAddress(&self._streamStorage.pointee.x) else {
                     return nil
                   }
-                  return _overrideLifetime(Int.Partial.streamView(address), borrowing: self)
+                  return _overrideLifetime(Optional<Int>.Partial.streamView(address), borrowing: self)
                 }
               }
             }
@@ -5653,7 +5653,7 @@ extension BaseTestSuite {
             private static let streamSchemaEntry = StreamParsingCore.StreamSchemaCache.shared.entry(for: Self.self) {
               let streamObjectMemberSchema_class = _streamObjectMemberSchema(for: (Int.Partial).self)
               let streamObjectMemberSchema_storage = _streamObjectMemberSchema(for: (Int.Partial).self)
-              let streamObjectMemberSchema_x = _streamObjectMemberSchema(for: (Int.Partial).self)
+              let streamObjectMemberSchema_x = _streamObjectMemberSchema(for: (Optional<Int>.Partial).self)
               let streamFields = StreamParsingCore._streamFields(of: Self.self, prototype: Self()) { p in
                 [
                   StreamParsingCore.StreamField(

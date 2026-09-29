@@ -1049,14 +1049,16 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
   element base: StreamSchema
 ) -> StreamSchema {
   let element = _streamOptionalElementSchema(Wrapped.self, base: base)
-  let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialValue()))
+  // `streamInitialArrayElement`, not `streamInitialValue`: the same value for every `Wrapped` but an
+  // optional one, where it opens `T??` as `.some(.some(...))`. See `Optional.streamInitialArrayElement`.
+  let owner = _streamOwnedTemplate(Wrapped?.some(Wrapped.streamInitialArrayElement()))
   nonisolated(unsafe) let template = owner.address(as: Wrapped?.self)
   // See `_streamArraySchema`.
   let appendElement: @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer?
   if Wrapped._streamOpensByConstruction {
     appendElement = { storage, _ in
       storage.assumingMemoryBound(to: StreamArray<Wrapped?>.self).pointee
-        ._openElement(constructing: .some(Wrapped.streamInitialValue()))
+        ._openElement(constructing: .some(Wrapped.streamInitialArrayElement()))
     }
   } else {
     appendElement = { storage, _ in
@@ -1084,13 +1086,14 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
   let value = _streamOptionalElementSchema(Wrapped.self, base: base)
   // The template is the `.some` the dictionary's own `pendingValue` must end up holding, one
   // optional deeper than the element templates above: see `_openValue(forKey:copyingSome:)`.
-  let owner = _streamOwnedTemplate(Wrapped??.some(.some(Wrapped.streamInitialValue())))
+  // `streamInitialArrayElement` for the reason `_streamOptionalArraySchema` gives.
+  let owner = _streamOwnedTemplate(Wrapped??.some(.some(Wrapped.streamInitialArrayElement())))
   nonisolated(unsafe) let template = owner.address(as: Wrapped??.self)
   // See `_streamArraySchema`.
   let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
   if Wrapped._streamOpensByConstruction {
     enterKey = { storage, key in
-      let initial: Wrapped?? = .some(.some(Wrapped.streamInitialValue()))
+      let initial: Wrapped?? = .some(.some(Wrapped.streamInitialArrayElement()))
       return storage.assumingMemoryBound(to: StreamDictionary<Wrapped?>.self).pointee
         ._openValue(forKey: key, constructingSome: initial)
     }

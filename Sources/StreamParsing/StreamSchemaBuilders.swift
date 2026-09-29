@@ -41,6 +41,15 @@ public func _streamSchema<T: StreamBooleanConvertible>(for type: T.Type) -> Stre
   _streamBooleanSchema(T.self)
 }
 
+// An element one optional deeper than the optional container builders unwrap: the macro peels a
+// single layer, so `[T??]` reaches here with `Optional<T>`. None of the typed overloads above take
+// an `Optional`, so no member that type-checked before resolves differently. The optional root
+// schema materialises before each write, which is the correct path for the deeper layer.
+@inlinable
+public func _streamSchema<T: StreamParseableRoot>(for type: Optional<T>.Type) -> StreamSchema {
+  Optional<T>.streamSchema
+}
+
 @_disfavoredOverload
 @inlinable
 public func _streamSchema<T>(for type: T.Type) -> StreamSchema {
@@ -102,6 +111,52 @@ public func streamApply<T: StreamBooleanConvertible>(
 ) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
   return .applied
+}
+
+// A member two optionals deep: the partial is `T??`, one layer past what the overloads above
+// unwrap, so without these it fell to the disfavoured catch-alls and every value was a mismatch.
+// The pattern only matches a double optional, so no `T?` member resolves differently. The slow path
+// on purpose: it applies through `Optional<T>`'s root schema, which materialises before it writes,
+// at the inner optional's address -- the offset-zero payload the frame entry helpers rely on.
+@inlinable
+func _streamApplyThroughOptional<T: StreamParseableRoot>(
+  _ value: inout T??,
+  _ body: (StreamSchema, UnsafeMutableRawPointer) -> StreamApplyResult
+) -> StreamApplyResult {
+  if value == nil { value = .some(T?.streamInitialValue()) }
+  let schema = Optional<T>.streamSchema
+  return withUnsafeMutablePointer(to: &value) { body(schema, UnsafeMutableRawPointer($0)) }
+}
+
+@inlinable
+public func streamApply<T: StreamParseableRoot>(
+  _ value: inout T??, utf8 bytes: Span<UInt8>
+) -> StreamApplyResult {
+  _streamApplyThroughOptional(&value) { $0.applyString($1, StreamSchema.wholeValueField, bytes) }
+}
+
+// The capacity is a first-chunk hint for a `StreamString` member; a nested one goes without it.
+@inlinable
+public func streamApply<T: StreamParseableRoot>(
+  _ value: inout T??, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> StreamApplyResult {
+  streamApply(&value, utf8: bytes)
+}
+
+@inlinable
+public func streamApply<T: StreamParseableRoot>(
+  _ value: inout T??, bytes: Span<UInt8>, info: NumberInfo
+) -> StreamApplyResult {
+  _streamApplyThroughOptional(&value) {
+    $0.applyNumber($1, StreamSchema.wholeValueField, bytes, info)
+  }
+}
+
+@inlinable
+public func streamApply<T: StreamParseableRoot>(
+  _ value: inout T??, boolean: Bool
+) -> StreamApplyResult {
+  _streamApplyThroughOptional(&value) { $0.applyBoolean($1, StreamSchema.wholeValueField, boolean) }
 }
 
 // MARK: - Field routes

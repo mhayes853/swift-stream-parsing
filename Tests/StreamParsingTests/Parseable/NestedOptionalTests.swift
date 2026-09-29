@@ -28,6 +28,21 @@ private struct OptionalInlineChildren {
   var children: InlineArray<2, NestedOptionalChild?> = InlineArray(repeating: nil)
 }
 
+// Written out by the macro rather than reached through a generic parameter: it once unwrapped every
+// optional layer, so `[Int??]` was built as `[Int?]` storage and `Int??` did not compile.
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+@StreamParseable
+private struct NestedOptionalMembers: Equatable {
+  var count: Int?? = nil
+  var name: String?? = nil
+  var flag: Bool??? = nil
+  var child: NestedOptionalChild?? = nil
+  var scores: [Int??] = []
+  var byName: [String: Int??] = [:]
+  var children: [NestedOptionalChild??] = []
+  var vectors: [String: SIMD2<Double>??] = [:]
+}
+
 @Suite
 struct `Nested optional tests` {
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -93,5 +108,40 @@ struct `Nested optional tests` {
     var double = InlineArray<2, SIMD2<Double>??>.streamInitialValue()
     try parsePartial("[[1,2],null]", into: &double, chunk: chunk)
     expectNoDifference([double[0], double[1]], [.some(.some(SIMD2(1, 2))), nil])
+  }
+
+  // MARK: - Macro members
+
+  @Test(arguments: [1, 3, Int.max])
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  func `Macro members more than one optional deep parse`(chunk: Int) throws {
+    let json =
+      #"{"count":5,"name":"hi","flag":true,"child":{"id":3,"name":"x"},"scores":[5,null],"#
+      + #""byName":{"k":5,"n":null},"children":[{"id":4,"name":"y"},null],"#
+      + #""vectors":{"k":[1,2],"n":null}}"#
+    var partial = NestedOptionalMembers.Partial()
+    try parsePartial(json, into: &partial, chunk: chunk)
+    let value = try #require(NestedOptionalMembers(streamPartial: partial))
+    expectNoDifference(
+      value,
+      NestedOptionalMembers(
+        count: 5, name: "hi", flag: true, child: NestedOptionalChild(id: 3, name: "x"),
+        scores: [5, nil], byName: ["k": 5, "n": nil],
+        children: [NestedOptionalChild(id: 4, name: "y"), nil],
+        vectors: ["k": SIMD2(1, 2), "n": nil]
+      )
+    )
+  }
+
+  @Test
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  func `Macro members more than one optional deep take null`() throws {
+    var partial = NestedOptionalMembers.Partial()
+    let json =
+      #"{"count":null,"name":null,"flag":null,"child":null,"scores":[],"byName":{},"#
+      + #""children":[],"vectors":{}}"#
+    try parsePartial(json, into: &partial)
+    let value = try #require(NestedOptionalMembers(streamPartial: partial))
+    expectNoDifference(value, NestedOptionalMembers())
   }
 }

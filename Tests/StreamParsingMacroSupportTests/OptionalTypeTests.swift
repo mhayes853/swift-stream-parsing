@@ -6,11 +6,17 @@ import Testing
 
 @Suite
 struct `Optional Type Syntax tests` {
-  @Test(arguments: ["Int?", "Int??", "Optional<Int>", "Swift.Optional<Int?>"])
-  func `Unwraps Every Explicit Optional Layer`(source: String) {
+  // One layer, the one a partial member flattens; what remains is spelled so `.Partial` can
+  // follow it.
+  @Test(arguments: [
+    ("Int?", "Int"), ("Optional<Int>", "Int"), ("Int??", "Optional<Int>"),
+    ("Swift.Optional<Int?>", "Optional<Int>"), ("Optional<Optional<Int>>", "Optional<Int>"),
+    ("Int???", "Optional<Int?>"),
+  ])
+  func `Unwraps One Explicit Optional Layer`(source: String, unwrapped: String) {
     let type = TypeSyntax(stringLiteral: source)
     expectNoDifference(type.streamIsOptional, true)
-    expectNoDifference(type.streamUnwrappedOptionalType.trimmedDescription, "Int")
+    expectNoDifference(type.streamUnwrappedOptionalType.trimmedDescription, unwrapped)
   }
 
   @Test
