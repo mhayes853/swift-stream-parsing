@@ -68,11 +68,30 @@ extension UInt64:
   StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
 {}
 extension Double:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
 {}
 extension Float:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
 {}
+// Match the standard library's availability: Float16 is absent on Intel macOS
+// and Mac Catalyst. Its string initializer requires SwiftStdlib 5.3.
+#if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
+  @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
+  extension Float16:
+    StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  {}
+#endif
+
+// Float80 exists where x86 long double is extended precision. Embedded targets
+// expose it only on Linux and Apple platforms, matching the standard library.
+#if (arch(i386) || arch(x86_64)) && !(os(Windows) || os(Android))
+  #if !hasFeature(Embedded) || os(Linux) || os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+    extension Float80:
+      StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+    {}
+  #endif
+#endif
+
 extension String: StreamParseableRoot {}
 extension Bool: StreamParseableRoot, StreamParseable {}
 

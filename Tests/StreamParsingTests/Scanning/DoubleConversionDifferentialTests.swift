@@ -25,7 +25,7 @@ import Testing
 // MARK: - Shared differential machinery
 
 typealias StreamDifferentialFloat =
-  BinaryFloatingPoint & LosslessStringConvertible & StreamBinaryFormat
+  StreamFastFloatConvertible
 
 // Converts every number token the parser reports and records the ones that disagree with
 // `T(String)`. Holds the text too, so a failure names the token rather than an index.
@@ -41,9 +41,14 @@ struct DifferentialSink<T: StreamDifferentialFloat>: StreamParseSink {
   private(set) var kernelCount = 0
   private(set) var mismatches: [String] = []
   private let tracksKernel: Bool
+  private let parseReference: @Sendable (String) -> T?
 
-  init(tracksKernel: Bool = false) {
+  init(
+    tracksKernel: Bool = false,
+    oracle: @escaping @Sendable (String) -> T? = { T($0) }
+  ) {
     self.tracksKernel = tracksKernel
+    self.parseReference = oracle
   }
 
   mutating func number(_ bytes: Span<UInt8>, info: NumberInfo) {
@@ -58,17 +63,16 @@ struct DifferentialSink<T: StreamDifferentialFloat>: StreamParseSink {
           || exponent > maxPow10 || exponent < -maxPow10
       {
         self.beyondExactCount += 1
-        let direct = streamEiselLemire(
+        let direct = T.streamConvertDecimal(
           magnitude: info.magnitude,
           exponent: exponent,
-          negative: info.flags.contains(.negative),
-          as: T.self
+          negative: info.flags.contains(.negative)
         )
         if direct != nil { self.kernelCount += 1 }
       }
     }
 
-    let oracle = T(text).flatMap { $0.isFinite ? $0 : nil }
+    let oracle = self.parseReference(text).flatMap { $0.isFinite ? $0 : nil }
     let value = T(streamParsing: bytes, info: info)
     if value == nil { self.nilCount += 1 }
     switch (value, oracle) {
@@ -115,9 +119,10 @@ func differentialCheck<T: StreamDifferentialFloat>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: T.Type,
-  tracksKernel: Bool = false
+  tracksKernel: Bool = false,
+  oracle: @escaping @Sendable (String) -> T? = { T($0) }
 ) throws -> DifferentialSink<T> {
-  var sink = DifferentialSink<T>(tracksKernel: tracksKernel)
+  var sink = DifferentialSink<T>(tracksKernel: tracksKernel, oracle: oracle)
   try feed(bytes, chunk: chunk, into: &sink)
   return sink
 }
@@ -186,7 +191,6 @@ struct `Double conversion differential tests` {
   // the differential above may not reach. `Float`'s twin lives in the other file.
   @Test
   func `The Double binary format constants describe Double`() {
-    #expect(Double.streamMantissaBits == Double.significandBitCount)
     #expect(Double.streamMinExponent == -1023)
     #expect(Double.streamInfinitePower == 0x7FF)
     #expect(streamMaxExactPow10(Double.self) == 22)

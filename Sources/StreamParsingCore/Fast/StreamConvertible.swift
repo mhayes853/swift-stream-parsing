@@ -90,91 +90,59 @@ extension FixedWidthInteger {
 
 // MARK: - Floating point
 
+// Preserve the existing convenience initializer for BinaryFloatingPoint types
+// that have not opted into StreamFastFloatConvertible. Protocol conformers use
+// the more constrained default, whose conversion step calls their requirement.
 extension BinaryFloatingPoint where Self: LosslessStringConvertible {
-  // Accumulation, not a string round trip, in three generic tiers: Clinger's exact path (bounds
-  // fold per `Self`, 2^53 / 10^22 for `Double`), Eisel-Lemire on `Self`'s format (91.2% of canada),
-  // then the standard library for declines and wrapped 20+ digit magnitudes. No `init(exactly:)`:
-  // each lowered to redundant work (NEW_ARCHITECTURE.md, "Three `init(exactly:)` calls").
   @inlinable
   public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {
-    // Raw-bit tests, so the pair is a `tbnz` on a held register rather than two `OptionSet` calls;
-    // the masks are the flags' computed `@inlinable` statics, which fold to immediates.
-    let flags = info.flags.rawValue
-    guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else {
-      // More than nineteen digits: `magnitude` has wrapped, so nothing below may look at it.
-      guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
-        return nil
-      }
-      self = fallback
-      return
-    }
-
-    let magnitude = info.magnitude
-    let exponent = Int(info.exponent)
-    let negative = flags & NumberInfo.Flags.negative.rawValue != 0
-
-    if magnitude <= streamMaxExactMagnitude(Self.self) {
-      let unsigned = Self(magnitude)
-      let significand = negative ? -unsigned : unsigned
-      if exponent == 0 {
-        self = significand
-        return
-      }
-      let index = exponent < 0 ? -exponent : exponent
-      if index <= streamMaxExactPow10(Self.self) {
-        let scale = Self(streamExactPow10(index))
-        // Split rather than written as one `?:` so a corpus whose exponents all have one sign
-        // pays a predicted branch instead of an unconditional `fdiv` it throws away.
-        if exponent >= 0 {
-          self = significand * scale
-          return
-        }
-        self = significand / scale
-        return
-      }
-    }
-
-    if let value = streamEiselLemireAny(
-      magnitude: magnitude,
-      exponent: exponent,
-      negative: negative,
-      as: Self.self
-    ) {
-      self = value
-      return
-    }
-
-    guard let fallback = streamParseFloatingPointFallback(bytes, as: Self.self) else {
-      return nil
-    }
-    self = fallback
+    guard let value = streamParseFloatingPoint(bytes, info: info, as: Self.self, convertDecimal: {
+      streamEiselLemire(magnitude: $0, exponent: $1, negative: $2, as: Self.self)
+    }) else { return nil }
+    self = value
   }
 }
 
-// Eisel-Lemire for the formats with a `StreamBinaryFormat`, a decline for any other type. The
-// extension above cannot require the conformance, so a type test asks (folded on specialisation).
-// `Float` is *not* narrowed from `Double`: decimal -> `Double` -> `Float` rounds twice and is not
-// correctly rounded in general (`7.038531e-26`).
+// Inlined into both initializer defaults: the closure is a static conversion
+// choice, not a stored callback or a runtime conformance cast. A concrete caller
+// must contain Clinger + its chosen kernel + the cold String fallback, with no
+// closure allocation, metadata lookup, or witness dispatch in the numeric path.
 @inlinable
 @inline(__always)
-func streamEiselLemireAny<T: BinaryFloatingPoint>(
-  magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
+func streamParseFloatingPoint<T: BinaryFloatingPoint & LosslessStringConvertible>(
+  _ bytes: Span<UInt8>, info: NumberInfo, as type: T.Type,
+  convertDecimal: (UInt64, Int, Bool) -> T?
 ) -> T? {
-  // The type test guards the `unsafeBitCast`, a no-op on the only branch reaching it. Measured:
-  // with `.map` the unspecialised generic formed a real closure (a metadata instantiation and three
-  // partial-apply forwarders); keep the `guard`.
-  @inline(__always)
-  func bridge<F: StreamBinaryFormat>(_ format: F.Type) -> T? {
-    guard
-      let value = streamEiselLemire(
-        magnitude: magnitude, exponent: exponent, negative: negative, as: F.self
-      )
-    else { return nil }
-    return unsafeBitCast(value, to: T.self)
+  let flags = info.flags.rawValue
+  guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else {
+    // More than nineteen digits: magnitude may have wrapped and must not be used.
+    return streamParseFloatingPointFallback(bytes, as: T.self)
   }
-  if T.self == Double.self { return bridge(Double.self) }
-  if T.self == Float.self { return bridge(Float.self) }
-  return nil
+
+  let magnitude = info.magnitude
+  let exponent = Int(info.exponent)
+  let negative = flags & NumberInfo.Flags.negative.rawValue != 0
+
+  if magnitude <= streamMaxExactMagnitude(T.self) {
+    let unsigned = T(magnitude)
+    let significand = negative ? -unsigned : unsigned
+    if exponent == 0 { return significand }
+    let index = exponent < 0 ? -exponent : exponent
+    if index <= streamMaxExactPow10(T.self) {
+      let scale = T(streamExactPow10(index))
+      // Split so a corpus with only negative exponents does not execute an fdiv
+      // for its positive-exponent path as well. No redundant init(exactly:) calls.
+      if exponent >= 0 {
+        let value = significand * scale
+        // Exact operands can still produce an overflowing product (e.g. Float16).
+        return value.isFinite ? value : nil
+      }
+      return significand / scale
+    }
+  }
+
+  if let value = convertDecimal(magnitude, exponent, negative) { return value }
+  return streamParseFloatingPointFallback(bytes, as: T.self)
 }
 
 @usableFromInline
@@ -186,6 +154,12 @@ func streamParseFloatingPointFallback<T: BinaryFloatingPoint & LosslessStringCon
   text.reserveCapacity(bytes.count)
   for i in 0..<bytes.count {
     text.unicodeScalars.append(Unicode.Scalar(bytes[i]))
+  }
+  // Swift's Float16 string initializer can parse through Float and round twice.
+  // The binary16 fallback uses Double, resolving exact midpoint ambiguities
+  // against the original decimal digits before constructing the destination.
+  if T.significandBitCount == 10, T.exponentBitCount == 5 {
+    return streamParseHalfFallback(bytes, text: text, as: T.self)
   }
   // JSON has no infinity, and a token that scales past the type's range is out of range rather
   // than infinite, which is what the registration based parser reported too.

@@ -15,55 +15,50 @@ package var streamPow10MaxExponent: Int { Int(STREAM_PARSING_POW10_128_MAX_EXPON
 
 // MARK: - Binary format
 
-// The destination's constants. Three derive from `significandBitCount`/`exponentBitCount` via the
-// defaults below; the round-to-even window and subnormal cutoff are stated per format, as in
-// fast_float. All fold to immediates: `streamEiselLemire<Double>` must stay instruction for
-// instruction the hand-written `Double` kernel.
-@usableFromInline
-protocol StreamBinaryFormat: BinaryFloatingPoint {
-  // The raw bit pattern of the format: `UInt64` for `Double`, `UInt32` for `Float`.
-  associatedtype StreamBits: FixedWidthInteger & UnsignedInteger
-
-  // Explicit (stored) mantissa bits: 52 / 23. The implicit leading one is not counted.
-  static var streamMantissaBits: Int { get }
-  // The exponent of the smallest normal, i.e. `-bias`: -1023 / -127.
-  static var streamMinExponent: Int { get }
-  // The all-ones biased exponent: 0x7FF / 0xFF. A computed power at or above it overflows.
-  static var streamInfinitePower: Int { get }
-  // The decimal exponent window where an exact halfway value is possible and the (mantissa + 3)-bit
-  // approximation cannot separate the rounding: fast_float's `min/max_exponent_round_to_even`.
-  static var streamMinRoundToEven: Int { get }
-  static var streamMaxRoundToEven: Int { get }
-  // The largest decimal exponent at which a subnormal result is possible: the arm needs
-  // `floor(q * log2(10)) <= streamMinExponent` (worst case 63 leading zeros), so q <= -308 for
-  // `Double` and q <= -38 for `Float`. Above it the ordinary path skips that arm entirely.
-  static var streamSubnormalCutoff: Int { get }
-
-  static func streamFromBits(_ bits: StreamBits) -> Self
-}
-
-extension StreamBinaryFormat {
-  // The bias is `2^(exponentBitCount - 1) - 1`, so the smallest normal's exponent is its negation
-  // and the all-ones biased exponent is `2^exponentBitCount - 1`.
-  @inlinable static var streamMantissaBits: Int { Self.significandBitCount }
+// BinaryFloatingPoint describes the logical encoding, including Float80's implicit
+// leading bit at this API boundary. None of these require a packed storage word.
+// On specialization the format constants and RawExponent/RawSignificand conversions
+// must fold away; the Double/Float kernels should remain scalar integer arithmetic.
+extension BinaryFloatingPoint {
+  // Negative bias, not the exponent of the smallest normal (which is 1 - bias).
   @inlinable static var streamMinExponent: Int { -((1 << (Self.exponentBitCount &- 1)) &- 1) }
   @inlinable static var streamInfinitePower: Int { (1 << Self.exponentBitCount) &- 1 }
+
+  // Keep fast_float's tight windows for the existing 53/24-bit paths. Other
+  // precisions conservatively decline every potentially ambiguous halfway value.
+  // This changes coverage, never rounding, and keeps implementation knobs internal.
+  @inlinable static var streamMinRoundToEven: Int {
+    switch Self.significandBitCount {
+    case 52: -4
+    case 23: -17
+    default: streamPow10MinExponent
+    }
+  }
+  @inlinable static var streamMaxRoundToEven: Int {
+    switch Self.significandBitCount {
+    case 52: 23
+    case 23: 10
+    default: streamPow10MaxExponent
+    }
+  }
+
+  // floor((1 - bias) * log10(2)): -308 / -38 / -5 for Double/Float/Float16.
+  // If the bias exceeds the table's binary range, this cutoff is below every row.
+  @inlinable static var streamSubnormalCutoff: Int {
+    ((Self.streamMinExponent &+ 1) &* 19_728) >> 16
+  }
 }
 
-extension Double: StreamBinaryFormat {
-  @inlinable static var streamMinRoundToEven: Int { -4 }
-  @inlinable static var streamMaxRoundToEven: Int { 23 }
-  @inlinable static var streamSubnormalCutoff: Int { -308 }
-  @inlinable
-  static func streamFromBits(_ bits: UInt64) -> Double { Double(bitPattern: bits) }
-}
-
-extension Float: StreamBinaryFormat {
-  @inlinable static var streamMinRoundToEven: Int { -17 }
-  @inlinable static var streamMaxRoundToEven: Int { 10 }
-  @inlinable static var streamSubnormalCutoff: Int { -38 }
-  @inlinable
-  static func streamFromBits(_ bits: UInt32) -> Float { Float(bitPattern: bits) }
+@inlinable
+@inline(__always)
+func streamFloatFromParts<T: BinaryFloatingPoint>(
+  negative: Bool, power: Int, mantissa: UInt64, as type: T.Type
+) -> T {
+  T(
+    sign: negative ? .minus : .plus,
+    exponentBitPattern: T.RawExponent(truncatingIfNeeded: power),
+    significandBitPattern: T.RawSignificand(truncatingIfNeeded: mantissa)
+  )
 }
 
 // MARK: - Kernel
@@ -95,19 +90,24 @@ package func streamPowerOfTwoExponent(_ exponent: Int) -> Int {
 }
 
 @inlinable
-func streamEiselLemire<T: StreamBinaryFormat>(
+func streamEiselLemire<T: BinaryFloatingPoint>(
   magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
 ) -> T? {
   // Every one of these folds to an immediate once `T` is known.
-  let mantissaBits = T.streamMantissaBits
-  let signBit: T.StreamBits = negative ? (1 << (T.StreamBits.bitWidth &- 1)) : 0
+  let mantissaBits = T.significandBitCount
+  if magnitude == 0 { return negative ? -T.zero : T.zero }
+  guard exponent >= streamPow10MinExponent, exponent <= streamPow10MaxExponent,
+    mantissaBits >= 1, mantissaBits <= 63,
+    T.exponentBitCount >= 2, T.exponentBitCount < Int.bitWidth - 16
+  else { return nil }
 
-  if magnitude == 0 || exponent < streamPow10MinExponent {
-    // Only a zero significand is zero here; a nonzero value below the table floor declines, like
-    // one above the ceiling.
-    return magnitude == 0 ? T.streamFromBits(signBit) : nil
+  // The narrow kernel needs mantissa + 3 bits in one word. The 63/64-bit
+  // precision path retains all three words of the product instead.
+  if mantissaBits >= 62 {
+    return streamEiselLemireWide(
+      magnitude: magnitude, exponent: exponent, negative: negative, as: T.self
+    )
   }
-  guard exponent <= streamPow10MaxExponent else { return nil }
 
   let leadingZeros = magnitude.leadingZeroBitCount
   let normalized = magnitude << UInt64(leadingZeros)
@@ -130,16 +130,16 @@ func streamEiselLemire<T: StreamBinaryFormat>(
       streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- T.streamMinExponent
     if subnormalPower2 <= 0 {
       // Subnormal, or rounds to zero: the mantissa takes the shift the exponent cannot express.
-      guard -subnormalPower2 &+ 1 < 64 else { return T.streamFromBits(signBit) }
+      guard -subnormalPower2 &+ 1 < 64 else { return negative ? -T.zero : T.zero }
       mantissa >>= UInt64(-subnormalPower2 &+ 1)
       mantissa &+= mantissa & 1
       mantissa >>= 1
       // Rounding up out of the subnormal range lands on the smallest normal (biased exponent one),
       // and the carried value already has exactly the right low bits.
-      let biased: UInt64 = mantissa < (1 << UInt64(mantissaBits)) ? 0 : 1
-      return T.streamFromBits(
-        signBit
-          | T.StreamBits(truncatingIfNeeded: (biased << UInt64(mantissaBits)) | mantissa)
+      let biased = mantissa < (1 << UInt64(mantissaBits)) ? 0 : 1
+      return streamFloatFromParts(
+        negative: negative, power: biased,
+        mantissa: mantissa & ((1 << UInt64(mantissaBits)) &- 1), as: T.self
       )
     }
   }
@@ -160,11 +160,103 @@ func streamEiselLemire<T: StreamBinaryFormat>(
   }
   guard power2 < T.streamInfinitePower else { return nil }
   mantissa &= ~(1 << UInt64(mantissaBits))
-  return T.streamFromBits(
-    // `power2` is proven positive; truncating avoids a sign check leading to an unreachable trap.
-    signBit
-      | T.StreamBits(
-        truncatingIfNeeded: (UInt64(truncatingIfNeeded: power2) << UInt64(mantissaBits)) | mantissa
-      )
+  return streamFloatFromParts(
+    negative: negative, power: power2, mantissa: mantissa, as: T.self
+  )
+}
+
+// MARK: - 63/64-bit precision
+
+// Exact 64 x 128 -> 192-bit multiplication of the normalized significand and
+// truncated table row. The narrow path omits the bottom word and usually the
+// second multiply; Float80 needs them to separate rounding at 64-bit precision.
+@inlinable
+@inline(__always)
+package func streamPow10WideProduct(
+  _ exponent: Int, _ significand: UInt64
+) -> (high: UInt64, middle: UInt64, low: UInt64) {
+  let index = 2 &* (exponent &- streamPow10MinExponent)
+  let table = stream_parsing_pow10_128().unsafelyUnwrapped
+  let (firstHigh, firstLow) = significand.multipliedFullWidth(by: table[index])
+  let (secondHigh, secondLow) = significand.multipliedFullWidth(by: table[index &+ 1])
+  let (middle, carried) = firstLow.addingReportingOverflow(secondHigh)
+  return (carried ? firstHigh &+ 1 : firstHigh, middle, secondLow)
+}
+
+// Round a 192-bit integer after a shift of 127, 128, or 129: the precision window
+// for normal values with 63/64-bit precision. Keep a carry separately so rounding
+// to 2^64 can advance the exponent.
+@inlinable
+@inline(__always)
+func streamRoundWideProduct(
+  high: UInt64, middle: UInt64, low: UInt64, shift: Int
+) -> (mantissa: UInt64, carried: Bool) {
+  let mantissa: UInt64
+  let roundBit: UInt64
+  let sticky: Bool
+  if shift == 127 {
+    mantissa = (high << 1) | (middle >> 63)
+    roundBit = (middle >> 62) & 1
+    sticky = middle & ((1 << 62) &- 1) != 0 || low != 0
+  } else if shift == 128 {
+    mantissa = high
+    roundBit = middle >> 63
+    sticky = middle & (UInt64.max >> 1) != 0 || low != 0
+  } else {
+    mantissa = high >> 1
+    roundBit = high & 1
+    sticky = middle != 0 || low != 0
+  }
+  let rounded = mantissa.addingReportingOverflow(roundBit & ((sticky ? 1 : 0) | (mantissa & 1)))
+  return (rounded.partialValue, rounded.overflow)
+}
+
+@inlinable
+func streamEiselLemireWide<T: BinaryFloatingPoint>(
+  magnitude: UInt64, exponent: Int, negative: Bool, as type: T.Type
+) -> T? {
+  let mantissaBits = T.significandBitCount
+  let leadingZeros = magnitude.leadingZeroBitCount
+  let normalized = magnitude << leadingZeros
+  let product = streamPow10WideProduct(exponent, normalized)
+  let upperBit = Int(product.high >> 63)
+  var power2 =
+    streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- T.streamMinExponent
+  // Every Float80 result in the shared table is normal. Other wide formats
+  // use the complete-token fallback for subnormals instead of extending the
+  // three rounding shifts above to cover their entire exponent range.
+  guard power2 > 0 else { return nil }
+  let shift = 190 &+ upperBit &- mantissaBits
+  let rounded = streamRoundWideProduct(
+    high: product.high, middle: product.middle, low: product.low, shift: shift
+  )
+
+  // A normalized row C bounds the true power by C <= power < C + 1,
+  // hence P <= normalized * power < P + normalized. Accept only if BOTH
+  // endpoints round to the same result rather than guessing at table truncation.
+  // Rows 0...55 are exact (5^55 fits in 128 bits), so exact ties can round even.
+  if exponent < 0 || exponent > 55 {
+    let (upperLow, lowCarry) = product.low.addingReportingOverflow(normalized)
+    let (upperMiddle, middleCarry) = product.middle.addingReportingOverflow(lowCarry ? 1 : 0)
+    let (upperHigh, highCarry) = product.high.addingReportingOverflow(middleCarry ? 1 : 0)
+    guard !highCarry else { return nil }
+    let upperRounded = streamRoundWideProduct(
+      high: upperHigh, middle: upperMiddle, low: upperLow, shift: shift
+    )
+    guard rounded == upperRounded else { return nil }
+  }
+
+  var mantissa = rounded.mantissa
+  let implicitBit: UInt64 = 1 << mantissaBits
+  if rounded.carried {
+    mantissa = implicitBit
+    power2 &+= 1
+  } else if mantissaBits < 63, mantissa >= (implicitBit << 1) {
+    mantissa >>= 1
+    power2 &+= 1
+  }
+  guard power2 < T.streamInfinitePower else { return nil }
+  return streamFloatFromParts(
+    negative: negative, power: power2, mantissa: mantissa & (implicitBit &- 1), as: T.self
   )
 }

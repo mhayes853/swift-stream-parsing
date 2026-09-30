@@ -26,6 +26,11 @@ func streamExactPow10(_ exponent: Int) -> Double {
 @inlinable
 @inline(__always)
 func streamMaxExactPow10<T: BinaryFloatingPoint>(_ type: T.Type) -> Int {
+  // Extensible formats can report Int.max precision. Decline the exact path
+  // when its metadata cannot be represented safely in these machine-word bounds.
+  guard T.significandBitCount >= 1, T.significandBitCount < Int.max / 28_225 - 1,
+    T.exponentBitCount >= 2, T.exponentBitCount < Int.bitWidth - 16
+  else { return -1 }
   let byMantissa = ((T.significandBitCount &+ 1) &* 28225) >> 16
   // Explicit `Int`: inferred, the Embedded (wasm) toolchain typed this `Int128` and rejected `min`.
   let emax: Int = (1 << (T.exponentBitCount &- 1)) &- 1
@@ -38,6 +43,11 @@ func streamMaxExactPow10<T: BinaryFloatingPoint>(_ type: T.Type) -> Int {
 @inlinable
 @inline(__always)
 func streamMaxExactMagnitude<T: BinaryFloatingPoint>(_ type: T.Type) -> UInt64 {
-  let bits = T.significandBitCount &+ 1
+  guard T.significandBitCount >= 1,
+    T.exponentBitCount >= 2, T.exponentBitCount < Int.bitWidth - 16
+  else { return 0 }
+  let bias = (1 << (T.exponentBitCount &- 1)) &- 1
+  // The exact integer limit must also be finite for formats with a narrow exponent.
+  let bits = min(T.significandBitCount, bias &- 1) &+ 1
   return bits >= 64 ? UInt64.max : (1 << UInt64(bits))
 }

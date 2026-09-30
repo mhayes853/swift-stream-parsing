@@ -8072,6 +8072,10 @@ name.
 
 #### `streamEiselLemireAny`: a guarded bridge, not `.map`
 
+The public `StreamFastFloatConvertible` protocol now replaces this bridge; see
+"Extensible fast decimal conversion" below. The notes here describe the preceding
+Float/Double-only implementation and why its generic bridge avoided `.map`.
+
 The same generic float conversion is an extension constrained on protocols this package does not own
 (`BinaryFloatingPoint`, `LosslessStringConvertible`), so it cannot require the `StreamBinaryFormat`
 conformance the Eisel-Lemire kernel needs. `streamEiselLemireAny` asks with a type test
@@ -8414,3 +8418,95 @@ single exit forms the one view with `_overrideLifetime(T.streamView(address), bo
 `_overrideLifetime`, because raw pointers carry no provenance for `@_lifetime(borrow storage)` to
 chain through two hops. New `View`-returning generic APIs should keep this shape until 6.3 is
 dropped.
+
+#### Extensible fast decimal conversion
+
+`StreamFastFloatConvertible` inherits `BinaryFloatingPoint`, `LosslessStringConvertible`,
+and `StreamNumberConvertible`. Its only new requirement is
+`streamConvertDecimal(magnitude:exponent:negative:) -> Self?`; `nil` asks the initializer
+for a complete-token fallback. The initializer owns Clinger's exact path, accumulator
+validation, and fallback. Concrete calls specialize the conversion closure away. The
+old convenience initializer remains available to nonconformers.
+
+The shared Eisel–Lemire kernel now constructs the logical sign, exponent, and significand
+through `BinaryFloatingPoint` rather than requiring a packed storage word or identifying
+Float/Double. It supports 2–64 bits of precision. `Float16`, `Float`, `Double`, and
+`Float80` have the scalar and streaming conformances where the standard library exposes
+them. Clinger's positive-exponent result is checked for finiteness: exact operands can
+still overflow binary16.
+
+Float80 retains the existing 10^-342...10^308 table. Its precision needs all three UInt64
+words of the 64-by-128-bit product. Exact rows (0...55) round ties directly to even;
+truncated rows bound the exact product between P and P + normalizedMagnitude and accept
+only when both endpoints round alike. Every Float80 result in this table is normal;
+other wide formats use the complete-token fallback for subnormals. Inputs outside the
+table also decline to the existing string fallback. Production conversion uses no
+UInt128 arithmetic.
+
+Binary16 needs an internal fallback correction: Swift's Float16 string initializer can
+round through Float, giving -131.75 for -131.68749999999994 instead of -131.625. The cold
+fallback parses through Double and compares the original decimal digits with an exact
+midpoint expansion whenever wider parsing lands on a half-precision tie. The hot Float
+and Double paths do not execute this code.
+
+Swift 6.3.3 optimized assembly inspection found no closure allocation, metadata lookup,
+or protocol dispatch in the specialized Float/Double initializers. Their kernels remain
+call-free. On x86_64, whole specialized kernel instruction counts changed from 113 to 125
+for Double and 115 to 112 for Float; Double's logical constructor adds masks and register
+preservation. Cross-compiled ARM64 Embedded kernels changed from 104 to 94 and 105 to 92,
+respectively, with no spills or calls and logical field construction using bit-field
+inserts. These counts describe generated code, not measured ARM throughput.
+
+Validation includes 1,017 passing tests, a distinct bfloat16 conformance with a public hook
+override reached through scalar parsing, every finite binary16 encoding, and 95,232 long
+decimal checks around every positive binary16 midpoint (including overflow). Float80
+checks cover the table, exact ties, extreme exponents, subnormals, and real Canada/Mesh
+corpora. The Embedded WebAssembly smoke executable also builds and runs.
+
+Throughput was measured on the x86_64 Intel i7-10710U host with Swift 6.3.3 release
+executables and the benchmark package's runtime interposers. The preserved pre-change
+executable and the updated executable ran the 39 real-data bulk/bulk-discarding cases;
+that broad comparison had a +0.8% geometric mean with substantial per-row variation.
+Repeating ten representative cases in before/after/after/before order gave the following
+geometric means of each pair of p50 payload-throughput measurements:
+
+| Real payload | Mode | Before MB/s | After MB/s | Change |
+| --- | --- | ---: | ---: | ---: |
+| CITM catalog | bulk | 1638.5 | 1559.0 | -4.9% |
+| CITM catalog | bulk discarding | 595.0 | 588.0 | -1.2% |
+| Canada | bulk | 529.0 | 552.0 | +4.3% |
+| Canada | bulk discarding | 342.0 | 336.0 | -1.8% |
+| Mesh | bulk | 566.5 | 600.0 | +5.9% |
+| Mesh | bulk discarding | 352.5 | 364.0 | +3.3% |
+| Qwen 3 search tool call | bulk | 464.0 | 444.5 | -4.2% |
+| Qwen 3 search tool call | bulk discarding | 112.0 | 106.5 | -4.9% |
+| Twitter | bulk | 1210.0 | 1225.0 | +1.2% |
+| Twitter | bulk discarding | 1358.0 | 1368.5 | +0.8% |
+
+The repeated comparison's aggregate is -0.2%, with individual cases from -4.9% to
++5.9%. It demonstrates mixed end-to-end effects, including regressions; instruction
+counts alone do not establish a performance improvement. ARM64 code generation was
+inspected, but ARM hardware throughput was not measured.
+
+The simplification pass removes 62 production lines without changing the public API.
+Binary16 fallback now uses one midpoint calculation for ordinary values and overflow;
+its exact decimal expansion uses a fixed 2^25 denominator. Wide rounding handles only
+normal values, so it needs shifts 127, 128, and 129 rather than general 192-bit shifts.
+The shared Float80 table never reaches subnormals; other wide formats decline those
+values to the complete-token fallback. Clinger checks the resulting product directly
+instead of predicting overflow from format metadata. The parser passes its conversion
+requirement as a method reference instead of wrapping it in a closure.
+
+All 1,017 tests and the Embedded WebAssembly smoke build/run still pass. Compared with
+the preceding implementation, the Float/Double Eisel–Lemire instruction sequences are
+identical on x86_64 and ARM64. The native Float80 specialization drops from 203 to 123
+instructions and becomes call-free. Release parser disassembly also confirms the method
+reference introduces no allocation, metadata lookup, or indirect conversion call.
+
+The release real-data suite was rerun after simplification. An alternating
+before/after/after/before comparison of the same ten representative cases against
+the pre-simplification executable gives a -0.1% geometric mean, with per-case
+changes from -1.2% to +1.8%. Typed Canada changes by
+-0.6% and typed Mesh by -1.2%. This comparison measures the simplification
+only; the earlier table compares the initial protocol implementation with the original
+Float/Double-only implementation.

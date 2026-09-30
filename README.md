@@ -95,6 +95,34 @@ extension Profile: StreamParsingCore.StreamParseable {
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
 
+### Custom floating-point types
+
+`Float`, `Double`, `Float16`, and `Float80` (where available) support fast decimal
+conversion through `StreamFastFloatConvertible`. A custom type implementing
+`BinaryFloatingPoint` and `LosslessStringConvertible` can opt into the same conversion:
+
+```swift
+extension BFloat16: StreamFastFloatConvertible {}
+```
+
+The default number initializer tries Clinger's exact path, then Eisel–Lemire, then
+the internal fallback using the complete token. That fallback normally uses the
+type's string initializer; binary16 formats get exact midpoint checks to avoid
+the standard library's intermediate `Float` rounding. The default Eisel–Lemire
+kernel supports 2–64 bits of precision and decimal exponents from -342 through 308.
+`Float80` uses wider intermediate arithmetic within that range and the string fallback
+outside it. Results are rounded directly to the destination format, preserving signed
+zero; values that overflow to infinity are rejected.
+
+Types can override `static func streamConvertDecimal(magnitude: UInt64, exponent: Int,
+negative: Bool) -> Self?` to supply their own fast conversion. Returning `nil` requests
+the internal fallback. Significands that overflow the parser's accumulator bypass the
+fast conversion and use the complete token.
+
+To use the type as a scalar parse target or an `@StreamParseable` member, also conform
+it to `StreamInitializable`, `StreamParseableRoot`, and `StreamParseable`; their existing
+defaults supply zero initialization and scalar parsing.
+
 ### Key names
 
 Each member is read from the key it's named after. `keyDecodingStrategy` derives the keys from the names instead, like `JSONDecoder`'s, and `@StreamParseableMember` names a member's keys outright, which no strategy converts:

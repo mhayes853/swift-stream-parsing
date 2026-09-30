@@ -135,11 +135,13 @@ struct `Float conversion differential tests` {
   // the differential above may not reach.
   @Test
   func `The Float binary format constants describe Float`() {
-    #expect(Float.streamMantissaBits == Float.significandBitCount)
     #expect(Float.streamMinExponent == -((1 << (Float.exponentBitCount - 1)) - 1))
     #expect(Float.streamInfinitePower == (1 << Float.exponentBitCount) - 1)
     #expect(
-      Float.streamFromBits(Float.greatestFiniteMagnitude.bitPattern) == .greatestFiniteMagnitude
+      streamFloatFromParts(
+        negative: false, power: Int(Float.greatestFiniteMagnitude.exponentBitPattern),
+        mantissa: UInt64(Float.greatestFiniteMagnitude.significandBitPattern), as: Float.self
+      ) == .greatestFiniteMagnitude
     )
     // `10^k` is exact in Float up to k = 10 (5^10 < 2^24) and not beyond.
     #expect(streamMaxExactPow10(Float.self) == 10)

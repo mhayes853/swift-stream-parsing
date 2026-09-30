@@ -338,9 +338,42 @@ func checkSchemaCache() {
   precondition(StreamSchemaCache.shared.count == 0)
 }
 
+// The public fast conversion must specialize and link without dynamic casts or
+// a String fallback. Checking encodings also distinguishes positive/negative zero.
+@inline(never)
+func checkFastFloat<T: StreamFastFloatConvertible>(
+  _ type: T.Type, magnitude: UInt64, exponent: Int, negative: Bool, expected: T
+) {
+  let value = T.streamConvertDecimal(magnitude: magnitude, exponent: exponent, negative: negative)
+  precondition(value != nil)
+  precondition(value!.sign == expected.sign)
+  precondition(value!.exponentBitPattern == expected.exponentBitPattern)
+  precondition(value!.significandBitPattern == expected.significandBitPattern)
+}
+
 @main
 struct EmbeddedSmoke {
   static func main() {
+    checkFastFloat(
+      Double.self, magnitude: 314_159_265_358_979, exponent: -14,
+      negative: false, expected: 3.14159265358979
+    )
+    checkFastFloat(
+      Float.self, magnitude: 314_159_265_358_979, exponent: -14,
+      negative: false, expected: Float(bitPattern: 0x4049_0FDB)
+    )
+    #if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
+      if #available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) {
+        checkFastFloat(
+          Float16.self, magnitude: 314_159_265_358_979, exponent: -14,
+          negative: false, expected: Float16(bitPattern: 0x4248)
+        )
+      }
+    #endif
+    checkFastFloat(
+      Double.self, magnitude: 0, exponent: Int.min,
+      negative: true, expected: Double(bitPattern: 1 << 63)
+    )
     checkCompletedConversions()
     checkDelegatedRoutes()
     checkSchemaCache()
