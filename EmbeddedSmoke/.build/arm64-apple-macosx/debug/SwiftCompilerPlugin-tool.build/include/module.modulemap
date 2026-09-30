@@ -1,3 +1,0 @@
-module SwiftCompilerPlugin {
-    header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftCompilerPlugin-tool.build/include/SwiftCompilerPlugin-Swift.h"
-}

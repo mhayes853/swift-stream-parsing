@@ -1,3 +1,0 @@
-module SwiftDiagnostics {
-    header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftDiagnostics-tool.build/include/SwiftDiagnostics-Swift.h"
-}

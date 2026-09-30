@@ -1,3 +1,0 @@
-module SwiftSyntaxBuilder {
-    header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntaxBuilder-tool.build/include/SwiftSyntaxBuilder-Swift.h"
-}

@@ -1,4 +1,0 @@
-module StreamParsingCore {
-header "StreamParsingCore-Swift.h"
-export *
-}

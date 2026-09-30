@@ -2,6 +2,7 @@
 /.build
 /Benchmarks/.build
 /SmokeTests/.build
+/EmbeddedSmoke/.build
 /SmokeTests/MacroSupport/.build
 # Alternate scratch paths, e.g. `--scratch-path .build-64` for building against a second
 # toolchain side by side with the default one.

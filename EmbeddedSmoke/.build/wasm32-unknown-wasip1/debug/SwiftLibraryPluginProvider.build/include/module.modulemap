@@ -1,3 +1,0 @@
-module SwiftLibraryPluginProvider {
-    header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/include/SwiftLibraryPluginProvider-Swift.h"
-}

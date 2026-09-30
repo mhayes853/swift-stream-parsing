@@ -1,2 +1,0 @@
-Apple Swift version 6.3.2 (swift-6.3.2-RELEASE)
-Target: arm64-apple-macosx28.0
