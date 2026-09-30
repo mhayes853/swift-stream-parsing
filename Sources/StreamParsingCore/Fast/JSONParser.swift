@@ -67,10 +67,13 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline static let maximumDepth = 64
 
-  // Field order is a cache-line decision: everything a parse touches is in the first 64 bytes, the
-  // tail holds deinit-only state and the block walk's switch. Small fields are narrowed, not
-  // bit-packed -- packing would make plain stores read-modify-writes and break the fused `strh`
-  // for the two flags below.
+  // Exactly 64 bytes with no padding left: one line on a 64-byte-line CPU when the parser happens
+  // to sit 64-byte aligned, and at most one line crossing otherwise (Apple lines are 128 bytes).
+  // Measured on M1 Pro: a split-line access costs nothing once the line is in L1, which the parser
+  // always is mid-parse, so the size -- not the line -- is what a new field would cost: it grows
+  // the struct `parse`'s prologue copies and shifts the sink after it in `PartialsStream`. Small
+  // fields are narrowed, not bit-packed -- packing would make plain stores read-modify-writes and
+  // break the fused `strh` for the two flags below.
   @usableFromInline var state = State.value
   // Whether the string being read is a key; the escape and unicode states are shared. `bufferCount
   // > 0` cannot stand in: a key whose first character is an escape has buffered nothing yet.
@@ -89,15 +92,31 @@ public struct JSONParser: ~Copyable {
   // `fuseNumberRun`'s indentation prediction, kept across calls: an indented array of arrays
   // (`[\n  [\n    x,\n    y\n  ],`) enters it once per inner array, and a prediction that
   // started from zero each time missed on every call (indented pairs -7.2% raw). Any value is
-  // correct; a stale one costs one miss. At offset 9, the padding byte: any new one-byte field
-  // belongs here. Measured: anywhere earlier shifts `literalKind`/`literalIndex` to offset 5/6 and
-  // the literal path's fused halfword store stops being two-byte aligned -- every
-  // `consumeStructuralRun` specialisation turned `strh` into `sturh`.
+  // correct; a stale one costs one miss. At offset 9. Measured: a new field anywhere earlier
+  // shifts `literalKind`/`literalIndex` to offset 5/6 and the literal path's fused halfword store
+  // stops being two-byte aligned -- every `consumeStructuralRun` specialisation turned `strh` into
+  // `sturh`.
   @usableFromInline var numberRunIndent: UInt8 = 0
 
   // Four hex digits and a surrogate half: sixteen bits each, exactly.
   @usableFromInline var unicodeValue: UInt16 = 0
   @usableFromInline var highSurrogate: UInt16 = 0
+
+  // Offsets 14 and 15, the bytes `bufferCount`'s alignment would otherwise pad: declared here
+  // rather than after `consumedByteCount`, where they made the parser 66 bytes. `ownsBuffer` is
+  // read by `deinit` alone; the block switch once per structural run of 64 bytes or more.
+  @usableFromInline var ownsBuffer: Bool
+
+  #if arch(x86_64)
+    // The structural block path's switch in bit 0 and this CPU's block classifiers (AVX2,
+    // PCLMULQDQ, POPCNT) in bit 1, copied from the process-wide probe once per parser. One byte,
+    // not two `Bool`s: this is the struct's last free byte.
+    @usableFromInline var blockPathBits: UInt8 = streamHasAVX2BlockKernels ? 0b11 : 0b01
+  #else
+    // The structural run's block path (JSONParserBlocks.swift), on by default; off makes the
+    // scalar ladder the whole run, which is the oracle `StructuralBlockWalkTests` holds it to.
+    @usableFromInline package var blockWalkEnabled = true
+  #endif
 
   // Split out of `UnsafeMutableBufferPointer` so the capacity sits next to the count the append
   // guard compares it against: one 8-byte load answers both. `init(buffer:)` rejects anything larger.
@@ -117,20 +136,14 @@ public struct JSONParser: ~Copyable {
 
   @usableFromInline var consumedByteCount = 0
 
-  // ---- Past the first cache line: nothing below is read by a parse.
-
-  @usableFromInline var ownsBuffer: Bool
-
-  // The structural run's block path (JSONParserBlocks.swift), on by default; off makes the scalar
-  // ladder the whole run, which is the oracle `StructuralBlockWalkTests` holds it to. Declared here
-  // because the bytes after `ownsBuffer` are padding: anywhere else grows `JSONParser`, which
-  // `parse`'s prologue copies by value (measured: two instructions per specialisation).
-  @usableFromInline package var blockWalkEnabled = true
-
   // Whether this CPU has the block classifiers both 64-byte block paths need: the constant `true`
-  // on arm64, a byte copied from the process-wide probe once per parser on x86.
+  // on arm64, bit 1 of `blockPathBits` on x86 (where the walk's switch is bit 0).
   #if arch(x86_64)
-    @usableFromInline package var blockKernelsAvailable = streamHasAVX2BlockKernels
+    @inlinable package var blockWalkEnabled: Bool {
+      get { self.blockPathBits & 0b01 != 0 }
+      set { self.blockPathBits = newValue ? self.blockPathBits | 0b01 : self.blockPathBits & 0b10 }
+    }
+    @inlinable package var blockKernelsAvailable: Bool { self.blockPathBits & 0b10 != 0 }
   #elseif arch(arm64)
     @inlinable package var blockKernelsAvailable: Bool { true }
   #else
@@ -396,7 +409,8 @@ public struct JSONParser: ~Copyable {
     #elseif arch(x86_64)
       // The block copy is a call, not a second inlined body -- measured: both inlined moved `self`
       // out of `r14` and cost `Mesh - bulk` -7.8% against -2.5%.
-      if to &- from >= 64, self.blockWalkEnabled && self.blockKernelsAvailable {
+      // Both bits of `blockPathBits` in one compare: the switch is on and the CPU has the kernels.
+      if to &- from >= 64, self.blockPathBits == 0b11 {
         return try self.consumeStructuralRunBlocks(base: base, from: from, to: to, into: &sink)
       }
     #endif
