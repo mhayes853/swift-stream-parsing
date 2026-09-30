@@ -54,8 +54,12 @@ private func checkFastFloatKernel<T: StreamFastFloatConvertible>(
   @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
   @StreamParseable
   private struct HalfFloatFields {
-    var scalar: Float16 = 0
+    // `optional` stays ahead of `scalar`: a `Float16` stored property directly followed by a
+    // two-byte optional (`Float16?`, `Int16?`) gets an overlapping native-convention lowering on
+    // x86_64, which trips `!paddingSize.isNegative()` in IRGen under assertion toolchains and
+    // miscompiles the tail under release ones. Swift 6.3.x and 6.4 nightly are both affected.
     var optional: Float16?
+    var scalar: Float16 = 0
     var array: [Float16] = []
     var dictionary: [String: Float16] = [:]
   }
