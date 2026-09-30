@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/SwiftSyntaxMacrosTestSupport.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/SwiftSyntaxMacrosTestSupport.o",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/checkouts/swift-syntax/Sources/SwiftSyntaxMacrosTestSupport/Assertions.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/Assertions.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/Assertions~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/Assertions.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftSyntaxMacrosTestSupport.build/Assertions.dia"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/UInt8+ASCIIConstants.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UInt8+ASCIIConstants.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UInt8+ASCIIConstants.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UInt8+ASCIIConstants.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UInt8+ASCIIConstants.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UInt8+ASCIIConstants.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/UTF8State.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UTF8State.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UTF8State.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UTF8State.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UTF8State.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/UTF8State.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/PartialsStream.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialsStream.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialsStream.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialsStream.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialsStream.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialsStream.swiftdeps"
+  }
+}

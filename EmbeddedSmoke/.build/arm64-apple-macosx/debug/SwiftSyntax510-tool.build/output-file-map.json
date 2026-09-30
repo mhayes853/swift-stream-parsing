@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/checkouts/swift-syntax/Sources/VersionMarkerModules/SwiftSyntax510/Empty.swift": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/Empty.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/Empty.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/Empty~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/Empty.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/SwiftSyntax510-tool.build/Empty.dia"
+  }
+}

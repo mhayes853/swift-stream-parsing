@@ -1,0 +1,3 @@
+module StreamParsingCore {
+    header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/include/StreamParsingCore-Swift.h"
+}

@@ -1,0 +1,78 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-stream-parsing",
+          "kind" : "fileSystem",
+          "location" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing",
+          "name" : "swift-stream-parsing"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing"
+        },
+        "subpath" : "swift-stream-parsing"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-syntax",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/swiftlang/swift-syntax",
+          "name" : "swift-syntax"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
+            "version" : "602.0.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-syntax"
+      }
+    ],
+    "prebuilts" : [
+      {
+        "cModules" : [
+
+        ],
+        "checkoutPath" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/checkouts/swift-syntax",
+        "identity" : "swift-syntax",
+        "includePath" : [
+          "Sources/_SwiftSyntaxCShims/include",
+          "Sources/_SwiftLibraryPluginProviderCShims/include"
+        ],
+        "libraryName" : "MacroSupport",
+        "path" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/prebuilts/swift-syntax/602.0.0/swiftlang-6.4.0.25.4-macosx27.0-MacroSupport",
+        "products" : [
+          "swift-syntaxPackageTests",
+          "SwiftBasicFormat",
+          "SwiftCompilerPlugin",
+          "SwiftDiagnostics",
+          "SwiftIDEUtils",
+          "SwiftIfConfig",
+          "SwiftLexicalLookup",
+          "SwiftOperators",
+          "SwiftParser",
+          "SwiftParserDiagnostics",
+          "SwiftRefactor",
+          "SwiftSyntax",
+          "SwiftSyntaxBuilder",
+          "SwiftSyntaxMacros",
+          "SwiftSyntaxMacroExpansion",
+          "SwiftSyntaxMacrosTestSupport",
+          "SwiftSyntaxMacrosGenericTestSupport",
+          "_SwiftCompilerPluginMessageHandling",
+          "_SwiftLibraryPluginProvider"
+        ],
+        "version" : "602.0.0"
+      }
+    ]
+  },
+  "version" : 7
+}

@@ -1,0 +1,11 @@
+{
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/AsyncSequence+Partials.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.dia",
+    "objc-header" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-Swift.h",
+    "swiftdoc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Modules/StreamParsingCore.swiftdoc",
+    "swiftmodule" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Modules/StreamParsingCore.swiftmodule",
+    "swiftsourceinfo" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Modules/StreamParsingCore.swiftsourceinfo"
+  }
+}

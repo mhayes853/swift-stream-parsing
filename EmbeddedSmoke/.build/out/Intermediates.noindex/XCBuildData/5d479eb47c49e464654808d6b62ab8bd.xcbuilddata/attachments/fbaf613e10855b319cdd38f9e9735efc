@@ -1,0 +1,131 @@
+{
+  "" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.dia",
+    "emit-module-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary-emit-module.dia",
+    "pch" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingCore-primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/AsyncSequence+Partials.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/AsyncSequence+Partials.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/AsyncSequence+Partials.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/AsyncSequence+Partials.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/JSONParser.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/JSONParser.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/JSONParser.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/JSONParser.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/PartialSink.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialSink.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialSink.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialSink.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamArray.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamArray.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamArray.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamArray.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamConvertible.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamConvertible.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamConvertible.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamConvertible.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamDictionary.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamDictionary.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamDictionary.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamDictionary.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamFrameEntry.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamFrameEntry.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamFrameEntry.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamFrameEntry.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamParseSink.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseSink.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseSink.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseSink.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamScanners.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamScanners.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamScanners.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamScanners.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamSchema.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamSchema.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamSchema.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamSchema.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamString.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamString.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamString.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamString.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/Pow10.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Pow10.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Pow10.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Pow10.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/String+Capitalized.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/String+Capitalized.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/String+Capitalized.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/String+Capitalized.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/UInt8+ASCIIConstants.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UInt8+ASCIIConstants.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UInt8+ASCIIConstants.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UInt8+ASCIIConstants.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/UTF8State.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UTF8State.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UTF8State.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/UTF8State.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/PartialsStream.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialsStream.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialsStream.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/PartialsStream.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Sequence+Partials.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Sequence+Partials.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Sequence+Partials.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Sequence+Partials.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/StreamParseable.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseable.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseable.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParseable.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/StreamParsingError.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingError.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingError.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StreamParsingError.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/CoreGraphics.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/CoreGraphics.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/CoreGraphics.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/CoreGraphics.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/Foundation.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Foundation.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Foundation.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Foundation.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/StandardLibrary.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StandardLibrary.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StandardLibrary.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/StandardLibrary.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/SwiftCollections.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/SwiftCollections.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/SwiftCollections.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/SwiftCollections.o"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/Tagged.swift" : {
+    "index-unit-output-path" : "/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Tagged.o",
+    "llvm-bc" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Tagged.bc",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug-webassembly-wasm32/StreamParsingCore-t.build/Objects-normal/wasm32/Tagged.o"
+  }
+}

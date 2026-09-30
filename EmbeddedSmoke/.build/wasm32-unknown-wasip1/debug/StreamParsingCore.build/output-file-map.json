@@ -1,0 +1,181 @@
+{
+  "": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingCore.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingCore.o",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/AsyncSequence+Partials.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/AsyncSequence+Partials.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/AsyncSequence+Partials~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/AsyncSequence+Partials.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/AsyncSequence+Partials.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/JSONParser.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/JSONParser.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/JSONParser~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/JSONParser.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/JSONParser.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/PartialSink.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialSink.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialSink~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialSink.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialSink.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamArray.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamArray.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamArray~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamArray.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamArray.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamConvertible.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamConvertible.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamConvertible~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamConvertible.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamConvertible.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamDictionary.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamDictionary.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamDictionary~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamDictionary.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamDictionary.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamFrameEntry.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamFrameEntry.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamFrameEntry~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamFrameEntry.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamFrameEntry.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamInlineString.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamInlineString.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamInlineString~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamInlineString.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamInlineString.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamParseSink.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseSink.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseSink~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseSink.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseSink.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamPointerView.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPointerView.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPointerView~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPointerView.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPointerView.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamScanners.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamScanners.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamScanners~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamScanners.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamScanners.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamSchema.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamSchema.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamSchema~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamSchema.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamSchema.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamString.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamString.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamString~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamString.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamString.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/StreamUTF8Validation.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamUTF8Validation.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamUTF8Validation~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamUTF8Validation.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamUTF8Validation.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/EiselLemire.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/EiselLemire.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/EiselLemire~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/EiselLemire.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/EiselLemire.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/Pow10.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Pow10.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Pow10~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Pow10.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Pow10.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Internal/UInt8+ASCIIConstants.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/UInt8+ASCIIConstants.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/UInt8+ASCIIConstants~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/UInt8+ASCIIConstants.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/UInt8+ASCIIConstants.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/PartialsStream.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialsStream.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialsStream~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialsStream.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/PartialsStream.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Sequence+Partials.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Sequence+Partials.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Sequence+Partials~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Sequence+Partials.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Sequence+Partials.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/StreamParseable.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseable.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseable~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseable.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParseable.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/StreamParsingError.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingError.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingError~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingError.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamParsingError.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/StreamPartialConversion.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPartialConversion.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPartialConversion~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPartialConversion.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StreamPartialConversion.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/CoreGraphics.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/CoreGraphics.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/CoreGraphics~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/CoreGraphics.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/CoreGraphics.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/Foundation.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Foundation.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Foundation~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Foundation.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Foundation.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/InlineArray.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/InlineArray.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/InlineArray~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/InlineArray.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/InlineArray.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/SIMD.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SIMD.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SIMD~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SIMD.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SIMD.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/StandardLibrary.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StandardLibrary.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StandardLibrary~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StandardLibrary.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/StandardLibrary.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/SwiftCollections.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SwiftCollections.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SwiftCollections~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SwiftCollections.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/SwiftCollections.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Support/Tagged.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Tagged.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Tagged~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Tagged.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/StreamParsingCore.build/Tagged.dia"
+  }
+}

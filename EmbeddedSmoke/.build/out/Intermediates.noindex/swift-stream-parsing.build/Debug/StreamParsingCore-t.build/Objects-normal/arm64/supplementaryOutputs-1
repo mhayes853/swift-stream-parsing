@@ -1,0 +1,23 @@
+{
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/AsyncSequence+Partials.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/AsyncSequence+Partials.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/AsyncSequence+Partials.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/AsyncSequence+Partials.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/AsyncSequence+Partials.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/AsyncSequence+Partials.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/JSONParser.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/JSONParser.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/JSONParser.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/JSONParser.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/JSONParser.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/JSONParser.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingCore/Fast/PartialSink.swift" : {
+    "const-values" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialSink.swiftconstvalues",
+    "dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialSink.d",
+    "diagnostics" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialSink.dia",
+    "object" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialSink.o",
+    "swift-dependencies" : "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/out/Intermediates.noindex/swift-stream-parsing.build/Debug/StreamParsingCore-t.build/Objects-normal/arm64/PartialSink.swiftdeps"
+  }
+}

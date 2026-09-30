@@ -199,8 +199,22 @@ struct `InlineArray parsing tests` {
 
     var fields = OptionalInlineArrayFields.Partial()
     try parsePartial(#"{"names":["a",null],"lists":[null,[2,3]]}"#, into: &fields, chunk: chunk)
-    expectNoDifference(fields.names.map { [$0[0].map(String.init), $0[1].map(String.init)] }, ["a", nil])
-    expectNoDifference(fields.lists.map { [$0[0].map(Array.init), $0[1].map(Array.init)] }, [nil, [2, 3]])
+    // Read through named helpers: a closure over the optional partial crashes the Swift 6.3
+    // optimizer (CopyPropagation ownership verification) in release builds.
+    expectNoDifference(Self.strings(fields.names), ["a", nil])
+    expectNoDifference(Self.lists(fields.lists), [nil, [2, 3]])
+  }
+
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  private static func strings(_ partial: InlineArray<2, StreamString?>?) -> [String?] {
+    guard let partial else { return [] }
+    return [partial[0].map(String.init), partial[1].map(String.init)]
+  }
+
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  private static func lists(_ partial: InlineArray<2, StreamArray<Int>?>?) -> [[Int]?] {
+    guard let partial else { return [] }
+    return [partial[0].map(Array.init), partial[1].map(Array.init)]
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)

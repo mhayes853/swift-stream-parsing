@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/SwiftLibraryPluginProvider.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/SwiftLibraryPluginProvider.o",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/checkouts/swift-syntax/Sources/SwiftLibraryPluginProvider/LibraryPluginProvider.swift": {
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/LibraryPluginProvider.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/LibraryPluginProvider~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/LibraryPluginProvider.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/wasm32-unknown-wasip1/debug/SwiftLibraryPluginProvider.build/LibraryPluginProvider.dia"
+  }
+}

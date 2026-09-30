@@ -1,0 +1,4 @@
+module EmbeddedSmoke {
+header "EmbeddedSmoke-Swift.h"
+export *
+}

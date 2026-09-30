@@ -1,0 +1,4 @@
+module StreamParsingShims {
+umbrella header "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingShims/include/StreamParsingShims.h"
+export *
+}

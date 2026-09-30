@@ -1,0 +1,33 @@
+{
+  "": {
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/primary.swiftdeps"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingMacros/Plugin.swift": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/Plugin.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/Plugin.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/Plugin~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/Plugin.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/Plugin.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingMacros/StreamParseableIgnoredMacro.swift": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableIgnoredMacro.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableIgnoredMacro.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableIgnoredMacro~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableIgnoredMacro.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableIgnoredMacro.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingMacros/StreamParseableMacro.swift": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMacro.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMacro.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMacro~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMacro.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMacro.dia"
+  },
+  "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/Sources/StreamParsingMacros/StreamParseableMemberMacro.swift": {
+    "dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMemberMacro.d",
+    "object": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMemberMacro.swift.o",
+    "swiftmodule": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMemberMacro~partial.swiftmodule",
+    "swift-dependencies": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMemberMacro.swiftdeps",
+    "diagnostics": "/Users/matthewhayes/Developer/side_projects/swift-stream-parsing/EmbeddedSmoke/.build/arm64-apple-macosx/debug/StreamParsingMacros-tool.build/StreamParseableMemberMacro.dia"
+  }
+}

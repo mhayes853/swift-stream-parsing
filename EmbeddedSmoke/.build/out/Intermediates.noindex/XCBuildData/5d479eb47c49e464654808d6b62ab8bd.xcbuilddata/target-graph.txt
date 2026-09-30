@@ -1,0 +1,8 @@
+Target dependency graph (4 targets)
+Target 'AllExcludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'EmbeddedSmoke-product' in project 'EmbeddedSmoke'
+Target 'EmbeddedSmoke-product' in project 'EmbeddedSmoke'
+➜ Explicit dependency on target 'StreamParsingCore-product' in project 'swift-stream-parsing'
+Target 'StreamParsingCore-product' in project 'swift-stream-parsing'
+➜ Explicit dependency on target 'StreamParsingCore' in project 'swift-stream-parsing'
+Target 'StreamParsingCore' in project 'swift-stream-parsing' (no dependencies)
