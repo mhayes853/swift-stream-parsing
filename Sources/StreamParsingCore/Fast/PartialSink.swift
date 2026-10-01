@@ -116,7 +116,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // and bounds checks an `Array` charged per key. Capacity is the cap plus one: the cap is checked
   // *after* the sink is told a container opened, so the rejected depth's frame arrives first.
   @usableFromInline let frames: UnsafeMutablePointer<BorrowedFrame>
-  @usableFromInline var frameCount = 0
+  // One past the top frame, `frames` when the stack is empty. Stored instead of a count: a frame is
+  // 24 bytes, so `frames + (count - 1)` was a `mov #24` and a three-cycle `madd` at the head of
+  // every entry point, on the chain to the top frame's schema. From the end pointer the top frame's
+  // fields are negative offsets of a plain load. Same slot in the sink, same frame addresses.
+  @usableFromInline var frameEnd: UnsafeMutablePointer<BorrowedFrame>
 
   // Frames there was no room for, kept balanced for a caller that catches the depth error and keeps
   // feeding. Only containers past the *first* overflow count: that one is pushed as `ignoredFrame`
@@ -126,6 +130,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   @usableFromInline
   static var frameCapacity: Int { JSONParser.maximumDepth + 1 }
+
+  // Derived, for the paths that need a depth -- completed values, `deinit`, `reset` -- none of
+  // which runs more than once per container.
+  @usableFromInline
+  var frameCount: Int { self.frames.distance(to: self.frameEnd) }
 
   // One slot past every frame a legal document can produce, reserved for the ignored frame that
   // absorbs an over-deep subtree. Nothing the parser feeds ever reaches it -- the parser rejects
@@ -149,6 +158,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.root = root
     self.rootSchema = schema
     self.frames = .allocate(capacity: Self.overflowCapacity)
+    self.frameEnd = self.frames
     self.stringFlags = validatedUTF8 ? .validatedUTF8 : []
   }
 
@@ -170,7 +180,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // Frames are trivially destroyable, so this is bookkeeping rather than work — kept in the
     // same shape as `deinit` so a frame that ever grows a non-trivial field is still correct.
     self.frames.deinitialize(count: self.frameCount)
-    self.frameCount = 0
+    self.frameEnd = self.frames
     self.droppedFrameCount = 0
     self.completedValues.removeAll(keepingCapacity: true)
     self.scalarTarget = nil
@@ -182,12 +192,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   @usableFromInline
   var topFrame: UnsafeMutablePointer<BorrowedFrame>? {
-    self.frameCount > 0 ? self.frames + (self.frameCount &- 1) : nil
+    self.frameEnd != self.frames ? self.frameEnd - 1 : nil
   }
 
   @usableFromInline
   mutating func pushFrame(_ initialFrame: BorrowedFrame) {
-    guard self.frameCount < Self.frameCapacity else {
+    guard self.frameEnd != self.frames + Self.frameCapacity else {
       self.pushOverflowFrame()
       return
     }
@@ -201,8 +211,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // four bytes are its element cursor without increasing the 24-byte frame.
       frame.pendingField = 0
     }
-    (self.frames + self.frameCount).initialize(to: frame)
-    self.frameCount &+= 1
+    self.frameEnd.initialize(to: frame)
+    self.frameEnd += 1
     self.activeRouteBits = frame.routeBits
   }
 
@@ -212,7 +222,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   @inline(never)
   mutating func pushOverflowFrame() {
     self.recordFailure(.depthExceeded)
-    guard self.frameCount < Self.overflowCapacity else {
+    guard self.frameEnd != self.frames + Self.overflowCapacity else {
       // Already inside an ignored subtree: the top frame discards, so deeper containers only have
       // to stay balanced against `popFrame`.
       self.droppedFrameCount &+= 1
@@ -220,8 +230,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     var frame = self.ignoredFrame
     frame.routeBits = frame.schema.routeBits
-    (self.frames + self.frameCount).initialize(to: frame)
-    self.frameCount &+= 1
+    self.frameEnd.initialize(to: frame)
+    self.frameEnd += 1
     self.activeRouteBits = frame.routeBits
   }
 
@@ -231,13 +241,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       self.droppedFrameCount &-= 1
       return
     }
-    guard self.frameCount > 0 else { return }
+    guard self.frameEnd != self.frames else { return }
     if !self.completedValues.isEmpty { self.finishCompletedValues() }
-    self.frameCount &-= 1
-    (self.frames + self.frameCount).deinitialize(count: 1)
-    self.activeRouteBits = self.frameCount == 0
+    self.frameEnd -= 1
+    self.frameEnd.deinitialize(count: 1)
+    self.activeRouteBits = self.frameEnd == self.frames
       ? 0
-      : (self.frames + (self.frameCount &- 1)).pointee.routeBits
+      : (self.frameEnd - 1).pointee.routeBits
   }
 
   // Outlined so ordinary push/pop do not carry conversion ownership and stack bookkeeping.
