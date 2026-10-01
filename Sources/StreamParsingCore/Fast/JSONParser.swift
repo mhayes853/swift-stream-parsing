@@ -989,7 +989,9 @@ public struct JSONParser: ~Copyable {
     let end = run.end
 
     if end > i {
-      if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: i) }
+      if self.highSurrogate != 0 {
+        throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ i)
+      }
       let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
       if emitEnd > i {
         try self.validateUTF8IfNeeded(
@@ -1013,7 +1015,9 @@ public struct JSONParser: ~Copyable {
     let byteAt = i
     i &+= 1
     if byte == .asciiQuote {
-      if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
+      if self.highSurrogate != 0 {
+        throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ byteAt)
+      }
       try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
       self.state = .afterValue
       return try self.fuseAfterValue(base: base, from: i, to: to, into: &sink)
@@ -1068,7 +1072,9 @@ public struct JSONParser: ~Copyable {
       let end = run.end
 
       if end > i {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: i) }
+        if self.highSurrogate != 0 {
+          throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ i)
+        }
         let emitEnd = end == to ? try self.trimmingIncompleteUTF8(base: base, from: i, to: end) : end
         if emitEnd > i {
           try self.validateUTF8IfNeeded(
@@ -1099,7 +1105,9 @@ public struct JSONParser: ~Copyable {
       let byteAt = i
       i &+= 1
       if byte == .asciiQuote {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
+        if self.highSurrogate != 0 {
+          throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ byteAt)
+        }
         try self.flushStringBuffer(into: &sink, end: byteAt)
         try self.record(.stringEnd, start: byteAt, length: 1, end: i, base: base, into: &sink)
         self.state = .afterValue
@@ -1159,7 +1167,9 @@ public struct JSONParser: ~Copyable {
       let end = run.end
 
       if end > i {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: i) }
+        if self.highSurrogate != 0 {
+          throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ i)
+        }
         self.keyContainsNonASCII = self.keyContainsNonASCII || run.containsNonASCII
         try self.appendToBuffer(base: base, from: i, count: end &- i, reportAt: i)
         i = end
@@ -1171,7 +1181,9 @@ public struct JSONParser: ~Copyable {
       let byteAt = i
       i &+= 1
       if byte == .asciiQuote {
-        if self.highSurrogate != 0 { throw self.loneHighSurrogateError(reportAt: byteAt) }
+        if self.highSurrogate != 0 {
+          throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ byteAt)
+        }
         try self.emitBufferedKey(into: &sink, reportAt: byteAt)
         self.state = .afterKey
         return i
@@ -1297,7 +1309,7 @@ public struct JSONParser: ~Copyable {
     // A high surrogate must be followed immediately by a low surrogate escape; any other escape
     // severs the pair, and severing it first is what keeps the content in order around it.
     if self.highSurrogate != 0 {
-      throw self.loneHighSurrogateError(reportAt: offset &- 1)
+      throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ (offset &- 1))
     }
     guard let decoded = streamDecodeSimpleEscape(byte) else {
       throw self.error(.invalidEscape, at: offset &- 1)
@@ -1324,7 +1336,7 @@ public struct JSONParser: ~Copyable {
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       // A second high surrogate would silently replace the pending one, leaving the first lone.
       if pending != 0 {
-        throw self.loneHighSurrogateError(reportAt: offset &- 1)
+        throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ (offset &- 1))
       }
       self.highSurrogate = UInt16(truncatingIfNeeded: scalar)
       self.state = self.stateAfterEscape
@@ -1342,7 +1354,7 @@ public struct JSONParser: ~Copyable {
     } else {
       // A pending high surrogate followed by any scalar but a low surrogate is lone.
       if pending != 0 {
-        throw self.loneHighSurrogateError(reportAt: offset &- 1)
+        throw Self.loneHighSurrogateError(byteOffset: self.consumedByteCount &+ (offset &- 1))
       }
       try self.emitScalar(scalar, into: &sink, reportAt: offset &- 1)
     }
@@ -1350,11 +1362,14 @@ public struct JSONParser: ~Copyable {
   }
 
   // A high surrogate with no low surrogate after it. Out of line, and returning the error rather
-  // than throwing it, so the common path at each of the six call sites is a compare against zero.
+  // than throwing it, so the common path at each of the nine call sites is a compare against zero.
+  // Static, like `fail`: as a method every call site copied the whole parser onto the stack, and
+  // in the byte-fed dispatch closure that cold copy sat ahead of the hot branch targets --
+  // shrinking it by two instructions moved them all and cost byte-fed Twitter escaped 2.6%.
   @inlinable
   @inline(never)
-  func loneHighSurrogateError(reportAt: Int) -> JSONParsingError {
-    self.error(.invalidEscape, at: reportAt)
+  static func loneHighSurrogateError(byteOffset: Int) -> JSONParsingError {
+    JSONParsingError(reason: .invalidEscape, byteOffset: byteOffset)
   }
 
   @inlinable
