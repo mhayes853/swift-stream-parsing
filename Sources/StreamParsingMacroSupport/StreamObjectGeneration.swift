@@ -51,6 +51,14 @@ public enum StreamPartialMembers: Hashable, Sendable {
 
 }
 
+/// Selects the storage a field's `String` leaves take in partial storage.
+public enum StreamPartialStrings: Hashable, Sendable {
+  /// `StreamString`, through `String.Partial`.
+  case streamString
+  /// Swift `String` itself. Containers around it stay `StreamArray` and `StreamDictionary`.
+  case string
+}
+
 /// A scalar operation supported by `StreamSchema`.
 private enum StreamApplyOperation: Hashable, Sendable {
   case string
@@ -270,6 +278,11 @@ public struct StreamParseableField: Sendable {
   public var initialCapacity: ExprSyntax?
   /// A type conforming to `StreamCompletedValueConversion`.
   public var completedConversion: TypeSyntax?
+  /// The storage of every `String` leaf in `type`: the type itself, an optional of it, or an array
+  /// element or dictionary value at any depth. Matched by spelling (`String`, `Swift.String`), so an
+  /// alias keeps `StreamString`. A `completedConversion`'s `Source` is the storage instead, so a
+  /// validated plan rejects `.string` beside one and a recovery plan ignores it.
+  public var partialStrings: StreamPartialStrings
   /// The whole type's declared default for this property.
   ///
   /// Only `conversionsSyntax` reads it: `init(orInitial:)` falls back to it for a nonoptional
@@ -284,6 +297,7 @@ public struct StreamParseableField: Sendable {
     convertsKeys: Bool = false,
     initialCapacity: (any ExprSyntaxProtocol)? = nil,
     completedConversion: (any TypeSyntaxProtocol)? = nil,
+    partialStrings: StreamPartialStrings = .streamString,
     defaultValue: (any ExprSyntaxProtocol)? = nil
   ) {
     self.name = name
@@ -292,6 +306,7 @@ public struct StreamParseableField: Sendable {
     self.convertsKeys = convertsKeys
     self.initialCapacity = initialCapacity.map { ExprSyntax($0) }
     self.completedConversion = completedConversion.map { TypeSyntax($0) }
+    self.partialStrings = partialStrings
     self.defaultValue = defaultValue.map { ExprSyntax($0) }
   }
 
@@ -306,6 +321,7 @@ public struct StreamParseableField: Sendable {
     type: some TypeSyntaxProtocol,
     initialCapacity: (any ExprSyntaxProtocol)? = nil,
     completedConversion: (any TypeSyntaxProtocol)? = nil,
+    partialStrings: StreamPartialStrings = .streamString,
     defaultValue: (any ExprSyntaxProtocol)? = nil
   ) {
     self.init(
@@ -315,6 +331,7 @@ public struct StreamParseableField: Sendable {
       convertsKeys: name.tokenKind != .wildcard,
       initialCapacity: initialCapacity,
       completedConversion: completedConversion,
+      partialStrings: partialStrings,
       defaultValue: defaultValue
     )
   }
@@ -385,6 +402,8 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
   case initialCapacityWithCompletedConversion(field: String)
   /// A nonoptional converted field has no `defaultValue` for `init(orInitial:)`.
   case missingCompletedConversionDefault(field: String)
+  /// A converted field also asks for `String` storage, which its strategy's `Source` decides.
+  case partialStringsWithCompletedConversion(field: String)
   /// Members or a recognition hook were supplied for a raw-value enum, whose partial is a
   /// library type.
   case hooksRequireObjectRepresentation
@@ -402,6 +421,8 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
       "The stream field '\(field)' cannot combine initialCapacity with completedConversion."
     case .missingCompletedConversionDefault(let field):
       "The nonoptional converted stream field '\(field)' requires a defaultValue for init(orInitial:)."
+    case .partialStringsWithCompletedConversion(let field):
+      "The stream field '\(field)' cannot combine String storage with completedConversion."
     case .hooksRequireObjectRepresentation:
       "Partial members and recognition hooks require the case-keyed object enum representation."
     }
@@ -463,6 +484,9 @@ public struct StreamObjectGeneration: Sendable {
       }
       if field.completedConversion != nil, field.initialCapacity != nil {
         throw StreamObjectGenerationError.initialCapacityWithCompletedConversion(field: name)
+      }
+      if field.completedConversion != nil, field.partialStrings == .string {
+        throw StreamObjectGenerationError.partialStringsWithCompletedConversion(field: name)
       }
       // A key converted when the schema is built is unknown here; the built table checks it.
       for key in field.keys where !field.convertsKeys {
@@ -1064,13 +1088,16 @@ extension StreamObjectGeneration {
     case .scalarOrObject:
       (false, "_streamObjectMemberSchema(for: (\(self.partialType(field))).self)")
     case .array, .dictionary:
-      (true, self.schemaExpression(field.type))
+      (true, self.schemaExpression(field.type, strings: field.partialStrings))
     }
   }
 
   private func partialType(_ field: StreamParseableField) -> String {
     if let conversion = field.completedConversion {
       return Self.convertedPartialType(conversion)
+    }
+    if Self.storesStrings(field) {
+      return Self.stringStoragePartialType(field.type.streamUnwrappedOptionalType)
     }
     if case .dictionary(let value) = self.fieldShape(field.type) {
       return "StreamParsingCore.StreamDictionary<\(value.trimmedDescription).Partial>"
@@ -1089,6 +1116,10 @@ extension StreamObjectGeneration {
   }
 
   func fieldShape(_ type: TypeSyntax) -> FieldShape {
+    Self.fieldShape(type)
+  }
+
+  static func fieldShape(_ type: TypeSyntax) -> FieldShape {
     let type = type.streamUnwrappedOptionalType
     if let array = type.as(ArrayTypeSyntax.self) { return .array(array.element) }
     if let dictionary = type.as(DictionaryTypeSyntax.self) { return .dictionary(dictionary.value) }
@@ -1107,31 +1138,90 @@ extension StreamObjectGeneration {
     return .scalarOrObject
   }
 
-  private func schemaExpression(_ type: TypeSyntax) -> String {
+  private func schemaExpression(_ type: TypeSyntax, strings: StreamPartialStrings) -> String {
     switch self.fieldShape(type) {
     case .array(let element):
-      self.containerSchemaExpression("Array", element: element, label: "element")
+      self.containerSchemaExpression("Array", element: element, label: "element", strings: strings)
     case .dictionary(let value):
-      self.containerSchemaExpression("Dictionary", element: value, label: "value")
+      self.containerSchemaExpression("Dictionary", element: value, label: "value", strings: strings)
     case .scalarOrObject:
       // A generic parameter's partial is only known as a `StreamParseableRoot`, so every
       // `_streamSchema(for:)` overload but the placeholder is inapplicable; its own requirement
       // is exact.
       self.mentionsGenericParameter(type)
         ? "\(type.streamUnwrappedOptionalType.trimmedDescription).Partial.streamSchema"
-        : "_streamSchema(for: \(type.streamUnwrappedOptionalType.trimmedDescription).Partial.self)"
+        : "_streamSchema(for: \(Self.partialSpelling(type.streamUnwrappedOptionalType, strings: strings)).self)"
     }
   }
 
   private func containerSchemaExpression(
     _ kind: String,
     element: TypeSyntax,
-    label: String
+    label: String,
+    strings: StreamPartialStrings
   ) -> String {
-    let storage = element.streamUnwrappedOptionalType.trimmedDescription
+    let storage = Self.partialSpelling(element.streamUnwrappedOptionalType, strings: strings)
     let builder =
       element.streamIsOptional ? "_streamOptional\(kind)Schema" : "_stream\(kind)Schema"
-    return "\(builder)(\(storage).Partial.self, \(label): \(self.schemaExpression(element)))"
+    let schema = self.schemaExpression(element, strings: strings)
+    return "\(builder)(\(storage).self, \(label): \(schema))"
+  }
+
+  // MARK: - String storage
+
+  /// Whether `type` is `String` itself, as the macro can tell from its spelling.
+  static func isStringLeaf(_ type: TypeSyntax) -> Bool {
+    if let identifier = type.as(IdentifierTypeSyntax.self) {
+      return identifier.name.text == "String" && identifier.genericArgumentClause == nil
+    }
+    if let member = type.as(MemberTypeSyntax.self) {
+      return member.name.text == "String" && member.genericArgumentClause == nil
+        && member.baseType.trimmedDescription == "Swift"
+    }
+    return false
+  }
+
+  /// Whether `type` reaches a `String` leaf through optionals, array elements and dictionary
+  /// values: the types whose storage `partialStrings: .string` changes. A dictionary's key is not
+  /// a leaf; it is always stored as `String`.
+  package static func containsStringLeaf(_ type: TypeSyntax) -> Bool {
+    if type.streamIsOptional { return Self.containsStringLeaf(type.streamUnwrappedOptionalType) }
+    switch Self.fieldShape(type) {
+    case .array(let element): return Self.containsStringLeaf(element)
+    case .dictionary(let value): return Self.containsStringLeaf(value)
+    case .scalarOrObject: return Self.isStringLeaf(type)
+    }
+  }
+
+  /// Whether `field`'s partial storage is spelled out with `String` leaves rather than read from
+  /// `T.Partial`. A type with no `String` leaf keeps its usual expansion, byte for byte.
+  static func storesStrings(_ field: StreamParseableField) -> Bool {
+    field.completedConversion == nil && field.partialStrings == .string
+      && Self.containsStringLeaf(field.type)
+  }
+
+  /// The partial storage of `type`: `T.Partial`, or the same shape with `String` leaves when
+  /// `strings` asks for them and `type` has any.
+  static func partialSpelling(_ type: TypeSyntax, strings: StreamPartialStrings) -> String {
+    strings == .string && Self.containsStringLeaf(type)
+      ? Self.stringStoragePartialType(type) : "\(type.trimmedDescription).Partial"
+  }
+
+  /// `type`'s partial with every `String` leaf stored as `String`: what `T.Partial` would be if
+  /// `String.Partial` were `String`. Each optional layer is the partial's own (`T?` has `T.Partial?`),
+  /// an array `StreamArray` of its element's, a dictionary `StreamDictionary` of its value's.
+  static func stringStoragePartialType(_ type: TypeSyntax) -> String {
+    if type.streamIsOptional {
+      return "\(Self.stringStoragePartialType(type.streamUnwrappedOptionalType))?"
+    }
+    switch Self.fieldShape(type) {
+    case .array(let element):
+      return "StreamParsingCore.StreamArray<\(Self.stringStoragePartialType(element))>"
+    case .dictionary(let value):
+      return "StreamParsingCore.StreamDictionary<\(Self.stringStoragePartialType(value))>"
+    case .scalarOrObject:
+      return Self.isStringLeaf(type) ? "String" : "\(type.trimmedDescription).Partial"
+    }
   }
 
   /// The name without enclosing backticks.

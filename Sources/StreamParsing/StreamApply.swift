@@ -26,6 +26,17 @@ public func streamApply(
   return value.streamAppend(utf8: bytes)
 }
 
+// A `String` member (`partialStrings: .string`) sits on the closure route, where the opening quote
+// arrives as the empty span: that call reserves, as the table does for a `StreamString` entry.
+@inlinable
+@inline(__always)
+public func streamApply(
+  _ value: inout String, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> StreamApplyResult {
+  if bytes.isEmpty { value.reserveCapacity(initialCapacity) }
+  return value.streamAppend(utf8: bytes)
+}
+
 @_disfavoredOverload
 @inlinable
 @inline(__always)

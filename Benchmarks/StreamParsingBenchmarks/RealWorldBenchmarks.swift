@@ -256,6 +256,7 @@ private func addRealWorldFastRows() {
 private func addAllRealWorldConvenienceRows() {
   addRealWorldBaselineConvenienceRows()
   addRealWorldCapacityConvenienceRows()
+  addRealWorldStringStorageRows()
 }
 
 private func addRealWorldBaselineConvenienceRows() {
@@ -371,6 +372,41 @@ private func addRealWorldCapacityConvenienceRows() {
     payload: Payloads.mesh,
     as: BenchmarkMeshCapacityHint.Partial.self
   )
+}
+
+// `partialStrings: .string` twins of `Twitter full` and `LLM message`, read against those rows: what
+// storing each string as a Swift `String` costs. The snapshot rows are the case `.string` documents
+// as quadratic, a `current` per chunk forcing the next append to copy the whole string.
+private func addRealWorldStringStorageRows() {
+  addRealWorldConvenienceRows(
+    "Twitter full String storage",
+    payload: Payloads.twitter,
+    as: BenchmarkStringStorageTwitterFull.Partial.self
+  )
+  addRealWorldConvenienceRows(
+    "LLM message String storage",
+    payload: Payloads.llmMessage,
+    as: BenchmarkStringStorageLLMMessage.Partial.self,
+    includeByteByByte: true
+  )
+  for chunk in [1_400, 16_384] {
+    Benchmark(
+      "Real LLM message String storage - snapshot per \(chunk)B chunk",
+      configuration: payloadConfiguration
+    ) { benchmark in
+      measurePayloadThroughput(benchmark, payload: Payloads.llmMessage) {
+        blackHole(
+          expectParses {
+            try streamSnapshottingChunks(
+              Payloads.llmMessage,
+              chunk: chunk,
+              as: BenchmarkStringStorageLLMMessage.Partial.self
+            )
+          }
+        )
+      }
+    }
+  }
 }
 
 // 1400 B is a TLS record under an Ethernet MTU and 16384 B is a full one: the two granularities a

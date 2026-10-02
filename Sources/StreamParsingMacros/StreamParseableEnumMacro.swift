@@ -214,6 +214,7 @@ extension StreamParseableMacro {
   static func enumMemberExpansion(
     declaration: EnumDeclSyntax,
     lexicalContext: [Syntax],
+    partialStrings: StreamPartialStrings,
     in context: DiagnosticSink
   ) throws -> [DeclSyntax] {
     guard !Self.hasExistingStreamPartialValue(in: declaration.memberBlock.members) else {
@@ -222,7 +223,8 @@ extension StreamParseableMacro {
     let rawKind = Self.enumRawKind(for: declaration)
     let cases = Self.enumCases(in: declaration, rawKind: rawKind, context: context)
     let generation = Self.enumGeneration(
-      for: declaration, lexicalContext: lexicalContext, rawKind: rawKind, cases: cases
+      for: declaration, lexicalContext: lexicalContext, rawKind: rawKind, cases: cases,
+      partialStrings: partialStrings
     )
     return [Self.splitConversions(generation.conversionsSyntax()).streamPartialValue]
   }
@@ -253,6 +255,18 @@ extension StreamParseableMacro {
     if Self.argument(named: "partialMembers", of: node) != nil {
       Self.diagnosePartialMembersOnEnum(in: node, context: context)
     }
+    // A raw-value enum has no associated values for the storage to reach.
+    var partialStrings = Self.partialStrings(from: node, context: context)
+    if let argument = Self.argument(named: "partialStrings", of: node),
+      !Self.hasGeneratedSchema(rawKind)
+    {
+      Self.diagnoseArgumentOnRawValueEnum(
+        argument, label: "partialStrings",
+        reason: "Only associated values are stored in a partial, and it has none.",
+        context: context
+      )
+      partialStrings = .streamString
+    }
     let schemaCache = Self.argument(named: "schemaCache", of: node)
     if let schemaCache, !Self.hasGeneratedSchema(rawKind) {
       Self.diagnoseArgumentOnRawValueEnum(
@@ -270,7 +284,8 @@ extension StreamParseableMacro {
 
     let generation = Self.enumGeneration(
       for: declaration, lexicalContext: expansionContext.lexicalContext, rawKind: rawKind,
-      cases: cases, schemaCache: schemaCache, keyDecodingStrategy: keyDecodingStrategy
+      cases: cases, schemaCache: schemaCache, keyDecodingStrategy: keyDecodingStrategy,
+      partialStrings: partialStrings
     )
     var members =
       Self.hasExistingPartial(in: declaration.memberBlock.members)
@@ -292,7 +307,8 @@ extension StreamParseableMacro {
     rawKind: EnumRawKind,
     cases: [EnumCase],
     schemaCache: ExprSyntax? = nil,
-    keyDecodingStrategy: ExprSyntax? = nil
+    keyDecodingStrategy: ExprSyntax? = nil,
+    partialStrings: StreamPartialStrings = .streamString
   ) -> StreamEnumGeneration {
     let representation: StreamEnumRepresentation =
       switch rawKind {
@@ -311,7 +327,8 @@ extension StreamParseableMacro {
             type: value.type,
             keys: [value.label],
             // `_0`, `_1`, ... are positions, not names, and `Codable` does not convert them.
-            convertsKeys: value.isLabeled
+            convertsKeys: value.isLabeled,
+            partialStrings: partialStrings
           )
         }
       )

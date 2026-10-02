@@ -43,14 +43,18 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
         )
       else { return [] }
       return try Self.enumMemberExpansion(
-        declaration: enumDecl, lexicalContext: context.lexicalContext, in: sink
+        declaration: enumDecl, lexicalContext: context.lexicalContext,
+        partialStrings: Self.partialStrings(from: node, context: sink), in: sink
       )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
     guard !Self.hasExistingStreamPartialValue(in: structDecl.memberBlock.members) else {
       return []
     }
-    let properties = Self.storedProperties(in: structDecl, context: sink)
+    // `streamPartialValue` spells each member's storage, so it reads the string storage too.
+    let properties = Self.storedProperties(
+      in: structDecl, partialStrings: Self.partialStrings(from: node, context: sink), context: sink
+    )
     // The partial mode only picks the unlabelled initializer, which the extension emits.
     return [
       try Self.conversions(
@@ -96,7 +100,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     let typeName = type.trimmedDescription
     let keyDecodingStrategy = Self.argument(named: "keyDecodingStrategy", of: node)
     let properties = Self.storedProperties(
-      in: structDecl, keyDecodingStrategy: keyDecodingStrategy, context: sink
+      in: structDecl, keyDecodingStrategy: keyDecodingStrategy,
+      partialStrings: Self.partialStrings(from: node, context: sink), context: sink
     )
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
     let accessLevel = Self.generatedAccessLevel(
@@ -329,6 +334,7 @@ extension StreamParseableMacro {
           ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
         completedConversion: property.completedConversion.map { TypeSyntax(stringLiteral: $0) },
+        partialStrings: property.partialStrings,
         defaultValue: property.defaultExpression.map { ExprSyntax("\(raw: $0)") }
       )
     }
@@ -461,6 +467,36 @@ extension StreamParseableMacro {
       return .optional
     }
   }
+
+  /// The type's `partialStrings:` argument, `.streamString` when unwritten.
+  static func partialStrings(
+    from node: AttributeSyntax,
+    context: DiagnosticSink
+  ) -> StreamPartialStrings {
+    guard let expression = Self.argument(named: "partialStrings", of: node) else {
+      return .streamString
+    }
+    return Self.partialStrings(
+      expression, message: "@StreamParseable(partialStrings:) requires .streamString or .string.",
+      context: context
+    ) ?? .streamString
+  }
+
+  // Read from the spelling, as `partialMembers` is: anything but one of the two case names is
+  // diagnosed with `message` and answers `nil`.
+  static func partialStrings(
+    _ expression: ExprSyntax,
+    message: String,
+    context: DiagnosticSink
+  ) -> StreamPartialStrings? {
+    switch expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text {
+    case "streamString": return .streamString
+    case "string": return .string
+    default:
+      context.diagnose(Self.error(expression, message))
+      return nil
+    }
+  }
 }
 
 extension DeclModifierListSyntax {
@@ -488,6 +524,8 @@ extension StreamParseableMacro {
     let access: String
     let isUsableFromInline: Bool
     let completedConversion: String?
+    /// The type's `partialStrings:`, or this member's own `@StreamParseableMember(partialStrings:)`.
+    let partialStrings: StreamPartialStrings
     let defaultExpression: String?
 
     // Whether the declaration supplies its own value. A generated initializer must leave such a
@@ -507,6 +545,7 @@ extension StreamParseableMacro {
   private static func storedProperties(
     in declaration: StructDeclSyntax,
     keyDecodingStrategy: ExprSyntax? = nil,
+    partialStrings: StreamPartialStrings,
     context: DiagnosticSink
   ) -> [StoredProperty] {
     var properties = [StoredProperty]()
@@ -516,7 +555,9 @@ extension StreamParseableMacro {
       guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
         continue
       }
-      let declared = self.storedProperties(from: variableDecl, context: context)
+      let declared = self.storedProperties(
+        from: variableDecl, partialStrings: partialStrings, context: context
+      )
       // A duplicate key emits a second, permanently unreachable `case` arm: Swift does not
       // diagnose duplicate integer patterns that carry a `where` clause.
       for property in declared where !property.isIgnored {
@@ -534,6 +575,7 @@ extension StreamParseableMacro {
 
   private static func storedProperties(
     from variableDecl: VariableDeclSyntax,
+    partialStrings: StreamPartialStrings,
     context: DiagnosticSink
   ) -> [StoredProperty] {
     if variableDecl.modifiers.contains(.static) {
@@ -611,6 +653,7 @@ extension StreamParseableMacro {
           propertyName: StreamObjectGeneration.bareName(identifierPattern.identifier),
           type: type,
           defaultExpression: binding.initializer?.value.trimmedDescription,
+          partialStrings: partialStrings,
           context: context
         )
       )
@@ -643,6 +686,7 @@ extension StreamParseableMacro {
     propertyName: String,
     type: TypeSyntax,
     defaultExpression: String?,
+    partialStrings typePartialStrings: StreamPartialStrings,
     context: DiagnosticSink
   ) -> StoredProperty {
     let hasDefaultValue = defaultExpression != nil
@@ -693,6 +737,12 @@ extension StreamParseableMacro {
         context.diagnose(Self.error(expression, "completedConversion: requires a strategy type followed by .self."))
       }
     }
+    let memberPartialStrings =
+      isIgnored
+      ? nil
+      : Self.memberPartialStrings(
+        for: variableDecl, type: type, hasConversion: conversion != nil, context: context
+      )
     if conversion != nil, !isIgnored {
       if capacity != nil {
         context.diagnose(Self.error(variableDecl, "initialCapacity: is not supported with completedConversion:."))
@@ -711,8 +761,53 @@ extension StreamParseableMacro {
       access: Self.declaredAccess(of: variableDecl.modifiers),
       isUsableFromInline: Self.attribute(named: "usableFromInline", in: variableDecl.attributes) != nil,
       completedConversion: conversion,
+      partialStrings: memberPartialStrings ?? typePartialStrings,
       defaultExpression: defaultExpression
     )
+  }
+
+  // A member's own `partialStrings:`. Diagnosed beside a `completedConversion:`, whose `Source` is
+  // the storage, and warned where the type spells no `String` for it to reach -- an alias, say,
+  // which keeps `StreamString` whatever is written.
+  private static func memberPartialStrings(
+    for variableDecl: VariableDeclSyntax,
+    type: TypeSyntax,
+    hasConversion: Bool,
+    context: DiagnosticSink
+  ) -> StreamPartialStrings? {
+    guard
+      let (attribute, expression) = Self.memberArgument(
+        named: "partialStrings",
+        of: variableDecl,
+        repeated: "@StreamParseableMember(partialStrings:) can only be specified once per property.",
+        context: context
+      )
+    else { return nil }
+    guard
+      let storage = Self.partialStrings(
+        expression,
+        message: "@StreamParseableMember(partialStrings:) requires .streamString or .string.",
+        context: context
+      )
+    else { return nil }
+    if hasConversion {
+      context.diagnose(
+        Self.error(variableDecl, "partialStrings: is not supported with completedConversion:.")
+      )
+    } else if !StreamObjectGeneration.containsStringLeaf(type) {
+      context.diagnose(
+        Diagnostic(
+          node: attribute,
+          message: MacroExpansionWarningMessage(
+            """
+            partialStrings: has no effect, because '\(type.trimmedDescription)' does not spell \
+            String. The macro reads the type as written and cannot see through an alias.
+            """
+          )
+        )
+      )
+    }
+    return storage
   }
 
   private static func diagnoseUnsupportedStreamParseableMember(

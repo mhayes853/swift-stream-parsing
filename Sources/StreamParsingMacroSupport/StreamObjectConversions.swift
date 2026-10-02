@@ -110,6 +110,9 @@ extension StreamObjectGeneration {
       let wrapper = Self.convertedPartialType(conversion)
       return isOptional ? "\(member).map { \(wrapper)(value: $0) }" : "\(wrapper)(value: \(member))"
     }
+    if Self.storesStrings(field) {
+      return Self.stringStoredPartial(of: field.type, value: member)
+    }
     // Only the `[K: V]` spelling: `Dictionary<K, V>` goes through `Dictionary.streamPartialValue`,
     // which inserts keys sorted where `mapValues` keeps hash order. The two are kept distinct so
     // existing expansions keep their key order.
@@ -122,6 +125,80 @@ extension StreamObjectGeneration {
         : "StreamParsingCore.StreamDictionary(\(member).mapValues(\\.streamPartialValue))"
     }
     return "\(member).streamPartialValue"
+  }
+
+  // MARK: - String storage
+  //
+  // A member whose partial stores `String` leaves holds nothing that can be incomplete: the leaves
+  // are whole at every byte, and the containers around them only hold leaves. So both directions
+  // are plain rewraps, written out per shape, and strict and total differ only in what an absent
+  // member becomes. An identity step is elided, so `String` and `String?` pass straight through.
+
+  /// The storage for `value`, an expression of type `type`: each array becomes a `StreamArray`,
+  /// each dictionary a `StreamDictionary`.
+  static func stringStoredPartial(of type: TypeSyntax, value: String) -> String {
+    if type.streamIsOptional {
+      let wrapped = Self.stringStoredPartial(of: type.streamUnwrappedOptionalType, value: "$0")
+      return wrapped == "$0" ? value : "\(value).map { \(wrapped) }"
+    }
+    switch Self.fieldShape(type) {
+    case .array(let element):
+      let converted = Self.stringStoredPartial(of: element, value: "$0")
+      return converted == "$0"
+        ? "StreamParsingCore.StreamArray(\(value))"
+        : "StreamParsingCore.StreamArray(\(value).lazy.map { \(converted) })"
+    case .dictionary(let element):
+      let converted = Self.stringStoredPartial(of: element, value: "$0")
+      return converted == "$0"
+        ? "StreamParsingCore.StreamDictionary(\(value))"
+        : "StreamParsingCore.StreamDictionary(\(value).mapValues { \(converted) })"
+    case .scalarOrObject:
+      return value
+    }
+  }
+
+  /// The inverse of `stringStoredPartial(of:value:)`: the value of type `type` that `storage`
+  /// holds. Never fails.
+  static func stringStoredValue(of type: TypeSyntax, storage: String) -> String {
+    if type.streamIsOptional {
+      let wrapped = Self.stringStoredValue(of: type.streamUnwrappedOptionalType, storage: "$0")
+      return wrapped == "$0" ? storage : "\(storage).map { \(wrapped) }"
+    }
+    switch Self.fieldShape(type) {
+    case .array(let element):
+      let converted = Self.stringStoredValue(of: element, storage: "$0")
+      return converted == "$0" ? "Swift.Array(\(storage))" : "\(storage).map { \(converted) }"
+    case .dictionary(let element):
+      let converted = Self.stringStoredValue(of: element, storage: "$0")
+      return converted == "$0"
+        ? "Swift.Dictionary(\(storage))"
+        : "Swift.Dictionary(\(storage)).mapValues { \(converted) }"
+    case .scalarOrObject:
+      return storage
+    }
+  }
+
+  /// The member's value read from `partial.<name>`, optional unless the partial member is not.
+  /// A required member of an optional partial is mapped through the partial's optional, so an
+  /// absent one stays `nil` for the caller to fail or default.
+  private func stringStoredMemberValue(_ field: StreamParseableField) -> String {
+    let storage = "partial.\(Self.memberName(field.name))"
+    guard self.partialMembers == .optional, !field.type.streamIsOptional else {
+      return Self.stringStoredValue(of: field.type, storage: storage)
+    }
+    let converted = Self.stringStoredValue(of: field.type, storage: "$0")
+    return converted == "$0" ? storage : "\(storage).map { \(converted) }"
+  }
+
+  /// What an absent stored member becomes in `init(orInitial:)`: its type's empty value, which is
+  /// also the leaf's and each container's stream initial value.
+  private static func stringStoredInitialValue(of type: TypeSyntax) -> String {
+    if type.streamIsOptional { return "nil" }
+    switch Self.fieldShape(type) {
+    case .array: return "[]"
+    case .dictionary: return "[:]"
+    case .scalarOrObject: return "\"\""
+    }
   }
 
   // MARK: - Partial to whole
@@ -143,6 +220,10 @@ extension StreamObjectGeneration {
         .map { field -> String in
           let name = Self.memberName(field.name)
           let local = Self.streamValueLocal(field.name)
+          if Self.storesStrings(field) {
+            let value = self.stringStoredMemberValue(field)
+            return "  let \(local) = Self._streamStoredValue({ $0.\(name) }, \(value))"
+          }
           guard field.completedConversion != nil else {
             return "  let \(local) = Self._streamValue({ $0.\(name) }, partial.\(name))"
           }
@@ -161,6 +242,11 @@ extension StreamObjectGeneration {
     let totalLines =
       self.fields.map { field -> String in
         let name = Self.memberName(field.name)
+        if Self.storesStrings(field) {
+          let value = self.stringStoredMemberValue(field)
+          let initial = Self.stringStoredInitialValue(of: field.type)
+          return "self.\(name) = Self._streamStoredValue({ $0.\(name) }, \(value), orInitial: \(initial))"
+        }
         guard field.completedConversion != nil else {
           return "self.\(name) = Self._streamValueOrInitial({ $0.\(name) }, partial.\(name))"
         }

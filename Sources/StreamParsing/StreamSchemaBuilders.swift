@@ -97,6 +97,15 @@ public func streamApply(
 }
 
 @inlinable
+public func streamApply(
+  _ value: inout String?, utf8 bytes: Span<UInt8>, initialCapacity: Int
+) -> StreamApplyResult {
+  if value == nil { value = "" }
+  if bytes.isEmpty { value!.reserveCapacity(initialCapacity) }
+  return value!.streamAppend(utf8: bytes)
+}
+
+@inlinable
 public func streamApply<T: StreamNumberConvertible>(
   _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
@@ -334,6 +343,22 @@ public func _streamFieldRoute<Value>(
         .reserveCapacity(Int(capacity))
     }
   )
+}
+
+// A `String` member has no table kind, so the hint rides on its apply closure instead (see
+// `streamApply(_:utf8:initialCapacity:)`); the route only has to stay `.custom`.
+@inlinable
+public func _streamFieldRoute(
+  _ value: inout String?, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: true)
+}
+
+@inlinable
+public func _streamFieldRoute(
+  _ value: inout String, schema: StreamSchema?, initialCapacity: Int
+) -> StreamFieldRoute {
+  StreamFieldRoute(.custom, optional: false)
 }
 
 // An inline string is a string, but its capacity is its type's `N`, so a hint could only be

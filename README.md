@@ -144,6 +144,22 @@ struct Extension {
 
 The keys are derived once, as the macro expands for a built-in strategy and when the type's schema is built otherwise, so a strategy costs nothing while parsing. Each `@StreamParseable` type declares its own strategy; a member type follows the strategy it declares.
 
+### String storage
+
+A `String` member is a `StreamString` in the `Partial`: it takes raw UTF-8 and decodes once when read, and a snapshot shares its sealed blocks. `partialStrings: .string` stores it as a Swift `String` instead, so the partial reads like the model:
+
+```swift
+@StreamParseable(partialStrings: .string)
+struct Message {
+  var role: String               // Partial: String?
+  var tags: [String]             // Partial: StreamArray<String>?
+  @StreamParseableMember(partialStrings: .streamString)
+  var content: String            // Partial: StreamString?
+}
+```
+
+It reaches every `String` in a member's type, as an optional, an array element or a dictionary value. The arrays and dictionaries themselves stay `StreamArray` and `StreamDictionary`. Each chunk is decoded into a `String` and appended, and an append after a snapshot copies the whole string, so taking `current` after every chunk of a long string costs quadratic time. That suits short members, or a partial read once at the end; `@StreamParseableMember(partialStrings:)` overrides the choice for a single member. Each `@StreamParseable` type chooses for its own members, and an enum applies the choice to its associated values.
+
 ### Enums
 
 `@StreamParseable` also applies to enums, in whichever of three forms matches how the enum is

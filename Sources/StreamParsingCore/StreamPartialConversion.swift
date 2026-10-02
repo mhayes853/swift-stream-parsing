@@ -26,4 +26,23 @@ extension StreamParseable {
   ) -> T {
     T.streamValueOrInitial(from: partial ?? T.Partial.streamInitialValue())
   }
+
+  /// Strict, for a member the partial stores as the model spells it (`partialStrings: .string`):
+  /// nothing to convert, so only absence fails. The macro maps a container's storage to the
+  /// member's type before the call; binding `T` still makes a wrong storage spelling a compile error.
+  @inline(__always)
+  public static func _streamStoredValue<T>(_ typeOf: (Self) -> T, _ stored: T?) -> T? {
+    stored
+  }
+
+  /// Total: an absent stored member falls back to `initial`, which the macro writes as the member
+  /// type's empty value (`""`, `[]`, `[:]`, `nil`).
+  @inline(__always)
+  public static func _streamStoredValue<T>(
+    _ typeOf: (Self) -> T,
+    _ stored: T?,
+    orInitial initial: @autoclosure () -> T
+  ) -> T {
+    stored ?? initial()
+  }
 }
