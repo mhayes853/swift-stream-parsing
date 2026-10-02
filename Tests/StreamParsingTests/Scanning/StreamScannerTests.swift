@@ -3,6 +3,19 @@ import Testing
 
 import StreamParsingCore
 
+// A xorshift, so every sweep below is identical on every machine and every run: a differential
+// test that samples a different space each time cannot be bisected when it fails.
+private struct SweepGenerator: RandomNumberGenerator {
+  var state: UInt64 = 0x2026_0821_5EED_1234
+
+  mutating func next() -> UInt64 {
+    self.state ^= self.state << 13
+    self.state ^= self.state >> 7
+    self.state ^= self.state << 17
+    return self.state
+  }
+}
+
 @Suite
 struct `Stream scanner tests` {
   // MARK: - Reference implementations
@@ -48,7 +61,7 @@ struct `Stream scanner tests` {
   // flag that leaks a byte from past the run fails rather than silently skipping validation.
   @Test
   func `String run scanning reports end and UTF-8 observation at every length and offset`() {
-    var generator = SystemRandomNumberGenerator()
+    var generator = SweepGenerator()
     for length in 0...80 {
       for _ in 0..<20 {
         var bytes = (0..<length).map { _ in UInt8.random(in: 0x20...0x7E, using: &generator) }
@@ -117,7 +130,7 @@ struct `Stream scanner tests` {
   // now only escalates when the kernel is callable.
   @Test
   func `Long random string runs agree with the reference`() {
-    var generator = SystemRandomNumberGenerator()
+    var generator = SweepGenerator()
     for length in [33, 48, 64, 96, 129, 192, 256] {
       for _ in 0..<40 {
         var bytes = (0..<length).map { _ in UInt8.random(in: 0x20...0x7E, using: &generator) }
@@ -182,7 +195,7 @@ struct `Stream scanner tests` {
 
   @Test
   func `Whitespace run scanning matches a naive scan at every length and offset`() {
-    var generator = SystemRandomNumberGenerator()
+    var generator = SweepGenerator()
     let whitespace: [UInt8] = [0x20, 0x09, 0x0A, 0x0D]
     for length in 0...40 {
       for _ in 0..<20 {
@@ -214,7 +227,7 @@ struct `Stream scanner tests` {
   // the tail every time.
   @Test
   func `Digit accumulation matches a naive scan at every length and offset`() {
-    var generator = SystemRandomNumberGenerator()
+    var generator = SweepGenerator()
     for length in 0...40 {
       for _ in 0..<20 {
         var bytes = (0..<length).map { _ in UInt8.random(in: 0x30...0x39, using: &generator) }
@@ -305,7 +318,7 @@ struct `Stream scanner tests` {
   // tail, so the interesting cases are every length and every start offset around that boundary.
   @Test
   func `Number run scanning matches a naive scan at every length and offset`() {
-    var generator = SystemRandomNumberGenerator()
+    var generator = SweepGenerator()
     for length in 0...40 {
       for _ in 0..<20 {
         var bytes = (0..<length).map { _ in UInt8.random(in: 0x30...0x39, using: &generator) }
