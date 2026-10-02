@@ -1,0 +1,219 @@
+import CustomDump
+import StreamParsing
+import Testing
+
+@Suite
+struct `AsyncPartialsSequence Tests` {
+  @Test
+  func `Emits Partial For Each Chunked Async Byte Input And Completion`() async throws {
+    let byteStream = AsyncStream<[UInt8]> { continuation in
+      continuation.yield(Array("[1,2".utf8))
+      continuation.yield(Array(",3]".utf8))
+      continuation.finish()
+    }
+
+    var partials = [StreamArray<Int>]()
+    for try await partial in byteStream.partials(initialValue: StreamArray<Int>(), from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials, [[1], [1, 2, 3], [1, 2, 3]])
+  }
+
+  @Test
+  func `Emits Partial For Each Async Byte And Completion`() async throws {
+    let byteStream = AsyncStream<UInt8> { continuation in
+      for byte in "[1,2]".utf8 { continuation.yield(byte) }
+      continuation.finish()
+    }
+
+    var partials = [StreamArray<Int>]()
+    for try await partial in byteStream.partials(initialValue: StreamArray<Int>(), from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials, [[], [], [1], [1], [1, 2], [1, 2]])
+  }
+
+  @Test
+  func `Emits Same Partial When No Reduction Occurs For An Async Byte`() async throws {
+    let byteStream = AsyncStream<UInt8> { continuation in
+      for byte in #""ab""#.utf8 { continuation.yield(byte) }
+      continuation.finish()
+    }
+
+    var partials = [String]()
+    for try await partial in byteStream.partials(initialValue: "", from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials, ["", "a", "ab", "ab", "ab"])
+  }
+
+  @Test
+  func `Emits A Number Finalized At End Of Input`() async throws {
+    let byteStream = AsyncStream<UInt8> { continuation in
+      continuation.yield(0x31)
+      continuation.finish()
+    }
+
+    var partials = [Int]()
+    for try await partial in byteStream.partials(initialValue: 0, from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials, [0, 1])
+  }
+
+  // The iterator holds the stream in a box, since PartialsStream owns a parser buffer and an
+  // allocation the sink points into and cannot be copied. Iterating to completion is what proves
+  // the box hands back the same stream each time rather than a fresh one.
+  @Test
+  func `Parses A Model Across Async Chunks`() async throws {
+    let byteStream = AsyncStream<[UInt8]> { continuation in
+      continuation.yield(Array(#"{"id":4,"na"#.utf8))
+      continuation.yield(Array(#"me":"Blob"}"#.utf8))
+      continuation.finish()
+    }
+
+    var partials = [AsyncModel.Partial]()
+    for try await partial in byteStream.partials(of: AsyncModel.self, from: .json()) {
+      partials.append(partial)
+    }
+
+    expectNoDifference(partials.last?.id, 4)
+    expectNoDifference(partials.last?.name, "Blob")
+  }
+
+  @Test
+  func `Propagates A Parsing Failure`() async throws {
+    let byteStream = AsyncStream<UInt8> { continuation in
+      for byte in "@".utf8 { continuation.yield(byte) }
+      continuation.finish()
+    }
+
+    await #expect(throws: JSONParsingError.self) {
+      for try await _ in byteStream.partials(initialValue: 0, from: .json()) {}
+    }
+  }
+
+  @Test
+  func `Parsing Failure Terminates Iterator Copies`() async throws {
+    let partials = AsyncBytes(bytes: Array("@1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var iterator = partials.makeAsyncIterator()
+    var copy = iterator
+    await #expect(throws: JSONParsingError.self) { _ = try await iterator.next() }
+    #expect(try await copy.next() == nil)
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
+  func `Upstream Failure Terminates Iteration`() async throws {
+    let bytes = AsyncThrowingStream<UInt8, any Error> { continuation in
+      continuation.finish(throwing: CancellationError())
+    }
+    var iterator = bytes.partials(initialValue: 0, from: .json()).makeAsyncIterator()
+    await #expect(throws: CancellationError.self) { _ = try await iterator.next() }
+    // In particular, do not attempt to finish the empty JSON document after the error.
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
+  func `Finalization Failure Terminates Iteration`() async throws {
+    var iterator = AsyncBytes(bytes: []).partials(initialValue: 0, from: .json())
+      .makeAsyncIterator()
+    await #expect(throws: JSONParsingError.self) { _ = try await iterator.next() }
+    #expect(try await iterator.next() == nil)
+  }
+
+  @Test
+  func `Rejects A Second Subscriber`() async throws {
+    let partials = AsyncBytes(bytes: Array("1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var first = partials.makeAsyncIterator()
+    var second = partials.makeAsyncIterator()
+
+    let firstPartial = try await first.next()
+    expectNoDifference(firstPartial, 0)
+    await #expect(throws: StreamParsingError.multipleSubscribers) {
+      _ = try await second.next()
+    }
+    #expect(try await second.next() == nil)
+    let final = try await first.next()
+    expectNoDifference(final, 1)
+    let end = try await first.next()
+    expectNoDifference(end, nil)
+  }
+
+  // `AsyncStream` answers a cancelled consumer with `nil`, which is not the end of the document:
+  // finishing on it reported `12` of a `123` still in flight as the completed value, and an
+  // unfinished object as a syntax error rather than a cancellation.
+  @Test
+  func `Cancellation Is Not Reported As Document Completion`() async throws {
+    let (input, continuation) = AsyncStream<[UInt8]>.makeStream()
+    continuation.yield(Array("12".utf8))
+    let partials = Task { () throws -> [Int] in
+      withUnsafeCurrentTask { $0?.cancel() }
+      var partials = [Int]()
+      for try await partial in input.partials(initialValue: 0, from: .json()) {
+        partials.append(partial)
+      }
+      return partials
+    }
+    await #expect(throws: CancellationError.self) { _ = try await partials.value }
+
+    let (objects, objectContinuation) = AsyncStream<[UInt8]>.makeStream()
+    objectContinuation.yield(Array(#"{"id":4"#.utf8))
+    let updates = Task { () throws -> [PartialUpdate<AsyncModel.Partial>] in
+      withUnsafeCurrentTask { $0?.cancel() }
+      var updates = [PartialUpdate<AsyncModel.Partial>]()
+      let sequence = objects.partials(initialValue: AsyncModel.Partial(), from: .json())
+      for try await update in sequence.updates() { updates.append(update) }
+      return updates
+    }
+    await #expect(throws: CancellationError.self) { _ = try await updates.value }
+    continuation.finish()
+    objectContinuation.finish()
+  }
+
+  @Test
+  func `Iterator Copies Share One Subscription`() async throws {
+    let partials = AsyncBytes(bytes: Array("1".utf8))
+      .partials(initialValue: 0, from: .json())
+    var first = partials.makeAsyncIterator()
+    var copy = first
+
+    let firstPartial = try await first.next()
+    expectNoDifference(firstPartial, 0)
+    let final = try await copy.next()
+    expectNoDifference(final, 1)
+    let end = try await first.next()
+    expectNoDifference(end, nil)
+  }
+}
+
+private struct AsyncBytes: AsyncSequence, Hashable, Sendable {
+  let bytes: [UInt8]
+
+  struct AsyncIterator: AsyncIteratorProtocol, Hashable, Sendable {
+    let bytes: [UInt8]
+    var index = 0
+
+    mutating func next() async -> UInt8? {
+      guard self.index < self.bytes.count else { return nil }
+      defer { self.index += 1 }
+      return self.bytes[self.index]
+    }
+  }
+
+  func makeAsyncIterator() -> AsyncIterator {
+    AsyncIterator(bytes: self.bytes)
+  }
+}
+
+@StreamParseable
+struct AsyncModel: Equatable {
+  var id: Int = 0
+  var name: String = ""
+}
