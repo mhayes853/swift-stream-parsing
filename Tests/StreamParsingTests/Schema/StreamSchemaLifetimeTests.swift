@@ -57,10 +57,13 @@ struct `Stream Schema Lifetime Tests` {
 
       #expect(StreamArray<Int>.streamSchema === schema)
       // Other suites run concurrently and each new element type they touch allocates one template,
-      // so this is a growth-rate assertion rather than an equality: one per init would be 200.
+      // so this is a growth-rate assertion rather than an equality. A rebuild per init would
+      // allocate `iterations` templates; concurrent noise is bounded by the number of distinct
+      // element types the other suites touch (tens), so half the iterations separates the two
+      // by a wide margin on either side.
       let allocated = _streamTemplateStorageCounts.total - before
       #expect(
-        allocated * 20 < iterations,
+        allocated * 2 < iterations,
         "allocated \(allocated) templates over \(iterations) inits"
       )
     }
