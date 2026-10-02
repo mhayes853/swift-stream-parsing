@@ -3,8 +3,44 @@
 extension String: StreamStringConvertible {
   public static func streamInitialValue() -> Self { "" }
 
+  // `String(decoding:)` validates with the stdlib's validator, which drops to a byte at a time at
+  // the first non-ASCII byte: nearly every string in the LLM message has one, and that validation
+  // was most of the append. From 32 bytes this checks the bytes itself and copies them in unchecked
+  // -- an ASCII scan, then the parser's SIMD validator for anything else. Below 32, and for
+  // all-ASCII bytes, the stdlib's own ASCII path is as fast as anything here: the validator call
+  // costs a fixed ~12 ns (x86_64), so a span of one scalar, as byte-fed input delivers, stays on the
+  // decode. Measured on x86_64, ns per one-chunk string, decode / validator / this:
+  //
+  //   12 B ASCII  37.6 / 49.0 /  37.3     64 B with é   130.1 /  99.1 / 103.0
+  //   64 B ASCII  75.4 / 88.9 /  76.9     512 B with é  542.4 / 131.7 / 141.4
+  //
+  // and the LLM message's strings replayed as the sink delivers them, 814 MB/s -> 2821. The bytes
+  // are checked here rather than trusted from the sink, so a caller handing over anything at all
+  // still gets a well-formed `String`: what the validator refuses, a sequence cut at the end
+  // included, takes the repairing decode as before.
   @discardableResult
   public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+    // The opening quote's empty span, sent to settle acceptance: there is nothing to append.
+    guard !bytes.isEmpty else { return .applied }
+    if bytes.count >= 32, #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+      let isASCII = bytes.withUnsafeBufferPointer { buffer in
+        var bits: UInt8 = 0
+        for byte in buffer { bits |= byte }
+        return bits < 0x80
+      }
+      // Known ASCII also spares `String(copying:)` its own scan for the flag.
+      if isASCII {
+        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes, isKnownASCII: true)))
+        return .applied
+      }
+      let isValid = bytes.withUnsafeBytes { raw in
+        streamValidateUTF8(base: raw.baseAddress!, from: 0, to: raw.count)
+      }
+      if isValid {
+        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes)))
+        return .applied
+      }
+    }
     bytes.withUnsafeBufferPointer { buffer in
       self += String(decoding: buffer, as: UTF8.self)
     }
