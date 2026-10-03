@@ -22,6 +22,15 @@ struct DiagnosticSink {
   func diagnose(_ diagnostic: Diagnostic) {
     self.emit?(diagnostic)
   }
+
+  /// The options `attribute` writes, with each unreadable one diagnosed.
+  func arguments(of attribute: AttributeSyntax) -> StreamMacroArguments {
+    let arguments = StreamMacroArguments(parsing: attribute)
+    for error in arguments.errors {
+      self.diagnose(error.diagnostic)
+    }
+    return arguments
+  }
 }
 
 public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
@@ -44,7 +53,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       else { return [] }
       return try Self.enumMemberExpansion(
         declaration: enumDecl, lexicalContext: context.lexicalContext,
-        partialStrings: Self.partialStrings(from: node, context: sink), in: sink
+        partialStrings: sink.arguments(of: node).partialStrings ?? .streamString, in: sink
       )
     }
     let structDecl = try Self.requireStructDecl(declaration: declaration)
@@ -53,7 +62,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     }
     // `streamPartialValue` spells each member's storage, so it reads the string storage too.
     let properties = Self.storedProperties(
-      in: structDecl, partialStrings: Self.partialStrings(from: node, context: sink), context: sink
+      in: structDecl, partialStrings: sink.arguments(of: node).partialStrings ?? .streamString,
+      context: sink
     )
     // The partial mode only picks the unlabelled initializer, which the extension emits.
     return [
@@ -98,16 +108,16 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
     // The fully qualified name, so a nested type extends `Outer.Inner` rather than a name that
     // does not exist at file scope.
     let typeName = type.trimmedDescription
-    let keyDecodingStrategy = Self.argument(named: "keyDecodingStrategy", of: node)
+    let arguments = sink.arguments(of: node)
     let properties = Self.storedProperties(
-      in: structDecl, keyDecodingStrategy: keyDecodingStrategy,
-      partialStrings: Self.partialStrings(from: node, context: sink), context: sink
+      in: structDecl, keyDecodingStrategy: arguments.keyDecodingStrategy,
+      partialStrings: arguments.partialStrings ?? .streamString, context: sink
     )
     let hasExistingPartial = Self.hasExistingPartial(in: structDecl.memberBlock.members)
     let accessLevel = Self.generatedAccessLevel(
       for: structDecl, lexicalContext: context.lexicalContext
     )
-    let membersMode = Self.partialMembersMode(from: node, context: sink)
+    let membersMode = arguments.partialMembers ?? .optional
     let conformance = Self.conformanceClause(for: structDecl)
     var conversionMembers = try Self.conversions(
       for: properties,
@@ -138,8 +148,8 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       accessLevel: accessLevel,
       membersMode: membersMode,
       genericParameters: genericParameters,
-      schemaCache: Self.argument(named: "schemaCache", of: node),
-      keyDecodingStrategy: keyDecodingStrategy
+      schemaCache: arguments.schemaCache,
+      keyDecodingStrategy: arguments.keyDecodingStrategy
     )
     .structDeclarationSyntax(in: context)
     return [
@@ -446,57 +456,6 @@ extension StreamParseableMacro {
     }
     return nil
   }
-
-  static func partialMembersMode(
-    from node: AttributeSyntax,
-    context: DiagnosticSink
-  ) -> StreamPartialMembers {
-    guard let expression = Self.argument(named: "partialMembers", of: node) else { return .optional }
-    // The mode is read from the syntax, not evaluated, so anything but one of the two member
-    // names is unreadable rather than merely unusual.
-    switch expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text {
-    case "optional": return .optional
-    case "streamInitialValue": return .streamInitialValue
-    default:
-      context.diagnose(
-        Self.error(
-          expression,
-          "@StreamParseable(partialMembers:) requires .optional or .streamInitialValue."
-        )
-      )
-      return .optional
-    }
-  }
-
-  /// The type's `partialStrings:` argument, `.streamString` when unwritten.
-  static func partialStrings(
-    from node: AttributeSyntax,
-    context: DiagnosticSink
-  ) -> StreamPartialStrings {
-    guard let expression = Self.argument(named: "partialStrings", of: node) else {
-      return .streamString
-    }
-    return Self.partialStrings(
-      expression, message: "@StreamParseable(partialStrings:) requires .streamString or .string.",
-      context: context
-    ) ?? .streamString
-  }
-
-  // Read from the spelling, as `partialMembers` is: anything but one of the two case names is
-  // diagnosed with `message` and answers `nil`.
-  static func partialStrings(
-    _ expression: ExprSyntax,
-    message: String,
-    context: DiagnosticSink
-  ) -> StreamPartialStrings? {
-    switch expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text {
-    case "streamString": return .streamString
-    case "string": return .string
-    default:
-      context.diagnose(Self.error(expression, message))
-      return nil
-    }
-  }
 }
 
 extension DeclModifierListSyntax {
@@ -707,10 +666,17 @@ extension StreamParseableMacro {
       )
     }
 
-    let explicitKeyNames =
+    let members = Self.memberAttributes(in: variableDecl.attributes, context: context)
+    let explicitKeyNames = isIgnored ? nil : Self.explicitKeyNames(in: members)
+    let capacity =
       isIgnored
-      ? nil : Self.explicitKeyNames(for: variableDecl.attributes, context: context)
-    let capacity = isIgnored ? nil : Self.initialCapacity(for: variableDecl, context: context)
+      ? nil
+      : Self.memberArgument(
+        named: "initialCapacity",
+        of: members,
+        repeated: "@StreamParseableMember(initialCapacity:) can only be specified once per property.",
+        context: context
+      )?.arguments.initialCapacity
     if hasIgnoredAttribute, !hasDefaultValue, !type.streamIsOptional {
       context.diagnose(
         Self.error(
@@ -722,26 +688,18 @@ extension StreamParseableMacro {
         )
       )
     }
-    var conversion: String?
-    if let (_, expression) = Self.memberArgument(
+    let conversion = Self.memberArgument(
       named: "completedConversion",
-      of: variableDecl,
-      repeated: "completedConversion: can only be specified once per property.",
+      of: members,
+      repeated: "@StreamParseableMember(completedConversion:) can only be specified once per property.",
       context: context
-    ) {
-      if let member = expression.as(MemberAccessExprSyntax.self),
-        member.declName.baseName.text == "self", let base = member.base
-      {
-        conversion = base.trimmedDescription
-      } else {
-        context.diagnose(Self.error(expression, "completedConversion: requires a strategy type followed by .self."))
-      }
-    }
+    )?.arguments.completedConversion?.trimmedDescription
     let memberPartialStrings =
       isIgnored
       ? nil
       : Self.memberPartialStrings(
-        for: variableDecl, type: type, hasConversion: conversion != nil, context: context
+        of: members, in: variableDecl, type: type, hasConversion: conversion != nil,
+        context: context
       )
     if conversion != nil, !isIgnored {
       if capacity != nil {
@@ -770,25 +728,20 @@ extension StreamParseableMacro {
   // the storage, and warned where the type spells no `String` for it to reach -- an alias, say,
   // which keeps `StreamString` whatever is written.
   private static func memberPartialStrings(
-    for variableDecl: VariableDeclSyntax,
+    of members: [MemberAttribute],
+    in variableDecl: VariableDeclSyntax,
     type: TypeSyntax,
     hasConversion: Bool,
     context: DiagnosticSink
   ) -> StreamPartialStrings? {
     guard
-      let (attribute, expression) = Self.memberArgument(
+      let member = Self.memberArgument(
         named: "partialStrings",
-        of: variableDecl,
+        of: members,
         repeated: "@StreamParseableMember(partialStrings:) can only be specified once per property.",
         context: context
-      )
-    else { return nil }
-    guard
-      let storage = Self.partialStrings(
-        expression,
-        message: "@StreamParseableMember(partialStrings:) requires .streamString or .string.",
-        context: context
-      )
+      ),
+      let storage = member.arguments.partialStrings
     else { return nil }
     if hasConversion {
       context.diagnose(
@@ -797,7 +750,7 @@ extension StreamParseableMacro {
     } else if !StreamObjectGeneration.containsStringLeaf(type) {
       context.diagnose(
         Diagnostic(
-          node: attribute,
+          node: member.attribute,
           message: MacroExpansionWarningMessage(
             """
             partialStrings: has no effect, because '\(type.trimmedDescription)' does not spell \
@@ -838,42 +791,27 @@ extension StreamParseableMacro {
     }
   }
 
-  /// The keys a `@StreamParseableMember` writes out, or `nil` when the declaration is read from its
-  /// name, which a key decoding strategy converts.
-  static func explicitKeyNames(
-    for declAttributes: AttributeListSyntax,
+  /// A `@StreamParseableMember` and the options it writes.
+  struct MemberAttribute {
+    let attribute: AttributeSyntax
+    let arguments: StreamMacroArguments
+  }
+
+  /// Every `@StreamParseableMember` in `attributes`, each read once, so an unreadable argument is
+  /// diagnosed once however many of the options are then asked for.
+  static func memberAttributes(
+    in attributes: AttributeListSyntax,
     context: DiagnosticSink
-  ) -> [String]? {
-    var names = [String]()
-    for attribute in Self.attributes(named: "StreamParseableMember", in: declAttributes) {
-      let keyExpression = Self.argument(named: "key", of: attribute)
-      let keyNamesExpression = Self.argument(named: "keyNames", of: attribute)
-      let diagnose = { context.diagnose(Self.error(attribute, $0)) }
-      if keyExpression != nil, keyNamesExpression != nil {
-        diagnose("@StreamParseableMember takes either key: or keyNames:, not both.")
-      } else if let keyExpression {
-        guard let keyName = keyExpression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
-        else {
-          diagnose("@StreamParseableMember(key:) requires a string literal.")
-          continue
-        }
-        guard !keyName.isEmpty else {
-          diagnose("@StreamParseableMember(key:) must not be empty.")
-          continue
-        }
-        names.append(keyName)
-      } else if let keyNamesExpression {
-        guard let keyNames = Self.stringArrayValues(from: keyNamesExpression) else {
-          diagnose("@StreamParseableMember(keyNames:) requires a string array literal.")
-          continue
-        }
-        guard !keyNames.contains(where: \.isEmpty) else {
-          diagnose("@StreamParseableMember(keyNames:) must not contain an empty name.")
-          continue
-        }
-        names.append(contentsOf: keyNames)
-      }
+  ) -> [MemberAttribute] {
+    Self.attributes(named: "StreamParseableMember", in: attributes).map {
+      MemberAttribute(attribute: $0, arguments: context.arguments(of: $0))
     }
+  }
+
+  /// The keys the `@StreamParseableMember`s write out, or `nil` when the declaration is read from
+  /// its name, which a key decoding strategy converts.
+  static func explicitKeyNames(in members: [MemberAttribute]) -> [String]? {
+    let names = members.flatMap { $0.arguments.keys ?? [] }
     return names.isEmpty ? nil : names
   }
 
@@ -898,66 +836,27 @@ extension StreamParseableMacro {
     )
   }
 
-  static func initialCapacity(
-    for variableDecl: VariableDeclSyntax,
-    context: DiagnosticSink
-  ) -> Int? {
-    guard
-      let (attribute, expression) = Self.memberArgument(
-        named: "initialCapacity",
-        of: variableDecl,
-        repeated: "@StreamParseableMember(initialCapacity:) can only be specified once per property.",
-        context: context
-      )
-    else { return nil }
-    guard let value = Self.integerLiteralValue(expression) else {
-      context.diagnose(
-        Self.error(
-          attribute,
-          "@StreamParseableMember(initialCapacity:) requires a nonnegative integer literal."
-        )
-      )
-      return nil
-    }
-    return value
-  }
-
-  // The `name:` argument of the first `@StreamParseableMember` that writes one. Every later one
-  // is diagnosed with `repeated`. An explicit `nil`, which the optional overloads default to,
-  // counts as unwritten.
+  // The first of `members` that writes `name:`, whose value is that option's, `nil` where it is
+  // unreadable. Every later one is diagnosed with `repeated`. An explicit `nil`, which the
+  // optional overloads default to, counts as unwritten.
   private static func memberArgument(
     named name: String,
-    of variableDecl: VariableDeclSyntax,
+    of members: [MemberAttribute],
     repeated: String,
     context: DiagnosticSink
-  ) -> (attribute: AttributeSyntax, expression: ExprSyntax)? {
-    var found: (attribute: AttributeSyntax, expression: ExprSyntax)?
-    for attribute in Self.attributes(named: "StreamParseableMember", in: variableDecl.attributes) {
-      guard let expression = Self.argument(named: name, of: attribute),
+  ) -> MemberAttribute? {
+    var found: MemberAttribute?
+    for member in members {
+      guard let expression = Self.argument(named: name, of: member.attribute),
         !expression.is(NilLiteralExprSyntax.self)
       else { continue }
       guard found == nil else {
-        context.diagnose(Self.error(attribute, repeated))
+        context.diagnose(Self.error(member.attribute, repeated))
         continue
       }
-      found = (attribute, expression)
+      found = member
     }
     return found
-  }
-
-  private static func integerLiteralValue(_ expression: ExprSyntax) -> Int? {
-    guard let literal = expression.as(IntegerLiteralExprSyntax.self) else { return nil }
-    let text = String(literal.literal.text.filter { $0 != "_" })
-    if text.hasPrefix("0x") || text.hasPrefix("0X") {
-      return Int(text.dropFirst(2), radix: 16)
-    }
-    if text.hasPrefix("0o") || text.hasPrefix("0O") {
-      return Int(text.dropFirst(2), radix: 8)
-    }
-    if text.hasPrefix("0b") || text.hasPrefix("0B") {
-      return Int(text.dropFirst(2), radix: 2)
-    }
-    return Int(text, radix: 10)
   }
 
   // Keyed off an attribute list rather than a `VariableDeclSyntax`, because an enum case
@@ -975,18 +874,5 @@ extension StreamParseableMacro {
   static func argument(named name: String, of attribute: AttributeSyntax) -> ExprSyntax? {
     attribute.arguments?.as(LabeledExprListSyntax.self)?
       .first { $0.label?.text == name }?.expression
-  }
-
-  // Interpolation declines rather than silently dropping the interpolated segment: `"a\(1)b"`
-  // used to read as the key `ab`. An empty literal is returned as such, so callers that care can
-  // say "must not be empty" instead of "not a literal".
-  private static func stringArrayValues(from expression: ExprSyntax) -> [String]? {
-    guard let arrayExpression = expression.as(ArrayExprSyntax.self) else { return nil }
-    var values = [String]()
-    for element in arrayExpression.elements {
-      guard let value = element.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue else { return nil }
-      values.append(value)
-    }
-    return values.isEmpty ? nil : values
   }
 }

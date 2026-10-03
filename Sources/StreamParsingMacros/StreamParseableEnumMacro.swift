@@ -104,7 +104,9 @@ extension StreamParseableMacro {
       }
       // The attributes belong to the declaration, so they are read (and diagnosed) once, not once
       // per case it declares.
-      let explicitKeyNames = Self.explicitKeyNames(for: caseDecl.attributes, context: context)
+      let explicitKeyNames = Self.explicitKeyNames(
+        in: Self.memberAttributes(in: caseDecl.attributes, context: context)
+      )
 
       for element in caseDecl.elements {
         let associatedValues = Self.associatedValues(in: element.parameterClause)
@@ -256,7 +258,7 @@ extension StreamParseableMacro {
       Self.diagnosePartialMembersOnEnum(in: node, context: context)
     }
     // A raw-value enum has no associated values for the storage to reach.
-    var partialStrings = Self.partialStrings(from: node, context: context)
+    var partialStrings = context.arguments(of: node).partialStrings ?? .streamString
     if let argument = Self.argument(named: "partialStrings", of: node),
       !Self.hasGeneratedSchema(rawKind)
     {

@@ -229,7 +229,7 @@ extension BaseTestSuite {
           @StreamParseableMember(completedConversion: First.self)
           @StreamParseableMember(completedConversion: Second.self)
           ┬───────────────────────────────────────────────────────
-          ╰─ 🛑 completedConversion: can only be specified once per property.
+          ╰─ 🛑 @StreamParseableMember(completedConversion:) can only be specified once per property.
           var value: Int = 0
         }
         """
@@ -274,7 +274,7 @@ extension BaseTestSuite {
         struct Event {
           @StreamParseableMember(completedConversion: strategy)
                                                       ┬───────
-                                                      ╰─ 🛑 completedConversion: requires a strategy type followed by .self.
+                                                      ╰─ 🛑 @StreamParseableMember(completedConversion:) requires a strategy type followed by .self.
           var value: Int = 0
         }
         """

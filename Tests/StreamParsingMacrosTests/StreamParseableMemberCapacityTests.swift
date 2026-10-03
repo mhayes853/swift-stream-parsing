@@ -23,8 +23,8 @@ extension BaseTestSuite {
         @StreamParseable
         struct Payload {
           @StreamParseableMember(initialCapacity: capacity)
-          ┬────────────────────────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(initialCapacity:) requires a nonnegative integer literal.
+                                                  ┬───────
+                                                  ╰─ 🛑 @StreamParseableMember(initialCapacity:) requires a nonnegative integer literal.
           var values: [Int]
         }
         """

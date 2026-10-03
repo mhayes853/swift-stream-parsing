@@ -860,8 +860,8 @@ extension BaseTestSuite {
         @StreamParseable
         struct Person {
           @StreamParseableMember(key: keyName)
-          ┬───────────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
+                                      ┬──────
+                                      ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
           var name: String
           var age: Int
         }
@@ -889,8 +889,8 @@ extension BaseTestSuite {
         @StreamParseable
         struct Person {
           @StreamParseableMember(keyNames: keyNames)
-          ┬─────────────────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
+                                           ┬───────
+                                           ╰─ 🛑 @StreamParseableMember(keyNames:) requires a string array literal.
           var name: String
           var age: Int
         }
@@ -5775,8 +5775,8 @@ extension BaseTestSuite {
           @StreamParseableDefault
           case idle
           @StreamParseableMember(key: "")
-          ┬──────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(key:) must not be empty.
+                                      ┬─
+                                      ╰─ 🛑 @StreamParseableMember(key:) must not be empty.
           case a, b
         }
         """
@@ -5850,8 +5850,8 @@ extension BaseTestSuite {
         @StreamParseable
         struct Person {
           @StreamParseableMember(key: "a\(1)b")
-          ┬────────────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
+                                      ┬───────
+                                      ╰─ 🛑 @StreamParseableMember(key:) requires a string literal.
           var name: String
         }
         """#
@@ -5873,8 +5873,8 @@ extension BaseTestSuite {
         @StreamParseable
         struct Person {
           @StreamParseableMember(key: "")
-          ┬──────────────────────────────
-          ╰─ 🛑 @StreamParseableMember(key:) must not be empty.
+                                      ┬─
+                                      ╰─ 🛑 @StreamParseableMember(key:) must not be empty.
           var name: String
         }
         """
