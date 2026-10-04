@@ -74,6 +74,50 @@ struct KeyDecodingTests {
   }
 
   @Test
+  func decodedKeysAreKnownUnlessACustomStrategyConverts() {
+    let explicit = StreamParseableField(
+      name: .identifier("text"), type: TypeSyntax("String"), keys: ["full_text", "text"]
+    )
+    for strategy: ExprSyntax? in [nil, ".useDefaultKeys", ".convertFromSnakeCase"] {
+      let keys = configuration(strategy).decodedKeys(for: explicit)
+      #expect(keys.map(\.knownKey) == ["full_text", "text"])
+      #expect(keys.map(\.expression.description) == [#""full_text""#, #""text""#])
+    }
+    #expect(configuration(nil).decodedKeys(for: field("createdAt")).map(\.knownKey) == ["createdAt"])
+    let snake = configuration(".convertFromSnakeCase")
+    #expect(snake.decodedKeys(for: field("createdAt")).map(\.knownKey) == ["created_at"])
+    #expect(snake.decodedKey(converting: "userJoined").expression.description == #""user_joined""#)
+  }
+
+  @Test
+  func customStrategyKeysAreExpressionsThatConvertAtRunTime() {
+    let house = configuration(".custom { \"x_\" + $0 }")
+    let converted = house.decodedKeys(for: field("createdAt"))
+    #expect(converted.map(\.knownKey) == [nil])
+    #expect(
+      converted.map(\.expression.description) == [
+        #"(.custom { "x_" + $0 } as StreamParsing.StreamKeyDecodingStrategy).key(for: "createdAt")"#
+      ]
+    )
+    #expect(!Parser.parse(source: "_ = \(converted[0].expression)").hasError)
+    let explicit = StreamParseableField(
+      name: .identifier("text"), type: TypeSyntax("String"), keys: ["full_text"]
+    )
+    #expect(house.decodedKeys(for: explicit).map(\.knownKey) == ["full_text"])
+    #expect(house.decodedKey(converting: "a\"b").expression.description.hasSuffix(##".key(for: #"a"b"#)"##))
+  }
+
+  @Test
+  func decodedKeysCompareByMeaning() {
+    let snake = configuration(".convertFromSnakeCase")
+    #expect(snake.decodedKey(converting: "createdAt") == configuration(nil).decodedKey(converting: "created_at"))
+    let house = configuration(".house")
+    #expect(house.decodedKey(converting: "a") == configuration(".house").decodedKey(converting: "a"))
+    #expect(house.decodedKey(converting: "a") != configuration(".other").decodedKey(converting: "a"))
+    #expect(house.decodedKey(converting: "a") != configuration(nil).decodedKey(converting: "a"))
+  }
+
+  @Test
   func builtInStrategyEmitsLiteralKeysAndTheWordSwitch() throws {
     let explicit = StreamParseableField(
       name: .identifier("text"), type: TypeSyntax("String"), keys: ["fullText"]
