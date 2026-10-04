@@ -16,19 +16,19 @@ struct SupportPartialMacro: MemberMacro {
       StreamParseableField(
         name: TokenSyntax.identifier("name"),
         type: IdentifierTypeSyntax(name: TokenSyntax.identifier("String")),
-        keys: ["customer_name", "name"]
+        explicitKeys: ["customer_name", "name"]
       ),
       StreamParseableField(
         name: TokenSyntax.identifier("id"),
         type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Int")),
-        keys: ["customer_id"]
+        explicitKeys: ["customer_id"]
       ),
       StreamParseableField(
         name: TokenSyntax.identifier("tags"),
         type: ArrayTypeSyntax(
           element: IdentifierTypeSyntax(name: TokenSyntax.identifier("String"))
         ),
-        keys: ["tags"]
+        explicitKeys: ["tags"]
       )
     ]
     let generation = try StreamObjectGeneration(fields: fields)
@@ -76,7 +76,7 @@ struct SupportMatcherMacro: MemberMacro {
       StreamParseableField(
         name: .identifier("field\(index)"),
         type: IdentifierTypeSyntax(name: .identifier("Int")),
-        keys: [key]
+        explicitKeys: [key]
       )
     })
     return [DeclSyntax(try generation.structDeclarationSyntax(
@@ -115,7 +115,7 @@ struct SupportFullPartialMacro: MemberMacro {
         StreamParseableField(
           name: TokenSyntax.identifier("default"),
           type: TypeSyntax("Swift.Optional<Int>"),
-          keys: ["value", "a\0"]
+          explicitKeys: ["value", "a\0"]
         )
       ],
       configuration: StreamGenerationConfiguration(
