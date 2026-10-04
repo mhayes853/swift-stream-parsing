@@ -274,7 +274,9 @@ struct `StreamObjectGeneration tests` {
     let descriptors = optional.partialFields
     expectNoDifference(descriptors.map(\.memberName.text), ["`class`", "amount", "items"])
     expectNoDifference(descriptors.map(\.unescapedName), ["class", "amount", "items"])
-    expectNoDifference(descriptors.map(\.keys), [["kind", "class"], ["amount"], ["items"]])
+    expectNoDifference(
+      descriptors.map { $0.keys.map(\.knownKey) }, [["kind", "class"], ["amount"], ["items"]]
+    )
     expectNoDifference(descriptors.map(\.storageType.trimmedDescription), [
       "String.Partial?",
       "StreamParsingCore.ConvertedPartial<Cents>?",

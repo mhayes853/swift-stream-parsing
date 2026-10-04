@@ -55,8 +55,22 @@ generic type exposes no parameters syntactically, so a type nested in one cannot
 `StreamPartialFieldDescriptor` supplies the emitted member name, its unescaped name, its exact
 storage type, and all decoded routing keys. The storage type reflects optional-member mode,
 completed-value conversions, and container lowering. It is syntax, not a resolved Swift type.
-Keys preserve their supplied order; the generator does not select a preferred output key when
-aliases exist.
+Keys preserve their supplied order; emit the first where one key is needed.
+
+Each key is a `StreamDecodedKey`. Its `expression` evaluates to the key anywhere: a string
+literal, or under a custom `keyDecodingStrategy`, the strategy's conversion of the name at run
+time. Its `knownKey` is the key itself when it is known while the macro expands, which is always
+except for a name a custom strategy converts. Where no generation exists yet, such as in another
+macro role, `StreamGenerationConfiguration.decodedKeys(for:)` resolves a field's keys the same
+way, and `decodedKey(converting:)` resolves a name that cannot have keys written out, such as an
+enum case. A custom strategy is evaluated wherever its keys are, so it should not refer to
+`Self`.
+
+```swift
+for field in generation.partialFields {
+  properties.append("\(field.keys[0].expression): \(schema(for: field))")
+}
+```
 
 `TypeSyntax.streamParseable`, `.streamParseableObject`, and `.streamInitializable` spell the
 library protocols that generated declarations conform to, fully qualified so a host's

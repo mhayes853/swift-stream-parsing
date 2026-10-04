@@ -145,9 +145,12 @@ public struct StreamGenerationConfiguration: Sendable {
   ///
   /// A built-in strategy spelled as a member (`.convertFromSnakeCase`, optionally qualified with
   /// `StreamKeyDecodingStrategy`) is applied during generation, so the generated keys are
-  /// literals; see `decodedKey(for:)`. Any other expression is emitted into the schema build,
-  /// evaluated there on the same terms as `schemaCache`, and converts each key as the schema is
-  /// built. Raw-value enum representations have no object keys, and ignore it.
+  /// literals. Any other expression is emitted into the schema build, coerced to
+  /// `StreamKeyDecodingStrategy` as `schemaCache` is, and converts each key as the schema is
+  /// built. `decodedKeys(for:)` resolves a field's keys the same way for a macro's own code. A
+  /// custom strategy is evaluated wherever its keys are, inside and outside the `Partial`, so it
+  /// should not refer to `Self`. Raw-value enum representations have no object keys, and ignore
+  /// it.
   public var keyDecodingStrategy: ExprSyntax? {
     didSet { self.keyDecoding = KeyDecoding(self.keyDecodingStrategy) }
   }
@@ -172,17 +175,6 @@ public struct StreamGenerationConfiguration: Sendable {
     self.schemaCache = schemaCache
     self.keyDecodingStrategy = keyDecodingStrategy
     self.keyDecoding = KeyDecoding(keyDecodingStrategy)
-  }
-
-  /// The key `keyDecodingStrategy` gives a converted `name` during generation: `name` itself
-  /// without a strategy, the converted name under a built-in one, and `nil` under any other
-  /// expression, whose keys are only known once the schema is built.
-  public func decodedKey(for name: String) -> String? {
-    switch self.keyDecoding {
-    case .none: name
-    case .builtIn(let conversion): conversion.key(for: name)
-    case .atSchemaBuild: nil
-    }
   }
 
   /// What a `keyDecodingStrategy` expression does to the keys it converts.
@@ -318,12 +310,16 @@ public struct StreamPartialFieldDescriptor: Sendable {
   public let unescapedName: String
   /// The exact generated property type, including any optional wrapper.
   public let storageType: TypeSyntax
-  /// Byte-exact decoded keys that route to this member, in their supplied order. For a field whose
-  /// keys a strategy converts only when the schema is built, the declared names.
-  public let keys: [String]
+  /// The keys that route to this member, in their supplied order. Emit the first.
+  public let keys: [StreamDecodedKey]
 
   /// Creates a descriptor for a stored field in a generated `Partial`.
-  public init(memberName: TokenSyntax, unescapedName: String, storageType: TypeSyntax, keys: [String]) {
+  public init(
+    memberName: TokenSyntax,
+    unescapedName: String,
+    storageType: TypeSyntax,
+    keys: [StreamDecodedKey]
+  ) {
     self.memberName = memberName
     self.unescapedName = unescapedName
     self.storageType = storageType
@@ -419,7 +415,7 @@ public struct StreamObjectGeneration: Sendable {
         memberName: .identifier(Self.memberName(field.name)),
         unescapedName: Self.bareName(field.name),
         storageType: TypeSyntax("\(raw: self.memberType(field))"),
-        keys: keys.map { $0.knownKey ?? $0.convertedName! }
+        keys: keys
       )
     }
   }

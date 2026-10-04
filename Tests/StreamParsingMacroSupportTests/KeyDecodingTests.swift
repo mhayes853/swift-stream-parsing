@@ -40,26 +40,26 @@ struct KeyDecodingTests {
   func builtInSpellingsConvertDuringGeneration() {
     for conversion in conversions {
       let name = conversion.name
-      #expect(configuration(nil).decodedKey(for: name) == name)
-      #expect(configuration(".useDefaultKeys").decodedKey(for: name) == name)
-      #expect(configuration(".convertFromSnakeCase").decodedKey(for: name) == conversion.snake)
+      #expect(configuration(nil).decodedKey(converting: name).knownKey == name)
+      #expect(configuration(".useDefaultKeys").decodedKey(converting: name).knownKey == name)
+      #expect(configuration(".convertFromSnakeCase").decodedKey(converting: name).knownKey == conversion.snake)
       #expect(
-        configuration(".convertFromScreamingSnakeCase").decodedKey(for: name)
+        configuration(".convertFromScreamingSnakeCase").decodedKey(converting: name).knownKey
           == conversion.screaming
       )
-      #expect(configuration(".convertFromKebabCase").decodedKey(for: name) == conversion.kebab)
-      #expect(configuration(".convertFromPascalCase").decodedKey(for: name) == conversion.pascal)
+      #expect(configuration(".convertFromKebabCase").decodedKey(converting: name).knownKey == conversion.kebab)
+      #expect(configuration(".convertFromPascalCase").decodedKey(converting: name).knownKey == conversion.pascal)
     }
   }
 
   @Test
   func qualifiedSpellingsAreBuiltIn() {
     #expect(
-      configuration("StreamKeyDecodingStrategy.convertFromSnakeCase").decodedKey(for: "aB") == "a_b"
+      configuration("StreamKeyDecodingStrategy.convertFromSnakeCase").decodedKey(converting: "aB").knownKey == "a_b"
     )
     #expect(
       configuration("StreamParsing.StreamKeyDecodingStrategy.convertFromSnakeCase")
-        .decodedKey(for: "aB") == "a_b"
+        .decodedKey(converting: "aB").knownKey == "a_b"
     )
   }
 
@@ -69,7 +69,7 @@ struct KeyDecodingTests {
       ".custom { $0 }", ".openAI", "Strategies.openAI", "Other.convertFromSnakeCase",
       "strategy", ".convertFromSnakeCase(1)",
     ] {
-      #expect(configuration(expression).decodedKey(for: "aB") == nil)
+      #expect(configuration(expression).decodedKey(converting: "aB").knownKey == nil)
     }
   }
 
@@ -127,7 +127,7 @@ struct KeyDecodingTests {
       configuration: configuration(".convertFromSnakeCase")
     )
     #expect(generation.fields.map(\.explicitKeys) == [nil, ["fullText"]])
-    #expect(generation.partialFields.map(\.keys) == [["created_at"], ["fullText"]])
+    #expect(generation.partialFields.map { $0.keys.map(\.knownKey) } == [["created_at"], ["fullText"]])
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
       .description
     #expect(!Parser.parse(source: source).hasError)
@@ -147,6 +147,12 @@ struct KeyDecodingTests {
       configuration: configuration(".custom { $0.uppercased() }")
     )
     #expect(generation.fields.map(\.explicitKeys) == [nil, ["full_text"]])
+    #expect(
+      generation.partialFields.map { $0.keys.map(\.expression.description) } == [
+        [#"(.custom { $0.uppercased() } as StreamParsing.StreamKeyDecodingStrategy).key(for: "createdAt")"#],
+        [#""full_text""#],
+      ]
+    )
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
       .description
     #expect(!Parser.parse(source: source).hasError)
@@ -196,11 +202,60 @@ struct KeyDecodingTests {
       representation: .caseKeyedObject,
       configuration: configuration(".convertFromSnakeCase")
     )
-    #expect(generation.partialFields?.map(\.keys) == [["user_joined"], ["renamedEvent"]])
+    #expect(
+      generation.partialFields?.map { $0.keys.map(\.knownKey) } == [["user_joined"], ["renamedEvent"]]
+    )
     let source = try generation.partialSyntax(in: BasicMacroExpansionContext()).description
     #expect(!Parser.parse(source: source).hasError)
     #expect(source.contains(#"key: "user_name""#))
     #expect(source.contains(#"key: "_1""#))
+  }
+
+  @Test
+  func suppliedFieldsResolveToTheSameKeysAgain() throws {
+    let configuration = configuration(".convertFromPascalCase")
+    let generation = try StreamObjectGeneration(
+      fields: [field("createdAt")], configuration: configuration
+    )
+    // Fields come back as supplied, so resolving one again does not convert it twice.
+    #expect(configuration.decodedKeys(for: generation.fields[0]) == generation.partialFields[0].keys)
+    #expect(generation.partialFields[0].keys.map(\.knownKey) == ["CreatedAt"])
+  }
+
+  @Test
+  func payloadDescriptorsFollowTheStrategy() throws {
+    let configuration = configuration(".custom { $0 }")
+    let generation = try StreamEnumGeneration(
+      cases: [
+        StreamParseableEnumCase(
+          name: .identifier("userJoined"),
+          associatedValues: [
+            field("userName", type: "String"),
+            StreamParseableField(name: .wildcardToken(), type: TypeSyntax("Int")),
+          ]
+        )
+      ],
+      representation: .caseKeyedObject,
+      configuration: configuration
+    )
+    #expect(generation.partialFields?.map { $0.keys.map(\.knownKey) } == [[nil]])
+    #expect(
+      generation.partialFields?.first?.keys.first == configuration.decodedKey(converting: "userJoined")
+    )
+    var payloadKeys = [[StreamDecodedKey]]()
+    _ = try generation.partialSyntax(
+      in: BasicMacroExpansionContext(),
+      payloadCustomization: { info in
+        payloadKeys = info.partialFields.map(\.keys)
+        let manual = StreamEnumPayloadInfo(
+          caseName: info.caseName, payloadTypeName: info.payloadTypeName, fields: info.fields,
+          configuration: configuration
+        )
+        #expect(manual.partialFields.map(\.keys) == payloadKeys)
+        return .generated(partial: StreamPartialCustomization())
+      }
+    )
+    #expect(payloadKeys == [[configuration.decodedKey(converting: "userName")], [StreamDecodedKey(knownKey: "_1")]])
   }
 
   @Test

@@ -194,7 +194,9 @@ struct `StreamEnumGeneration tests` {
     expectNoDifference(generation.partialFields?.map(\.storageType.trimmedDescription), [
       "StreamParsingCore.StreamEmptyObject.Partial?", "EventArguments.Partial?"
     ])
-    expectNoDifference(generation.partialFields?.map(\.keys), [["default"], ["event", "happening"]])
+    expectNoDifference(
+      generation.partialFields?.map { $0.keys.map(\.knownKey) }, [["default"], ["event", "happening"]]
+    )
 
     self.expectContains(source, "var `default`: StreamParsingCore.StreamEmptyObject.Partial?")
     self.expectContains(source, "var event: EventArguments.Partial?")
@@ -234,9 +236,10 @@ struct `StreamEnumGeneration tests` {
         #expect(info.partialFields.map(\.storageType.trimmedDescription) == [
           "StreamParsingCore.ConvertedPartial<UnixSeconds>?", "String.Partial?"
         ])
-        #expect(info.partialFields.map(\.keys) == [["createdAt"], ["_1"]])
+        #expect(info.partialFields.map { $0.keys.map(\.knownKey) } == [["createdAt"], ["_1"]])
         let manuallyCreated = StreamEnumPayloadInfo(
-          caseName: info.caseName, payloadTypeName: info.payloadTypeName, fields: info.fields
+          caseName: info.caseName, payloadTypeName: info.payloadTypeName, fields: info.fields,
+          configuration: generation.configuration
         )
         #expect(manuallyCreated.partialFields.map(\.storageType.trimmedDescription)
           == info.partialFields.map(\.storageType.trimmedDescription))
@@ -260,7 +263,7 @@ struct `StreamEnumGeneration tests` {
       memberName: .identifier("custom"),
       unescapedName: "custom",
       storageType: TypeSyntax("Custom.Partial?"),
-      keys: ["wireKey"]
+      keys: [StreamDecodedKey(knownKey: "wireKey")]
     )
     let info = StreamEnumPayloadInfo(
       caseName: .identifier("event"),
@@ -270,7 +273,7 @@ struct `StreamEnumGeneration tests` {
     )
     #expect(info.partialFields[0].memberName.text == "custom")
     #expect(info.partialFields[0].storageType.trimmedDescription == "Custom.Partial?")
-    #expect(info.partialFields[0].keys == ["wireKey"])
+    #expect(info.partialFields[0].keys.map(\.knownKey) == ["wireKey"])
   }
 
   @Test

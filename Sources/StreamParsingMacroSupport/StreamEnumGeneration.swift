@@ -54,12 +54,20 @@ public struct StreamEnumPayloadInfo {
   /// The generated payload `Partial` storage fields, in the same order as `fields`.
   public let partialFields: [StreamPartialFieldDescriptor]
 
-  public init(caseName: TokenSyntax, payloadTypeName: TokenSyntax, fields: [StreamParseableField]) {
+  /// Creates payload customization information, resolving `partialFields` from `fields`. Pass the
+  /// enum generation's `configuration`, whose key decoding strategy the descriptors' keys follow.
+  public init(
+    caseName: TokenSyntax,
+    payloadTypeName: TokenSyntax,
+    fields: [StreamParseableField],
+    configuration: StreamGenerationConfiguration
+  ) {
     self.init(
       caseName: caseName,
       payloadTypeName: payloadTypeName,
       fields: fields,
-      partialFields: StreamObjectGeneration(diagnosedFields: fields).partialFields
+      partialFields: StreamObjectGeneration(diagnosedFields: fields, configuration: configuration)
+        .partialFields
     )
   }
 

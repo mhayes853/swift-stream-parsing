@@ -14,8 +14,9 @@ public struct StreamDecodedKey: Hashable, Sendable {
 
   private let storage: Storage
 
-  /// A key known while the macro expands.
-  init(known key: String) {
+  /// A key known while the macro expands, such as one written out. Resolve a name through
+  /// `StreamGenerationConfiguration.decodedKey(converting:)` instead, which applies the strategy.
+  public init(knownKey key: String) {
     self.storage = .known(key)
   }
 
@@ -68,7 +69,7 @@ extension StreamGenerationConfiguration {
   /// generation keys an unlabelled associated value by its position.
   public func decodedKeys(for field: StreamParseableField) -> [StreamDecodedKey] {
     if let explicitKeys = field.explicitKeys {
-      return explicitKeys.map(StreamDecodedKey.init(known:))
+      return explicitKeys.map(StreamDecodedKey.init(knownKey:))
     }
     guard field.name.tokenKind != .wildcard else { return [] }
     return [self.decodedKey(converting: StreamObjectGeneration.bareName(field.name))]
@@ -81,8 +82,8 @@ extension StreamGenerationConfiguration {
   /// field whose key is written out.
   public func decodedKey(converting name: String) -> StreamDecodedKey {
     switch self.keyDecoding {
-    case .none: StreamDecodedKey(known: name)
-    case .builtIn(let conversion): StreamDecodedKey(known: conversion.key(for: name))
+    case .none: StreamDecodedKey(knownKey: name)
+    case .builtIn(let conversion): StreamDecodedKey(knownKey: conversion.key(for: name))
     case .atSchemaBuild: StreamDecodedKey(converting: name, by: self.keyDecodingStrategy!)
     }
   }
