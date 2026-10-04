@@ -1,3 +1,4 @@
+internal import StreamParsingKeyDecoding
 import SwiftSyntax
 
 /// A key that selects a field or case, as the generated `Partial` matches it.
@@ -14,15 +15,52 @@ public struct StreamDecodedKey: Hashable, Sendable {
 
   private let storage: Storage
 
-  /// A key known while the macro expands, such as one written out. Resolve a name through
-  /// `StreamGenerationConfiguration.decodedKey(converting:)` instead, which applies the strategy.
+  /// A key known while the macro expands, such as one written out.
   public init(knownKey key: String) {
     self.storage = .known(key)
   }
 
-  /// `name`, converted at run time by the strategy `strategy` spells.
-  init(converting name: String, by strategy: some ExprSyntaxProtocol) {
-    self.storage = .converted(name: name, strategy: strategy.trimmedDescription)
+  /// The key a `StreamKeyDecodingStrategy` expression gives `name`, as
+  /// `StreamGenerationConfiguration.keyDecodingStrategy` reads it.
+  ///
+  /// For a name that cannot have a key written out, such as an enum case under `.caseKeyedObject`;
+  /// for a field, use `StreamGenerationConfiguration.decodedKeys(for:)`, which keeps the keys it
+  /// writes out. Without a strategy the name is the key. A built-in strategy spelled as a member
+  /// (`.convertFromSnakeCase`, optionally qualified with `StreamKeyDecodingStrategy`) converts it
+  /// now, and any other expression at run time.
+  public init(converting name: String, by strategy: ExprSyntax?) {
+    guard let strategy else {
+      self.storage = .known(name)
+      return
+    }
+    let conversion: StreamDefaultKeyConversion
+    switch Self.memberName(strategy) {
+    case "useDefaultKeys":
+      self.storage = .known(name)
+      return
+    case "convertFromSnakeCase": conversion = .snakeCase
+    case "convertFromScreamingSnakeCase": conversion = .screamingSnakeCase
+    case "convertFromKebabCase": conversion = .kebabCase
+    case "convertFromPascalCase": conversion = .pascalCase
+    default:
+      self.storage = .converted(name: name, strategy: strategy.trimmedDescription)
+      return
+    }
+    self.storage = .known(conversion.key(for: name))
+  }
+
+  /// The member a strategy's spelling names, if it is one of `StreamKeyDecodingStrategy`'s,
+  /// without arguments: `.x`, `StreamKeyDecodingStrategy.x`, or
+  /// `StreamParsing.StreamKeyDecodingStrategy.x`.
+  private static func memberName(_ strategy: ExprSyntax) -> String? {
+    guard let member = strategy.as(MemberAccessExprSyntax.self),
+      member.declName.argumentNames == nil,
+      member.base.map({
+        ["StreamKeyDecodingStrategy", "StreamParsing.StreamKeyDecodingStrategy"]
+          .contains($0.trimmedDescription)
+      }) ?? true
+    else { return nil }
+    return member.declName.baseName.text
   }
 
   /// The key, if it is known while the macro expands.
@@ -72,19 +110,10 @@ extension StreamGenerationConfiguration {
       return explicitKeys.map(StreamDecodedKey.init(knownKey:))
     }
     guard field.name.tokenKind != .wildcard else { return [] }
-    return [self.decodedKey(converting: StreamObjectGeneration.bareName(field.name))]
-  }
-
-  /// The key `keyDecodingStrategy` gives `name`.
-  ///
-  /// For a name that cannot have a key written out, such as an enum case under `.caseKeyedObject`.
-  /// For a field, use `decodedKeys(for:)`: this always converts, so it gives the wrong key for a
-  /// field whose key is written out.
-  public func decodedKey(converting name: String) -> StreamDecodedKey {
-    switch self.keyDecoding {
-    case .none: StreamDecodedKey(knownKey: name)
-    case .builtIn(let conversion): StreamDecodedKey(knownKey: conversion.key(for: name))
-    case .atSchemaBuild: StreamDecodedKey(converting: name, by: self.keyDecodingStrategy!)
-    }
+    return [
+      StreamDecodedKey(
+        converting: StreamObjectGeneration.bareName(field.name), by: self.keyDecodingStrategy
+      )
+    ]
   }
 }

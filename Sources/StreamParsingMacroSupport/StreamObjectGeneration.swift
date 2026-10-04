@@ -1,4 +1,3 @@
-internal import StreamParsingKeyDecoding
 import SwiftBasicFormat
 import SwiftSyntax
 import SwiftSyntaxBuilder
@@ -151,11 +150,7 @@ public struct StreamGenerationConfiguration: Sendable {
   /// custom strategy is evaluated wherever its keys are, inside and outside the `Partial`, so it
   /// should not refer to `Self`. Raw-value enum representations have no object keys, and ignore
   /// it.
-  public var keyDecodingStrategy: ExprSyntax? {
-    didSet { self.keyDecoding = KeyDecoding(self.keyDecodingStrategy) }
-  }
-  /// `keyDecodingStrategy`, classified once.
-  var keyDecoding: KeyDecoding
+  public var keyDecodingStrategy: ExprSyntax?
 
   /// Creates a generation configuration.
   public init(
@@ -174,42 +169,6 @@ public struct StreamGenerationConfiguration: Sendable {
     self.genericParameters = genericParameters
     self.schemaCache = schemaCache
     self.keyDecodingStrategy = keyDecodingStrategy
-    self.keyDecoding = KeyDecoding(keyDecodingStrategy)
-  }
-
-  /// What a `keyDecodingStrategy` expression does to the keys it converts.
-  enum KeyDecoding: Sendable {
-    /// No strategy, or `.useDefaultKeys`: the names are the keys.
-    case none
-    /// A built-in strategy, applied during generation.
-    case builtIn(StreamDefaultKeyConversion)
-    /// Any other expression, evaluated when the schema is built.
-    case atSchemaBuild
-
-    init(_ strategy: ExprSyntax?) {
-      guard let strategy else {
-        self = .none
-        return
-      }
-      guard let member = strategy.as(MemberAccessExprSyntax.self),
-        member.declName.argumentNames == nil,
-        member.base.map({
-          ["StreamKeyDecodingStrategy", "StreamParsing.StreamKeyDecodingStrategy"]
-            .contains($0.trimmedDescription)
-        }) ?? true
-      else {
-        self = .atSchemaBuild
-        return
-      }
-      switch member.declName.baseName.text {
-      case "useDefaultKeys": self = .none
-      case "convertFromSnakeCase": self = .builtIn(.snakeCase)
-      case "convertFromScreamingSnakeCase": self = .builtIn(.screamingSnakeCase)
-      case "convertFromKebabCase": self = .builtIn(.kebabCase)
-      case "convertFromPascalCase": self = .builtIn(.pascalCase)
-      default: self = .atSchemaBuild
-      }
-    }
   }
 
   /// The access modifier and its trailing space, or nothing for internal access.

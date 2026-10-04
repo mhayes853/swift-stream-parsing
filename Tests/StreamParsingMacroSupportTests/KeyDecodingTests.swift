@@ -30,6 +30,10 @@ private func configuration(_ strategy: ExprSyntax?) -> StreamGenerationConfigura
   StreamGenerationConfiguration(keyDecodingStrategy: strategy)
 }
 
+private func knownKey(_ name: String, by strategy: ExprSyntax?) -> String? {
+  StreamDecodedKey(converting: name, by: strategy).knownKey
+}
+
 private func field(_ name: String, type: String = "Int") -> StreamParseableField {
   StreamParseableField(name: .identifier(name), type: TypeSyntax("\(raw: type)"))
 }
@@ -40,27 +44,19 @@ struct KeyDecodingTests {
   func builtInSpellingsConvertDuringGeneration() {
     for conversion in conversions {
       let name = conversion.name
-      #expect(configuration(nil).decodedKey(converting: name).knownKey == name)
-      #expect(configuration(".useDefaultKeys").decodedKey(converting: name).knownKey == name)
-      #expect(configuration(".convertFromSnakeCase").decodedKey(converting: name).knownKey == conversion.snake)
-      #expect(
-        configuration(".convertFromScreamingSnakeCase").decodedKey(converting: name).knownKey
-          == conversion.screaming
-      )
-      #expect(configuration(".convertFromKebabCase").decodedKey(converting: name).knownKey == conversion.kebab)
-      #expect(configuration(".convertFromPascalCase").decodedKey(converting: name).knownKey == conversion.pascal)
+      #expect(knownKey(name, by: nil) == name)
+      #expect(knownKey(name, by: ".useDefaultKeys") == name)
+      #expect(knownKey(name, by: ".convertFromSnakeCase") == conversion.snake)
+      #expect(knownKey(name, by: ".convertFromScreamingSnakeCase") == conversion.screaming)
+      #expect(knownKey(name, by: ".convertFromKebabCase") == conversion.kebab)
+      #expect(knownKey(name, by: ".convertFromPascalCase") == conversion.pascal)
     }
   }
 
   @Test
   func qualifiedSpellingsAreBuiltIn() {
-    #expect(
-      configuration("StreamKeyDecodingStrategy.convertFromSnakeCase").decodedKey(converting: "aB").knownKey == "a_b"
-    )
-    #expect(
-      configuration("StreamParsing.StreamKeyDecodingStrategy.convertFromSnakeCase")
-        .decodedKey(converting: "aB").knownKey == "a_b"
-    )
+    #expect(knownKey("aB", by: "StreamKeyDecodingStrategy.convertFromSnakeCase") == "a_b")
+    #expect(knownKey("aB", by: "StreamParsing.StreamKeyDecodingStrategy.convertFromSnakeCase") == "a_b")
   }
 
   @Test
@@ -69,7 +65,7 @@ struct KeyDecodingTests {
       ".custom { $0 }", ".openAI", "Strategies.openAI", "Other.convertFromSnakeCase",
       "strategy", ".convertFromSnakeCase(1)",
     ] {
-      #expect(configuration(expression).decodedKey(converting: "aB").knownKey == nil)
+      #expect(knownKey("aB", by: expression) == nil)
     }
   }
 
@@ -86,7 +82,10 @@ struct KeyDecodingTests {
     #expect(configuration(nil).decodedKeys(for: field("createdAt")).map(\.knownKey) == ["createdAt"])
     let snake = configuration(".convertFromSnakeCase")
     #expect(snake.decodedKeys(for: field("createdAt")).map(\.knownKey) == ["created_at"])
-    #expect(snake.decodedKey(converting: "userJoined").expression.description == #""user_joined""#)
+    #expect(
+      StreamDecodedKey(converting: "userJoined", by: ".convertFromSnakeCase").expression.description
+        == #""user_joined""#
+    )
   }
 
   @Test
@@ -104,17 +103,22 @@ struct KeyDecodingTests {
       name: .identifier("text"), type: TypeSyntax("String"), explicitKeys: ["full_text"]
     )
     #expect(house.decodedKeys(for: explicit).map(\.knownKey) == ["full_text"])
-    #expect(house.decodedKey(converting: "a\"b").expression.description.hasSuffix(##".key(for: #"a"b"#)"##))
+    #expect(
+      StreamDecodedKey(converting: "a\"b", by: ".house").expression.description
+        .hasSuffix(##".key(for: #"a"b"#)"##)
+    )
   }
 
   @Test
   func decodedKeysCompareByMeaning() {
-    let snake = configuration(".convertFromSnakeCase")
-    #expect(snake.decodedKey(converting: "createdAt") == configuration(nil).decodedKey(converting: "created_at"))
-    let house = configuration(".house")
-    #expect(house.decodedKey(converting: "a") == configuration(".house").decodedKey(converting: "a"))
-    #expect(house.decodedKey(converting: "a") != configuration(".other").decodedKey(converting: "a"))
-    #expect(house.decodedKey(converting: "a") != configuration(nil).decodedKey(converting: "a"))
+    let house = StreamDecodedKey(converting: "a", by: ".house")
+    #expect(
+      StreamDecodedKey(converting: "createdAt", by: ".convertFromSnakeCase")
+        == StreamDecodedKey(knownKey: "created_at")
+    )
+    #expect(house == StreamDecodedKey(converting: "a", by: ".house"))
+    #expect(house != StreamDecodedKey(converting: "a", by: ".other"))
+    #expect(house != StreamDecodedKey(converting: "a", by: nil))
   }
 
   @Test
@@ -240,7 +244,8 @@ struct KeyDecodingTests {
     )
     #expect(generation.partialFields?.map { $0.keys.map(\.knownKey) } == [[nil]])
     #expect(
-      generation.partialFields?.first?.keys.first == configuration.decodedKey(converting: "userJoined")
+      generation.partialFields?.first?.keys.first
+        == StreamDecodedKey(converting: "userJoined", by: configuration.keyDecodingStrategy)
     )
     var payloadKeys = [[StreamDecodedKey]]()
     _ = try generation.partialSyntax(
@@ -255,7 +260,12 @@ struct KeyDecodingTests {
         return .generated(partial: StreamPartialCustomization())
       }
     )
-    #expect(payloadKeys == [[configuration.decodedKey(converting: "userName")], [StreamDecodedKey(knownKey: "_1")]])
+    #expect(
+      payloadKeys == [
+        [StreamDecodedKey(converting: "userName", by: configuration.keyDecodingStrategy)],
+        [StreamDecodedKey(knownKey: "_1")],
+      ]
+    )
   }
 
   @Test

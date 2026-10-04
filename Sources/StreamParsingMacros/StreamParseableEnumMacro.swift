@@ -21,12 +21,9 @@ extension StreamParseableMacro {
   struct EnumCase {
     /// The case as written, backticks and all, for use in generated `self = .x` and `case .x`.
     let reference: String
-    /// Every spelling that resolves to this case. One entry unless
-    /// `@StreamParseableMember(keyNames:)` added aliases.
-    let matchNames: [String]
-    /// Whether `matchNames` is the case name alone, for the enum's key decoding strategy to
-    /// convert: a raw-less case without `@StreamParseableMember`.
-    let convertsKeys: Bool
+    /// Every spelling that resolves to this case, or `nil` for the case name alone, which the enum's
+    /// key decoding strategy converts: a raw-less case without `@StreamParseableMember`.
+    let explicitKeys: [String]?
     let isDefault: Bool
     /// The case's associated values, in declaration order. Empty for a case with none — a raw-
     /// value enum can never have any, since Swift itself rejects associated values on a case of
@@ -86,7 +83,6 @@ extension StreamParseableMacro {
     keyDecodingStrategy: ExprSyntax? = nil,
     context: DiagnosticSink
   ) -> [EnumCase] {
-    let keyDecoding = StreamGenerationConfiguration(keyDecodingStrategy: keyDecodingStrategy)
     var cases = [EnumCase]()
     var sawDefault = false
     var seenMatchNames = Set<String>()
@@ -138,7 +134,7 @@ extension StreamParseableMacro {
         // cases whose names differ only in case share one generated payload type.
         for name in matchNames {
           Self.claimKey(
-            of: name, converting: convertsKeys, by: keyDecoding, in: &seenMatchNames,
+            of: name, converting: convertsKeys, by: keyDecodingStrategy, in: &seenMatchNames,
             noun: "Name", claimant: "case", at: element, context: context
           )
         }
@@ -147,7 +143,7 @@ extension StreamParseableMacro {
           var seenLabels = Set<String>()
           for value in associatedValues where value.isLabeled {
             Self.claimKey(
-              of: value.label, converting: true, by: keyDecoding, in: &seenLabels,
+              of: value.label, converting: true, by: keyDecodingStrategy, in: &seenLabels,
               claimant: "associated value", at: element, context: context
             )
           }
@@ -194,8 +190,7 @@ extension StreamParseableMacro {
         cases.append(
           EnumCase(
             reference: element.name.trimmedDescription,
-            matchNames: matchNames,
-            convertsKeys: convertsKeys,
+            explicitKeys: convertsKeys ? nil : matchNames,
             isDefault: isDefaultDecl && !sawDefault,
             associatedValues: associatedValues
           )
@@ -321,7 +316,7 @@ extension StreamParseableMacro {
     let generationCases = cases.map { enumCase in
       StreamParseableEnumCase(
         name: .identifier(enumCase.reference),
-        explicitKeys: enumCase.convertsKeys ? nil : enumCase.matchNames,
+        explicitKeys: enumCase.explicitKeys,
         associatedValues: enumCase.associatedValues.map { value in
           StreamParseableField(
             name: value.isLabeled ? .identifier(value.label) : .wildcardToken(),

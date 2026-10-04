@@ -338,7 +338,7 @@ extension StreamParseableMacro {
       return StreamParseableField(
         name: .identifier(property.name),
         type: property.type,
-        explicitKeys: property.convertsKeys ? nil : property.keyNames,
+        explicitKeys: property.explicitKeys,
         initialCapacity: property.initialCapacity.map {
           ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
@@ -471,10 +471,9 @@ extension StreamParseableMacro {
     /// identifier (`streamObjectMemberSchema_x`).
     let name: String
     let type: TypeSyntax
-    let keyNames: [String]
-    /// Whether `keyNames` is the name alone, for the type's key decoding strategy to convert. A
-    /// key written with `@StreamParseableMember` is never converted.
-    let convertsKeys: Bool
+    /// The keys `@StreamParseableMember` writes out, or `nil` for `name`, which the type's key
+    /// decoding strategy converts.
+    let explicitKeys: [String]?
     let initialCapacity: Int?
     let isIgnored: Bool
     /// The declaration's own access level and `@usableFromInline`, which decide whether an
@@ -508,7 +507,6 @@ extension StreamParseableMacro {
   ) -> [StoredProperty] {
     var properties = [StoredProperty]()
     var seenKeys = Set<String>()
-    let keyDecoding = StreamGenerationConfiguration(keyDecodingStrategy: keyDecodingStrategy)
     for member in declaration.memberBlock.members {
       guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
         continue
@@ -519,9 +517,9 @@ extension StreamParseableMacro {
       // A duplicate key emits a second, permanently unreachable `case` arm: Swift does not
       // diagnose duplicate integer patterns that carry a `where` clause.
       for property in declared where !property.isIgnored {
-        for name in property.keyNames {
+        for name in property.explicitKeys ?? [property.name] {
           Self.claimKey(
-            of: name, converting: property.convertsKeys, by: keyDecoding, in: &seenKeys,
+            of: name, converting: property.explicitKeys == nil, by: keyDecodingStrategy, in: &seenKeys,
             claimant: "property", at: variableDecl, context: context
           )
         }
@@ -711,8 +709,7 @@ extension StreamParseableMacro {
     return StoredProperty(
       name: propertyName,
       type: type,
-      keyNames: explicitKeyNames ?? [propertyName],
-      convertsKeys: !isIgnored && explicitKeyNames == nil,
+      explicitKeys: explicitKeyNames,
       initialCapacity: capacity,
       isIgnored: isIgnored,
       access: Self.declaredAccess(of: variableDecl.modifiers),
@@ -819,14 +816,14 @@ extension StreamParseableMacro {
   static func claimKey(
     of name: String,
     converting: Bool,
-    by keyDecoding: StreamGenerationConfiguration,
+    by strategy: ExprSyntax?,
     in seen: inout Set<String>,
     noun: String = "Key",
     claimant: String,
     at node: some SyntaxProtocol,
     context: DiagnosticSink
   ) {
-    guard let key = converting ? keyDecoding.decodedKey(converting: name).knownKey : name,
+    guard let key = converting ? StreamDecodedKey(converting: name, by: strategy).knownKey : name,
       !seen.insert(key).inserted
     else { return }
     let origin = key == name ? "" : " (converted from '\(name)')"

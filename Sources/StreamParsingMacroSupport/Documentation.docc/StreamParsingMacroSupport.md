@@ -62,8 +62,8 @@ literal, or under a custom `keyDecodingStrategy`, the strategy's conversion of t
 time. Its `knownKey` is the key itself when it is known while the macro expands, which is always
 except for a name a custom strategy converts. Where no generation exists yet, such as in another
 macro role, `StreamGenerationConfiguration.decodedKeys(for:)` resolves a field's keys the same
-way, and `decodedKey(converting:)` resolves a name that cannot have keys written out, such as an
-enum case. A custom strategy is evaluated wherever its keys are, so it should not refer to
+way, and `StreamDecodedKey(converting:by:)` resolves a name that cannot have keys written out,
+such as an enum case. A custom strategy is evaluated wherever its keys are, so it should not refer to
 `Self`.
 
 ```swift
