@@ -338,8 +338,7 @@ extension StreamParseableMacro {
       return StreamParseableField(
         name: .identifier(property.name),
         type: property.type,
-        keys: property.keyNames,
-        convertsKeys: property.convertsKeys,
+        explicitKeys: property.convertsKeys ? nil : property.keyNames,
         initialCapacity: property.initialCapacity.map {
           ExprSyntax(IntegerLiteralExprSyntax(literal: .integerLiteral(String($0))))
         },
@@ -811,7 +810,7 @@ extension StreamParseableMacro {
   /// The keys the `@StreamParseableMember`s write out, or `nil` when the declaration is read from
   /// its name, which a key decoding strategy converts.
   static func explicitKeyNames(in members: [MemberAttribute]) -> [String]? {
-    let names = members.flatMap { $0.arguments.keys ?? [] }
+    let names = members.flatMap { $0.arguments.explicitKeys ?? [] }
     return names.isEmpty ? nil : names
   }
 
@@ -827,7 +826,7 @@ extension StreamParseableMacro {
     at node: some SyntaxProtocol,
     context: DiagnosticSink
   ) {
-    guard let key = converting ? keyDecoding.decodedKey(for: name) : name,
+    guard let key = converting ? keyDecoding.decodedKey(converting: name).knownKey : name,
       !seen.insert(key).inserted
     else { return }
     let origin = key == name ? "" : " (converted from '\(name)')"

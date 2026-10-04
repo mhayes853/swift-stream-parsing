@@ -321,15 +321,13 @@ extension StreamParseableMacro {
     let generationCases = cases.map { enumCase in
       StreamParseableEnumCase(
         name: .identifier(enumCase.reference),
-        keys: enumCase.matchNames,
-        convertsKeys: enumCase.convertsKeys,
+        explicitKeys: enumCase.convertsKeys ? nil : enumCase.matchNames,
         associatedValues: enumCase.associatedValues.map { value in
           StreamParseableField(
             name: value.isLabeled ? .identifier(value.label) : .wildcardToken(),
             type: value.type,
-            keys: [value.label],
             // `_0`, `_1`, ... are positions, not names, and `Codable` does not convert them.
-            convertsKeys: value.isLabeled,
+            explicitKeys: value.isLabeled ? nil : [value.label],
             partialStrings: partialStrings
           )
         }

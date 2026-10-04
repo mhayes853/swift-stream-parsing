@@ -76,7 +76,7 @@ struct KeyDecodingTests {
   @Test
   func decodedKeysAreKnownUnlessACustomStrategyConverts() {
     let explicit = StreamParseableField(
-      name: .identifier("text"), type: TypeSyntax("String"), keys: ["full_text", "text"]
+      name: .identifier("text"), type: TypeSyntax("String"), explicitKeys: ["full_text", "text"]
     )
     for strategy: ExprSyntax? in [nil, ".useDefaultKeys", ".convertFromSnakeCase"] {
       let keys = configuration(strategy).decodedKeys(for: explicit)
@@ -101,7 +101,7 @@ struct KeyDecodingTests {
     )
     #expect(!Parser.parse(source: "_ = \(converted[0].expression)").hasError)
     let explicit = StreamParseableField(
-      name: .identifier("text"), type: TypeSyntax("String"), keys: ["full_text"]
+      name: .identifier("text"), type: TypeSyntax("String"), explicitKeys: ["full_text"]
     )
     #expect(house.decodedKeys(for: explicit).map(\.knownKey) == ["full_text"])
     #expect(house.decodedKey(converting: "a\"b").expression.description.hasSuffix(##".key(for: #"a"b"#)"##))
@@ -120,14 +120,14 @@ struct KeyDecodingTests {
   @Test
   func builtInStrategyEmitsLiteralKeysAndTheWordSwitch() throws {
     let explicit = StreamParseableField(
-      name: .identifier("text"), type: TypeSyntax("String"), keys: ["fullText"]
+      name: .identifier("text"), type: TypeSyntax("String"), explicitKeys: ["fullText"]
     )
     let generation = try StreamObjectGeneration(
       fields: [field("createdAt"), explicit],
       configuration: configuration(".convertFromSnakeCase")
     )
-    #expect(generation.fields.map(\.keys) == [["created_at"], ["fullText"]])
-    #expect(generation.fields.allSatisfy { !$0.convertsKeys })
+    #expect(generation.fields.map(\.explicitKeys) == [nil, ["fullText"]])
+    #expect(generation.partialFields.map(\.keys) == [["created_at"], ["fullText"]])
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
       .description
     #expect(!Parser.parse(source: source).hasError)
@@ -140,13 +140,13 @@ struct KeyDecodingTests {
   @Test
   func customStrategyConvertsWhenTheSchemaIsBuilt() throws {
     let explicit = StreamParseableField(
-      name: .identifier("text"), type: TypeSyntax("String"), keys: ["full_text"]
+      name: .identifier("text"), type: TypeSyntax("String"), explicitKeys: ["full_text"]
     )
     let generation = try StreamObjectGeneration(
       fields: [field("createdAt"), explicit],
       configuration: configuration(".custom { $0.uppercased() }")
     )
-    #expect(generation.fields.map(\.convertsKeys) == [true, false])
+    #expect(generation.fields.map(\.explicitKeys) == [nil, ["full_text"]])
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext())
       .description
     #expect(!Parser.parse(source: source).hasError)
@@ -191,7 +191,7 @@ struct KeyDecodingTests {
             StreamParseableField(name: .wildcardToken(), type: TypeSyntax("Int")),
           ]
         ),
-        StreamParseableEnumCase(name: .identifier("renamed"), keys: ["renamedEvent"]),
+        StreamParseableEnumCase(name: .identifier("renamed"), explicitKeys: ["renamedEvent"]),
       ],
       representation: .caseKeyedObject,
       configuration: configuration(".convertFromSnakeCase")

@@ -19,13 +19,11 @@ public enum StreamEnumRepresentation: Hashable, Sendable {
 public struct StreamParseableEnumCase: Sendable {
   /// The Swift case identifier, including backticks when already escaped.
   public var name: TokenSyntax
-  /// `.stringRawValue`: the raw value and its aliases. `.caseKeyedObject`: the object keys.
-  /// `.numericRawValue` ignores them.
-  public var keys: [String]
-  /// Whether `keys` are declared names the configuration's `keyDecodingStrategy` converts, as
-  /// `StreamParseableField.convertsKeys`. Only `.caseKeyedObject` converts: a raw value is a value,
-  /// not a key.
-  public var convertsKeys: Bool
+  /// `.stringRawValue`: the raw value and its aliases. `.caseKeyedObject`: the object keys. Used as
+  /// written; `nil` uses the case name without backticks, which the configuration's
+  /// `keyDecodingStrategy` converts under `.caseKeyedObject` only: a raw value is a value, not a
+  /// key. `.numericRawValue` ignores them.
+  public var explicitKeys: [String]?
   /// One field per associated value, in declaration order. A wildcard name (`_`) is an
   /// unlabelled value: it is named `_<position>`, and keyed that way when it has no keys.
   public var associatedValues: [StreamParseableField]
@@ -36,32 +34,14 @@ public struct StreamParseableEnumCase: Sendable {
   /// Creates a case description.
   public init(
     name: TokenSyntax,
-    keys: some Sequence<String>,
-    convertsKeys: Bool = false,
+    explicitKeys: [String]? = nil,
     associatedValues: [StreamParseableField] = [],
     payloadTypeName: TokenSyntax? = nil
   ) {
     self.name = name
-    self.keys = Array(keys)
-    self.convertsKeys = convertsKeys
+    self.explicitKeys = explicitKeys
     self.associatedValues = associatedValues
     self.payloadTypeName = payloadTypeName
-  }
-
-  /// Creates a case whose only key is its name, without backticks, converted by the
-  /// configuration's `keyDecodingStrategy`.
-  public init(
-    name: TokenSyntax,
-    associatedValues: [StreamParseableField] = [],
-    payloadTypeName: TokenSyntax? = nil
-  ) {
-    self.init(
-      name: name,
-      keys: [StreamObjectGeneration.bareName(name)],
-      convertsKeys: true,
-      associatedValues: associatedValues,
-      payloadTypeName: payloadTypeName
-    )
   }
 }
 
@@ -126,7 +106,9 @@ public struct StreamEnumGeneration: Sendable {
   private struct Entry: Sendable {
     /// The case name, escaped where needed; also its member name in an object partial.
     let name: String
-    let keys: [String]
+    /// The strings a `.stringRawValue` case matches. Empty under `.caseKeyedObject`, whose keys are
+    /// the object's.
+    let rawValues: [String]
     /// `nil` for a case without associated values or under a raw-value representation.
     let payload: Payload?
   }
@@ -202,17 +184,21 @@ public struct StreamEnumGeneration: Sendable {
     }
 
     guard case .caseKeyedObject = representation else {
+      // A raw value is never converted.
+      let rawValues = cases.map { $0.explicitKeys ?? [StreamObjectGeneration.bareName($0.name)] }
       // A raw-value enum validates like an object keyed by its raw values, without keeping it.
       if case .stringRawValue = representation {
         _ = try generation(
-          cases.map { StreamParseableField(name: $0.name, type: TypeSyntax("Never"), keys: $0.keys) }
+          zip(cases, rawValues).map {
+            StreamParseableField(name: $0.name, type: TypeSyntax("Never"), explicitKeys: $1)
+          }
         )
       } else {
         _ = try generation([])
       }
       self.object = nil
-      self.entries = cases.map {
-        Entry(name: StreamObjectGeneration.memberName($0.name), keys: $0.keys, payload: nil)
+      self.entries = zip(cases, rawValues).map {
+        Entry(name: StreamObjectGeneration.memberName($0.name), rawValues: $1, payload: nil)
       }
       return
     }
@@ -225,7 +211,7 @@ public struct StreamEnumGeneration: Sendable {
           var field = value
           if value.name.tokenKind == .wildcard {
             field.name = .identifier("_\(index)")
-            if field.keys.isEmpty { field.keys = ["_\(index)"] }
+            if field.explicitKeys == nil { field.explicitKeys = ["_\(index)"] }
           }
           return field
         }
@@ -239,11 +225,7 @@ public struct StreamEnumGeneration: Sendable {
           generation: try generation(fields)
         )
       }
-      return Entry(
-        name: StreamObjectGeneration.memberName(enumCase.name),
-        keys: enumCase.keys,
-        payload: payload
-      )
+      return Entry(name: StreamObjectGeneration.memberName(enumCase.name), rawValues: [], payload: payload)
     }
     // A case without a payload holds the empty object its `{}` is.
     self.object = try generation(
@@ -251,8 +233,7 @@ public struct StreamEnumGeneration: Sendable {
         StreamParseableField(
           name: enumCase.name,
           type: TypeSyntax("\(raw: entry.payload?.typeName ?? "StreamParsingCore.StreamEmptyObject")"),
-          keys: enumCase.keys,
-          convertsKeys: enumCase.convertsKeys
+          explicitKeys: enumCase.explicitKeys
         )
       }
     )
@@ -521,7 +502,7 @@ public struct StreamEnumGeneration: Sendable {
   // end-of-string signal, so a mid-flight read assumes the shortest case still consistent with
   // the bytes in hand, by emitting the chain sorted by length.
   private func stringMatchBody() -> String {
-    let candidates = self.entries.flatMap { entry in entry.keys.map { (key: $0, name: entry.name) } }
+    let candidates = self.entries.flatMap { entry in entry.rawValues.map { (key: $0, name: entry.name) } }
     let exactArms = candidates.map { candidate in
       let label = streamWordCaseLabel(
         candidate.key,

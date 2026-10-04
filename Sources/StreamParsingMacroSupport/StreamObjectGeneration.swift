@@ -140,8 +140,8 @@ public struct StreamGenerationConfiguration: Sendable {
   /// member such as `.shared` resolves; `Self` in it names the `Partial`. An inlinable schema
   /// property (see `inlining`) can only name a cache that is `public` or `@usableFromInline`.
   public var schemaCache: ExprSyntax?
-  /// A `StreamKeyDecodingStrategy` for the keys of fields that convert theirs
-  /// (`StreamParseableField.convertsKeys`), or `nil` to use those keys as they are.
+  /// A `StreamKeyDecodingStrategy` for the names of fields without `explicitKeys`, or `nil` to use
+  /// those names as they are.
   ///
   /// A built-in strategy spelled as a member (`.convertFromSnakeCase`, optionally qualified with
   /// `StreamKeyDecodingStrategy`) is applied during generation, so the generated keys are
@@ -268,12 +268,13 @@ public struct StreamParseableField: Sendable {
   public var name: TokenSyntax
   /// The completed property's declared type.
   public var type: TypeSyntax
-  /// Byte-exact decoded keys that select this field; declared names when `convertsKeys`.
-  public var keys: [String]
-  /// Whether `keys` are declared names for the configuration's `keyDecodingStrategy` to convert,
-  /// rather than the keys themselves. A field whose only key is its name converts it; one whose
-  /// keys were written out does not. Nothing is converted without a strategy.
-  public var convertsKeys: Bool
+  /// The byte-exact keys that select this field, used as written, or `nil` for its name without
+  /// backticks, which the configuration's `keyDecodingStrategy` converts.
+  ///
+  /// A wildcard name (`_`), which only an enum's unlabelled associated value may use, has no name
+  /// to convert: with `nil`, the enum generation keys it by its position, `_<index>`, which no
+  /// strategy converts, as `Codable` does not.
+  public var explicitKeys: [String]?
   /// An optional initial capacity expression for streaming containers.
   public var initialCapacity: ExprSyntax?
   /// A type conforming to `StreamCompletedValueConversion`.
@@ -293,8 +294,7 @@ public struct StreamParseableField: Sendable {
   public init(
     name: TokenSyntax,
     type: some TypeSyntaxProtocol,
-    keys: some Sequence<String>,
-    convertsKeys: Bool = false,
+    explicitKeys: [String]? = nil,
     initialCapacity: (any ExprSyntaxProtocol)? = nil,
     completedConversion: (any TypeSyntaxProtocol)? = nil,
     partialStrings: StreamPartialStrings = .streamString,
@@ -302,38 +302,11 @@ public struct StreamParseableField: Sendable {
   ) {
     self.name = name
     self.type = TypeSyntax(type)
-    self.keys = Array(keys)
-    self.convertsKeys = convertsKeys
+    self.explicitKeys = explicitKeys
     self.initialCapacity = initialCapacity.map { ExprSyntax($0) }
     self.completedConversion = completedConversion.map { TypeSyntax($0) }
     self.partialStrings = partialStrings
     self.defaultValue = defaultValue.map { ExprSyntax($0) }
-  }
-
-  /// Creates a field whose only key is its name, without backticks, converted by the
-  /// configuration's `keyDecodingStrategy`.
-  ///
-  /// A wildcard name (`_`), which only an enum's unlabelled associated value may use, gets no
-  /// key; the enum generation assigns its positional `_<index>` name and key, which no strategy
-  /// converts, as `Codable` does not.
-  public init(
-    name: TokenSyntax,
-    type: some TypeSyntaxProtocol,
-    initialCapacity: (any ExprSyntaxProtocol)? = nil,
-    completedConversion: (any TypeSyntaxProtocol)? = nil,
-    partialStrings: StreamPartialStrings = .streamString,
-    defaultValue: (any ExprSyntaxProtocol)? = nil
-  ) {
-    self.init(
-      name: name,
-      type: type,
-      keys: name.tokenKind == .wildcard ? [] : [StreamObjectGeneration.bareName(name)],
-      convertsKeys: name.tokenKind != .wildcard,
-      initialCapacity: initialCapacity,
-      completedConversion: completedConversion,
-      partialStrings: partialStrings,
-      defaultValue: defaultValue
-    )
   }
 }
 
@@ -431,21 +404,22 @@ public enum StreamObjectGenerationError: Error, Equatable, Sendable, CustomStrin
 
 /// A reusable plan for generating object partial-storage syntax.
 public struct StreamObjectGeneration: Sendable {
-  /// The fields in stable generated order, with the keys a built-in `keyDecodingStrategy`
-  /// converted already in place. A field still marked `convertsKeys` has its keys converted when
-  /// the schema is built.
+  /// The fields as supplied, in stable generated order. Their resolved keys are in
+  /// `partialFields`.
   public let fields: [StreamParseableField]
+  /// Each field's keys, parallel to `fields`, as `configuration.decodedKeys(for:)` resolves them.
+  private let keys: [[StreamDecodedKey]]
   /// The generated `Partial` storage fields, in the same order as `fields`.
   ///
   /// `storageType` reflects `partialMembers`, converted values, and container lowering. These
   /// descriptors describe emitted syntax rather than resolving Swift type aliases.
   public var partialFields: [StreamPartialFieldDescriptor] {
-    self.fields.map { field in
+    zip(self.fields, self.keys).map { field, keys in
       StreamPartialFieldDescriptor(
         memberName: .identifier(Self.memberName(field.name)),
         unescapedName: Self.bareName(field.name),
         storageType: TypeSyntax("\(raw: self.memberType(field))"),
-        keys: field.keys
+        keys: keys.map { $0.knownKey ?? $0.convertedName! }
       )
     }
   }
@@ -465,7 +439,7 @@ public struct StreamObjectGeneration: Sendable {
     partialMembers: StreamPartialMembers = .optional,
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) throws {
-    let fields = Self.resolvingKeys(of: Array(fields), configuration: configuration)
+    let fields = Array(fields)
     if configuration.inlining == .always,
       configuration.accessLevel != .public, configuration.accessLevel != .package
     {
@@ -489,7 +463,7 @@ public struct StreamObjectGeneration: Sendable {
         throw StreamObjectGenerationError.partialStringsWithCompletedConversion(field: name)
       }
       // A key converted when the schema is built is unknown here; the built table checks it.
-      for key in field.keys where !field.convertsKeys {
+      for key in configuration.decodedKeys(for: field).compactMap(\.knownKey) {
         guard keys.insert(Array(key.utf8)).inserted else {
           throw StreamObjectGenerationError.duplicateKey(key)
         }
@@ -513,7 +487,7 @@ public struct StreamObjectGeneration: Sendable {
     configuration: StreamGenerationConfiguration = StreamGenerationConfiguration()
   ) {
     self.init(
-      fields: Self.resolvingKeys(of: Array(fields), configuration: configuration),
+      fields: Array(fields),
       partialMembers: partialMembers,
       configuration: configuration,
       isValidated: false
@@ -527,6 +501,7 @@ public struct StreamObjectGeneration: Sendable {
     isValidated: Bool
   ) {
     self.fields = fields
+    self.keys = fields.map(configuration.decodedKeys(for:))
     self.partialMembers = partialMembers
     self.configuration = configuration
     self.isValidated = isValidated
@@ -534,31 +509,10 @@ public struct StreamObjectGeneration: Sendable {
     self.schemaPlan = self.buildPlan()
   }
 
-  /// `fields` with the keys a strategy converts during generation converted, and marked as no
-  /// longer converting. Under a strategy evaluated when the schema is built, they stay marked.
-  private static func resolvingKeys(
-    of fields: [StreamParseableField],
-    configuration: StreamGenerationConfiguration
-  ) -> [StreamParseableField] {
-    let conversion: StreamDefaultKeyConversion?
-    switch configuration.keyDecoding {
-    case .none: conversion = nil
-    case .builtIn(let builtIn): conversion = builtIn
-    case .atSchemaBuild: return fields
-    }
-    return fields.map { field in
-      guard field.convertsKeys else { return field }
-      var field = field
-      if let conversion { field.keys = field.keys.map(conversion.key(for:)) }
-      field.convertsKeys = false
-      return field
-    }
-  }
-
   /// The strategy that converts some field's keys when the schema is built, which leaves no word
   /// switch to generate: the schema matches through its field table alone.
   private var keyDecodingAtSchemaBuild: ExprSyntax? {
-    self.fields.contains(where: \.convertsKeys) ? self.configuration.keyDecodingStrategy : nil
+    self.keys.joined().contains { $0.knownKey == nil } ? self.configuration.keyDecodingStrategy : nil
   }
 
   /// Generates the stored properties of the partial representation.
@@ -715,12 +669,12 @@ public struct StreamObjectGeneration: Sendable {
   /// Generates byte-exact key matching for the object schema.
   private func matchFieldFunction() -> FunctionDeclSyntax {
     let cases = self.schemaPlan.matches.joined(separator: "\n")
-    let emptyField = self.fields.first(where: { field in
-      field.keys.contains { $0.utf8.isEmpty }
-    })
+    let emptyField = zip(self.fields, self.keys).first { _, keys in
+      keys.contains { $0.knownKey?.isEmpty == true }
+    }
     let emptyGuard =
-      emptyField.map {
-        "guard !key.isEmpty else { return Self.StreamField.\(Self.memberName($0.name)) }\n  "
+      emptyField.map { field, _ in
+        "guard !key.isEmpty else { return Self.StreamField.\(Self.memberName(field.name)) }\n  "
       } ?? ""
     return self.declaration(
       """
@@ -1018,10 +972,10 @@ extension StreamObjectGeneration {
 
   private func buildPlan() -> SchemaPlan {
     var result = SchemaPlan()
-    for field in self.fields {
+    for (field, keys) in zip(self.fields, self.keys) {
       let member = Self.memberName(field.name)
       let fieldID = "Self.StreamField.\(member)"
-      for key in field.keys where !field.convertsKeys {
+      for key in keys.compactMap(\.knownKey) {
         let label = streamWordCaseLabel(key, input: "key", byteCount: ExprSyntax("key.count"))
         result.matches.append("  \(label): return \(fieldID)")
       }
@@ -1038,10 +992,12 @@ extension StreamObjectGeneration {
         : "_streamFieldRoute(&\(target), schema: \(schema)\(capacity))"
       let entryCapacity =
         delegated ? field.initialCapacity.map { ", capacity: \($0.trimmedDescription)" } ?? "" : ""
-      for key in field.keys {
-        let literal = StringLiteralExprSyntax(content: key).trimmedDescription
+      for key in keys {
+        // A converted name reads the strategy from the schema build's own local, evaluated once.
         let keyExpression =
-          field.convertsKeys ? "streamKeyDecodingStrategy.key(for: \(literal))" : literal
+          key.convertedName.map {
+            "streamKeyDecodingStrategy.key(for: \(StringLiteralExprSyntax(content: $0).trimmedDescription))"
+          } ?? key.expression.trimmedDescription
         result.fields.append(
           """
               StreamParsingCore.StreamField(

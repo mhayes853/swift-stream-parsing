@@ -14,7 +14,7 @@ struct StructCustomizationTests {
       fields: [StreamParseableField(
         name: .identifier("name"),
         type: IdentifierTypeSyntax(name: .identifier("String")),
-        keys: ["name", "display_name"]
+        explicitKeys: ["name", "display_name"]
       )],
       configuration: StreamGenerationConfiguration(names: StreamGeneratedNames(
         partialType: .identifier("Accumulator"), viewType: .identifier("Borrowed")

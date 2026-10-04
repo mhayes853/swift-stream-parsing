@@ -13,7 +13,7 @@ let generation = try StreamObjectGeneration(
     StreamParseableField(
       name: .identifier("name"),
       type: IdentifierTypeSyntax(name: .identifier("String")),
-      keys: ["name", "display_name"]
+      explicitKeys: ["name", "display_name"]
     )
   ],
   configuration: StreamGenerationConfiguration(
@@ -29,8 +29,9 @@ view's lifetime handling. `StreamViewMode.packageDefault` follows the `LifetimeV
 trait. Explicit `.lifetime` and `.unsafe` modes are also available. Coordinate generated names
 through `StreamGeneratedNames`; `TokenSyntax.streamPartial` and `.streamView` provide the
 conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize required fields
-with their stream initial values instead of making them optional. A field created without `keys`
-matches only its own name, without backticks.
+with their stream initial values instead of making them optional. A field created without
+`explicitKeys` matches only its own name, without backticks, converted by the configuration's
+`keyDecodingStrategy`.
 
 Every `Partial` builds its schema, together with its field table and child schemas, once into a
 `StreamSchemaCache`: `StreamSchemaCache.shared`, or the instance

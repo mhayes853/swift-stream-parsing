@@ -63,12 +63,15 @@ public struct StreamDecodedKey: Hashable, Sendable {
 extension StreamGenerationConfiguration {
   /// The keys that select `field`, in their supplied order. Emit the first.
   ///
-  /// Keys written out are returned as they are; a name the field converts is converted by
-  /// `keyDecodingStrategy`.
+  /// `explicitKeys` are returned as they are. Without them, the field's name, without backticks,
+  /// is converted by `keyDecodingStrategy`. A wildcard name has no keys of its own: the enum
+  /// generation keys an unlabelled associated value by its position.
   public func decodedKeys(for field: StreamParseableField) -> [StreamDecodedKey] {
-    field.convertsKeys
-      ? field.keys.map(self.decodedKey(converting:))
-      : field.keys.map(StreamDecodedKey.init(known:))
+    if let explicitKeys = field.explicitKeys {
+      return explicitKeys.map(StreamDecodedKey.init(known:))
+    }
+    guard field.name.tokenKind != .wildcard else { return [] }
+    return [self.decodedKey(converting: StreamObjectGeneration.bareName(field.name))]
   }
 
   /// The key `keyDecodingStrategy` gives `name`.

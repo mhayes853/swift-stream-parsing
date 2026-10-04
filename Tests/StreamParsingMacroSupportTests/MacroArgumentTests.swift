@@ -23,7 +23,7 @@ struct MacroArgumentTests {
       #expect(parsed.partialStrings == nil)
       #expect(parsed.keyDecodingStrategy == nil)
       #expect(parsed.schemaCache == nil)
-      #expect(parsed.keys == nil)
+      #expect(parsed.explicitKeys == nil)
       #expect(parsed.initialCapacity == nil)
       #expect(parsed.completedConversion == nil)
       #expect(parsed.errors.isEmpty)
@@ -45,7 +45,7 @@ struct MacroArgumentTests {
     #expect(parsed.partialStrings == .string)
     #expect(parsed.keyDecodingStrategy?.trimmedDescription == ".custom { $0 }")
     #expect(parsed.schemaCache?.trimmedDescription == ".shared")
-    #expect(parsed.keys == ["a", "b"])
+    #expect(parsed.explicitKeys == ["a", "b"])
     #expect(parsed.initialCapacity == 32)
     #expect(parsed.completedConversion?.trimmedDescription == "Strategies.UnixSeconds")
     #expect(parsed.errors.isEmpty)
@@ -55,8 +55,8 @@ struct MacroArgumentTests {
   func spellings() {
     #expect(arguments("@M(partialMembers: .optional)").partialMembers == .optional)
     #expect(arguments("@M(partialStrings: .streamString)").partialStrings == .streamString)
-    #expect(arguments(#"@M(key: "created_at")"#).keys == ["created_at"])
-    #expect(arguments(##"@M(key: #"a"b"#)"##).keys == [#"a"b"#])
+    #expect(arguments(#"@M(key: "created_at")"#).explicitKeys == ["created_at"])
+    #expect(arguments(##"@M(key: #"a"b"#)"##).explicitKeys == [#"a"b"#])
     #expect(arguments("@M(initialCapacity: 1_024)").initialCapacity == 1024)
     #expect(arguments("@M(initialCapacity: 0o17)").initialCapacity == 15)
     #expect(arguments("@M(initialCapacity: 0b101)").initialCapacity == 5)
@@ -102,7 +102,7 @@ struct MacroArgumentTests {
         == [["@M(keyNames:) must not contain an empty name.", #"["a", ""]"#]]
     )
     let both = #"@M(key: "a", keyNames: ["b"])"#
-    #expect(arguments(both).keys == nil)
+    #expect(arguments(both).explicitKeys == nil)
     #expect(errors(both) == [["@M takes either key: or keyNames:, not both.", both]])
   }
 }

@@ -24,13 +24,22 @@ struct `StreamObjectGeneration tests` {
 
   @Test
   func `Fields Without Keys Use Their Bare Name`() {
+    let configuration = StreamGenerationConfiguration()
     expectNoDifference(
-      StreamParseableField(name: .identifier("name"), type: TypeSyntax("String")).keys,
+      configuration.decodedKeys(
+        for: StreamParseableField(name: .identifier("name"), type: TypeSyntax("String"))
+      ).map(\.knownKey),
       ["name"]
     )
     expectNoDifference(
-      StreamParseableField(name: .identifier("`default`"), type: TypeSyntax("Int")).keys,
+      configuration.decodedKeys(
+        for: StreamParseableField(name: .identifier("`default`"), type: TypeSyntax("Int"))
+      ).map(\.knownKey),
       ["default"]
+    )
+    expectNoDifference(
+      configuration.decodedKeys(for: StreamParseableField(name: .wildcardToken(), type: TypeSyntax("Int"))),
+      []
     )
   }
 
@@ -132,7 +141,7 @@ struct `StreamObjectGeneration tests` {
         StreamParseableField(
           name: TokenSyntax.identifier("payload"),
           type: payloadType,
-          keys: ["payload", "value"]
+          explicitKeys: ["payload", "value"]
         )
       ]
     )
@@ -159,7 +168,7 @@ struct `StreamObjectGeneration tests` {
         StreamParseableField(
           name: TokenSyntax.identifier("name"),
           type: IdentifierTypeSyntax(name: TokenSyntax.identifier("String")),
-          keys: ["name"]
+          explicitKeys: ["name"]
         )
       ],
       configuration: StreamGenerationConfiguration(
@@ -199,7 +208,7 @@ struct `StreamObjectGeneration tests` {
         StreamParseableField(
           name: TokenSyntax.identifier("value"),
           type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Int")),
-          keys: ["value"]
+          explicitKeys: ["value"]
         )
       ],
       configuration: StreamGenerationConfiguration(viewMode: .unsafe)
@@ -218,13 +227,13 @@ struct `StreamObjectGeneration tests` {
         StreamParseableField(
           name: TokenSyntax.identifier("`default`"),
           type: TypeSyntax("Swift.Optional<Model.Value>"),
-          keys: ["default", "legacy_default"],
+          explicitKeys: ["default", "legacy_default"],
           completedConversion: TypeSyntax("Conversions.Value")
         ),
         StreamParseableField(
           name: TokenSyntax.identifier("items"),
           type: TypeSyntax("[Model.Item]"),
-          keys: ["items"],
+          explicitKeys: ["items"],
           initialCapacity: IntegerLiteralExprSyntax(literal: .integerLiteral("32"))
         )
       ],
@@ -254,7 +263,7 @@ struct `StreamObjectGeneration tests` {
   @Test
   func `Partial Field Descriptors Match Generated Storage`() throws {
     let fields = [
-      StreamParseableField(name: .identifier("class"), type: TypeSyntax("String"), keys: ["kind", "class"]),
+      StreamParseableField(name: .identifier("class"), type: TypeSyntax("String"), explicitKeys: ["kind", "class"]),
       StreamParseableField(
         name: .identifier("amount"), type: TypeSyntax("Int"),
         completedConversion: TypeSyntax("Cents")

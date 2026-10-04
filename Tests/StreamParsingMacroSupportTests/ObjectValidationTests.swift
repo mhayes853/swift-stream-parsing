@@ -63,7 +63,7 @@ struct `StreamObjectGeneration validation tests` {
     let field = StreamParseableField(
       name: TokenSyntax.identifier("value"),
       type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Date")),
-      keys: ["value"],
+      explicitKeys: ["value"],
       completedConversion: IdentifierTypeSyntax(name: TokenSyntax.identifier("EpochSeconds"))
     )
     let generation = try StreamObjectGeneration(fields: [field])
@@ -82,7 +82,7 @@ struct `StreamObjectGeneration validation tests` {
     let field = StreamParseableField(
       name: TokenSyntax.identifier("values"),
       type: ArrayTypeSyntax(element: IdentifierTypeSyntax(name: TokenSyntax.identifier("Int"))),
-      keys: ["values"],
+      explicitKeys: ["values"],
       initialCapacity: capacity,
       completedConversion: conversion
     )
@@ -98,7 +98,7 @@ struct `StreamObjectGeneration validation tests` {
     let field = StreamParseableField(
       name: TokenSyntax.identifier("value"),
       type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Date")),
-      keys: ["value"],
+      explicitKeys: ["value"],
       initialCapacity: IntegerLiteralExprSyntax(literal: .integerLiteral("8")),
       completedConversion: IdentifierTypeSyntax(name: TokenSyntax.identifier("EpochSeconds"))
     )
@@ -171,7 +171,7 @@ struct `StreamObjectGeneration validation tests` {
     StreamParseableField(
       name: TokenSyntax.identifier(name),
       type: IdentifierTypeSyntax(name: TokenSyntax.identifier("String")),
-      keys: [key]
+      explicitKeys: [key]
     )
   }
 }

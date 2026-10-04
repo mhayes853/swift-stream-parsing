@@ -57,9 +57,9 @@ public struct StreamMacroArguments: Sendable {
   public var keyDecodingStrategy: ExprSyntax?
   /// For `StreamGenerationConfiguration.schemaCache`.
   public var schemaCache: ExprSyntax?
-  /// `key:` or `keyNames:`, for `StreamParseableField.keys`, which a key decoding strategy does
-  /// not convert.
-  public var keys: [String]?
+  /// `key:` or `keyNames:`, for `StreamParseableField.explicitKeys` or
+  /// `StreamParseableEnumCase.explicitKeys`, which a key decoding strategy does not convert.
+  public var explicitKeys: [String]?
   /// For `StreamParseableField.initialCapacity`.
   public var initialCapacity: Int?
   /// The strategy type, for `StreamParseableField.completedConversion`.
@@ -73,7 +73,7 @@ public struct StreamMacroArguments: Sendable {
     partialStrings: StreamPartialStrings? = nil,
     keyDecodingStrategy: (any ExprSyntaxProtocol)? = nil,
     schemaCache: (any ExprSyntaxProtocol)? = nil,
-    keys: [String]? = nil,
+    explicitKeys: [String]? = nil,
     initialCapacity: Int? = nil,
     completedConversion: (any TypeSyntaxProtocol)? = nil,
     errors: [StreamMacroArgumentError] = []
@@ -82,7 +82,7 @@ public struct StreamMacroArguments: Sendable {
     self.partialStrings = partialStrings
     self.keyDecodingStrategy = keyDecodingStrategy.map { ExprSyntax($0) }
     self.schemaCache = schemaCache.map { ExprSyntax($0) }
-    self.keys = keys
+    self.explicitKeys = explicitKeys
     self.initialCapacity = initialCapacity
     self.completedConversion = completedConversion.map { TypeSyntax($0) }
     self.errors = errors
@@ -132,9 +132,9 @@ public struct StreamMacroArguments: Sendable {
         )
       )
     } else if let key = read("key", Self.key) {
-      self.keys = [key]
+      self.explicitKeys = [key]
     } else {
-      self.keys = read("keyNames", Self.keyNames)
+      self.explicitKeys = read("keyNames", Self.keyNames)
     }
     self.initialCapacity = read("initialCapacity", Self.initialCapacity)
     self.completedConversion = read("completedConversion", Self.completedConversion)

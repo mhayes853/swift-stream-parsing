@@ -12,7 +12,7 @@ struct `StreamEnumGeneration tests` {
     let generation = try StreamEnumGeneration(
       cases: [
         StreamParseableEnumCase(name: .identifier("live")),
-        StreamParseableEnumCase(name: .identifier("livestream"), keys: ["livestream", "stream"])
+        StreamParseableEnumCase(name: .identifier("livestream"), explicitKeys: ["livestream", "stream"])
       ],
       representation: .stringRawValue,
       defaultCase: .identifier("live")
@@ -79,7 +79,7 @@ struct `StreamEnumGeneration tests` {
   @Test
   func `An Empty Raw Value Keeps Zero Bytes As A Value`() throws {
     let generation = try StreamEnumGeneration(
-      cases: [StreamParseableEnumCase(name: .identifier("none"), keys: [""])],
+      cases: [StreamParseableEnumCase(name: .identifier("none"), explicitKeys: [""])],
       representation: .stringRawValue
     )
     let source = generation.conversionsSyntax().description
@@ -417,7 +417,7 @@ struct `StreamEnumGeneration tests` {
       try StreamEnumGeneration(
         cases: [
           StreamParseableEnumCase(name: .identifier("on")),
-          StreamParseableEnumCase(name: .identifier("enabled"), keys: ["enabled", "on"])
+          StreamParseableEnumCase(name: .identifier("enabled"), explicitKeys: ["enabled", "on"])
         ],
         representation: .stringRawValue
       )
@@ -426,7 +426,7 @@ struct `StreamEnumGeneration tests` {
       try StreamEnumGeneration(
         cases: [
           StreamParseableEnumCase(name: .identifier("on")),
-          StreamParseableEnumCase(name: .identifier("enabled"), keys: ["on"])
+          StreamParseableEnumCase(name: .identifier("enabled"), explicitKeys: ["on"])
         ],
         representation: .caseKeyedObject
       )
@@ -458,8 +458,8 @@ struct `StreamEnumGeneration tests` {
     // Numeric raw values have no keys to collide.
     _ = try StreamEnumGeneration(
       cases: [
-        StreamParseableEnumCase(name: .identifier("a"), keys: ["x"]),
-        StreamParseableEnumCase(name: .identifier("b"), keys: ["x"])
+        StreamParseableEnumCase(name: .identifier("a"), explicitKeys: ["x"]),
+        StreamParseableEnumCase(name: .identifier("b"), explicitKeys: ["x"])
       ],
       representation: .numericRawValue(TypeSyntax("Int"))
     )
@@ -470,7 +470,7 @@ struct `StreamEnumGeneration tests` {
     let generation = StreamEnumGeneration(
       diagnosedCases: [
         StreamParseableEnumCase(name: .identifier("on")),
-        StreamParseableEnumCase(name: .identifier("enabled"), keys: ["on"])
+        StreamParseableEnumCase(name: .identifier("enabled"), explicitKeys: ["on"])
       ],
       representation: .caseKeyedObject
     )
@@ -486,7 +486,7 @@ struct `StreamEnumGeneration tests` {
         StreamParseableEnumCase(name: .identifier("`default`")),
         StreamParseableEnumCase(
           name: .identifier("event"),
-          keys: ["event", "happening"],
+          explicitKeys: ["event", "happening"],
           associatedValues: [
             StreamParseableField(
               name: .identifier("createdAt"),

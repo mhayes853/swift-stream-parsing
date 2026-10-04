@@ -15,14 +15,14 @@ struct `StreamObjectGeneration conversion tests` {
         StreamParseableField(
           name: .identifier("createdAt"),
           type: TypeSyntax("Date"),
-          keys: ["created_at"],
+          explicitKeys: ["created_at"],
           completedConversion: TypeSyntax("UnixSeconds"),
           defaultValue: ExprSyntax("Date(timeIntervalSince1970: 0)")
         ),
         StreamParseableField(
           name: .identifier("updatedAt"),
           type: TypeSyntax("Date?"),
-          keys: ["updated_at"],
+          explicitKeys: ["updated_at"],
           completedConversion: TypeSyntax("UnixSeconds")
         )
       ],
@@ -167,7 +167,7 @@ struct `StreamObjectGeneration conversion tests` {
     let converted = StreamParseableField(
       name: .identifier("createdAt"),
       type: TypeSyntax("Date"),
-      keys: ["created_at"],
+      explicitKeys: ["created_at"],
       completedConversion: TypeSyntax("UnixSeconds")
     )
     #expect(
@@ -189,7 +189,7 @@ struct `StreamObjectGeneration conversion tests` {
     let converted = StreamParseableField(
       name: .identifier("createdAt"),
       type: TypeSyntax("Date"),
-      keys: ["created_at"],
+      explicitKeys: ["created_at"],
       completedConversion: TypeSyntax("UnixSeconds")
     )
     let source = try StreamObjectGeneration(diagnosedFields: [converted]).conversionsSyntax()
