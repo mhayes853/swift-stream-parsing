@@ -682,15 +682,24 @@ extension StreamString: ExpressibleByStringInterpolation {
 // first difference. See `_StreamUTF8Backed`.
 extension StreamString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
+    // Equal lengths first: equal bytes are equal text, and a deduplicated stream mostly compares
+    // a value with an unchanged snapshot of itself. Inlined, this is the byte-wise loop `==` was.
+    var common: Int?
+    if lhs.utf8Count == rhs.utf8Count {
+      let agreed = lhs.utf8CommonPrefixCount(rhs)
+      if agreed == lhs.utf8Count { return true }
+      common = agreed
+    }
     if streamLastBytesDiffer(lhs.utf8LastByte, rhs.utf8LastByte) { return false }
-    if let ordering = lhs.utf8Ordering(rhs) { return ordering == 0 }
+    if let ordering = lhs.utf8Ordering(rhs, common: common) { return ordering == 0 }
     return String(lhs) == String(rhs)
   }
 
   /// `String`'s order for two values when their bytes decide it, or `nil` when only decoding can.
+  /// `common` is their common prefix's length when the caller already has it.
   @usableFromInline
-  func utf8Ordering(_ other: Self) -> Int? {
-    let common = self.utf8CommonPrefixCount(other)
+  func utf8Ordering(_ other: Self, common known: Int? = nil) -> Int? {
+    let common = known ?? self.utf8CommonPrefixCount(other)
     guard self.utf8IsASCII(from: common), other.utf8IsASCII(from: common) else { return nil }
     return streamASCIITailOrdering(
       common < self.utf8Count ? self.utf8Byte(at: common) : nil,
@@ -699,7 +708,7 @@ extension StreamString: Equatable {
   }
 
   // One `streamFirstDifference` per 512-byte window, which both values cut at the same offsets.
-  @usableFromInline
+  @inline(__always)
   func utf8CommonPrefixCount(_ other: Self) -> Int {
     let count = min(self.utf8Count, other.utf8Count)
     var position = 0
