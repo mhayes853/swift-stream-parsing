@@ -69,13 +69,18 @@ or an error. `isComplete` describes document validation, not model-field presenc
 To read without a whole-value snapshot, use a scoped view:
 
 ```swift
-try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view, isComplete in
-  print(view.name?.value, isComplete)
+try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view in
+  print(view.name?.value)
+} completed: { view in
+  print("done", view.name?.value)
 }
 ```
 
-A view cannot escape the callback. Members read through it can be copied and retained.
-The final callback also uses a view, via ``PartialsStream/finishWithView(_:)``.
+`update` runs after each byte (or chunk) and `completed` once after EOF validation, which is
+``PartialsStream/withView(_:)`` and ``PartialsStream/finishWithView(_:)`` for a manual driver.
+`completed` defaults to doing nothing, but it is the only callback that sees a root number's
+last digits. A view cannot escape its callback. Members read through it can be copied and
+retained.
 
 Observe one field through a borrowed view and suppress unchanged values:
 

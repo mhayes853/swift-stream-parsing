@@ -93,42 +93,55 @@ extension Sequence where Element == UInt8 {
     )
   }
 
-  /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
-  /// views are unsafe and must not be retained or used across parser mutation.
-  /// A parser or callback error stops consumption immediately and is rethrown.
+  /// Lends a view to `update` after each input element, then to `completed` once after
+  /// successful EOF validation.
+  ///
+  /// ```swift
+  /// try bytes.withPartialViews(of: BlogPost.self, from: .json()) { view in
+  ///   render(view)
+  /// } completed: { view in
+  ///   commit(view)
+  /// }
+  /// ```
+  ///
+  /// `completed` runs even when the value did not change at EOF. It is the only callback that
+  /// sees a root number's last digits: until EOF, more digits may follow. Lifetime views cannot
+  /// escape the callbacks; default views are unsafe and must not be retained or used across
+  /// parser mutation. A parser or callback error stops consumption immediately and is rethrown.
 #if !LifetimeView
   @unsafe
 #endif
   public func withPartialViews<Parseable: StreamParseable>(
     of type: Parseable.Type,
     from format: JSONStreamFormat,
-    _ body: (borrowing Parseable.Partial.View, Bool) throws -> Void
+    update: (borrowing Parseable.Partial.View) throws -> Void,
+    completed: (borrowing Parseable.Partial.View) throws -> Void = { _ in }
   ) throws {
     var stream = PartialsStream<Parseable>(from: format)
     for element in self {
       try stream.next(element)
-      try stream.withView { try body($0, false) }
+      try stream.withView(update)
     }
-    try stream.finishWithView { try body($0, true) }
+    try stream.finishWithView(completed)
   }
 
-  /// Lends a view of a seeded partial after each input element and once after successful EOF
-  /// validation. See ``withPartialViews(of:from:_:)``.
+  /// Lends a view of a seeded partial to `update` after each input element, then to `completed`
+  /// once after successful EOF validation. See ``withPartialViews(of:from:update:completed:)``.
 #if !LifetimeView
   @unsafe
 #endif
   public func withPartialViews<Value: StreamParseable>(
     initialValue: Value,
     from format: JSONStreamFormat,
-    _ body: (borrowing Value.Partial.View, Bool) throws -> Void
+    update: (borrowing Value.Partial.View) throws -> Void,
+    completed: (borrowing Value.Partial.View) throws -> Void = { _ in }
   ) throws where Value.Partial == Value {
     var stream = PartialsStream(initialValue: initialValue, from: format)
     for element in self {
       try stream.next(element)
-      try stream.withView { try body($0, false) }
+      try stream.withView(update)
     }
-    try stream.finishWithView { try body($0, true) }
+    try stream.finishWithView(completed)
   }
 }
 
@@ -160,41 +173,54 @@ extension Sequence where Element: Sequence<UInt8> {
     )
   }
 
-  /// Lends a view after each input element and once after successful EOF validation.
-  /// The Boolean marks that final emission. Lifetime views cannot escape the callback; default
-  /// views are unsafe and must not be retained or used across parser mutation.
-  /// A parser or callback error stops consumption immediately and is rethrown.
+  /// Lends a view to `update` after each input element, then to `completed` once after
+  /// successful EOF validation.
+  ///
+  /// ```swift
+  /// try bytes.withPartialViews(of: BlogPost.self, from: .json()) { view in
+  ///   render(view)
+  /// } completed: { view in
+  ///   commit(view)
+  /// }
+  /// ```
+  ///
+  /// `completed` runs even when the value did not change at EOF. It is the only callback that
+  /// sees a root number's last digits: until EOF, more digits may follow. Lifetime views cannot
+  /// escape the callbacks; default views are unsafe and must not be retained or used across
+  /// parser mutation. A parser or callback error stops consumption immediately and is rethrown.
 #if !LifetimeView
   @unsafe
 #endif
   public func withPartialViews<Parseable: StreamParseable>(
     of type: Parseable.Type,
     from format: JSONStreamFormat,
-    _ body: (borrowing Parseable.Partial.View, Bool) throws -> Void
+    update: (borrowing Parseable.Partial.View) throws -> Void,
+    completed: (borrowing Parseable.Partial.View) throws -> Void = { _ in }
   ) throws {
     var stream = PartialsStream<Parseable>(from: format)
     for element in self {
       try stream.next(element)
-      try stream.withView { try body($0, false) }
+      try stream.withView(update)
     }
-    try stream.finishWithView { try body($0, true) }
+    try stream.finishWithView(completed)
   }
 
-  /// Lends a view of a seeded partial after each input element and once after successful EOF
-  /// validation. See ``withPartialViews(of:from:_:)``.
+  /// Lends a view of a seeded partial to `update` after each input element, then to `completed`
+  /// once after successful EOF validation. See ``withPartialViews(of:from:update:completed:)``.
 #if !LifetimeView
   @unsafe
 #endif
   public func withPartialViews<Value: StreamParseable>(
     initialValue: Value,
     from format: JSONStreamFormat,
-    _ body: (borrowing Value.Partial.View, Bool) throws -> Void
+    update: (borrowing Value.Partial.View) throws -> Void,
+    completed: (borrowing Value.Partial.View) throws -> Void = { _ in }
   ) throws where Value.Partial == Value {
     var stream = PartialsStream(initialValue: initialValue, from: format)
     for element in self {
       try stream.next(element)
-      try stream.withView { try body($0, false) }
+      try stream.withView(update)
     }
-    try stream.finishWithView { try body($0, true) }
+    try stream.finishWithView(completed)
   }
 }

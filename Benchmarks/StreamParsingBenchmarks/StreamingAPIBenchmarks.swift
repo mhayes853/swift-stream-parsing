@@ -102,9 +102,10 @@ private func addPartialsStreamRows<Value: StreamParseable>(
     ) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         expectParses {
-          try input.withPartialViews(of: Value.self, from: .json()) { view, final in
+          try input.withPartialViews(of: Value.self, from: .json()) { view in
             read(view)
-            blackHole(final)
+          } completed: { view in
+            read(view)
           }
         }
       }

@@ -22,14 +22,18 @@ prevents accidentally duplicating the cursor and parser.
 For synchronous rendering without whole-tree snapshots:
 
 ```swift
-try chunks.withPartialViews(of: Response.self, from: .json()) { view, isComplete in
+try chunks.withPartialViews(of: Response.self, from: .json()) { view in
   render(view.title)
-  if isComplete { showFinished() }
+} completed: { view in
+  render(view.title)
+  showFinished()
 }
 ```
 
-The callback runs after each input element and successful EOF validation. Views cannot
-escape it, but selected members can be copied. Parser and callback errors propagate and
+`update` runs after each input element, and `completed` once after successful EOF validation,
+even if the value is identical. Omitting `completed` drops that final view, which matters for a
+root number: its last digits are only known at EOF. Views cannot escape either callback, but
+selected members can be copied. Parser and callback errors propagate and
 stop consumption immediately. `PartialsStream.finishWithView` provides the same snapshot-free
 EOF operation to manual drivers. A throwing final callback still leaves that stream finished.
 EOF completion means the JSON document was validated, not that every model field is present.

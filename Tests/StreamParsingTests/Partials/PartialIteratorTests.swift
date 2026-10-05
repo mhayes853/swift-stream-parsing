@@ -34,21 +34,34 @@ import Testing
   }
 
   @Test func scopedViewsAndFinalNumber() throws {
-    var values: [Int] = []
-    var completion: [Bool] = []
+    var updates: [Int] = []
+    var completions: [Int] = []
     try [Array("12".utf8)]
-      .withPartialViews(of: Int.self, from: .json()) { view, final in
-        values.append(view.value)
-        completion.append(final)
+      .withPartialViews(of: Int.self, from: .json()) { view in
+        updates.append(view.value)
+      } completed: { view in
+        completions.append(view.value)
       }
-    #expect(values == [0, 12])
-    #expect(completion == [false, true])
+    // More digits could follow until EOF, so only the completed view holds the number.
+    #expect(updates == [0])
+    #expect(completions == [12])
     var id: Int?
     try #"{"id":3}"#.utf8
-      .withPartialViews(of: SequenceModel.self, from: .json()) { view, _ in
+      .withPartialViews(of: SequenceModel.self, from: .json()) { view in
         id = view.id?.value
       }
     #expect(id == 3)
+  }
+
+  @Test func completedRunsOnceAfterEveryUpdate() throws {
+    var events: [String] = []
+    try [Array("[1,".utf8), [], Array("2]".utf8)]
+      .withPartialViews(initialValue: StreamArray<Int>(), from: .json()) { view in
+        events.append("update \(view.count)")
+      } completed: { view in
+        events.append("completed \(view.count)")
+      }
+    #expect(events == ["update 1", "update 1", "update 2", "completed 2"])
   }
 
   @Test func lazyConsumptionAndErrorDoesNotReadAhead() throws {
@@ -86,7 +99,7 @@ import Testing
       }
     }
     #expect(throws: Stop.self) {
-      try input.withPartialViews(initialValue: 0, from: .json()) { _, _ in throw Stop.now }
+      try input.withPartialViews(initialValue: 0, from: .json()) { _ in throw Stop.now }
     }
     #expect(reads == 1)
   }

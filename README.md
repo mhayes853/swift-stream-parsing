@@ -114,8 +114,10 @@ while let update = try updates.next() {
 }
 
 // Without taking a snapshot: a borrowed view of the stream's own storage.
-try bytes.withPartialViews(of: Profile.self, from: .json()) { view, isComplete in
-  print(view.name?.value, isComplete)
+try bytes.withPartialViews(of: Profile.self, from: .json()) { view in
+  print(view.name?.value)
+} completed: { view in
+  print("done", view.name?.value)
 }
 ```
 
