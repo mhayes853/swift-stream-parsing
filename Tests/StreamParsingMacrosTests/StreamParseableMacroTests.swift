@@ -5905,6 +5905,75 @@ extension BaseTestSuite {
     }
 
     @Test
+    func `Member Attribute With No Arguments`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember()
+          var name: String
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember()
+          ┬───────────────────────
+          ╰─ 🛑 @StreamParseableMember needs an argument: key:, keyNames:, initialCapacity:, partialStrings: or completedConversion:.
+          var name: String
+        }
+        """
+      }
+    }
+
+    @Test
+    func `Member Attribute Without Parentheses`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember
+          var name: String
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember
+          ┬─────────────────────
+          ╰─ 🛑 @StreamParseableMember needs an argument: key:, keyNames:, initialCapacity:, partialStrings: or completedConversion:.
+          var name: String
+        }
+        """
+      }
+    }
+
+    @Test
+    func `Member Attribute With Only Nil Arguments`() {
+      assertStreamParsingMacro {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: nil, initialCapacity: nil)
+          var name: String
+        }
+        """
+      } diagnostics: {
+        """
+        @StreamParseable
+        struct Person {
+          @StreamParseableMember(key: nil, initialCapacity: nil)
+          ┬─────────────────────────────────────────────────────
+          ╰─ 🛑 @StreamParseableMember needs an argument: key:, keyNames:, initialCapacity:, partialStrings: or completedConversion:.
+          var name: String
+        }
+        """
+      }
+    }
+
+    @Test
     func `Duplicate Key Names`() {
       assertStreamParsingMacro {
         """

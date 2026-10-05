@@ -41,7 +41,7 @@
 /// `@usableFromInline`. An enum with a raw type has no generated schema, and rejects the argument.
 ///
 /// `keyDecodingStrategy` derives the key of each property, case and associated value label that
-/// does not name its own with ``StreamParseableMember(key:initialCapacity:partialStrings:)``; see
+/// does not name its own with ``StreamParseableMember(key:keyNames:initialCapacity:partialStrings:)``; see
 /// ``StreamKeyDecodingStrategy``. A built-in strategy is applied as the macro expands, so its keys
 /// are checked for collisions at compile time. Any other expression is evaluated when the schema is
 /// built, like `schemaCache`. An enum with a raw type has no keys to convert, and rejects it.
@@ -58,7 +58,7 @@
 /// }
 /// ```
 ///
-/// ``StreamParseableMember(partialStrings:)`` overrides it per member. Arrays and dictionaries stay
+/// ``StreamParseableMember(key:keyNames:initialCapacity:partialStrings:)`` overrides it per member. Arrays and dictionaries stay
 /// ``StreamArray`` and ``StreamDictionary`` either way. It reaches `String` leaves of each member's
 /// own type, not the members of nested `@StreamParseable` types, which choose for themselves. An
 /// enum applies it to its associated values; an enum with a raw type has none, and rejects it.
@@ -79,66 +79,43 @@ public macro StreamParseable(
 ) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMacro")
 
-/// Declares a custom key name for the property inside the generated `Partial`.
+/// Configures how `@StreamParseable` reads one stored property, or one enum case.
+///
+/// Every argument is optional, and an attribute has to write at least one. Arguments are written
+/// in this order, and an attribute repeated on one declaration may split them:
 ///
 /// ```swift
+/// @StreamParseable
 /// struct Payload {
 ///   @StreamParseableMember(key: "user_id")
 ///   var id: Int
-/// }
-/// ```
-@attached(peer)
-public macro StreamParseableMember(
-  key: String,
-  initialCapacity: Int? = nil,
-  partialStrings: PartialStringStorage? = nil
-) =
-  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
-
-/// Declares multiple key names that map to the same property when parsing.
 ///
-/// ```swift
-/// struct Payload {
 ///   @StreamParseableMember(keyNames: ["status", "state"])
 ///   var stage: String
+///
+///   @StreamParseableMember(initialCapacity: 32, partialStrings: .string)
+///   var summary: String
 /// }
 /// ```
+///
+/// - Parameters:
+///   - key: The JSON key the member is read from, in place of its name. A key a member names is
+///     never converted by the type's ``StreamKeyDecodingStrategy``.
+///   - keyNames: Several JSON keys that all route to the member. Not combined with `key`.
+///   - initialCapacity: Reserves storage when the parser first enters an array, dictionary, or
+///     string member. The value is an expected element count for arrays and expected unique-key
+///     count for dictionaries. For strings it is the expected decoded UTF-8 byte count, not the
+///     JSON wire byte count. It is a performance hint, not a limit.
+///   - partialStrings: Overrides the type's `@StreamParseable(partialStrings:)` for this member.
+///     It applies to every `String` leaf of the member's type, so `[String: [String]]` becomes
+///     `StreamDictionary<StreamArray<String>>` under `.string`.
 @attached(peer)
 public macro StreamParseableMember(
-  keyNames: [String],
+  key: String? = nil,
+  keyNames: [String]? = nil,
   initialCapacity: Int? = nil,
   partialStrings: PartialStringStorage? = nil
 ) =
-  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
-
-/// Reserves storage when the parser first enters an array, dictionary, or string member.
-///
-/// The value is an expected element count for arrays and expected unique-key count for
-/// dictionaries. For strings it is the expected decoded UTF-8 byte count, not the JSON wire byte
-/// count. It is a performance hint, not a limit.
-@attached(peer)
-public macro StreamParseableMember(
-  initialCapacity: Int,
-  partialStrings: PartialStringStorage? = nil
-) =
-  #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
-
-/// Overrides the type's `@StreamParseable(partialStrings:)` for one member.
-///
-/// ```swift
-/// @StreamParseable(partialStrings: .string)
-/// struct Message {
-///   var role: String                                  // Partial: String?
-///   @StreamParseableMember(partialStrings: .streamString)
-///   var content: String                               // Partial: StreamString?
-/// }
-/// ```
-///
-/// Applies to every `String` leaf of the member's type, so `[String: [String]]` becomes
-/// `StreamDictionary<StreamArray<String>>` under `.string`. A member with a `completedConversion:`
-/// stores its strategy's `Source`, and rejects it.
-@attached(peer)
-public macro StreamParseableMember(partialStrings: PartialStringStorage) =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
 
 /// Names the enum case a partial falls back to when the stream produced no representable value.
@@ -204,35 +181,25 @@ public enum PartialStringStorage: Hashable, Sendable {
 /// @StreamParseable struct Event {
 ///   @StreamParseableMember(completedConversion: UnixSeconds.self)
 ///   var createdAt: Date = Date(timeIntervalSince1970: 0)
+///
+///   @StreamParseableMember(key: "updated_at", completedConversion: UnixSeconds.self)
+///   var updatedAt: Date? = nil
 /// }
 /// ```
 /// The strategy's `Value` must match the member's unwrapped type. The generated partial
 /// stores `ConvertedPartial<Conversion>` and exposes incremental `source` and cached `value`.
 /// Nonoptional members require an explicit default for `init(orInitial:)`. Null clears an
 /// optional partial; use `observeField` to distinguish null from missing input. Capacity hints
-/// are not supported on converted members.
-/// - Parameter completedConversion: The two-way, completed-value conversion strategy.
-@attached(peer)
-public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
-  completedConversion: Conversion.Type
-) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
-
-/// Selects a JSON key and a completed-value conversion. See `StreamParseableMember(completedConversion:)`.
+/// and `partialStrings:` are not supported on converted members: the partial stores the
+/// strategy's `Source`.
+///
 /// - Parameters:
-///   - key: The JSON member name.
-///   - completedConversion: The two-way conversion strategy for the member.
+///   - key: The JSON key the member is read from, in place of its name.
+///   - keyNames: Several JSON keys that all route to the member. Not combined with `key`.
+///   - completedConversion: The two-way, completed-value conversion strategy.
 @attached(peer)
 public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
-  key: String,
-  completedConversion: Conversion.Type
-) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
-
-/// Selects JSON key aliases and a completed-value conversion.
-/// - Parameters:
-///   - keyNames: JSON names that route to the same member.
-///   - completedConversion: The two-way conversion strategy for the member.
-@attached(peer)
-public macro StreamParseableMember<Conversion: StreamCompletedValueConversion>(
-  keyNames: [String],
+  key: String? = nil,
+  keyNames: [String]? = nil,
   completedConversion: Conversion.Type
 ) = #externalMacro(module: "StreamParsingMacros", type: "StreamParseableMemberMacro")
