@@ -52,6 +52,31 @@ public protocol StreamCompletedValueConversion: SendableMetatype {
   static func convertFromValue(_ value: Value) -> Source
 }
 
+extension StreamCompletedValueConversion {
+  /// Converts a source as though the parser had just completed it.
+  ///
+  /// `Source` is a partial type, so nothing in `source` records whether it finished. Calling this
+  /// asserts that it did: that the value's closing token was seen. It does not assert that every
+  /// member is present; a completed object source can still be missing members, exactly as one
+  /// the parser completes on `{"a": 1}`.
+  ///
+  /// The result is the value `ConvertedPartial` would cache for the same source. Use it to decode
+  /// a model member when no partial is needed.
+  ///
+  /// - Parameter source: A source, such as one rebuilt from a stored snapshot. A snapshot of an
+  ///   unfinished source converts (or fails) as if it had finished.
+  /// - Throws: The strategy's conversion error.
+  @inlinable
+  public static func value(
+    fromCompletedSource source: consuming Source
+  ) throws(ConversionError) -> Value {
+    var source = source
+    return try withUnsafeMutablePointer(to: &source) { pointer throws(ConversionError) in
+      try convertToValue(Source.streamView(UnsafeMutableRawPointer(pointer)))
+    }
+  }
+}
+
 /// Incremental source storage and a cached completed conversion.
 ///
 /// ```swift
@@ -77,6 +102,18 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
   public init(value: Strategy.Value) {
     self.source = Strategy.convertFromValue(value)
     self.value = value
+  }
+
+  /// A partial in the state parsing leaves once `source` is completed.
+  ///
+  /// As with ``StreamCompletedValueConversion/value(fromCompletedSource:)``, this asserts that the
+  /// source's closing token was seen, not that every member is present. The conversion runs once:
+  /// on success `value` is cached; on failure `conversionError` is set and `source` is kept.
+  ///
+  /// Unlike ``init(value:)``, the source is kept as given, not rebuilt by `convertFromValue`.
+  public init(completedSource source: consuming Strategy.Source) {
+    self.source = source
+    _ = self.complete()
   }
 
   public static func streamInitialValue() -> Self { Self() }

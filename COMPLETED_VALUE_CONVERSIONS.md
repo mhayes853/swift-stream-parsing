@@ -98,6 +98,27 @@ the macro; it does not invent destination values or run a throwing conversion to
 semantically equivalent value. A canonical spelling is sufficient. Model-to-partial conversion
 caches the supplied value directly and never invokes `convertToValue` to validate it again.
 
+## Converting a source without parsing
+
+A source rebuilt outside the parser, such as one restored from a stored snapshot, converts
+without a `PartialsStream`:
+
+```swift
+// The value alone, throwing the strategy's error:
+let date = try UnixSeconds.value(fromCompletedSource: 1_700_000_000)
+
+// The state parsing that source leaves: the source as given, then a cached value or an error.
+let partial = ConvertedPartial<UnixSeconds>(completedSource: 1_700_000_000)
+```
+
+`Source` is a partial type, so it records nothing about completion. Both APIs assert that the
+source's closing token was seen, not that every member is present: an object source missing a
+member converts exactly as one the parser completes on `{"a": 1}`. A snapshot of an unfinished
+source converts (or fails) as though it had finished. For any source, the results match what
+parsing caches. Unlike `init(value:)`, the partial keeps the source's spelling rather than
+rebuilding it with `convertFromValue`. There is no way to build a source that has not converted
+yet. Without the parser's position, such a partial could only be displayed, never resumed.
+
 ## Errors, observation, and configuration
 
 Invalid completed values produce `JSONParsingError` with

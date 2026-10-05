@@ -417,3 +417,84 @@ extension CompletedValueConversionTests {
     }
   }
 }
+
+extension CompletedValueConversionTests {
+  @Test func completedSourcesConvertAsParsingCompletesThem() throws {
+    // Each source is the one parsing leaves; built from it, the partial and the value must match
+    // what parsing cached, including failures and a completed object source missing a member.
+    expectCompletedSourceMatchesParsing(NumberConversion.self, "4")
+    expectCompletedSourceMatchesParsing(NumberConversion.self, "-1")
+    expectCompletedSourceMatchesParsing(BooleanConversion.self, "true")
+    expectCompletedSourceMatchesParsing(TextConversion.self, #""hello""#)
+    expectCompletedSourceMatchesParsing(TextConversion.self, #""bad""#)
+    expectCompletedSourceMatchesParsing(PairConversion.self, "[3,4]")
+    expectCompletedSourceMatchesParsing(PairConversion.self, "[1]")
+    expectCompletedSourceMatchesParsing(ObjectConversion.self, #"{"text":"hi"}"#)
+    expectCompletedSourceMatchesParsing(ObjectConversion.self, "{}")
+    expectCompletedSourceMatchesParsing(NestedPairConversion.self, "[1,2]")
+  }
+
+  @Test func completedSourceConvertsOnceAndKeepsItsSpelling() throws {
+    TextConversion.calls.withLock { $0 = (0, 0) }
+    let partial = ConvertedPartial<TextConversion>(completedSource: StreamString("Hello"))
+    #expect(partial.source == "Hello")
+    #expect(partial.value == "HELLO")
+    #expect(partial.conversionError == nil)
+    #expect(TextConversion.calls.withLock { $0.to } == 1)
+    #expect(TextConversion.calls.withLock { $0.from } == 0)
+
+    var model = ConversionModel().streamPartialValue
+    model.text = partial
+    #expect(ConversionModel(streamPartial: model)?.text == "HELLO")
+    #expect(TextConversion.calls.withLock { $0.to } == 1)
+  }
+
+  @Test func completedSourceFailureKeepsTheSourceAndTypedError() throws {
+    let partial = ConvertedPartial<TextConversion>(completedSource: StreamString("bad"))
+    #expect(partial.source == "bad")
+    #expect(partial.value == nil)
+    #expect(partial.conversionError == .invalid)
+    #expect(throws: ConversionTestError.invalid) {
+      try TextConversion.value(fromCompletedSource: StreamString("bad"))
+    }
+  }
+
+  @Test func nonthrowingStrategiesConvertCompletedSourcesWithoutTry() {
+    let value: String = BooleanConversion.value(fromCompletedSource: true)
+    #expect(value == "yes")
+    let error: Never? = ConvertedPartial<BooleanConversion>(completedSource: false).conversionError
+    #expect(error == nil)
+  }
+}
+
+private func expectCompletedSourceMatchesParsing<Strategy: StreamCompletedValueConversion>(
+  _: Strategy.Type,
+  _ json: String,
+  sourceLocation: SourceLocation = #_sourceLocation
+) where Strategy.Value: Equatable, Strategy.ConversionError: Equatable {
+  var stream = PartialsStream(initialValue: ConvertedPartial<Strategy>(), from: .json())
+  let parsed: ConvertedPartial<Strategy>
+  do {
+    try stream.next(json.utf8)
+    parsed = try stream.finish()
+  } catch {
+    parsed = stream.current
+  }
+  #expect(
+    parsed.value != nil || parsed.conversionError != nil,
+    "Parsing must complete \(json)",
+    sourceLocation: sourceLocation
+  )
+
+  let built = ConvertedPartial<Strategy>(completedSource: parsed.source)
+  #expect(built.value == parsed.value, sourceLocation: sourceLocation)
+  #expect(built.conversionError == parsed.conversionError, sourceLocation: sourceLocation)
+
+  let converted = Result { () throws(Strategy.ConversionError) in
+    try Strategy.value(fromCompletedSource: parsed.source)
+  }
+  #expect((try? converted.get()) == parsed.value, sourceLocation: sourceLocation)
+  if case .failure(let error) = converted {
+    #expect(error == parsed.conversionError, sourceLocation: sourceLocation)
+  }
+}
