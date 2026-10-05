@@ -1560,15 +1560,15 @@ extension BaseTestSuite {
             default:
               break
             }
-            if partial.isPrefix(of: "live") {
+            if partial.isUTF8Prefix(of: "live") {
               self = .live
               return
             }
-            if partial.isPrefix(of: "default") {
+            if partial.isUTF8Prefix(of: "default") {
               self = .`default`
               return
             }
-            if partial.isPrefix(of: "livestream") {
+            if partial.isUTF8Prefix(of: "livestream") {
               self = .livestream
               return
             }
@@ -3939,11 +3939,11 @@ extension BaseTestSuite {
             default:
               break
             }
-            if partial.isPrefix(of: "idle") {
+            if partial.isUTF8Prefix(of: "idle") {
               self = .idle
               return
             }
-            if partial.isPrefix(of: "live") {
+            if partial.isUTF8Prefix(of: "live") {
               self = .live
               return
             }
@@ -5203,7 +5203,7 @@ extension BaseTestSuite {
             default:
               break
             }
-            if partial.isPrefix(of: "a") {
+            if partial.isUTF8Prefix(of: "a") {
               self = .a
               return
             }

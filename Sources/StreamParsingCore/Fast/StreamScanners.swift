@@ -596,6 +596,63 @@ package func streamCompareBytes(
   return 0
 }
 
+// The offset of the first unequal byte, or `count` when every byte agrees: `streamCompareBytes`'s
+// walk, answering where rather than which way.
+@inlinable
+@inline(__always)
+package func streamFirstDifference(
+  _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer, count: Int
+) -> Int {
+  var i = 0
+  while i &+ 16 <= count {
+    let left = lhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let right = rhs.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    let difference = unsafeBitCast(left ^ right, to: SIMD2<UInt64>.self)
+    if difference[0] | difference[1] != 0 {
+      let half = difference[0] == 0 ? 1 : 0
+      let bits = UInt64(littleEndian: difference[half])
+      return i &+ half &* 8 &+ bits.trailingZeroBitCount &>> 3
+    }
+    i &+= 16
+  }
+  while i < count {
+    let width = Swift.min(count &- i, 8)
+    let difference = streamPaddedWord(base: lhs, from: i, to: i &+ width)
+      ^ streamPaddedWord(base: rhs, from: i, to: i &+ width)
+    if difference != 0 { return i &+ difference.trailingZeroBitCount &>> 3 }
+    i &+= width
+  }
+  return count
+}
+
+// Whether no byte has its high bit set. Ored sixteen at a time and tested once at the end: a
+// caller that finds a non-ASCII byte decodes the whole text anyway, so stopping early saves little.
+@inlinable
+@inline(__always)
+package func streamBytesAreASCII(_ base: UnsafeRawPointer, count: Int) -> Bool {
+  var i = 0
+  var lanes = SIMD16<UInt8>.zero
+  while i &+ 16 <= count {
+    lanes |= base.loadUnaligned(fromByteOffset: i, as: SIMD16<UInt8>.self)
+    i &+= 16
+  }
+  var tail: UInt64 = 0
+  while i < count {
+    let width = Swift.min(count &- i, 8)
+    tail |= streamPaddedWord(base: base, from: i, to: i &+ width)
+    i &+= width
+  }
+  let words = unsafeBitCast(lanes, to: SIMD2<UInt64>.self)
+  return (words[0] | words[1] | tail) & 0x8080_8080_8080_8080 == 0
+}
+
+@inlinable
+@inline(__always)
+package func streamBytesAreASCII(_ buffer: UnsafeBufferPointer<UInt8>, from offset: Int) -> Bool {
+  guard offset < buffer.count, let base = buffer.baseAddress else { return true }
+  return streamBytesAreASCII(UnsafeRawPointer(base + offset), count: buffer.count &- offset)
+}
+
 // MARK: - Number scanning
 
 // Finds the first byte outside the number token class: the ten numerals, '.', 'e', 'E', '+', '-'.

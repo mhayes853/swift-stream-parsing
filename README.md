@@ -174,7 +174,7 @@ The keys are derived once, as the macro expands for a built-in strategy and when
 
 ### String storage
 
-A `String` member is a `StreamString` in the `Partial`: it takes raw UTF-8 and decodes once when read, and a snapshot shares its sealed blocks. `partialStrings: .string` stores it as a Swift `String` instead, so the partial reads like the model:
+A `String` member is a `StreamString` in the `Partial`: it takes raw UTF-8 and decodes once when read, and a snapshot shares its sealed blocks. It compares, orders and hashes as `String` does, so `partial.content == "é"` holds whichever way the document spelled the character; its searches (`hasUTF8Prefix`, `containsUTF8`, `utf8Range(of:)`) compare bytes and say so. `partialStrings: .string` stores it as a Swift `String` instead, so the partial reads like the model:
 
 ```swift
 @StreamParseable(partialStrings: .string)

@@ -248,7 +248,7 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test
-  func `Equality is byte-wise and ignores capacity`() {
+  func `Equality ignores capacity`() {
     let small: StreamInlineString<16> = "same"
     let large: StreamInlineString<64> = "same"
     expectNoDifference(small == large, true)
@@ -257,6 +257,29 @@ struct `Stream inline string tests` {
     expectNoDifference("same" == small, true)
     let other: StreamInlineString<16> = "different"
     expectNoDifference(small == other, false)
+  }
+
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test
+  func `Comparison, ordering and hashing agree with String and StreamString`() {
+    let texts = [
+      "", "a", "ab", "abd", "K", "\u{212A}", "\u{E9}", "e\u{301}", "e", "ef", "z", "\u{C5}",
+      "A\u{30A}", "q\u{323}\u{307}", "q\u{307}\u{323}", "😀", "가", "\u{1100}\u{1161}",
+    ]
+    for left in texts {
+      for right in texts {
+        let inlineLeft = StreamInlineString<16>(left)!
+        let inlineRight = StreamInlineString<32>(right)!
+        let pair = "\(left.debugDescription), \(right.debugDescription)"
+        #expect((inlineLeft == inlineRight) == (left == right), "== \(pair)")
+        #expect((inlineLeft < inlineRight) == (left < right), "< \(pair)")
+        #expect((inlineLeft == right) == (left == right), "== String \(pair)")
+        if left == right {
+          #expect(inlineLeft.hashValue == StreamInlineString<32>(right)!.hashValue, "hash \(pair)")
+          #expect(inlineLeft.hashValue == StreamString(right).hashValue, "StreamString \(pair)")
+        }
+      }
+    }
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -273,7 +296,7 @@ struct `Stream inline string tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test
-  func `Ordering is byte-wise lexicographic`() {
+  func `Ordering is lexicographic`() {
     let a: StreamInlineString<16> = "apple"
     let b: StreamInlineString<16> = "banana"
     let prefix: StreamInlineString<16> = "app"
@@ -300,13 +323,16 @@ struct `Stream inline string tests` {
   @Test
   func `Searching is byte-wise`() {
     let value: StreamInlineString<32> = "streaming parser"
-    expectNoDifference(value.hasPrefix("stream"), true)
-    expectNoDifference(value.hasSuffix("parser"), true)
-    expectNoDifference(value.hasPrefix("parser"), false)
-    expectNoDifference(value.contains("ing p"), true)
-    expectNoDifference(value.range(of: "parser"), 10..<16)
-    expectNoDifference(value.range(of: "absent"), nil)
-    expectNoDifference(value.range(of: ""), 0..<0)
+    expectNoDifference(value.hasUTF8Prefix("stream"), true)
+    expectNoDifference(value.hasUTF8Suffix("parser"), true)
+    expectNoDifference(value.hasUTF8Prefix("parser"), false)
+    expectNoDifference(value.containsUTF8("ing p"), true)
+    expectNoDifference(value.utf8Range(of: "parser"), 10..<16)
+    expectNoDifference(value.utf8Range(of: "absent"), nil)
+    expectNoDifference(value.utf8Range(of: ""), 0..<0)
+    let decomposed: StreamInlineString<32> = "e\u{301}tude"
+    expectNoDifference(decomposed.hasUTF8Prefix("\u{E9}"), false)
+    expectNoDifference(decomposed == "\u{E9}tude", true)
   }
 
   // MARK: - Codable

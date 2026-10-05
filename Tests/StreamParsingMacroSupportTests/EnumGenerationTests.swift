@@ -46,15 +46,15 @@ struct `StreamEnumGeneration tests` {
         default:
           break
         }
-        if partial.isPrefix(of: "live") {
+        if partial.isUTF8Prefix(of: "live") {
           self = .live
           return
         }
-        if partial.isPrefix(of: "stream") {
+        if partial.isUTF8Prefix(of: "stream") {
           self = .livestream
           return
         }
-        if partial.isPrefix(of: "livestream") {
+        if partial.isUTF8Prefix(of: "livestream") {
           self = .livestream
           return
         }

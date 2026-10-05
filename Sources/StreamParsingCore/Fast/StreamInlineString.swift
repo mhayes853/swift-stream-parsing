@@ -12,9 +12,9 @@
 /// bound is large. A value that would grow past `capacity` is a parse failure
 /// (``StreamApplyResult/capacityExceeded``), never a truncation.
 ///
-/// Like ``StreamString``, comparison, ordering and hashing are by UTF-8 bytes, so two
-/// spellings of one character are different values; capacity is not part of the value, so strings of
-/// different capacities compare by their bytes.
+/// Like ``StreamString``, comparison, ordering and hashing follow `String`, so two spellings of one
+/// character are equal, and searching is by UTF-8 bytes under names that say so. Capacity is not
+/// part of the value: strings of different capacities compare by their text.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
   // A contract: `_streamStringSchema` asserts these offsets and the sink appends through them
@@ -421,66 +421,70 @@ extension StreamInlineString: ExpressibleByStringInterpolation {
 
 // MARK: - Equality, ordering, hashing
 
-// Byte-wise, like `StreamString`, so NFC and NFD spellings compare unequal. Capacity is not part
-// of the value: equal bytes are equal at any capacity, hence the cross-capacity operators and
-// hashing only the used bytes.
+// As `String` compares, like `StreamString`: canonical equivalence, decoding only when a non-ASCII
+// byte follows the first difference. Capacity is not part of the value: equal text is equal at any
+// capacity, hence the cross-capacity operators and hashing only the used bytes.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.utf8Equals(rhs)
+    lhs.textEquals(rhs)
   }
 
   @usableFromInline
-  func utf8Equals<let otherCapacity: Int>(_ other: StreamInlineString<otherCapacity>) -> Bool {
-    guard self._count == other._count else { return false }
-    guard self._count != 0 else { return true }
-    return self.withUTF8Buffer { left in
-      other.withUTF8Buffer { right in
-        streamBytesEqual(left.baseAddress!, right.baseAddress!, count: left.count)
-      }
+  func textEquals<let otherCapacity: Int>(_ other: StreamInlineString<otherCapacity>) -> Bool {
+    other.withUTF8Buffer { self.textEquals(utf8: $0) }
+  }
+
+  @usableFromInline
+  func utf8CommonPrefixCount(_ buffer: UnsafeBufferPointer<UInt8>) -> Int {
+    let count = min(self.utf8Count, buffer.count)
+    guard count > 0 else { return 0 }
+    return self.withUTF8Buffer { source in
+      streamFirstDifference(source.baseAddress!, buffer.baseAddress!, count: count)
     }
+  }
+
+  @usableFromInline
+  func utf8IsASCII(from offset: Int) -> Bool {
+    self.withUTF8Buffer { streamBytesAreASCII($0, from: offset) }
   }
 }
 
+// What `==` compares, the normalized text, the way `StreamString` hashes it, so a value hashes as
+// the equal `StreamString` does.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Hashable {
   public func hash(into hasher: inout Hasher) {
-    // Count then bytes, never the capacity; also `StreamString`'s scheme under one 512-byte window.
-    hasher.combine(self.utf8Count)
-    self.withUTF8Buffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
+    if self.utf8IsASCII(from: 0) {
+      self.withUTF8Buffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
+    } else {
+      String(self)._withNFCCodeUnits { hasher.combine($0) }
+    }
+    hasher.combine(0xFF as UInt8)
   }
 }
 
-// Byte-wise lexicographic, which for UTF-8 is scalar-value order.
+// As `String` orders, by normalized scalars; see `_StreamUTF8Backed`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: Comparable {
   public static func < (lhs: Self, rhs: Self) -> Bool {
-    lhs.utf8Precedes(rhs)
+    lhs.textPrecedes(rhs)
   }
 
   @usableFromInline
-  func utf8Precedes<let otherCapacity: Int>(_ other: StreamInlineString<otherCapacity>) -> Bool {
-    let common = min(self.utf8Count, other.utf8Count)
-    if common > 0 {
-      let ordering = self.withUTF8Buffer { left in
-        other.withUTF8Buffer { right in
-          streamCompareBytes(left.baseAddress!, right.baseAddress!, count: common)
-        }
-      }
-      if ordering != 0 { return ordering < 0 }
-    }
-    return self.utf8Count < other.utf8Count
+  func textPrecedes<let otherCapacity: Int>(_ other: StreamInlineString<otherCapacity>) -> Bool {
+    other.withUTF8Buffer { self.textPrecedes(utf8: $0) }
   }
 }
 
 // Cross-capacity comparison: `Equatable` and `Comparable` only relate a type to itself, and equal
-// bytes at different capacities must compare equal, since they hash equal.
+// text at different capacities must compare equal, since it hashes equal.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 @inlinable
 public func == <let lhsCapacity: Int, let rhsCapacity: Int>(
   lhs: StreamInlineString<lhsCapacity>, rhs: StreamInlineString<rhsCapacity>
 ) -> Bool {
-  lhs.utf8Equals(rhs)
+  lhs.textEquals(rhs)
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -488,7 +492,7 @@ public func == <let lhsCapacity: Int, let rhsCapacity: Int>(
 public func != <let lhsCapacity: Int, let rhsCapacity: Int>(
   lhs: StreamInlineString<lhsCapacity>, rhs: StreamInlineString<rhsCapacity>
 ) -> Bool {
-  !lhs.utf8Equals(rhs)
+  !lhs.textEquals(rhs)
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -496,17 +500,18 @@ public func != <let lhsCapacity: Int, let rhsCapacity: Int>(
 public func < <let lhsCapacity: Int, let rhsCapacity: Int>(
   lhs: StreamInlineString<lhsCapacity>, rhs: StreamInlineString<rhsCapacity>
 ) -> Bool {
-  lhs.utf8Precedes(rhs)
+  lhs.textPrecedes(rhs)
 }
 
 // MARK: - Comparison against String
 
-// As on `StreamString`: `partial.title == expected` is the commonest client comparison.
+// As on `StreamString`: `partial.title == expected` is the commonest client comparison, and it
+// follows `String` like `==`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString {
-  // `utf8Equals(_:)` against `StringProtocol` is shared; see `_StreamUTF8Backed`.
+  // `textEquals(_:)` against `StringProtocol` is shared; see `_StreamUTF8Backed`.
 
-  // Whether `buffer` matches the bytes at `offset`; shared by `==` and the searchers.
+  // Whether `buffer` matches the bytes at `offset`; shared by the searchers, which are byte-wise.
   @usableFromInline
   func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool {
     guard offset >= 0, offset &+ buffer.count <= self.utf8Count else { return false }
@@ -520,22 +525,22 @@ extension StreamInlineString {
 
   @inlinable
   public static func == (lhs: Self, rhs: some StringProtocol) -> Bool {
-    lhs.utf8Equals(rhs)
+    lhs.textEquals(rhs)
   }
 
   @inlinable
   public static func == (lhs: some StringProtocol, rhs: Self) -> Bool {
-    rhs.utf8Equals(lhs)
+    rhs.textEquals(lhs)
   }
 
   @inlinable
   public static func != (lhs: Self, rhs: some StringProtocol) -> Bool {
-    !lhs.utf8Equals(rhs)
+    !lhs.textEquals(rhs)
   }
 
   @inlinable
   public static func != (lhs: some StringProtocol, rhs: Self) -> Bool {
-    !rhs.utf8Equals(lhs)
+    !rhs.textEquals(lhs)
   }
 }
 
@@ -545,10 +550,10 @@ extension StreamInlineString {
 public func == <let capacity: Int>(
   lhs: StreamInlineString<capacity>?, rhs: some StringProtocol
 ) -> Bool {
-  // An explicit unwrap, not `lhs?.utf8Equals(rhs) ?? false`: optional chaining through a
+  // An explicit unwrap, not `lhs?.textEquals(rhs) ?? false`: optional chaining through a
   // value-generic value crashes SILGen in 6.4-snapshot-2026-08-01.
   guard let lhs else { return false }
-  return lhs.utf8Equals(rhs)
+  return lhs.textEquals(rhs)
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -557,7 +562,7 @@ public func == <let capacity: Int>(
   lhs: some StringProtocol, rhs: StreamInlineString<capacity>?
 ) -> Bool {
   guard let rhs else { return false }
-  return rhs.utf8Equals(lhs)
+  return rhs.textEquals(lhs)
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -566,7 +571,7 @@ public func != <let capacity: Int>(
   lhs: StreamInlineString<capacity>?, rhs: some StringProtocol
 ) -> Bool {
   guard let lhs else { return true }
-  return !lhs.utf8Equals(rhs)
+  return !lhs.textEquals(rhs)
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
@@ -575,20 +580,21 @@ public func != <let capacity: Int>(
   lhs: some StringProtocol, rhs: StreamInlineString<capacity>?
 ) -> Bool {
   guard let rhs else { return true }
-  return !rhs.utf8Equals(lhs)
+  return !rhs.textEquals(lhs)
 }
 
 // MARK: - Searching
 
+// Byte-wise, unlike `==`, and named for it, as on `StreamString`.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString {
   /// Whether the accumulated bytes start with `prefix`'s UTF-8, compared byte-wise.
-  public func hasPrefix(_ prefix: some StringProtocol) -> Bool {
+  public func hasUTF8Prefix(_ prefix: some StringProtocol) -> Bool {
     self.utf8HasPrefix(prefix)
   }
 
   /// Whether the accumulated bytes end with `suffix`'s UTF-8, compared byte-wise.
-  public func hasSuffix(_ suffix: some StringProtocol) -> Bool {
+  public func hasUTF8Suffix(_ suffix: some StringProtocol) -> Bool {
     self.utf8HasSuffix(suffix)
   }
 
@@ -597,16 +603,16 @@ extension StreamInlineString {
   ///
   /// The bounds are byte offsets. A match in well-formed text is scalar-aligned but not necessarily
   /// grapheme-aligned. An empty needle matches emptily at `offset`.
-  public func range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
+  public func utf8Range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamInlineString byte offset out of range"
     )
-    return self.utf8Range(of: needle, from: offset)
+    return self.utf8Search(for: needle, from: offset)
   }
 
   /// Whether `other`'s UTF-8 occurs anywhere in the accumulated bytes, compared byte-wise.
-  public func contains(_ other: some StringProtocol) -> Bool {
-    self.range(of: other) != nil
+  public func containsUTF8(_ other: some StringProtocol) -> Bool {
+    self.utf8Range(of: other) != nil
   }
 }
 

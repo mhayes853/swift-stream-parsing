@@ -578,10 +578,10 @@ struct `Stream String Word Tests` {
 
   @Test
   func `Answers the prefix question in the streaming direction`() {
-    expectNoDifference(StreamString("liv").isPrefix(of: "livestream"), true)
-    expectNoDifference(StreamString("livestream").isPrefix(of: "livestream"), true)
-    expectNoDifference(StreamString("livestreams").isPrefix(of: "livestream"), false)
-    expectNoDifference(StreamString("x").isPrefix(of: "livestream"), false)
-    expectNoDifference(StreamString().isPrefix(of: "livestream"), true)
+    expectNoDifference(StreamString("liv").isUTF8Prefix(of: "livestream"), true)
+    expectNoDifference(StreamString("livestream").isUTF8Prefix(of: "livestream"), true)
+    expectNoDifference(StreamString("livestreams").isUTF8Prefix(of: "livestream"), false)
+    expectNoDifference(StreamString("x").isUTF8Prefix(of: "livestream"), false)
+    expectNoDifference(StreamString().isUTF8Prefix(of: "livestream"), true)
   }
 }

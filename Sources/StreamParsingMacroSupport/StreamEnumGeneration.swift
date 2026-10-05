@@ -526,7 +526,7 @@ public struct StreamEnumGeneration: Sendable {
       }
       .map { _, candidate in
         """
-        if partial.isPrefix(of: \(StringLiteralExprSyntax(content: candidate.key).trimmedDescription)) {
+        if partial.isUTF8Prefix(of: \(StringLiteralExprSyntax(content: candidate.key).trimmedDescription)) {
           self = .\(candidate.name)
           return
         }

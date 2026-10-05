@@ -1,5 +1,5 @@
 // The read surface `StreamString` and `StreamInlineString` share (scalar traversal, grapheme spans,
-// comparison against foreign text, searching), written once against the primitives below.
+// comparison, searching), written once against the primitives below.
 // `decodeScalar` and `scalarAlignedOffset` stay per type: a shared body would put a call where
 // each has a load. Internal, so each type forwards its public methods; ungated.
 @usableFromInline
@@ -24,6 +24,12 @@ protocol _StreamUTF8Backed {
 
   /// Whether `buffer` matches the accumulated bytes starting at byte `offset`.
   func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool
+
+  /// The number of leading bytes the accumulated bytes and `buffer` agree on.
+  func utf8CommonPrefixCount(_ buffer: UnsafeBufferPointer<UInt8>) -> Int
+
+  /// Whether every accumulated byte from `offset` on is ASCII.
+  func utf8IsASCII(from offset: Int) -> Bool
 }
 
 // MARK: - Scalar traversal
@@ -77,19 +83,70 @@ extension _StreamUTF8Backed {
   }
 }
 
-// MARK: - Comparison against StringProtocol
+// MARK: - Comparison as `String` compares
 
-// Byte-wise, like each type's `==`. Each borrows the foreign text's UTF-8 once and hands it to
-// `utf8Matches`, the one requirement that knows the storage layout.
+// `==`, `<` and hashing follow `String`: canonical equivalence, so the NFC and NFD spellings of a
+// character are equal, ordered by their normalized scalars. Most comparisons never decode. Two
+// texts whose bytes agree up to some offset and are ASCII from there on normalize to the shared
+// prefix's normalization followed by their own ASCII tails: no ASCII byte composes with what
+// precedes it, and one ends any sequence the prefix left open, which then repairs alike on both
+// sides. So the byte order at that offset is `String`'s order, and differing bytes are differing
+// text. Any other pair is decoded and compared as `String`s.
+
+/// The order of two texts whose bytes agree up to an offset and are ASCII from there, given each
+/// one's byte at that offset, `nil` where it has ended: negative, zero or positive.
+func streamASCIITailOrdering(_ left: UInt8?, _ right: UInt8?) -> Int {
+  switch (left, right) {
+  case (nil, nil): 0
+  case (nil, _): -1
+  case (_, nil): 1
+  case let (left?, right?): left < right ? -1 : 1
+  }
+}
+
 extension _StreamUTF8Backed {
+  /// `String`'s order for the text against the UTF-8 in `buffer` when the bytes decide it, or
+  /// `nil` when a non-ASCII byte follows their first difference and only decoding can.
   @usableFromInline
-  func utf8Equals(_ other: some StringProtocol) -> Bool {
-    var copy = String(other)
-    return copy.withUTF8 { buffer in
-      self.utf8Count == buffer.count && self.utf8Matches(buffer, at: 0)
+  func utf8Ordering(_ buffer: UnsafeBufferPointer<UInt8>) -> Int? {
+    let common = self.utf8CommonPrefixCount(buffer)
+    guard self.utf8IsASCII(from: common), streamBytesAreASCII(buffer, from: common) else {
+      return nil
     }
+    return streamASCIITailOrdering(
+      common < self.utf8Count ? self.utf8Byte(at: common) : nil,
+      common < buffer.count ? buffer[common] : nil
+    )
   }
 
+  /// Whether the text equals `other` as `String` compares them.
+  @usableFromInline
+  func textEquals(_ other: some StringProtocol) -> Bool {
+    var copy = String(other)
+    if let ordering = copy.withUTF8({ self.utf8Ordering($0) }) { return ordering == 0 }
+    return self.decode(in: 0..<self.utf8Count) == copy
+  }
+
+  /// Whether the text orders before the UTF-8 in `buffer` as `String` orders them.
+  @usableFromInline
+  func textPrecedes(utf8 buffer: UnsafeBufferPointer<UInt8>) -> Bool {
+    if let ordering = self.utf8Ordering(buffer) { return ordering < 0 }
+    return self.decode(in: 0..<self.utf8Count) < String(decoding: buffer, as: UTF8.self)
+  }
+
+  /// Whether the text equals the UTF-8 in `buffer` as `String` compares them.
+  @usableFromInline
+  func textEquals(utf8 buffer: UnsafeBufferPointer<UInt8>) -> Bool {
+    if let ordering = self.utf8Ordering(buffer) { return ordering == 0 }
+    return self.decode(in: 0..<self.utf8Count) == String(decoding: buffer, as: UTF8.self)
+  }
+}
+
+// MARK: - Searching
+
+// Byte-wise, and named for it: each borrows the foreign text's UTF-8 once and hands it to
+// `utf8Matches`, the one requirement that knows the storage layout.
+extension _StreamUTF8Backed {
   @usableFromInline
   func utf8HasPrefix(_ prefix: some StringProtocol) -> Bool {
     var copy = String(prefix)
@@ -107,7 +164,7 @@ extension _StreamUTF8Backed {
   /// A first-byte scan with a full match at each candidate, so the worst case is quadratic. The
   /// caller range-checks `offset`, so its `precondition` names its own type.
   @usableFromInline
-  func utf8Range(of needle: some StringProtocol, from offset: Int) -> Range<Int>? {
+  func utf8Search(for needle: some StringProtocol, from offset: Int) -> Range<Int>? {
     var copy = String(needle)
     return copy.withUTF8 { buffer in
       guard !buffer.isEmpty else { return offset..<offset }

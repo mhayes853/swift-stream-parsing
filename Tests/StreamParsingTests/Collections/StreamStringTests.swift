@@ -89,13 +89,56 @@ struct `Stream string tests` {
   }
 
   @Test
-  func `Equality is byte wise, not canonical`() {
-    // NFC and NFD spellings of the same character are equal as `String` and different here,
-    // because decoded JSON text compares as the scalars the document actually carried.
+  func `Equality is canonical, as for String`() {
     let composed = StreamString("\u{E9}")
     let decomposed = StreamString("e\u{301}")
-    expectNoDifference("\u{E9}", String("e\u{301}"))
-    expectNoDifference(composed != decomposed, true)
+    expectNoDifference(composed == decomposed, true)
+    expectNoDifference(composed.hashValue, decomposed.hashValue)
+    expectNoDifference(composed == "e\u{301}", true)
+    expectNoDifference("e\u{301}" == composed, true)
+    // The Kelvin sign normalizes to an ASCII "K": an ASCII value equals a non-ASCII one, and the
+    // two hashing paths have to agree.
+    expectNoDifference(StreamString("\u{212A}") == StreamString("K"), true)
+    expectNoDifference(StreamString("\u{212A}").hashValue, StreamString("K").hashValue)
+    // Different lengths, differing only in ASCII past a shared non-ASCII prefix.
+    expectNoDifference(StreamString("\u{E9}a") == StreamString("\u{E9}ab"), false)
+  }
+
+  @Test
+  func `Comparison, ordering and hashing agree with String`() {
+    // Long enough that some differences fall past the first 512-byte window and the inline limit.
+    let padding = String(repeating: "p", count: 600)
+    let texts = [
+      "", "a", "ab", "abc", "abd", "K", "\u{212A}", "\u{E9}", "e\u{301}", "e", "ef", "z",
+      "\u{C5}", "A\u{30A}", "\u{212B}", "q\u{323}\u{307}", "q\u{307}\u{323}", "\u{1E0B}\u{323}",
+      "\u{1E0D}\u{307}", "😀", "가", "\u{1100}\u{1161}", ";", "\u{37E}",
+    ]
+    let corpus = texts + texts.map { padding + $0 } + texts.map { $0 + padding }
+    for left in corpus {
+      for right in corpus {
+        let streamLeft = StreamString(left)
+        let streamRight = StreamString(right)
+        let pair = "\(left.debugDescription), \(right.debugDescription)"
+        #expect((streamLeft == streamRight) == (left == right), "== \(pair)")
+        #expect((streamLeft < streamRight) == (left < right), "< \(pair)")
+        #expect((streamLeft == right) == (left == right), "== String \(pair)")
+        #expect((left == streamRight) == (left == right), "String == \(pair)")
+        if left == right {
+          #expect(streamLeft.hashValue == streamRight.hashValue, "hash \(pair)")
+        }
+      }
+    }
+  }
+
+  @Test
+  func `Bytes that are not UTF-8 compare as their repaired text`() {
+    // Both repair to a single U+FFFD, the way `String(_:)` reads them.
+    let left = self.accumulated([0xFF], chunk: 1)
+    let right = self.accumulated([0xFE], chunk: 1)
+    expectNoDifference(String(left), String(right))
+    expectNoDifference(left == right, true)
+    expectNoDifference(left.hashValue, right.hashValue)
+    expectNoDifference(left == self.accumulated([0xFF, 0x61], chunk: 1), false)
   }
 
   // MARK: - Reading
@@ -118,21 +161,22 @@ struct `Stream string tests` {
     let value = self.accumulated(
       Array((String(repeating: "p", count: 500) + "needle in a haystack").utf8), chunk: 64
     )
-    expectNoDifference(value.hasPrefix("ppp"), true)
-    expectNoDifference(value.hasPrefix(""), true)
-    expectNoDifference(!value.hasPrefix("q"), true)
-    expectNoDifference(value.hasSuffix("haystack"), true)
-    expectNoDifference(value.hasSuffix(""), true)
-    expectNoDifference(!value.hasSuffix("needle"), true)
-    expectNoDifference(value.contains("needle in"), true)
-    expectNoDifference(value.contains(""), true)
-    expectNoDifference(!value.contains("needle out"), true)
-    expectNoDifference(!StreamString().contains("x"), true)
+    expectNoDifference(value.hasUTF8Prefix("ppp"), true)
+    expectNoDifference(value.hasUTF8Prefix(""), true)
+    expectNoDifference(!value.hasUTF8Prefix("q"), true)
+    expectNoDifference(value.hasUTF8Suffix("haystack"), true)
+    expectNoDifference(value.hasUTF8Suffix(""), true)
+    expectNoDifference(!value.hasUTF8Suffix("needle"), true)
+    expectNoDifference(value.containsUTF8("needle in"), true)
+    expectNoDifference(value.containsUTF8(""), true)
+    expectNoDifference(!value.containsUTF8("needle out"), true)
+    expectNoDifference(!StreamString().containsUTF8("x"), true)
     // Longer than the content is a plain miss, not a bounds trap.
-    expectNoDifference(!StreamString("ab").hasPrefix("abc"), true)
-    expectNoDifference(!StreamString("ab").hasSuffix("abc"), true)
-    // Byte-wise, like `==`: an NFD spelling does not match an NFC prefix.
-    expectNoDifference(!StreamString("e\u{301}tude").hasPrefix("\u{E9}"), true)
+    expectNoDifference(!StreamString("ab").hasUTF8Prefix("abc"), true)
+    expectNoDifference(!StreamString("ab").hasUTF8Suffix("abc"), true)
+    // Byte-wise, unlike `==`: an NFD spelling does not match an NFC prefix.
+    expectNoDifference(!StreamString("e\u{301}tude").hasUTF8Prefix("\u{E9}"), true)
+    expectNoDifference(StreamString("e\u{301}tude") == "\u{E9}tude", true)
   }
 
   @Test
@@ -140,22 +184,22 @@ struct `Stream string tests` {
     // The first hit sits astride the 512 seal; the second is in the tail.
     let content = String(repeating: "p", count: 508) + "marker middle marker end"
     let value = self.accumulated(Array(content.utf8), chunk: 64)
-    let first = value.range(of: "marker")
+    let first = value.utf8Range(of: "marker")
     expectNoDifference(first, 508..<514)
     expectNoDifference(String(value.utf8[first!]), "marker")
     expectNoDifference(Substring(value.utf8[first!]), "marker")
-    let second = value.range(of: "marker", from: first!.upperBound)
+    let second = value.utf8Range(of: "marker", from: first!.upperBound)
     expectNoDifference(second, 522..<528)
-    expectNoDifference(value.range(of: "marker", from: second!.upperBound), nil)
-    expectNoDifference(value.range(of: "absent"), nil)
-    expectNoDifference(value.range(of: "end")?.upperBound, value.utf8Count)
-    expectNoDifference(value.range(of: ""), 0..<0)
-    expectNoDifference(value.range(of: "", from: 5), 5..<5)
-    expectNoDifference(value.range(of: "longer than the tail", from: value.utf8Count), nil)
+    expectNoDifference(value.utf8Range(of: "marker", from: second!.upperBound), nil)
+    expectNoDifference(value.utf8Range(of: "absent"), nil)
+    expectNoDifference(value.utf8Range(of: "end")?.upperBound, value.utf8Count)
+    expectNoDifference(value.utf8Range(of: ""), 0..<0)
+    expectNoDifference(value.utf8Range(of: "", from: 5), 5..<5)
+    expectNoDifference(value.utf8Range(of: "longer than the tail", from: value.utf8Count), nil)
     // Byte-wise honesty: the search lands mid-cluster inside a decomposed character.
     let decomposed = StreamString("e\u{301}!")
-    expectNoDifference(decomposed.range(of: "e"), 0..<1)
-    expectNoDifference(decomposed.range(of: "!"), 3..<4)
+    expectNoDifference(decomposed.utf8Range(of: "e"), 0..<1)
+    expectNoDifference(decomposed.utf8Range(of: "!"), 3..<4)
   }
 
   @Test
@@ -232,7 +276,7 @@ struct `Stream string tests` {
     let joined = StreamString("a") + StreamString("b")
     expectNoDifference(joined, "ab")
     print("printed", terminator: "", to: &value)
-    expectNoDifference(value.hasSuffix("!printed"), true)
+    expectNoDifference(value.hasUTF8Suffix("!printed"), true)
   }
 
   @Test
@@ -253,12 +297,14 @@ struct `Stream string tests` {
   }
 
   @Test
-  func `Ordering is byte wise scalar order`() {
+  func `Ordering follows String`() {
     expectNoDifference(StreamString("abc") < StreamString("abd"), true)
     expectNoDifference(StreamString("ab") < StreamString("abc"), true)
     expectNoDifference(!(StreamString("abc") < StreamString("abc")), true)
-    // Scalar-value order: U+00E9 sorts after ASCII, and byte-wise agrees.
+    // Normalized scalar order: U+00E9 sorts after ASCII, whichever way it is spelled.
     expectNoDifference(StreamString("z") < StreamString("\u{E9}"), true)
+    expectNoDifference(StreamString("z") < StreamString("e\u{301}"), true)
+    expectNoDifference(!(StreamString("e\u{301}") < StreamString("\u{E9}")), true)
     expectNoDifference([StreamString("b"), "a", "c"].sorted(), ["a", "b", "c"])
   }
 
@@ -366,9 +412,9 @@ func `Adaptive Reservations Preserve Canonical Value Behavior`(hint: Int) {
   expectNoDifference(reserved, canonical)
   expectNoDifference(reserved.hashValue, canonical.hashValue)
   expectNoDifference(String(reserved), content)
-  expectNoDifference(reserved.hasPrefix("adaptive 🦎"), true)
-  expectNoDifference(reserved.hasSuffix("content | "), true)
-  expectNoDifference(reserved.range(of: "🦎 block"), canonical.range(of: "🦎 block"))
+  expectNoDifference(reserved.hasUTF8Prefix("adaptive 🦎"), true)
+  expectNoDifference(reserved.hasUTF8Suffix("content | "), true)
+  expectNoDifference(reserved.utf8Range(of: "🦎 block"), canonical.utf8Range(of: "🦎 block"))
 
   let snapshot = reserved
   reserved.append("after snapshot")
@@ -417,13 +463,13 @@ func `Slices And Search Cross Uneven Block Boundaries`() {
     }
   }
   // "needle one" spans the 3584 boundary; "needle two" spans the 15872 boundary.
-  let first = value.range(of: "needle one")
-  let second = value.range(of: "needle two")
+  let first = value.utf8Range(of: "needle one")
+  let second = value.utf8Range(of: "needle two")
   expectNoDifference(first, 3_580..<3_590)
   expectNoDifference(second, 15_866..<15_876)
   expectNoDifference(String(value.utf8[first!]), "needle one")
   expectNoDifference(String(value.utf8[second!]), "needle two")
-  expectNoDifference(value.contains("needle two"), true)
+  expectNoDifference(value.containsUTF8("needle two"), true)
 }
 
 @Test(arguments: [0, 7, 8, 15, 16, 17, 511, 512, 513, 8_191])

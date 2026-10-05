@@ -12,19 +12,24 @@
 /// parser has finished with, so reading the value after every chunk stays cheap. Convert with
 /// `String(_:)` to read the text.
 ///
-/// **Comparison is by UTF-8 bytes.** `==`, `<`, `hash(into:)`, `hasPrefix(_:)`, `hasSuffix(_:)`,
-/// `contains(_:)` and `range(of:from:)`, and their forms against a `String` or any `StringProtocol`,
-/// compare bytes, which for decoded JSON text is scalar by scalar. That is stricter than `String`,
-/// which compares by canonical equivalence:
+/// **Comparison follows `String`.** `==`, `<` and `hash(into:)`, and `==` against a `String` or
+/// any `StringProtocol`, use canonical equivalence, so two spellings of one character are equal.
+/// Most comparisons never decode: the bytes are compared first, and both sides are decoded and
+/// compared as `String`s only when a non-ASCII byte follows the first byte where they differ. A
+/// value of a different length is therefore not unequal at a glance, and `==` reads both values up
+/// to their first difference.
+///
+/// **Searching is by UTF-8 bytes**, and the names say so: ``hasUTF8Prefix(_:)``,
+/// ``hasUTF8Suffix(_:)``, ``containsUTF8(_:)``, ``utf8Range(of:from:)`` and ``isUTF8Prefix(of:)``
+/// compare bytes, which for decoded JSON text is scalar by scalar, and never normalize:
 ///
 /// ```swift
-/// StreamString("\u{E9}") == StreamString("e\u{301}")   // false, where String("\u{E9}") == "e\u{301}"
-/// StreamString("e\u{301}").contains("e")               // true: scalar aligned, not grapheme aligned
+/// StreamString("\u{E9}") == StreamString("e\u{301}")      // true, as for `String`
+/// StreamString("e\u{301}").hasUTF8Prefix("\u{E9}")         // false: the bytes differ
+/// StreamString("e\u{301}").containsUTF8("e")               // true: scalar, not grapheme, aligned
 /// ```
 ///
-/// Two spellings of the same character are different values, as they are different strings in the
-/// JSON grammar, and no search or comparison pays for normalization. Convert to `String` first when
-/// canonical equivalence is what you want.
+/// Convert to `String` first to search by canonical equivalence.
 public struct StreamString {
   @usableFromInline
   struct InlineBuffer: Sendable {
@@ -672,21 +677,68 @@ extension StreamString: ExpressibleByStringInterpolation {
   }
 }
 
-// Byte-wise, which for decoded JSON text is scalar-wise: stricter than `String`'s canonical
-// equivalence, so NFC and NFD spellings compare unequal, as in the JSON grammar.
+// As `String` compares: canonical equivalence, decoding only when a non-ASCII byte follows the
+// first difference. See `_StreamUTF8Backed`.
 extension StreamString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    let count = lhs.utf8Count
-    guard count == rhs.utf8Count else { return false }
+    if let ordering = lhs.utf8Ordering(rhs) { return ordering == 0 }
+    return String(lhs) == String(rhs)
+  }
+
+  /// `String`'s order for two values when their bytes decide it, or `nil` when only decoding can.
+  @usableFromInline
+  func utf8Ordering(_ other: Self) -> Int? {
+    let common = self.utf8CommonPrefixCount(other)
+    guard self.utf8IsASCII(from: common), other.utf8IsASCII(from: common) else { return nil }
+    return streamASCIITailOrdering(
+      common < self.utf8Count ? self.utf8Byte(at: common) : nil,
+      common < other.utf8Count ? other.utf8Byte(at: common) : nil
+    )
+  }
+
+  // One `streamFirstDifference` per 512-byte window, which both values cut at the same offsets.
+  @usableFromInline
+  func utf8CommonPrefixCount(_ other: Self) -> Int {
+    let count = min(self.utf8Count, other.utf8Count)
     var position = 0
     while position < count {
       let take = min(Self.blockCapacity &- (position & Self.blockMask), count &- position)
-      let equal = lhs.withWindow(at: position, count: take) { left in
-        rhs.withWindow(at: position, count: take) { right in
-          streamBytesEqual(left.baseAddress!, right.baseAddress!, count: take)
+      let agreed = self.withWindow(at: position, count: take) { left in
+        other.withWindow(at: position, count: take) { right in
+          streamFirstDifference(left.baseAddress!, right.baseAddress!, count: take)
         }
       }
-      guard equal else { return false }
+      position &+= agreed
+      guard agreed == take else { break }
+    }
+    return position
+  }
+
+  @usableFromInline
+  func utf8CommonPrefixCount(_ buffer: UnsafeBufferPointer<UInt8>) -> Int {
+    let count = min(self.utf8Count, buffer.count)
+    var position = 0
+    while position < count {
+      let take = min(Self.blockCapacity &- (position & Self.blockMask), count &- position)
+      let agreed = self.withWindow(at: position, count: take) { source in
+        streamFirstDifference(source.baseAddress!, buffer.baseAddress! + position, count: take)
+      }
+      position &+= agreed
+      guard agreed == take else { break }
+    }
+    return position
+  }
+
+  @usableFromInline
+  func utf8IsASCII(from offset: Int) -> Bool {
+    let count = self.utf8Count
+    var position = offset
+    while position < count {
+      let take = min(Self.blockCapacity &- (position & Self.blockMask), count &- position)
+      let isASCII = self.withWindow(at: position, count: take) { window in
+        streamBytesAreASCII(window.baseAddress!, count: take)
+      }
+      guard isASCII else { return false }
       position &+= take
     }
     return true
@@ -694,13 +746,13 @@ extension StreamString: Equatable {
 }
 
 // Against `String` directly, because `partial.title == expected` is the commonest client
-// comparison. Byte-wise like `==`; the optional overloads exist because optional lifting only
-// reaches the homogeneous operator.
+// comparison. Canonical equivalence like `==`; the optional overloads exist because optional
+// lifting only reaches the homogeneous operator.
 extension StreamString {
-  // `utf8Equals(_:)` is shared; see `_StreamUTF8Backed`.
+  // `textEquals(_:)` is shared; see `_StreamUTF8Backed`.
 
   // Whether `buffer` matches the bytes at `offset`: one `streamBytesEqual` per window touched.
-  // Shared by `==`, `hasPrefix`, `hasSuffix` and `contains`.
+  // Shared by the searchers, which are byte-wise.
   @usableFromInline
   func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool {
     guard offset >= 0, offset &+ buffer.count <= self.utf8Count else { return false }
@@ -722,22 +774,22 @@ extension StreamString {
 
   @inlinable
   public static func == (lhs: Self, rhs: some StringProtocol) -> Bool {
-    lhs.utf8Equals(rhs)
+    lhs.textEquals(rhs)
   }
 
   @inlinable
   public static func == (lhs: some StringProtocol, rhs: Self) -> Bool {
-    rhs.utf8Equals(lhs)
+    rhs.textEquals(lhs)
   }
 
   @inlinable
   public static func != (lhs: Self, rhs: some StringProtocol) -> Bool {
-    !lhs.utf8Equals(rhs)
+    !lhs.textEquals(rhs)
   }
 
   @inlinable
   public static func != (lhs: some StringProtocol, rhs: Self) -> Bool {
-    !rhs.utf8Equals(lhs)
+    !rhs.textEquals(lhs)
   }
 
 }
@@ -746,30 +798,30 @@ extension StreamString {
 
 @inlinable
 public func == (lhs: StreamString?, rhs: some StringProtocol) -> Bool {
-  lhs?.utf8Equals(rhs) ?? false
+  lhs?.textEquals(rhs) ?? false
 }
 
 @inlinable
 public func == (lhs: some StringProtocol, rhs: StreamString?) -> Bool {
-  rhs?.utf8Equals(lhs) ?? false
+  rhs?.textEquals(lhs) ?? false
 }
 
 @inlinable
 public func != (lhs: StreamString?, rhs: some StringProtocol) -> Bool {
-  !(lhs?.utf8Equals(rhs) ?? false)
+  !(lhs?.textEquals(rhs) ?? false)
 }
 
 @inlinable
 public func != (lhs: some StringProtocol, rhs: StreamString?) -> Bool {
-  !(rhs?.utf8Equals(lhs) ?? false)
+  !(rhs?.textEquals(lhs) ?? false)
 }
 
 // MARK: - Searching
 
-// Byte-wise, like `==`: the scalar-exact answer with no decode.
+// Byte-wise, unlike `==`, and named for it: the scalar-exact answer with no decode.
 extension StreamString {
   /// Whether the accumulated bytes start with `prefix`'s UTF-8, compared byte-wise.
-  public func hasPrefix(_ prefix: some StringProtocol) -> Bool {
+  public func hasUTF8Prefix(_ prefix: some StringProtocol) -> Bool {
     self.utf8HasPrefix(prefix)
   }
 
@@ -779,7 +831,7 @@ extension StreamString {
   /// The direction a *streaming* match needs: whether what has arrived so far is still consistent
   /// with `text`. A generated enum matcher walks its cases shortest-first asking this, so the
   /// first case still consistent with the bytes in hand is the shortest one.
-  public func isPrefix(of text: some StringProtocol) -> Bool {
+  public func isUTF8Prefix(of text: some StringProtocol) -> Bool {
     var copy = String(text)
     return copy.withUTF8 { buffer in
       let count = self.utf8Count
@@ -789,7 +841,7 @@ extension StreamString {
   }
 
   /// Whether the accumulated bytes end with `suffix`'s UTF-8, compared byte-wise.
-  public func hasSuffix(_ suffix: some StringProtocol) -> Bool {
+  public func hasUTF8Suffix(_ suffix: some StringProtocol) -> Bool {
     self.utf8HasSuffix(suffix)
   }
 
@@ -799,16 +851,16 @@ extension StreamString {
   /// The bounds are byte offsets. A match in well-formed text is scalar-aligned but not
   /// necessarily grapheme-aligned: `"e"` matches inside a decomposed `"é"`. An empty needle matches
   /// emptily at `offset`. The worst case is quadratic.
-  public func range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
+  public func utf8Range(of needle: some StringProtocol, from offset: Int = 0) -> Range<Int>? {
     precondition(
       offset >= 0 && offset <= self.utf8Count, "StreamString byte offset out of range"
     )
-    return self.utf8Range(of: needle, from: offset)
+    return self.utf8Search(for: needle, from: offset)
   }
 
   /// Whether `other`'s UTF-8 occurs anywhere in the accumulated bytes, compared byte-wise.
-  public func contains(_ other: some StringProtocol) -> Bool {
-    self.range(of: other) != nil
+  public func containsUTF8(_ other: some StringProtocol) -> Bool {
+    self.utf8Range(of: other) != nil
   }
 }
 
@@ -906,49 +958,34 @@ extension StreamString: TextOutputStreamable {
   }
 }
 
+// Hashes what `==` compares, the normalized text. ASCII is its own normalization, so it hashes in
+// place; anything else is normalized through `String`. Both feed the bytes and then 0xFF, which no
+// UTF-8 contains, and `Hasher` sees one byte stream however it is split, so the two paths agree on
+// equal text: `"K"` and the Kelvin sign `"\u{212A}"` are equal, and only one of them is ASCII.
 extension StreamString: Hashable {
   public func hash(into hasher: inout Hasher) {
-    hasher.combine(self.utf8Count)
-    if self.usesInlineStorage {
-      self.withInlineBuffer { hasher.combine(bytes: UnsafeRawBufferPointer($0)) }
-      return
-    }
-    // Through canonical 512-byte windows, so equal hinted and unhinted values combine identically.
-    var position = 0
-    while position < self.utf8Count {
-      let take = min(Self.blockCapacity, self.utf8Count &- position)
-      self.withWindow(at: position, count: take) {
-        hasher.combine(bytes: UnsafeRawBufferPointer($0))
+    if self.utf8IsASCII(from: 0) {
+      var position = 0
+      while position < self.utf8Count {
+        let take = min(Self.blockCapacity, self.utf8Count &- position)
+        self.withWindow(at: position, count: take) {
+          hasher.combine(bytes: UnsafeRawBufferPointer($0))
+        }
+        position &+= take
       }
-      position &+= take
+    } else {
+      String(self)._withNFCCodeUnits { hasher.combine($0) }
     }
+    hasher.combine(0xFF as UInt8)
   }
 }
 
-// Byte-wise lexicographic, which for UTF-8 is scalar-value order. Equal-length 512-byte windows
-// pair up, so `streamCompareBytes` finds the first unequal byte in one SIMD pass per window.
+// As `String` orders: by normalized scalars, which the bytes decide unless a non-ASCII byte follows
+// the first difference. See `_StreamUTF8Backed`.
 extension StreamString: Comparable {
   public static func < (lhs: Self, rhs: Self) -> Bool {
-    let common = min(lhs.utf8Count, rhs.utf8Count)
-    var position = 0
-    while position < common {
-      let take = min(Self.blockCapacity &- (position & Self.blockMask), common &- position)
-      let ordering = lhs.withWindow(at: position, count: take) { left in
-        rhs.withWindow(at: position, count: take) { right in
-          Self.windowOrdering(left, right)
-        }
-      }
-      if ordering != 0 { return ordering < 0 }
-      position &+= take
-    }
-    return lhs.utf8Count < rhs.utf8Count
-  }
-
-  @usableFromInline
-  static func windowOrdering(
-    _ left: UnsafeBufferPointer<UInt8>, _ right: UnsafeBufferPointer<UInt8>
-  ) -> Int {
-    streamCompareBytes(left.baseAddress!, right.baseAddress!, count: left.count)
+    if let ordering = lhs.utf8Ordering(rhs) { return ordering < 0 }
+    return String(lhs) < String(rhs)
   }
 }
 
