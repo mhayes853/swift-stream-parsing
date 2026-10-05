@@ -15,9 +15,10 @@
 /// **Comparison follows `String`.** `==`, `<` and `hash(into:)`, and `==` against a `String` or
 /// any `StringProtocol`, use canonical equivalence, so two spellings of one character are equal.
 /// Most comparisons never decode: the bytes are compared first, and both sides are decoded and
-/// compared as `String`s only when a non-ASCII byte follows the first byte where they differ. A
-/// value of a different length is therefore not unequal at a glance, and `==` reads both values up
-/// to their first difference.
+/// compared as `String`s only when a non-ASCII byte follows the first byte where they differ.
+/// Different lengths alone do not make two values unequal. `==` settles most unequal pairs from
+/// their last bytes, such as a value against its snapshot from before an append, and otherwise
+/// reads both values up to their first difference.
 ///
 /// **Searching is by UTF-8 bytes**, and the names say so: ``hasUTF8Prefix(_:)``,
 /// ``hasUTF8Suffix(_:)``, ``containsUTF8(_:)``, ``utf8Range(of:from:)`` and ``isUTF8Prefix(of:)``
@@ -681,6 +682,7 @@ extension StreamString: ExpressibleByStringInterpolation {
 // first difference. See `_StreamUTF8Backed`.
 extension StreamString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
+    if streamLastBytesDiffer(lhs.utf8LastByte, rhs.utf8LastByte) { return false }
     if let ordering = lhs.utf8Ordering(rhs) { return ordering == 0 }
     return String(lhs) == String(rhs)
   }

@@ -104,7 +104,29 @@ func streamASCIITailOrdering(_ left: UInt8?, _ right: UInt8?) -> Int {
   }
 }
 
+/// Whether two texts are unequal by their last bytes alone, each `nil` when its text is empty.
+///
+/// An ASCII last byte is the last scalar of the normalized text as well: nothing composes with it
+/// or reorders past it, and it ends any sequence left open before it. Two that differ settle `==`
+/// without reading further, as does an empty text against one that is not, since no text
+/// normalizes to nothing. That is the comparison a deduplicated stream makes, a value against its
+/// own snapshot from one append earlier, so it stays O(1) rather than a scan of both.
+func streamLastBytesDiffer(_ left: UInt8?, _ right: UInt8?) -> Bool {
+  switch (left, right) {
+  case (nil, nil): false
+  case (nil, _), (_, nil): true
+  case let (left?, right?): left != right && (left | right) < 0x80
+  }
+}
+
 extension _StreamUTF8Backed {
+  /// The last accumulated byte, or `nil` when there is none.
+  @usableFromInline
+  var utf8LastByte: UInt8? {
+    let count = self.utf8Count
+    return count > 0 ? self.utf8Byte(at: count &- 1) : nil
+  }
+
   /// `String`'s order for the text against the UTF-8 in `buffer` when the bytes decide it, or
   /// `nil` when a non-ASCII byte follows their first difference and only decoding can.
   @usableFromInline
@@ -123,7 +145,11 @@ extension _StreamUTF8Backed {
   @usableFromInline
   func textEquals(_ other: some StringProtocol) -> Bool {
     var copy = String(other)
-    if let ordering = copy.withUTF8({ self.utf8Ordering($0) }) { return ordering == 0 }
+    let decided: Bool? = copy.withUTF8 { buffer in
+      if streamLastBytesDiffer(self.utf8LastByte, buffer.last) { return false }
+      return self.utf8Ordering(buffer).map { $0 == 0 }
+    }
+    if let decided { return decided }
     return self.decode(in: 0..<self.utf8Count) == copy
   }
 
@@ -137,6 +163,7 @@ extension _StreamUTF8Backed {
   /// Whether the text equals the UTF-8 in `buffer` as `String` compares them.
   @usableFromInline
   func textEquals(utf8 buffer: UnsafeBufferPointer<UInt8>) -> Bool {
+    if streamLastBytesDiffer(self.utf8LastByte, buffer.last) { return false }
     if let ordering = self.utf8Ordering(buffer) { return ordering == 0 }
     return self.decode(in: 0..<self.utf8Count) == String(decoding: buffer, as: UTF8.self)
   }

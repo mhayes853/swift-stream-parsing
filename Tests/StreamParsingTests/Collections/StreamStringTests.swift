@@ -105,6 +105,18 @@ struct `Stream string tests` {
   }
 
   @Test
+  func `A value is unequal to its snapshot from before an append`() {
+    var value = self.accumulated(Array(String(repeating: "grow ", count: 120).utf8), chunk: 64)
+    for piece in ["ing", " and", " e\u{301}", "\u{E9}", "s", "s", ""] {
+      let snapshot = value
+      value.append(piece)
+      // The last bytes settle most of these; a repeated or non-ASCII last byte reads further.
+      let expected = String(value) == String(snapshot)
+      #expect((value == snapshot) == expected, "\(piece.debugDescription)")
+    }
+  }
+
+  @Test
   func `Comparison, ordering and hashing agree with String`() {
     // Long enough that some differences fall past the first 512-byte window and the inline limit.
     let padding = String(repeating: "p", count: 600)
