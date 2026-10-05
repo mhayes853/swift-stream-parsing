@@ -120,7 +120,7 @@ the internal fallback. Significands that overflow the parser's accumulator bypas
 fast conversion and use the complete token.
 
 To use the type as a scalar parse target or an `@StreamParseable` member, also conform
-it to `StreamInitializable`, `StreamParseableRoot`, and `StreamParseable`; their existing
+it to `StreamInitializable`, `StreamPartial`, and `StreamParseable`; their existing
 defaults supply zero initialization and scalar parsing.
 
 ### Key names

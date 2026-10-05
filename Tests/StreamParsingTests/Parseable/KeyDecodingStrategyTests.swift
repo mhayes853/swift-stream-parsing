@@ -121,7 +121,7 @@ private struct CollidingModel {
 private func parse<T: StreamParseable>(
   _ json: String,
   as type: T.Type
-) throws -> T? where T.Partial: StreamParseableRoot {
+) throws -> T? where T.Partial: StreamPartial {
   var partial = T.Partial.streamInitialValue()
   try parsePartial(json, into: &partial)
   return T(streamPartial: partial)

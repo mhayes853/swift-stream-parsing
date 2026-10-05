@@ -12,7 +12,7 @@ import StreamParsing
 // These hold states instead: a rolling window, and every state at once.
 
 @inline(never)
-private func streamSnapshottingRetained<Value: StreamParseableRoot>(
+private func streamSnapshottingRetained<Value: StreamPartial>(
   _ bytes: [UInt8],
   window: Int,
   as type: Value.Type
@@ -30,7 +30,7 @@ private func streamSnapshottingRetained<Value: StreamParseableRoot>(
 }
 
 @inline(never)
-private func streamSnapshottingAll<Value: StreamParseableRoot>(
+private func streamSnapshottingAll<Value: StreamPartial>(
   _ bytes: [UInt8],
   as type: Value.Type
 ) throws -> Value {

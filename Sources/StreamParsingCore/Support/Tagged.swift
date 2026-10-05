@@ -12,7 +12,7 @@
   }
 
   // One stored property, so the raw value's schema applies to a pointer to the Tagged.
-  extension Tagged: StreamParseableRoot where RawValue: StreamParseableRoot {
+  extension Tagged: StreamPartial where RawValue: StreamPartial {
     public static var streamSchema: StreamSchema {
       _streamWrapperSchema(Self.self, wrapping: RawValue.self)
     }

@@ -30,7 +30,7 @@ struct StabilityModel: Equatable {
 @Suite
 struct `Snapshot stability tests` {
   // Feeds one byte at a time, keeping every state along with what it looked like when taken.
-  private func expectStable<Value: StreamParseableRoot>(
+  private func expectStable<Value: StreamPartial>(
     _ json: String,
     as type: Value.Type
   ) throws {

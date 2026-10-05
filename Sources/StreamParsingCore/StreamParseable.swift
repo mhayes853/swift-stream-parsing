@@ -7,7 +7,7 @@ public protocol StreamParseable {
   ///
   /// Defaults to `Self`, for scalars whose partial is the value itself; the `where Partial == Self`
   /// extension below supplies all three members.
-  associatedtype Partial: StreamParseableRoot = Self
+  associatedtype Partial: StreamPartial = Self
 
   /// The partial state that corresponds to the type’s incremental parsing representation.
   var streamPartialValue: Partial { get }

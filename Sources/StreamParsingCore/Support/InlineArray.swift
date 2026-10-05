@@ -12,8 +12,8 @@ extension InlineArray: StreamInitializable where Element: StreamInitializable {
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-extension InlineArray: StreamParseableRoot, StreamContainerPartial
-where Element: StreamParseableRoot {
+extension InlineArray: StreamPartial, StreamContainerPartial
+where Element: StreamPartial {
   // `streamSchema`, not `streamArrayElementSchema`: the two differ only for `Optional`, whose
   // element form writes straight through a slot its container opened `.some`. An `InlineArray`
   // opens nothing -- every slot exists from the start, and an optional one starts `nil` -- so its
@@ -57,7 +57,7 @@ extension InlineArray: StreamParseable where Element: StreamParseable {
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 @inlinable
-public func _streamInlineArraySchema<let count: Int, Element: StreamParseableRoot>(
+public func _streamInlineArraySchema<let count: Int, Element: StreamPartial>(
   _ type: InlineArray<count, Element>.Type,
   element: StreamSchema
 ) -> StreamSchema {

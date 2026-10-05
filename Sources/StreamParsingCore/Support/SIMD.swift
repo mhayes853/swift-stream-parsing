@@ -20,7 +20,7 @@ extension SIMD4: StreamInitializable where Scalar: StreamInitializable {
   }
 }
 
-extension SIMD2: StreamParseableRoot
+extension SIMD2: StreamPartial
 where Scalar: StreamNumberConvertible & StreamInitializable {
   public static var streamSchema: StreamSchema {
     // `Double` lanes have one immortal schema, which the sink also pushes directly.
@@ -29,7 +29,7 @@ where Scalar: StreamNumberConvertible & StreamInitializable {
   }
 }
 
-extension SIMD3: StreamParseableRoot
+extension SIMD3: StreamPartial
 where Scalar: StreamNumberConvertible & StreamInitializable {
   public static var streamSchema: StreamSchema {
     // `Double` lanes have one immortal schema, which the sink also pushes directly.
@@ -38,7 +38,7 @@ where Scalar: StreamNumberConvertible & StreamInitializable {
   }
 }
 
-extension SIMD4: StreamParseableRoot
+extension SIMD4: StreamPartial
 where Scalar: StreamNumberConvertible & StreamInitializable {
   public static var streamSchema: StreamSchema {
     // `Double` lanes have one immortal schema, which the sink also pushes directly.

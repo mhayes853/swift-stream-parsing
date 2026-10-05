@@ -3,20 +3,20 @@
     /// Observes a direct stored field, including missing/null and token completion.
     /// Install before consuming input. The field's state follows this document's tokens;
     /// a seeded initial value alone does not make the field present in the input.
-    public consuming func observeField<Field: StreamParseableRoot>(
+    public consuming func observeField<Field: StreamPartial>(
       _ path: KeyPath<Value, Field?>
     ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
       try self.observeField(ObservedFieldPath(path))
     }
 
     @_disfavoredOverload
-    public consuming func observeField<Field: StreamParseableRoot>(
+    public consuming func observeField<Field: StreamPartial>(
       _ path: KeyPath<Value, Field>
     ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
       try self.observeField(ObservedFieldPath(path))
     }
 
-    public consuming func observeField<Field: StreamParseableRoot>(
+    public consuming func observeField<Field: StreamPartial>(
       _ path: ObservedFieldPath<Value, Field>
     ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
       guard self.stream.parser.consumedByteCount == 0,
@@ -31,10 +31,10 @@
   /// Emits an owned field state after each input element and once after validated EOF.
   /// Duplicate filtering compares field state as well as value. Errors terminate the iterator.
   public struct FieldObservationIterator<
-    Root: StreamParseableRoot,
+    Root: StreamPartial,
     Base: IteratorProtocol,
     Bytes: Sequence<UInt8>,
-    Field: StreamParseableRoot
+    Field: StreamPartial
   >: ~Copyable, PartialUpdateIteratorProtocol {
     var base: PartialIterator<Root, Base, Bytes>
     let path: ObservedFieldPath<Root, Field>

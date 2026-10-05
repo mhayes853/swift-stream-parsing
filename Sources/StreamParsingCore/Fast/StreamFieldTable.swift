@@ -253,9 +253,9 @@ public func _streamBooleanFieldKind<T: StreamBooleanConvertible>(_ type: T.Type)
 // writes stays on the table (`Page<Int>` stores its `Int` exactly as a concrete type would), an
 // object or container is entered from the entry, and anything else is `delegated`.
 
-/// The route for an optional member of a type only known to be a `StreamParseableRoot`.
+/// The route for an optional member of a type only known to be a `StreamPartial`.
 @inlinable
-public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
+public func _streamDelegatedFieldRoute<T: StreamPartial>(
   _ value: inout T?
 ) -> StreamFieldRoute {
   let schema = T.streamSchema
@@ -274,9 +274,9 @@ public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
   }
 }
 
-/// The route for an initialised member of a type only known to be a `StreamParseableRoot`.
+/// The route for an initialised member of a type only known to be a `StreamPartial`.
 @inlinable
-public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
+public func _streamDelegatedFieldRoute<T: StreamPartial>(
   _ value: inout T
 ) -> StreamFieldRoute {
   let schema = T.streamSchema
@@ -301,7 +301,7 @@ public func _streamDelegatedFieldRoute<T: StreamParseableRoot>(
 /// (`_streamNullValue`), not simply a clear as it is for `Optional`'s root schema, so a nullable
 /// `T` keeps a present null apart from an absent member.
 @inlinable
-public func _streamDelegatedMemberSchema<T: StreamParseableRoot>(_ type: T.Type) -> StreamSchema {
+public func _streamDelegatedMemberSchema<T: StreamPartial>(_ type: T.Type) -> StreamSchema {
   let base = T.streamSchema
   return StreamSchema(
     shape: .scalar,
@@ -324,17 +324,17 @@ public func _streamDelegatedMemberSchema<T: StreamParseableRoot>(_ type: T.Type)
   )
 }
 
-/// A whole-value null for an optional member of a type only known to be a `StreamParseableRoot`:
+/// A whole-value null for an optional member of a type only known to be a `StreamPartial`:
 /// its own null where it has one, otherwise a clear.
 @inlinable
-public func _streamDelegatedApplyNull<T: StreamParseableRoot>(_ value: inout T?) -> StreamApplyResult {
+public func _streamDelegatedApplyNull<T: StreamPartial>(_ value: inout T?) -> StreamApplyResult {
   value = T._streamNullValue
   return .applied
 }
 
 /// A whole-value null for an initialised member: its own null, or a mismatch.
 @inlinable
-public func _streamDelegatedApplyNull<T: StreamParseableRoot>(_ value: inout T) -> StreamApplyResult {
+public func _streamDelegatedApplyNull<T: StreamPartial>(_ value: inout T) -> StreamApplyResult {
   guard let null = T._streamNullValue else { return .unsupported }
   value = null
   return .applied
@@ -346,7 +346,7 @@ public func _streamDelegatedApplyNull<T: StreamParseableRoot>(_ value: inout T) 
 /// +39.6%, see NEW_ARCHITECTURE.md). The template is already `.some` and is copy-initialised over
 /// the `nil`, which owns nothing, rather than assigned.
 @inlinable
-public func _streamOptionalPrepare<T: StreamParseableRoot>(
+public func _streamOptionalPrepare<T: StreamPartial>(
   _ type: T.Type, then inner: StreamFieldPrepare?
 ) -> StreamFieldPrepare {
   let owner = _streamOwnedTemplate(T?.some(T.streamInitialValue()))

@@ -82,7 +82,7 @@ private struct Converted<Value: StreamParseable & Equatable>: Equatable {
 }
 
 // A string scalar the table has no layout for, so a generic member of it is `delegated`.
-private struct Slug: StreamStringConvertible, StreamParseable, StreamParseableRoot, Equatable {
+private struct Slug: StreamStringConvertible, StreamParseable, StreamPartial, Equatable {
   typealias Partial = Self
   var text = ""
   static func streamInitialValue() -> Self { Self() }
@@ -103,7 +103,7 @@ private struct Celsius: StreamNumberConvertible, StreamInitializable, Equatable 
   }
 }
 
-extension Celsius: StreamParseable, StreamParseableRoot {
+extension Celsius: StreamParseable, StreamPartial {
   typealias Partial = Self
 }
 
@@ -112,7 +112,7 @@ extension Box.Partial: Sendable where Value.Partial: Sendable {}
 
 // MARK: - Helpers
 
-private func parsed<Root: StreamParseableRoot>(
+private func parsed<Root: StreamPartial>(
   _ json: String, as type: Root.Type, chunk: Int = .max
 ) throws -> Root {
   var value = Root.streamInitialValue()
@@ -120,7 +120,7 @@ private func parsed<Root: StreamParseableRoot>(
   return value
 }
 
-private func failure<Root: StreamParseableRoot>(
+private func failure<Root: StreamPartial>(
   _ json: String, as type: Root.Type
 ) -> StreamSinkFailure.Reason? {
   var value = Root.streamInitialValue()

@@ -453,8 +453,8 @@ extension StreamArray: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
 
-extension StreamArray: StreamParseableRoot, StreamContainerPartial
-where Element: StreamParseableRoot {
+extension StreamArray: StreamPartial, StreamContainerPartial
+where Element: StreamPartial {
   // `@inlinable` so a client rooting a parse here builds the schema, and the `appendElement`
   // closure in it, where `Element` is concrete. Measured: generic, ~2.9% of the parse in
   // `swift_getGenericMetadata`. Cached because `PartialsStream.init` reads this computed property;
@@ -603,7 +603,7 @@ where Element: StreamParseableRoot {
 #endif
 }
 
-extension StreamArray: StreamParseable where Element: StreamParseableRoot {
+extension StreamArray: StreamParseable where Element: StreamPartial {
   public typealias Partial = Self
 }
 
@@ -652,7 +652,7 @@ extension StreamArray {
 
   /// The same open, initialising the vacated space with `initial` rather than a copy of a
   /// template: for an element whose copy costs more than its construction
-  /// (`StreamParseableRoot._streamOpensByConstruction`). `initial` is only evaluated once the
+  /// (`StreamPartial._streamOpensByConstruction`). `initial` is only evaluated once the
   /// closed element has moved out.
   @inlinable
   @inline(__always)

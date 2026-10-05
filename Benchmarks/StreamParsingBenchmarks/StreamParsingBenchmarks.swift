@@ -172,7 +172,7 @@ func measurePayloadThroughput(
   benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
 }
 
-func streamDiscarding<Value: StreamParseableRoot>(
+func streamDiscarding<Value: StreamPartial>(
   _ bytes: [UInt8],
   as type: Value.Type,
   format: JSONStreamFormat = .json()
@@ -184,7 +184,7 @@ func streamDiscarding<Value: StreamParseableRoot>(
   return try stream.finishValue()
 }
 
-func streamDiscardingChunks<Value: StreamParseableRoot>(
+func streamDiscardingChunks<Value: StreamPartial>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type,
@@ -200,7 +200,7 @@ func streamDiscardingChunks<Value: StreamParseableRoot>(
   return try stream.finishValue()
 }
 
-func streamSnapshotting<Value: StreamParseableRoot>(
+func streamSnapshotting<Value: StreamPartial>(
   _ bytes: [UInt8],
   as type: Value.Type
 ) throws -> Value {
@@ -212,7 +212,7 @@ func streamSnapshotting<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-func streamSnapshottingChunks<Value: StreamParseableRoot>(
+func streamSnapshottingChunks<Value: StreamPartial>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type
@@ -228,7 +228,7 @@ func streamSnapshottingChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-func streamViewingChunks<Value: StreamParseableRoot>(
+func streamViewingChunks<Value: StreamPartial>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type,
@@ -245,7 +245,7 @@ func streamViewingChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-func streamBulkDiscarding<Value: StreamParseableRoot>(
+func streamBulkDiscarding<Value: StreamPartial>(
   _ bytes: [UInt8],
   as type: Value.Type,
   format: JSONStreamFormat = .json()

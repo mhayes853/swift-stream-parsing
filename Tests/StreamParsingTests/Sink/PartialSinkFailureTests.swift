@@ -137,7 +137,7 @@ struct `Partial sink failure tests` {
   // The tests above only ever reach an object field. An element and a dictionary value resolve
   // through different branches of `resolveScalarTarget`, so they are covered separately.
 
-  private func failure<Root: StreamParseableRoot>(
+  private func failure<Root: StreamPartial>(
     _ json: String, as type: Root.Type, chunk: Int = .max
   ) -> StreamSinkFailure.Reason? {
     streamFailureReason(json, as: type, chunk: chunk)

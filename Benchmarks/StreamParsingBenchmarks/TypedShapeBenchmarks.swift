@@ -111,7 +111,7 @@ struct SinkDoubles: Equatable {
 
 // MARK: - Runners
 
-private func runTypedParse<Value: StreamParseableRoot>(
+private func runTypedParse<Value: StreamPartial>(
   _ payload: [UInt8], as type: Value.Type
 ) throws {
   let storage = UnsafeMutablePointer<Value>.allocate(capacity: 1)
@@ -128,7 +128,7 @@ private func runTypedParse<Value: StreamParseableRoot>(
   blackHole(storage.pointee)
 }
 
-private func addTypedShapePair<Value: StreamParseableRoot>(
+private func addTypedShapePair<Value: StreamPartial>(
   _ name: String, _ payload: [UInt8], as type: Value.Type, raw: Bool = true
 ) {
   // The raw row recognizes the same tokens and stores nothing; typed minus raw is the sink.

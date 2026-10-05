@@ -204,11 +204,11 @@ public final class StreamSchema: @unchecked Sendable {
   /// materialised. ``StreamSchemaCache`` keys each entry by type and usage.
   @nonexhaustive
   public enum Usage: Hashable, Sendable {
-    /// The document's root: ``StreamParseableRoot/streamSchema``.
+    /// The document's root: ``StreamPartial/streamSchema``.
     case root
-    /// An element of an array: ``StreamParseableRoot/streamArrayElementSchema``.
+    /// An element of an array: ``StreamPartial/streamArrayElementSchema``.
     case arrayElement
-    /// A value in a dictionary: ``StreamParseableRoot/streamDictionaryValueSchema``.
+    /// A value in a dictionary: ``StreamPartial/streamDictionaryValueSchema``.
     case dictionaryValue
     /// A declared member of an object, entered as its own frame:
     /// ``StreamContainerPartial/streamObjectMemberSchema``.
@@ -529,11 +529,19 @@ public final class StreamSchema: @unchecked Sendable {
   }
 }
 
-// Anything that can describe its own routing, whatever shape it is. A root schema has to be a
-// protocol requirement rather than a macro overload, because a function generic over `Value` --
-// `partials(of:from:)` -- cannot pick an overload on its behalf. Kept separate from
-// `StreamParseableObject` so the constrained `_streamFieldRoute` cannot route a `String` field.
-public protocol StreamParseableRoot: StreamInitializable {
+/// The storage a stream writes into: a partial value that describes how the parser routes tokens
+/// into it.
+///
+/// ``StreamParseable/Partial`` is always one. A model type (`Post`) has a generated partial
+/// (`Post.Partial`) whose members are all optional; a scalar or a streaming collection is its own
+/// partial (`Int`, `StreamArray<Int>`). You rarely name this protocol: reach for
+/// ``StreamParseable``, which every partial type also conforms to with `Partial == Self`.
+///
+/// The schema has to be a protocol requirement rather than a macro overload, because a function
+/// generic over the stored type -- `partials(of:from:)` -- cannot pick an overload on its behalf.
+/// Kept separate from ``StreamParseableObject`` so the constrained `_streamFieldRoute` cannot
+/// route a `String` field.
+public protocol StreamPartial: StreamInitializable {
   static var streamSchema: StreamSchema { get }
 
   #if !hasFeature(Embedded)
@@ -625,7 +633,7 @@ public protocol StreamParseableRoot: StreamInitializable {
   static func streamView(_ storage: UnsafeMutableRawPointer) -> View
 }
 
-extension StreamParseableRoot {
+extension StreamPartial {
   @inlinable
   public static var streamArrayElementSchema: StreamSchema { Self.streamSchema }
 
@@ -645,12 +653,12 @@ extension StreamParseableRoot {
   public static var _streamOpensByConstruction: Bool { false }
 }
 
-extension StreamParseableRoot where Self: StreamNullable {
+extension StreamPartial where Self: StreamNullable {
   @inlinable
   public static var _streamNullValue: Self? { Self.streamNullValue() }
 }
 
-extension StreamParseableRoot where View == StreamPointerView<Self> {
+extension StreamPartial where View == StreamPointerView<Self> {
   // A correct snapshot without a recursive rebuild: every container the parser writes into holds
   // its open element in an inline slot, so a copy shares only storage that is sealed and never
   // written again, and the open element's own buffers copy on write at the next append.
@@ -668,8 +676,8 @@ extension StreamParseableRoot where View == StreamPointerView<Self> {
 ///
 /// The entry operation lives on the resolved partial type, so aliases and generic wrappers do not
 /// need to expose their shape in source syntax. A partial whose storage is described directly by
-/// its ``StreamParseableRoot/streamSchema`` can use the default implementation.
-public protocol StreamContainerPartial: StreamParseableRoot {
+/// its ``StreamPartial/streamSchema`` can use the default implementation.
+public protocol StreamContainerPartial: StreamPartial {
   /// The schema a container entry installs on the frame it pushes when this type is a declared
   /// member of an object. ``StreamSchema/Usage/objectMember``.
   ///
@@ -903,7 +911,7 @@ let _streamSIMD4DoubleSchema = StreamSchema(
 // MARK: - Container schemas
 
 @inlinable
-public func _streamArraySchema<Element: StreamParseableRoot>(
+public func _streamArraySchema<Element: StreamPartial>(
   _ type: Element.Type,
   element: StreamSchema
 ) -> StreamSchema {
@@ -941,7 +949,7 @@ public func _streamArraySchema<Element: StreamParseableRoot>(
   )
 }
 
-extension StreamParseableRoot {
+extension StreamPartial {
   @inlinable
   public static var _streamArrayNumberAppender:
     (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
@@ -952,7 +960,7 @@ extension StreamParseableRoot {
 // open element is drained first (`commit` appends past it) and the last number is left as the new
 // open element, so a snapshot between a batch and the close sees what the one-at-a-time path leaves.
 // Measured: unrolling 2/4/8 wide was monotonically worse (Mesh 323 -> 311 MB/s); keep the plain loop.
-extension StreamParseableRoot where Self: StreamNumberConvertible {
+extension StreamPartial where Self: StreamNumberConvertible {
   @inlinable
   public static var _streamArrayNumberAppender:
     (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
@@ -1044,7 +1052,7 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
 // `streamInitialValue()` is `nil`, and applying the wrapped type's schema to the `.none`
 // representation is a write through a pointer to a value that is not there.
 @inlinable
-public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
+public func _streamOptionalArraySchema<Wrapped: StreamPartial>(
   _ type: Wrapped.Type,
   element base: StreamSchema
 ) -> StreamSchema {
@@ -1079,7 +1087,7 @@ public func _streamOptionalArraySchema<Wrapped: StreamParseableRoot>(
 }
 
 @inlinable
-public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
+public func _streamOptionalDictionarySchema<Wrapped: StreamPartial>(
   _ type: Wrapped.Type,
   value base: StreamSchema
 ) -> StreamSchema {
@@ -1114,7 +1122,7 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamParseableRoot>(
 }
 
 @inlinable
-public func _streamDictionarySchema<Value: StreamParseableRoot>(
+public func _streamDictionarySchema<Value: StreamPartial>(
   _ type: Value.Type,
   value valueSchema: StreamSchema
 ) -> StreamSchema {
@@ -1148,20 +1156,20 @@ public func _streamDictionarySchema<Value: StreamParseableRoot>(
 
 // MARK: - Root conformances
 
-extension StreamParseableRoot where Self: StreamStringConvertible {
+extension StreamPartial where Self: StreamStringConvertible {
   public static var streamSchema: StreamSchema { _streamStringSchema(Self.self) }
 }
 
-extension StreamParseableRoot where Self: StreamNumberConvertible {
+extension StreamPartial where Self: StreamNumberConvertible {
   public static var streamSchema: StreamSchema { _streamNumberSchema(Self.self) }
 }
 
-extension StreamParseableRoot where Self: StreamBooleanConvertible {
+extension StreamPartial where Self: StreamBooleanConvertible {
   public static var streamSchema: StreamSchema { _streamBooleanSchema(Self.self) }
 }
 
 #if !hasFeature(Embedded)
-  extension StreamParseableRoot {
+  extension StreamPartial {
     public static var streamObservationFields: [PartialKeyPath<Self>] { [] }
   }
 #endif

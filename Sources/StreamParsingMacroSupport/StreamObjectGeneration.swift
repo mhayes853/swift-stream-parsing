@@ -1056,7 +1056,7 @@ extension StreamObjectGeneration {
     case .dictionary(let value):
       self.containerSchemaExpression("Dictionary", element: value, label: "value", strings: strings)
     case .scalarOrObject:
-      // A generic parameter's partial is only known as a `StreamParseableRoot`, so every
+      // A generic parameter's partial is only known as a `StreamPartial`, so every
       // `_streamSchema(for:)` overload but the placeholder is inapplicable; its own requirement
       // is exact.
       self.mentionsGenericParameter(type)

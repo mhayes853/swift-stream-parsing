@@ -7,7 +7,7 @@ import Testing
 
 // Resumability is where streaming parsers break: a token straddling a chunk boundary exercises
 // carry-over state that a single call parse never touches.
-func expectChunkBoundaryEquivalence<Value: StreamParseableRoot>(
+func expectChunkBoundaryEquivalence<Value: StreamPartial>(
   _ json: String,
   as type: Value.Type,
   format: JSONStreamFormat = .json(),
@@ -48,7 +48,7 @@ func expectChunkBoundaryEquivalence<Value: StreamParseableRoot>(
 // than one that never rejects it, so failures get the same treatment as successes. The whole
 // error is compared — reason and byte offset — since a position that moves with the chunking
 // is a diagnostic that cannot be trusted.
-func expectChunkBoundaryFailureEquivalence<Value: StreamParseableRoot>(
+func expectChunkBoundaryFailureEquivalence<Value: StreamPartial>(
   _ json: String,
   as type: Value.Type,
   format: JSONStreamFormat = .json(),
@@ -76,7 +76,7 @@ func expectChunkBoundaryFailureEquivalence<Value: StreamParseableRoot>(
 
 // MARK: - Helpers
 
-private func parseWhole<Value: StreamParseableRoot>(
+private func parseWhole<Value: StreamPartial>(
   _ bytes: [UInt8],
   as type: Value.Type,
   format: JSONStreamFormat
@@ -84,7 +84,7 @@ private func parseWhole<Value: StreamParseableRoot>(
   try parseChunks([bytes], as: Value.self, format: format)
 }
 
-private func parseChunks<Value: StreamParseableRoot>(
+private func parseChunks<Value: StreamPartial>(
   _ chunks: [[UInt8]],
   as type: Value.Type,
   format: JSONStreamFormat
@@ -96,7 +96,7 @@ private func parseChunks<Value: StreamParseableRoot>(
   return try stream.finish()
 }
 
-private func parsingFailure<Value: StreamParseableRoot>(
+private func parsingFailure<Value: StreamPartial>(
   forParsing chunks: [[UInt8]],
   as type: Value.Type,
   format: JSONStreamFormat

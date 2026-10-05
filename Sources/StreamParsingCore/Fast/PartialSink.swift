@@ -1675,7 +1675,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 )
 
 extension PartialSink {
-  public init<Root: StreamParseableRoot>(root: UnsafeMutablePointer<Root>) {
+  public init<Root: StreamPartial>(root: UnsafeMutablePointer<Root>) {
     self.init(root: UnsafeMutableRawPointer(root), schema: Root.streamSchema)
   }
 }

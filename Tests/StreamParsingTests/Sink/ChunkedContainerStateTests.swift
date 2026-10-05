@@ -83,7 +83,7 @@ struct `Chunked container state tests` {
   }
 
   // `parsePartial`, cut at `ends` rather than at a fixed chunk size.
-  static func parseTyped<Root: StreamParseableRoot>(
+  static func parseTyped<Root: StreamPartial>(
     _ json: String, into value: inout Root, ends: [Int]
   ) throws {
     try withUnsafeMutablePointer(to: &value) { pointer in

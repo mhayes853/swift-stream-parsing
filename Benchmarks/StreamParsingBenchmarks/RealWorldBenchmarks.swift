@@ -45,7 +45,7 @@ private let realWorldPayloads: [(String, [UInt8])] = [
 
 // Mirrors each fast-layer real-world row through the convenience layer. The models deliberately
 // retain the corpus's characteristic values rather than merely reproducing its container spine.
-private func addRealWorldConvenienceRows<Value: StreamParseableRoot>(
+private func addRealWorldConvenienceRows<Value: StreamPartial>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,

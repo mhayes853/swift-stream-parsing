@@ -36,7 +36,7 @@ private struct Celsius: StreamNumberConvertible, StreamInitializable, Equatable 
   }
 }
 
-extension Celsius: StreamParseable, StreamParseableRoot {
+extension Celsius: StreamParseable, StreamPartial {
   typealias Partial = Self
 }
 
@@ -48,7 +48,7 @@ private struct CustomContainers: Equatable {
 
 @Suite
 struct KnownScalarSlotTests {
-  private func failure<Root: StreamParseableRoot>(
+  private func failure<Root: StreamPartial>(
     _ json: String, as type: Root.Type
   ) -> StreamSinkFailure.Reason? {
     streamFailureReason(json, as: type)

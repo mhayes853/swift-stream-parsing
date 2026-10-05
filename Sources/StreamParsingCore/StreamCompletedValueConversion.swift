@@ -28,7 +28,7 @@ struct _StreamPendingCompletedValue {
 /// `convertToValue` runs once per completed occurrence; later snapshots and document EOF
 /// reuse the cached result. `convertFromValue` is used by the model's `streamPartialValue`.
 public protocol StreamCompletedValueConversion: SendableMetatype {
-  associatedtype Source: StreamParseableRoot & Sendable
+  associatedtype Source: StreamPartial & Sendable
   associatedtype Value: Sendable
 
   /// The concrete conversion failure type, inferred as `Never` for nonthrowing strategies.
@@ -86,7 +86,7 @@ extension StreamCompletedValueConversion {
 /// ```
 /// Missing/null remain outside this wrapper. A repeated key resets both source and result.
 public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
-  StreamParseableRoot, StreamContainerPartial, Sendable
+  StreamPartial, StreamContainerPartial, Sendable
 {
   public private(set) var source: Strategy.Source
   public private(set) var value: Strategy.Value?

@@ -46,7 +46,7 @@ public func _streamSchema<T: StreamBooleanConvertible>(for type: T.Type) -> Stre
 // an `Optional`, so no member that type-checked before resolves differently. The optional root
 // schema materialises before each write, which is the correct path for the deeper layer.
 @inlinable
-public func _streamSchema<T: StreamParseableRoot>(for type: Optional<T>.Type) -> StreamSchema {
+public func _streamSchema<T: StreamPartial>(for type: Optional<T>.Type) -> StreamSchema {
   Optional<T>.streamSchema
 }
 
@@ -128,7 +128,7 @@ public func streamApply<T: StreamBooleanConvertible>(
 // on purpose: it applies through `Optional<T>`'s root schema, which materialises before it writes,
 // at the inner optional's address -- the offset-zero payload the frame entry helpers rely on.
 @inlinable
-func _streamApplyThroughOptional<T: StreamParseableRoot>(
+func _streamApplyThroughOptional<T: StreamPartial>(
   _ value: inout T??,
   _ body: (StreamSchema, UnsafeMutableRawPointer) -> StreamApplyResult
 ) -> StreamApplyResult {
@@ -138,7 +138,7 @@ func _streamApplyThroughOptional<T: StreamParseableRoot>(
 }
 
 @inlinable
-public func streamApply<T: StreamParseableRoot>(
+public func streamApply<T: StreamPartial>(
   _ value: inout T??, utf8 bytes: Span<UInt8>
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) { $0.applyString($1, StreamSchema.wholeValueField, bytes) }
@@ -146,14 +146,14 @@ public func streamApply<T: StreamParseableRoot>(
 
 // The capacity is a first-chunk hint for a `StreamString` member; a nested one goes without it.
 @inlinable
-public func streamApply<T: StreamParseableRoot>(
+public func streamApply<T: StreamPartial>(
   _ value: inout T??, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
   streamApply(&value, utf8: bytes)
 }
 
 @inlinable
-public func streamApply<T: StreamParseableRoot>(
+public func streamApply<T: StreamPartial>(
   _ value: inout T??, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) {
@@ -162,7 +162,7 @@ public func streamApply<T: StreamParseableRoot>(
 }
 
 @inlinable
-public func streamApply<T: StreamParseableRoot>(
+public func streamApply<T: StreamPartial>(
   _ value: inout T??, boolean: Bool
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) { $0.applyBoolean($1, StreamSchema.wholeValueField, boolean) }

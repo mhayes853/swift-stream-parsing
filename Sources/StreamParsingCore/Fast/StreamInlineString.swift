@@ -688,7 +688,7 @@ extension StreamInlineString: StreamStringConvertible {
 }
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-extension StreamInlineString: StreamParseableRoot {}
+extension StreamInlineString: StreamPartial {}
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 extension StreamInlineString: StreamParseable {

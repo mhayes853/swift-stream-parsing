@@ -11,7 +11,7 @@ extension StreamEmptyObject: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
 
-extension StreamEmptyObject: StreamParseableRoot {
+extension StreamEmptyObject: StreamPartial {
   // No matcher, so every key routes to `.ignore` and is skipped whole. See
   // `StreamSchema.KeyRouting`.
   public static let streamSchema = StreamSchema(shape: .object)

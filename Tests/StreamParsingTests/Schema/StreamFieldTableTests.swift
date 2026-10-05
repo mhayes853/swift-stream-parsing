@@ -57,7 +57,7 @@ private struct Celsius: StreamNumberConvertible, StreamInitializable, Equatable 
   }
 }
 
-extension Celsius: StreamParseable, StreamParseableRoot {
+extension Celsius: StreamParseable, StreamPartial {
   typealias Partial = Self
 }
 

@@ -39,7 +39,7 @@ private func chunks(_ payload: [UInt8], size: Int) -> [[UInt8]] {
   return result
 }
 
-private func consumeAsyncPartials<Value: StreamParseableRoot & Sendable>(
+private func consumeAsyncPartials<Value: StreamPartial & Sendable>(
   _ chunks: [[UInt8]],
   as type: Value.Type
 ) async throws -> Int {
@@ -76,7 +76,7 @@ private func measurePayloadThroughputAsync(
   benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
 }
 
-private func addPartialsStreamRows<Value: StreamParseableRoot>(
+private func addPartialsStreamRows<Value: StreamPartial>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
@@ -146,7 +146,7 @@ private func addPartialsStreamRows<Value: StreamParseableRoot>(
   }
 }
 
-private func addAsyncSequenceRows<Value: StreamParseableRoot & Sendable>(
+private func addAsyncSequenceRows<Value: StreamPartial & Sendable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
@@ -299,11 +299,11 @@ private struct ConvertedStructuredResponse {
   var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
 }
 
-private func addCompletedConversionRows<Plain: StreamParseableRoot, Converted: StreamParseableRoot>(
+private func addCompletedConversionRows<Plain: StreamPartial, Converted: StreamPartial>(
   _ name: String, payload: [UInt8], plain: Plain.Type, converted: Converted.Type
 ) {
   let input = chunks(payload, size: 64)
-  func add<Value: StreamParseableRoot>(_ mode: String, _ type: Value.Type) {
+  func add<Value: StreamPartial>(_ mode: String, _ type: Value.Type) {
     Benchmark("Conversion \(mode) \(name) - 64B chunks", configuration: payloadConfiguration) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         expectParses {

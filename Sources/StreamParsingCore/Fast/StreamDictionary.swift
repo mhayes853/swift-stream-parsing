@@ -310,7 +310,7 @@ extension StreamDictionary {
 
 // MARK: - View
 
-extension StreamDictionary where Value: StreamParseableRoot {
+extension StreamDictionary where Value: StreamPartial {
   /// A borrowed window onto the dictionary, for reading a value by key without copying the
   /// dictionary or the value.
   ///
@@ -479,7 +479,7 @@ extension StreamDictionary {
 
   /// The same open, initialising a new key's slot with `initial` -- again already the `.some` --
   /// rather than a copy of a template: for a value whose copy costs more than its construction
-  /// (`StreamParseableRoot._streamOpensByConstruction`). A separate method rather than a flag on
+  /// (`StreamPartial._streamOpensByConstruction`). A separate method rather than a flag on
   /// the one above, for the reason given there.
   @inlinable
   public mutating func _openValue(
@@ -624,7 +624,7 @@ extension StreamDictionary: StreamInitializable {
   public static func streamInitialValue() -> Self { Self() }
 }
 
-extension StreamDictionary: StreamParseable where Value: StreamParseableRoot {
+extension StreamDictionary: StreamParseable where Value: StreamPartial {
   public typealias Partial = Self
 }
 

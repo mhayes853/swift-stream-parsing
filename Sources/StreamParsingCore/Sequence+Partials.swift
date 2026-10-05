@@ -29,7 +29,7 @@ extension Sequence where Element == UInt8 {
   ///   - format: The format describing the parser that produces the value states.
   /// - Returns: The values observed after each byte and at completion.
   @_disfavoredOverload
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) throws -> [Value] {
@@ -42,7 +42,7 @@ extension Sequence where Element == UInt8 {
   ///   - initialValue: The value state to begin parsing from.
   ///   - format: The format describing the parser that feeds the bytes.
   /// - Returns: The values observed after each byte and at completion.
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) throws -> [Value] {
@@ -82,7 +82,7 @@ extension Sequence where Element: Sequence<UInt8> {
   ///   - format: The format describing the parser that consumes the nested sequences.
   /// - Returns: The value states observed after each collection and at completion.
   @_disfavoredOverload
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) throws -> [Value] {
@@ -95,7 +95,7 @@ extension Sequence where Element: Sequence<UInt8> {
   ///   - initialValue: The value state to resume parsing from.
   ///   - format: The format describing the parser that consumes each collection.
   /// - Returns: The value states observed after each collection and at completion.
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) throws -> [Value] {

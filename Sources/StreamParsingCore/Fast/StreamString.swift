@@ -986,7 +986,7 @@ extension StreamString: StreamStringConvertible {
   }
 }
 
-extension StreamString: StreamParseableRoot {}
+extension StreamString: StreamPartial {}
 
 extension StreamString: StreamParseable {
   public typealias Partial = Self

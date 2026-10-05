@@ -42,7 +42,7 @@ let event = Event(streamPartial: partial)
 
 ## Source representations and completion
 
-`Source` can be any `Sendable` `StreamParseableRoot`: for example `StreamString`, `Int`, `Bool`,
+`Source` can be any `Sendable` `StreamPartial`: for example `StreamString`, `Int`, `Bool`,
 `StreamArray<Double>`, a fixed-size SIMD/inline array, a `StreamDictionary`, or a generated
 object `Partial`. `Value` must be `Sendable` and match the member's unwrapped type.
 `convertToValue` borrows `Source.View`; it need not copy the source to read it.

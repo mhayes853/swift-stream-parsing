@@ -1224,7 +1224,7 @@ struct `JSONStreamParser tests` {
 
 // The runs form, for sequences where most entries repeat their predecessor. The flat form below
 // stays for short sequences, where spelling out every state is clearer than compressing it.
-private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
+private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
@@ -1244,7 +1244,7 @@ private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
   )
 }
 
-private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
+private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
@@ -1262,7 +1262,7 @@ private func expectJSONStreamedValues<T: StreamParseableRoot & Equatable>(
   expectNoDifference(values, expected, fileID: file, line: line)
 }
 
-private func expectJSONStreamedValuesBeforeError<T: StreamParseableRoot & Equatable>(
+private func expectJSONStreamedValuesBeforeError<T: StreamPartial & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
@@ -1294,7 +1294,7 @@ struct TypeMismatchCase: @unchecked Sendable, CustomStringConvertible {
   let description: String
   private let body: () throws -> Void
 
-  init<T: StreamParseableRoot>(_ json: String, as type: T.Type) {
+  init<T: StreamPartial>(_ json: String, as type: T.Type) {
     self.description = "\(json) into \(T.self)"
     self.body = {
       try expectJSONParsingError(
@@ -1308,7 +1308,7 @@ struct TypeMismatchCase: @unchecked Sendable, CustomStringConvertible {
   func assert() throws { try self.body() }
 }
 
-private func expectJSONParsingError<T: StreamParseableRoot>(
+private func expectJSONParsingError<T: StreamPartial>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
@@ -1609,7 +1609,7 @@ struct `JSONDump tests` {
     expectNoDifference(error?.reason, .depthExceeded)
   }
 
-  private func assertSnapshot<Value: StreamParseableRoot & Encodable>(
+  private func assertSnapshot<Value: StreamPartial & Encodable>(
     of type: Value.Type,
     from url: URL,
     chunkSize: Int? = nil,

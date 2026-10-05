@@ -34,7 +34,7 @@ public struct JSONStreamFormat: Hashable, Sendable {
 /// }
 /// let final = try stream.finish()
 /// ```
-public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
+public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   // Its own allocation: the sink's frames hold pointers into it, which must survive a move.
   @usableFromInline let storage: UnsafeMutablePointer<Value>
 

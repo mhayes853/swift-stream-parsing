@@ -29,7 +29,7 @@ private struct OptionalInlineArrayFields {
 
 @Suite
 struct `InlineArray parsing tests` {
-  private func parse<Root: StreamParseableRoot>(
+  private func parse<Root: StreamPartial>(
     _ json: String,
     as type: Root.Type,
     chunk: Int = .max
@@ -39,7 +39,7 @@ struct `InlineArray parsing tests` {
     return value
   }
 
-  private func failure<Root: StreamParseableRoot>(
+  private func failure<Root: StreamPartial>(
     _ json: String,
     as type: Root.Type
   ) -> StreamSinkFailure.Reason? {

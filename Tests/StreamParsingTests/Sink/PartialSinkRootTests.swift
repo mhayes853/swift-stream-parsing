@@ -20,11 +20,11 @@ struct RootSIMDValues {
 
 // A JSON document is not required to be an object, and the public parsing entry points have
 // always accepted a scalar, an array or a dictionary as the destination. The root's shape comes
-// from its schema, which a generic caller reaches through StreamParseableRoot rather than
+// from its schema, which a generic caller reaches through StreamPartial rather than
 // through the overloads the macro uses, because an overload resolves where it is written.
 @Suite
 struct `Partial sink root tests` {
-  private func parse<Root: StreamParseableRoot>(
+  private func parse<Root: StreamPartial>(
     _ json: String, as type: Root.Type, chunk: Int = .max
   ) throws -> Root {
     var value = Root.streamInitialValue()
@@ -223,7 +223,7 @@ struct `Partial sink root tests` {
 
   // MARK: - Mismatched roots
 
-  private func failure<Root: StreamParseableRoot>(
+  private func failure<Root: StreamPartial>(
     _ json: String, as type: Root.Type
   ) -> StreamSinkFailure.Reason? {
     streamFailureReason(json, as: type)

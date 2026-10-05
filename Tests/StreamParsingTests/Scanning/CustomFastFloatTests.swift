@@ -6,7 +6,7 @@ import Testing
 // A distinct format, not a typealias or a Float/Double identity recognized by the
 // library. Arithmetic delegates to Float; decimal construction rounds directly
 // to its seven fractional bits through BinaryFloatingPoint's logical encoding.
-private struct TestBFloat16: StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot {
+private struct TestBFloat16: StreamFastFloatConvertible, StreamInitializable, StreamPartial {
   typealias Exponent = Int
   typealias RawExponent = UInt
   typealias RawSignificand = UInt16

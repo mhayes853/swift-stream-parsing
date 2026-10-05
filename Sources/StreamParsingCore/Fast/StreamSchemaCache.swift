@@ -21,7 +21,7 @@
 /// `static let`, which skips the lookup:
 ///
 /// ```swift
-/// extension Pair: StreamParseableRoot where A: StreamParseableRoot, B: StreamParseableRoot {
+/// extension Pair: StreamPartial where A: StreamPartial, B: StreamPartial {
 ///   static var streamSchema: StreamSchema {
 ///     StreamSchemaCache.shared.schema(for: Self.self) {
 ///       StreamSchema(shape: .object, ...)
@@ -29,7 +29,7 @@
 ///   }
 /// }
 ///
-/// extension Point: StreamParseableRoot {
+/// extension Point: StreamPartial {
 ///   private static let schemaEntry = StreamSchemaCache.shared.entry(for: Point.self) {
 ///     StreamSchema(shape: .object, ...)
 ///   }
@@ -91,7 +91,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
   /// Only the lookup is out of line: `build` is formed at the call site, where its generic
   /// parameters are concrete, so the schema it builds is specialised.
   @inlinable
-  public func schema<T: StreamParseableRoot>(
+  public func schema<T: StreamPartial>(
     for type: T.Type,
     usage: StreamSchema.Usage = .root,
     build: () -> StreamSchema
@@ -114,7 +114,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
   ///
   /// Reading through the entry skips the lookup by type; the entry is still this cache's, so
   /// ``count``, ``contains(_:usage:)`` and removal see what it holds.
-  public func entry<T: StreamParseableRoot>(
+  public func entry<T: StreamPartial>(
     for type: T.Type,
     usage: StreamSchema.Usage = .root,
     build: @escaping @Sendable () -> StreamSchema
@@ -134,7 +134,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
   }
 
   /// Whether a schema is cached for `type` in `usage`.
-  public func contains<T: StreamParseableRoot>(
+  public func contains<T: StreamPartial>(
     _ type: T.Type,
     usage: StreamSchema.Usage = .root
   ) -> Bool {
@@ -150,7 +150,7 @@ public final class StreamSchemaCache: @unchecked Sendable {
   ///
   /// A stream already running keeps its schemas; the next read builds a fresh one.
   @discardableResult
-  public func removeSchema<T: StreamParseableRoot>(
+  public func removeSchema<T: StreamPartial>(
     for type: T.Type,
     usage: StreamSchema.Usage = .root
   ) -> StreamSchema? {

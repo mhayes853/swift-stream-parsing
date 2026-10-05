@@ -235,7 +235,7 @@ struct `PartialsStream Tests` {
   }
 }
 
-private func feed<Value: StreamParseableRoot>(
+private func feed<Value: StreamPartial>(
   _ stream: inout PartialsStream<Value>, _ json: String, byteFed: Bool
 ) throws {
   guard byteFed else { return try stream.next(Array(json.utf8)) }

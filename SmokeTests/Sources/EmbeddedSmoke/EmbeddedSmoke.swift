@@ -135,7 +135,7 @@ func parse(
 // destination type from the property being filled. A `KeyPath` would have done the same and would
 // have compiled fine on Darwin, then failed to lower here — which is the entire reason this target
 // exists. These two types are written the way the macro writes them, minus the schema boilerplate:
-// `Optional` is already a `StreamParseableRoot`, so a partial can be one without a hand written
+// `Optional` is already a `StreamPartial`, so a partial can be one without a hand written
 // schema, and the conversion code under test is identical either way.
 
 struct Reading {

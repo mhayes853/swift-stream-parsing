@@ -4,7 +4,7 @@
   // MARK: - Data
 
   // Appends the bytes it is handed; a `String` rebuilt per write made long base64 quadratic.
-  extension Data: StreamStringConvertible, StreamParseableRoot {
+  extension Data: StreamStringConvertible, StreamPartial {
     public static func streamInitialValue() -> Self { Data() }
 
     @discardableResult
@@ -18,7 +18,7 @@
 
   // Built from the accumulated magnitude and decimal exponent, which is what `Decimal` stores, so a
   // token inside its range converts exactly rather than through `Double`.
-  extension Decimal: StreamNumberConvertible, StreamInitializable, StreamParseableRoot {
+  extension Decimal: StreamNumberConvertible, StreamInitializable, StreamPartial {
     public static func streamInitialValue() -> Self { Decimal() }
 
     public init?(streamParsing bytes: Span<UInt8>, info: NumberInfo) {

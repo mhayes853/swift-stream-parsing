@@ -47,7 +47,7 @@ private enum HomogeneousLeafPayloads {
   }
 }
 
-private func addHomogeneousLeafRow<Value: StreamParseableRoot>(
+private func addHomogeneousLeafRow<Value: StreamPartial>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type

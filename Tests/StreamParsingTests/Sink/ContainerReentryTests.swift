@@ -33,7 +33,7 @@ extension ReentryInner.Partial: Equatable {}
 // which does overwrite.
 @Suite
 struct `Container re-entry tests` {
-  private func parse<Root: StreamParseableRoot>(
+  private func parse<Root: StreamPartial>(
     _ json: String, as type: Root.Type, chunk: Int = .max
   ) throws -> Root {
     var value = Root.streamInitialValue()
@@ -41,7 +41,7 @@ struct `Container re-entry tests` {
     return value
   }
 
-  private func failure<Root: StreamParseableRoot>(
+  private func failure<Root: StreamPartial>(
     _ json: String, as type: Root.Type, chunk: Int = .max
   ) -> StreamSinkFailure.Reason? {
     streamFailureReason(json, as: type, chunk: chunk)

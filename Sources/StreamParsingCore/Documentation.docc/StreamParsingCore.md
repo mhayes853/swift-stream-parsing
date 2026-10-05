@@ -254,11 +254,11 @@ repeating `convertToValue`. Conversion errors use typed `throws` and remain conc
 
 ## Schemas and the schema cache
 
-A ``StreamParseableRoot`` describes how the parser writes into it with a ``StreamSchema``. A type
+A ``StreamPartial`` describes how the parser writes into it with a ``StreamSchema``. A type
 can have one schema for each ``StreamSchema/Usage``, meaning where the parser meets the value:
-``StreamParseableRoot/streamSchema`` at the root,
-``StreamParseableRoot/streamArrayElementSchema`` as an array element,
-``StreamParseableRoot/streamDictionaryValueSchema`` as a dictionary value, and
+``StreamPartial/streamSchema`` at the root,
+``StreamPartial/streamArrayElementSchema`` as an array element,
+``StreamPartial/streamDictionaryValueSchema`` as a dictionary value, and
 ``StreamContainerPartial/streamObjectMemberSchema`` as a declared member of an object. Every usage
 defaults to the root schema. Only `Optional` differs, because the slot of an array element or
 dictionary value it sits in is opened already materialised.
@@ -269,7 +269,7 @@ keeps its ``StreamSchemaCache/Entry`` in a `static let`, which skips the lookup 
 reading a `static let` schema would:
 
 ```swift
-extension Pair: StreamParseableRoot where A: StreamParseableRoot, B: StreamParseableRoot {
+extension Pair: StreamPartial where A: StreamPartial, B: StreamPartial {
   static var streamSchema: StreamSchema {
     StreamSchemaCache.shared.schema(for: Self.self) {
       StreamSchema(shape: .object, ...)
@@ -277,7 +277,7 @@ extension Pair: StreamParseableRoot where A: StreamParseableRoot, B: StreamParse
   }
 }
 
-extension Point: StreamParseableRoot {
+extension Point: StreamPartial {
   private static let schemaEntry = StreamSchemaCache.shared.entry(for: Point.self) {
     StreamSchema(shape: .object, ...)
   }

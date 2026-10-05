@@ -217,7 +217,7 @@ struct SeparatorRecords: Equatable {
 
 // MARK: - Rows
 
-private func addSeparatorRows<Value: StreamParseableRoot>(
+private func addSeparatorRows<Value: StreamPartial>(
   _ shape: String,
   _ value: SeparatorValue,
   as type: Value.Type,

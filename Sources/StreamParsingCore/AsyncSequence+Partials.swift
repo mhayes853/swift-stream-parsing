@@ -28,7 +28,7 @@ extension AsyncSequence where Element == UInt8 {
   ///   - format: The format describing the parser to drive from the async bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
   @_disfavoredOverload
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) -> AsyncPartialsSequence<Value, Self, CollectionOfOne<UInt8>> {
@@ -41,7 +41,7 @@ extension AsyncSequence where Element == UInt8 {
   ///   - initialValue: The value state to resume parsing from.
   ///   - format: The format describing the parser that consumes the incoming bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) -> AsyncPartialsSequence<Value, Self, CollectionOfOne<UInt8>> {
@@ -75,7 +75,7 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   ///   - format: The format describing the parser that processes the collected sequences.
   /// - Returns: An ``AsyncPartialsSequence``.
   @_disfavoredOverload
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) -> AsyncPartialsSequence<Value, Self, Element> {
@@ -88,7 +88,7 @@ extension AsyncSequence where Element: Sequence<UInt8> & Sendable {
   ///   - initialValue: The value state to parse from.
   ///   - format: The format describing the parser that consumes each chunk of bytes.
   /// - Returns: An ``AsyncPartialsSequence``.
-  public func partials<Value: StreamParseableRoot>(
+  public func partials<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) -> AsyncPartialsSequence<Value, Self, Element> {
@@ -119,7 +119,7 @@ actor AsyncPartialsSubscription {
 /// iterator share its position and remain part of the same subscription.
 /// After an iterator throws, subsequent requests through it or its copies return `nil`.
 public struct AsyncPartialsSequence<
-  Element: StreamParseableRoot,
+  Element: StreamPartial,
   Base: AsyncSequence,
   Seq: Sequence<UInt8>
 >: AsyncSequence {

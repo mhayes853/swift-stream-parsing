@@ -28,7 +28,7 @@ public enum FieldObservationError: Error, Equatable, Sendable {
   /// Key aliases are resolved by the schema, not the Swift property name. Computed/nested paths,
   /// ignored members, and roots without a field table throw `unsupportedField`.
   /// Validation uses `Root.streamObservationFields`; reuse a path across documents.
-  public struct ObservedFieldPath<Root: StreamParseableRoot, Value: StreamParseableRoot>: Sendable {
+  public struct ObservedFieldPath<Root: StreamPartial, Value: StreamPartial>: Sendable {
     let offset: Int
     let optional: Bool
 

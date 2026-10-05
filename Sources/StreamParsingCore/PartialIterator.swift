@@ -18,7 +18,7 @@ extension PartialUpdate: Sendable where Value: Sendable {}
 /// After completion or any error, `next()` returns nil without consuming more input.
 /// Empty chunks still produce an update. No initial update is emitted.
 public struct PartialIterator<
-  Value: StreamParseableRoot,
+  Value: StreamPartial,
   Base: IteratorProtocol,
   Bytes: Sequence<UInt8>
 >: ~Copyable {
@@ -94,7 +94,7 @@ extension Sequence where Element == UInt8 {
 
   /// Lazily parses input; call the throwing `next()` until it returns nil.
   @_disfavoredOverload
-  public func partialIterator<Value: StreamParseableRoot>(
+  public func partialIterator<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) -> PartialIterator<Value, Iterator, CollectionOfOne<UInt8>> {
@@ -114,7 +114,7 @@ extension Sequence where Element == UInt8 {
 #if !LifetimeView
   @unsafe
 #endif
-  public func withPartialViews<Value: StreamParseableRoot>(
+  public func withPartialViews<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat,
     _ body: (borrowing Value.View, Bool) throws -> Void
@@ -128,7 +128,7 @@ extension Sequence where Element == UInt8 {
   }
 
   /// Lazily parses input; call the throwing `next()` until it returns nil.
-  public func partialIterator<Value: StreamParseableRoot>(
+  public func partialIterator<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) -> PartialIterator<Value, Iterator, CollectionOfOne<UInt8>> {
@@ -147,7 +147,7 @@ extension Sequence where Element == UInt8 {
 #if !LifetimeView
   @unsafe
 #endif
-  public func withPartialViews<Value: StreamParseableRoot>(
+  public func withPartialViews<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat,
     _ body: (borrowing Value.View, Bool) throws -> Void
@@ -198,7 +198,7 @@ extension Sequence where Element: Sequence<UInt8> {
 
   /// Lazily parses input; call the throwing `next()` until it returns nil.
   @_disfavoredOverload
-  public func partialIterator<Value: StreamParseableRoot>(
+  public func partialIterator<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat
   ) -> PartialIterator<Value, Iterator, Element> {
@@ -218,7 +218,7 @@ extension Sequence where Element: Sequence<UInt8> {
 #if !LifetimeView
   @unsafe
 #endif
-  public func withPartialViews<Value: StreamParseableRoot>(
+  public func withPartialViews<Value: StreamPartial>(
     of type: Value.Type,
     from format: JSONStreamFormat,
     _ body: (borrowing Value.View, Bool) throws -> Void
@@ -232,7 +232,7 @@ extension Sequence where Element: Sequence<UInt8> {
   }
 
   /// Lazily parses input; call the throwing `next()` until it returns nil.
-  public func partialIterator<Value: StreamParseableRoot>(
+  public func partialIterator<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat
   ) -> PartialIterator<Value, Iterator, Element> {
@@ -251,7 +251,7 @@ extension Sequence where Element: Sequence<UInt8> {
 #if !LifetimeView
   @unsafe
 #endif
-  public func withPartialViews<Value: StreamParseableRoot>(
+  public func withPartialViews<Value: StreamPartial>(
     initialValue: Value,
     from format: JSONStreamFormat,
     _ body: (borrowing Value.View, Bool) throws -> Void

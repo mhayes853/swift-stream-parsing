@@ -96,7 +96,7 @@ func runLayerNullSink(_ payload: [UInt8], _ mode: LayerFeed) throws {
 
 // `PartialSink` without the stream around it: the same allocated root storage a `PartialsStream`
 // owns, but fed from the parser directly, so the wrapper's per call cost is not in this row.
-func runLayerPartialSink<Value: StreamParseableRoot>(
+func runLayerPartialSink<Value: StreamPartial>(
   _ payload: [UInt8],
   _ mode: LayerFeed,
   as type: Value.Type
@@ -117,7 +117,7 @@ func runLayerPartialSink<Value: StreamParseableRoot>(
   blackHole(storage.pointee)
 }
 
-func runLayerStream<Value: StreamParseableRoot>(
+func runLayerStream<Value: StreamPartial>(
   _ payload: [UInt8],
   _ mode: LayerFeed,
   as type: Value.Type
@@ -144,7 +144,7 @@ func runLayerStream<Value: StreamParseableRoot>(
 
 // MARK: - Registration
 
-private func addLayerRows<Value: StreamParseableRoot>(
+private func addLayerRows<Value: StreamPartial>(
   _ name: String,
   _ payload: [UInt8],
   as type: Value.Type,
@@ -180,7 +180,7 @@ private func addLayerRows<Value: StreamParseableRoot>(
 // so both rows enter every container, append every element and match every key, and only the
 // matched row writes a value. The pair is bulk only, because a difference between two sinks does
 // not need to be measured at three chunk sizes to be read.
-private func addValueMaterializationRows<Value: StreamParseableRoot>(
+private func addValueMaterializationRows<Value: StreamPartial>(
   _ name: String,
   _ payload: [UInt8],
   structureOnly type: Value.Type

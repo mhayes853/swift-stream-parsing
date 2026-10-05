@@ -1,4 +1,4 @@
-/// The default ``StreamParseableRoot/View`` for a type with nothing to project — a scalar, or any
+/// The default ``StreamPartial/View`` for a type with nothing to project — a scalar, or any
 /// other type that hands its whole value back rather than a member-by-member window onto it.
 ///
 /// With the `LifetimeView` trait, the view is `~Escapable` and the compiler ties it to the storage

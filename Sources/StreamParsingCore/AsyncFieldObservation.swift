@@ -19,7 +19,7 @@
     /// - Throws: `FieldObservationError.unsupportedField` if the path is unsupported, including
     ///   computed, nested, ignored, or ambiguously overlapping fields. Iteration can separately
     ///   throw upstream, parsing, subscription, or field-value errors.
-    public func observeField<Field: StreamParseableRoot>(
+    public func observeField<Field: StreamPartial>(
       _ path: KeyPath<Element, Field?>
     ) throws -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
       self.observeField(try ObservedFieldPath(path))
@@ -44,7 +44,7 @@
     /// - Throws: `FieldObservationError.unsupportedField` for unsupported paths. Iteration
     ///   propagates upstream, parsing, subscription, and field-value errors.
     @_disfavoredOverload
-    public func observeField<Field: StreamParseableRoot>(
+    public func observeField<Field: StreamPartial>(
       _ path: KeyPath<Element, Field>
     ) throws -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
       self.observeField(try ObservedFieldPath(path))
@@ -66,7 +66,7 @@
     ///
     /// This method performs no further validation and does not throw. Iteration propagates
     /// upstream, parsing, subscription, and field-value errors; after an error it returns `nil`.
-    public func observeField<Field: StreamParseableRoot>(
+    public func observeField<Field: StreamPartial>(
       _ path: ObservedFieldPath<Element, Field>
     ) -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
       AsyncFieldObservationSequence(source: self, path: path)
@@ -76,10 +76,10 @@
   /// Owned field states and explicit document completion. Iterator copies share both the
   /// source cursor and field tracking; concurrent calls on copies are not supported.
   public struct AsyncFieldObservationSequence<
-    Root: StreamParseableRoot,
+    Root: StreamPartial,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>,
-    Field: StreamParseableRoot
+    Field: StreamPartial
   >: AsyncSequence {
     public typealias Element = PartialUpdate<ObservedField<Field>>
     let source: AsyncPartialsSequence<Root, Base, Bytes>

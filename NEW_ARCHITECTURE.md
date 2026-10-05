@@ -752,7 +752,7 @@ in a module that does not enable it. So the floor stays where it was rather than
 ### Phase 8 — StreamArray (done)
 
 - `StreamArray`, with the measurements above as the argument for its shape.
-- `Array`'s `StreamParseableRoot` conformance and `_streamAppendElement` removed, so no path writes
+- `Array`'s `StreamPartial` conformance and `_streamAppendElement` removed, so no path writes
   into an `Array` buffer through a raw pointer. `Array.Partial` is `StreamArray<Element.Partial>`,
   which is the source breaking part: a root array is written `StreamArray<Int>()` now.
 - `streamSnapshot()` removed from the protocol, along with the macro's member wise implementation
@@ -1120,7 +1120,7 @@ and its removal (see "Numbers, whole") is what retired the risk.
   against array literals — `Equatable` plus `ExpressibleByArrayLiteral` should keep them compiling.
   This is the API cost of the whole plan. It also reaches `Array.Partial`, a public typealias, so it
   is not confined to generated members.
-- `Array`'s `StreamParseableRoot` conformance and `_streamAppendElement` go, since leaving them would
+- `Array`'s `StreamPartial` conformance and `_streamAppendElement` go, since leaving them would
   leave a live path that writes into an `Array` buffer through a raw pointer, which is the hazard
   this replaces.
 - `streamSnapshot()` comes out of the protocol entirely: a plain value copy is a correct snapshot
@@ -2371,7 +2371,7 @@ Building those rows surfaced two sharp edges. `runLayerPartialSink` never checke
 `sink.streamFailure` — a rejection is recorded, not thrown, so the first versions of the models
 measured the bail-out path and read as fast rows; there is now a `precondition` there, and it
 caught the second edge immediately. `_streamSchema(for:)` picks a schema **by overload, not by
-conformance**, so a hand-written `StreamParseableRoot` matching none of the convertible overloads
+conformance**, so a hand-written `StreamPartial` matching none of the convertible overloads
 lands on the `@_disfavoredOverload` catch-all — a scalar schema that refuses every token — and its
 own `streamSchema` is never read. `StreamParseableObject` is the conformance that forwards.
 
@@ -2682,7 +2682,7 @@ and a `typealias` cannot be resolved by a macro at all, because a macro has no t
 The same gap covers every root — `partials(of: [Int?].self)`, a bare `StreamArray<Int?>` — and
 every container the library composes rather than the macro.
 
-So the answer has to come from the type. Two requirements on `StreamParseableRoot`, both
+So the answer has to come from the type. Two requirements on `StreamPartial`, both
 defaulted to the root forms, and `Optional` the only type that overrides them:
 
 ```swift
@@ -2690,13 +2690,13 @@ static var streamElementSchema: StreamSchema { get }      // default: streamSche
 static func streamElementInitialValue() -> Self           // default: streamInitialValue()
 ```
 
-They sit on `StreamParseableRoot` rather than `StreamInitializable`, which is where
+They sit on `StreamPartial` rather than `StreamInitializable`, which is where
 `streamElementInitialValue` would otherwise belong, because `Optional: StreamInitializable` is
 declared *unconditionally* — a `where Wrapped: …` extension member can never be its witness, so
 the override would silently resolve to the default and the slot would open `nil` again. On
-`StreamParseableRoot` the conformance is already conditional and the override lands. The cost is
+`StreamPartial` the conformance is already conditional and the override lands. The cost is
 tightening `_streamArraySchema` and `_streamDictionarySchema` from `StreamInitializable` to
-`StreamParseableRoot`, which every caller already satisfied.
+`StreamPartial`, which every caller already satisfied.
 
 `Optional.streamSchema` stays. It is still right for the one position a container does not own:
 a bare optional as the parse root, where nothing else can materialise the storage first.
@@ -5459,7 +5459,7 @@ it, and its fused comma path keeps the array until the next window boundary.
 
 ## Number batching, step 2: the layer takes the batch
 
-`StreamSchema.appendNumbers`, filled by `_streamArraySchema` from a new `StreamParseableRoot`
+`StreamSchema.appendNumbers`, filled by `_streamArraySchema` from a new `StreamPartial`
 static (`_streamArrayNumberAppender`, `nil` by default and supplied for every
 `StreamNumberConvertible` element), and `PartialSink.numbers`: an array frame with an appender
 takes the batch in one call — no frame per element, no schema borrow, no pending swap — and
@@ -8118,7 +8118,7 @@ The fix is to resolve the template once per schema instead of per open. Two land
 and a closure without a context is a call and nothing else. Removing a metadata probe is worth one
 context load; removing a static-template load is not, so for a concrete element the hoist is a
 straight loss. The builders therefore choose between the two closure forms once, at schema build,
-on `_streamInitialValueIsExpensive` (a `StreamParseableRoot` requirement, default `false`, `true` on
+on `_streamInitialValueIsExpensive` (a `StreamPartial` requirement, default `false`, `true` on
 the `StreamArray` and `StreamDictionary` conformances). The wins were kept in full, CITM returned
 to flat, and `Schema 48 members` to exactly +0.0% — the concrete path emits the identical closure.
 (58782b45 made every builder hoist its template and stopped reading the flag; it was deleted as dead

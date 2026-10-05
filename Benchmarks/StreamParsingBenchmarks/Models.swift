@@ -609,7 +609,7 @@ typealias BenchmarkTwitterGeneric = BenchmarkGenericTwitter<
 // A string the table has no layout for: a concrete member of it is `custom` (the parent's apply
 // closures), a generic one `delegated` (its own schema). The pair below prices one against the
 // other.
-struct BenchmarkText: StreamStringConvertible, StreamParseable, StreamParseableRoot, Equatable {
+struct BenchmarkText: StreamStringConvertible, StreamParseable, StreamPartial, Equatable {
   typealias Partial = Self
   var storage = StreamString()
   static func streamInitialValue() -> Self { Self() }
@@ -1011,9 +1011,9 @@ struct BenchmarkDocument: Equatable {
 //
 // One `Int` of storage, so the dictionary grows the same way it does with the real value type.
 //
-// `StreamParseableObject` rather than `StreamParseableRoot`, which is the non-obvious part.
+// `StreamParseableObject` rather than `StreamPartial`, which is the non-obvious part.
 // `_streamSchema(for:)` picks a schema by overload rather than by conformance, and a
-// `StreamParseableRoot` matching none of the convertible overloads lands on the disfavored
+// `StreamPartial` matching none of the convertible overloads lands on the disfavored
 // catch-all — a scalar schema that refuses every token. The custom `streamSchema` below is never
 // read, and the row records a type mismatch instead of a parse. Only the `StreamParseableObject`
 // overload forwards to `T.streamSchema`.

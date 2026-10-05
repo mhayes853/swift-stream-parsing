@@ -35,7 +35,7 @@
 
   /// Owned snapshots with an explicit final update; shares the source's subscription.
   public struct AsyncPartialUpdatesSequence<
-    Root: StreamParseableRoot,
+    Root: StreamPartial,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>
   >: AsyncSequence {
@@ -90,7 +90,7 @@
 
   /// An async projection that retains the parser's original subscription and error semantics.
   public struct AsyncProjectedPartialsSequence<
-    Root: StreamParseableRoot,
+    Root: StreamPartial,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>,
     Output

@@ -143,7 +143,7 @@ let title = try ObservedFieldPath<Response.Partial, StreamString>(\.title)
 
 Selection validates against the macro-generated `streamObservationFields` key paths and the
 schema's field table, then snapshots only the selected slot. No reflection SPI is used.
-Custom `StreamParseableRoot` implementations opt in by listing **all direct stored members**,
+Custom `StreamPartial` implementations opt in by listing **all direct stored members**,
 including schema-ignored members so overlapping storage can be rejected:
 
 ```swift

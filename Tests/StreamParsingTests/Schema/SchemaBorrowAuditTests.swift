@@ -70,7 +70,7 @@ private struct AuditReleasable: StreamInitializable, StreamParseableObject {
   )
 }
 
-private func parse<Root: StreamParseableRoot>(_ json: String, as type: Root.Type) throws {
+private func parse<Root: StreamPartial>(_ json: String, as type: Root.Type) throws {
   let storage = UnsafeMutablePointer<Root>.allocate(capacity: 1)
   storage.initialize(to: Root.streamInitialValue())
   defer {

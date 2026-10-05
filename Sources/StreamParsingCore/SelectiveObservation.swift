@@ -100,7 +100,7 @@ extension PartialIterator {
 
 /// A lazy projection that owns its source iterator and snapshots only its selected output.
 public struct ProjectedPartialIterator<
-  Root: StreamParseableRoot,
+  Root: StreamPartial,
   Base: IteratorProtocol,
   Bytes: Sequence<UInt8>,
   Output

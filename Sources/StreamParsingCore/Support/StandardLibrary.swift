@@ -75,46 +75,46 @@ extension StreamInitializable where Self: AdditiveArithmetic {
 // document parses into the same shapes a field would. `Partial` keeps its `Self` default, so the
 // `where Partial == Self` extension supplies the rest.
 
-extension Int: StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable {}
+extension Int: StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable {}
 extension Int8:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension Int16:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension Int32:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension Int64:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension UInt:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension UInt8:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension UInt16:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension UInt32:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension UInt64:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension Double:
-  StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamFastFloatConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 extension Float:
-  StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamFastFloatConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 // Match the standard library's availability: Float16 is absent on Intel macOS
 // and Mac Catalyst. Its string initializer requires SwiftStdlib 5.3.
 #if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
   @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
   extension Float16:
-    StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+    StreamFastFloatConvertible, StreamInitializable, StreamPartial, StreamParseable
   {}
 #endif
 
@@ -123,19 +123,19 @@ extension Float:
 #if (arch(i386) || arch(x86_64)) && !(os(Windows) || os(Android))
   #if !hasFeature(Embedded) || os(Linux) || os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     extension Float80:
-      StreamFastFloatConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+      StreamFastFloatConvertible, StreamInitializable, StreamPartial, StreamParseable
     {}
   #endif
 #endif
 
-extension String: StreamParseableRoot {}
-extension Bool: StreamParseableRoot, StreamParseable {}
+extension String: StreamPartial {}
+extension Bool: StreamPartial, StreamParseable {}
 
 // `Array` is a bridging destination, not a parse target: parsing into one writes through a raw
 // pointer into a buffer other values may share, which made kept states change after the fact.
 
-extension StreamDictionary: StreamParseableRoot, StreamContainerPartial
-where Value: StreamParseableRoot {
+extension StreamDictionary: StreamPartial, StreamContainerPartial
+where Value: StreamPartial {
   // See `StreamArray.streamSchema`: `@inlinable` so the `enterKey` closure is emitted in the client
   // module with `Value` concrete and `_openValue(forKey:copyingSome:)` specialises. Cached.
   @inlinable
@@ -151,12 +151,12 @@ where Value: StreamParseableRoot {
 
 @available(StreamParsing128BitIntegers, *)
 extension Int128:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 
 @available(StreamParsing128BitIntegers, *)
 extension UInt128:
-  StreamNumberConvertible, StreamInitializable, StreamParseableRoot, StreamParseable
+  StreamNumberConvertible, StreamInitializable, StreamPartial, StreamParseable
 {}
 
 // MARK: - String
@@ -274,7 +274,7 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
 
 // Materializes before delegating, so `Int?` accepts what `Int` accepts and a null still clears it.
 // Relies on the offset-zero payload, as the frame entry helpers do.
-extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
+extension Optional: StreamPartial where Wrapped: StreamPartial {
   // Resolved once and captured: `Wrapped.streamSchema` is computed, so reading it inside allocated
   // a `StreamSchema` per *token*. Cached per wrapped type too, or an `Optional` root rebuilt a
   // dozen closure contexts per `PartialsStream.init`.
@@ -367,7 +367,7 @@ extension Optional: StreamParseableRoot where Wrapped: StreamParseableRoot {
 // and a requirement rather than macro sugar so `Array<Int?>` and a `StreamArray<Int?>` root match.
 // A dictionary value is the same kind of slot and takes these through the `streamDictionaryValue`
 // defaults.
-extension Optional where Wrapped: StreamParseableRoot {
+extension Optional where Wrapped: StreamPartial {
   @inlinable
   public static var streamArrayElementSchema: StreamSchema {
     StreamSchemaCache.shared.schema(for: Self.self, usage: .arrayElement) {

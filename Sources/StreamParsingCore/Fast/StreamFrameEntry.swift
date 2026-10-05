@@ -8,7 +8,7 @@
 // Swift 6.3, so the view is formed in the caller where its type is concrete (at the price of an
 // `_overrideLifetime`, since raw pointers carry no provenance for `@_lifetime`).
 @inlinable
-public func _streamMemberAddress<T: StreamParseableRoot>(
+public func _streamMemberAddress<T: StreamPartial>(
   _ value: UnsafeMutablePointer<T?>
 ) -> UnsafeMutableRawPointer? {
   value.pointee == nil ? nil : UnsafeMutableRawPointer(value)
@@ -16,7 +16,7 @@ public func _streamMemberAddress<T: StreamParseableRoot>(
 
 // The initialized members mode gives non-optional members, which are always present.
 @inlinable
-public func _streamMemberAddress<T: StreamParseableRoot>(
+public func _streamMemberAddress<T: StreamPartial>(
   _ value: UnsafeMutablePointer<T>
 ) -> UnsafeMutableRawPointer? {
   UnsafeMutableRawPointer(value)
@@ -43,7 +43,7 @@ public func _streamMaterializeOptional<Wrapped: StreamInitializable>(
 // A single-property wrapper stores it at offset zero, so the wrapped schema applies to the
 // wrapper's address; the same class of assumption as above. The size check is a debug tripwire.
 @inlinable
-public func _streamWrapperSchema<Wrapper, Wrapped: StreamParseableRoot>(
+public func _streamWrapperSchema<Wrapper, Wrapped: StreamPartial>(
   _ wrapper: Wrapper.Type,
   wrapping wrapped: Wrapped.Type
 ) -> StreamSchema {

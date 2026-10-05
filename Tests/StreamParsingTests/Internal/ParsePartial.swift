@@ -3,7 +3,7 @@ import StreamParsingCore
 
 // Drives the sink based parser end to end, which is what the support type tests want: the
 // conversion protocols are only interesting in the shape the parser actually calls them.
-func parsePartial<Root: StreamParseableRoot>(
+func parsePartial<Root: StreamPartial>(
   _ json: String, into value: inout Root, chunk: Int = .max
 ) throws {
   try withUnsafeMutablePointer(to: &value) { pointer in
@@ -28,7 +28,7 @@ func parsePartial<Root: StreamParseableRoot>(
 // refuses a token surfaces as `.sinkRejectedToken`, and what those tests assert is the reason
 // inside it. `nil` means accepted, and so does a grammar error -- a suite asking this question
 // has already established the document is well formed.
-func streamFailureReason<Root: StreamParseableRoot>(
+func streamFailureReason<Root: StreamPartial>(
   _ json: String, into value: inout Root, chunk: Int = .max
 ) -> StreamSinkFailure.Reason? {
   do {
@@ -43,7 +43,7 @@ func streamFailureReason<Root: StreamParseableRoot>(
 }
 
 // The same, for the common case where the destination is just the root's initial value.
-func streamFailureReason<Root: StreamParseableRoot>(
+func streamFailureReason<Root: StreamPartial>(
   _ json: String, as type: Root.Type, chunk: Int = .max
 ) -> StreamSinkFailure.Reason? {
   var value = Root.streamInitialValue()
