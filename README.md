@@ -37,7 +37,7 @@ let json = """
 """
 
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json())
+  .partials(of: Profile.self, from: .json())
 
 for partial in partials {
   print(partial)
@@ -56,44 +56,68 @@ for partial in partials {
 // Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
-The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
+The `@StreamParseable` macro generates a `Partial` struct with all optional members, and the
+`StreamParseable` conformance that converts between the two. A partial is what a stream writes
+into, and every member is `nil` until the parser produces it:
 
 ```swift
-extension Profile: StreamParsingCore.StreamParseable {
-  struct Partial: StreamParsingCore.StreamParseableValue,
-    StreamParsingCore.StreamParseable {
+extension Profile: StreamParseable {
+  struct Partial: StreamParseable, StreamParseableObject, Sendable {
     typealias Partial = Self
 
-    var id: Int.Partial?
-    var name: String.Partial?
-    var isActive: Bool.Partial?
+    var id: Int.Partial?          // Int?
+    var name: String.Partial?     // StreamString?
+    var isActive: Bool.Partial?   // Bool?
 
-    init(
-      id: Int.Partial? = nil,
-      name: String.Partial? = nil,
-      isActive: Bool.Partial? = nil
-    ) {
-      self.id = id
-      self.name = name
-      self.isActive = isActive
-    }
+    init(id: Int.Partial? = nil, name: String.Partial? = nil, isActive: Bool.Partial? = nil)
 
-    static func initialParseableValue() -> Self {
-      Self()
-    }
-
-    static func registerHandlers(
-      in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-    ) {
-      handlers.registerKeyedHandler(forKey: "id", \.id)
-      handlers.registerKeyedHandler(forKey: "name", \.name)
-      handlers.registerKeyedHandler(forKey: "isActive", \.isActive)
-    }
+    // Also generated: the schema the parser routes tokens through, and a borrowed `View`.
   }
+
+  var streamPartialValue: Partial
+  init?(streamPartial: Partial)   // nil until every member has arrived
 }
 ```
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the `StreamParseable` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
+
+## Streaming into a type
+
+The convenience methods are one-shot or lazy views over a `PartialsStream`, which is generic over
+the type being parsed. Feed it bytes as they arrive, and read the partial whenever you like:
+
+```swift
+var stream = PartialsStream<Profile>(from: .json())
+for chunk in chunks {
+  try stream.next(chunk)
+  render(stream.current)            // a `Profile.Partial` snapshot
+}
+let partial = try stream.finish()
+let profile = Profile(streamPartial: partial)  // `nil` if the document left a member out
+```
+
+Everywhere a type is named (`PartialsStream<Profile>`, `partials(of: Profile.self, ...)`,
+`ObservedFieldPath<Profile, StreamString>`), the model works, and so does its partial
+(`Profile.Partial`), which is itself parseable and is its own partial. A scalar or a standard
+collection works too: `PartialsStream<[Profile]>` stores a `StreamArray<Profile.Partial>`.
+
+The synchronous and asynchronous drivers are built on it:
+
+```swift
+// Every snapshot, retained.
+let partials = try bytes.partials(of: Profile.self, from: .json())
+
+// Lazily, one update at a time.
+var updates = bytes.partialIterator(of: Profile.self, from: .json())
+while let update = try updates.next() {
+  print(update.value, update.isComplete)
+}
+
+// Without taking a snapshot: a borrowed view of the stream's own storage.
+try bytes.withPartialViews(of: Profile.self, from: .json()) { view, isComplete in
+  print(view.name?.value, isComplete)
+}
+```
 
 ### Custom floating-point types
 
@@ -281,7 +305,7 @@ struct AsyncJSONBytesSequence: AsyncSequence {
 }
 
 let partials = AsyncJSONBytesSequence(...)
-  .partials(of: Profile.Partial.self, from: .json())
+  .partials(of: Profile.self, from: .json())
 for try await profilePartial in partials {
   print(profilePartial)
 }
@@ -293,42 +317,18 @@ The [LLMExtraction](Examples/LLMExtraction) example parses a local LLM's structu
 
 ## Parsers
 
-The JSON parser accepts only strict JSON.
-
-### JSON
+JSON is the only format, and the JSON parser accepts only strict JSON. Pass the format to each
+driver with `from:`.
 
 ```swift
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json())
+  .partials(of: Profile.self, from: .json())
 ```
 
-### YAML
-
-```swift
-let yaml = """
-id: 4
-name: Blob
-isActive: true
-"""
-
-let partials: [Profile.Partial] = try yaml.utf8
-  .partials(of: Profile.Partial.self, from: .yaml())
-
-let configuration = YAMLStreamParserConfiguration(
-  keyDecodingStrategy: .convertFromSnakeCase
-)
-
-let snakeCaseYAML = """
-id: 4
-name: Blob
-is_active: true
-"""
-
-let partials = try snakeCaseYAML.utf8.partials(
-  of: Profile.Partial.self,
-  from: .yaml(configuration: configuration)
-)
-```
+`.json(bufferCapacity:)` sets the capacity of the buffer the parser keeps for the tokens it has to
+reassemble: a key or a number split across two chunks, and a key written with escapes. The default
+is 4096 bytes, and a token that does not fit fails with `JSONParsingError.Reason.bufferExhausted`.
+String values stream through in pieces, so the buffer does not limit their length.
 
 ## Traits
 

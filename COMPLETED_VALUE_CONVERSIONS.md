@@ -30,7 +30,7 @@ struct Event {
   var createdAt: Date = Date(timeIntervalSince1970: 0)
 }
 
-var stream = PartialsStream<Event.Partial>(from: .json())
+var stream = PartialsStream<Event>(from: .json())
 try stream.next(#"{"created_at":12"#.utf8)
 // Number boundary has not arrived, so createdAt is still absent.
 try stream.next("3}".utf8)

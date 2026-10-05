@@ -137,7 +137,7 @@ observation; a failed document never emits a successful document-completion upda
 For repeated parsing, validate the selection once:
 
 ```swift
-let title = try ObservedFieldPath<Response.Partial, StreamString>(\.title)
+let title = try ObservedFieldPath<Response, StreamString>(\.title)
 // Reuse `title` with `.observeField(title)` for each document.
 ```
 
