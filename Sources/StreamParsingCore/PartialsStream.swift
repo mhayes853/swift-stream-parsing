@@ -47,7 +47,7 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @usableFromInline var sink: PartialSink
 
   @usableFromInline var hasFinished = false
-  @usableFromInline var hasParserThrown = false
+  @usableFromInline var hasParserFailed = false
   // Set only by the consuming `finishValue()`, which leaves the slot uninitialised for `deinit`.
   @usableFromInline var hasTakenStorage = false
 
@@ -118,12 +118,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   // was half the wall clock of every byte-fed row and 3% of the bulk rows.
   @inlinable
   public mutating func next(_ byte: UInt8) throws {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parser.parse(byte: byte, into: &self.sink)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
   }
@@ -133,12 +133,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// - Parameter bytes: The byte sequence to parse.
   @inlinable
   public mutating func next(_ bytes: some Sequence<UInt8>) throws {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parse(bytes)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
   }
@@ -160,13 +160,13 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   @inlinable
   @discardableResult
   public mutating func finish() throws -> Value {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
     return self.current
@@ -180,13 +180,13 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public mutating func finishWithView<R>(
     _ body: (borrowing Value.View) throws -> R
   ) throws -> R {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
     return try self.withView(body)
@@ -202,12 +202,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   /// - Returns: The final parsed value.
   @inlinable
   public consuming func finishValue() throws -> Value {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
     // Moved bitwise and `deinit` told so. `discard self` would skip the deinit, but it needs every
@@ -229,12 +229,12 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
   public mutating func finishValue(
     resettingTo initialValue: Value = Value.streamInitialValue()
   ) throws -> Value {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try self.parser.finish(into: &self.sink)
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
     let value = self.storage.move()
@@ -256,6 +256,6 @@ public struct PartialsStream<Value: StreamParseableRoot>: ~Copyable {
     self.parser.reset()
     self.sink.reset()
     self.hasFinished = false
-    self.hasParserThrown = false
+    self.hasParserFailed = false
   }
 }

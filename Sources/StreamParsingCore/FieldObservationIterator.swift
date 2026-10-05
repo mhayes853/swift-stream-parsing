@@ -20,7 +20,7 @@
       _ path: ObservedFieldPath<Value, Field>
     ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
       guard self.stream.parser.consumedByteCount == 0,
-        !self.terminated, !self.stream.hasFinished, !self.stream.hasParserThrown
+        !self.terminated, !self.stream.hasFinished, !self.stream.hasParserFailed
       else {
         throw FieldObservationError.alreadyStarted
       }

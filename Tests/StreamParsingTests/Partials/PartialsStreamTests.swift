@@ -45,7 +45,7 @@ struct `PartialsStream Tests` {
       _ = try stream.next(UInt8(ascii: "@"))
     }
 
-    #expect(throws: StreamParsingError.parserThrows) {
+    #expect(throws: StreamParsingError.parserFailed) {
       _ = try stream.next(UInt8(ascii: "1"))
     }
   }
@@ -58,7 +58,7 @@ struct `PartialsStream Tests` {
       _ = try stream.next(UInt8(ascii: "@"))
     }
 
-    #expect(throws: StreamParsingError.parserThrows) {
+    #expect(throws: StreamParsingError.parserFailed) {
       _ = try stream.finish()
     }
   }
@@ -136,7 +136,7 @@ struct `PartialsStream Tests` {
     #expect(throws: JSONParsingError.self) {
       try stream.next(UInt8(ascii: "@"))
     }
-    #expect(throws: StreamParsingError.parserThrows) {
+    #expect(throws: StreamParsingError.parserFailed) {
       try stream.next(UInt8(ascii: "1"))
     }
 
@@ -158,7 +158,7 @@ struct `PartialsStream Tests` {
     expectNoDifference(
       error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
     )
-    #expect(throws: StreamParsingError.parserThrows) {
+    #expect(throws: StreamParsingError.parserFailed) {
       try stream.next(UInt8(ascii: "]"))
     }
 
@@ -230,7 +230,7 @@ struct `PartialsStream Tests` {
       _ = try stream.finishValue()
       Issue.record("finishValue succeeded after the parser threw")
     } catch let error as StreamParsingError {
-      expectNoDifference(error, .parserThrows)
+      expectNoDifference(error, .parserFailed)
     }
   }
 }

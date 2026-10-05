@@ -209,7 +209,7 @@ extension PartialsStream {
   mutating func nextObserving(_ bytes: some Sequence<UInt8>, state: inout FieldObservationState)
     throws
   {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
       try withUnsafeMutablePointer(to: &self.sink) { base in
@@ -224,13 +224,13 @@ extension PartialsStream {
         sink.observation.settle(parserState: self.parser.state)
       }
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
   }
 
   mutating func finishObserving(state: inout FieldObservationState) throws {
-    guard !self.hasParserThrown else { throw StreamParsingError.parserThrows }
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
     do {
@@ -240,7 +240,7 @@ extension PartialsStream {
         try self.parser.finish(into: &sink)
       }
     } catch {
-      self.hasParserThrown = true
+      self.hasParserFailed = true
       throw error
     }
   }
