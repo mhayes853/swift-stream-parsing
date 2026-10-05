@@ -13,7 +13,7 @@
     }
   }
 
-  // MARK: - Legacy handler registration
+  // MARK: - StreamParseable
 
   extension CGFloat: StreamParseable {
     public typealias Partial = Self

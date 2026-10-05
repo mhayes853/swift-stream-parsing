@@ -4,6 +4,17 @@
 // parse failure, not a truncation: `streamAppend` refuses the whole chunk. Availability matches
 // `InlineArray`'s; `PartialSink` reaches it through a layout-erased route (end of file), so the
 // gate stays out of the core.
+
+/// A string of at most `capacity` UTF-8 bytes, stored inline with no allocation.
+///
+/// For a field with a known bound, such as an identifier or a role name: a copy is a `memcpy` of
+/// `capacity` bytes, so it is cheap to snapshot and costs more than a ``StreamString`` when the
+/// bound is large. A value that would grow past `capacity` is a parse failure
+/// (``StreamApplyResult/capacityExceeded``), never a truncation.
+///
+/// Like ``StreamString``, comparison, ordering and hashing are by UTF-8 bytes, so two
+/// spellings of one character are different values; capacity is not part of the value, so strings of
+/// different capacities compare by their bytes.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
 public struct StreamInlineString<let capacity: Int>: BitwiseCopyable {
   // A contract: `_streamStringSchema` asserts these offsets and the sink appends through them

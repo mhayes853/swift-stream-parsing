@@ -1,9 +1,20 @@
 // MARK: - NumberInfo
 
+/// A number token, lexed once so a destination does not rescan it.
+///
+/// The value is `magnitude × 10^exponent`, negative when `flags` contains `.negative`. `1.25e3` is
+/// a magnitude of 125 and an exponent of 1: the written exponent less the count of fraction digits.
 public struct NumberInfo: Hashable, Sendable {
+  /// The token's digits, integer and fraction together, read as one integer.
+  ///
+  /// Meaningless when `flags` contains `.overflowed`: more than nineteen digits do not fit, and the
+  /// accumulator wrapped. Convert from the token's bytes instead.
   public var magnitude: UInt64
+  /// The power of ten `magnitude` is scaled by, clamped to `Int16`.
   public var exponent: Int16
+  /// How many digits the token has, integer and fraction together.
   public var digitCount: UInt16
+  /// What the token carries beyond its digits.
   public var flags: Flags
 
   public struct Flags: OptionSet, Hashable, Sendable {
@@ -16,9 +27,13 @@ public struct NumberInfo: Hashable, Sendable {
     // Computed rather than stored, so a client module's `flags.insert(.negative)` is an
     // immediate and not a call: a `public static let` in another module is reached through an
     // addressor, and `emitNumber` was making up to four of those calls per number.
+    /// The token begins with `-`.
     @inlinable public static var negative: Flags { Flags(rawValue: 1 << 0) }
+    /// The token has a fraction part.
     @inlinable public static var fraction: Flags { Flags(rawValue: 1 << 1) }
+    /// The token has an exponent part.
     @inlinable public static var exponent: Flags { Flags(rawValue: 1 << 2) }
+    /// More than nineteen digits: `magnitude` wrapped and must not be used.
     @inlinable public static var overflowed: Flags { Flags(rawValue: 1 << 3) }
   }
 
@@ -189,7 +204,8 @@ public struct StreamEventBatch: ~Escapable {
   @inlinable
   public func info(of index: Int) -> NumberInfo { self.infoBase[index] }
 
-  /// The byte offset, within the chunk being parsed, just past the event at `index`.
+  /// The byte offset, within the chunk being parsed, just past the event at `index`, when the
+  /// batch's producer recorded it. ``StreamEventBatchingSink`` does not: it reports `0`.
   @inlinable
   public func end(of index: Int) -> Int { Int(self.recordBase[index].end) }
 }

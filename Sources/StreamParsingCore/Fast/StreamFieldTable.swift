@@ -53,13 +53,22 @@ public enum StreamFieldKind: UInt8, Sendable {
 /// argument is the entry's `capacity`, passed in so the closure need not capture it.
 public typealias StreamFieldPrepare = @Sendable (UnsafeMutableRawPointer, Int32) -> Void
 
-/// One member of an object schema, as declared. The schema packs these into the forty-byte
-/// ``StreamFieldEntry`` the sink matches; this form keeps the key and the strong references.
+/// One member of an object schema, as declared. The schema packs these into the fixed-size entries
+/// the sink matches; this form keeps the key and the strong references.
+///
+/// Build one with an initializer and hand it to a ``StreamSchema``. The initializers derive
+/// `keyWord`, `keyLength` and `flags` from the key and the options, and the schema trusts them as
+/// derived: leave those three as they are. ``schema`` and ``prepare`` are the properties to set.
 public struct StreamField: Sendable {
-  /// The key's first eight bytes, little-endian, zero padded.
+  /// The key's first eight bytes, little-endian, zero padded. Derived from the key.
   public var keyWord: UInt64
+  /// The key's length in UTF-8 bytes. Derived from the key.
   public var keyLength: UInt16
+  /// How the member is stored and routed.
   public var kind: StreamFieldKind
+  /// ``Flags/optional`` is set from the initializer's `optional`. Do not set ``Flags/prepare``
+  /// yourself: the schema adds it for a field that has a ``prepare`` closure, and a field flagged
+  /// without one has nothing for the parser to run.
   public var flags: Flags
   /// Byte offset of the member inside the object's storage.
   public var offset: UInt32

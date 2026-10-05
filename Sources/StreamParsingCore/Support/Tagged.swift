@@ -51,7 +51,7 @@
   // The schema comes from the root conformance above; this makes a tagged object a nested field.
   extension Tagged: StreamParseableObject where RawValue: StreamParseableObject {}
 
-  // MARK: - Legacy handler registration
+  // MARK: - StreamParseable
 
   extension Tagged: StreamParseable where RawValue: StreamParseable {
     public typealias Partial = Tagged<Tag, RawValue.Partial>

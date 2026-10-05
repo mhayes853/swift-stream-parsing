@@ -315,6 +315,11 @@ extension StreamArray: RandomAccessCollection, MutableCollection {
 
 extension StreamArray: RangeReplaceableCollection {
   // Rebuilt from a flat buffer: a splice cannot keep the fixed block length. Never parse-time.
+  /// Replaces a range of elements.
+  ///
+  /// Linear in the array's count, because the array is rebuilt: `insert(_:at:)`, `remove(at:)`,
+  /// `removeLast()` and every other splice cost as much as a copy. Appending with `append(_:)` does
+  /// not go through here and stays constant time.
   public mutating func replaceSubrange(
     _ subrange: Range<Int>,
     with newElements: some Collection<Element>
@@ -627,7 +632,8 @@ extension StreamArray {
   /// Moves the closed element into its slot and copy-initialises the template into the space it
   /// vacated: two whole-element copies (a by-value template would be a third). The optional's tag
   /// says `.some` throughout, and nothing between the two statements can observe or throw. The
-  /// template must outlive every call; the schema builders allocate one per schema, never freed.
+  /// template must outlive every call: the schema's `_StreamTemplateStorage` owns it and frees it
+  /// with the schema, which outlives every parse that borrows it.
   @inlinable
   @inline(__always)
   public mutating func _openElement(

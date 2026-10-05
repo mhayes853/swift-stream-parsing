@@ -1,10 +1,17 @@
 // MARK: - Protocols
 
-// Anything a container can hold, since an element has to exist before it can be written into.
+/// A type with a value the parser can start from.
+///
+/// Anything a container can hold, since an element has to exist before it can be written into.
 public protocol StreamInitializable: SendableMetatype {
+  /// The value a parse begins with, before any token has been written into it.
   static func streamInitialValue() -> Self
 }
 
+/// A destination for JSON string tokens.
+///
+/// The parser delivers a string as one or more spans of UTF-8, in order, each ending on a scalar
+/// boundary; where one ends carries no meaning. A conformance accumulates them.
 public protocol StreamStringConvertible: StreamInitializable {
   // Whether the bytes were taken. Unbounded storage answers `.applied` (folded on specialization);
   // bounded storage answers `.capacityExceeded` without taking any bytes, so a value holds exactly
@@ -27,15 +34,29 @@ extension StreamStringConvertible {
   public static var _streamInlineByteOffset: Int { 0 }
 }
 
+/// A destination for JSON number tokens.
 public protocol StreamNumberConvertible: SendableMetatype {
+  /// Converts a number token, or returns `nil` to reject it, which the parser reports as a type
+  /// mismatch.
+  ///
+  /// - Parameters:
+  ///   - bytes: The token as written.
+  ///   - info: The same token, lexed: its digits, scale and sign. See ``NumberInfo``, and check
+  ///     `info.flags` for `.overflowed` before reading `info.magnitude`.
   init?(streamParsing bytes: Span<UInt8>, info: NumberInfo)
 }
 
+/// A destination for the JSON literals `true` and `false`.
 public protocol StreamBooleanConvertible: SendableMetatype {
+  /// Creates the value for a `true` or `false` token.
   init(streamParsingBoolean value: Bool)
 }
 
+/// A destination that has a value of its own for JSON `null`.
+///
+/// A type without one is cleared when its member is optional, and rejects `null` otherwise.
 public protocol StreamNullable: SendableMetatype {
+  /// The value a `null` token writes.
   static func streamNullValue() -> Self
 }
 

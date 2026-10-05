@@ -41,7 +41,8 @@
 /// through, so a schema cached under another type's key is applied to storage it does not describe.
 ///
 /// Every schema a parse uses is owned by that parse: the stream holds its root schema, and each
-/// schema holds its children. Removing an entry's schema therefore never affects a stream in
+/// schema holds its children. (A hand-written `enterField` must keep to that: see
+/// ``StreamFrame``.) Removing an entry's schema therefore never affects a stream in
 /// flight; the next read builds a fresh one. It also frees nothing that a cached parent still
 /// holds, so ``removeAll()`` is what releases a family of related schemas.
 ///

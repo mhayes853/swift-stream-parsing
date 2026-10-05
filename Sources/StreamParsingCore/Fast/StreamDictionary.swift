@@ -16,6 +16,22 @@ struct StreamDictionaryEntry: Sendable {
   }
 }
 
+/// An insertion-ordered dictionary with `String` keys, shaped for a parser to write into.
+///
+/// Entries are appended and never removed, and a snapshot shares everything the parser has already
+/// sealed, so reading it after every byte is cheap. The differences from `Dictionary` follow from
+/// that:
+///
+/// - **Order matters.** Iteration is in insertion order, and `==` and `hash(into:)` are order
+///   sensitive: `["a": 1, "b": 2]` does not equal `["b": 2, "a": 1]`.
+/// - **Keys are bytes.** Keys are matched and compared by their UTF-8 bytes, as they arrive in the
+///   document, not by `String`'s canonical equivalence. `"é"` and `"e\u{301}"` are two keys.
+/// - **There is no removal.** Assigning `nil` through the subscript does nothing.
+/// - **`keys` and `values` copy.** They are arrays built on each access, not views; iterate the
+///   dictionary instead when that matters.
+/// - **A literal repeats last.** A dictionary literal with a repeated key keeps the last value,
+///   where `Dictionary` traps. `Decodable` inserts keys sorted, since a keyed container promises
+///   no order.
 public struct StreamDictionary<Value> {
   // The key and the hash that guards it, kept in one buffer so a probe reads one cache line and a
   // retained state copies one thing.
@@ -314,10 +330,9 @@ extension StreamDictionary where Value: StreamPartial {
   /// A borrowed window onto the dictionary, for reading a value by key without copying the
   /// dictionary or the value.
   ///
-  /// Unlike ``StreamArray``, `storedValues` is not exposed as a bulk `Span`: a repeated key reuses
-  /// its existing slot (see `pendingSlot`), so that position can briefly hold a stale value while
-  /// the live one sits in `pendingValue`. `subscript(key:)` routes around that by checking the
-  /// pending entry first; a raw span would not.
+  /// Unlike ``StreamArray``, the values are not exposed as a bulk `Span`: a repeated key resumes
+  /// the slot it already has, so that position can briefly hold a stale value while the live one is
+  /// still being written. `subscript(key:)` reads around that, which a raw span could not.
 #if LifetimeView
   public struct View: ~Copyable, ~Escapable {
     @usableFromInline let storage: UnsafeMutablePointer<StreamDictionary<Value>>
@@ -585,8 +600,8 @@ extension StreamDictionary: Equatable where Value: Equatable {
   }
 }
 
-// Checked rather than `@unchecked`: every stored property is a value type, which is what dropping
-// `Dictionary` for the flat index preserved.
+// Checked rather than `@unchecked`: every stored property is a value type that is itself `Sendable`
+// when `Value` is, which is what dropping `Dictionary` for the flat index preserved.
 extension StreamDictionary: Sendable where Value: Sendable {}
 
 #if !hasFeature(Embedded)

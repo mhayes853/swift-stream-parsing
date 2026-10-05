@@ -4,6 +4,27 @@
 // 8 KiB cap and are never written again, so a snapshot shares them and an append copies at most
 // the tail. Every block boundary is a multiple of 512, so reads, equality, ordering and hashing
 // walk canonical 512-byte windows whatever the physical layout.
+
+/// String storage a parser appends raw UTF-8 to, decoding once when it is read.
+///
+/// This is what a `String` member of a `@StreamParseable` type is stored as in its `Partial`.
+/// Appending a chunk copies bytes and never builds a `String`, and a snapshot shares every block the
+/// parser has finished with, so reading the value after every chunk stays cheap. Convert with
+/// `String(_:)` to read the text.
+///
+/// **Comparison is by UTF-8 bytes.** `==`, `<`, `hash(into:)`, `hasPrefix(_:)`, `hasSuffix(_:)`,
+/// `contains(_:)` and `range(of:from:)`, and their forms against a `String` or any `StringProtocol`,
+/// compare bytes, which for decoded JSON text is scalar by scalar. That is stricter than `String`,
+/// which compares by canonical equivalence:
+///
+/// ```swift
+/// StreamString("\u{E9}") == StreamString("e\u{301}")   // false, where String("\u{E9}") == "e\u{301}"
+/// StreamString("e\u{301}").contains("e")               // true: scalar aligned, not grapheme aligned
+/// ```
+///
+/// Two spellings of the same character are different values, as they are different strings in the
+/// JSON grammar, and no search or comparison pays for normalization. Convert to `String` first when
+/// canonical equivalence is what you want.
 public struct StreamString {
   @usableFromInline
   struct InlineBuffer: Sendable {
@@ -796,6 +817,8 @@ extension StreamString {
 extension StreamString {
   /// Reserves room for `utf8ByteCount` UTF-8 bytes, promoting out of the inline representation
   /// when the request cannot fit there.
+  ///
+  /// A request that is not larger than the current count, negative ones included, does nothing.
   @inlinable
   public mutating func streamReserve(utf8ByteCount: Int) {
     guard utf8ByteCount > self.utf8Count else { return }

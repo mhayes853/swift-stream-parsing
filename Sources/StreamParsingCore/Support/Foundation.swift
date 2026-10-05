@@ -3,6 +3,9 @@
 
   // MARK: - Data
 
+  // A JSON string parses into `Data` as the string's UTF-8 bytes, once its escapes are decoded. It is
+  // not base64-decoded, as `Codable` reads `Data`: a base64 string parses into the bytes of its own
+  // text, which a conversion such as `@StreamParseableMember(completedConversion:)` can decode.
   // Appends the bytes it is handed; a `String` rebuilt per write made long base64 quadratic.
   extension Data: StreamStringConvertible, StreamPartial {
     public static func streamInitialValue() -> Self { Data() }
@@ -201,7 +204,7 @@
     return .applied
   }
 
-  // MARK: - Legacy handler registration
+  // MARK: - StreamParseable
 
   extension Data: StreamParseable {
     public typealias Partial = Self

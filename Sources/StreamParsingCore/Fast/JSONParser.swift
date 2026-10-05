@@ -1,21 +1,38 @@
 // MARK: - Error
 
+/// Why the parser rejected its input, and where.
 public struct JSONParsingError: Error, Hashable, Sendable {
   public enum Reason: Hashable, Sendable {
+    /// A token the JSON grammar does not allow at this point, or input that ends before a value
+    /// does.
     case unexpectedToken
+    /// A malformed number token.
     case invalidNumber
+    /// A bare word that is not `true`, `false` or `null`, or a literal the input ends in the
+    /// middle of.
     case invalidLiteral
+    /// A malformed backslash escape in a string.
     case invalidEscape
+    /// A byte sequence that is not valid UTF-8, including one the input ends in the middle of.
     case invalidUTF8
+    /// A string that the input ends inside of.
     case unterminatedString
+    /// An object or array that the input ends inside of.
     case unterminatedContainer
+    /// Input after the document's top-level value has finished.
     case trailingContent
+    /// Containers nested deeper than the parser allows.
     case depthExceeded
+    /// A key or number the parser has to reassemble that does not fit its buffer. See
+    /// ``JSONStreamFormat/bufferCapacity``.
     case bufferExhausted
+    /// The destination refused a token. The failure says why.
     case sinkRejectedToken(StreamSinkFailure)
   }
 
+  /// What was wrong with the input.
   public var reason: Reason
+  /// The byte offset the problem is reported at.
   public var byteOffset: Int
 
   public init(reason: Reason, byteOffset: Int) {
@@ -26,6 +43,12 @@ public struct JSONParsingError: Error, Hashable, Sendable {
 
 // MARK: - JSONParser
 
+/// An incremental, strict JSON parser that delivers tokens to a ``StreamParseSink``.
+///
+/// Feed input in any chunking, down to a byte at a time: a token or a multibyte scalar can straddle
+/// two calls, and the parser carries what it has seen. Call ``finish(into:)`` when the input ends.
+/// ``PartialsStream`` drives one of these into a typed value; use the parser directly, with a sink
+/// of your own, to scan JSON without a model.
 public struct JSONParser: ~Copyable {
   // Structural states first, with `done` grouped among them, so `isStructural` is one unsigned
   // compare. `consumeStructuralRun` asks it once per byte; nothing else reads the numeric values.
@@ -114,6 +137,12 @@ public struct JSONParser: ~Copyable {
     @inlinable package var blockKernelsAvailable: Bool { false }
   #endif
 
+  /// Creates a parser that owns a buffer for the tokens it has to reassemble: a key or a number
+  /// split across two calls, and a key written with escapes. A token that does not fit is rejected
+  /// with ``JSONParsingError/Reason/bufferExhausted``.
+  ///
+  /// - Parameter bufferCapacity: The buffer's capacity in bytes. A smaller request than 64 is raised
+  ///   to 64.
   public init(bufferCapacity: Int = 4096) {
     // `bufferCapacity` is narrowed to `UInt32` below and `capacity &+ scratchByteCount` would wrap
     // on a 32-bit `Int` target. Unsigned so the `Int(UInt32.max)` cannot itself overflow there.
@@ -127,6 +156,11 @@ public struct JSONParser: ~Copyable {
     self.ownsBuffer = true
   }
 
+  /// Creates a parser that uses `buffer` instead of allocating one.
+  ///
+  /// The parser borrows the memory without retaining it: `buffer` must stay allocated and unused by
+  /// anything else for as long as the parser is used. Its usable capacity is a little less than its
+  /// size, because the parser keeps a scratch area at the end.
   public init(buffer: UnsafeMutableBufferPointer<UInt8>) {
     precondition(
       buffer.count >= Self.minimumBufferByteCount,
@@ -169,10 +203,15 @@ public struct JSONParser: ~Copyable {
     self.consumedByteCount = 0
   }
 
+  /// How many bytes of input the parser has consumed so far.
   public var byteOffset: Int { self.consumedByteCount }
 
   // MARK: Entry points
 
+  /// Parses the next chunk of input, delivering its tokens to `sink`.
+  ///
+  /// - Throws: ``JSONParsingError`` for malformed input, including a token the sink refused
+  ///   (``JSONParsingError/Reason/sinkRejectedToken(_:)``).
   @inlinable
   public mutating func parse<Sink: StreamParseSink & ~Copyable>(
     _ input: Span<UInt8>,
@@ -183,6 +222,8 @@ public struct JSONParser: ~Copyable {
     }
   }
 
+  /// Parses one byte. The same as `parse(_:into:)` with a one-byte chunk, with a shorter path for the
+  /// byte-at-a-time feed.
   @inlinable
   public mutating func parse<Sink: StreamParseSink & ~Copyable>(
     byte: UInt8,
@@ -221,6 +262,10 @@ public struct JSONParser: ~Copyable {
     }
   }
 
+  /// Parses the next chunk of input held behind a pointer. Otherwise the same as the `Span` form.
+  ///
+  /// The buffer only has to stay valid for the call: the sink's spans borrow it and are not valid
+  /// afterwards.
   @inlinable
   public mutating func parse<Sink: StreamParseSink & ~Copyable>(
     _ input: UnsafeBufferPointer<UInt8>,
@@ -296,6 +341,11 @@ public struct JSONParser: ~Copyable {
     return i
   }
 
+  /// Declares the end of input: delivers a number the input ended in, and checks that the document
+  /// is complete.
+  ///
+  /// - Throws: ``JSONParsingError``, such as `unterminatedContainer` or `unterminatedString`, when
+  ///   the input stopped before the document did.
   @inlinable
   public mutating func finish<Sink: StreamParseSink & ~Copyable>(
     into sink: inout Sink

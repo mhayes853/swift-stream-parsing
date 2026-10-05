@@ -143,6 +143,12 @@ struct ScalarTarget {
 // only the innermost open container is mutated, and each holds its open element inline at a fixed
 // offset, so neither an outer append nor a copy between parse calls invalidates a frame. Not
 // generic over the root: a phantom parameter cost ~30% in metadata accessors on the table route.
+
+/// A ``StreamParseSink`` that writes the tokens it receives into a value, routed by a
+/// ``StreamSchema``.
+///
+/// ``PartialsStream`` owns one. Build your own to parse into a value without the stream around it,
+/// feeding it from a ``JSONParser``.
 public struct PartialSink: ~Copyable, StreamParseSink {
   // Strings accumulate into `StreamString`, paying per chunk call rather than per byte copied --
   // the sink escaped-value coalescing (`JSONParser.coalescedEscapedStringTail`) was built for.
@@ -203,12 +209,19 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // A document whose root is an array, a dictionary or a bare scalar is as valid as one rooted
   // in an object, so the root's shape comes from its schema rather than from a constraint.
+  /// Creates a sink that writes into the value at `root`, routing tokens by `schema`.
+  ///
+  /// - Parameters:
+  ///   - root: The address of an initialized value of the type `schema` describes. The sink does not
+  ///     check that the two agree, and the value must stay at this address for the sink's lifetime.
+  ///   - schema: How tokens are routed into the value.
   public init(root: UnsafeMutableRawPointer, schema: StreamSchema) {
     self.root = root
     self.rootSchema = schema
     self.frames = .allocate(capacity: Self.overflowCapacity)
   }
 
+  /// Creates a sink that writes into the value at `root`. See ``init(root:schema:)``.
   public init<Root>(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
     self.init(root: UnsafeMutableRawPointer(root), schema: schema)
   }
@@ -1675,6 +1688,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 )
 
 extension PartialSink {
+  /// Creates a sink that writes into the value at `root`, routed by the schema its type declares.
+  ///
+  /// `root` must point to an initialized value, which has to stay at that address for the sink's
+  /// lifetime.
   public init<Root: StreamPartial>(root: UnsafeMutablePointer<Root>) {
     self.init(root: UnsafeMutableRawPointer(root), schema: Root.streamSchema)
   }

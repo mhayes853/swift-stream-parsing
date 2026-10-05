@@ -1,6 +1,17 @@
+/// The destination a hand-written ``StreamSchema/enterField`` pushes for a container it opens: the
+/// address of the value being written, and the schema that routes tokens into it.
+///
+/// The sink borrows `schema` without retaining it, so it has to be owned by something that
+/// outlives the whole parse: the enclosing schema's field table or element schema, or a schema
+/// cached in a ``StreamSchemaCache``. A schema built inside `enterField` and held only by the frame
+/// is freed while the sink still points at it, and a release build reads it afterwards. A debug
+/// build checks this and stops with a message naming the schema.
 public struct StreamFrame {
+  /// The address of the container being written. It must stay valid until the container closes.
   public var storage: UnsafeMutableRawPointer
+  /// The schema that routes the container's tokens. See the type's note on ownership.
   public var schema: StreamSchema
+  /// The field whose value is pending, or `-1`. Leave the default for a new frame.
   public var pendingField: Int32
 
   public init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
@@ -175,8 +186,9 @@ enum StreamRouteBits {
   static func elementOptional(_ bits: UInt32) -> Bool { bits & Self.elementOptionalBit != 0 }
 }
 
-// `@unchecked` only for the three raw views of the field table below: immutable pointers into
-// storage the schema itself owns for its whole lifetime, read and never written after `init`.
+// `@unchecked` for the raw views the schema keeps of its field table and of its element schema
+// below: immutable pointers into storage the schema itself owns for its whole lifetime, read and
+// never written after `init`.
 public final class StreamSchema: @unchecked Sendable {
   public enum Shape: UInt8, Sendable {
     case object
@@ -369,8 +381,17 @@ public final class StreamSchema: @unchecked Sendable {
 
 
 
-  // `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
-  // carries rather than one indistinguishable from a matcher that happens to answer -1.
+  /// Describes how the parser writes into a value of one shape.
+  ///
+  /// A closure left out rejects its token kind: the default `applyString`, `applyNumber`,
+  /// `applyBoolean` and `applyNull` return ``StreamApplyResult/unsupported``, which the parser
+  /// reports as a type mismatch. `fields` is the declarative way to route an object's keys, and it
+  /// outranks `matchField` when both are given; a duplicate key in `fields` stops the program.
+  /// The closures take raw storage: `UnsafeMutableRawPointer` is the address of the value this
+  /// schema describes, and each must write only through the type it was built for.
+  ///
+  /// `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
+  /// carries rather than one indistinguishable from a matcher that happens to answer -1.
   public convenience init(
     shape: Shape,
     prepareRoot: @escaping @Sendable (UnsafeMutableRawPointer) -> Void = { _ in },
