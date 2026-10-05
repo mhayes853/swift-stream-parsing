@@ -7,27 +7,27 @@
     @unsafe
 #endif
     public func project<Output>(
-      _ transform: @escaping @Sendable (borrowing Element.View) throws -> Output
-    ) -> AsyncProjectedPartialsSequence<Element, Base, Seq, Output> {
+      _ transform: @escaping @Sendable (borrowing Parseable.Partial.View) throws -> Output
+    ) -> AsyncProjectedPartialsSequence<Parseable, Base, Seq, Output> {
       AsyncProjectedPartialsSequence(source: self, transform: transform)
     }
   }
 
   extension AsyncPartialsSequence {
     /// Adds explicit document completion to the source's owned snapshots.
-    public func updates() -> AsyncPartialUpdatesSequence<Element, Base, Seq> {
+    public func updates() -> AsyncPartialUpdatesSequence<Parseable, Base, Seq> {
       AsyncPartialUpdatesSequence(source: self)
     }
 
     /// Filters whole snapshots, retaining the explicit final document update.
     public func removeDuplicateUpdates(
       by equivalent: @escaping @Sendable (Element, Element) -> Bool
-    ) -> AsyncDistinctPartialUpdates<AsyncPartialUpdatesSequence<Element, Base, Seq>, Element> {
+    ) -> AsyncDistinctPartialUpdates<AsyncPartialUpdatesSequence<Parseable, Base, Seq>, Element> {
       self.updates().removeDuplicateUpdates(by: equivalent)
     }
 
     public func removeDuplicateUpdates()
-      -> AsyncDistinctPartialUpdates<AsyncPartialUpdatesSequence<Element, Base, Seq>, Element>
+      -> AsyncDistinctPartialUpdates<AsyncPartialUpdatesSequence<Parseable, Base, Seq>, Element>
     where Element: Equatable {
       self.removeDuplicateUpdates { $0 == $1 }
     }
@@ -35,16 +35,16 @@
 
   /// Owned snapshots with an explicit final update; shares the source's subscription.
   public struct AsyncPartialUpdatesSequence<
-    Root: StreamPartial,
+    Parseable: StreamParseable,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>
   >: AsyncSequence {
-    public typealias Element = PartialUpdate<Root>
-    let source: AsyncPartialsSequence<Root, Base, Bytes>
+    public typealias Element = PartialUpdate<Parseable.Partial>
+    let source: AsyncPartialsSequence<Parseable, Base, Bytes>
 
     public struct AsyncIterator: AsyncIteratorProtocol {
       @usableFromInline
-      var base: AsyncPartialsSequence<Root, Base, Bytes>.AsyncIterator
+      var base: AsyncPartialsSequence<Parseable, Base, Bytes>.AsyncIterator
       public mutating func next() async throws -> Element? {
         guard let value = try await self.base.next() else { return nil }
         return PartialUpdate(value: value, isComplete: self.base.box.hasTerminated)
@@ -57,12 +57,12 @@
   }
 
   extension AsyncPartialUpdatesSequence: Sendable
-  where Root: Sendable, Base: Sendable, Bytes: Sendable {}
+  where Parseable.Partial: Sendable, Base: Sendable, Bytes: Sendable {}
 
   extension AsyncPartialsSequence.AsyncIterator {
     @usableFromInline
     mutating func nextProjected<Output>(
-      _ transform: @Sendable (borrowing Element.View) throws -> Output
+      _ transform: @Sendable (borrowing Parseable.Partial.View) throws -> Output
     ) async throws -> PartialUpdate<Output>? {
       guard !self.box.hasTerminated else { return nil }
       do {
@@ -90,21 +90,21 @@
 
   /// An async projection that retains the parser's original subscription and error semantics.
   public struct AsyncProjectedPartialsSequence<
-    Root: StreamPartial,
+    Parseable: StreamParseable,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>,
     Output
   >: AsyncSequence {
     public typealias Element = PartialUpdate<Output>
-    let source: AsyncPartialsSequence<Root, Base, Bytes>
+    let source: AsyncPartialsSequence<Parseable, Base, Bytes>
     @usableFromInline
-    let transform: @Sendable (borrowing Root.View) throws -> Output
+    let transform: @Sendable (borrowing Parseable.Partial.View) throws -> Output
 
     public struct AsyncIterator: AsyncIteratorProtocol {
       @usableFromInline
-      var base: AsyncPartialsSequence<Root, Base, Bytes>.AsyncIterator
+      var base: AsyncPartialsSequence<Parseable, Base, Bytes>.AsyncIterator
       @usableFromInline
-      let transform: @Sendable (borrowing Root.View) throws -> Output
+      let transform: @Sendable (borrowing Parseable.Partial.View) throws -> Output
 
       public mutating func next() async throws -> Element? {
         try await self.base.nextProjected(self.transform)
@@ -117,7 +117,7 @@
   }
 
   extension AsyncProjectedPartialsSequence: Sendable
-  where Root: Sendable, Base: Sendable, Bytes: Sendable {}
+  where Parseable.Partial: Sendable, Base: Sendable, Bytes: Sendable {}
 
   extension AsyncSequence {
     /// Suppresses equal consecutive values but never suppresses document completion.

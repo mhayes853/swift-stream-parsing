@@ -26,7 +26,7 @@ extension ObservedModel.Partial {
   fileprivate var computedTitle: StreamString? { self.title }
 }
 
-private struct CustomObservedRoot: StreamPartial {
+private struct CustomObservedRoot: StreamPartial, StreamParseable {
   static var streamObservationFields: [PartialKeyPath<Self>] { [\.registered, \.ignored] }
   var registered: Int?
   var ignored: Int?
@@ -46,7 +46,7 @@ private struct CustomObservedRoot: StreamPartial {
   )
 }
 
-private struct OverlappingObservedRoot: StreamPartial {
+private struct OverlappingObservedRoot: StreamPartial, StreamParseable {
   static var streamObservationFields: [PartialKeyPath<Self>] { [\.first, \.second] }
   var first = StreamEmptyObject()
   var second = StreamEmptyObject()
@@ -66,7 +66,7 @@ private struct OverlappingObservedRoot: StreamPartial {
 }
 
 // A custom schema alone does not opt a root into key-path observation.
-private struct UnregisteredObservationRoot: StreamPartial {
+private struct UnregisteredObservationRoot: StreamPartial, StreamParseable {
   var value: Int?
   static func streamInitialValue() -> Self { Self() }
   static let streamSchema = StreamSchema(

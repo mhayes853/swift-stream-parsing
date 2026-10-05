@@ -45,7 +45,7 @@ private let realWorldPayloads: [(String, [UInt8])] = [
 
 // Mirrors each fast-layer real-world row through the convenience layer. The models deliberately
 // retain the corpus's characteristic values rather than merely reproducing its container spine.
-private func addRealWorldConvenienceRows<Value: StreamPartial>(
+private func addRealWorldConvenienceRows<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
@@ -67,12 +67,12 @@ private func addRealWorldConvenienceRows<Value: StreamPartial>(
     Benchmark(
       "Real \(name) - bulk discarding, reused stream", configuration: payloadConfiguration
     ) { benchmark in
-      var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+      var stream = PartialsStream<Value>(from: .json())
       measurePayloadThroughput(benchmark, payload: payload) {
         blackHole(
           expectParses {
             try stream.next(payload)
-            return try stream.finishValue(resettingTo: Value.streamInitialValue())
+            return try stream.finishValue(resettingTo: Value.Partial.streamInitialValue())
           }
         )
       }

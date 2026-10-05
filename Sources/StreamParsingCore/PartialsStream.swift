@@ -25,22 +25,30 @@ public struct JSONStreamFormat: Hashable, Sendable {
 
 /// Drives a parser and exposes each incremental value state.
 ///
+/// The stream is generic over the type being parsed, and holds that type's
+/// ``StreamParseable/Partial``: the value you read from it, and write back to it, is always a
+/// partial.
+///
 /// ```swift
 /// @StreamParseable struct BlogPost { var title: String = "" }
 ///
-/// var stream = PartialsStream(initialValue: BlogPost.Partial(), from: .json())
+/// var stream = PartialsStream<BlogPost>(from: .json())
 /// for byte in #"{"title":"DocC"}"#.utf8 {
-///   _ = try stream.next(byte)
+///   try stream.next(byte)
 /// }
-/// let final = try stream.finish()
+/// let final: BlogPost.Partial = try stream.finish()
 /// ```
-public struct PartialsStream<Value: StreamPartial>: ~Copyable {
+///
+/// A partial type is itself parseable, with `Partial == Self`, so
+/// `PartialsStream<BlogPost.Partial>` names the same storage and behaves identically. Prefer the
+/// model type: it is the one you wrote.
+public struct PartialsStream<Value: StreamParseable>: ~Copyable {
   // Its own allocation: the sink's frames hold pointers into it, which must survive a move.
-  @usableFromInline let storage: UnsafeMutablePointer<Value>
+  @usableFromInline let storage: UnsafeMutablePointer<Value.Partial>
 
   @usableFromInline
-  static func allocateStorage() -> UnsafeMutablePointer<Value> {
-    UnsafeMutablePointer<Value>.allocate(capacity: 1)
+  static func allocateStorage() -> UnsafeMutablePointer<Value.Partial> {
+    UnsafeMutablePointer<Value.Partial>.allocate(capacity: 1)
   }
 
   @usableFromInline var parser: JSONParser
@@ -57,7 +65,7 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   /// storage that is never written again. Reading it still copies the open element at each depth;
   /// ``withView(_:)`` reads without copying.
   @inlinable
-  public var current: Value { self.storage.pointee }
+  public var current: Value.Partial { self.storage.pointee }
 
   /// Reads the value in place, without copying it.
   ///
@@ -75,14 +83,20 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
 #if !LifetimeView
   @unsafe
 #endif
-  public func withView<R>(_ body: (borrowing Value.View) throws -> R) rethrows -> R {
-    try body(Value.streamView(UnsafeMutableRawPointer(self.storage)))
+  public func withView<R>(_ body: (borrowing Value.Partial.View) throws -> R) rethrows -> R {
+    try body(Value.Partial.streamView(UnsafeMutableRawPointer(self.storage)))
   }
 
   /// Installs a parser for the supplied format and optional initial value state.
   ///
+  /// ```swift
+  /// var stream = PartialsStream<BlogPost>(from: .json())
+  /// var inferred = PartialsStream(of: BlogPost.self, from: .json())
+  /// ```
+  ///
   /// - Parameters:
-  ///   - initialValue: The value state to start parsing from.
+  ///   - type: The type being parsed. Only there to infer `Value`; defaults to it.
+  ///   - initialValue: The partial to start parsing from.
   ///   - format: The format describing the parser that will consume bytes.
   //
   // Must stay `@inlinable`: the schema has to be built in the client module with `Value` concrete,
@@ -90,14 +104,15 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   // `StreamDictionary<GSoCProject.Partial>` parse).
   @inlinable
   public init(
-    initialValue: Value = Value.streamInitialValue(),
+    of type: Value.Type = Value.self,
+    initialValue: Value.Partial = Value.Partial.streamInitialValue(),
     from format: JSONStreamFormat
   ) {
     let storage = Self.allocateStorage()
     storage.initialize(to: initialValue)
     self.storage = storage
     self.parser = JSONParser(bufferCapacity: format.bufferCapacity)
-    self.sink = PartialSink(root: storage, schema: Value.streamSchema)
+    self.sink = PartialSink(root: storage, schema: Value.Partial.streamSchema)
   }
 
   deinit {
@@ -159,7 +174,7 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   /// - Returns: The final parsed value after calling ``finish()``.
   @inlinable
   @discardableResult
-  public mutating func finish() throws -> Value {
+  public mutating func finish() throws -> Value.Partial {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     self.hasFinished = true
@@ -178,7 +193,7 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   @unsafe
 #endif
   public mutating func finishWithView<R>(
-    _ body: (borrowing Value.View) throws -> R
+    _ body: (borrowing Value.Partial.View) throws -> R
   ) throws -> R {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
@@ -201,7 +216,7 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   ///
   /// - Returns: The final parsed value.
   @inlinable
-  public consuming func finishValue() throws -> Value {
+  public consuming func finishValue() throws -> Value.Partial {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
@@ -227,8 +242,8 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   /// - Returns: The final parsed value of the document just completed.
   @inlinable
   public mutating func finishValue(
-    resettingTo initialValue: Value = Value.streamInitialValue()
-  ) throws -> Value {
+    resettingTo initialValue: Value.Partial = Value.Partial.streamInitialValue()
+  ) throws -> Value.Partial {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
@@ -251,11 +266,32 @@ public struct PartialsStream<Value: StreamPartial>: ~Copyable {
   ///
   /// - Parameter initialValue: The value state the next document starts parsing from.
   @inlinable
-  public mutating func reset(to initialValue: Value = Value.streamInitialValue()) {
+  public mutating func reset(to initialValue: Value.Partial = Value.Partial.streamInitialValue()) {
     self.storage.pointee = initialValue
     self.parser.reset()
     self.sink.reset()
     self.hasFinished = false
     self.hasParserFailed = false
+  }
+}
+
+extension PartialsStream where Value.Partial == Value {
+  /// Installs a parser that starts from `initialValue`, inferring the stream's type from it.
+  ///
+  /// ```swift
+  /// var stream = PartialsStream(initialValue: BlogPost.Partial(), from: .json())
+  /// ```
+  ///
+  /// Only a partial can be inferred this way, because a partial is the one type whose own
+  /// partial is itself. Write `PartialsStream<BlogPost>(initialValue:from:)` to seed the stream of
+  /// a model type.
+  ///
+  /// - Parameters:
+  ///   - initialValue: The partial to start parsing from.
+  ///   - format: The format describing the parser that will consume bytes.
+  @_disfavoredOverload
+  @inlinable
+  public init(initialValue: Value, from format: JSONStreamFormat) {
+    self.init(of: Value.self, initialValue: initialValue, from: format)
   }
 }

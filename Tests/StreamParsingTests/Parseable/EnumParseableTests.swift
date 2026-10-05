@@ -129,7 +129,7 @@ private func parsePartial<T: StreamParseable>(
   _ json: String,
   as type: T.Type
 ) throws -> T.Partial {
-  var stream = PartialsStream(initialValue: T.Partial.streamInitialValue(), from: .json())
+  var stream = PartialsStream<T>(from: .json())
   for byte in Array(json.utf8) {
     try stream.next(byte)
   }

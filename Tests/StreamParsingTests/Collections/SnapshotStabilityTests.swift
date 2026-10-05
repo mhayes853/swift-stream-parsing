@@ -30,12 +30,12 @@ struct StabilityModel: Equatable {
 @Suite
 struct `Snapshot stability tests` {
   // Feeds one byte at a time, keeping every state along with what it looked like when taken.
-  private func expectStable<Value: StreamPartial>(
+  private func expectStable<Value: StreamParseable>(
     _ json: String,
     as type: Value.Type
   ) throws {
-    var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
-    var kept = [(rendering: String, value: Value)]()
+    var stream = PartialsStream<Value>(from: .json())
+    var kept = [(rendering: String, value: Value.Partial)]()
     for byte in Array(json.utf8) {
       try stream.next(byte)
       let snapshot = stream.current

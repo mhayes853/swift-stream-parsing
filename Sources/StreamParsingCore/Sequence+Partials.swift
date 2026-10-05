@@ -6,48 +6,36 @@ extension Sequence where Element == UInt8 {
   /// print(partials.last)
   /// ```
   ///
-  /// - Parameters:
-  ///   - type: The value type to collect partials for.
-  ///   - format: The format describing the parser that produces the value states.
-  /// - Returns: The values observed after each byte and at completion.
-  public func partials<Value: StreamParseable>(
-    of type: Value.Type,
-    from format: JSONStreamFormat
-  ) throws -> [Value.Partial] {
-    try self.partials(initialValue: Value.Partial.streamInitialValue(), from: format)
-  }
-
-  /// Incrementally parses bytes as a value.
-  ///
-  /// ```swift
-  /// let partials = try bytes.partials(of: MyModel.Partial.self, from: .json())
-  /// print(partials.last)
-  /// ```
+  /// A partial type is itself parseable, so `MyModel.Partial.self` works too.
   ///
   /// - Parameters:
   ///   - type: The value type to collect partials for.
   ///   - format: The format describing the parser that produces the value states.
-  /// - Returns: The values observed after each byte and at completion.
-  @_disfavoredOverload
-  public func partials<Value: StreamPartial>(
-    of type: Value.Type,
+  /// - Returns: The partials observed after each byte and at completion.
+  public func partials<Parseable: StreamParseable>(
+    of type: Parseable.Type,
     from format: JSONStreamFormat
-  ) throws -> [Value] {
-    try self.partials(initialValue: Value.streamInitialValue(), from: format)
+  ) throws -> [Parseable.Partial] {
+    try self.collectPartials(from: PartialsStream<Parseable>(from: format))
   }
 
   /// Incrementally parses bytes as a value.
   ///
   /// - Parameters:
-  ///   - initialValue: The value state to begin parsing from.
+  ///   - initialValue: The partial to begin parsing from.
   ///   - format: The format describing the parser that feeds the bytes.
-  /// - Returns: The values observed after each byte and at completion.
-  public func partials<Value: StreamPartial>(
+  /// - Returns: The partials observed after each byte and at completion.
+  public func partials<Value: StreamParseable>(
     initialValue: Value,
     from format: JSONStreamFormat
-  ) throws -> [Value] {
-    var partials = [Value]()
-    var stream = PartialsStream(initialValue: initialValue, from: format)
+  ) throws -> [Value] where Value.Partial == Value {
+    try self.collectPartials(from: PartialsStream(initialValue: initialValue, from: format))
+  }
+
+  private func collectPartials<Value: StreamParseable>(
+    from stream: consuming PartialsStream<Value>
+  ) throws -> [Value.Partial] {
+    var partials = [Value.Partial]()
     for byte in self {
       try stream.next(byte)
       partials.append(stream.current)
@@ -67,40 +55,31 @@ extension Sequence where Element: Sequence<UInt8> {
   /// - Parameters:
   ///   - type: The value type to collect partials for.
   ///   - format: The format describing the parser that produces the value states.
-  /// - Returns: The values observed after each collection and at completion.
-  public func partials<Value: StreamParseable>(
-    of type: Value.Type,
+  /// - Returns: The partials observed after each collection and at completion.
+  public func partials<Parseable: StreamParseable>(
+    of type: Parseable.Type,
     from format: JSONStreamFormat
-  ) throws -> [Value.Partial] {
-    try self.partials(initialValue: Value.Partial.streamInitialValue(), from: format)
+  ) throws -> [Parseable.Partial] {
+    try self.collectPartials(from: PartialsStream<Parseable>(from: format))
   }
 
   /// Incrementally parses chunks of bytes as a value.
   ///
   /// - Parameters:
-  ///   - type: The value type being parsed.
-  ///   - format: The format describing the parser that consumes the nested sequences.
-  /// - Returns: The value states observed after each collection and at completion.
-  @_disfavoredOverload
-  public func partials<Value: StreamPartial>(
-    of type: Value.Type,
-    from format: JSONStreamFormat
-  ) throws -> [Value] {
-    try self.partials(initialValue: Value.streamInitialValue(), from: format)
-  }
-
-  /// Incrementally parses chunks of bytes as a value.
-  ///
-  /// - Parameters:
-  ///   - initialValue: The value state to resume parsing from.
+  ///   - initialValue: The partial to resume parsing from.
   ///   - format: The format describing the parser that consumes each collection.
-  /// - Returns: The value states observed after each collection and at completion.
-  public func partials<Value: StreamPartial>(
+  /// - Returns: The partials observed after each collection and at completion.
+  public func partials<Value: StreamParseable>(
     initialValue: Value,
     from format: JSONStreamFormat
-  ) throws -> [Value] {
-    var partials = [Value]()
-    var stream = PartialsStream(initialValue: initialValue, from: format)
+  ) throws -> [Value] where Value.Partial == Value {
+    try self.collectPartials(from: PartialsStream(initialValue: initialValue, from: format))
+  }
+
+  private func collectPartials<Value: StreamParseable>(
+    from stream: consuming PartialsStream<Value>
+  ) throws -> [Value.Partial] {
+    var partials = [Value.Partial]()
     for bytes in self {
       try stream.next(bytes)
       partials.append(stream.current)

@@ -74,14 +74,14 @@ extension PartialIterator {
   @unsafe
 #endif
   public consuming func project<Output>(
-    _ transform: @escaping (borrowing Value.View) throws -> Output
-  ) -> ProjectedPartialIterator<Value, Base, Bytes, Output> {
+    _ transform: @escaping (borrowing Parseable.Partial.View) throws -> Output
+  ) -> ProjectedPartialIterator<Parseable, Base, Bytes, Output> {
     ProjectedPartialIterator(base: self, transform: transform)
   }
 
   @inlinable
   mutating func nextProjected<Output>(
-    _ transform: (borrowing Value.View) throws -> Output
+    _ transform: (borrowing Parseable.Partial.View) throws -> Output
   ) throws -> PartialUpdate<Output>? {
     guard !self.terminated else { return nil }
     do {
@@ -100,20 +100,20 @@ extension PartialIterator {
 
 /// A lazy projection that owns its source iterator and snapshots only its selected output.
 public struct ProjectedPartialIterator<
-  Root: StreamPartial,
+  Parseable: StreamParseable,
   Base: IteratorProtocol,
   Bytes: Sequence<UInt8>,
   Output
 >: ~Copyable, PartialUpdateIteratorProtocol {
   @usableFromInline
-  var base: PartialIterator<Root, Base, Bytes>
+  var base: PartialIterator<Parseable, Base, Bytes>
   @usableFromInline
-  let transform: (borrowing Root.View) throws -> Output
+  let transform: (borrowing Parseable.Partial.View) throws -> Output
 
   @inlinable
   init(
-    base: consuming PartialIterator<Root, Base, Bytes>,
-    transform: @escaping (borrowing Root.View) throws -> Output
+    base: consuming PartialIterator<Parseable, Base, Bytes>,
+    transform: @escaping (borrowing Parseable.Partial.View) throws -> Output
   ) {
     self.base = base
     self.transform = transform

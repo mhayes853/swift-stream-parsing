@@ -39,7 +39,7 @@ private func chunks(_ payload: [UInt8], size: Int) -> [[UInt8]] {
   return result
 }
 
-private func consumeAsyncPartials<Value: StreamPartial & Sendable>(
+private func consumeAsyncPartials<Value: StreamParseable>(
   _ chunks: [[UInt8]],
   as type: Value.Type
 ) async throws -> Int {
@@ -76,12 +76,12 @@ private func measurePayloadThroughputAsync(
   benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
 }
 
-private func addPartialsStreamRows<Value: StreamPartial>(
+private func addPartialsStreamRows<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
   chunkSizes: [Int],
-  read: @escaping (borrowing Value.View) -> Void
+  read: @escaping (borrowing Value.Partial.View) -> Void
 ) {
   for chunk in chunkSizes {
     let input = chunks(payload, size: chunk)
@@ -146,12 +146,12 @@ private func addPartialsStreamRows<Value: StreamPartial>(
   }
 }
 
-private func addAsyncSequenceRows<Value: StreamPartial & Sendable>(
+private func addAsyncSequenceRows<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,
   chunkSizes: [Int],
-  project: @escaping @Sendable (borrowing Value.View) -> StreamString?,
+  project: @escaping @Sendable (borrowing Value.Partial.View) -> StreamString?,
   field: ObservedFieldPath<Value, StreamString>
 ) {
   for chunkSize in chunkSizes {
@@ -299,11 +299,11 @@ private struct ConvertedStructuredResponse {
   var recommendation: BenchmarkQwen3Recommendation = BenchmarkQwen3Recommendation()
 }
 
-private func addCompletedConversionRows<Plain: StreamPartial, Converted: StreamPartial>(
+private func addCompletedConversionRows<Plain: StreamParseable, Converted: StreamParseable>(
   _ name: String, payload: [UInt8], plain: Plain.Type, converted: Converted.Type
 ) {
   let input = chunks(payload, size: 64)
-  func add<Value: StreamPartial>(_ mode: String, _ type: Value.Type) {
+  func add<Value: StreamParseable>(_ mode: String, _ type: Value.Type) {
     Benchmark("Conversion \(mode) \(name) - 64B chunks", configuration: payloadConfiguration) { benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
         expectParses {

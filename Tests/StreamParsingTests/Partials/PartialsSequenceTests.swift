@@ -29,7 +29,7 @@ struct `PartialsSequence Tests` {
   func `Emits Same Partial When No Reduction Occurs For Byte`() throws {
     let byteStream = Array(#""ab""#.utf8)
 
-    let partials = try byteStream.partials(initialValue: "", from: .json())
+    let partials = try byteStream.partials(of: SwiftStringStorage.self, from: .json())
     expectNoDifference(partials, ["", "a", "ab", "ab", "ab"])
   }
 

@@ -12,28 +12,28 @@ struct `JSONStreamParser tests` {
     func `Streams JSON String Characters`() throws {
       let json = "\"Blob\""
       let expected = ["", "B", "Bl", "Blo", "Blob", "Blob", "Blob"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON Empty String`() throws {
       let json = "\"\""
       let expected = ["", "", ""]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Quote`() throws {
       let json = "\"\\\"\""
       let expected = ["", "", "\"", "\"", "\""]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Backslash`() throws {
       let json = "\"\\\\\""
       let expected = ["", "", "\\", "\\", "\\"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
@@ -53,77 +53,77 @@ struct `JSONStreamParser tests` {
         "line\nend",
         "line\nend"
       ]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Slash`() throws {
       let json = "\"\\/\""
       let expected = ["", "", "/", "/", "/"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Backspace`() throws {
       let json = "\"\\b\""
       let expected = ["", "", "\u{08}", "\u{08}", "\u{08}"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Form Feed`() throws {
       let json = "\"\\f\""
       let expected = ["", "", "\u{0C}", "\u{0C}", "\u{0C}"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Carriage Return`() throws {
       let json = "\"\\r\""
       let expected = ["", "", "\r", "\r", "\r"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Escaped Tab`() throws {
       let json = "\"\\t\""
       let expected = ["", "", "\t", "\t", "\t"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Emoji`() throws {
       let json = "\"😀\""
       let expected = ["", "", "", "", "😀", "😀", "😀"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Multiple Emojis`() throws {
       let json = "\"😀😃\""
       let expected = ["", "", "", "", "😀", "😀", "😀", "😀", "😀😃", "😀😃", "😀😃"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Two-Byte Character`() throws {
       let json = "\"\u{00E9}\""
       let expected = ["", "", "é", "é", "é"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Four-Byte NonEmoji Character`() throws {
       let json = "\"\u{1D11E}\""
       let expected = ["", "", "", "", "𝄞", "𝄞", "𝄞"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String With Square Brackets Inside`() throws {
       let json = "\"[]\""
       let expected = ["", "[", "[]", "[]", "[]"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
@@ -132,14 +132,14 @@ struct `JSONStreamParser tests` {
       let scalar2 = "\u{10438}"
       let json = "\"\(scalar1)\(scalar2)\""
       let expected = ["", "", "", "", "𐐷", "𐐷", "𐐷", "𐐷", "𐐷𐐸", "𐐷𐐸", "𐐷𐐸"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
     func `Streams JSON String Containing Only Numbers`() throws {
       let json = "\"123\""
       let expected = ["", "1", "12", "123", "123", "123"]
-      try expectJSONStreamedValues(json, initialValue: "", expected: expected)
+      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
     }
 
     @Test
@@ -1005,7 +1005,7 @@ struct `JSONStreamParser tests` {
       let json = "\"unterminated"
       try expectJSONParsingError(
         json,
-        initialValue: "",
+        of: SwiftStringStorage.self, initialValue: "",
         reason: .unterminatedString
       )
     }
@@ -1015,7 +1015,7 @@ struct `JSONStreamParser tests` {
       let json = "\"\\u12\""
       try expectJSONParsingError(
         json,
-        initialValue: "",
+        of: SwiftStringStorage.self, initialValue: "",
         reason: .invalidEscape
       )
     }
@@ -1137,7 +1137,7 @@ struct `JSONStreamParser tests` {
       TypeMismatchCase("{\"value\": \"123\"}", as: IntValueContainer.Partial.self),
       TypeMismatchCase("1", as: Bool.self),
       TypeMismatchCase("null", as: Int.self),
-      TypeMismatchCase("1", as: String.self),
+      TypeMismatchCase("1", of: SwiftStringStorage.self),
       TypeMismatchCase("{\"value\": 1}", as: BoolValueContainer.Partial.self),
       TypeMismatchCase("{\"value\": 1}", as: StringValueContainer.Partial.self),
     ])
@@ -1172,7 +1172,7 @@ struct `JSONStreamParser tests` {
       let json = "nul"
       try expectJSONParsingError(
         json,
-        initialValue: String?.none,
+        of: SwiftStringStorage?.self, initialValue: String?.none,
         reason: .invalidLiteral
       )
     }
@@ -1215,16 +1215,80 @@ struct `JSONStreamParser tests` {
         .run(nil, 2)
       ]
       try expectJSONStreamedValues(
-        json, initialValue: "seed", states: states
+        json, of: SwiftStringStorage?.self, initialValue: "seed", states: states
       )
     }
   }
 
 }
 
+// The helpers below take the type being parsed, for a destination that is not its own partial.
+private func expectJSONStreamedValues<T: StreamParseable>(
+  _ json: String,
+  format: JSONStreamFormat = .json(),
+  of type: T.Type,
+  initialValue: T.Partial,
+  expected: [T.Partial],
+  file: StaticString = #fileID,
+  line: UInt = #line
+) throws where T.Partial: Equatable {
+  var stream = PartialsStream<T>(initialValue: initialValue, from: format)
+  var values = [T.Partial]()
+  for byte in json.utf8 {
+    try stream.next(byte)
+    values.append(stream.current)
+  }
+  values.append(try stream.finish())
+  expectNoDifference(values, expected, fileID: file, line: line)
+}
+
+private func expectJSONStreamedValues<T: StreamParseable>(
+  _ json: String,
+  format: JSONStreamFormat = .json(),
+  of type: T.Type,
+  initialValue: T.Partial,
+  states: [StreamedRun<T.Partial>],
+  fileID: StaticString = #fileID,
+  filePath: StaticString = #filePath,
+  line: UInt = #line,
+  column: UInt = #column
+) throws where T.Partial: Equatable {
+  var stream = PartialsStream<T>(initialValue: initialValue, from: format)
+  var values = [T.Partial]()
+  for byte in json.utf8 {
+    try stream.next(byte)
+    values.append(stream.current)
+  }
+  values.append(try stream.finish())
+  expectStates(
+    values, states, json: json, fileID: fileID, filePath: filePath, line: line, column: column
+  )
+}
+
+private func expectJSONParsingError<T: StreamParseable>(
+  _ json: String,
+  format: JSONStreamFormat = .json(),
+  of type: T.Type,
+  initialValue: T.Partial,
+  reason: JSONParsingError.Reason,
+  byteOffset: Int? = nil
+) throws {
+  var stream = PartialsStream<T>(initialValue: initialValue, from: format)
+  let thrownError = #expect(throws: JSONParsingError.self) {
+    for byte in json.utf8 { try stream.next(byte) }
+    try stream.finish()
+  }
+
+  let error = try #require(thrownError)
+  expectNoDifference(error.reason, reason)
+  if let byteOffset {
+    expectNoDifference(error.byteOffset, byteOffset)
+  }
+}
+
 // The runs form, for sequences where most entries repeat their predecessor. The flat form below
 // stays for short sequences, where spelling out every state is clearer than compressing it.
-private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
+private func expectJSONStreamedValues<T: StreamParseable & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
@@ -1233,7 +1297,7 @@ private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
   filePath: StaticString = #filePath,
   line: UInt = #line,
   column: UInt = #column
-) throws {
+) throws where T.Partial == T {
   let values = try json.utf8.partials(initialValue: initialValue, from: format)
   if ProcessInfo.processInfo.environment["STREAM_PARSING_RECORD"] != nil {
     print("STREAM_RECORD|\(line)|\(String(reflecting: T.self))|\(swiftLiteral(values))")
@@ -1244,14 +1308,14 @@ private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
   )
 }
 
-private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
+private func expectJSONStreamedValues<T: StreamParseable & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
   expected: [T],
   file: StaticString = #fileID,
   line: UInt = #line
-) throws {
+) throws where T.Partial == T {
   let values = try json.utf8.partials(initialValue: initialValue, from: format)
   // Recording mode, for regenerating these sequences when the parser's timing changes on
   // purpose. It skips the assertion, so it must never be set in CI.
@@ -1262,13 +1326,13 @@ private func expectJSONStreamedValues<T: StreamPartial & Equatable>(
   expectNoDifference(values, expected, fileID: file, line: line)
 }
 
-private func expectJSONStreamedValuesBeforeError<T: StreamPartial & Equatable>(
+private func expectJSONStreamedValuesBeforeError<T: StreamParseable & Equatable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
   expected: [T],
   reason: JSONParsingError.Reason
-) {
+) where T.Partial == T {
   var stream = PartialsStream(initialValue: initialValue, from: format)
   var partials = [T]()
   let thrownError = #expect(throws: JSONParsingError.self) {
@@ -1294,12 +1358,24 @@ struct TypeMismatchCase: @unchecked Sendable, CustomStringConvertible {
   let description: String
   private let body: () throws -> Void
 
-  init<T: StreamPartial>(_ json: String, as type: T.Type) {
+  init<T: StreamParseable>(_ json: String, as type: T.Type) where T.Partial == T {
     self.description = "\(json) into \(T.self)"
     self.body = {
       try expectJSONParsingError(
         json,
-        initialValue: T.streamInitialValue(),
+        initialValue: T.Partial.streamInitialValue(),
+        reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
+      )
+    }
+  }
+
+  init<T: StreamParseable>(_ json: String, of type: T.Type) {
+    self.description = "\(json) into \(T.self)"
+    self.body = {
+      try expectJSONParsingError(
+        json,
+        of: T.self,
+        initialValue: T.Partial.streamInitialValue(),
         reason: .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
       )
     }
@@ -1308,13 +1384,13 @@ struct TypeMismatchCase: @unchecked Sendable, CustomStringConvertible {
   func assert() throws { try self.body() }
 }
 
-private func expectJSONParsingError<T: StreamPartial>(
+private func expectJSONParsingError<T: StreamParseable>(
   _ json: String,
   format: JSONStreamFormat = .json(),
   initialValue: T,
   reason: JSONParsingError.Reason,
   byteOffset: Int? = nil
-) throws {
+) throws where T.Partial == T {
   let thrownError = #expect(throws: JSONParsingError.self) {
     _ = try json.utf8.partials(initialValue: initialValue, from: format)
   }
@@ -1609,14 +1685,14 @@ struct `JSONDump tests` {
     expectNoDifference(error?.reason, .depthExceeded)
   }
 
-  private func assertSnapshot<Value: StreamPartial & Encodable>(
+  private func assertSnapshot<Value: StreamParseable>(
     of type: Value.Type,
     from url: URL,
     chunkSize: Int? = nil,
     testName: String = #function
-  ) throws {
+  ) throws where Value.Partial: Encodable {
     let data = try Data(contentsOf: url)
-    var stream = PartialsStream(initialValue: type.streamInitialValue(), from: .json())
+    var stream = PartialsStream<Value>(from: .json())
     if let chunkSize {
       let bytes = Array(data)
       var offset = bytes.startIndex

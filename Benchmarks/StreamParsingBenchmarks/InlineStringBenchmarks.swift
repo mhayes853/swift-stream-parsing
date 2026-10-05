@@ -38,7 +38,7 @@ private enum InlineStringPayloads {
   }
 }
 
-private func addInlineStringRow<Value: StreamPartial>(
+private func addInlineStringRow<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,

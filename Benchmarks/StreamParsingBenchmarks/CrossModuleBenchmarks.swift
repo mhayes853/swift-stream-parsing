@@ -29,7 +29,7 @@ func crossModuleBenchmarks() {
 }
 
 // Mirrors the `bulk discarding` row of `addRealWorldConvenienceRows`.
-private func addCrossModuleBulkDiscardingRow<Value: StreamPartial>(
+private func addCrossModuleBulkDiscardingRow<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type

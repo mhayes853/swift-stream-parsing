@@ -140,14 +140,14 @@ enum EnumBenchmarkPayloads {
 private func parseEnumPayload<Value: StreamParseable>(
   _ payload: [UInt8], as type: Value.Type
 ) throws -> Value {
-  let partial = try streamBulkDiscarding(payload, as: Value.Partial.self)
+  let partial = try streamBulkDiscarding(payload, as: Value.self)
   return Value.streamValueOrInitial(from: partial)
 }
 
 private func parseEnumPayloadByteByByte<Value: StreamParseable>(
   _ payload: [UInt8], as type: Value.Type
 ) throws -> Value {
-  let partial = try streamDiscarding(payload, as: Value.Partial.self)
+  let partial = try streamDiscarding(payload, as: Value.self)
   return Value.streamValueOrInitial(from: partial)
 }
 

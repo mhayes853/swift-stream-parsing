@@ -217,12 +217,12 @@ struct SeparatorRecords: Equatable {
 
 // MARK: - Rows
 
-private func addSeparatorRows<Value: StreamPartial>(
+private func addSeparatorRows<Value: StreamParseable>(
   _ shape: String,
   _ value: SeparatorValue,
   as type: Value.Type,
   count: Int,
-  fingerprint: (Value) -> (count: Int?, ends: [Any?])
+  fingerprint: (Value.Partial) -> (count: Int?, ends: [Any?])
 ) {
   var reference: String?
   for style in SeparatorStyle.allCases {

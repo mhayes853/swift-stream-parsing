@@ -78,7 +78,7 @@ private struct InlineArrayBenchmarkRecord {
 }
 
 @available(macOS 26.0, *)
-private func addFixedArrayRow<Value: StreamPartial>(
+private func addFixedArrayRow<Value: StreamParseable>(
   _ name: String,
   payload: [UInt8],
   as type: Value.Type,

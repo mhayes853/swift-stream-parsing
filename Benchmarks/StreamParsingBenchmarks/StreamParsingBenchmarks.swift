@@ -172,25 +172,25 @@ func measurePayloadThroughput(
   benchmark.measurement(payloadMegabytesPerSecond, Int(megabytesPerSecond))
 }
 
-func streamDiscarding<Value: StreamPartial>(
+func streamDiscarding<Value: StreamParseable>(
   _ bytes: [UInt8],
   as type: Value.Type,
   format: JSONStreamFormat = .json()
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: format)
   for byte in bytes {
     try stream.next(byte)
   }
   return try stream.finishValue()
 }
 
-func streamDiscardingChunks<Value: StreamPartial>(
+func streamDiscardingChunks<Value: StreamParseable>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type,
   format: JSONStreamFormat = .json()
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: format)
   var index = bytes.startIndex
   while index < bytes.endIndex {
     let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
@@ -200,11 +200,11 @@ func streamDiscardingChunks<Value: StreamPartial>(
   return try stream.finishValue()
 }
 
-func streamSnapshotting<Value: StreamPartial>(
+func streamSnapshotting<Value: StreamParseable>(
   _ bytes: [UInt8],
   as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: .json())
   for byte in bytes {
     try stream.next(byte)
     blackHole(stream.current)
@@ -212,12 +212,12 @@ func streamSnapshotting<Value: StreamPartial>(
   return try stream.finish()
 }
 
-func streamSnapshottingChunks<Value: StreamPartial>(
+func streamSnapshottingChunks<Value: StreamParseable>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: .json())
   var index = bytes.startIndex
   while index < bytes.endIndex {
     let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
@@ -228,13 +228,13 @@ func streamSnapshottingChunks<Value: StreamPartial>(
   return try stream.finish()
 }
 
-func streamViewingChunks<Value: StreamPartial>(
+func streamViewingChunks<Value: StreamParseable>(
   _ bytes: [UInt8],
   chunk: Int,
   as type: Value.Type,
-  read: (borrowing Value.View) -> Void
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  read: (borrowing Value.Partial.View) -> Void
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: .json())
   var index = bytes.startIndex
   while index < bytes.endIndex {
     let end = bytes.index(index, offsetBy: chunk, limitedBy: bytes.endIndex) ?? bytes.endIndex
@@ -245,12 +245,12 @@ func streamViewingChunks<Value: StreamPartial>(
   return try stream.finish()
 }
 
-func streamBulkDiscarding<Value: StreamPartial>(
+func streamBulkDiscarding<Value: StreamParseable>(
   _ bytes: [UInt8],
   as type: Value.Type,
   format: JSONStreamFormat = .json()
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: format)
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: format)
   try stream.next(bytes)
   return try stream.finishValue()
 }

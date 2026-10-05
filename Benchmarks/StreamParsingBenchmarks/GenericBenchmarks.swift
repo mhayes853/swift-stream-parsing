@@ -65,7 +65,7 @@ func genericBenchmarks() {
 }
 
 // Mirrors the `bulk discarding` row of `addRealWorldConvenienceRows`.
-private func addGenericBulkDiscardingRow<Value: StreamPartial>(
+private func addGenericBulkDiscardingRow<Value: StreamParseable>(
   _ name: String,
   as type: Value.Type
 ) {

@@ -79,6 +79,9 @@ extension StreamCompletedValueConversion {
 
 /// Incremental source storage and a cached completed conversion.
 ///
+/// A converted partial is its own partial, so it can be streamed directly:
+/// `PartialsStream<ConvertedPartial<Strategy>>`.
+///
 /// ```swift
 /// // For a member annotated with completedConversion:
 /// let received = partial.createdAt?.source
@@ -258,4 +261,8 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
       )
     }
   }
+}
+
+extension ConvertedPartial: StreamParseable {
+  public typealias Partial = Self
 }

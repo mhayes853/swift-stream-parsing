@@ -117,12 +117,12 @@ func runLayerPartialSink<Value: StreamPartial>(
   blackHole(storage.pointee)
 }
 
-func runLayerStream<Value: StreamPartial>(
+func runLayerStream<Value: StreamParseable>(
   _ payload: [UInt8],
   _ mode: LayerFeed,
   as type: Value.Type
 ) throws {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  var stream = PartialsStream<Value>(from: .json())
   switch mode {
   case .byteByByte:
     for byte in payload {
@@ -144,7 +144,7 @@ func runLayerStream<Value: StreamPartial>(
 
 // MARK: - Registration
 
-private func addLayerRows<Value: StreamPartial>(
+private func addLayerRows<Value: StreamParseable>(
   _ name: String,
   _ payload: [UInt8],
   as type: Value.Type,
@@ -161,7 +161,7 @@ private func addLayerRows<Value: StreamPartial>(
     Benchmark("Layer \(name) \(mode.name) - partial sink", configuration: payloadConfiguration) {
       benchmark in
       measurePayloadThroughput(benchmark, payload: payload) {
-        blackHole(expectParses { try runLayerPartialSink(payload, mode, as: Value.self) })
+        blackHole(expectParses { try runLayerPartialSink(payload, mode, as: Value.Partial.self) })
       }
     }
 

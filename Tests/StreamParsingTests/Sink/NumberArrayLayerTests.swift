@@ -8,15 +8,15 @@ import StreamParsingCore
 // the structural block walk takes them, held to values computed without the parser.
 @Suite
 struct `Number array layer tests` {
-  private static func parse<Value: StreamPartial>(
+  private static func parse<Value: StreamParseable>(
     _ json: String, as type: Value.Type
-  ) throws -> Value {
-    var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
+  ) throws -> Value.Partial {
+    var stream = PartialsStream<Value>(from: .json())
     try stream.next(Array(json.utf8))
     return try stream.finish()
   }
 
-  private static func failure<Value: StreamPartial>(
+  private static func failure<Value: StreamParseable>(
     _ json: String, as type: Value.Type
   ) -> JSONParsingError? {
     do {

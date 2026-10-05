@@ -20,9 +20,9 @@
     ///   computed, nested, ignored, or ambiguously overlapping fields. Iteration can separately
     ///   throw upstream, parsing, subscription, or field-value errors.
     public func observeField<Field: StreamPartial>(
-      _ path: KeyPath<Element, Field?>
-    ) throws -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
-      self.observeField(try ObservedFieldPath(path))
+      _ path: KeyPath<Parseable.Partial, Field?>
+    ) throws -> AsyncFieldObservationSequence<Parseable, Base, Seq, Field> {
+      self.observeField(try ObservedFieldPath<Parseable, Field>(path))
     }
 
     /// Observes a nonoptional stored field, including fields initialized by the partial-member mode.
@@ -45,20 +45,21 @@
     ///   propagates upstream, parsing, subscription, and field-value errors.
     @_disfavoredOverload
     public func observeField<Field: StreamPartial>(
-      _ path: KeyPath<Element, Field>
-    ) throws -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
-      self.observeField(try ObservedFieldPath(path))
+      _ path: KeyPath<Parseable.Partial, Field>
+    ) throws -> AsyncFieldObservationSequence<Parseable, Base, Seq, Field> {
+      self.observeField(try ObservedFieldPath<Parseable, Field>(path))
     }
 
     /// Observes a field using a previously validated selection, reusable across documents.
     ///
     /// ```swift
-    /// let title = try ObservedFieldPath<Response.Partial, StreamString>(\.title)
+    /// let title = try ObservedFieldPath<Response, StreamString>(\.title)
     /// let updates = chunks.partials(of: Response.self, from: .json()).observeField(title)
     /// for try await update in updates { print(update.value, update.isComplete) }
     /// ```
     ///
-    /// - Parameter path: A validated selection for this sequence's partial root.
+    /// - Parameter path: A validated selection for this sequence's partial, rooted at the model
+    ///   type or at the partial itself.
     /// - Returns: A sequence of `PartialUpdate<ObservedField<Field>>` snapshots sharing this
     ///   source's single subscription. Each input element produces an update, followed by a
     ///   final update with `isComplete == true` after successful EOF validation. Use
@@ -66,30 +67,31 @@
     ///
     /// This method performs no further validation and does not throw. Iteration propagates
     /// upstream, parsing, subscription, and field-value errors; after an error it returns `nil`.
-    public func observeField<Field: StreamPartial>(
-      _ path: ObservedFieldPath<Element, Field>
-    ) -> AsyncFieldObservationSequence<Element, Base, Seq, Field> {
-      AsyncFieldObservationSequence(source: self, path: path)
+    public func observeField<Path: StreamParseable, Field: StreamPartial>(
+      _ path: ObservedFieldPath<Path, Field>
+    ) -> AsyncFieldObservationSequence<Parseable, Base, Seq, Field>
+    where Path.Partial == Parseable.Partial {
+      AsyncFieldObservationSequence(source: self, path: ObservedFieldPath<Parseable, Field>(path))
     }
   }
 
   /// Owned field states and explicit document completion. Iterator copies share both the
   /// source cursor and field tracking; concurrent calls on copies are not supported.
   public struct AsyncFieldObservationSequence<
-    Root: StreamPartial,
+    Parseable: StreamParseable,
     Base: AsyncSequence,
     Bytes: Sequence<UInt8>,
     Field: StreamPartial
   >: AsyncSequence {
     public typealias Element = PartialUpdate<ObservedField<Field>>
-    let source: AsyncPartialsSequence<Root, Base, Bytes>
-    let path: ObservedFieldPath<Root, Field>
+    let source: AsyncPartialsSequence<Parseable, Base, Bytes>
+    let path: ObservedFieldPath<Parseable, Field>
 
     public struct AsyncIterator: AsyncIteratorProtocol {
-      let box: AsyncPartialsSequence<Root, Base, Bytes>.Box<FieldObservationState>
+      let box: AsyncPartialsSequence<Parseable, Base, Bytes>.Box<FieldObservationState>
       let subscription: AsyncPartialsSubscription
       let bytes: @Sendable (Base.Element) -> Bytes
-      let path: ObservedFieldPath<Root, Field>
+      let path: ObservedFieldPath<Parseable, Field>
 
       public mutating func next() async throws -> Element? {
         let source = self.box
@@ -131,7 +133,7 @@
 
     public func makeAsyncIterator() -> AsyncIterator {
       AsyncIterator(
-        box: AsyncPartialsSequence<Root, Base, Bytes>
+        box: AsyncPartialsSequence<Parseable, Base, Bytes>
           .Box(
             base: self.source.base,
             stream: PartialsStream(
@@ -148,5 +150,5 @@
   }
 
   extension AsyncFieldObservationSequence: Sendable
-  where Root: Sendable, Base: Sendable, Bytes: Sendable {}
+  where Parseable.Partial: Sendable, Base: Sendable, Bytes: Sendable {}
 #endif

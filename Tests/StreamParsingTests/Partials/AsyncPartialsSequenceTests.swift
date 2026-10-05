@@ -43,7 +43,7 @@ struct `AsyncPartialsSequence Tests` {
     }
 
     var partials = [String]()
-    for try await partial in byteStream.partials(initialValue: "", from: .json()) {
+    for try await partial in byteStream.partials(of: SwiftStringStorage.self, from: .json()) {
       partials.append(partial)
     }
 

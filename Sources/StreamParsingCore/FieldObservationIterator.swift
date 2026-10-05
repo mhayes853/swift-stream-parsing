@@ -4,43 +4,49 @@
     /// Install before consuming input. The field's state follows this document's tokens;
     /// a seeded initial value alone does not make the field present in the input.
     public consuming func observeField<Field: StreamPartial>(
-      _ path: KeyPath<Value, Field?>
-    ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
-      try self.observeField(ObservedFieldPath(path))
+      _ path: KeyPath<Parseable.Partial, Field?>
+    ) throws -> FieldObservationIterator<Parseable, Base, Bytes, Field> {
+      try self.observeField(ObservedFieldPath<Parseable, Field>(path))
     }
 
     @_disfavoredOverload
     public consuming func observeField<Field: StreamPartial>(
-      _ path: KeyPath<Value, Field>
-    ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
-      try self.observeField(ObservedFieldPath(path))
+      _ path: KeyPath<Parseable.Partial, Field>
+    ) throws -> FieldObservationIterator<Parseable, Base, Bytes, Field> {
+      try self.observeField(ObservedFieldPath<Parseable, Field>(path))
     }
 
-    public consuming func observeField<Field: StreamPartial>(
-      _ path: ObservedFieldPath<Value, Field>
-    ) throws -> FieldObservationIterator<Value, Base, Bytes, Field> {
+    /// Observes the field a validated path selects. The path may be rooted at any spelling of
+    /// this iterator's partial: the model type or the partial itself.
+    public consuming func observeField<Path: StreamParseable, Field: StreamPartial>(
+      _ path: ObservedFieldPath<Path, Field>
+    ) throws -> FieldObservationIterator<Parseable, Base, Bytes, Field>
+    where Path.Partial == Parseable.Partial {
       guard self.stream.parser.consumedByteCount == 0,
         !self.terminated, !self.stream.hasFinished, !self.stream.hasParserFailed
       else {
         throw FieldObservationError.alreadyStarted
       }
-      return FieldObservationIterator(base: self, path: path)
+      return FieldObservationIterator(base: self, path: ObservedFieldPath<Parseable, Field>(path))
     }
   }
 
   /// Emits an owned field state after each input element and once after validated EOF.
   /// Duplicate filtering compares field state as well as value. Errors terminate the iterator.
   public struct FieldObservationIterator<
-    Root: StreamPartial,
+    Parseable: StreamParseable,
     Base: IteratorProtocol,
     Bytes: Sequence<UInt8>,
     Field: StreamPartial
   >: ~Copyable, PartialUpdateIteratorProtocol {
-    var base: PartialIterator<Root, Base, Bytes>
-    let path: ObservedFieldPath<Root, Field>
+    var base: PartialIterator<Parseable, Base, Bytes>
+    let path: ObservedFieldPath<Parseable, Field>
     var observation: FieldObservationState
 
-    init(base: consuming PartialIterator<Root, Base, Bytes>, path: ObservedFieldPath<Root, Field>) {
+    init(
+      base: consuming PartialIterator<Parseable, Base, Bytes>,
+      path: ObservedFieldPath<Parseable, Field>
+    ) {
       self.base = base
       self.path = path
       self.observation = FieldObservationState(offset: path.offset)

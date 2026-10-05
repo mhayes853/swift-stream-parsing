@@ -12,13 +12,13 @@ import StreamParsing
 // These hold states instead: a rolling window, and every state at once.
 
 @inline(never)
-private func streamSnapshottingRetained<Value: StreamPartial>(
+private func streamSnapshottingRetained<Value: StreamParseable>(
   _ bytes: [UInt8],
   window: Int,
   as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
-  var kept = [Value?](repeating: nil, count: max(window, 1))
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: .json())
+  var kept = [Value.Partial?](repeating: nil, count: max(window, 1))
   var taken = 0
   for byte in bytes {
     try stream.next(byte)
@@ -30,12 +30,12 @@ private func streamSnapshottingRetained<Value: StreamPartial>(
 }
 
 @inline(never)
-private func streamSnapshottingAll<Value: StreamPartial>(
+private func streamSnapshottingAll<Value: StreamParseable>(
   _ bytes: [UInt8],
   as type: Value.Type
-) throws -> Value {
-  var stream = PartialsStream(initialValue: Value.streamInitialValue(), from: .json())
-  var kept = [Value]()
+) throws -> Value.Partial {
+  var stream = PartialsStream<Value>(from: .json())
+  var kept = [Value.Partial]()
   kept.reserveCapacity(bytes.count)
   for byte in bytes {
     try stream.next(byte)

@@ -25,36 +25,54 @@ public enum FieldObservationError: Error, Equatable, Sendable {
 // no such dependency; only the typed selection and its public drivers need this gate.
 #if !hasFeature(Embedded)
   /// A validated, reusable selection of one direct stored object field.
+  ///
+  /// The path is rooted at the parseable type's partial, whichever spelling names the type:
+  ///
+  /// ```swift
+  /// let title = try ObservedFieldPath<Response, StreamString>(\.title)
+  /// ```
+  ///
   /// Key aliases are resolved by the schema, not the Swift property name. Computed/nested paths,
   /// ignored members, and roots without a field table throw `unsupportedField`.
-  /// Validation uses `Root.streamObservationFields`; reuse a path across documents.
-  public struct ObservedFieldPath<Root: StreamPartial, Value: StreamPartial>: Sendable {
+  /// Validation uses `Parseable.Partial.streamObservationFields`; reuse a path across documents.
+  public struct ObservedFieldPath<Parseable: StreamParseable, Field: StreamPartial>: Sendable {
     let offset: Int
     let optional: Bool
 
-    public init(_ path: KeyPath<Root, Value?>) throws {
+    public init(_ path: KeyPath<Parseable.Partial, Field?>) throws {
       self.offset = try Self.validate(path, optional: true)
       self.optional = true
     }
 
     @_disfavoredOverload
-    public init(_ path: KeyPath<Root, Value>) throws {
+    public init(_ path: KeyPath<Parseable.Partial, Field>) throws {
       self.offset = try Self.validate(path, optional: false)
       self.optional = false
     }
 
-    private static func validate(_ path: PartialKeyPath<Root>, optional: Bool) throws -> Int {
+    /// Re-roots a validated path at another spelling of the same partial, such as the model type
+    /// for a path validated against its `Partial`. The selection is the same field either way.
+    public init<Other: StreamParseable>(_ path: ObservedFieldPath<Other, Field>)
+    where Other.Partial == Parseable.Partial {
+      self.offset = path.offset
+      self.optional = path.optional
+    }
+
+    private static func validate(
+      _ path: PartialKeyPath<Parseable.Partial>,
+      optional: Bool
+    ) throws -> Int {
       // An offset alone is insufficient: a nested stored key path can have the same offset as
       // its containing field. Check identity against the root's direct stored paths first.
-      let schema = Root.streamSchema
-      guard let offset = MemoryLayout<Root>.offset(of: path),
+      let schema = Parseable.Partial.streamSchema
+      guard let offset = MemoryLayout<Parseable.Partial>.offset(of: path),
         schema.shape == .object, let entries = schema.fieldEntries
       else {
         throw FieldObservationError.unsupportedField
       }
-      let fields = Root.streamObservationFields
+      let fields = Parseable.Partial.streamObservationFields
       guard fields.contains(path),
-        fields.lazy.filter({ MemoryLayout<Root>.offset(of: $0) == offset }).count == 1
+        fields.lazy.filter({ MemoryLayout<Parseable.Partial>.offset(of: $0) == offset }).count == 1
       else {
         // Zero-sized members can have equal offsets and even equal key paths. The schema
         // cannot distinguish these overlapping members, so reject them during setup.
@@ -68,9 +86,10 @@ public enum FieldObservationError: Error, Equatable, Sendable {
       throw FieldObservationError.unsupportedField
     }
 
-    func snapshot(from root: UnsafeMutablePointer<Root>, phase: FieldObservationState.Phase)
-      throws -> ObservedField<Value>
-    {
+    func snapshot(
+      from root: UnsafeMutablePointer<Parseable.Partial>,
+      phase: FieldObservationState.Phase
+    ) throws -> ObservedField<Field> {
       switch phase {
       case .missing: return .missing
       case .null: return .null
@@ -79,10 +98,10 @@ public enum FieldObservationError: Error, Equatable, Sendable {
         // The key path validated this exact stored type/offset. Reading only its slot avoids
         // copying the root and preserves nested Optional payloads rather than flattening them.
         let address = UnsafeRawPointer(root).advanced(by: self.offset)
-        let value: Value? =
+        let value: Field? =
           self.optional
-          ? address.assumingMemoryBound(to: Value?.self).pointee
-          : .some(address.assumingMemoryBound(to: Value.self).pointee)
+          ? address.assumingMemoryBound(to: Field?.self).pointee
+          : .some(address.assumingMemoryBound(to: Field.self).pointee)
         if phase == .incompleteValue { return .incomplete(value) }
         guard let value else { throw FieldObservationError.unavailableValue }
         return .complete(value)

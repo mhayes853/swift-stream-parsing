@@ -93,7 +93,7 @@ package extension AccessOuter {
 // Deliberately does not call `finish()`: a truncated document is exactly what the strict
 // conversion is there to decline, and finishing would reject it before the conversion saw it.
 private func parse<T: StreamParseable>(_ json: String, as type: T.Type) throws -> T.Partial {
-  var stream = PartialsStream(initialValue: T.Partial.streamInitialValue(), from: .json())
+  var stream = PartialsStream<T>(from: .json())
   for byte in Array(json.utf8) {
     try stream.next(byte)
   }
