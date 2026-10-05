@@ -49,10 +49,6 @@ struct `StreamObjectGeneration conversion tests` {
         )
       }
 
-      @inlinable public init?(_ partial: Partial) {
-        self.init(streamPartial: partial)
-      }
-
       public init?(streamPartial partial: Partial) {
         guard
           let streamValue_name = Self._streamValue({ $0.name }, partial.name),
@@ -78,25 +74,22 @@ struct `StreamObjectGeneration conversion tests` {
         self.cache = nil
         self.retries = 3
       }
-
-      @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-        Self(orInitial: partial)
-      }
       """
     )
   }
 
   @Test
-  func `Stream Initial Value Members Make The Unlabelled Initializer Total`() throws {
+  func `Stream Initial Value Members Emit The Same Two Initializers`() throws {
     let generation = try StreamObjectGeneration(
       fields: [self.field("value")],
       partialMembers: .streamInitialValue
     )
     let source = try generation.conversionsSyntax().description
 
-    self.expectContains(source, "init(_ partial: Partial) {\n  self.init(orInitial: partial)\n}")
-    expectNoDifference(source.contains("init?(_ partial"), false)
     self.expectContains(source, "init?(streamPartial partial: Partial)")
+    self.expectContains(source, "init(orInitial partial: Partial)")
+    expectNoDifference(source.contains("init(_ partial"), false)
+    expectNoDifference(source.contains("init?(_ partial"), false)
   }
 
   @Test
@@ -122,14 +115,14 @@ struct `StreamObjectGeneration conversion tests` {
 
     let never = try generation.conversionsSyntax(partialValueInlining: .never).description
     expectNoDifference(never.hasPrefix("public var streamPartialValue: Partial {"), true)
-    self.expectContains(never, "@inlinable public init?(_ partial: Partial)")
-    self.expectContains(never, "@inlinable public static func streamValueOrInitial")
+    // The initializers assign stored properties, so they are never inlinable to begin with.
+    expectNoDifference(never.contains("@inlinable"), false)
 
     let internalGeneration = try StreamObjectGeneration(fields: [self.field("value")])
     let always = try internalGeneration.conversionsSyntax(partialValueInlining: .always)
       .description
     expectNoDifference(always.hasPrefix("@inlinable var streamPartialValue: Partial {"), true)
-    expectNoDifference(always.contains("@inlinable init?(_ partial"), false)
+    expectNoDifference(always.contains("@inlinable init"), false)
   }
 
   @Test

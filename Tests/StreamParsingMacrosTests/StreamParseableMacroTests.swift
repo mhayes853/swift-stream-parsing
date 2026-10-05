@@ -198,10 +198,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -222,10 +218,6 @@ extension BaseTestSuite {
             self.age = Self._streamValueOrInitial({
                 $0.age
               }, partial.age)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -443,10 +435,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -467,10 +455,6 @@ extension BaseTestSuite {
             self.nickname = Self._streamValueOrInitial({
                 $0.nickname
               }, partial.nickname)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -738,10 +722,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_id = Self._streamValue({ $0.id
@@ -756,10 +736,6 @@ extension BaseTestSuite {
             self.id = Self._streamValueOrInitial({
                 $0.id
               }, partial.id)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -1092,10 +1068,6 @@ extension BaseTestSuite {
 
           }
 
-          init(_ partial: Partial) {
-            self.init(orInitial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -1116,10 +1088,6 @@ extension BaseTestSuite {
             self.age = Self._streamValueOrInitial({
                 $0.age
               }, partial.age)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -1283,10 +1251,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_nickname = Self._streamValue({ $0.nickname
@@ -1301,10 +1265,6 @@ extension BaseTestSuite {
             self.nickname = Self._streamValueOrInitial({
                 $0.nickname
               }, partial.nickname)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -1482,10 +1442,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_stored = Self._streamValue({ $0.stored
@@ -1500,10 +1456,6 @@ extension BaseTestSuite {
             self.stored = Self._streamValueOrInitial({
                 $0.stored
               }, partial.stored)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -1590,10 +1542,6 @@ extension BaseTestSuite {
         extension Broadcast: StreamParsingCore.StreamParseable {
           typealias Partial = StreamParsingCore.StreamString
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             let streamCount = partial.utf8Count
             guard streamCount > 0 else {
@@ -1630,10 +1578,6 @@ extension BaseTestSuite {
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .live
           }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
-          }
         }
         """
       }
@@ -1665,20 +1609,12 @@ extension BaseTestSuite {
         extension Priority: StreamParsingCore.StreamParseable {
           typealias Partial = Int
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             self.init(rawValue: partial)
           }
 
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .low
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -1711,20 +1647,12 @@ extension BaseTestSuite {
         extension Priority: StreamParsingCore.StreamParseable {
           typealias Partial = Int128
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             self.init(rawValue: partial)
           }
 
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .low
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -1759,20 +1687,12 @@ extension BaseTestSuite {
         extension Priority: StreamParsingCore.StreamParseable {
           typealias Partial = UInt128
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             self.init(rawValue: partial)
           }
 
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .low
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -1973,10 +1893,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             var streamMatched = -1
             var streamMatches = 0
@@ -1998,10 +1914,6 @@ extension BaseTestSuite {
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .circle
           }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
-          }
         }
         """#
       }
@@ -2021,7 +1933,7 @@ extension BaseTestSuite {
         @StreamParseable
         enum Broadcast: String {
              ┬────────
-             ╰─ 🛑 @StreamParseable requires an enum to name a fallback case, because 'streamValueOrInitial' has to produce one when the stream produced nothing this type can represent. Mark a case with @StreamParseableDefault, or declare 'StreamInitializable' conformance on 'Broadcast' itself.
+             ╰─ 🛑 @StreamParseable requires an enum to name a fallback case, because 'init(orInitial:)' has to produce one when the stream produced nothing this type can represent. Mark a case with @StreamParseableDefault, or declare 'StreamInitializable' conformance on 'Broadcast' itself.
           case live
         }
         """
@@ -2258,10 +2170,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -2276,10 +2184,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -2675,10 +2579,6 @@ extension BaseTestSuite {
                 )
               }
 
-              init?(_ partial: Partial) {
-                self.init(streamPartial: partial)
-              }
-
               init?(streamPartial partial: Partial) {
                 guard
                   let streamValue__0 = Self._streamValue({ $0._0
@@ -2694,15 +2594,7 @@ extension BaseTestSuite {
                     $0._0
                   }, partial._0)
               }
-
-              static func streamValueOrInitial(from partial: Partial) -> Self {
-                Self(orInitial: partial)
-              }
             }
-          }
-
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
           }
 
           init?(streamPartial partial: Partial) {
@@ -2734,10 +2626,6 @@ extension BaseTestSuite {
 
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .`class`
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -2813,10 +2701,6 @@ extension BaseTestSuite {
         }
 
         extension Person: StreamParsingCore.StreamParseable {
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -2837,10 +2721,6 @@ extension BaseTestSuite {
             self.age = Self._streamValueOrInitial({
                 $0.age
               }, partial.age)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -3010,10 +2890,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -3028,10 +2904,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -3201,10 +3073,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           public init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -3219,10 +3087,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -3386,10 +3250,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -3404,10 +3264,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -3571,10 +3427,6 @@ extension BaseTestSuite {
 
           }
 
-          fileprivate init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           fileprivate init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -3589,10 +3441,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          fileprivate static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -3799,10 +3647,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           public init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -3823,10 +3667,6 @@ extension BaseTestSuite {
             self.age = Self._streamValueOrInitial({
                 $0.age
               }, partial.age)
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -4032,10 +3872,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           public init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -4056,10 +3892,6 @@ extension BaseTestSuite {
             self.age = Self._streamValueOrInitial({
                 $0.age
               }, partial.age)
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -4092,10 +3924,6 @@ extension BaseTestSuite {
         extension Stage: StreamParsingCore.StreamParseable {
           public typealias Partial = StreamParsingCore.StreamString
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           @inlinable public init?(streamPartial partial: Partial) {
             let streamCount = partial.utf8Count
             guard streamCount > 0 else {
@@ -4124,10 +3952,6 @@ extension BaseTestSuite {
 
           @inlinable public init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .idle
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -4375,10 +4199,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           @inlinable public init?(streamPartial partial: Partial) {
             var streamMatched = -1
             var streamMatches = 0
@@ -4405,10 +4225,6 @@ extension BaseTestSuite {
 
           @inlinable public init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .circle
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -4598,10 +4414,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_items = Self._streamValue({ $0.items
@@ -4622,10 +4434,6 @@ extension BaseTestSuite {
             self.index = Self._streamValueOrInitial({
                 $0.index
               }, partial.index)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -4888,10 +4696,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_items = Self._streamValue({ $0.items
@@ -4921,10 +4725,6 @@ extension BaseTestSuite {
                 $0.cursor
               }, partial.cursor)
             self.doubled = _streamConvertedValue(partial.doubled) ?? (0)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -5091,10 +4891,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_value = Self._streamValue({ $0.value
@@ -5109,10 +4905,6 @@ extension BaseTestSuite {
             self.value = Self._streamValueOrInitial({
                 $0.value
               }, partial.value)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -5367,10 +5159,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           public init?(streamPartial partial: Partial) {
             guard
               let streamValue_x = Self._streamValue({ $0.x
@@ -5386,18 +5174,10 @@ extension BaseTestSuite {
                 $0.x
               }, partial.x)
           }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
-          }
         }
 
         extension Outer.Level: StreamParsingCore.StreamParseable {
           typealias Partial = Int
-
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
 
           init?(streamPartial partial: Partial) {
             self.init(rawValue: partial)
@@ -5406,18 +5186,10 @@ extension BaseTestSuite {
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .low
           }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
-          }
         }
 
         extension Outer.Kind: StreamParsingCore.StreamParseable {
           package typealias Partial = StreamParsingCore.StreamString
-
-          @inlinable package init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
 
           @inlinable package init?(streamPartial partial: Partial) {
             let streamCount = partial.utf8Count
@@ -5440,10 +5212,6 @@ extension BaseTestSuite {
 
           @inlinable package init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .a
-          }
-
-          @inlinable package static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -5690,10 +5458,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable package init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           package init?(streamPartial partial: Partial) {
             guard
               let streamValue_class = Self._streamValue({ $0.`class`
@@ -5722,10 +5486,6 @@ extension BaseTestSuite {
                 $0.x
               }, partial.x)
             self.note = nil
-          }
-
-          @inlinable package static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -6023,10 +5783,6 @@ extension BaseTestSuite {
         }
 
         extension Person {
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -6041,10 +5797,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """
@@ -6067,7 +5819,7 @@ extension BaseTestSuite {
         @StreamParseable
         enum Stage: String {
              ┬────
-             ╰─ 🛑 @StreamParseable requires an enum to name a fallback case, because 'streamValueOrInitial' has to produce one when the stream produced nothing this type can represent. Mark a case with @StreamParseableDefault, or declare 'StreamInitializable' conformance on 'Stage' itself.
+             ╰─ 🛑 @StreamParseable requires an enum to name a fallback case, because 'init(orInitial:)' has to produce one when the stream produced nothing this type can represent. Mark a case with @StreamParseableDefault, or declare 'StreamInitializable' conformance on 'Stage' itself.
           case live
 
           func streamInitialValue(of x: Int) {}

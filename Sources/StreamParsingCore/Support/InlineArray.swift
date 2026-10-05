@@ -48,9 +48,10 @@ extension InlineArray: StreamParseable where Element: StreamParseable {
     }
   }
 
-  public static func streamValueOrInitial(from partial: Partial) -> Self {
-    Self { index in
-      Element.streamValueOrInitial(from: partial[index])
+  @_disfavoredOverload
+  public init(orInitial partial: Partial) {
+    self.init { index in
+      Element(orInitial: partial[index])
     }
   }
 }

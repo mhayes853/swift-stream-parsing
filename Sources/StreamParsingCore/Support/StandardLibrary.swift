@@ -174,8 +174,9 @@ extension String: StreamParseable {
     self.init(streamPartial)
   }
 
-  public static func streamValueOrInitial(from partial: StreamString) -> String {
-    String(partial)
+  @_disfavoredOverload
+  public init(orInitial partial: StreamString) {
+    self.init(partial)
   }
 }
 
@@ -199,13 +200,13 @@ extension Array: StreamParseable where Element: StreamParseable {
   }
 
   // Member-wise: the blanket fallback would answer `[]` if only the last element was short.
-  public static func streamValueOrInitial(from partial: StreamArray<Element.Partial>) -> Self {
-    var result = Self()
-    result.reserveCapacity(partial.count)
+  @_disfavoredOverload
+  public init(orInitial partial: StreamArray<Element.Partial>) {
+    self.init()
+    self.reserveCapacity(partial.count)
     for element in partial {
-      result.append(Element.streamValueOrInitial(from: element))
+      self.append(Element(orInitial: element))
     }
-    return result
   }
 }
 
@@ -233,12 +234,12 @@ extension Dictionary: StreamParseable where Key == String, Value: StreamParseabl
   }
 
   // Member-wise for the same reason as `Array`: the blanket fallback would answer `[:]`.
-  public static func streamValueOrInitial(from partial: StreamDictionary<Value.Partial>) -> Self {
-    var result = Self(minimumCapacity: partial.count)
+  @_disfavoredOverload
+  public init(orInitial partial: StreamDictionary<Value.Partial>) {
+    self.init(minimumCapacity: partial.count)
     for (key, value) in partial {
-      result[key] = Value.streamValueOrInitial(from: value)
+      self[key] = Value(orInitial: value)
     }
-    return result
   }
 }
 
@@ -267,8 +268,9 @@ extension Optional: StreamParseable where Wrapped: StreamParseable {
     }
   }
 
-  public static func streamValueOrInitial(from partial: Wrapped.Partial?) -> Self {
-    partial.map(Wrapped.streamValueOrInitial(from:))
+  @_disfavoredOverload
+  public init(orInitial partial: Wrapped.Partial?) {
+    self = partial.map { Wrapped(orInitial: $0) }
   }
 }
 

@@ -166,10 +166,6 @@ extension BaseTestSuite {
 
           }
 
-          @inlinable public init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           public init?(streamPartial partial: Partial) {
             guard
               let streamValue_createdAt = _streamConvertedValue(partial.createdAt)
@@ -181,10 +177,6 @@ extension BaseTestSuite {
 
           public init(orInitial partial: Partial) {
             self.createdAt = _streamConvertedValue(partial.createdAt) ?? (Date(timeIntervalSince1970: 0))
-          }
-
-          @inlinable public static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#

@@ -139,6 +139,7 @@ extension Profile: StreamParseable {
 
   var streamPartialValue: Partial
   init?(streamPartial: Partial)   // nil until every member has arrived
+  init(orInitial: Partial)        // absent members fall back to their initial values
 }
 ```
 
@@ -157,6 +158,7 @@ for chunk in chunks {
 }
 let partial = try stream.finish()
 let profile = Profile(streamPartial: partial)  // `nil` if the document left a member out
+let filled = Profile(orInitial: partial)       // `""`, `0`, `false` for whatever it left out
 ```
 
 Everywhere a type is named (`PartialsStream<Profile>`, `partials(of: Profile.self, ...)`,

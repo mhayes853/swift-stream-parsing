@@ -66,8 +66,9 @@
       self.init(rawValue: rawValue)
     }
 
-    public static func streamValueOrInitial(from partial: Tagged<Tag, RawValue.Partial>) -> Self {
-      Tagged(rawValue: RawValue.streamValueOrInitial(from: partial.rawValue))
+    @_disfavoredOverload
+    public init(orInitial partial: Tagged<Tag, RawValue.Partial>) {
+      self.init(rawValue: RawValue(orInitial: partial.rawValue))
     }
   }
 

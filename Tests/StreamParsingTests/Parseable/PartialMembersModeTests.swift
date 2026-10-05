@@ -36,7 +36,7 @@ struct `Partial Members Mode Tests` {
     try stream.next(Array(#"{"id":3}"#.utf8))
     expectNoDifference(stream.current.id, 3)
     expectNoDifference(stream.current.name, nil)
-    expectNoDifference(ExplicitOptionalModel(stream.current), nil)
+    expectNoDifference(ExplicitOptionalModel(streamPartial: stream.current), nil)
     expectNoDifference(ModuleQualifiedOptionalModel.Partial().id, nil)
   }
 
@@ -47,6 +47,9 @@ struct `Partial Members Mode Tests` {
     expectNoDifference(initial.name.isEmpty, true)
     var stream = PartialsStream(initialValue: initial, from: .json())
     try stream.next(Array(#"{"id":3}"#.utf8))
-    expectNoDifference(QualifiedInitialValueModel(stream.current), QualifiedInitialValueModel(id: 3, name: ""))
+    expectNoDifference(
+      QualifiedInitialValueModel(orInitial: stream.current),
+      QualifiedInitialValueModel(id: 3, name: "")
+    )
   }
 }

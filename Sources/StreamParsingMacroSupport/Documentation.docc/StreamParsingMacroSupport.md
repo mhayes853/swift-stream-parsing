@@ -108,10 +108,8 @@ let conformance = try ExtensionDeclSyntax("extension \(type.trimmed): \(TypeSynt
 ```
 
 `conversionsSyntax` generates the members that make the whole type `StreamParseable`:
-`streamPartialValue`, `init?(streamPartial:)`, `init(orInitial:)`, `streamValueOrInitial(from:)`,
-and an unlabelled `init(_:)`. The unlabelled initializer is the strict, failable conversion for
-`.optional` partial members and the total one for `.streamInitialValue`. A partial type name
-other than `Partial` also produces `typealias Partial`. Put the members in an extension of the
+`streamPartialValue`, `init?(streamPartial:)`, and `init(orInitial:)`. A partial type name other
+than `Partial` also produces `typealias Partial`. Put the members in an extension of the
 whole type: initializers declared in its body suppress the memberwise initializer.
 
 Each field's `name` must be a stored property of the whole type with the field's `type`. The
@@ -194,12 +192,12 @@ payload type name and expose nested `Partial` and `Value` types with the members
 generated schema, view, and conversions. The callback runs once for each case with a payload; it
 does not run for raw-value representations or cases without associated values.
 
-`conversionsSyntax` returns `streamPartialValue`, `init?(_:)`, and `init?(streamPartial:)`. The
-strict conversion requires exactly one case to be present and its payload to be complete. With a
-`defaultCase` it also returns `init(orInitial:)` and `streamValueOrInitial(from:)`, which fall
-back to that case, filling a default case's payload from its stream initial values. Without one,
-the host adopts `TypeSyntax.streamInitializable` and supplies `streamInitialValue()`. An enum has
-no memberwise initializer, so every member can go in the same extension.
+`conversionsSyntax` returns `streamPartialValue` and `init?(streamPartial:)`. The strict
+conversion requires exactly one case to be present and its payload to be complete. With a
+`defaultCase` it also returns `init(orInitial:)`, which falls back to that case, filling a default
+case's payload from its stream initial values. Without one, the host adopts
+`TypeSyntax.streamInitializable` and supplies `streamInitialValue()`. An enum has no memberwise
+initializer, so every member can go in the same extension.
 
 `streamPartialValue` of `.caseKeyedObject` is not inlined unless `partialValueInlining` asks for
 it: an inlinable `switch self` over a public enum that isn't `@frozen` does not compile under

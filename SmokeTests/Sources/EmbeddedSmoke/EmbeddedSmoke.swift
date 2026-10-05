@@ -155,10 +155,6 @@ extension Reading: StreamParseable {
   init(orInitial partial: Partial) {
     self.meters = Self._streamValueOrInitial({ $0.meters }, partial)
   }
-
-  static func streamValueOrInitial(from partial: Partial) -> Reading {
-    Reading(orInitial: partial)
-  }
 }
 
 // One level of nesting, so the recursion through `Optional`'s conformance and the promotion that
@@ -180,10 +176,6 @@ extension Nested: StreamParseable {
 
   init(orInitial partial: Partial) {
     self.inner = Self._streamValueOrInitial({ $0.inner }, partial)
-  }
-
-  static func streamValueOrInitial(from partial: Partial) -> Nested {
-    Nested(orInitial: partial)
   }
 }
 

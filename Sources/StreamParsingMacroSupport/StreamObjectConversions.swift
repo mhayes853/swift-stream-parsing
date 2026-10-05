@@ -21,15 +21,12 @@ public struct StreamUnparsedMember: Sendable {
 
 extension StreamObjectGeneration {
   /// Generates the members that make the whole type `StreamParseable` against this plan's
-  /// partial: `streamPartialValue`, `init?(streamPartial:)`, `init(orInitial:)`,
-  /// `streamValueOrInitial(from:)`, and an unlabelled `init(_:)`.
+  /// partial: `streamPartialValue`, `init?(streamPartial:)`, and `init(orInitial:)`.
   ///
   /// Place the result in an extension of the whole type rather than its body: initializers
   /// declared in the body suppress the memberwise initializer. Each field's `name` must name a
   /// stored property of the whole type whose type is the field's `type`.
   ///
-  /// The unlabelled initializer follows `partialMembers`: with `.optional`, absence is visible,
-  /// so it is the failable strict conversion; with `.streamInitialValue`, it is the total one.
   /// A configured partial type name other than `Partial` also emits `typealias Partial`.
   ///
   /// `init(orInitial:)` falls back to each member's stream initial value, recursively. A
@@ -256,7 +253,6 @@ extension StreamObjectGeneration {
       } + unparsedLines
 
     return [
-      self.configuration.unlabelledInitializerSource(isStrict: self.partialMembers == .optional),
       streamDeclarationSource(
         "\(self.access)init?(streamPartial partial: Partial)",
         body: strictLines.joined(separator: "\n")
@@ -265,7 +261,6 @@ extension StreamObjectGeneration {
         "\(self.access)init(orInitial partial: Partial)",
         body: totalLines.joined(separator: "\n")
       ),
-      self.configuration.streamValueOrInitialSource,
     ]
     .joined(separator: "\n\n")
   }
@@ -275,27 +270,5 @@ extension StreamObjectGeneration {
   /// and distinct members get distinct locals; members themselves are only read qualified.
   private static func streamValueLocal(_ name: TokenSyntax) -> String {
     Self.memberName(.identifier("streamValue_\(Self.bareName(name))"))
-  }
-}
-
-// The members that only delegate, shared by struct and enum conversions.
-extension StreamGenerationConfiguration {
-  /// The unlabelled `init(_:)`, delegating to the strict or the total conversion.
-  func unlabelledInitializerSource(isStrict: Bool) -> String {
-    let prefix = "\(self.inlinableAttribute())\(self.accessPrefix)"
-    return isStrict
-      ? streamDeclarationSource(
-        "\(prefix)init?(_ partial: Partial)", body: "self.init(streamPartial: partial)"
-      )
-      : streamDeclarationSource(
-        "\(prefix)init(_ partial: Partial)", body: "self.init(orInitial: partial)"
-      )
-  }
-
-  var streamValueOrInitialSource: String {
-    streamDeclarationSource(
-      "\(self.inlinableAttribute())\(self.accessPrefix)static func streamValueOrInitial(from partial: Partial) -> Self",
-      body: "Self(orInitial: partial)"
-    )
   }
 }

@@ -290,10 +290,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_role = Self._streamStoredValue({ $0.role
@@ -341,10 +337,6 @@ extension BaseTestSuite {
             self.content = Self._streamValueOrInitial({
                 $0.content
               }, partial.content)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -549,10 +541,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_name = Self._streamValue({ $0.name
@@ -567,10 +555,6 @@ extension BaseTestSuite {
             self.name = Self._streamValueOrInitial({
                 $0.name
               }, partial.name)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#

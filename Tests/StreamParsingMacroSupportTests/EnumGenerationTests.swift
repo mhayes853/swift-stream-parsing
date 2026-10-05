@@ -28,10 +28,6 @@ struct `StreamEnumGeneration tests` {
         self.rawValue.streamPartialValue
       }
 
-      init?(_ partial: Partial) {
-        self.init(streamPartial: partial)
-      }
-
       init?(streamPartial partial: Partial) {
         let streamCount = partial.utf8Count
         guard streamCount > 0 else {
@@ -68,10 +64,6 @@ struct `StreamEnumGeneration tests` {
       init(orInitial partial: Partial) {
         self = Self(streamPartial: partial) ?? .live
       }
-
-      static func streamValueOrInitial(from partial: Partial) -> Self {
-        Self(orInitial: partial)
-      }
       """
     )
   }
@@ -106,10 +98,6 @@ struct `StreamEnumGeneration tests` {
         self.rawValue
       }
 
-      @inlinable public init?(_ partial: Partial) {
-        self.init(streamPartial: partial)
-      }
-
       @inlinable public init?(streamPartial partial: Partial) {
         self.init(rawValue: partial)
       }
@@ -133,10 +121,6 @@ struct `StreamEnumGeneration tests` {
         case .event(let createdAt, let _1):
           return Partial(event: EventArguments.Partial(createdAt: StreamParsingCore.ConvertedPartial<UnixSeconds>(value: createdAt), _1: _1.streamPartialValue))
         }
-      }
-
-      init?(_ partial: Partial) {
-        self.init(streamPartial: partial)
       }
 
       init?(streamPartial partial: Partial) {
@@ -171,14 +155,10 @@ struct `StreamEnumGeneration tests` {
           self = streamMatched
           return
         }
-        let streamDefaultValue = EventArguments.Value.streamValueOrInitial(
-          from: partial.event ?? EventArguments.Partial.streamInitialValue()
+        let streamDefaultValue = EventArguments.Value(
+          orInitial: partial.event ?? EventArguments.Partial.streamInitialValue()
         )
         self = .event(createdAt: streamDefaultValue.createdAt, streamDefaultValue._1)
-      }
-
-      static func streamValueOrInitial(from partial: Partial) -> Self {
-        Self(orInitial: partial)
       }
       """
     )
@@ -335,7 +315,6 @@ struct `StreamEnumGeneration tests` {
     let source = generation.conversionsSyntax().description
 
     expectNoDifference(source.contains("orInitial"), false)
-    expectNoDifference(source.contains("streamValueOrInitial"), false)
   }
 
   @Test

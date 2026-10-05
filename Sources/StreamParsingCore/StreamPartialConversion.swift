@@ -24,7 +24,7 @@ extension StreamParseable {
     _ typeOf: (Self) -> T,
     _ partial: T.Partial?
   ) -> T {
-    T.streamValueOrInitial(from: partial ?? T.Partial.streamInitialValue())
+    T(orInitial: partial ?? T.Partial.streamInitialValue())
   }
 
   /// Strict, for a member the partial stores as the model spells it (`partialStrings: .string`):

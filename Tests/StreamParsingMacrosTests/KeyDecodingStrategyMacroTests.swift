@@ -199,10 +199,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_userID = Self._streamValue({ $0.userID
@@ -223,10 +219,6 @@ extension BaseTestSuite {
             self.text = Self._streamValueOrInitial({
                 $0.text
               }, partial.text)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -419,10 +411,6 @@ extension BaseTestSuite {
 
           }
 
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
-          }
-
           init?(streamPartial partial: Partial) {
             guard
               let streamValue_requestID = Self._streamValue({ $0.requestID
@@ -443,10 +431,6 @@ extension BaseTestSuite {
             self.identifier = Self._streamValueOrInitial({
                 $0.identifier
               }, partial.identifier)
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#
@@ -874,10 +858,6 @@ extension BaseTestSuite {
                 )
               }
 
-              init?(_ partial: Partial) {
-                self.init(streamPartial: partial)
-              }
-
               init?(streamPartial partial: Partial) {
                 guard
                   let streamValue_userName = Self._streamValue({ $0.userName
@@ -899,15 +879,7 @@ extension BaseTestSuite {
                     $0._1
                   }, partial._1)
               }
-
-              static func streamValueOrInitial(from partial: Partial) -> Self {
-                Self(orInitial: partial)
-              }
             }
-          }
-
-          init?(_ partial: Partial) {
-            self.init(streamPartial: partial)
           }
 
           init?(streamPartial partial: Partial) {
@@ -939,10 +911,6 @@ extension BaseTestSuite {
 
           init(orInitial partial: Partial) {
             self = Self(streamPartial: partial) ?? .unknownActivity
-          }
-
-          static func streamValueOrInitial(from partial: Partial) -> Self {
-            Self(orInitial: partial)
           }
         }
         """#

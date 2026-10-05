@@ -89,8 +89,8 @@ struct `Inlinable Expansion Tests` {
     expectNoDifference(InlinableBlock(streamPartial: image), .image(url: "u", width: nil))
     let text = try parse(#"{"text":{"_0":{"body":"hi"}}}"#, as: InlinableBlock.self)
     expectNoDifference(InlinableBlock(streamPartial: text), .text(InlinableTextBlock(body: "hi")))
-    expectNoDifference(InlinableBlock.streamValueOrInitial(from: InlinableBlock.Partial()), .empty)
+    expectNoDifference(InlinableBlock(orInitial: InlinableBlock.Partial()), .empty)
     expectNoDifference(InlinableStage(streamPartial: StreamString("li")), .live)
-    expectNoDifference(InlinableLevel.streamValueOrInitial(from: 7), .low)
+    expectNoDifference(InlinableLevel(orInitial: 7), .low)
   }
 }

@@ -94,7 +94,7 @@ private struct PartialNamedConversionModel {
   @Test func convertedMemberNamedPartialDoesNotShadowTheParameter() throws {
     var stream = PartialsStream<PartialNamedConversionModel.Partial>(from: .json())
     try stream.next(#"{"partial":4,"other":7}"#.utf8)
-    let converted = try #require(PartialNamedConversionModel(stream.current))
+    let converted = try #require(PartialNamedConversionModel(streamPartial: stream.current))
     #expect(converted.partial == 8)
     #expect(converted.other == 7)
   }

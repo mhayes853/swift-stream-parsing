@@ -136,11 +136,11 @@ struct `Generic Parseable Tests` {
   @Test(arguments: chunks)
   func `A known kind behind a generic parameter`(chunk: Int) throws {
     let int = try parsed(#"{"value":3,"label":"x"}"#, as: Box<Int>.Partial.self, chunk: chunk)
-    expectNoDifference(Box(int), Box(value: 3, label: "x"))
+    expectNoDifference(Box(streamPartial: int), Box(value: 3, label: "x"))
     let string = try parsed(
       #"{"value":"héllo \"q\"","label":"y"}"#, as: Box<String>.Partial.self, chunk: chunk
     )
-    expectNoDifference(Box(string), Box(value: "héllo \"q\"", label: "y"))
+    expectNoDifference(Box(streamPartial: string), Box(value: "héllo \"q\"", label: "y"))
     let flag = try parsed(#"{"value":true}"#, as: Box<Bool>.Partial.self, chunk: chunk)
     expectNoDifference(flag.value, true)
   }
@@ -161,7 +161,7 @@ struct `Generic Parseable Tests` {
   @Test(arguments: chunks)
   func `A custom scalar behind a generic parameter is delegated`(chunk: Int) throws {
     let slug = try parsed(#"{"value":"a-b","label":"s"}"#, as: Box<Slug>.Partial.self, chunk: chunk)
-    expectNoDifference(Box(slug), Box(value: Slug(text: "a-b"), label: "s"))
+    expectNoDifference(Box(streamPartial: slug), Box(value: Slug(text: "a-b"), label: "s"))
     let celsius = try parsed(#"{"value":-4.5}"#, as: Box<Celsius>.Partial.self, chunk: chunk)
     expectNoDifference(celsius.value, Celsius(degrees: -4.5))
   }
@@ -183,7 +183,7 @@ struct `Generic Parseable Tests` {
     let point = try parsed(
       #"{"value":{"x":1,"y":2},"label":"p"}"#, as: Box<Point>.Partial.self, chunk: chunk
     )
-    expectNoDifference(Box(point), Box(value: Point(x: 1, y: 2), label: "p"))
+    expectNoDifference(Box(streamPartial: point), Box(value: Point(x: 1, y: 2), label: "p"))
     var cleared = point
     try parsePartial(#"{"value":null}"#, into: &cleared)
     #expect(cleared.value == nil)
@@ -191,7 +191,9 @@ struct `Generic Parseable Tests` {
       #"{"value":{"value":7,"label":"in"},"label":"out"}"#, as: Box<Box<Int>>.Partial.self,
       chunk: chunk
     )
-    expectNoDifference(Box(nested), Box(value: Box(value: 7, label: "in"), label: "out"))
+    expectNoDifference(
+      Box(streamPartial: nested), Box(value: Box(value: 7, label: "in"), label: "out")
+    )
   }
 
   @Test(arguments: chunks)
@@ -203,7 +205,7 @@ struct `Generic Parseable Tests` {
       """#
     let page = try parsed(json, as: Page<Point>.Partial.self, chunk: chunk)
     expectNoDifference(
-      Page(page),
+      Page(streamPartial: page),
       Page(
         items: [Point(x: 1, y: 2), Point(x: 3, y: 4)], byName: ["a": Point(x: 5, y: 6)],
         maybeItems: [nil, Point(x: 7, y: 8)], featured: Point(x: 9, y: 10), cursor: "c",
@@ -215,7 +217,7 @@ struct `Generic Parseable Tests` {
       as: Page<Int>.Partial.self, chunk: chunk
     )
     expectNoDifference(
-      Page(ints),
+      Page(streamPartial: ints),
       Page(
         items: [1, 2, 3], byName: ["k": 4], maybeItems: [5, nil], featured: 6, cursor: nil,
         count: 0, point: nil
@@ -234,23 +236,23 @@ struct `Generic Parseable Tests` {
   @Test(arguments: chunks)
   func `An optional generic parameter`(chunk: Int) throws {
     let value = try parsed(#"{"value":null,"label":"n"}"#, as: Box<Int?>.Partial.self, chunk: chunk)
-    expectNoDifference(Box(value), Box(value: nil, label: "n"))
+    expectNoDifference(Box(streamPartial: value), Box(value: nil, label: "n"))
     let present = try parsed(#"{"value":4,"label":"n"}"#, as: Box<Int?>.Partial.self, chunk: chunk)
-    expectNoDifference(Box(present), Box(value: 4, label: "n"))
+    expectNoDifference(Box(streamPartial: present), Box(value: 4, label: "n"))
     let absent = try parsed(#"{"label":"n"}"#, as: Box<Int?>.Partial.self, chunk: chunk)
-    #expect(Box(absent) == nil)
+    #expect(Box(streamPartial: absent) == nil)
 
     let point = try parsed(#"{"value":null,"label":"p"}"#, as: Box<Point?>.Partial.self, chunk: chunk)
-    expectNoDifference(Box(point), Box(value: nil, label: "p"))
+    expectNoDifference(Box(streamPartial: point), Box(value: nil, label: "p"))
     var reset = try parsed(#"{"value":{"x":1,"y":2},"label":"p"}"#, as: Box<Point?>.Partial.self)
-    expectNoDifference(Box(reset), Box(value: Point(x: 1, y: 2), label: "p"))
+    expectNoDifference(Box(streamPartial: reset), Box(value: Point(x: 1, y: 2), label: "p"))
     try parsePartial(#"{"value":null}"#, into: &reset)
-    expectNoDifference(Box(reset), Box(value: nil, label: "p"))
+    expectNoDifference(Box(streamPartial: reset), Box(value: nil, label: "p"))
 
     let slug = try parsed(#"{"value":null}"#, as: InitializedBox<Slug?>.Partial.self, chunk: chunk)
-    expectNoDifference(InitializedBox(slug), InitializedBox(value: nil, values: []))
+    expectNoDifference(InitializedBox(orInitial: slug), InitializedBox(value: nil, values: []))
     let object = try parsed(#"{"value":null}"#, as: InitializedBox<Point?>.Partial.self, chunk: chunk)
-    expectNoDifference(InitializedBox(object), InitializedBox(value: nil, values: []))
+    expectNoDifference(InitializedBox(orInitial: object), InitializedBox(value: nil, values: []))
     expectNoDifference(failure(#"{"value":null}"#, as: InitializedBox<Slug>.Partial.self), .typeMismatch)
   }
 
@@ -262,22 +264,26 @@ struct `Generic Parseable Tests` {
       #"{"value":"s","values":["t","u"]}"#, as: InitializedBox<Slug>.Partial.self, chunk: chunk
     )
     expectNoDifference(
-      InitializedBox(value), InitializedBox(value: Slug(text: "s"), values: [Slug(text: "t"), Slug(text: "u")])
+      InitializedBox(orInitial: value),
+      InitializedBox(value: Slug(text: "s"), values: [Slug(text: "t"), Slug(text: "u")])
     )
     let ints = try parsed(#"{"value":8}"#, as: InitializedBox<Int>.Partial.self, chunk: chunk)
-    expectNoDifference(InitializedBox(ints), InitializedBox(value: 8, values: []))
+    expectNoDifference(InitializedBox(orInitial: ints), InitializedBox(value: 8, values: []))
   }
 
   @Test
   func `A struct nested in a generic type`() throws {
     let inner = try parsed(#"{"value":"v","n":1}"#, as: GenericOuter<Slug>.Inner.Partial.self)
-    expectNoDifference(GenericOuter<Slug>.Inner(inner), GenericOuter<Slug>.Inner(value: Slug(text: "v"), n: 1))
+    expectNoDifference(
+      GenericOuter<Slug>.Inner(streamPartial: inner),
+      GenericOuter<Slug>.Inner(value: Slug(text: "v"), n: 1)
+    )
   }
 
   @Test
   func `A phantom parameter`() throws {
     let value = try parsed(#"{"id":5}"#, as: Phantom<Never>.Partial.self)
-    expectNoDifference(Phantom<Never>(value), Phantom(id: 5))
+    expectNoDifference(Phantom<Never>(streamPartial: value), Phantom(id: 5))
   }
 
   @Test(arguments: chunks)
@@ -285,10 +291,14 @@ struct `Generic Parseable Tests` {
     let value = try parsed(
       #"{"doubled":4,"shout":"hey \u00e9","value":1}"#, as: Converted<Int>.Partial.self, chunk: chunk
     )
-    expectNoDifference(Converted(value), Converted(doubled: 8, shout: "HEY É", value: 1))
+    expectNoDifference(
+      Converted(streamPartial: value), Converted(doubled: 8, shout: "HEY É", value: 1)
+    )
     var cleared = value
     try parsePartial(#"{"shout":null}"#, into: &cleared)
-    expectNoDifference(Converted(cleared), Converted(doubled: 8, shout: nil, value: 1))
+    expectNoDifference(
+      Converted(streamPartial: cleared), Converted(doubled: 8, shout: nil, value: 1)
+    )
   }
 
   @Test

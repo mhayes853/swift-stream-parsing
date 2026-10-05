@@ -111,7 +111,7 @@ struct `Partial String Storage Tests` {
       rows: [["a"], [], ["b", "c"]], maybe: ["m", nil], grouped: ["g": ["1", "2"]], count: 7,
       transcript: "long", body: "hi"
     )
-    expectNoDifference(StringMessage(partial), expected)
+    expectNoDifference(StringMessage(streamPartial: partial), expected)
     expectNoDifference(StringMessage(streamPartial: expected.streamPartialValue), expected)
     expectNoDifference(StringMessage(orInitial: expected.streamPartialValue), expected)
   }
@@ -120,7 +120,7 @@ struct `Partial String Storage Tests` {
   func `Absent members fail strictly and default totally`() throws {
     var stream = PartialsStream(initialValue: StringMessage.Partial(), from: .json())
     try stream.next(Array(#"{"role":"r","count":1"#.utf8))
-    expectNoDifference(StringMessage(stream.current), nil)
+    expectNoDifference(StringMessage(streamPartial: stream.current), nil)
     expectNoDifference(
       StringMessage(orInitial: stream.current),
       StringMessage(
@@ -140,7 +140,7 @@ struct `Partial String Storage Tests` {
     var stream = PartialsStream(initialValue: initial, from: .json())
     try stream.next(Array(#"{"name":"ab","tags":["t"]}"#.utf8))
     expectNoDifference(
-      InitialValueStrings(try stream.finish()),
+      InitialValueStrings(orInitial: try stream.finish()),
       InitialValueStrings(name: "ab", tags: ["t"], note: nil)
     )
   }
@@ -149,7 +149,9 @@ struct `Partial String Storage Tests` {
   func `A member opted in alone parses beside a StreamString`() throws {
     var stream = PartialsStream(initialValue: MemberStrings.Partial(), from: .json())
     try stream.next(Array(#"{"name":"n","other":"o"}"#.utf8))
-    expectNoDifference(MemberStrings(try stream.finish()), MemberStrings(name: "n", other: "o"))
+    expectNoDifference(
+      MemberStrings(streamPartial: try stream.finish()), MemberStrings(name: "n", other: "o")
+    )
   }
 
   @Test
@@ -164,7 +166,7 @@ struct `Partial String Storage Tests` {
       var stream = PartialsStream(initialValue: StringEvent.Partial(), from: .json())
       try stream.next(Array(json.utf8))
       let partial = try stream.finish()
-      expectNoDifference(StringEvent(partial), expected)
+      expectNoDifference(StringEvent(streamPartial: partial), expected)
       expectNoDifference(StringEvent(streamPartial: expected.streamPartialValue), expected)
     }
   }
@@ -175,7 +177,9 @@ struct `Partial String Storage Tests` {
     #expect(title == nil)
     var stream = PartialsStream(initialValue: StringPage<Int>.Partial(), from: .json())
     try stream.next(Array(#"{"title":"p","items":[1,2]}"#.utf8))
-    expectNoDifference(StringPage(try stream.finish()), StringPage(title: "p", items: [1, 2]))
+    expectNoDifference(
+      StringPage(streamPartial: try stream.finish()), StringPage(title: "p", items: [1, 2])
+    )
   }
 
   @Test

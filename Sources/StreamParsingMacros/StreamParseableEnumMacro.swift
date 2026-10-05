@@ -367,7 +367,7 @@ extension StreamParseableMacro {
         declaration.name,
         """
         @StreamParseable requires an enum to name a fallback case, because \
-        'streamValueOrInitial' has to produce one when the stream produced nothing this type \
+        'init(orInitial:)' has to produce one when the stream produced nothing this type \
         can represent. Mark a case with @StreamParseableDefault, or declare \
         'StreamInitializable' conformance on '\(declaration.name.text)' itself.
         """

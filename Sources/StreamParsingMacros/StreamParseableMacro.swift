@@ -65,7 +65,7 @@ public enum StreamParseableMacro: ExtensionMacro, MemberMacro {
       in: structDecl, partialStrings: sink.arguments(of: node).partialStrings ?? .streamString,
       context: sink
     )
-    // The partial mode only picks the unlabelled initializer, which the extension emits.
+    // The partial mode does not change `streamPartialValue`, the only member emitted here.
     return [
       try Self.conversions(
         for: properties,

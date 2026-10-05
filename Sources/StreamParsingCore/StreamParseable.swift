@@ -25,7 +25,7 @@ public protocol StreamParseable {
   /// Only absent members default, so a partial carrying just an `id` converts to a value with that
   /// `id`. A type with members implements this member-wise; the blanket default below discards the
   /// whole value when any part is missing.
-  static func streamValueOrInitial(from partial: Partial) -> Self
+  init(orInitial partial: Partial)
 }
 
 extension StreamParseable where Partial == Self {
@@ -37,8 +37,12 @@ extension StreamParseable where Partial == Self {
     self = streamPartial
   }
 
-  public static func streamValueOrInitial(from partial: Partial) -> Self {
-    partial
+  // Disfavored wherever the library adds this to a type it does not own: an unapplied
+  // `String.init` or `Array.init` must keep meaning the type's own `init(_:)`, which takes the
+  // same argument (`stream.map(String.init)` would otherwise be ambiguous).
+  @_disfavoredOverload
+  public init(orInitial partial: Partial) {
+    self = partial
   }
 }
 
@@ -47,9 +51,9 @@ extension StreamParseable where Partial == Self {
 // These defaults are `@inlinable` so a conformance in another module specializes them rather than
 // calling the generic entry point with witness tables.
 extension StreamParseable where Self: StreamInitializable {
-  @inlinable
-  public static func streamValueOrInitial(from partial: Partial) -> Self {
-    Self(streamPartial: partial) ?? Self.streamInitialValue()
+  @inlinable @_disfavoredOverload
+  public init(orInitial partial: Partial) {
+    self = Self(streamPartial: partial) ?? Self.streamInitialValue()
   }
 }
 

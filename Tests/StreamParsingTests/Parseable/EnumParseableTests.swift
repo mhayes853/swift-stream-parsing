@@ -352,9 +352,9 @@ struct `Enum Parseable Tests` {
   @Test
   func `The default case fills only the total conversion`() throws {
     expectNoDifference(Stage(streamPartial: StreamString("retired")), nil)
-    expectNoDifference(Stage.streamValueOrInitial(from: StreamString("retired")), .unknown)
-    expectNoDifference(Priority.streamValueOrInitial(from: 7), .low)
-    expectNoDifference(Figure.streamValueOrInitial(from: Figure.Partial()), .circle)
+    expectNoDifference(Stage(orInitial: StreamString("retired")), .unknown)
+    expectNoDifference(Priority(orInitial: 7), .low)
+    expectNoDifference(Figure(orInitial: Figure.Partial()), .circle)
   }
 
   @Test
@@ -407,9 +407,9 @@ struct `Enum Parseable Tests` {
 
   @Test
   func `A payload-bearing default case fills from its own fields' initial values`() throws {
-    expectNoDifference(Note.streamValueOrInitial(from: Note.Partial()), .empty(reason: ""))
+    expectNoDifference(Note(orInitial: Note.Partial()), .empty(reason: ""))
     let partial = try parsePartial(#"{"empty":{}}"#, as: Note.self)
-    expectNoDifference(Note.streamValueOrInitial(from: partial), .empty(reason: ""))
+    expectNoDifference(Note(orInitial: partial), .empty(reason: ""))
     expectNoDifference(Note(streamPartial: partial), nil)
   }
 
@@ -442,7 +442,7 @@ struct `Enum Parseable Tests` {
     let partial = try parsePartial("170141183460469231731687303715884105727 ", as: WideID.self)
     expectNoDifference(WideID(streamPartial: partial), .max)
     expectNoDifference(WideID(streamPartial: WideID.max.streamPartialValue), .max)
-    expectNoDifference(WideID.streamValueOrInitial(from: 5), .zero)
+    expectNoDifference(WideID(orInitial: 5), .zero)
   }
 
   @Test

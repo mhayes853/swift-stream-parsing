@@ -67,7 +67,6 @@
   conformances: StreamParseable,
   names: named(Partial),
   named(init),
-  named(streamValueOrInitial),
   arbitrary
 )
 @attached(member, names: named(streamPartialValue))
@@ -129,7 +128,7 @@ public macro StreamParseableMember(
 /// }
 /// ```
 ///
-/// Supplies an enum's total ``StreamParseable/streamValueOrInitial(from:)``; strict still declines.
+/// Supplies an enum's total ``StreamParseable/init(orInitial:)``; strict still declines.
 @attached(peer)
 public macro StreamParseableDefault() =
   #externalMacro(module: "StreamParsingMacros", type: "StreamParseableDefaultMacro")

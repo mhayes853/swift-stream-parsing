@@ -4,9 +4,9 @@ import Testing
 
 // The inverse direction: `Partial` back to the whole value it describes.
 //
-// Two conversions, and the difference between them is the whole point. `init?(_:)` declines when
-// the stream did not produce something the type cannot do without; `init(orInitial:)` fills those
-// in and keeps whatever did arrive.
+// Two conversions, and the difference between them is the whole point. `init?(streamPartial:)`
+// declines when the stream did not produce something the type cannot do without;
+// `init(orInitial:)` fills those in and keeps whatever did arrive.
 
 @StreamParseable
 private struct Author: Equatable {
@@ -116,7 +116,7 @@ struct `Partial Conversion Tests` {
     )
 
     expectNoDifference(
-      Post(partial),
+      Post(streamPartial: partial),
       Post(
         id: 1,
         body: "hello",
@@ -131,7 +131,7 @@ struct `Partial Conversion Tests` {
   func `Declines A Partial Missing A Required Member`() {
     let partial = Post.Partial(id: 1, body: nil, tags: ["a"], author: nil, reactions: [:])
 
-    #expect(Post(partial) == nil)
+    #expect(Post(streamPartial: partial) == nil)
   }
 
   @Test
@@ -148,14 +148,14 @@ struct `Partial Conversion Tests` {
       reactions: [:]
     )
 
-    #expect(Post(partial) == nil)
+    #expect(Post(streamPartial: partial) == nil)
   }
 
   @Test
   func `Converts An Absent Optional Member To Nil`() throws {
     let partial = Post.Partial(id: 1, body: "hello", tags: [], author: nil, reactions: [:])
 
-    expectNoDifference(Post(partial)?.author, nil)
+    expectNoDifference(Post(streamPartial: partial)?.author, nil)
   }
 
   @Test
@@ -168,7 +168,7 @@ struct `Partial Conversion Tests` {
       reactions: [:]
     )
 
-    expectNoDifference(Post(partial)?.author, Author(name: "mh", handle: nil))
+    expectNoDifference(Post(streamPartial: partial)?.author, Author(name: "mh", handle: nil))
   }
 
   @Test
@@ -177,7 +177,7 @@ struct `Partial Conversion Tests` {
     // whole array down with it rather than being dropped from it.
     let partial = Job.Partial(stage: "nope")
 
-    #expect(Job(partial) == nil)
+    #expect(Job(streamPartial: partial) == nil)
   }
 
   // MARK: - Or initial
@@ -235,8 +235,10 @@ struct `Partial Conversion Tests` {
 
   @Test
   func `Converts Without Failing When Members Start At Their Initial Values`() {
-    // Absence is not expressible in this mode, so the unlabelled initializer is the total one.
-    expectNoDifference(Counter(Counter.Partial()), Counter(hits: 0, label: "", note: nil))
+    // Absence is not expressible in this mode, so the total conversion has nothing to default.
+    expectNoDifference(
+      Counter(orInitial: Counter.Partial()), Counter(hits: 0, label: "", note: nil)
+    )
   }
 
   @Test
@@ -245,14 +247,14 @@ struct `Partial Conversion Tests` {
     partial.hits = 4
     partial.note = "seen"
 
-    expectNoDifference(Counter(partial), Counter(hits: 4, label: "", note: "seen"))
+    expectNoDifference(Counter(orInitial: partial), Counter(hits: 4, label: "", note: "seen"))
   }
 
   // MARK: - Ignored members
 
   @Test
   func `Sets Ignored Members To Nil Or Their Default`() throws {
-    let converted = try #require(WithIgnored(WithIgnored.Partial(id: 3)))
+    let converted = try #require(WithIgnored(streamPartial: WithIgnored.Partial(id: 3)))
 
     expectNoDifference(converted, WithIgnored(id: 3, scratch: nil, counted: 7))
   }
@@ -262,7 +264,7 @@ struct `Partial Conversion Tests` {
   @Test
   func `Converts Types Declared In Access Modified Extensions`() throws {
     let inner = try parse(#"{"x":4}"#, as: AccessOuter.Inner.self)
-    expectNoDifference(AccessOuter.Inner(inner), AccessOuter.Inner(x: 4))
+    expectNoDifference(AccessOuter.Inner(streamPartial: inner), AccessOuter.Inner(x: 4))
     expectNoDifference(AccessOuter.Kind(streamPartial: StreamString("b")), .b)
   }
 
@@ -270,7 +272,8 @@ struct `Partial Conversion Tests` {
 
   @Test
   func `Leaves A Lazy Member To Its Initializer`() throws {
-    var converted = try #require(WithLazy(try parse(#"{"id":3,"label":"x"}"#, as: WithLazy.self)))
+    let partial = try parse(#"{"id":3,"label":"x"}"#, as: WithLazy.self)
+    var converted = try #require(WithLazy(streamPartial: partial))
 
     #expect(converted.id == 3)
     #expect(converted.label == "#3")
@@ -282,12 +285,24 @@ struct `Partial Conversion Tests` {
   func `Converts A Member Named Like The Initializer Parameter`() throws {
     let partial = try parse(#"{"partial":true,"text":"hi"}"#, as: Chunk.self)
 
-    expectNoDifference(Chunk(partial), Chunk(partial: true, text: "hi"))
+    expectNoDifference(Chunk(streamPartial: partial), Chunk(partial: true, text: "hi"))
     expectNoDifference(
       Chunk(orInitial: Chunk.Partial(partial: nil, text: "hi")),
       Chunk(partial: false, text: "hi")
     )
-    #expect(Chunk(Chunk.Partial(partial: true, text: nil)) == nil)
+    #expect(Chunk(streamPartial: Chunk.Partial(partial: true, text: nil)) == nil)
+  }
+
+  // MARK: - Library conformances
+
+  @Test
+  func `Library Conformances Leave Unapplied Initializers To Their Types`() {
+    // `init(orInitial:)` takes the same argument as these types' own `init(_:)`; an unapplied
+    // reference has no label to tell them apart, so the library's is disfavored.
+    expectNoDifference(Optional(StreamString("s")).map(String.init), "s")
+    expectNoDifference([StreamArray([1, 2])].map(Array.init), [[1, 2]])
+    expectNoDifference(String(orInitial: StreamString("t")), "t")
+    expectNoDifference([Int](orInitial: StreamArray([3])), [3])
   }
 
   // MARK: - Round trip
@@ -302,7 +317,7 @@ struct `Partial Conversion Tests` {
       reactions: ["up": 1, "down": 2]
     )
 
-    expectNoDifference(Post(original.streamPartialValue), original)
+    expectNoDifference(Post(streamPartial: original.streamPartialValue), original)
   }
 
   @Test
@@ -313,7 +328,7 @@ struct `Partial Conversion Tests` {
     let partial = try parse(json, as: Post.self)
 
     expectNoDifference(
-      Post(partial),
+      Post(streamPartial: partial),
       Post(
         id: 9,
         body: "body",
@@ -328,7 +343,7 @@ struct `Partial Conversion Tests` {
   func `Declines A Value Parsed From Truncated Bytes`() throws {
     let partial = try parse(#"{"id":9,"body":"bo"#, as: Post.self)
 
-    #expect(Post(partial) == nil)
+    #expect(Post(streamPartial: partial) == nil)
     expectNoDifference(Post(orInitial: partial).id, 9)
   }
 }

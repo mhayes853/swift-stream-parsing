@@ -21,7 +21,7 @@ struct SwiftStringStorage: StreamParseable {
     self.value = streamPartial
   }
 
-  static func streamValueOrInitial(from partial: String) -> Self {
-    Self(value: partial)
+  init(orInitial partial: String) {
+    self.value = partial
   }
 }

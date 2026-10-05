@@ -101,7 +101,7 @@ public struct StreamEnumGeneration: Sendable {
   /// The wire representation.
   public let representation: StreamEnumRepresentation
   /// The case `init(orInitial:)` falls back to. Without one, the host must adopt
-  /// `TypeSyntax.streamInitializable` to supply `streamValueOrInitial(from:)`.
+  /// `TypeSyntax.streamInitializable` to supply `init(orInitial:)`.
   public let defaultCase: TokenSyntax?
   /// Options shared by every generated component.
   public let configuration: StreamGenerationConfiguration
@@ -434,8 +434,8 @@ public struct StreamEnumGeneration: Sendable {
 
   // MARK: - Conversions
 
-  /// Generates `streamPartialValue`, `init?(_:)`, and `init?(streamPartial:)`, plus
-  /// `init(orInitial:)` and `streamValueOrInitial(from:)` when there is a default case.
+  /// Generates `streamPartialValue` and `init?(streamPartial:)`, plus `init(orInitial:)` when
+  /// there is a default case.
   ///
   /// `streamPartialValue` follows `partialValueInlining`, or when it is `nil`,
   /// `configuration.inlining` for raw values and `.never` for `.caseKeyedObject`: an inlinable
@@ -446,7 +446,6 @@ public struct StreamEnumGeneration: Sendable {
   ) -> MemberBlockItemListSyntax {
     var sources = [
       self.streamPartialValueSource(inlining: partialValueInlining),
-      self.configuration.unlabelledInitializerSource(isStrict: true),
       streamDeclarationSource(
         "\(self.inline)\(self.access)init?(streamPartial partial: Partial)",
         body: self.strictBody()
@@ -459,7 +458,6 @@ public struct StreamEnumGeneration: Sendable {
           body: self.fallbackBody(defaultCase)
         )
       )
-      sources.append(self.configuration.streamValueOrInitialSource)
     }
     return streamParsedMembers(sources.joined(separator: "\n\n"))
   }
@@ -598,8 +596,8 @@ public struct StreamEnumGeneration: Sendable {
         self = streamMatched
         return
       }
-      let streamDefaultValue = \(payload.typeName).Value.streamValueOrInitial(
-        from: partial.\(name) ?? \(payload.typeName).Partial.streamInitialValue()
+      let streamDefaultValue = \(payload.typeName).Value(
+        orInitial: partial.\(name) ?? \(payload.typeName).Partial.streamInitialValue()
       )
       self = .\(name)(\(Self.caseArguments(payload, from: "streamDefaultValue")))
       """

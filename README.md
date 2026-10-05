@@ -76,6 +76,7 @@ extension Profile: StreamParseable {
 
   var streamPartialValue: Partial
   init?(streamPartial: Partial)   // nil until every member has arrived
+  init(orInitial: Partial)        // absent members fall back to their initial values
 }
 ```
 
@@ -94,6 +95,7 @@ for chunk in chunks {
 }
 let partial = try stream.finish()
 let profile = Profile(streamPartial: partial)  // `nil` if the document left a member out
+let filled = Profile(orInitial: partial)       // `""`, `0`, `false` for whatever it left out
 ```
 
 Everywhere a type is named (`PartialsStream<Profile>`, `partials(of: Profile.self, ...)`,
@@ -213,13 +215,12 @@ produced nothing the enum can represent. The strict conversion still declines �
 say different things:
 
 ```swift
-Stage(streamPartial: partial)            // nil for a value no case declares
-Stage(orInitial: partial)                 // .unknown for the same value
-Stage.streamValueOrInitial(from: partial) // .unknown, the same total conversion
+Stage(streamPartial: partial) // nil for a value no case declares
+Stage(orInitial: partial)     // .unknown for the same value
 ```
 
 An enum must name a fallback, either this way or by conforming to `StreamInitializable`, because
-`streamValueOrInitial` has to be able to produce one.
+`init(orInitial:)` has to be able to produce one.
 
 Cases can accept extra spellings without changing what the enum emits:
 
@@ -273,8 +274,8 @@ Each associated value keys its field the same way `Codable`'s synthesis does: a 
 parameter in that case, labeled ones included. Every associated value's type has to itself be
 `StreamParseable` (`String`/`Int`/etc. already are).
 
-`init?(streamPartial:)` and `streamValueOrInitial(from:)` work exactly as they do for a no-payload
-enum — declining unless exactly one case's key arrived, and requiring that case's payload to be
+`init?(streamPartial:)` and `init(orInitial:)` work exactly as they do for a no-payload enum —
+declining unless exactly one case's key arrived, and requiring that case's payload to be
 complete. A payload-bearing `@StreamParseableDefault` case fills its associated values from their
 own initial values, recursively, the same way a struct's members do.
 
