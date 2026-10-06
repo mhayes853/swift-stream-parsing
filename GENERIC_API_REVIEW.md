@@ -12,7 +12,7 @@ is a review above the JSON scanning kernels, not a new parser-conformance audit.
 | Typed streams | `PartialsStream`, snapshots, borrowed views, consuming finalization, allocation reuse/reset, synchronous byte/chunk collection, single-subscriber async partials |
 | Conversion | Initial values, strict partial-to-value conversion, recursive defaulting, raw-representable enums, custom string/number/boolean/null conversion |
 | Collections | `StreamArray` with random access, mutable elements and range replacement; insertion-ordered `StreamDictionary`; bridging to standard arrays and string-keyed dictionaries |
-| Text | Blocked `StreamString`, bounded `StreamInlineString`, UTF-8/scalar views, character iteration, bytewise comparison/search, prefix/suffix checks, interpolation and Codable |
+| Text | Blocked `StreamString`, UTF-8/scalar views, character iteration, comparison as `String` compares, bytewise search and prefix/suffix checks, interpolation and Codable |
 | Standard types | Signed/unsigned integer widths including availability-gated 128-bit types, Float/Double, Bool, String, Optional, arrays and string-keyed dictionaries |
 | Fixed storage | `InlineArray` and SIMD2/3/4 with exact JSON arity checks |
 | Optional integrations | Foundation Data (decoded string UTF-8, not base64), Decimal, PersonNameComponents; CGFloat; Tagged; swift-collections initializers/bridges (not general parseable conformances) |

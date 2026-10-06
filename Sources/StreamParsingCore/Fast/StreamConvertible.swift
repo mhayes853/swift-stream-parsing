@@ -18,20 +18,6 @@ public protocol StreamStringConvertible: StreamInitializable {
   // what it accumulated up to the last append that fit.
   @discardableResult
   mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
-
-  // How a schema recognizes inline storage it cannot name: a static requirement, not a metatype
-  // cast (`_streamStringSchema` cannot spell `StreamInlineString<capacity>`, and an existential
-  // cast would not survive Embedded). Zero means not inline; non-zero promises (checked in
-  // `_streamStringSchema`) `_streamInlineByteOffset` header bytes, then that many UTF-8 bytes.
-  static var _streamInlineCapacity: Int { get }
-  static var _streamInlineByteOffset: Int { get }
-}
-
-extension StreamStringConvertible {
-  @inlinable
-  public static var _streamInlineCapacity: Int { 0 }
-  @inlinable
-  public static var _streamInlineByteOffset: Int { 0 }
 }
 
 /// A destination for JSON number tokens.

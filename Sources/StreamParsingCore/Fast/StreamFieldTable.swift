@@ -27,8 +27,6 @@ public enum StreamFieldKind: UInt8, Sendable {
   /// `StreamString`, appended in place; `capacity` is the reservation to make at the opening
   /// quote when the member carries one.
   case streamString
-  /// `StreamInlineString<N>`: an `Int32` count and then exactly `capacity` bytes.
-  case inlineString
   /// An object, array, dictionary or fixed-width vector. Entered from the entry when it carries the
   /// child's `schema` (after its `prepare`, if any), through the schema's `enterField` closure with
   /// the entry's `index` when it does not. A scalar arriving here is a type mismatch.
@@ -75,7 +73,7 @@ public struct StreamField: Sendable {
   /// The field identifier the schema's closures take, for `custom` and `container` entries. A
   /// property with several key names has one entry per name, all carrying the same index.
   public var index: Int32
-  /// Kind-specific: an inline string's byte capacity, a string member's reservation hint.
+  /// Kind-specific: a string member's reservation hint.
   public var capacity: Int32
   /// Where the whole key starts in the schema's key blob; read only for keys longer than a word.
   @usableFromInline var keyStart: UInt32
@@ -131,7 +129,7 @@ public struct StreamField: Sendable {
   @inlinable public var isOptional: Bool { self.flags.contains(.optional) }
 
   /// The form the macro emits: the route the member's type resolved to, and the capacity hint the
-  /// declaration carried, which a route with its own capacity (an inline string) overrides.
+  /// declaration carried, which a route with its own capacity overrides.
   public init(key: String, index: Int32, route: StreamFieldRoute, offset: Int, capacity: Int = 0) {
     self.init(
       key: key, index: index, kind: route.kind, optional: route.optional, offset: offset,
@@ -188,7 +186,7 @@ struct StreamFieldEntry {
 public struct StreamFieldRoute: Sendable {
   public var kind: StreamFieldKind
   public var optional: Bool
-  /// A capacity the kind dictates (an inline string's, a string member's reservation), or zero.
+  /// A capacity the kind dictates (a string member's reservation), or zero.
   public var capacity: Int
   /// A container member's child schema. See ``StreamField/schema``.
   public var schema: StreamSchema?
@@ -235,18 +233,9 @@ public func _streamNumberFieldKind<T: StreamNumberConvertible>(_ type: T.Type) -
 public func _streamStringFieldRoute<T: StreamStringConvertible>(
   _ type: T.Type, optional: Bool
 ) -> StreamFieldRoute {
-  if T.self == StreamString.self { return StreamFieldRoute(.streamString, optional: optional) }
-  let inlineCapacity = T._streamInlineCapacity
-  if inlineCapacity > 0 {
-    // The layout `_streamStringSchema` checks before emitting the erased route.
-    precondition(
-      T._streamInlineByteOffset == _streamInlineStringByteOffset
-        && MemoryLayout<T>.size == T._streamInlineByteOffset + inlineCapacity,
-      "inline string storage does not match the layout the parser appends through"
-    )
-    return StreamFieldRoute(.inlineString, optional: optional, capacity: inlineCapacity)
-  }
-  return StreamFieldRoute(.custom, optional: optional)
+  T.self == StreamString.self
+    ? StreamFieldRoute(.streamString, optional: optional)
+    : StreamFieldRoute(.custom, optional: optional)
 }
 
 @inlinable
@@ -270,9 +259,7 @@ public func _streamDelegatedFieldRoute<T: StreamPartial>(
   let schema = T.streamSchema
   switch schema.shape {
   case .scalar where schema.scalarKind != .custom:
-    return StreamFieldRoute(
-      schema.scalarKind, optional: true, capacity: Int(schema.inlineCapacity)
-    )
+    return StreamFieldRoute(schema.scalarKind, optional: true)
   case .scalar:
     return StreamFieldRoute(.delegated, optional: true, schema: _streamDelegatedMemberSchema(T.self))
   default:
@@ -291,9 +278,7 @@ public func _streamDelegatedFieldRoute<T: StreamPartial>(
   let schema = T.streamSchema
   switch schema.shape {
   case .scalar where schema.scalarKind != .custom:
-    return StreamFieldRoute(
-      schema.scalarKind, optional: false, capacity: Int(schema.inlineCapacity)
-    )
+    return StreamFieldRoute(schema.scalarKind, optional: false)
   case .scalar:
     return StreamFieldRoute(.delegated, optional: false, schema: schema)
   default:

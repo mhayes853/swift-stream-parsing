@@ -249,8 +249,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.completedValues.removeAll(keepingCapacity: true)
     self.scalarTarget = nil
     self.homogeneousStringStorage = nil
-    self.inlineStringStorage = nil
-    self.inlineStringCapacity = 0
     self.stringResultRaw = 0
     #if DEBUG && !hasFeature(Embedded)
       // The borrows recorded for the previous document are over with its last frame. Keeping
@@ -467,9 +465,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       let indexed = top.pointee.leafRoute == .inlineArray
       let index = indexed ? top.pointee.pendingField : -1
       if indexed, index >= top.pointee.schema.fixedElementCount {
-        // More elements than the fixed array declares: bounded storage overflowing, the same
-        // failure an inline string reports when a value outruns its capacity. An array that
-        // closes *short* of its arity is still a mismatch, checked in `endArray`.
+        // More elements than the fixed array declares: bounded storage overflowing. An array
+        // that closes *short* of its arity is still a mismatch, checked in `endArray`.
         self.recordFailure(.capacityExceeded)
         return nil
       }
@@ -616,15 +613,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     if result != .applied {
       self.scalarTarget = nil
       self.recordFailure(Self.failureReason(for: result))
-      return
-    }
-    // Bounded inline storage is recognized here, not through a container route: the resolved target
-    // has one shape for a field, an element and a dictionary value.
-    let (leafRoute, inlineCapacity) = target.withSchema { ($0.leafRoute, $0.inlineCapacity) }
-    if leafRoute == .valueInlineString {
-      self.inlineStringCapacity = inlineCapacity
-      self.inlineStringStorage = target.storage
-      self.scalarTarget = nil
     }
   }
 
@@ -638,9 +626,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     switch kind {
     case .streamString:
       self.homogeneousStringStorage = slot
-    case .inlineString:
-      self.inlineStringCapacity = self.topFrame.unsafelyUnwrapped.pointee.schema.inlineCapacity
-      self.inlineStringStorage = slot
     default:
       self.recordFailure(.typeMismatch)
     }
@@ -649,14 +634,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   public mutating func stringChunk(_ bytes: Span<UInt8>) {
     if let storage = self.homogeneousStringStorage {
       storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
-      return
-    }
-    // Bounded inline storage has its own slot, tested *after* the `StreamString` path: a byte
-    // test ahead of that append cost `LLM message` and `GSoC` 2-3%, documents made of long
-    // strings fed as many chunks.
-    if let storage = self.inlineStringStorage {
-      let result = _streamInlineStringAppend(storage, capacity: self.inlineStringCapacity, bytes)
-      self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
       return
     }
     guard let target = self.scalarTarget else { return }
@@ -676,9 +653,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       self.stringResultRaw = result.rawValue
     }
     self.homogeneousStringStorage = nil
-    self.inlineStringStorage = nil
     self.scalarTarget = nil
-    self.inlineStringCapacity = 0
     // Once per string value rather than per chunk, which is what makes the fold above worth it.
     if self.stringResultRaw != 0 {
       self.recordFailure(
@@ -730,9 +705,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // Clear what `stringBegin` set, as `stringEnd` would minus the report: left live, a driver
       // that keeps feeding after a recorded failure routes the next string to this destination.
       self.homogeneousStringStorage = nil
-      self.inlineStringStorage = nil
       self.scalarTarget = nil
-      self.inlineStringCapacity = 0
       self.stringResultRaw = 0
       return
     }
@@ -906,16 +879,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   @usableFromInline var scalarTarget: ScalarTarget?
 
   @usableFromInline var homogeneousStringStorage: UnsafeMutableRawPointer?
-
-  // The open string value's bounded inline slot -- a table member, an element, a value -- with
-  // `inlineStringCapacity` its capacity. Kept apart from `homogeneousStringStorage` so the
-  // `StreamString` chunk path tests one pointer and nothing else.
-  @usableFromInline var inlineStringStorage: UnsafeMutableRawPointer?
-
-  // Non-zero while the open string value writes into bounded inline storage, in which case it is
-  // that storage's capacity. One store per string value at `stringBegin`, which is what buys the
-  // chunk path a capacity in a register instead of a load off the schema.
-  @usableFromInline var inlineStringCapacity: Int32 = 0
 
   // The open string value's worst result so far, as a raw value so chunks can fold into it
   // without branching. Read and reset once per value in `stringEnd`.
@@ -1143,8 +1106,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   private mutating func applyKnownNull() {
     guard let (slot, kind) = self.knownScalarSlot() else { return }
     let result = Self.storeNull(
-      kind, optional: StreamRouteBits.elementOptional(self.activeRouteBits), at: slot,
-      capacity: self.topFrame.unsafelyUnwrapped.pointee.schema.inlineCapacity
+      kind, optional: StreamRouteBits.elementOptional(self.activeRouteBits), at: slot
     )
     if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
   }
@@ -1343,7 +1305,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .int8: return Self.storeNumber(Int8.self, at: member, optional: optional, bytes, info)
     case .uint8: return Self.storeNumber(UInt8.self, at: member, optional: optional, bytes, info)
     case .float: return Self.storeNumber(Float.self, at: member, optional: optional, bytes, info)
-    case .custom, .bool, .streamString, .inlineString, .container, .delegated:
+    case .custom, .bool, .streamString, .container, .delegated:
       return .unsupported
     }
   }
@@ -1378,15 +1340,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     _ entry: UnsafePointer<StreamFieldEntry>,
     member: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
-    Self.storeNull(
-      entry.pointee.kind, optional: entry.pointee.isOptional, at: member,
-      capacity: entry.pointee.capacity
-    )
+    Self.storeNull(entry.pointee.kind, optional: entry.pointee.isOptional, at: member)
   }
 
   @inline(never)
   private static func storeNull(
-    _ kind: StreamFieldKind, optional: Bool, at member: UnsafeMutableRawPointer, capacity: Int32
+    _ kind: StreamFieldKind, optional: Bool, at member: UnsafeMutableRawPointer
   ) -> StreamApplyResult {
     guard optional else { return .unsupported }
     switch kind {
@@ -1404,27 +1363,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .float: return Self.storeNil(Float.self, at: member)
     case .bool: return Self.storeNil(Bool.self, at: member)
     case .streamString: return Self.storeNil(StreamString.self, at: member)
-    case .inlineString:
-      // `StreamInlineString<N>?`: the payload has no spare bits (an `Int32` count and raw bytes),
-      // so the optional's tag is the byte after the payload, and nil is a one there.
-      member.storeBytes(
-        of: 1, toByteOffset: _streamInlineStringByteOffset + Int(capacity), as: UInt8.self
-      )
-      return .applied
     case .custom, .container, .delegated:
       return .unsupported
-    }
-  }
-
-  // Materialises an optional inline string by hand: a zero count and a zero tag after the payload.
-  @inline(__always)
-  private static func materializeInlineString(
-    _ member: UnsafeMutableRawPointer, capacity: Int32
-  ) {
-    let tagOffset = _streamInlineStringByteOffset + Int(capacity)
-    if member.load(fromByteOffset: tagOffset, as: UInt8.self) != 0 {
-      member.storeBytes(of: 0, as: Int32.self)
-      member.storeBytes(of: 0, toByteOffset: tagOffset, as: UInt8.self)
     }
   }
 
@@ -1452,15 +1392,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
           .streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
       }
       self.homogeneousStringStorage = storage
-      self.scalarTarget = nil
-      return .applied
-    case .inlineString:
-      if entry.pointee.isOptional {
-        Self.materializeInlineString(storage, capacity: entry.pointee.capacity)
-      }
-      self.inlineStringCapacity = entry.pointee.capacity
-      self.inlineStringStorage = storage
-      // The chunks write through the slot; nothing needs the target, and holding it is a retain.
       self.scalarTarget = nil
       return .applied
     case .custom:
@@ -1497,11 +1428,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
       if bytes.count > 0 { string.pointee.streamAppend(utf8: bytes) }
       return .applied
-    case .inlineString:
-      if entry.pointee.isOptional {
-        Self.materializeInlineString(member, capacity: entry.pointee.capacity)
-      }
-      return _streamInlineStringAppend(member, capacity: entry.pointee.capacity, bytes)
     case .custom:
       let opened = frame.pointee.schema.applyString(storage, entry.pointee.index, Span())
       if opened != .applied { return opened }

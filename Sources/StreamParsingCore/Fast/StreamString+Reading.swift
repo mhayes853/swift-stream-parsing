@@ -1,40 +1,11 @@
-// The read surface `StreamString` and `StreamInlineString` share (scalar traversal, grapheme spans,
-// comparison, searching), written once against the primitives below.
-// `decodeScalar` and `scalarAlignedOffset` stay per type: a shared body would put a call where
-// each has a load. Internal, so each type forwards its public methods; ungated.
-@usableFromInline
-protocol _StreamUTF8Backed {
-  /// The number of UTF-8 bytes accumulated so far.
-  var utf8Count: Int { get }
-
-  /// The byte at `position`, which must be in range.
-  func utf8Byte(at position: Int) -> UInt8
-
-  /// The bytes in `range`, decoded with ill-formed sequences repaired.
-  func decode(in range: Range<Int>) -> String
-
-  /// The scalar starting at `position`, repairing as `String` does: a byte that cannot begin a
-  /// sequence decodes as U+FFFD with length one, and a sequence cut short as one U+FFFD spanning
-  /// its maximal subpart.
-  func decodeScalar(at position: Int) -> (scalar: Unicode.Scalar, length: Int)
-
-  /// The largest scalar-aligned offset at or before `limit`, so a window cut never tears a
-  /// scalar.
-  func scalarAlignedOffset(before limit: Int) -> Int
-
-  /// Whether `buffer` matches the accumulated bytes starting at byte `offset`.
-  func utf8Matches(_ buffer: UnsafeBufferPointer<UInt8>, at offset: Int) -> Bool
-
-  /// The number of leading bytes the accumulated bytes and `buffer` agree on.
-  func utf8CommonPrefixCount(_ buffer: UnsafeBufferPointer<UInt8>) -> Int
-
-  /// Whether every accumulated byte from `offset` on is ASCII.
-  func utf8IsASCII(from offset: Int) -> Bool
-}
+// `StreamString`'s read surface above its byte primitives (`utf8Count`, `utf8Byte(at:)`,
+// `decode(in:)`, `decodeScalar(at:)`, `scalarAlignedOffset(before:)`, `utf8Matches(_:at:)`,
+// `utf8CommonPrefixCount(_:)`, `utf8IsASCII(from:)`): scalar traversal, grapheme spans, comparison
+// and searching. Internal; the public methods forward here.
 
 // MARK: - Scalar traversal
 
-extension _StreamUTF8Backed {
+extension StreamString {
   /// The scalar-view index before `index`.
   ///
   /// Walks back over at most three continuation bytes. When the lead byte reached does not span
@@ -56,7 +27,7 @@ extension _StreamUTF8Backed {
 
 // Forward `Character` access. Grapheme segmentation is not public API, so boundaries come from
 // `String`'s own breaker over a small decoded window, grown while its first character fills it.
-extension _StreamUTF8Backed {
+extension StreamString {
   @usableFromInline
   func characterSpan(at offset: Int) -> (character: Character, end: Int) {
     var windowEnd = self.scalarAlignedOffset(before: min(offset &+ 8, self.utf8Count))
@@ -119,7 +90,7 @@ func streamLastBytesDiffer(_ left: UInt8?, _ right: UInt8?) -> Bool {
   }
 }
 
-extension _StreamUTF8Backed {
+extension StreamString {
   /// The last accumulated byte, or `nil` when there is none.
   @usableFromInline
   var utf8LastByte: UInt8? {
@@ -152,28 +123,13 @@ extension _StreamUTF8Backed {
     if let decided { return decided }
     return self.decode(in: 0..<self.utf8Count) == copy
   }
-
-  /// Whether the text orders before the UTF-8 in `buffer` as `String` orders them.
-  @usableFromInline
-  func textPrecedes(utf8 buffer: UnsafeBufferPointer<UInt8>) -> Bool {
-    if let ordering = self.utf8Ordering(buffer) { return ordering < 0 }
-    return self.decode(in: 0..<self.utf8Count) < String(decoding: buffer, as: UTF8.self)
-  }
-
-  /// Whether the text equals the UTF-8 in `buffer` as `String` compares them.
-  @usableFromInline
-  func textEquals(utf8 buffer: UnsafeBufferPointer<UInt8>) -> Bool {
-    if streamLastBytesDiffer(self.utf8LastByte, buffer.last) { return false }
-    if let ordering = self.utf8Ordering(buffer) { return ordering == 0 }
-    return self.decode(in: 0..<self.utf8Count) == String(decoding: buffer, as: UTF8.self)
-  }
 }
 
 // MARK: - Searching
 
 // Byte-wise, and named for it: each borrows the foreign text's UTF-8 once and hands it to
-// `utf8Matches`, the one requirement that knows the storage layout.
-extension _StreamUTF8Backed {
+// `utf8Matches`, which walks the storage windows.
+extension StreamString {
   @usableFromInline
   func utf8HasPrefix(_ prefix: some StringProtocol) -> Bool {
     var copy = String(prefix)

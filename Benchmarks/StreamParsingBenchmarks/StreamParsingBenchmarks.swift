@@ -138,8 +138,8 @@ let benchmarks: @Sendable () -> Void = {
   homogeneousLeafBenchmarks()
   if #available(macOS 26.0, *) {
     inlineArrayBenchmarks()
-    inlineStringBenchmarks()
   }
+  stringValueBenchmarks()
   keyLookupBenchmarks()
   crossModuleBenchmarks()
   genericBenchmarks()

@@ -50,7 +50,7 @@ what matters about them is whether they are correct, not how fast they are wrong
 | `Numbers` | number token shapes through the real parser |
 | `Typed shape` | one `PartialSink` route per synthetic payload, each with a raw counting control |
 | `Layer` | one payload and one chunking through the null sink, `PartialSink`, and `PartialsStream` |
-| `Leaf`, `Inline string`, `Fixed array`, `Parseable enum` | the container and element types, end to end |
+| `Leaf`, `String values`, `Fixed array`, `Parseable enum` | the container and element types, end to end |
 
 Payload benchmarks report both iterations per second and payload MB/s. The real-world Codable
 rows decode the *same* `Benchmark*` models the parser rows decode, with both Foundation's

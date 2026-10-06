@@ -31,10 +31,6 @@ public struct StreamFrame {
 enum _StreamLeafRoute: UInt8, Sendable {
   case generic
   case valueStreamString
-  // Bounded inline storage of *any* capacity: the one route that is not tied to a single
-  // destination type. The capacity travels in the schema's `fixedElementCount`, so one case
-  // serves every `StreamInlineString<N>` and the sink never has to name one.
-  case valueInlineString
   case valueBool
   case valueDouble
   case valueInt
@@ -352,12 +348,6 @@ public final class StreamSchema: @unchecked Sendable {
   // `.generic`, preserving the public API's open-ended behavior.
   @usableFromInline let leafRoute: _StreamLeafRoute
 
-  // The capacity of the bounded inline storage this schema writes into, or zero when the
-  // destination is not bounded. Carried separately from `fixedElementCount` so that field keeps
-  // meaning exactly one thing -- a fixed array's arity -- and a container schema can propagate its
-  // element's capacity without the two colliding.
-  @usableFromInline let inlineCapacity: Int32
-
   // Negative for a dynamic array. Kept off the frame: only an InlineArray's open and close need
   // it, while adding it to BorrowedFrame would grow every frame from 24 to 32 bytes.
   @usableFromInline let fixedElementCount: Int32
@@ -438,7 +428,6 @@ public final class StreamSchema: @unchecked Sendable {
       elementSchema: elementSchema,
       leafRoute: .generic,
       fixedElementCount: -1,
-      inlineCapacity: 0,
       fields: fields.isEmpty ? nil : StreamFieldTable(fields)
     )
   }
@@ -480,7 +469,6 @@ public final class StreamSchema: @unchecked Sendable {
     elementOptional: Bool? = nil,
     leafRoute: _StreamLeafRoute = .generic,
     fixedElementCount: Int32 = -1,
-    inlineCapacity: Int32 = 0,
     fields: StreamFieldTable? = nil,
     templateOwner: _StreamTemplateStorage? = nil,
     completedValue: _StreamCompletedValueHooks? = nil
@@ -546,7 +534,6 @@ public final class StreamSchema: @unchecked Sendable {
     self.enterKey = enterKey
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
-    self.inlineCapacity = inlineCapacity
   }
 }
 
@@ -738,32 +725,7 @@ public protocol StreamParseableObject: StreamContainerPartial {}
 
 @inlinable
 public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> StreamSchema {
-  // Read once here, never per token, and a constant after specialization -- so every destination
-  // that is not inline storage folds this away entirely.
-  let inlineCapacity = T._streamInlineCapacity
-  if inlineCapacity > 0 {
-    // The layout the erased route is about to rely on, checked where a violation is a build-time
-    // sized failure rather than a memory-safety one: header, then exactly `capacity` bytes.
-    precondition(
-      T._streamInlineByteOffset == _streamInlineStringByteOffset
-        && MemoryLayout<T>.size == T._streamInlineByteOffset + inlineCapacity,
-      "inline string storage does not match the layout the parser appends through"
-    )
-    precondition(
-      inlineCapacity <= Int(Int32.max),
-      "inline string capacity exceeds the stream schema's capacity field"
-    )
-    return StreamSchema(
-      shape: .scalar,
-      applyString: { storage, _, bytes in
-        storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
-      },
-      scalarKind: .inlineString,
-      leafRoute: .valueInlineString,
-      inlineCapacity: Int32(inlineCapacity)
-    )
-  }
-  return StreamSchema(
+  StreamSchema(
     shape: .scalar,
     applyString: { storage, _, bytes in
       storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
@@ -965,7 +927,6 @@ public func _streamArraySchema<Element: StreamPartial>(
     // its five siblings to `.generic`. `_StreamLeafRoute.array(_)` already maps every route it does
     // not recognise to `.generic`, so the guard buys nothing here.
     leafRoute: .array(element.leafRoute),
-    inlineCapacity: element.inlineCapacity,
     templateOwner: owner
   )
 }
@@ -1052,7 +1013,6 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
           ? .optionalValue(base.leafRoute)
           : .generic),
     fixedElementCount: base.fixedElementCount,
-    inlineCapacity: base.inlineCapacity,
     fields: base.fields,
     // `appendElement` and `enterKey` above dereference a raw template pointer the base's `templateOwner`
     // box owns, and the base can outlive this schema, so the box has to be carried. Not carried:
@@ -1102,7 +1062,6 @@ public func _streamOptionalArraySchema<Wrapped: StreamPartial>(
     // Unguarded for the reason `_streamArraySchema` gives: an optional SIMD element has shape
     // `.array`, and the guard demoted `.arrayOptionalSIMD2Double` and its siblings to `.generic`.
     leafRoute: .array(element.leafRoute),
-    inlineCapacity: element.inlineCapacity,
     templateOwner: owner
   )
 }
@@ -1137,7 +1096,6 @@ public func _streamOptionalDictionarySchema<Wrapped: StreamPartial>(
     enterKey: enterKey,
     elementSchema: value,
     leafRoute: value.shape == .scalar ? .dictionary(value.leafRoute) : .generic,
-    inlineCapacity: value.inlineCapacity,
     templateOwner: owner
   )
 }
@@ -1170,7 +1128,6 @@ public func _streamDictionarySchema<Value: StreamPartial>(
     enterKey: enterKey,
     elementSchema: valueSchema,
     leafRoute: valueSchema.shape == .scalar ? .dictionary(valueSchema.leafRoute) : .generic,
-    inlineCapacity: valueSchema.inlineCapacity,
     templateOwner: owner
   )
 }

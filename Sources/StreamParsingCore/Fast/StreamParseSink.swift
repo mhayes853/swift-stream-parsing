@@ -75,8 +75,8 @@ public struct StreamSinkFailure: Error, Hashable, Sendable {
     case typeMismatch
     case conversionFailed
     case depthExceeded
-    /// Bounded storage overflowed: an inline string past its capacity, or a fixed-size array
-    /// given more elements than it declares.
+    /// Bounded storage overflowed: a fixed-size array given more elements than it declares, or a
+    /// custom string destination that answered `.capacityExceeded`.
     case capacityExceeded
   }
 

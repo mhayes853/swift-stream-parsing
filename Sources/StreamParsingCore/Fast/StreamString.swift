@@ -520,10 +520,7 @@ extension StreamString {
 
 // MARK: - Scalar decoding
 
-// The shared cold read layer; `decodeScalar` and `scalarAlignedOffset` stay per type, see
-// `StreamInlineString.decodeScalar`.
-extension StreamString: _StreamUTF8Backed {}
-
+// The primitives the read layer in `StreamString+Reading.swift` is written against.
 extension StreamString {
   // Decodes the scalar at `position`, repairing as the `String` decode does: a byte that cannot
   // begin a sequence is U+FFFD of length one, and a sequence cut short is one U+FFFD over its
@@ -668,7 +665,7 @@ extension StreamString {
 
 // MARK: - Characters
 
-// `characterSpan(at:)` is shared; see `_StreamUTF8Backed`.
+// `characterSpan(at:)` is in `StreamString+Reading.swift`.
 extension StreamString {
   /// The accumulated text as the same forward sequence of extended grapheme clusters that a
   /// Swift `String` exposes as `Character` elements.
@@ -775,7 +772,7 @@ extension StreamString: ExpressibleByStringInterpolation {
 }
 
 // As `String` compares: canonical equivalence, decoding only when a non-ASCII byte follows the
-// first difference. See `_StreamUTF8Backed`.
+// first difference. See `StreamString+Reading.swift`.
 extension StreamString: Equatable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
     // Equal lengths first: equal bytes are equal text, and a deduplicated stream mostly compares
@@ -856,7 +853,7 @@ extension StreamString: Equatable {
 // comparison. Canonical equivalence like `==`; the optional overloads exist because optional
 // lifting only reaches the homogeneous operator.
 extension StreamString {
-  // `textEquals(_:)` is shared; see `_StreamUTF8Backed`.
+  // `textEquals(_:)` is in `StreamString+Reading.swift`.
 
   // Whether `buffer` matches the bytes at `offset`: one `streamBytesEqual` per window touched.
   // Shared by the searchers, which are byte-wise.
@@ -1095,7 +1092,7 @@ extension StreamString: Hashable {
 }
 
 // As `String` orders: by normalized scalars, which the bytes decide unless a non-ASCII byte follows
-// the first difference. See `_StreamUTF8Backed`.
+// the first difference. See `StreamString+Reading.swift`.
 extension StreamString: Comparable {
   public static func < (lhs: Self, rhs: Self) -> Bool {
     if let ordering = lhs.utf8Ordering(rhs) { return ordering < 0 }

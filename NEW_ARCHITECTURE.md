@@ -3760,6 +3760,11 @@ permanent benchmark controls so later generic collection work can still be measu
 
 ## Fixed-capacity strings: `StreamInlineString`
 
+> **Removed.** `StreamInlineString` is gone. Its field-row advantage came mostly from costs
+> `StreamString` could shed, and did shed, by holding one optional reference instead of two arrays;
+> what was left did not pay for a type usable only on OS 26 with a capacity chosen up front. See
+> "`StreamString` holds one reference". This section and the inline-string rows below are history.
+
 `StreamString` grows to fit anything, which costs it two refcounted stored properties and a branch
 on every read between its inline buffer and its block list. A field whose length the schema
 already bounds needs neither. `StreamInlineString<capacity>` is an `Int32` count followed by
@@ -8592,3 +8597,23 @@ measured.
 What remains of the `Fields` gap (389 against `StreamInlineString`'s ~300) is what only plain data
 has: a `StreamBlock` of records that hold a reference still visits each element on teardown, and an
 80-byte member is twice the bytes of a 32-capacity inline one.
+
+### `StreamInlineString` removed
+
+With the gap down to that, `StreamInlineString` went: an OS 26 type whose capacity had to be chosen
+up front, whose overflow failed the parse, and which needed its own erased sink route (the
+`.inlineString` field kind, the `valueInlineString` leaf route, a capacity carried on every
+container schema, a second chunk slot in `PartialSink`) and two public underscored requirements on
+`StreamStringConvertible` to reach it. `InlineArray<N, Character>` is not a substitute -- it parses a
+JSON array, not a string -- so a bounded field is now a `StreamString` member checked after the
+parse. The shared read layer it forced (`_StreamUTF8Backed`) is plain `StreamString` extensions in
+`StreamString+Reading.swift`. The `StreamString` rows of `InlineStringBenchmarks.swift` live on as
+`String values ...` in `StringValueBenchmarks.swift`.
+
+The sink's string functions shrink with the second chunk slot gone (`stringChunk` 332 → 203 bytes,
+`openTableString` 259 → 200, `writeTableString` 592 → 458), and the parse is flat within this
+machine's placement noise (x86_64, pinned layout, best of 2 interleaved gated passes, wall p50):
+Twitter bulk discarding +0.7%, Twitter bulk −0.5%, Twitter full −1.8%, GSoC −1.4%, GitHub events
+−1.5%, LLM message −0.1% (16KB chunks +0.2%), Qwen structured −0.7%, CITM +1.5%, Canada −3.5% (no
+string path; placement), `String values Fields` +1.4%, `Array short` −1.5%, `Fixed array strings`
+−0.8% / −2.2%. Malloc counts identical.

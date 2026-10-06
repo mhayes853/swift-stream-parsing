@@ -93,10 +93,6 @@ public func _streamInlineArraySchema<let count: Int, Element: StreamPartial>(
     elementSchema: element,
     elementStride: optionalElement ? 0 : Int32(stride),
     leafRoute: .inlineArray,
-    // The sink reads the *container* frame's `inlineCapacity` when it opens an inline-string
-    // element (`openKnownStringSlot`) and writes an element's null tag (`applyKnownNull`), so it is
-    // carried here as the array/dictionary builders carry it.
-    fixedElementCount: Int32(count),
-    inlineCapacity: element.inlineCapacity
+    fixedElementCount: Int32(count)
   )
 }
