@@ -37,7 +37,9 @@ public func _streamMaterializeOptional<Wrapped: StreamInitializable>(
   as wrapped: Wrapped.Type
 ) {
   let pointer = storage.assumingMemoryBound(to: Wrapped?.self)
-  if pointer.pointee == nil { pointer.pointee = Wrapped.streamInitialValue() }
+  // Initialized over, not assigned: `nil` owns nothing, and assigning destroyed it out of line for
+  // every member opened.
+  if pointer.pointee == nil { pointer.initialize(to: Wrapped.streamInitialValue()) }
 }
 
 // A single-property wrapper stores it at offset zero, so the wrapped schema applies to the

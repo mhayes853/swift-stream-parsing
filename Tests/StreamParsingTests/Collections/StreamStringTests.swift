@@ -63,6 +63,42 @@ struct `Stream string tests` {
     expectNoDifference(String(value), head + "appended after the copy")
   }
 
+  // The tail is replaced the moment a block seals, so a snapshot taken exactly there holds an empty
+  // tail, and one taken just before holds the block the next append seals.
+  @Test(arguments: [511, 512, 513])
+  func `A copy taken at a seal does not see appends that seal blocks`(count: Int) {
+    let head = Array(repeating: UInt8(ascii: "h"), count: count)
+    var value = self.accumulated(head, chunk: 97)
+    let snapshot = value
+    let more = Array(repeating: UInt8(ascii: "m"), count: 2_000)
+    more.withUnsafeBufferPointer { buffer in
+      value.streamAppend(utf8: Span(_unsafeElements: buffer))
+    }
+    expectNoDifference(Array(snapshot.utf8), head)
+    expectNoDifference(Array(value.utf8), head + more)
+  }
+
+  @Test(arguments: [40, 700, 9_000])
+  func `Appending a value to itself doubles it`(count: Int) {
+    let content = (0..<count).map { UInt8(97 + $0 % 26) }
+    var value = self.accumulated(content, chunk: 333)
+    let snapshot = value
+    value.append(value)
+    expectNoDifference(Array(value.utf8), content + content)
+    expectNoDifference(Array(snapshot.utf8), content)
+  }
+
+  @Test
+  func `Reserving on a shared value leaves the copy untouched`() {
+    let content = Array(repeating: UInt8(ascii: "r"), count: 600)
+    var value = self.accumulated(content, chunk: 64)
+    let snapshot = value
+    value.streamReserve(utf8ByteCount: 20_000)
+    value.append("tail")
+    expectNoDifference(Array(snapshot.utf8), content)
+    expectNoDifference(String(value), String(decoding: content, as: UTF8.self) + "tail")
+  }
+
   // MARK: - Equality and hashing
 
   @Test

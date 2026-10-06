@@ -3,7 +3,71 @@
 // live inline; past that, sealed blocks double from 512 bytes (or a size known at promotion) to an
 // 8 KiB cap and are never written again, so a snapshot shares them and an append copies at most
 // the tail. Every block boundary is a multiple of 512, so reads, equality, ordering and hashing
-// walk canonical 512-byte windows whatever the physical layout.
+// walk canonical 512-byte windows whatever the physical layout. The value holds one reference, the
+// tail, whose header carries the sealed blocks; it is `nil` while the bytes are inline.
+
+// A `StreamString` block: one allocation for a header and the bytes, as `StreamBlock`.
+@usableFromInline
+struct StreamStringChunkHeader {
+  // The bytes written. The owning value makes the chunk unique before changing anything here.
+  @usableFromInline var count: Int
+  // Stored rather than read back from `malloc_size` the way `ManagedBuffer.capacity` does.
+  @usableFromInline let capacity: Int
+  // The tail's: the sealed blocks ahead of it, in order. Moved out when the tail seals, so a sealed
+  // block holds none and no block reaches itself.
+  @usableFromInline var blocks: [StreamStringChunk]
+
+  @usableFromInline
+  init(count: Int, capacity: Int, blocks: [StreamStringChunk]) {
+    self.count = count
+    self.capacity = capacity
+    self.blocks = blocks
+  }
+}
+
+@usableFromInline
+final class StreamStringChunk: ManagedBuffer<StreamStringChunkHeader, UInt8> {
+  @inlinable
+  static func make(capacity: Int, blocks: [StreamStringChunk]) -> StreamStringChunk {
+    let buffer = Self.create(minimumCapacity: capacity) { _ in
+      StreamStringChunkHeader(count: 0, capacity: capacity, blocks: blocks)
+    }
+    return unsafeDowncast(buffer, to: StreamStringChunk.self)
+  }
+
+  // Through the pointer, not `ManagedBuffer.header`: see `StreamBlock.headerPointer`.
+  @inlinable
+  var headerPointer: UnsafeMutablePointer<StreamStringChunkHeader> {
+    self.withUnsafeMutablePointerToHeader { $0 }
+  }
+
+  @inlinable
+  var bytes: UnsafeMutablePointer<UInt8> {
+    self.withUnsafeMutablePointerToElements { $0 }
+  }
+
+  @inlinable
+  var count: Int {
+    get { self.headerPointer.pointee.count }
+    set { self.headerPointer.pointee.count = newValue }
+  }
+
+  // Not `capacity`: `ManagedBuffer` owns that name for its `malloc_size` read.
+  @inlinable
+  var byteCapacity: Int { self.headerPointer.pointee.capacity }
+
+  @inlinable
+  var buffer: UnsafeBufferPointer<UInt8> {
+    UnsafeBufferPointer(start: self.bytes, count: self.count)
+  }
+
+  @inlinable
+  func takeBlocks() -> [StreamStringChunk] {
+    var blocks = [StreamStringChunk]()
+    swap(&blocks, &self.headerPointer.pointee.blocks)
+    return blocks
+  }
+}
 
 /// String storage a parser appends raw UTF-8 to, decoding once when it is read.
 ///
@@ -48,18 +112,20 @@ public struct StreamString {
   }
 
   // Held in the value: a copied short string needs no refcount, a short append no allocation.
-  @usableFromInline var inlineBytes: InlineBuffer
+  @usableFromInline var inlineBytes = InlineBuffer()
   // Low byte: the inline count (0...64). Bits 8..15: the first block's shift (block `k` holds
   // `1 << min(shift + k, 13)` bytes). Bits 16..23: the tail block's shift, `min(first +
   // blocks.count, 13)`, cached so the append path reads a word it already loads. Measured: reading
   // `blocks.count` instead cost -6..-17% on the byte-fed rows.
-  @usableFromInline var storageBits: Int
+  @usableFromInline var storageBits =
+    (StreamString.blockShift &<< 16) | (StreamString.blockShift &<< 8)
 
-  // Sealed and never written again; sizes follow the schedule, see `sealedPosition(of:)`.
-  @usableFromInline var blocks: [ContiguousArray<UInt8>]
-
-  // The filling block: the only allocated storage an append touches, so the most it can copy.
-  @usableFromInline var tail: ContiguousArray<UInt8>
+  // `nil` while the bytes are inline, so opening a short value is a zeroed write and dropping it a
+  // null release. Past that, the filling block, the only allocated storage an append touches and so
+  // the most it can copy; its header holds the sealed blocks, which are never written again and
+  // follow the schedule, see `sealedPosition(of:)`. One reference however many blocks: a copy is
+  // one retain, and the inline test is this word.
+  @usableFromInline var tail: StreamStringChunk? = nil
 
   @usableFromInline static var inlineCapacity: Int { 64 }
 
@@ -85,8 +151,8 @@ public struct StreamString {
   @usableFromInline
   var tailBlockCapacity: Int { 1 &<< ((self.storageBits &>> 16) & 0xFF) }
 
-  // (Re)starts the schedule and the tail cache at `shift`. Only called while no bytes are blocked,
-  // which keeps both consistent with `blocks.count == 0`.
+  // (Re)starts the schedule and the tail cache at `shift`. Only called while the bytes are inline,
+  // which keeps both consistent with no sealed blocks.
   @inlinable
   mutating func setStartBlockShift(_ shift: Int) {
     self.storageBits = (shift &<< 16) | (shift &<< 8) | self.inlineCount
@@ -119,12 +185,11 @@ public struct StreamString {
     )
   }
 
-  public init() {
-    self.inlineBytes = InlineBuffer()
-    self.storageBits = (Self.blockShift &<< 16) | (Self.blockShift &<< 8)
-    self.blocks = [ContiguousArray<UInt8>]()
-    self.tail = ContiguousArray<UInt8>()
-  }
+  // Every property's value is its declared default. Measured: assigning the three here instead
+  // built the value on the stack and copied it, an outlined retain and release of the `nil` tail
+  // on every member opened, because the optimizer does not forward the stores of a struct this
+  // many fields wide.
+  public init() {}
 
   public init(_ string: some StringProtocol) {
     self.init()
@@ -133,16 +198,24 @@ public struct StreamString {
   }
 
   // `@inlinable` because `append(utf8:)` and `utf8Count` are: out of line, a client specialisation
-  // copied the whole value to the stack and called out per append to read two counts. `|`, not
-  // `&&`: the short-circuit's extra block tipped `streamAppend` over the inliner's threshold and
-  // outlined it at 33 sites, `PartialSink.stringChunk` among them.
-  @inlinable var usesInlineStorage: Bool { self.blocks.count | self.tail.count == 0 }
-  @inlinable var sealedCount: Int { self.sealedPrefix(before: self.blocks.count) }
+  // copied the whole value to the stack and called out per append. One-way: a value that has left
+  // inline storage keeps a tail, empty or not.
+  @inlinable var usesInlineStorage: Bool { self.tail == nil }
+
+  // The rest are for a promoted value only.
+  @inlinable var tailChunk: StreamStringChunk { self.tail.unsafelyUnwrapped }
+  @inlinable var sealedBlockCount: Int { self.tailChunk.headerPointer.pointee.blocks.count }
+  @inlinable var sealedCount: Int { self.sealedPrefix(before: self.sealedBlockCount) }
+
+  @inlinable
+  func sealedBlock(_ index: Int) -> StreamStringChunk {
+    self.tailChunk.headerPointer.pointee.blocks[index]
+  }
 
   /// The number of UTF-8 bytes accumulated so far.
   @inlinable
   public var utf8Count: Int {
-    self.usesInlineStorage ? self.inlineCount : self.sealedCount &+ self.tail.count
+    self.usesInlineStorage ? self.inlineCount : self.sealedCount &+ self.tailChunk.count
   }
 
   /// Whether no bytes have accumulated.
@@ -192,16 +265,16 @@ public struct StreamString {
     let reservation = count == 0
       ? min(capacity, blockCapacity)
       : blockCapacity
-    self.tail.reserveCapacity(reservation)
+    let chunk = StreamStringChunk.make(capacity: reservation, blocks: [])
     if count > 0 {
       withUnsafeBytes(of: self.inlineBytes) { source in
-        self.tail.append(
-          contentsOf: UnsafeBufferPointer(
-            start: source.baseAddress!.assumingMemoryBound(to: UInt8.self), count: count
-          )
+        chunk.bytes.initialize(
+          from: source.baseAddress!.assumingMemoryBound(to: UInt8.self), count: count
         )
       }
+      chunk.count = count
     }
+    self.tail = chunk
     self.inlineCount = 0
   }
 
@@ -211,32 +284,64 @@ public struct StreamString {
     var blockCapacity = self.tailBlockCapacity
     var offset = 0
     while offset < buffer.count {
-      let take = min(blockCapacity &- self.tail.count, buffer.count &- offset)
-      let needed = self.tail.count &+ take
-      if self.tail.capacity < needed {
+      // Ahead of any local reference to the tail, which would itself make it shared.
+      let unique = isKnownUniquelyReferenced(&self.tail)
+      let count = self.tailChunk.count
+      let capacity = self.tailChunk.byteCapacity
+      let take = min(blockCapacity &- count, buffer.count &- offset)
+      let needed = count &+ take
+      // One test for both reasons to copy: a snapshot shares the tail, or it is too small.
+      if !unique || capacity < needed {
         // An empty tail reserves only the fragment in hand, but only for the *first* block: after
         // a seal a fragment-fed value would reallocate its way up every block. "A block has sealed"
-        // comes from `storageBits`, so it adds no dependent load on `blocks`.
+        // comes from `storageBits`, so it adds no dependent load on the blocks.
         let provenLong =
           blockCapacity != self.startBlockCapacity
           || blockCapacity == 1 &<< Self.maximumBlockShift
-        self.tail.reserveCapacity(self.tail.isEmpty && !provenLong ? take : blockCapacity)
+        let grown = count == 0 && !provenLong ? take : blockCapacity
+        self.reallocateTail(capacity: capacity < needed ? grown : capacity, unique: unique)
       }
-      self.tail.append(contentsOf: UnsafeBufferPointer(start: base + offset, count: take))
+      let chunk = self.tailChunk
+      (chunk.bytes + count).initialize(from: base + offset, count: take)
+      chunk.count = needed
       offset &+= take
-      guard self.tail.count == blockCapacity else { continue }
-      // Reserved at the first seal: doubling from one cost a three-block value two reallocations.
-      // Measured: keyed on `capacity`, not `isEmpty` -- `streamReserve` already sizes this array,
-      // and reserving 4 over a hint of 2 cost +163 mallocs on hinted GSoC.
-      if self.blocks.capacity == 0 { self.blocks.reserveCapacity(4) }
-      self.blocks.append(self.tail)
-      self.tail = ContiguousArray<UInt8>()
+      guard needed == blockCapacity else { continue }
       // The schedule doubles until the cap, and the cached tail shift moves with it.
       if blockCapacity < 1 &<< Self.maximumBlockShift {
         self.storageBits &+= 1 &<< 16
         blockCapacity &<<= 1
       }
+      self.sealTail(nextCapacity: blockCapacity)
     }
+  }
+
+  // Copies the tail into a chunk of `capacity`: a snapshot shares it, or it is too small. A unique
+  // tail hands its sealed blocks over; a shared one keeps them for the value it is shared with.
+  @usableFromInline
+  @inline(never)
+  mutating func reallocateTail(capacity: Int, unique: Bool) {
+    let old = self.tailChunk
+    let blocks = unique ? old.takeBlocks() : old.headerPointer.pointee.blocks
+    let chunk = StreamStringChunk.make(capacity: capacity, blocks: blocks)
+    chunk.bytes.initialize(from: old.bytes, count: old.count)
+    chunk.count = old.count
+    self.tail = chunk
+  }
+
+  // The full tail joins the sealed blocks and a `nextCapacity` block takes its place, allocated now
+  // because a promoted value always has a tail; only a value ending exactly on a seal wastes it.
+  // The tail is unique here: the append that filled it made it so.
+  @usableFromInline
+  @inline(never)
+  mutating func sealTail(nextCapacity: Int) {
+    let sealed = self.tailChunk
+    var blocks = sealed.takeBlocks()
+    // Reserved at the first seal: doubling from one cost a three-block value two reallocations.
+    // Measured: keyed on `capacity`, not `isEmpty` -- `streamReserve` already sizes this array,
+    // and reserving 4 over a hint of 2 cost +163 mallocs on hinted GSoC.
+    if blocks.capacity == 0 { blocks.reserveCapacity(4) }
+    blocks.append(sealed)
+    self.tail = StreamStringChunk.make(capacity: nextCapacity, blocks: blocks)
   }
 
   // MARK: Reading
@@ -266,22 +371,19 @@ public struct StreamString {
     var written = 0
     var position = range.lowerBound
     while position < min(range.upperBound, sealed) {
-      let (block, start) = self.sealedPosition(of: position)
+      let (index, start) = self.sealedPosition(of: position)
+      let block = self.sealedBlock(index)
       // Sealed blocks are full, so a block's own count is its capacity on the schedule.
-      let take = min(self.blocks[block].count &- start, range.upperBound &- position)
-      self.blocks[block].withUnsafeBufferPointer { source in
-        (base + written).initialize(from: source.baseAddress! + start, count: take)
-      }
+      let take = min(block.count &- start, range.upperBound &- position)
+      (base + written).initialize(from: block.bytes + start, count: take)
       written &+= take
       position &+= take
     }
     guard position < range.upperBound else { return }
-    self.tail.withUnsafeBufferPointer { source in
-      (base + written).initialize(
-        from: source.baseAddress! + (position &- sealed),
-        count: range.upperBound &- position
-      )
-    }
+    (base + written).initialize(
+      from: self.tailChunk.bytes + (position &- sealed),
+      count: range.upperBound &- position
+    )
   }
 
   // Decodes `range`, repairing rather than validating: a repairing decode cannot fail, which is
@@ -298,27 +400,24 @@ public struct StreamString {
       }
     }
     // A range in the tail or inside one sealed block is contiguous and decodes in place.
-    if self.blocks.isEmpty {
-      return self.tail.withUnsafeBufferPointer { buffer in
-        String(
-          decoding: UnsafeBufferPointer(rebasing: buffer[range.lowerBound..<range.upperBound]),
-          as: UTF8.self
-        )
-      }
-    }
-    if range.lowerBound >= self.sealedCount {
-      let start = range.lowerBound &- self.sealedCount
-      let end = range.upperBound &- self.sealedCount
-      return self.tail.withUnsafeBufferPointer { buffer in
-        String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
-      }
+    let sealed = self.sealedCount
+    if range.lowerBound >= sealed {
+      let tail = self.tailChunk
+      precondition(range.upperBound &- sealed <= tail.count, "StreamString byte range out of range")
+      return String(
+        decoding: UnsafeBufferPointer(
+          start: tail.bytes + (range.lowerBound &- sealed), count: range.count
+        ),
+        as: UTF8.self
+      )
     }
     let (firstBlock, start) = self.sealedPosition(of: range.lowerBound)
-    if range.count <= self.blocks[firstBlock].count &- start {
-      let end = start &+ range.count
-      return self.blocks[firstBlock].withUnsafeBufferPointer { buffer in
-        String(decoding: UnsafeBufferPointer(rebasing: buffer[start..<end]), as: UTF8.self)
-      }
+    let block = self.sealedBlock(firstBlock)
+    if range.count <= block.count &- start {
+      return String(
+        decoding: UnsafeBufferPointer(start: block.bytes + start, count: range.count),
+        as: UTF8.self
+      )
     }
     let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: range.count)
     defer { buffer.deallocate() }
@@ -342,12 +441,13 @@ extension StreamString {
     }
     let sealed = self.sealedCount
     if position < sealed {
+      // A negative position lands on a block index past the array's bounds, which traps.
       let (block, offset) = self.sealedPosition(of: position)
-      return self.blocks[block][offset]
+      return self.sealedBlock(block).bytes[offset]
     }
     let offset = position &- sealed
-    precondition(offset < self.tail.count, "StreamString byte offset out of range")
-    return self.tail[offset]
+    precondition(offset < self.tailChunk.count, "StreamString byte offset out of range")
+    return self.tailChunk.bytes[offset]
   }
 
   // Runs `body` over `[position, position + count)`, which must not cross a 512-byte window: seals
@@ -374,13 +474,9 @@ extension StreamString {
     let sealed = self.sealedCount
     if position < sealed {
       let (block, offset) = self.sealedPosition(of: position)
-      return self.blocks[block].withUnsafeBufferPointer { buffer in
-        body(UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count))
-      }
+      return body(UnsafeBufferPointer(start: self.sealedBlock(block).bytes + offset, count: count))
     }
-    return self.tail.withUnsafeBufferPointer { buffer in
-      body(UnsafeBufferPointer(start: buffer.baseAddress! + (position &- sealed), count: count))
-    }
+    return body(UnsafeBufferPointer(start: self.tailChunk.bytes + (position &- sealed), count: count))
   }
 }
 
@@ -897,9 +993,17 @@ extension StreamString {
       }
       self.promoteInlineStorage(reserving: utf8ByteCount)
     }
-    self.tail.reserveCapacity(min(utf8ByteCount, self.tailBlockCapacity))
+    // As `ContiguousArray.reserveCapacity`: a shared tail is copied even when it is large enough.
+    let unique = isKnownUniquelyReferenced(&self.tail)
+    let wanted = min(utf8ByteCount, self.tailBlockCapacity)
+    let capacity = self.tailChunk.byteCapacity
+    if !unique || capacity < wanted {
+      self.reallocateTail(capacity: max(capacity, wanted), unique: unique)
+    }
     // The block holding the last byte, plus one.
-    self.blocks.reserveCapacity(self.sealedPosition(of: utf8ByteCount &- 1).block &+ 1)
+    self.tailChunk.headerPointer.pointee.blocks.reserveCapacity(
+      self.sealedPosition(of: utf8ByteCount &- 1).block &+ 1
+    )
   }
 
   /// Appends the UTF-8 bytes of `text`.
@@ -917,14 +1021,13 @@ extension StreamString {
       other.withInlineBuffer { self.append(utf8: $0) }
       return
     }
-    for block in other.blocks {
-      block.withUnsafeBufferPointer { buffer in
-        self.append(utf8: buffer)
-      }
+    // `other` holds its chunks for the whole loop, so `x.append(x)` reads storage the appends to
+    // `self` only ever copy away from.
+    let tail = other.tailChunk
+    for block in tail.headerPointer.pointee.blocks {
+      self.append(utf8: block.buffer)
     }
-    other.tail.withUnsafeBufferPointer { buffer in
-      self.append(utf8: buffer)
-    }
+    self.append(utf8: tail.buffer)
   }
 
   /// Appends a single character's UTF-8 bytes.
@@ -1000,8 +1103,9 @@ extension StreamString: Comparable {
   }
 }
 
-// Checked, not `@unchecked`: every stored property is a value type.
-extension StreamString: Sendable {}
+// `@unchecked` because a `ManagedBuffer` subclass cannot be `Sendable`; the chunks are written only
+// while uniquely held, the grounds `StreamArray` asserts it on.
+extension StreamString: @unchecked Sendable {}
 
 extension StreamString: CustomStringConvertible {
   public var description: String {

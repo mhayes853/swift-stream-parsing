@@ -8510,3 +8510,85 @@ changes from -1.2% to +1.8%. Typed Canada changes by
 -0.6% and typed Mesh by -1.2%. This comparison measures the simplification
 only; the earlier table compares the initial protocol implementation with the original
 Float/Double-only implementation.
+
+## `StreamString` holds one reference
+
+`StreamInlineString` won its field rows against `StreamString` (`Inline string Fields`, 298 µs
+against 471) by being plain data. A decomposition of that gap (2,048 records of three string fields,
+`{}` / empty strings / the full payload, plus teardown alone) put ~27% of it in opening the 264-byte
+element, ~41% in materialising each member, ~22% in teardown and ~11% in the appends. Most of that
+was the two arrays `StreamString` carried — `blocks` and `tail`, both the empty-array singleton on
+an inline value — not anything an inline type alone can have:
+
+- materialising a member wrote both array references and destroyed the `nil` it replaced, an
+  outlined call per member;
+- the inline test, `blocks.count | tail.count == 0`, was two dependent loads per append;
+- teardown released both arrays of every present member, six `swift_release` calls per record.
+
+### The layout
+
+`StreamString` is now the 64 inline bytes, `storageBits`, and **one** optional reference: `tail`, a
+`StreamStringChunk` (a `ManagedBuffer` of a header and the bytes, as `StreamBlock`), `nil` while the
+bytes are inline. The tail's header carries the sealed blocks, which are chunks too; a seal moves the
+array out of the full tail's header into the next tail's, so a sealed block holds none and no chunk
+reaches itself. 88 bytes → 80.
+
+- The inline test is `tail == nil`: `PartialSink.stringChunk` compares one word where it loaded two
+  array references and their counts.
+- A copy is one retain, a drop one release, and for an inline value both are of `nil`.
+- Promotion is still one allocation (the chunk), an append after a snapshot still copies at most the
+  tail, and a snapshot still shares every sealed block. The blocked append is one uniqueness check
+  and an inline `memcpy`; it used to call `ContiguousArray.append(contentsOf:)` out of line.
+- Promotion is one-way: a reservation on an empty value promotes it, so the reserved tail is the one
+  later appends fill (before, an append of up to 64 bytes went inline past it).
+- A seal allocates the next tail immediately, because a promoted value always has one. Only a value
+  that ends exactly on a seal wastes it.
+- `StreamString` is `@unchecked Sendable` now: a `ManagedBuffer` subclass cannot be `Sendable`. The
+  grounds are `StreamArray`'s — a chunk is written only while uniquely held.
+
+`_streamMaterializeOptional` initialises over the `nil` instead of assigning, so no destroy runs.
+
+### The initialiser trap
+
+The first build of this had **an outlined copy and destroy of `StreamString` in every member open**,
+worse than before. `init()` assigned its three properties, which builds `self` in a stack slot; the
+optimised SIL then loads it twice and emits `retain_value` / `release_value` on the two loads, which
+ARC optimisation does not pair, and IRGen makes them outlined copy/destroy calls. It reproduces
+standalone: a struct of eight `UInt64`s, an `Int` and an optional class reference has the copy;
+four words, or a `SIMD64<UInt8>` buffer, or the same fields built memberwise or from declared
+defaults, does not. (The old layout escaped it only because retains of the immortal empty-array
+singleton fold away.) With every property's value its declared default and an empty `init()`, a
+member open is a tag compare, four vector zero stores, `storageBits` and the `nil`, and no call.
+
+### Measured (x86_64, pinned layout, best of 2 interleaved gated passes, wall p50)
+
+| row | before | after | Δ |
+|---|---:|---:|---:|
+| Real Twitter - bulk discarding | 458.5 µs | 448.0 µs | −2.3% |
+| Real Twitter - bulk / 16KB chunks discarding | | | −0.4% / −0.1% |
+| Real Twitter full - bulk discarding | 1,379 µs | 1,263 µs | −8.5% |
+| Real Twitter generic - bulk discarding | 478.0 µs | 452.6 µs | −5.3% |
+| Real GSoC 2018 - bulk discarding | 3,883 µs | 3,387 µs | −12.8% |
+| Real GitHub events - bulk discarding | 75.1 µs | 65.2 µs | −13.2% |
+| Real Qwen 3 structured response - bulk discarding | 37.9 µs | 33.3 µs | −12.1% |
+| Real Qwen 3 workspace edit tool call - bulk discarding | 63.0 µs | 56.0 µs | −11.1% |
+| Real LLM message - bulk discarding | 778.8 µs | 756.7 µs | −2.8% |
+| Real LLM message - snapshot per 1400B chunk | 1,221 µs | 1,164 µs | −4.6% |
+| Real CITM catalog - bulk discarding | 2,687 µs | 2,656 µs | −1.1% |
+| Real Canada / Mesh - bulk discarding (controls) | | | +0.9% / +0.3% |
+| Real Twitter full String storage - bulk discarding | 1,774 µs | 1,793 µs | +1.1% |
+| Inline string Fields StreamString - bulk | 469.5 µs | 389.4 µs | −17.1% |
+| Inline string Array StreamString short - bulk | 102.8 µs | 92.3 µs | −10.2% |
+| Inline string Array StreamString medium - bulk | 356.1 µs | 302.8 µs | −15.0% |
+| Inline string Dictionary StreamString short - bulk | 283.4 µs | 266.0 µs | −6.1% |
+| Stream Long string - snapshot per byte | 527.4 µs | 348.7 µs | −33.9% |
+| Fields of three strings, teardown only | 40.0 µs | 19.0 µs | −52.5% |
+
+Malloc counts are unchanged except GSoC (8,650 → 8,581). The `Twitter full String storage` row
+stores its members as `String` (`partialStrings: .string`), so its +1.1% is noise. `Real LLM message - byte by byte discarding` read −25%,
+but the byte-fed rows are layout-dominated on this machine; treat it as direction only. ARM was not
+measured.
+
+What remains of the `Fields` gap (389 against `StreamInlineString`'s ~300) is what only plain data
+has: a `StreamBlock` of records that hold a reference still visits each element on teardown, and an
+80-byte member is twice the bytes of a 32-capacity inline one.
