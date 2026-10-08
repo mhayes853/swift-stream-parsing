@@ -35,6 +35,19 @@ private struct SizeRecordingConsumer: StreamEventBatchConsumer {
   }
 }
 
+// Pairs each key with the event after it, which is one past the end when a batch boundary falls
+// between the two: `{"k0":0,"k1":1,...}` puts the 128th key last in the first 256-event batch.
+private struct NextEventConsumer: StreamEventBatchConsumer {
+  var streamFailure: StreamSinkFailure? { nil }
+
+  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
+    for index in 0..<batch.count where batch.records[index].kind == .key {
+      _ = batch.bytes(of: index + 1)
+    }
+    return batch.count
+  }
+}
+
 // Replays every delivered batch into a directly held PartialSink: the shape a cross-boundary
 // consumer has, minus the boundary.
 private struct PartialReplayConsumer: StreamEventBatchConsumer, ~Copyable {
@@ -329,6 +342,19 @@ struct StreamEventBatchingSinkTests {
       }
     }
     sink.commit()
+  }
+
+  // `bytes(of:)` reads through the batch's raw bases, so past the end it would build a span from
+  // whatever record follows; it stops instead, as `records[index]` does.
+  @Test
+  func `Reading an event past the batch stops the program`() async {
+    await #expect(processExitsWith: .failure) {
+      let json = "{" + (0..<200).map { "\"k\($0)\":\($0)" }.joined(separator: ",") + "}"
+      var sink = StreamEventBatchingSink(consumer: NextEventConsumer())
+      var parser = JSONParser()
+      try Array(json.utf8).withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
+      try parser.finish(into: &sink)
+    }
   }
 
   @Test

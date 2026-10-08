@@ -410,4 +410,19 @@ struct `Key word tests` {
     }
     expectNoDifference(word, 0x0000_0000_0063_6261)
   }
+
+  // The other side of the same bound. A matcher reading a key's last word as
+  // `paddedWord(at: key.count - 8)` passes -6 for `"id"`, which would load six bytes early; a
+  // start past the end is not an error, just an empty word.
+  @Test
+  func `A negative start stops the program and a start past the end reads zero`() async {
+    await #expect(processExitsWith: .failure) {
+      let bytes: [UInt8] = [0x69, 0x64]
+      _ = bytes.withUnsafeBufferPointer { Span(_unsafeElements: $0).paddedWord(at: -6) }
+    }
+    let past = [UInt8]([0x69, 0x64]).withUnsafeBufferPointer {
+      Span(_unsafeElements: $0).paddedWord(at: 5)
+    }
+    expectNoDifference(past, 0)
+  }
 }

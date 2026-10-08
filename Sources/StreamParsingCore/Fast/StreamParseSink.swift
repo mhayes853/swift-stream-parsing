@@ -181,10 +181,22 @@ public struct StreamEventBatch: ~Escapable {
     MemoryLayout<StreamEventRecord>.size &- MemoryLayout<UInt32>.size
   }
 
+  // The accessors below read through raw bases, so they check the index the way `records[index]`
+  // does: an off-by-one at a batch boundary (a key as the last event, its value opening the next
+  // batch) otherwise reads a stale record past the end and builds a span from its offsets. Where a
+  // loop has already subscripted `records` with the same index, as `replay` does, this folds into
+  // that check.
+  @inlinable
+  @inline(__always)
+  func checkIndex(_ index: Int) {
+    precondition(index >= 0 && index < self.count, "StreamEventBatch index out of range")
+  }
+
   /// The bytes the event at `index` would have carried: a key, a string, a chunk, a number.
   @inlinable
   @_lifetime(borrow self)
   public func bytes(of index: Int) -> Span<UInt8> {
+    self.checkIndex(index)
     let record = self.recordBase + index
     let start: UnsafePointer<UInt8>
     switch record.pointee.source {
@@ -202,12 +214,18 @@ public struct StreamEventBatch: ~Escapable {
 
   /// The parsed form of the number at `index`. Meaningful for `number` records only.
   @inlinable
-  public func info(of index: Int) -> NumberInfo { self.infoBase[index] }
+  public func info(of index: Int) -> NumberInfo {
+    self.checkIndex(index)
+    return self.infoBase[index]
+  }
 
   /// The byte offset, within the chunk being parsed, just past the event at `index`, when the
   /// batch's producer recorded it. ``StreamEventBatchingSink`` does not: it reports `0`.
   @inlinable
-  public func end(of index: Int) -> Int { Int(self.recordBase[index].end) }
+  public func end(of index: Int) -> Int {
+    self.checkIndex(index)
+    return Int(self.recordBase[index].end)
+  }
 }
 
 // MARK: - StreamContainerDisposition
