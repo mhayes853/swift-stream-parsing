@@ -56,18 +56,18 @@ public typealias StreamFieldPrepare = @Sendable (UnsafeMutableRawPointer, Int32)
 ///
 /// Build one with an initializer and hand it to a ``StreamSchema``. The initializers derive
 /// `keyWord`, `keyLength` and `flags` from the key and the options, and the schema trusts them as
-/// derived: leave those three as they are. ``schema`` and ``prepare`` are the properties to set.
+/// derived, so they are read-only. ``schema`` and ``prepare`` are the properties to set.
 public struct StreamField: Sendable {
+  // Set only by `init`: a `keyLength` longer than the key sends the long-key match past the key's
+  // bytes in the schema's blob, and the last key's past the blob itself.
   /// The key's first eight bytes, little-endian, zero padded. Derived from the key.
-  public var keyWord: UInt64
+  public private(set) var keyWord: UInt64
   /// The key's length in UTF-8 bytes. Derived from the key.
-  public var keyLength: UInt16
+  public private(set) var keyLength: UInt16
   /// How the member is stored and routed.
   public var kind: StreamFieldKind
-  /// ``Flags/optional`` is set from the initializer's `optional`. Do not set ``Flags/prepare``
-  /// yourself: the schema adds it for a field that has a ``prepare`` closure, and a field flagged
-  /// without one has nothing for the parser to run.
-  public var flags: Flags
+  /// ``Flags/optional``, from the initializer's `optional`.
+  public private(set) var flags: Flags
   /// Byte offset of the member inside the object's storage.
   public var offset: UInt32
   /// The field identifier the schema's closures take, for `custom` and `container` entries. A
@@ -83,8 +83,11 @@ public struct StreamField: Sendable {
     public init(rawValue: UInt8) { self.rawValue = rawValue }
     /// The member is `Optional`; a write must materialise it and a null clears it.
     @inlinable public static var optional: Flags { Flags(rawValue: 1) }
-    /// The entry has a `prepare` closure to run before a frame is pushed over the member.
-    @inlinable public static var prepare: Flags { Flags(rawValue: 2) }
+    // The packed entry has a `prepare` closure to run before a frame is pushed over the member.
+    // Derived when the table packs the field, from whether the closure is there, so it is never
+    // set on a `StreamField`: a flag without a closure would call a nil one. Internal rather than
+    // private because the sink's inlinable `hasPrepare` reads it.
+    @inlinable static var prepare: Flags { Flags(rawValue: 2) }
   }
 
   /// The key as declared, kept until the schema packs every entry's key into one blob.
@@ -169,7 +172,7 @@ struct StreamFieldEntry {
     self.keyWord = field.keyWord
     self.keyLength = field.keyLength
     self.kind = field.kind
-    self.flags = field.flags
+    self.flags = field.flags.subtracting(.prepare)
     if field.prepare != nil { self.flags.insert(.prepare) }
     self.offset = field.offset
     self.index = field.index

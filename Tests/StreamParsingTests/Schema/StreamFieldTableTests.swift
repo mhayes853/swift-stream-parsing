@@ -157,6 +157,22 @@ struct StreamFieldTableTests {
       expectNoDifference(self.entry("temperature", in: custom).schema == nil, true)
     }
 
+    // The sink calls an entry's `prepare` unchecked once the entry is flagged, so the flag is
+    // derived from the closure when the table packs the field, never carried over from it.
+    @Test
+    func `Packed entries flag a prepare exactly when the field has one`() {
+      for fields in [
+        TableScalars.Partial.streamSchema.declaredFields,
+        TableInitialized.Partial.streamSchema.declaredFields,
+      ] {
+        let table = StreamFieldTable(fields)
+        for index in fields.indices {
+          expectNoDifference(table.entries[index].hasPrepare, fields[index].prepare != nil)
+          expectNoDifference(fields[index].flags.contains(.prepare), false)
+        }
+      }
+    }
+
     @Test
     func `Aliased keys share an index`() {
       let fields = TableScalars.Partial.streamSchema.declaredFields
