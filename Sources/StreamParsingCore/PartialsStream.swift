@@ -286,6 +286,23 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     }
   }
 
+  // `finishInPlace()` and then `withView(_:)`, kept out of line for the observation iterators,
+  // which run it once at EOF. Inlined into an iterator's `next`, the parser's `finish(into:)` grew
+  // the specialized caller and cost every call, not just the last: AsyncProjected +7%, and, since
+  // cross-module optimization inlines even a non-inlinable body, a synchronous `.project(_:)`
+  // +12% until `@inline(never)`.
+#if !LifetimeView
+  @unsafe
+#endif
+  @usableFromInline
+  @inline(never)
+  mutating func finishInPlace<R>(
+    withView body: (borrowing Value.Partial.View) throws -> R
+  ) throws -> R {
+    try self.finishInPlace()
+    return try self.withView(body)
+  }
+
   /// Discards whatever state the stream holds and re-arms it for a new document.
   ///
   /// Legal in any state, including after the parser has thrown: a malformed document is recovered

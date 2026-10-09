@@ -90,8 +90,9 @@ extension PartialIterator {
         return PartialUpdate(value: try self.stream.withView(transform), isComplete: false)
       }
       self.terminated = true
-      try self.stream.finishInPlace()
-      return PartialUpdate(value: try self.stream.withView(transform), isComplete: true)
+      return PartialUpdate(
+        value: try self.stream.finishInPlace(withView: transform), isComplete: true
+      )
     } catch {
       self.terminated = true
       throw error
