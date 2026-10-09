@@ -241,13 +241,13 @@ struct BenchmarkCanadaCapacityHintGeometry: Hashable, Sendable {
 // `streamInitialValue()` instead of `nil`. Kept as a permanent control so the two
 // `partialMembers` modes stay directly comparable on a real dataset rather than only on
 // synthetic shapes.
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct BenchmarkCanadaStreamInitialValue: Hashable, Sendable {
   var type: String = ""
   var features: [BenchmarkCanadaStreamInitialValueFeature] = []
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct BenchmarkCanadaStreamInitialValueFeature: Hashable, Sendable {
   var type: String = ""
   var properties: BenchmarkCanadaStreamInitialValueProperties =
@@ -256,12 +256,12 @@ struct BenchmarkCanadaStreamInitialValueFeature: Hashable, Sendable {
     BenchmarkCanadaStreamInitialValueGeometry()
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct BenchmarkCanadaStreamInitialValueProperties: Hashable, Sendable {
   var name: String = ""
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct BenchmarkCanadaStreamInitialValueGeometry: Hashable, Sendable {
   var type: String = ""
   var coordinates: [[SIMD2<Double>]] = []

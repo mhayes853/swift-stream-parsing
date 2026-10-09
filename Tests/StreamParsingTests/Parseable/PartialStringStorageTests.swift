@@ -22,7 +22,7 @@ private struct StringMessage: Equatable {
   var body: String
 }
 
-@StreamParseable(partialMembers: .streamInitialValue, partialStrings: .string)
+@StreamParseable(partialMembers: .initialValue, partialStrings: .string)
 private struct InitialValueStrings: Equatable {
   var name: String
   var tags: [String]

@@ -82,7 +82,7 @@ struct `StreamObjectGeneration conversion tests` {
   func `Stream Initial Value Members Emit The Same Two Initializers`() throws {
     let generation = try StreamObjectGeneration(
       fields: [self.field("value")],
-      partialMembers: .streamInitialValue
+      partialMembers: .initialValue
     )
     let source = try generation.conversionsSyntax().description
 

@@ -28,7 +28,7 @@ The generator owns storage, initialization, observation metadata, schema routing
 view's lifetime handling. `StreamViewMode.packageDefault` follows the `LifetimeView` package
 trait. Explicit `.lifetime` and `.unsafe` modes are also available. Coordinate generated names
 through `StreamGeneratedNames`; `TokenSyntax.streamPartial` and `.streamView` provide the
-conventional names. Use `StreamPartialMembers.streamInitialValue` to initialize required fields
+conventional names. Use `StreamPartialMembers.initialValue` to initialize required fields
 with their stream initial values instead of making them optional. A field created without
 `explicitKeys` matches only its own name, without backticks, converted by the configuration's
 `keyDecodingStrategy`.

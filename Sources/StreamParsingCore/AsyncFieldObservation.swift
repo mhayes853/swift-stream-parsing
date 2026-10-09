@@ -28,7 +28,7 @@
     /// Observes a nonoptional stored field, including fields initialized by the partial-member mode.
     ///
     /// ```swift
-    /// @StreamParseable(partialMembers: .streamInitialValue)
+    /// @StreamParseable(partialMembers: .initialValue)
     /// struct Response { var count: Int = 0 }
     /// let counts = try chunks.partials(of: Response.self, from: .json()).observeField(\.count)
     /// for try await update in counts { print(update.value, update.isComplete) }

@@ -16,7 +16,7 @@ private struct ObservedChild: Equatable {
   var title: String? = nil
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 private struct InitializedObservedModel: Equatable {
   var count: Int = 0
   var child: ObservedChild = ObservedChild()

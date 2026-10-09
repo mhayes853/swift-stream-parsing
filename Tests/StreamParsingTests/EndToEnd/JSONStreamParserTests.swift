@@ -1424,12 +1424,12 @@ struct NestedContainer: Equatable {
   var nested: NestedValue = .init()
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct InitialParseableNestedValue: Equatable {
   var value: Int = 0
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct InitialParseableNestedContainer: Equatable {
   var nested: InitialParseableNestedValue = .init()
 }
@@ -1724,7 +1724,7 @@ struct ProfileOptional {
 
 extension ProfileOptional.Partial: Codable {}
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct ProfileParseable {
   var id: String
   var name: String

@@ -878,7 +878,7 @@ extension BaseTestSuite {
     func `Stream Initial Value Members`() {
       assertStreamParsingMacro {
         """
-        @StreamParseable(partialMembers: .streamInitialValue)
+        @StreamParseable(partialMembers: .initialValue)
         struct Person {
           var name: String
           var age: Int?
@@ -1967,7 +1967,7 @@ extension BaseTestSuite {
     func `Enum Rejects Partial Members Mode`() {
       assertStreamParsingMacro {
         """
-        @StreamParseable(partialMembers: .streamInitialValue)
+        @StreamParseable(partialMembers: .initialValue)
         enum Figure {
           @StreamParseableDefault
           case circle
@@ -1975,8 +1975,8 @@ extension BaseTestSuite {
         """
       } diagnostics: {
         """
-        @StreamParseable(partialMembers: .streamInitialValue)
-        ┬────────────────────────────────────────────────────
+        @StreamParseable(partialMembers: .initialValue)
+        ┬──────────────────────────────────────────────
         ╰─ 🛑 @StreamParseable(partialMembers:) does not apply to an enum. An enum's partial has a fixed shape: absence is what says a case did not arrive, so its members are always optional.
         enum Figure {
           @StreamParseableDefault
@@ -5845,7 +5845,7 @@ extension BaseTestSuite {
 
         @StreamParseable(partialMembers: mode)
                                          ┬───
-                                         ╰─ 🛑 @StreamParseable(partialMembers:) requires .optional or .streamInitialValue.
+                                         ╰─ 🛑 @StreamParseable(partialMembers:) requires .optional or .initialValue.
         struct Person {
           var name: String
         }

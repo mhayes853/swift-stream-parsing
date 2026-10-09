@@ -10,7 +10,7 @@ private struct ExplicitOptionalModel: Equatable {
   var name: String
 }
 
-@StreamParseable(partialMembers: PartialMembersMode.streamInitialValue)
+@StreamParseable(partialMembers: PartialMembersMode.initialValue)
 private struct QualifiedInitialValueModel: Equatable {
   var id: Int
   var name: String
@@ -25,8 +25,8 @@ private struct ModuleQualifiedOptionalModel: Equatable {
 struct `Partial Members Mode Tests` {
   @Test
   func `The two modes are distinct values`() {
-    #expect(PartialMembersMode.optional != .streamInitialValue)
-    let modes: Set<PartialMembersMode> = [.optional, .streamInitialValue, .optional]
+    #expect(PartialMembersMode.optional != .initialValue)
+    let modes: Set<PartialMembersMode> = [.optional, .initialValue, .optional]
     expectNoDifference(modes.count, 2)
   }
 

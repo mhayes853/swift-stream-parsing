@@ -35,13 +35,13 @@ struct MacroArgumentTests {
     let parsed = arguments(
       """
       @M(
-        partialMembers: .streamInitialValue, partialStrings: StreamPartialStrings.string,
+        partialMembers: .initialValue, partialStrings: StreamPartialStrings.string,
         keyDecodingStrategy: .custom { $0 }, schemaCache: .shared, keyNames: ["a", "b"],
         initialCapacity: 0x20, completedConversion: Strategies.UnixSeconds.self, ignored: 1
       )
       """
     )
-    #expect(parsed.partialMembers == .streamInitialValue)
+    #expect(parsed.partialMembers == .initialValue)
     #expect(parsed.partialStrings == .string)
     #expect(parsed.keyDecodingStrategy?.trimmedDescription == ".custom { $0 }")
     #expect(parsed.schemaCache?.trimmedDescription == ".shared")
@@ -73,7 +73,7 @@ struct MacroArgumentTests {
     )
     #expect(
       errors("@M(partialMembers: .required)")
-        == [["@M(partialMembers:) requires .optional or .streamInitialValue.", ".required"]]
+        == [["@M(partialMembers:) requires .optional or .initialValue.", ".required"]]
     )
     #expect(
       errors("@M(completedConversion: UnixSeconds)")

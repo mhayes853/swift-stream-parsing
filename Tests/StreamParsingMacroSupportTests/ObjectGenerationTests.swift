@@ -237,7 +237,7 @@ struct `StreamObjectGeneration tests` {
           initialCapacity: IntegerLiteralExprSyntax(literal: .integerLiteral("32"))
         )
       ],
-      partialMembers: .streamInitialValue
+      partialMembers: .initialValue
     )
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
 
@@ -283,7 +283,7 @@ struct `StreamObjectGeneration tests` {
       "StreamParsingCore.StreamDictionary<Item.Partial>?",
     ])
 
-    let initialized = try StreamObjectGeneration(fields: fields, partialMembers: .streamInitialValue)
+    let initialized = try StreamObjectGeneration(fields: fields, partialMembers: .initialValue)
     expectNoDifference(initialized.partialFields.map(\.storageType.trimmedDescription), [
       "String.Partial",
       "StreamParsingCore.ConvertedPartial<Cents>",

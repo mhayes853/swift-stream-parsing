@@ -73,7 +73,7 @@ struct SinkCapacityStringMembers: Equatable {
   var optionalText: String?
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct SinkInitializedCapacityString: Equatable {
   @StreamParseableMember(initialCapacity: 1_024)
   var text: String = ""
@@ -103,7 +103,7 @@ extension SinkOptionalMembers.Partial: Equatable {}
 // the element schema used to be built from the wrapped type — so the first token written to an
 // element wrote through the `.none` representation and took the process with it. All three of
 // these segfaulted.
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 struct SinkInitializedContainers: Equatable {
   var scores: [Int] = []
 }
@@ -434,7 +434,7 @@ struct `Partial sink tests` {
   }
 
   // In the default mode every member is optional, so a null clears a container declared
-  // non-optional in the source too. Under `.streamInitialValue` the member really is
+  // non-optional in the source too. Under `.initialValue` the member really is
   // non-optional, and there the same helper resolves to the disfavoured overload and the null is
   // the mismatch it should be.
   @Test(arguments: [Int.max, 7, 1])

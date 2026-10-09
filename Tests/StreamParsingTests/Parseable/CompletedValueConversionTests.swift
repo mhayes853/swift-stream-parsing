@@ -56,7 +56,7 @@ private struct ConversionModel {
   var pair: Int = 5
   var other: Int = 0
 }
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 private struct InitializedConversionModel {
   @StreamParseableMember(completedConversion: TextConversion.self)
   var text: String = "DEFAULT"

@@ -36,7 +36,7 @@ private struct TableNested: Equatable {
   var value: Int = 0
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 private struct TableInitialized: Equatable {
   var count: Int = 0
   var name: String = ""

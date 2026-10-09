@@ -149,14 +149,14 @@ public macro StreamParseableIgnored() =
 
 /// Controls how the generated partial struct initializes its properties.
 ///
-/// The macro reads the argument's spelling (`.optional`, `.streamInitialValue`), never its value,
+/// The macro reads the argument's spelling (`.optional`, `.initialValue`), never its value,
 /// so it must be written as one of the two cases.
 public enum PartialMembersMode: Hashable, Sendable {
   /// The generated `Partial` exposes optional members and defaults them to `nil`.
   case optional
 
   /// Members are initialized to their ``StreamInitializable/streamInitialValue()`` result.
-  case streamInitialValue
+  case initialValue
 }
 
 /// How a generated `Partial` stores the model's `String` members.

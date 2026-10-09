@@ -46,7 +46,7 @@ public enum StreamPartialMembers: Hashable, Sendable {
   /// Makes required source properties optional in partial storage.
   case optional
   /// Initializes required properties using their stream initial value.
-  case streamInitialValue
+  case initialValue
 
 }
 

@@ -37,7 +37,7 @@ public struct StreamMacroArgumentError: Error, Sendable, CustomStringConvertible
 ///
 /// | Label | Accepted spelling |
 /// | --- | --- |
-/// | `partialMembers:` | `.optional`, `.streamInitialValue` |
+/// | `partialMembers:` | `.optional`, `.initialValue` |
 /// | `partialStrings:` | `.streamString`, `.string` |
 /// | `keyDecodingStrategy:` | any expression; see `StreamGenerationConfiguration` |
 /// | `schemaCache:` | any expression; see `StreamGenerationConfiguration` |
@@ -150,10 +150,10 @@ extension StreamMacroArguments {
   ) throws(StreamMacroArgumentError) -> StreamPartialMembers {
     switch Self.memberName(expression) {
     case "optional": return .optional
-    case "streamInitialValue": return .streamInitialValue
+    case "initialValue": return .initialValue
     default:
       throw StreamMacroArgumentError(
-        node: expression, message: "\(label) requires .optional or .streamInitialValue."
+        node: expression, message: "\(label) requires .optional or .initialValue."
       )
     }
   }

@@ -23,7 +23,7 @@ private struct Post: Equatable {
   var reactions: [String: Int]
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 private struct Counter: Equatable {
   var hits: Int
   var label: String

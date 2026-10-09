@@ -42,7 +42,7 @@ private struct Phantom<Tag>: Equatable {
   var id: Int
 }
 
-@StreamParseable(partialMembers: .streamInitialValue)
+@StreamParseable(partialMembers: .initialValue)
 private struct InitializedBox<Value: StreamParseable & Equatable>: Equatable {
   var value: Value
   var values: [Value]
