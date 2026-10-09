@@ -80,7 +80,7 @@ private let depthNodeSchema = StreamSchema(
   },
   enterField: { storage, field in
     guard field == 1 else { return nil }
-    return StreamFrame(storage: storage, child: StreamFrame.reentering)
+    return StreamFrame(storage: storage, childIndex: StreamFrame.reentering)
   }
 )
 

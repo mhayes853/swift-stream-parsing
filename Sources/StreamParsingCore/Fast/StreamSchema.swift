@@ -11,17 +11,17 @@ public struct StreamFrame {
   public var storage: UnsafeMutableRawPointer
   /// The position of the container's schema in the entering schema's ``StreamSchema/children``,
   /// or ``reentering``.
-  public var child: Int
+  public var childIndex: Int
   /// The field whose value is pending, or `-1`. Leave the default for a new frame.
   public var pendingField: Int32
 
-  public init(storage: UnsafeMutableRawPointer, child: Int, pendingField: Int32 = -1) {
+  public init(storage: UnsafeMutableRawPointer, childIndex: Int, pendingField: Int32 = -1) {
     self.storage = storage
-    self.child = child
+    self.childIndex = childIndex
     self.pendingField = pendingField
   }
 
-  /// The ``child`` that names the schema whose ``StreamSchema/enterField`` returned the frame.
+  /// The ``childIndex`` that names the schema whose ``StreamSchema/enterField`` returned the frame.
   ///
   /// A schema cannot list itself among its own children, so a self-similar container -- a node
   /// whose `child` member is another node -- names its schema this way.
@@ -553,14 +553,14 @@ public final class StreamSchema: @unchecked Sendable {
   // The object address of the schema `frame` names, which the sink stores as a borrowed frame's
   // schema: `children` and `enterFieldOwner` are the owners, so no reference is formed here.
   func childSchemaBits(_ frame: StreamFrame) -> UnsafeRawPointer {
-    if frame.child == StreamFrame.reentering {
+    if frame.childIndex == StreamFrame.reentering {
       return UnsafeRawPointer(Unmanaged.passUnretained(self.enterFieldOwner ?? self).toOpaque())
     }
     precondition(
-      frame.child >= 0 && frame.child < self.children.count,
-      "StreamFrame.child is not a position in the entering schema's children"
+      frame.childIndex >= 0 && frame.childIndex < self.children.count,
+      "StreamFrame.childIndex is not a position in the entering schema's children"
     )
-    return UnsafeRawPointer(Unmanaged.passUnretained(self.children[frame.child]).toOpaque())
+    return UnsafeRawPointer(Unmanaged.passUnretained(self.children[frame.childIndex]).toOpaque())
   }
 }
 

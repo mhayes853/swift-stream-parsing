@@ -8639,12 +8639,12 @@ schema built inside the closure was freed while the parse still wrote through it
 stopped on it ("The tripwire"); a release build read freed memory. Only hand-written schemas could
 reach it: the macro routes every container through a field table and never emits `enterField`.
 
-`StreamFrame` now carries `child: Int` instead: a position in the entering schema's new `children:
-[StreamSchema]`, or `StreamFrame.reentering` (-1) for the entering schema itself, since a schema
-cannot list itself among its own children. A position outside `children` stops the program. The
-schema a frame names is therefore always owned by the schema that named it, and the debug audit -- a
-weak reference per borrowed schema, checked at every `pushFrame` and every scalar resolution -- is
-deleted along with its tests.
+`StreamFrame` now carries `childIndex: Int` instead: a position in the entering schema's new
+`children: [StreamSchema]`, or `StreamFrame.reentering` (-1) for the entering schema itself, since a
+schema cannot list itself among its own children. A position outside `children` stops the program.
+The schema a frame names is therefore always owned by the schema that named it, and the debug audit
+-- a weak reference per borrowed schema, checked at every `pushFrame` and every scalar resolution --
+is deleted along with its tests.
 
 The two wrappers that forward `enterField`, the optional root schema and
 `_streamOptionalElementSchema`, forward `children` with it and record the wrapped schema as

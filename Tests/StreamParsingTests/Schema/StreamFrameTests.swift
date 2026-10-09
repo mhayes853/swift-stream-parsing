@@ -32,7 +32,7 @@ private struct FrameParent: StreamInitializable, StreamParseableObject {
     enterField: { storage, field in
       guard field == 0 else { return nil }
       let offset = MemoryLayout<FrameParent>.offset(of: \.nested).unsafelyUnwrapped
-      return StreamFrame(storage: storage + offset, child: 0)
+      return StreamFrame(storage: storage + offset, childIndex: 0)
     },
     children: [
       StreamSchema(
@@ -59,7 +59,7 @@ private struct FrameMissingChild: StreamInitializable, StreamParseableObject {
   static let streamSchema = StreamSchema(
     shape: .object,
     matchField: { key in key.count == 6 ? 0 : -1 },
-    enterField: { storage, _ in StreamFrame(storage: storage, child: 1) },
+    enterField: { storage, _ in StreamFrame(storage: storage, childIndex: 1) },
     children: [StreamSchema(shape: .object)]
   )
 }
@@ -77,7 +77,7 @@ private struct FrameNode: StreamInitializable, StreamParseableObject {
     enterField: { storage, field in
       guard field == 0 else { return nil }
       storage.assumingMemoryBound(to: FrameNode.self).pointee.depth += 1
-      return StreamFrame(storage: storage, child: StreamFrame.reentering)
+      return StreamFrame(storage: storage, childIndex: StreamFrame.reentering)
     },
     children: [FrameParent.streamSchema]
   )
@@ -131,8 +131,8 @@ struct StreamFrameTests {
     let wrapped = FrameNode.streamSchema
     let storage = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
     defer { storage.deallocate() }
-    let reentering = StreamFrame(storage: storage, child: StreamFrame.reentering)
-    let first = StreamFrame(storage: storage, child: 0)
+    let reentering = StreamFrame(storage: storage, childIndex: StreamFrame.reentering)
+    let first = StreamFrame(storage: storage, childIndex: 0)
     for wrapper in [FrameNode?.streamSchema, FrameNode?.streamArrayElementSchema] {
       #expect(wrapper !== wrapped)
       #expect(wrapper.childSchemaBits(reentering) == bits(wrapped))
