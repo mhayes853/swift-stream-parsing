@@ -465,5 +465,14 @@ STREAM_PARSING_SIMD_SHIM const double *stream_parsing_pow10_double(void) {
 #define STREAM_PARSING_POW10_DOUBLE_MAX_EXPONENT (22)
 #define STREAM_PARSING_POW10_DOUBLE_COUNT (23)
 
+// Base64 decoding: four 256-entry tables, one per character position in a group, each mapping a
+// byte to its sextet shifted into place, or to 0x01FFFFFF outside the standard alphabet. Generated
+// into `Base64.c`, which documents the layout; reached the way the power-of-ten tables are.
+extern const uint32_t stream_parsing_base64_decode_storage[];
+
+STREAM_PARSING_SIMD_SHIM const uint32_t *stream_parsing_base64_decode_tables(void) {
+  return stream_parsing_base64_decode_storage;
+}
+
 
 #endif

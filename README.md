@@ -193,6 +193,22 @@ struct Message {
 
 It reaches every `String` in a member's type, as an optional, an array element or a dictionary value. The arrays and dictionaries themselves stay `StreamArray` and `StreamDictionary`. Each chunk is decoded into a `String` and appended, and an append after a snapshot copies the whole string, so taking `current` after every chunk of a long string costs quadratic time. That suits short members, or a partial read once at the end; `@StreamParseableMember(partialStrings:)` overrides the choice for a single member. Each `@StreamParseable` type chooses for its own members, and an enum applies the choice to its associated values.
 
+### Binary data
+
+A string parses into `Data` as the UTF-8 bytes of its text. Where a document carries bytes as base64, as `JSONEncoder` writes `Data`, declare the member `StreamBase64Data`, which decodes while the string streams in:
+
+```swift
+@StreamParseable
+struct Attachment {
+  var name: String
+  var contents: StreamBase64Data  // Partial: StreamBase64Data?, holding each group decoded so far
+}
+
+let png = try stream.finish().contents.bytes  // or `.data` with the Foundation trait
+```
+
+It reads standard, padded base64, as `Data(base64Encoded:)` does, and rejects anything else (whitespace included) as a `conversionFailed` failure. A string that ends inside a group of four characters, such as an unpadded one, does not finish into a value.
+
 ### Enums
 
 `@StreamParseable` also applies to enums, in whichever of three forms matches how the enum is

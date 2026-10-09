@@ -140,6 +140,7 @@ let benchmarks: @Sendable () -> Void = {
     inlineArrayBenchmarks()
   }
   stringValueBenchmarks()
+  base64Benchmarks()
   keyLookupBenchmarks()
   crossModuleBenchmarks()
   genericBenchmarks()

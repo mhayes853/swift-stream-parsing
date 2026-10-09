@@ -224,9 +224,19 @@ struct ConversionSmokeSink: StreamParseSink {
   mutating func beginArray() -> StreamContainerDisposition { preconditionFailure() }
   mutating func endArray() { preconditionFailure() }
   mutating func key(_ bytes: Span<UInt8>) { preconditionFailure() }
-  mutating func stringBegin() { preconditionFailure() }
-  mutating func stringChunk(_ bytes: Span<UInt8>) { preconditionFailure() }
-  mutating func stringEnd() { preconditionFailure() }
+  // As `PartialSink` delivers a string: an empty span to settle acceptance, then the chunks.
+  mutating func stringBegin() {
+    record(schema.applyString(root, StreamSchema.wholeValueField, Span()))
+  }
+
+  mutating func stringChunk(_ bytes: Span<UInt8>) {
+    record(schema.applyString(root, StreamSchema.wholeValueField, bytes))
+  }
+
+  mutating func stringEnd() {
+    record(schema.finishString?(root, StreamSchema.wholeValueField) ?? .applied)
+  }
+
   mutating func null() { preconditionFailure() }
 
   mutating func record(_ result: StreamApplyResult) {
@@ -315,6 +325,48 @@ func checkDelegatedRoutes() {
   precondition(plain == nil)
 }
 
+// MARK: - Base64
+
+// The decoder reads its table from C `.rodata` and appends through a stack block, neither of which
+// may reach for anything outside the Embedded subset. Split at every size a group can be cut at.
+func parseBase64(_ payload: StaticString, chunk: Int) -> (StreamBase64Data, StreamSinkFailure?) {
+  var value = StreamBase64Data()
+  let failure = withUnsafeMutablePointer(to: &value) { storage in
+    var sink = ConversionSmokeSink(
+      root: UnsafeMutableRawPointer(storage),
+      schema: StreamBase64Data.streamSchema
+    )
+    var parser = JSONParser()
+    // A rejection throws `sinkRejectedToken`; the reason is read off the sink.
+    payload.withUTF8Buffer { input in
+      do throws(JSONParsingError) {
+        var index = 0
+        while index < input.count {
+          let count = min(chunk, input.count - index)
+          try parser.parse(UnsafeBufferPointer(rebasing: input[index..<index + count]), into: &sink)
+          index += count
+        }
+        try parser.finish(into: &sink)
+      } catch {
+        precondition(sink.streamFailure != nil)
+      }
+    }
+    return sink.streamFailure
+  }
+  return (value, failure)
+}
+
+func checkBase64() {
+  for chunk in [Int.max, 3, 1] {
+    let (value, failure) = parseBase64(#""Zm9vYmE=" "#, chunk: chunk)
+    precondition(failure == nil)
+    precondition(
+      StreamBase64Data(streamPartial: value) == StreamBase64Data([0x66, 0x6F, 0x6F, 0x62, 0x61])
+    )
+    precondition(parseBase64(#""Zg==Zg==" "#, chunk: chunk).1?.reason == .conversionFailed)
+  }
+}
+
 // MARK: - Schema cache
 
 // Embedded Swift has no metatype identity, so a read by type builds every time; an entry, which
@@ -369,6 +421,7 @@ struct EmbeddedSmoke {
     checkCompletedConversions()
     checkDelegatedRoutes()
     checkSchemaCache()
+    checkBase64()
     let payload: StaticString = """
       {"id":4217,"name":"Blob","tags":["a","b"],"active":true,"score":-1.5e2,\
       "address":{"city":"Brooklyn"},"missing":null}

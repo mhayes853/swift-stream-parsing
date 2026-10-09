@@ -8681,3 +8681,82 @@ on every build (2.67 or 3.3-4.5 ms; the parent commit hit 3.62 in one of its thr
 three is whichever runs landed fast. An earlier sweep taken while another session benchmarked on the
 same box swung single runs by up to 2.4x and is not quoted. ARM was not measured.
 
+
+## `StreamBase64Data`
+
+A base64 string decodes into `StreamBase64Data`, a type of its own, and `Data` keeps parsing a string
+as the UTF-8 bytes of its text. Base64 is how JSON spells bytes — `JSONEncoder` chooses it for `Data`
+— not something `Data` or `Codable` is, so making it `Data`'s partial would have tied a JSON
+convention to a Foundation type. The type is in the core with `bytes: [UInt8]`, so it works without
+Foundation and under Embedded; the `Foundation` trait adds `.data`.
+
+It is its own partial, a `StreamStringConvertible` the macro routes like any other string member. The
+decoder's state is the open group's sextets, how many there are, and a phase: open, mid-padding,
+closed, or rejected. Every whole group appears in `bytes` as soon as its fourth character arrives.
+
+- **What it accepts** is `Data(base64Encoded:)`'s rule, checked against swift-foundation on this
+  box: the standard alphabet with `=` padding; whitespace, `-`/`_` and anything after padding are
+  rejected; the bits padding leaves over are dropped (`Zh==` is `f`). One deliberate difference:
+  Foundation decodes `====` as `[0]`, and this rejects it.
+- **A rejection** answers `.conversionFailed`. `PartialSink.stringChunk` folds chunk results and
+  reports at the closing quote, so later chunks of the same string still arrive; the `rejected`
+  phase refuses them without reading.
+- **No string-end hook.** A plain `StreamStringConvertible` member is not told its string closed, so
+  a string that ends inside a group (unpadded, or cut short) is caught by the conversions:
+  `init?(streamPartial:)` fails while characters wait, which `finish()` reports as
+  `incompleteValue`, and `init(orInitial:)` keeps the bytes and drops them. Adding the hook to the
+  protocol would put a call on every string's close.
+- **Equality and hashing** compare `bytes` alone, so `removeDuplicateUpdates` does not report a
+  chunk that only added characters to an unfinished group.
+
+### The loop
+
+Each group is one four-byte load of the characters and one lookup per character into four 256-entry
+`UInt32` tables, each holding the sextet already shifted to its place in a little-endian word, ORed
+together (`Base64.c`, Chromium modp_b64's layout). Every byte outside the alphabet maps to
+`0x01FFFFFF`, so one compare against `1 << 24` rejects the group, and one four-byte store writes its
+three bytes plus one the next group overwrites. That is 15 instructions per group on x86_64. The
+tables are C `.rodata` for the reason the power-of-ten tables are.
+
+Three loops decoding the same 1 MiB (1.4 MB of text) into a preallocated buffer (standalone release
+harness, x86_64, pinned to one core, best of 60, repeated):
+
+| loop | µs | MB/s of text |
+|---|---:|---:|
+| 256-byte sextet table, shifts, three one-byte stores | 589 | 2,375 |
+| four shifted tables, one four-byte store | **366** | **3,817** |
+| the same, two groups per eight-byte load and store | 454 | 3,080 |
+
+Around the loop, two things cost as much again:
+
+- **The output.** `withUnsafeTemporaryAllocation` puts at most 1 KiB on the stack unconditionally;
+  a 3 KiB staging block asked whether the stack had room, and on Linux that sent every block to the
+  heap — 341 mallocs for the bulk row and one per chunk when streamed. An empty value (a string
+  arriving whole, or a stream's first chunk) now decodes straight into
+  `Array(unsafeUninitializedCapacity:)`. Later chunks stage 341 groups (1,023 bytes plus one) on the
+  stack and append, after reserving room for every group geometrically.
+- **Growth.** Before the reserve, a 1 MiB value grew through ten doublings.
+
+### Measured
+
+`Base64 1MiB` rows: one attachment, `{"name": ..., "contents": "<1.4 MB of base64>"}`. x86_64, pinned
+layout, best of three gated passes, wall p50:
+
+| row | first version | final | mallocs |
+|---|---:|---:|---:|
+| `StreamBase64Data` bulk | 578.6 µs | **441.1 µs** (3,175 MB/s) | 362 → 20 |
+| `StreamBase64Data` per 1400B | 766.5 µs | **617.0 µs** (2,271 MB/s) | 1,029 → 30 |
+| `StreamString` keeping the text, bulk | | 143.6 µs (9,791 MB/s) | 196 |
+| `JSONDecoder` decoding `Data` | | 1,956.9 µs (714 MB/s) | 30 |
+| `Data(base64Encoded:)` on the text alone | | 508.9 µs (2,751 MB/s) | 18 |
+
+Parsing the document and decoding it is faster than Foundation's decoder on the bare text, and 4.4x
+`JSONDecoder`. The decode is still three times the parse (the `StreamString` row), so the next step
+is SIMD: the Muła–Lemire decoder, NEON `tbl` inline in the shims header as the block classifiers
+are, and AVX2 out of line. It needs measuring on ARM, which this box cannot do.
+
+Every parser and sink function is instruction-identical to the parent commit. The only code that
+moved belongs to the benchmark module: new specializations, and LLVM's function merging regrouping
+seven enum-benchmark thunks. Real-world rows against the parent: Twitter −0.2%, Twitter full +0.2%,
+GSoC +0.4%, LLM message +0.1%, Canada −1.1%, the enum rows +0.9% / +0.6%, malloc counts identical.
+ARM was not measured.
