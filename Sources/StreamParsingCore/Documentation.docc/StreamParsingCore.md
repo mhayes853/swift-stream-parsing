@@ -33,7 +33,7 @@ let json = """
 """
 
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json())
+  .partials(of: Profile.self, from: .json())
 
 for partial in partials {
   print(partial)
@@ -52,44 +52,119 @@ for partial in partials {
 // Profile.Partial(id: Optional(4), name: Optional("Blob"), isActive: Optional(true))
 ```
 
-The `@StreamParseable` macro generates a `Partial` struct with all optional members. 
+To consume synchronous input lazily instead of retaining every snapshot, use
+``PartialIterator``:
 
 ```swift
-extension Profile: StreamParsingCore.StreamParseable {
-  struct Partial: StreamParsingCore.StreamParseableValue,
-    StreamParsingCore.StreamParseable {
+var updates = json.utf8.partialIterator(of: Profile.self, from: .json())
+while let update = try updates.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+The iterator is noncopyable and emits after each byte (or chunk), followed by one
+completed update after EOF validation. Further calls return `nil` after completion
+or an error. `isComplete` describes document validation, not model-field presence.
+
+To read without a whole-value snapshot, use a scoped view:
+
+```swift
+try json.utf8.withPartialViews(of: Profile.self, from: .json()) { view in
+  print(view.name?.value)
+} completed: { view in
+  print("done", view.name?.value)
+}
+```
+
+`update` runs after each byte (or chunk) and `completed` once after EOF validation, which is
+``PartialsStream/withView(_:)`` and ``PartialsStream/finishWithView(_:)`` for a manual driver.
+`completed` defaults to doing nothing, but it is the only callback that sees a root number's
+last digits. A view cannot escape its callback. Members read through it can be copied and
+retained.
+
+Observe one field through a borrowed view and suppress unchanged values:
+
+```swift
+var names = json.utf8.partialIterator(of: Profile.self, from: .json())
+  .project { $0.name?.value }
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Async partial sequences support the same `project` and `removeDuplicateUpdates`
+operators. Projection happens before copying the root value. Filtering retains one
+previously emitted value and always forwards document completion, even if the selected
+field is unchanged. Both APIs can also filter whole snapshots without a projection.
+Use `by:` to supply a custom equivalence predicate.
+
+Projection preserves the selected representation. To distinguish missing, null, incomplete,
+and complete fields, opt into ``ObservedField`` instead:
+
+```swift
+var names = try json.utf8.partialIterator(of: Profile.self, from: .json())
+  .observeField(\.name)
+  .removeDuplicateUpdates()
+while let update = try names.next() {
+  print(update.value, update.isComplete)
+}
+```
+
+Field completion is separate from validated document EOF. A string can finish before its
+object closes, and a completed object can still have absent model members. Observers support
+direct stored fields on object roots with schema field tables; configure them before reading
+input. ``ObservedFieldPath`` validates a reusable selection, including schema key aliases.
+The macro generates `streamObservationFields` for validation without reflection SPI. Custom
+roots opt in by listing all direct stored members in that property. The selectors are
+unavailable in Embedded Swift. Ordinary value projection needs no field-state tracking.
+
+The `@StreamParseable` macro generates a `Partial` struct with all optional members, and the
+``StreamParseable`` conformance that converts between the two. A partial is what a stream writes
+into, and every member is `nil` until the parser produces it:
+
+```swift
+extension Profile: StreamParseable {
+  struct Partial: StreamParseable, StreamParseableObject, Sendable {
     typealias Partial = Self
 
-    var id: Int.Partial?
-    var name: String.Partial?
-    var isActive: Bool.Partial?
+    var id: Int.Partial?          // Int?
+    var name: String.Partial?     // StreamString?
+    var isActive: Bool.Partial?   // Bool?
 
-    init(
-      id: Int.Partial? = nil,
-      name: String.Partial? = nil,
-      isActive: Bool.Partial? = nil
-    ) {
-      self.id = id
-      self.name = name
-      self.isActive = isActive
-    }
+    init(id: Int.Partial? = nil, name: String.Partial? = nil, isActive: Bool.Partial? = nil)
 
-    static func initialParseableValue() -> Self {
-      Self()
-    }
-
-    static func registerHandlers(
-      in handlers: inout some StreamParsingCore.StreamParserHandlers<Self>
-    ) {
-      handlers.registerKeyedHandler(forKey: "id", \.id)
-      handlers.registerKeyedHandler(forKey: "name", \.name)
-      handlers.registerKeyedHandler(forKey: "isActive", \.isActive)
-    }
+    // Also generated: the schema the parser routes tokens through, and a borrowed `View`.
   }
+
+  var streamPartialValue: Partial
+  init?(streamPartial: Partial)   // nil until every member has arrived
+  init(orInitial: Partial)        // absent members fall back to their initial values
 }
 ```
 
 Additionally, all stored members on an `@StreamParseable` must also conform to the ``StreamParseable`` protocol. Naturally, the `@StreamParseable` macro handles the protocol conformance for you.
+
+## Streaming into a type
+
+``PartialsStream`` is generic over the type being parsed. Feed it bytes as they arrive, and read the
+partial whenever you like:
+
+```swift
+var stream = PartialsStream<Profile>(from: .json())
+for chunk in chunks {
+  try stream.next(chunk)
+  render(stream.current)            // a `Profile.Partial` snapshot
+}
+let partial = try stream.finish()
+let profile = Profile(streamPartial: partial)  // `nil` if the document left a member out
+let filled = Profile(orInitial: partial)       // `""`, `0`, `false` for whatever it left out
+```
+
+Everywhere a type is named (`PartialsStream<Profile>`, `partials(of: Profile.self, ...)`,
+``ObservedFieldPath``), the model works, and so does its partial (`Profile.Partial`), which is
+itself parseable and is its own partial. A scalar or a standard collection works too:
+`PartialsStream<[Profile]>` stores a ``StreamArray`` of `Profile.Partial`.
 
 You can also parse partials from an AsyncSequence of bytes or byte chunks.
 
@@ -101,7 +176,7 @@ struct AsyncJSONBytesSequence: AsyncSequence {
 }
 
 let partials = AsyncJSONBytesSequence(...)
-  .partials(of: Profile.Partial.self, from: .json())
+  .partials(of: Profile.self, from: .json())
 for try await profilePartial in partials {
   print(profilePartial)
 }
@@ -109,52 +184,114 @@ for try await profilePartial in partials {
 
 ## Parsers
 
-The library comes with built-in JSON and YAML parsers. You can pass a custom configuration to either parser to customize key decoding behavior.
-
-### JSON
+JSON is the only format, and the JSON parser accepts only strict JSON. Pass the format to each
+driver with `from:`.
 
 ```swift
-let configuration = JSONStreamParserConfiguration(
-  syntaxOptions: [.comments, .trailingCommas],
-  keyDecodingStrategy: .convertFromSnakeCase
-)
-
 let partials: [Profile.Partial] = try json.utf8
-  .partials(of: Profile.Partial.self, from: .json(configuration: configuration))
+  .partials(of: Profile.self, from: .json())
 ```
 
-### YAML
-
-```swift
-let yaml = """
-id: 4
-name: Blob
-isActive: true
-"""
-
-let partials: [Profile.Partial] = try yaml.utf8
-  .partials(of: Profile.Partial.self, from: .yaml())
-
-let configuration = YAMLStreamParserConfiguration(
-  keyDecodingStrategy: .convertFromSnakeCase
-)
-
-let snakeCaseYAML = """
-id: 4
-name: Blob
-is_active: true
-"""
-
-let partials = try snakeCaseYAML.utf8.partials(
-  of: Profile.Partial.self,
-  from: .yaml(configuration: configuration)
-)
-```
+``JSONStreamFormat/json(bufferCapacity:)`` sets the capacity of the buffer the parser keeps for the
+tokens it has to reassemble: a key or a number split across two chunks, and a key written with
+escapes. The default is 4096 bytes, and a token that does not fit fails with
+``JSONParsingError/Reason/bufferExhausted``. String values stream through in pieces, so the buffer
+does not limit their length.
 
 ## Traits
 
 While the core library itself has 0 dependencies, you can enable the following package traits to integrate with additional dependencies:
-- `StreamParsingSwiftCollections` interops the library with types from Swift Collections.
-- `StreamParsingFoundation` interops the library with types from Foundation (enabled by default).
-- `StreamParsingTagged` interops the library with `Tagged`.
-- `StreamParsingCoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `SwiftCollections` interops the library with types from Swift Collections.
+- `Foundation` interops the library with types from Foundation (enabled by default).
+- `Tagged` interops the library with `Tagged`.
+- `CoreGraphics` interops the library with CoreGraphics types (enabled by default).
+- `LifetimeView` enables compiler-checked nonescapable views (disabled by default).
+
+Without `LifetimeView`, generated and core `View` types are escapable `@unsafe` pointer
+projections. Keep the originating stream alive and do not retain or use a view across parser
+mutation. With strict memory safety, acknowledge these operations explicitly:
+
+```swift
+let title = unsafe stream.withView { view in
+  unsafe view.title?.value
+}
+```
+
+Enabling `LifetimeView` preserves the same `View` names while making them `~Escapable` and adding
+compiler-checked lifetime dependencies. The consuming target must separately enable the
+experimental `Lifetimes` compiler feature; Swift package traits do not propagate compiler flags.
+
+## Completed-value conversions
+
+Use `@StreamParseableMember(completedConversion: Strategy.self)` to parse one representation
+and expose a different model type. A ``StreamCompletedValueConversion`` declares a source
+root type and implements `convertToValue(_:)` and `convertFromValue(_:)`.
+
+```swift
+@StreamParseable
+struct Event {
+  @StreamParseableMember(completedConversion: UnixSeconds.self)
+  var createdAt: Date = Date(timeIntervalSince1970: 0)
+}
+```
+
+The generated partial stores ``ConvertedPartial``. Its `source` updates incrementally; its
+`value` is cached after the complete string, number, boolean, array, or object is validated
+and converted. Nonoptional converted members need a declared default for total model
+conversion. Optional members preserve the existing missing/null behavior; `observeField`
+can distinguish those states. Model-to-partial conversion calls `convertFromValue`, without
+repeating `convertToValue`. Conversion errors use typed `throws` and remain concrete in the partial, including in Embedded Swift.
+
+## Schemas and the schema cache
+
+A ``StreamPartial`` describes how the parser writes into it with a ``StreamSchema``. A type
+can have one schema for each ``StreamSchema/Usage``, meaning where the parser meets the value:
+``StreamPartial/streamSchema`` at the root,
+``StreamPartial/streamArrayElementSchema`` as an array element,
+``StreamPartial/streamDictionaryValueSchema`` as a dictionary value, and
+``StreamContainerPartial/streamObjectMemberSchema`` as a declared member of an object. Every usage
+defaults to the root schema. Only `Optional` differs, because the slot of an array element or
+dictionary value it sits in is opened already materialised.
+
+A schema is read when a stream starts and whenever a parent schema is built, never per token. Build
+it once and keep it in a ``StreamSchemaCache``. A generic type reads it by type; a concrete type
+keeps its ``StreamSchemaCache/Entry`` in a `static let`, which skips the lookup and costs about what
+reading a `static let` schema would:
+
+```swift
+extension Pair: StreamPartial where A: StreamPartial, B: StreamPartial {
+  static var streamSchema: StreamSchema {
+    StreamSchemaCache.shared.schema(for: Self.self) {
+      StreamSchema(shape: .object, ...)
+    }
+  }
+}
+
+extension Point: StreamPartial {
+  private static let schemaEntry = StreamSchemaCache.shared.entry(for: Point.self) {
+    StreamSchema(shape: .object, ...)
+  }
+  static var streamSchema: StreamSchema { Self.schemaEntry.schema }
+}
+```
+
+An entry owns its build closure, which is `@Sendable` because the entry keeps it: every read of
+the entry, and a read of the same key by type, builds with it, on first read and after removal.
+The first closure supplied for a key is the one kept.
+
+Key each schema with `Self.self` and the usage the requirement serves. A schema cached under
+another type's key writes through a layout it does not describe. The build closure may run more
+than once: two threads that miss at once both build, and on Embedded Swift a read by type is not
+cached. So it must have no side effects, and must not read the schema it is building.
+
+`@StreamParseable` keeps its schemas in ``StreamSchemaCache/shared``, or in the cache its
+`schemaCache:` argument names. A stream owns every schema it uses, because it holds its root schema
+and each schema holds its children, so removing them (``StreamSchemaCache/removeAll()``) never
+affects a stream in flight. It also frees nothing a cached parent still holds: memory is released
+along ownership, not cache boundaries.
+
+The parser borrows the schema of each container it enters rather than retaining it, which that
+ownership makes sound. A hand-written `enterField` keeps to it by construction: the ``StreamFrame``
+it returns names the container's schema by position in the entering schema's
+``StreamSchema/children``, or names the entering schema itself with ``StreamFrame/reentering``, so it
+has no way to hand over a schema that nothing else owns.
