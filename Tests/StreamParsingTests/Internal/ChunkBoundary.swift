@@ -93,7 +93,7 @@ private func parseChunks<Value: StreamParseable>(
   for chunk in chunks {
     try stream.next(chunk)
   }
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 private func parsingFailure<Value: StreamParseable>(

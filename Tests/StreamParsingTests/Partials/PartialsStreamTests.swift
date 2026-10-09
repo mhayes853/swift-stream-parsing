@@ -5,39 +5,6 @@ import Testing
 @Suite
 struct `PartialsStream Tests` {
   @Test
-  func `Throws When Finish Called Twice`() throws {
-    var stream = PartialsStream(initialValue: 0, from: .json())
-    try stream.next(UInt8(ascii: "1"))
-
-    _ = try stream.finish()
-    #expect(throws: StreamParsingError.parserFinished) {
-      _ = try stream.finish()
-    }
-  }
-
-  @Test(arguments: [UInt8(ascii: " "), UInt8(ascii: "2")])
-  func `Rejects A Byte After Finish`(byte: UInt8) throws {
-    var stream = PartialsStream(initialValue: 0, from: .json())
-    try stream.next(UInt8(ascii: "1"))
-    _ = try stream.finish()
-
-    #expect(throws: StreamParsingError.parserFinished) {
-      try stream.next(byte)
-    }
-  }
-
-  @Test(arguments: [[UInt8](), [UInt8(ascii: " ")], [UInt8(ascii: "2")]])
-  func `Rejects A Sequence After Finish`(bytes: [UInt8]) throws {
-    var stream = PartialsStream(initialValue: 0, from: .json())
-    try stream.next(UInt8(ascii: "1"))
-    _ = try stream.finish()
-
-    #expect(throws: StreamParsingError.parserFinished) {
-      try stream.next(bytes)
-    }
-  }
-
-  @Test
   func `Rejects Next After Parser Throws`() throws {
     var stream = PartialsStream(initialValue: 0, from: .json())
 
@@ -58,8 +25,12 @@ struct `PartialsStream Tests` {
       _ = try stream.next(UInt8(ascii: "@"))
     }
 
-    #expect(throws: StreamParsingError.parserFailed) {
+    // Not `#expect(throws:)`: its closure cannot consume the stream it captures.
+    do {
       _ = try stream.finish()
+      Issue.record("finish() succeeded after the parser threw")
+    } catch let error as StreamParsingError {
+      expectNoDifference(error, .parserFailed)
     }
   }
 
@@ -73,8 +44,10 @@ struct `PartialsStream Tests` {
     }
     // The trailing 2 is still an open token, so it is not part of any state yet.
     expectNoDifference(stream.current, [1])
-    #expect(throws: JSONParsingError.self) {
+    do {
       _ = try stream.finish()
+      Issue.record("finish() accepted an incomplete document")
+    } catch is JSONParsingError {
     }
   }
 
@@ -86,7 +59,8 @@ struct `PartialsStream Tests` {
     for byte in "[[1],[2,3]]".utf8 {
       try stream.next(byte)
     }
-    expectNoDifference(try stream.finish(), [[1], [2, 3]])
+    let finished = try stream.finish()
+    expectNoDifference(finished, [[1], [2, 3]])
   }
 
   @Test
@@ -95,7 +69,7 @@ struct `PartialsStream Tests` {
     for byte in "[[1],[2,3]]".utf8 {
       try stream.next(byte)
     }
-    let value = try stream.finishValue()
+    let value = try stream.finishPartial()
     expectNoDifference(value, [[1], [2, 3]])
   }
 
@@ -106,8 +80,8 @@ struct `PartialsStream Tests` {
       try stream.next(byte)
     }
     do {
-      _ = try stream.finishValue()
-      Issue.record("finishValue accepted an incomplete document")
+      _ = try stream.finishPartial()
+      Issue.record("finishPartial accepted an incomplete document")
     } catch is JSONParsingError {
     }
   }
@@ -118,7 +92,7 @@ struct `PartialsStream Tests` {
     for byte in "[[1],[2,3]]".utf8 {
       try stream.next(byte)
     }
-    let first = try stream.finishValue(resettingTo: StreamArray<StreamArray<Int>>())
+    let first = try stream.finishAndReset(to: StreamArray<StreamArray<Int>>())
     expectNoDifference(first, [[1], [2, 3]])
 
     // The reused stream starts clean: no leftover containers, buffer bytes, or failure state.
@@ -126,7 +100,7 @@ struct `PartialsStream Tests` {
     for byte in "[[7,8,9]]".utf8 {
       try stream.next(byte)
     }
-    let second = try stream.finishValue(resettingTo: StreamArray<StreamArray<Int>>())
+    let second = try stream.finishAndReset(to: StreamArray<StreamArray<Int>>())
     expectNoDifference(second, [[7, 8, 9]])
   }
 
@@ -144,7 +118,8 @@ struct `PartialsStream Tests` {
     for byte in "[4,5]".utf8 {
       try stream.next(byte)
     }
-    expectNoDifference(try stream.finish(), [4, 5])
+    let finished = try stream.finish()
+    expectNoDifference(finished, [4, 5])
   }
 
   // A sink rejection is a parser throw with a `streamFailure` left on the sink. The reset must
@@ -164,19 +139,19 @@ struct `PartialsStream Tests` {
 
     stream.reset(to: StreamArray<Int>())
     try feed(&stream, "[4,5]", byteFed: byteFed)
-    expectNoDifference(try stream.finishValue(resettingTo: StreamArray<Int>()), [4, 5])
+    expectNoDifference(try stream.finishAndReset(to: StreamArray<Int>()), [4, 5])
     try feed(&stream, "[6]", byteFed: byteFed)
-    expectNoDifference(try stream.finishValue(resettingTo: StreamArray<Int>()), [6])
+    expectNoDifference(try stream.finishAndReset(to: StreamArray<Int>()), [6])
   }
 
-  // The same, with the rejected token only completed by `finishValue(resettingTo:)`, which throws
+  // The same, with the rejected token only completed by `finishAndReset(to:)`, which throws
   // rather than resetting.
   @Test
   func `Reset Recovers After Finish Value Resetting Reports A Sink Rejection`() throws {
     var stream = PartialsStream(initialValue: Int8(0), from: .json())
     try stream.next(Array("300".utf8))
     let error = #expect(throws: JSONParsingError.self) {
-      _ = try stream.finishValue(resettingTo: 0)
+      _ = try stream.finishAndReset(to: 0)
     }
     expectNoDifference(
       error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch))
@@ -184,9 +159,9 @@ struct `PartialsStream Tests` {
 
     stream.reset(to: 0)
     try stream.next(Array("7".utf8))
-    expectNoDifference(try stream.finishValue(resettingTo: 0), 7)
+    expectNoDifference(try stream.finishAndReset(to: 0), 7)
     try stream.next(Array("-8".utf8))
-    expectNoDifference(try stream.finishValue(resettingTo: 0), -8)
+    expectNoDifference(try stream.finishAndReset(to: 0), -8)
   }
 
   @Test
@@ -203,21 +178,8 @@ struct `PartialsStream Tests` {
     for byte in "[6]".utf8 {
       try stream.next(byte)
     }
-    expectNoDifference(try stream.finish(), [6])
-  }
-
-  @Test
-  func `Reset Recovers After Finish`() throws {
-    var stream = PartialsStream(initialValue: 0, from: .json())
-    try stream.next(UInt8(ascii: "1"))
-    _ = try stream.finish()
-    #expect(throws: StreamParsingError.parserFinished) {
-      try stream.next(UInt8(ascii: "2"))
-    }
-
-    stream.reset(to: 0)
-    try stream.next(UInt8(ascii: "9"))
-    expectNoDifference(try stream.finish(), 9)
+    let finished = try stream.finish()
+    expectNoDifference(finished, [6])
   }
 
   @Test
@@ -227,8 +189,8 @@ struct `PartialsStream Tests` {
       _ = try stream.next(UInt8(ascii: "@"))
     }
     do {
-      _ = try stream.finishValue()
-      Issue.record("finishValue succeeded after the parser threw")
+      _ = try stream.finishPartial()
+      Issue.record("finishPartial succeeded after the parser threw")
     } catch let error as StreamParsingError {
       expectNoDifference(error, .parserFailed)
     }

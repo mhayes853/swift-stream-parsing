@@ -109,7 +109,7 @@ struct `Buffer capacity tests` {
     var narrow = PartialsStream(initialValue: CapacityCounts.Partial(), from: .json(bufferCapacity: 64))
     #expect(throws: JSONParsingError.self) {
       for byte in json { try narrow.next(byte) }
-      _ = try narrow.finish()
+      _ = try narrow.finishAndReset()
     }
   }
 }

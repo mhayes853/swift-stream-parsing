@@ -58,7 +58,7 @@ private func addRealWorldConvenienceRows<Value: StreamParseable>(
     }
   }
 
-  // The amortized variant: one stream, re-armed by `finishValue(resettingTo:)` between
+  // The amortized variant: one stream, re-armed by `finishAndReset(to:)` between
   // documents. Deliberately NOT a row the library's headline numbers come from — the canonical
   // rows measure from-scratch parsing, allocations included. This one exists for the payloads
   // small enough that per-parse setup dominates (tool calls), where the agent-loop caller
@@ -72,7 +72,7 @@ private func addRealWorldConvenienceRows<Value: StreamParseable>(
         blackHole(
           expectParses {
             try stream.next(payload)
-            return try stream.finishValue(resettingTo: Value.Partial.streamInitialValue())
+            return try stream.finishAndReset(to: Value.Partial.streamInitialValue())
           }
         )
       }

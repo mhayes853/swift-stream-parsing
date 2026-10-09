@@ -228,9 +228,9 @@ struct `Key Decoding Strategy Tests` {
   func `Converted keys through optional and generic wrappers`() throws {
     var stream = PartialsStream(initialValue: [PrefixedModel?].Partial(), from: .json())
     try stream.next(Array(#"[{"x_request_id":"a","x_retry_count":1,"id":1},null]"#.utf8))
-    try stream.finish()
+    let partial = try stream.finish()
     #expect(
-      [PrefixedModel?](streamPartial: stream.current)
+      [PrefixedModel?](streamPartial: partial)
         == [PrefixedModel(requestID: "a", retryCount: 1, identifier: 1), nil]
     )
 

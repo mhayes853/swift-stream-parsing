@@ -13,7 +13,7 @@ struct `Number array layer tests` {
   ) throws -> Value.Partial {
     var stream = PartialsStream<Value>(from: .json())
     try stream.next(Array(json.utf8))
-    return try stream.finish()
+    return try stream.finishPartial()
   }
 
   private static func failure<Value: StreamParseable>(

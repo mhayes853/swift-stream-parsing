@@ -64,7 +64,7 @@ struct `Member attribute form tests` {
       """
     var stream = PartialsStream<EveryMemberAttributeForm>(from: .json())
     try stream.next(Array(json.utf8))
-    let partial = try stream.finish()
+    let partial = try stream.finishPartial()
 
     expectNoDifference(partial.key, 1)
     expectNoDifference(partial.names, 2)

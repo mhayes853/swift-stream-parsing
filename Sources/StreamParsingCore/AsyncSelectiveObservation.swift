@@ -74,10 +74,8 @@
         }
         guard let element = try await self.box.nextBaseElement() else {
           self.box.hasTerminated = true
-          return PartialUpdate(
-            value: try self.box.stream.finishWithView(transform),
-            isComplete: true
-          )
+          try self.box.stream.finishInPlace()
+          return PartialUpdate(value: try self.box.stream.withView(transform), isComplete: true)
         }
         try self.box.stream.next(self.bytes(element))
         return PartialUpdate(value: try self.box.stream.withView(transform), isComplete: false)

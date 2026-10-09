@@ -295,11 +295,12 @@ private struct PartialNamedConversionModel {
     PairConversion.calls.withLock { $0 = 0 }
     var stream = PartialsStream(initialValue: ConvertedPartial<PairConversion>(), from: .json())
     try stream.next("[1,".utf8)
-    #expect(throws: JSONParsingError.self) { _ = try stream.finish() }
+    #expect(throws: JSONParsingError.self) { _ = try stream.finishAndReset() }
     #expect(PairConversion.calls.withLock { $0 } == 0)
     stream.reset()
     try stream.next("[3,4]".utf8)
-    #expect(try stream.finish().value == 7)
+    let final = try stream.finish()
+    #expect(final.value == 7)
     #expect(PairConversion.calls.withLock { $0 } == 1)
   }
 }
@@ -376,10 +377,10 @@ extension CompletedValueConversionTests {
       from: .json()
     )
     try optional.next(#""hi""#.utf8)
-    #expect(try optional.finish()?.value == "HI")
-    optional.reset()
+    #expect(try optional.finishAndReset()?.value == "HI")
     try optional.next("null".utf8)
-    #expect(try optional.finish() == nil)
+    let null = try optional.finish()
+    #expect(null == nil)
   }
 
   @Test func asyncConversionFailureTerminatesCopies() async throws {
@@ -476,7 +477,8 @@ private func expectCompletedSourceMatchesParsing<Strategy: StreamCompletedValueC
   let parsed: ConvertedPartial<Strategy>
   do {
     try stream.next(json.utf8)
-    parsed = try stream.finish()
+    // Not `finish()`: a failed finish would consume the stream, and the catch reads it.
+    parsed = try stream.finishAndReset()
   } catch {
     parsed = stream.current
   }

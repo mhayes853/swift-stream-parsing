@@ -161,7 +161,8 @@ public struct AsyncPartialsSequence<
         }
         guard let nextValue = try await self.box.nextBaseElement() else {
           self.box.hasTerminated = true
-          return try self.box.stream.finish()
+          try self.box.stream.finishInPlace()
+          return self.box.stream.current
         }
         try self.box.stream.next(self.bytes(nextValue))
         return self.box.stream.current

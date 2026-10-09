@@ -41,7 +41,7 @@ struct `Snapshot stability tests` {
       let snapshot = stream.current
       kept.append((String(describing: snapshot), snapshot))
     }
-    try stream.finish()
+    _ = try stream.finishPartial()
 
     for (offset, state) in kept.enumerated() {
       expectNoDifference(String(describing: state.value), state.rendering,
@@ -198,7 +198,7 @@ struct `Snapshot stability tests` {
     let supplied: StreamArray<Int> = [1, 2]
     var stream = PartialsStream(initialValue: supplied, from: .json())
     try stream.next(Array("[3,4]".utf8))
-    let parsed = try stream.finishValue()
+    let parsed = try stream.finishPartial()
 
     expectNoDifference(Array(parsed), [1, 2, 3, 4])
     expectNoDifference(Array(supplied), [1, 2])
@@ -208,7 +208,7 @@ struct `Snapshot stability tests` {
     let suppliedNested = nested
     var nestedStream = PartialsStream(initialValue: suppliedNested, from: .json())
     try nestedStream.next(Array(#"{"a":[8],"b":[9]}"#.utf8))
-    let parsedNested = try nestedStream.finishValue()
+    let parsedNested = try nestedStream.finishPartial()
 
     expectNoDifference(parsedNested, ["a": [7, 8], "b": [9]])
     expectNoDifference(suppliedNested, ["a": [7]])

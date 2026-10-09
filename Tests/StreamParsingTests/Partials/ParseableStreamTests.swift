@@ -15,7 +15,7 @@ private func finalPartial<Model: StreamParseable>(
 ) throws -> Model.Partial {
   var stream = PartialsStream<Model>(from: .json())
   try stream.next(Array(json.utf8))
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 // A stream is generic over what is parsed, and stores that type's `Partial`. These are the
@@ -28,7 +28,7 @@ struct `Parseable stream tests` {
   func `A Stream Over A Model Type Parses Into Its Partial`() throws {
     var stream = PartialsStream<StreamedPost>(from: .json())
     try stream.next(Array(Self.json.utf8))
-    let partial: StreamedPost.Partial = try stream.finish()
+    let partial: StreamedPost.Partial = try stream.finishPartial()
 
     expectNoDifference(partial.title, "hi")
     expectNoDifference(partial.count, 2)
@@ -42,7 +42,8 @@ struct `Parseable stream tests` {
   func `A Stream Infers Its Type From The Model Metatype`() throws {
     var stream = PartialsStream(of: StreamedPost.self, from: .json())
     try stream.next(Array(Self.json.utf8))
-    expectNoDifference(try stream.finish().count, 2)
+    let finished = try stream.finish()
+    expectNoDifference(finished.count, 2)
   }
 
   @Test
@@ -64,19 +65,49 @@ struct `Parseable stream tests` {
     seed.count = 41
     var stream = PartialsStream<StreamedPost>(initialValue: seed, from: .json())
     try stream.next(Array(#"{"title":"x"}"#.utf8))
-    let partial = try stream.finish()
+    let partial = try stream.finishPartial()
 
     expectNoDifference(partial.count, 41)
     expectNoDifference(partial.title, "x")
   }
 
   @Test
+  func `Finishing A Model Stream Returns The Model`() throws {
+    var stream = PartialsStream<StreamedPost>(from: .json())
+    try stream.next(Array(Self.json.utf8))
+    let post: StreamedPost = try stream.finish()
+
+    expectNoDifference(post, StreamedPost(title: "hi", count: 2, tags: ["a", "b"]))
+  }
+
+  @Test
+  func `Finishing A Model Stream That Left A Member Out Throws`() throws {
+    var stream = PartialsStream<StreamedPost>(from: .json())
+    try stream.next(Array(#"{"title":"hi"}"#.utf8))
+    do {
+      _ = try stream.finish()
+      Issue.record("finish() converted a document that left members out")
+    } catch let error as StreamParsingError {
+      expectNoDifference(error, .incompleteValue)
+    }
+  }
+
+  @Test
+  func `A Finished Partial Converts With Initial Values For What Was Left Out`() throws {
+    var stream = PartialsStream<StreamedPost>(from: .json())
+    try stream.next(Array(#"{"title":"hi"}"#.utf8))
+    let post = StreamedPost(orInitial: try stream.finishPartial())
+
+    expectNoDifference(post, StreamedPost(title: "hi", count: 0, tags: []))
+  }
+
+  @Test
   func `A Model Stream Resets To Its Initial Partial`() throws {
     var stream = PartialsStream<StreamedPost>(from: .json())
     try stream.next(Array(Self.json.utf8))
-    let first = try stream.finishValue(resettingTo: StreamedPost.Partial())
+    let first = try stream.finishAndReset(to: StreamedPost.Partial())
     try stream.next(Array(#"{"count":9}"#.utf8))
-    let second = try stream.finishValue()
+    let second = try stream.finishPartial()
 
     expectNoDifference(first.count, 2)
     expectNoDifference(second.count, 9)
@@ -87,13 +118,20 @@ struct `Parseable stream tests` {
   func `Scalars And Standard Collections Are Parseable Stream Types`() throws {
     var number = PartialsStream<Int>(from: .json())
     try number.next(Array("12".utf8))
-    expectNoDifference(try number.finish(), 12)
+    let finished = try number.finish()
+    expectNoDifference(finished, 12)
 
     // `[Int]` is parsed into its own partial, a `StreamArray<Int>`.
     var array = PartialsStream<[Int]>(from: .json())
     try array.next(Array("[1,2,3]".utf8))
-    let partial: StreamArray<Int> = try array.finish()
+    let partial: StreamArray<Int> = try array.finishPartial()
     expectNoDifference(Array(partial), [1, 2, 3])
+
+    // `finish()` converts it back to the model.
+    var model = PartialsStream<[Int]>(from: .json())
+    try model.next(Array("[4,5]".utf8))
+    let array2: [Int] = try model.finish()
+    expectNoDifference(array2, [4, 5])
   }
 
   @Test

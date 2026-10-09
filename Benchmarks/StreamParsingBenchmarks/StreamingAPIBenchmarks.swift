@@ -313,7 +313,7 @@ private func addCompletedConversionRows<Plain: StreamParseable, Converted: Strea
             try stream.next(chunk)
             blackHole(stream.current)
           }
-          blackHole(try stream.finish())
+          blackHole(try stream.finishPartial())
         }
       }
     }

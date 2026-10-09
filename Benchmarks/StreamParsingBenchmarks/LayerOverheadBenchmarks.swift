@@ -139,7 +139,7 @@ func runLayerStream<Value: StreamParseable>(
       index = end
     }
   }
-  blackHole(try stream.finish())
+  blackHole(try stream.finishPartial())
 }
 
 // MARK: - Registration

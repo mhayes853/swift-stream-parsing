@@ -93,9 +93,14 @@ for chunk in chunks {
   try stream.next(chunk)
   render(stream.current)            // a `Profile.Partial` snapshot
 }
-let partial = try stream.finish()
-let profile = Profile(streamPartial: partial)  // `nil` if the document left a member out
-let filled = Profile(orInitial: partial)       // `""`, `0`, `false` for whatever it left out
+let profile = try stream.finish()  // a `Profile`; throws `incompleteValue` if a member is missing
+```
+
+`finish()` consumes the stream. To keep a document that left members out, take the partial
+instead and fill the gaps with initial values:
+
+```swift
+let filled = Profile(orInitial: try stream.finishPartial())  // `""`, `0`, `false` for the gaps
 ```
 
 Everywhere a type is named (`PartialsStream<Profile>`, `partials(of: Profile.self, ...)`,

@@ -6638,6 +6638,11 @@ tree, malloc in array growth, and the per-element `appendElement` closure-contex
 
 ## Stream reuse — `reset(to:)` and `finishValue(resettingTo:)`
 
+> **Renamed.** `finishValue(resettingTo:)` is now `finishAndReset(to:)`, and the consuming
+> `finishValue()` is `finishPartial()`. `finish()` consumes the stream too, and returns the model:
+> the moved partial through `init?(streamPartial:)`, throwing `StreamParsingError.incompleteValue`
+> when that fails. No public finish leaves a finished stream behind, so `parserFinished` is internal.
+
 `JSONParser.reset()` and `PartialSink.reset()` rewind state and keep every allocation (the
 4 KB buffer, the window scratch, the frame stack); `PartialsStream.reset(to:)` re-arms a
 stream in any state — including after a thrown parse, which is the case it exists for: a

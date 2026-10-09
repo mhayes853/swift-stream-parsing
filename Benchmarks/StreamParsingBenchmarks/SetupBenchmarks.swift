@@ -22,11 +22,12 @@ func setupBenchmarks() {
 
   Benchmark("Setup Flat struct - empty object stream") { benchmark in
     for _ in benchmark.scaledIterations {
-      var stream = PartialsStream(initialValue: BenchmarkProfile.Partial(), from: .json())
       blackHole(
         expectParses {
+          // Made in the closure: a closure cannot consume a stream it captures.
+          var stream = PartialsStream(initialValue: BenchmarkProfile.Partial(), from: .json())
           try stream.next(emptyObject)
-          return try stream.finish()
+          return try stream.finishPartial()
         }
       )
     }

@@ -50,7 +50,8 @@ public struct PartialIterator<
         return PartialUpdate(value: self.stream.current, isComplete: false)
       }
       self.terminated = true
-      return PartialUpdate(value: try self.stream.finish(), isComplete: true)
+      try self.stream.finishInPlace()
+      return PartialUpdate(value: self.stream.current, isComplete: true)
     } catch {
       self.terminated = true
       throw error

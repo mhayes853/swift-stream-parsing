@@ -139,8 +139,9 @@ struct `Partial String Storage Tests` {
     #expect(name.isEmpty && tags.isEmpty && note == nil)
     var stream = PartialsStream(initialValue: initial, from: .json())
     try stream.next(Array(#"{"name":"ab","tags":["t"]}"#.utf8))
+    let partial = try stream.finish()
     expectNoDifference(
-      InitialValueStrings(orInitial: try stream.finish()),
+      InitialValueStrings(orInitial: partial),
       InitialValueStrings(name: "ab", tags: ["t"], note: nil)
     )
   }
@@ -149,8 +150,9 @@ struct `Partial String Storage Tests` {
   func `A member opted in alone parses beside a StreamString`() throws {
     var stream = PartialsStream(initialValue: MemberStrings.Partial(), from: .json())
     try stream.next(Array(#"{"name":"n","other":"o"}"#.utf8))
+    let partial = try stream.finish()
     expectNoDifference(
-      MemberStrings(streamPartial: try stream.finish()), MemberStrings(name: "n", other: "o")
+      MemberStrings(streamPartial: partial), MemberStrings(name: "n", other: "o")
     )
   }
 
@@ -177,8 +179,9 @@ struct `Partial String Storage Tests` {
     #expect(title == nil)
     var stream = PartialsStream(initialValue: StringPage<Int>.Partial(), from: .json())
     try stream.next(Array(#"{"title":"p","items":[1,2]}"#.utf8))
+    let partial = try stream.finish()
     expectNoDifference(
-      StringPage(streamPartial: try stream.finish()), StringPage(title: "p", items: [1, 2])
+      StringPage(streamPartial: partial), StringPage(title: "p", items: [1, 2])
     )
   }
 

@@ -79,16 +79,6 @@ import Testing
     #expect(reads == 1)
   }
 
-  @Test func finalCallbackFailureLeavesStreamFinished() throws {
-    enum Stop: Error { case now }
-    var stream = PartialsStream(initialValue: 0, from: .json())
-    try stream.next("12".utf8)
-    #expect(throws: Stop.self) {
-      try stream.finishWithView { _ in throw Stop.now }
-    }
-    #expect(throws: StreamParsingError.parserFinished) { try stream.next(UInt8(ascii: " ")) }
-  }
-
   @Test func callbackFailureStopsInput() throws {
     enum Stop: Error { case now }
     var reads = 0

@@ -26,7 +26,7 @@ private func streamSnapshottingRetained<Value: StreamParseable>(
     taken += 1
   }
   blackHole(kept.count)
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 @inline(never)
@@ -42,7 +42,7 @@ private func streamSnapshottingAll<Value: StreamParseable>(
     kept.append(stream.current)
   }
   blackHole(kept.count)
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 func retentionBenchmarks() {
@@ -134,5 +134,5 @@ private func streamDictionaryDiscarding(_ bytes: [UInt8]) throws -> BenchmarkCou
   for byte in bytes {
     try stream.next(byte)
   }
-  return try stream.finish()
+  return try stream.finishPartial()
 }

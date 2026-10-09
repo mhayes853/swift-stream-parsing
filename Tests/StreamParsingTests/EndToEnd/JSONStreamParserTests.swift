@@ -1238,7 +1238,7 @@ private func expectJSONStreamedValues<T: StreamParseable>(
     try stream.next(byte)
     values.append(stream.current)
   }
-  values.append(try stream.finish())
+  values.append(try stream.finishPartial())
   expectNoDifference(values, expected, fileID: file, line: line)
 }
 
@@ -1259,7 +1259,7 @@ private func expectJSONStreamedValues<T: StreamParseable>(
     try stream.next(byte)
     values.append(stream.current)
   }
-  values.append(try stream.finish())
+  values.append(try stream.finishPartial())
   expectStates(
     values, states, json: json, fileID: fileID, filePath: filePath, line: line, column: column
   )
@@ -1276,7 +1276,8 @@ private func expectJSONParsingError<T: StreamParseable>(
   var stream = PartialsStream<T>(initialValue: initialValue, from: format)
   let thrownError = #expect(throws: JSONParsingError.self) {
     for byte in json.utf8 { try stream.next(byte) }
-    try stream.finish()
+    // Not `finish()`: a closure cannot consume the stream it captures.
+    _ = try stream.finishAndReset()
   }
 
   let error = try #require(thrownError)
@@ -1340,7 +1341,7 @@ private func expectJSONStreamedValuesBeforeError<T: StreamParseable & Equatable>
       try stream.next(byte)
       partials.append(stream.current)
     }
-    _ = try stream.finish()
+    _ = try stream.finishAndReset()
   }
 
   guard let error = thrownError else {
@@ -1706,7 +1707,7 @@ struct `JSONDump tests` {
         try stream.next(byte)
       }
     }
-    let final = try stream.finish()
+    let final = try stream.finishPartial()
     SnapshotTesting.assertSnapshot(of: final, as: .json, testName: testName)
   }
 

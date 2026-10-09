@@ -36,7 +36,7 @@ public struct JSONStreamFormat: Hashable, Sendable {
 /// for byte in #"{"title":"DocC"}"#.utf8 {
 ///   try stream.next(byte)
 /// }
-/// let final: BlogPost.Partial = try stream.finish()
+/// let post: BlogPost = try stream.finish()
 /// ```
 ///
 /// A partial type is itself parseable, with `Partial == Self`, so
@@ -56,7 +56,8 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
 
   @usableFromInline var hasFinished = false
   @usableFromInline var hasParserFailed = false
-  // Set only by the consuming `finishValue()`, which leaves the slot uninitialised for `deinit`.
+  // Set only by the consuming `finish()` and `finishPartial()`, which leave the slot uninitialised
+  // for `deinit`.
   @usableFromInline var hasTakenStorage = false
 
   /// The most recent value state emitted by the stream.
@@ -116,7 +117,7 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
   }
 
   deinit {
-    // After a consuming `finishValue()` the slot is uninitialised, not refilled: refilling costs a
+    // After a consuming `finish()` the slot is uninitialised, not refilled: refilling costs a
     // template copy plus its destroy per parse.
     if !self.hasTakenStorage { self.storage.deinitialize(count: 1) }
     self.storage.deallocate()
@@ -169,54 +170,27 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     }
   }
 
-  /// Completes parsing and validates that the stream ended cleanly.
+  /// Completes parsing and returns the final value, consuming the stream.
   ///
-  /// - Returns: The final parsed value after calling ``finish()``.
+  /// The final partial is moved out of the stream, not copied, and converted with
+  /// ``StreamParseable/init(streamPartial:)``. A type that is its own partial, such as a generated
+  /// `Partial` or a scalar, always converts.
+  ///
+  /// ```swift
+  /// var stream = PartialsStream<BlogPost>(from: .json())
+  /// try stream.next(bytes)
+  /// let post = try stream.finish()
+  /// ```
+  ///
+  /// To keep a document that left members out, finish with ``finishPartial()`` and convert with
+  /// ``StreamParseable/init(orInitial:)``.
+  ///
+  /// - Returns: The final value.
+  /// - Throws: The parser's error when the input does not end a document, and
+  ///   ``StreamParsingError/incompleteValue`` when the document does not describe a whole value.
   @inlinable
   @discardableResult
-  public mutating func finish() throws -> Value.Partial {
-    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
-    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
-    self.hasFinished = true
-    do {
-      try self.parser.finish(into: &self.sink)
-    } catch {
-      self.hasParserFailed = true
-      throw error
-    }
-    return self.current
-  }
-
-  /// Validates EOF and lends the final value without taking a snapshot.
-  /// The stream is finished even if the callback throws.
-#if !LifetimeView
-  @unsafe
-#endif
-  public mutating func finishWithView<R>(
-    _ body: (borrowing Value.Partial.View) throws -> R
-  ) throws -> R {
-    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
-    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
-    self.hasFinished = true
-    do {
-      try self.parser.finish(into: &self.sink)
-    } catch {
-      self.hasParserFailed = true
-      throw error
-    }
-    return try self.withView(body)
-  }
-
-  /// Completes parsing and returns the final value by taking it from the stream.
-  ///
-  /// ``finish()`` without the snapshot: `finish()` copies the whole tree through its value
-  /// witnesses and leaves the original to be destroyed with the stream, while this moves the tree
-  /// out bitwise. Use it when the stream is done the moment the value is; on small payloads (a tool
-  /// call) the copy is a measurable share of the parse.
-  ///
-  /// - Returns: The final parsed value.
-  @inlinable
-  public consuming func finishValue() throws -> Value.Partial {
+  public consuming func finish() throws -> Value {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
     do {
@@ -227,22 +201,57 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     }
     // Moved bitwise and `deinit` told so. `discard self` would skip the deinit, but it needs every
     // stored property trivially destroyed, and the parser and sink own buffers.
+    let partial = self.storage.move()
+    self.hasTakenStorage = true
+    guard let value = Value(streamPartial: partial) else {
+      throw StreamParsingError.incompleteValue
+    }
+    return value
+  }
+
+  /// Completes parsing and returns the final partial, consuming the stream.
+  ///
+  /// The partial is moved out of the stream, not copied: on a small payload (a tool call) a copy
+  /// is a measurable share of the parse.
+  ///
+  /// - Returns: The final partial.
+  @inlinable
+  public consuming func finishPartial() throws -> Value.Partial {
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserFailed = true
+      throw error
+    }
     let value = self.storage.move()
     self.hasTakenStorage = true
     return value
   }
 
-  /// Completes parsing, returns the final value, and re-arms the stream for the next document.
+  /// Completes parsing and lends the final partial without copying it, consuming the stream.
+#if !LifetimeView
+  @unsafe
+#endif
+  public consuming func finishWithView<R>(
+    _ body: (borrowing Value.Partial.View) throws -> R
+  ) throws -> R {
+    try self.finishInPlace()
+    return try self.withView(body)
+  }
+
+  /// Completes parsing, returns the final partial, and re-arms the stream for the next document.
   ///
-  /// The amortizing form of ``finishValue()``: it keeps the parser's buffer, the sink's frame
-  /// storage and the value's slot, rewinding their state, so a loop over many small documents of
-  /// one schema (a stream of tool calls) pays setup once. The value is still moved out, not copied.
+  /// The one finish that keeps the stream: it keeps the parser's buffer, the sink's frame storage
+  /// and the value's slot, rewinding their state, so a loop over many small documents of one schema
+  /// (a stream of tool calls) pays setup once. The partial is still moved out, not copied.
   ///
-  /// - Parameter initialValue: The value state the next document starts parsing from.
-  /// - Returns: The final parsed value of the document just completed.
+  /// - Parameter initialValue: The partial the next document starts parsing from.
+  /// - Returns: The final partial of the document just completed.
   @inlinable
-  public mutating func finishValue(
-    resettingTo initialValue: Value.Partial = Value.Partial.streamInitialValue()
+  public mutating func finishAndReset(
+    to initialValue: Value.Partial = Value.Partial.streamInitialValue()
   ) throws -> Value.Partial {
     guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
     guard !self.hasFinished else { throw StreamParsingError.parserFinished }
@@ -257,6 +266,22 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     self.parser.reset()
     self.sink.reset()
     return value
+  }
+
+  // Validates EOF and leaves the final partial in place, for the library's own iterators: they
+  // store their stream, so they cannot consume it, and read the final state through `current` or
+  // `withView(_:)` afterwards.
+  @inlinable
+  mutating func finishInPlace() throws {
+    guard !self.hasParserFailed else { throw StreamParsingError.parserFailed }
+    guard !self.hasFinished else { throw StreamParsingError.parserFinished }
+    self.hasFinished = true
+    do {
+      try self.parser.finish(into: &self.sink)
+    } catch {
+      self.hasParserFailed = true
+      throw error
+    }
   }
 
   /// Discards whatever state the stream holds and re-arms it for a new document.

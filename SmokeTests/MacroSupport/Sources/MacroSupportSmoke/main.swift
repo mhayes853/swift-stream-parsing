@@ -59,26 +59,32 @@ public struct Invoice: Equatable {
   var retries: Int
 }
 
-var stream = PartialsStream<Customer.Partial>(from: .json())
-try stream.next(#"{"customer_name":"Ada","customer_id":42,"tags":["swift","macros"]}"#.utf8)
-precondition(unsafe stream.withView { unsafe $0.name?.value } == "Ada")
-precondition(unsafe stream.withView { $0.marker } == 42)
-let partial = try stream.finish()
-precondition(partial.id == 42)
-precondition(partial.tags?.count == 2)
-precondition(partial.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField, Customer.Partial.tagsField])
-precondition(partial.nameWasEmpty == [true])
+// Each stream in a `do` block: top-level variables in `main.swift` are globals, and a global
+// cannot be consumed, which `finish()` does.
+do {
+  var stream = PartialsStream<Customer.Partial>(from: .json())
+  try stream.next(#"{"customer_name":"Ada","customer_id":42,"tags":["swift","macros"]}"#.utf8)
+  precondition(unsafe stream.withView { unsafe $0.name?.value } == "Ada")
+  precondition(unsafe stream.withView { $0.marker } == 42)
+  let partial = try stream.finish()
+  precondition(partial.id == 42)
+  precondition(partial.tags?.count == 2)
+  precondition(partial.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField, Customer.Partial.tagsField])
+  precondition(partial.nameWasEmpty == [true])
+}
 var tracking = Customer.Partial(tracking: .enabled)
 tracking.recognizedFields.append(Customer.Partial.nameField)
 precondition(tracking[0] == Customer.Partial.nameField)
 tracking.resetTracking()
 precondition(tracking.recognizedFields.isEmpty)
 
-var custom = PartialsStream<CustomCustomer.Accumulator>(from: .json())
-try custom.next(#"{"a\u0000":7}"#.utf8)
-let customPartial = try custom.finish()
-precondition(customPartial.default == 7)
-precondition(customPartial.count == 1)
+do {
+  var custom = PartialsStream<CustomCustomer.Accumulator>(from: .json())
+  try custom.next(#"{"a\u0000":7}"#.utf8)
+  let customPartial = try custom.finish()
+  precondition(customPartial.default == 7)
+  precondition(customPartial.count == 1)
+}
 
 let keys = ["", "a", "a\0", "customer_name", "customer_id", "é", "e\u{301}", "abcdefghijklmno\0"]
 for (index, key) in keys.enumerated() {
@@ -108,31 +114,39 @@ for chunked in [false, true] {
   precondition(result.nameWasEmpty == [true, false])
 }
 
-var nested = PartialsStream<StreamArray<Customer.Partial?>>(from: .json())
-try nested.next(#"[{"customer_id":1},null,{"name":"A"}]"#.utf8)
-let nestedResult = try nested.finish()
-precondition(nestedResult[0]?.recognizedFields == [Customer.Partial.idField])
-precondition(nestedResult[1] == nil)
-precondition(nestedResult[2]?.recognizedFields == [Customer.Partial.nameField])
+do {
+  var nested = PartialsStream<StreamArray<Customer.Partial?>>(from: .json())
+  try nested.next(#"[{"customer_id":1},null,{"name":"A"}]"#.utf8)
+  let nestedResult = try nested.finish()
+  precondition(nestedResult[0]?.recognizedFields == [Customer.Partial.idField])
+  precondition(nestedResult[1] == nil)
+  precondition(nestedResult[2]?.recognizedFields == [Customer.Partial.nameField])
+}
 
-var optional = PartialsStream<Customer.Partial?>(from: .json())
-try optional.next(#"{"name":"A","customer_id":1}"#.utf8)
-let optionalResult = try optional.finish()
-precondition(optionalResult?.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField])
-var invoiceStream = PartialsStream<Invoice.Partial>(from: .json())
-try invoiceStream.next(#"{"number":"A-1","total":21}"#.utf8)
-let invoice = try invoiceStream.finish()
-precondition(Invoice(streamPartial: invoice) == Invoice(number: "A-1", total: 42, retries: 3))
+do {
+  var optional = PartialsStream<Customer.Partial?>(from: .json())
+  try optional.next(#"{"name":"A","customer_id":1}"#.utf8)
+  let optionalResult = try optional.finish()
+  precondition(optionalResult?.recognizedFields == [Customer.Partial.nameField, Customer.Partial.idField])
+}
+do {
+  var invoiceStream = PartialsStream<Invoice.Partial>(from: .json())
+  try invoiceStream.next(#"{"number":"A-1","total":21}"#.utf8)
+  let invoice = try invoiceStream.finish()
+  precondition(Invoice(streamPartial: invoice) == Invoice(number: "A-1", total: 42, retries: 3))
+}
 precondition(Invoice(streamPartial: Invoice(number: "B", total: 8, retries: 0).streamPartialValue) == Invoice(number: "B", total: 8, retries: 3))
 precondition(Invoice(streamPartial: Invoice.Partial()) == nil)
 precondition(Invoice(orInitial: Invoice.Partial()) == Invoice(number: "", total: -1, retries: 3))
-var activityStream = PartialsStream<Activity.Partial>(from: .json())
-try activityStream.next(#"{"charge":{"total":21,"_1":"card"}}"#.utf8)
-let activity = try activityStream.finish()
-precondition(Activity(streamPartial: activity) == .charge(total: 42, "card"))
-precondition(activity.recognized == [Activity.Partial.chargeField])
-precondition(activity.marker == 3)
-precondition(activity.charge?.marker == 2)
+do {
+  var activityStream = PartialsStream<Activity.Partial>(from: .json())
+  try activityStream.next(#"{"charge":{"total":21,"_1":"card"}}"#.utf8)
+  let activity = try activityStream.finish()
+  precondition(Activity(streamPartial: activity) == .charge(total: 42, "card"))
+  precondition(activity.recognized == [Activity.Partial.chargeField])
+  precondition(activity.marker == 3)
+  precondition(activity.charge?.marker == 2)
+}
 precondition(Activity.ChargeArguments.Partial.firstStorageType == "StreamParsingCore.ConvertedPartial<Cents>?")
 precondition(Activity(streamPartial: Activity.charge(total: 8, "x").streamPartialValue) == .charge(total: 8, "x"))
 precondition(Activity(streamPartial: Activity.Partial()) == nil)
@@ -141,9 +155,11 @@ var chargeOnly = Activity.Partial()
 chargeOnly.charge = Activity.ChargeArguments.Partial(_1: "cash")
 precondition(Activity(streamPartial: chargeOnly) == nil)
 precondition(Activity(orInitial: chargeOnly) == .idle)
-var refundStream = PartialsStream<Activity.Partial>(from: .json())
-try refundStream.next(#"{"refund":{"code":17}}"#.utf8)
-let refund = try refundStream.finish()
-precondition(Activity(streamPartial: refund) == .refund(code: 17))
+do {
+  var refundStream = PartialsStream<Activity.Partial>(from: .json())
+  try refundStream.next(#"{"refund":{"code":17}}"#.utf8)
+  let refund = try refundStream.finish()
+  precondition(Activity(streamPartial: refund) == .refund(code: 17))
+}
 precondition(Activity(streamPartial: Activity.refund(code: 23).streamPartialValue) == .refund(code: 23))
 print("Macro support smoke passed")

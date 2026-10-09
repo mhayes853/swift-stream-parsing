@@ -40,7 +40,7 @@ extension Sequence where Element == UInt8 {
       try stream.next(byte)
       partials.append(stream.current)
     }
-    try partials.append(stream.finish())
+    try partials.append(stream.finishPartial())
     return partials
   }
 }
@@ -84,7 +84,7 @@ extension Sequence where Element: Sequence<UInt8> {
       try stream.next(bytes)
       partials.append(stream.current)
     }
-    try partials.append(stream.finish())
+    try partials.append(stream.finishPartial())
     return partials
   }
 }

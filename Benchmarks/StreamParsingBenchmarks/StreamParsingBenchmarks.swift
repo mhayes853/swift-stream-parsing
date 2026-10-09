@@ -101,7 +101,7 @@ let benchmarks: @Sendable () -> Void = {
         try stream.next(byte)
         stream.withView { blackHole($0.total?.value) }
       }
-      blackHole(try stream.finish())
+      blackHole(try stream.finishPartial())
     }
   }
 
@@ -181,7 +181,7 @@ func streamDiscarding<Value: StreamParseable>(
   for byte in bytes {
     try stream.next(byte)
   }
-  return try stream.finishValue()
+  return try stream.finishPartial()
 }
 
 func streamDiscardingChunks<Value: StreamParseable>(
@@ -197,7 +197,7 @@ func streamDiscardingChunks<Value: StreamParseable>(
     try stream.next(bytes[index..<end])
     index = end
   }
-  return try stream.finishValue()
+  return try stream.finishPartial()
 }
 
 func streamSnapshotting<Value: StreamParseable>(
@@ -209,7 +209,7 @@ func streamSnapshotting<Value: StreamParseable>(
     try stream.next(byte)
     blackHole(stream.current)
   }
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 func streamSnapshottingChunks<Value: StreamParseable>(
@@ -225,7 +225,7 @@ func streamSnapshottingChunks<Value: StreamParseable>(
     blackHole(stream.current)
     index = end
   }
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 func streamViewingChunks<Value: StreamParseable>(
@@ -242,7 +242,7 @@ func streamViewingChunks<Value: StreamParseable>(
     stream.withView { read($0) }
     index = end
   }
-  return try stream.finish()
+  return try stream.finishPartial()
 }
 
 func streamBulkDiscarding<Value: StreamParseable>(
@@ -252,5 +252,5 @@ func streamBulkDiscarding<Value: StreamParseable>(
 ) throws -> Value.Partial {
   var stream = PartialsStream<Value>(from: format)
   try stream.next(bytes)
-  return try stream.finishValue()
+  return try stream.finishPartial()
 }
