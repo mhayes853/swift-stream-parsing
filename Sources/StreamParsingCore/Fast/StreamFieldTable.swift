@@ -131,9 +131,13 @@ public struct StreamField: Sendable {
 
   @inlinable public var isOptional: Bool { self.flags.contains(.optional) }
 
-  /// The form the macro emits: the route the member's type resolved to, and the capacity hint the
-  /// declaration carried, which a route with its own capacity overrides.
-  public init(key: String, index: Int32, route: StreamFieldRoute, offset: Int, capacity: Int = 0) {
+  // The form the macro emits: the route the member's type resolved to, and the capacity hint the
+  // declaration carried, which a route with its own capacity overrides. Hidden from the docs: a
+  // hand-written table uses `init(key:index:kind:optional:offset:capacity:)`.
+  @_documentation(visibility: private)
+  public init(
+    key: String, index: Int32, route: _StreamFieldRoute, offset: Int, capacity: Int = 0
+  ) {
     self.init(
       key: key, index: index, kind: route.kind, optional: route.optional, offset: offset,
       capacity: route.capacity != 0 ? route.capacity : capacity
@@ -183,10 +187,11 @@ struct StreamFieldEntry {
   }
 }
 
-/// The classification a field's declared type resolves to: the kind, and whether the member is
-/// wrapped in an `Optional`. Produced by the overloads in `StreamParsing`, which see the member's
-/// concrete type; the macro only sees its spelling.
-public struct StreamFieldRoute: Sendable {
+// The classification a field's declared type resolves to: the kind, and whether the member is
+// wrapped in an `Optional`. Produced by the overloads in `StreamParsing`, which see the member's
+// concrete type; the macro only sees its spelling. Underscored: macro plumbing, public only
+// because those overloads return it into generated code.
+public struct _StreamFieldRoute: Sendable {
   public var kind: StreamFieldKind
   public var optional: Bool
   /// A capacity the kind dictates (a string member's reservation), or zero.
@@ -235,10 +240,10 @@ public func _streamNumberFieldKind<T: StreamNumberConvertible>(_ type: T.Type) -
 @inlinable
 public func _streamStringFieldRoute<T: StreamStringConvertible>(
   _ type: T.Type, optional: Bool
-) -> StreamFieldRoute {
+) -> _StreamFieldRoute {
   T.self == StreamString.self
-    ? StreamFieldRoute(.streamString, optional: optional)
-    : StreamFieldRoute(.custom, optional: optional)
+    ? _StreamFieldRoute(.streamString, optional: optional)
+    : _StreamFieldRoute(.custom, optional: optional)
 }
 
 @inlinable
@@ -258,15 +263,17 @@ public func _streamBooleanFieldKind<T: StreamBooleanConvertible>(_ type: T.Type)
 @inlinable
 public func _streamDelegatedFieldRoute<T: StreamPartial>(
   _ value: inout T?
-) -> StreamFieldRoute {
+) -> _StreamFieldRoute {
   let schema = T.streamSchema
   switch schema.shape {
   case .scalar where schema.scalarKind != .custom:
-    return StreamFieldRoute(schema.scalarKind, optional: true)
+    return _StreamFieldRoute(schema.scalarKind, optional: true)
   case .scalar:
-    return StreamFieldRoute(.delegated, optional: true, schema: _streamDelegatedMemberSchema(T.self))
+    return _StreamFieldRoute(
+      .delegated, optional: true, schema: _streamDelegatedMemberSchema(T.self)
+    )
   default:
-    return StreamFieldRoute(
+    return _StreamFieldRoute(
       .container, optional: true, schema: schema,
       prepare: _streamOptionalPrepare(T.self, then: { storage, _ in schema.prepareRoot(storage) })
     )
@@ -277,16 +284,16 @@ public func _streamDelegatedFieldRoute<T: StreamPartial>(
 @inlinable
 public func _streamDelegatedFieldRoute<T: StreamPartial>(
   _ value: inout T
-) -> StreamFieldRoute {
+) -> _StreamFieldRoute {
   let schema = T.streamSchema
   switch schema.shape {
   case .scalar where schema.scalarKind != .custom:
-    return StreamFieldRoute(schema.scalarKind, optional: false)
+    return _StreamFieldRoute(schema.scalarKind, optional: false)
   case .scalar:
-    return StreamFieldRoute(.delegated, optional: false, schema: schema)
+    return _StreamFieldRoute(.delegated, optional: false, schema: schema)
   default:
     // An `Optional` root materialises itself here, as `_streamObjectMemberPrepare` would.
-    return StreamFieldRoute(
+    return _StreamFieldRoute(
       .container, optional: false, schema: schema,
       prepare: { storage, _ in schema.prepareRoot(storage) }
     )
@@ -485,7 +492,7 @@ func streamMatchField(
 ) -> Int32 {
   let length = key.count
   guard length <= Int(UInt16.max) else { return -1 }
-  let word = key.paddedLeadingWord()
+  let word = key._streamPaddedLeadingWord()
   let keyLength = UInt16(truncatingIfNeeded: length)
   var index = 0
   while index < count {
@@ -525,7 +532,7 @@ func streamMatchFieldIndexed(
 ) -> Int32 {
   let length = key.count
   guard length <= Int(UInt16.max) else { return -1 }
-  let word = key.paddedLeadingWord()
+  let word = key._streamPaddedLeadingWord()
   let keyLength = UInt16(truncatingIfNeeded: length)
   let hash = streamFieldHash(word: word, length: keyLength)
   var probe = Int(truncatingIfNeeded: hash) & mask

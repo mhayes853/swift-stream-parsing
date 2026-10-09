@@ -461,22 +461,22 @@ extension Span where Element == UInt8 {
   // which is otherwise indistinguishable from the zero padding.
   @inlinable
   @inline(__always)
-  public func paddedLeadingWord() -> UInt64 {
-    self.paddedWord(at: 0)
+  public func _streamPaddedLeadingWord() -> UInt64 {
+    self._streamPaddedWord(at: 0)
   }
 
   @inlinable
   @inline(__always)
-  public func paddedWord(at start: Int) -> UInt64 {
+  public func _streamPaddedWord(at start: Int) -> UInt64 {
     // A negative start loads from before the span: `streamPaddedWord` sizes its load from
-    // `count - start`, so `"id".paddedWord(at: -6)` is a full eight-byte load six bytes early.
+    // `count - start`, so a start of -6 on `"id"` is a full eight-byte load six bytes early.
     // A start past the end is fine: nothing is left, and the word is zero. Generated matchers pass
     // constants, so the check folds wherever this inlines; the large Twitter matchers call it out
     // of line instead, where it is one never-taken test per long-key match. (Moving the check into
     // a `@_transparent` wrapper folds it there too, but reshuffles the matchers' inlining: some
     // stopped calling this at all, the string-storage ones started calling `Span.count` out of
     // line. A separate question from this bound.)
-    precondition(start >= 0, "paddedWord(at:) start is negative")
+    precondition(start >= 0, "_streamPaddedWord(at:) start is negative")
     return self.withUnsafeBufferPointer { buffer in
       streamPaddedWord(
         base: UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped),
@@ -484,18 +484,6 @@ extension Span where Element == UInt8 {
         to: buffer.count
       )
     }
-  }
-
-  @inlinable
-  @inline(__always)
-  public func matches(_ other: Span<UInt8>) -> Bool {
-    guard self.count == other.count else { return false }
-    var i = 0
-    while i < self.count {
-      if self[i] != other[i] { return false }
-      i &+= 1
-    }
-    return true
   }
 }
 

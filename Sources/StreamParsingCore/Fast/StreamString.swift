@@ -482,9 +482,9 @@ extension StreamString {
 
 // MARK: - Key words
 
-// The read side of `Span<UInt8>.paddedWord(at:)`'s encoding, so a generated `String`-raw enum
-// matcher compares a value against a literal with the same codegen it uses for object keys, and
-// never materializes a `String`.
+// The read side of `Span<UInt8>._streamPaddedWord(at:)`'s encoding, so a generated `String`-raw
+// enum matcher compares a value against a literal with the same codegen it uses for object keys,
+// and never materializes a `String`.
 extension StreamString {
   /// The accumulated UTF-8 bytes `start..<start + 8`, little-endian, zero-padded past
   /// ``utf8Count``.
@@ -493,9 +493,11 @@ extension StreamString {
   /// otherwise indistinguishable from. `start` must be a multiple of eight, so the word never
   /// crosses a 512-byte block.
   @inlinable
-  public func paddedWord(at start: Int) -> UInt64 {
+  public func _streamPaddedWord(at start: Int) -> UInt64 {
     // Debug only: a `precondition` would land on the generated enum matcher path.
-    assert(start & 7 == 0, "StreamString.paddedWord(at:) requires an eight-byte aligned start")
+    assert(
+      start & 7 == 0, "StreamString._streamPaddedWord(at:) requires an eight-byte aligned start"
+    )
     let count = self.utf8Count
     guard start >= 0, start < count else { return 0 }
     // Clamped rather than overread: unlike a key span, a value's last block ends where it does.
@@ -511,10 +513,10 @@ extension StreamString {
 
   /// The first eight accumulated UTF-8 bytes as one little-endian word.
   ///
-  /// - SeeAlso: ``paddedWord(at:)``
+  /// - SeeAlso: ``_streamPaddedWord(at:)``
   @inlinable
-  public func paddedLeadingWord() -> UInt64 {
-    self.paddedWord(at: 0)
+  public func _streamPaddedLeadingWord() -> UInt64 {
+    self._streamPaddedWord(at: 0)
   }
 }
 

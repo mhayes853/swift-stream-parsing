@@ -55,15 +55,15 @@ func streamDeclarationSource(_ signature: String, body: String) -> String {
   "\(signature) {\n\(streamIndented(body, by: 2))\n}"
 }
 
-/// The arm label matching exactly `key` in a `switch` over `input.paddedLeadingWord()`, where
-/// `byteCount` is `input`'s length.
+/// The arm label matching exactly `key` in a `switch` over `input._streamPaddedLeadingWord()`,
+/// where `byteCount` is `input`'s length.
 func streamWordCaseLabel(
   _ key: String,
   input: String,
   byteCount: some ExprSyntaxProtocol
 ) -> String {
   let condition = streamRemainingUTF8Condition(StreamUTF8Match(key), byteCount: byteCount) {
-    ExprSyntax("\(raw: input).paddedWord(at: \(raw: $0))")
+    ExprSyntax("\(raw: input)._streamPaddedWord(at: \(raw: $0))")
   }
   return "case \(streamUTF8WordLiteral(key, at: 0)) where \(condition)"
 }
@@ -90,7 +90,7 @@ func streamRemainingUTF8Condition(
   matching bytes: some ExprSyntaxProtocol
 ) -> ExprSyntax {
   streamRemainingUTF8Condition(match, byteCount: ExprSyntax("(\(bytes)).count")) { offset in
-    ExprSyntax("(\(bytes)).paddedWord(at: \(raw: offset))")
+    ExprSyntax("(\(bytes))._streamPaddedWord(at: \(raw: offset))")
   }
 }
 

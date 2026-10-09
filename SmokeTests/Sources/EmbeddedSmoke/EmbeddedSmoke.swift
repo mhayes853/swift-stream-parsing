@@ -46,7 +46,7 @@ struct SmokeSink: StreamParseSink {
   // every three sink calls.
   mutating func key(_ bytes: Span<UInt8>) {
     self.keys &+= 1
-    self.keyWordChecksum = self.keyWordChecksum &+ bytes.paddedLeadingWord()
+    self.keyWordChecksum = self.keyWordChecksum &+ bytes._streamPaddedLeadingWord()
   }
 
   // Keys arrive through the collapsed form because the parser always buffers them, but strings

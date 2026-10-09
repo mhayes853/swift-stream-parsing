@@ -147,11 +147,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.frames = .allocate(capacity: Self.overflowCapacity)
   }
 
-  /// Creates a sink that writes into the value at `root`. See ``init(root:schema:)``.
-  public init<Root>(root: UnsafeMutablePointer<Root>, schema: StreamSchema) {
-    self.init(root: UnsafeMutableRawPointer(root), schema: schema)
-  }
-
   deinit {
     self.frames.deinitialize(count: self.frameCount)
     self.frames.deallocate()
@@ -1252,7 +1247,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   // A null clears an optional member of any kind the table writes. A container member is nulled
   // through the closure, which knows the container's type; a non-optional member is a mismatch,
-  // as `streamApplyNull`'s disfavoured overload always reported it.
+  // as `_streamApplyNull`'s disfavoured overload always reported it.
   @inline(never)
   private static func writeTableNull(
     _ entry: UnsafePointer<StreamFieldEntry>,

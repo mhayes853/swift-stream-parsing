@@ -11,7 +11,7 @@ import StreamParsingCore
 
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamStringConvertible>(
+public func _streamApply<T: StreamStringConvertible>(
   _ value: inout T, utf8 bytes: Span<UInt8>
 ) -> StreamApplyResult {
   value.streamAppend(utf8: bytes)
@@ -19,7 +19,7 @@ public func streamApply<T: StreamStringConvertible>(
 
 @inlinable
 @inline(__always)
-public func streamApply(
+public func _streamApply(
   _ value: inout StreamString, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
   if bytes.isEmpty { value.streamReserve(utf8ByteCount: initialCapacity) }
@@ -30,7 +30,7 @@ public func streamApply(
 // arrives as the empty span: that call reserves, as the table does for a `StreamString` entry.
 @inlinable
 @inline(__always)
-public func streamApply(
+public func _streamApply(
   _ value: inout String, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
   if bytes.isEmpty { value.reserveCapacity(initialCapacity) }
@@ -40,20 +40,20 @@ public func streamApply(
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(
+public func _streamApply<T>(
   _ value: inout T, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult { .unsupported }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+public func _streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> StreamApplyResult {
   .unsupported
 }
 
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamNumberConvertible>(
+public func _streamApply<T: StreamNumberConvertible>(
   _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
   guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
@@ -64,7 +64,7 @@ public func streamApply<T: StreamNumberConvertible>(
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(
+public func _streamApply<T>(
   _ value: inout T, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
   .unsupported
@@ -72,7 +72,7 @@ public func streamApply<T>(
 
 @inlinable
 @inline(__always)
-public func streamApply<T: StreamBooleanConvertible>(
+public func _streamApply<T: StreamBooleanConvertible>(
   _ value: inout T, boolean: Bool
 ) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
@@ -82,11 +82,11 @@ public func streamApply<T: StreamBooleanConvertible>(
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApply<T>(_ value: inout T, boolean: Bool) -> StreamApplyResult { .unsupported }
+public func _streamApply<T>(_ value: inout T, boolean: Bool) -> StreamApplyResult { .unsupported }
 
 @inlinable
 @inline(__always)
-public func streamApplyNull<T: StreamNullable>(_ value: inout T) -> StreamApplyResult {
+public func _streamApplyNull<T: StreamNullable>(_ value: inout T) -> StreamApplyResult {
   value = T.streamNullValue()
   return .applied
 }
@@ -94,4 +94,4 @@ public func streamApplyNull<T: StreamNullable>(_ value: inout T) -> StreamApplyR
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func streamApplyNull<T>(_ value: inout T) -> StreamApplyResult { .unsupported }
+public func _streamApplyNull<T>(_ value: inout T) -> StreamApplyResult { .unsupported }

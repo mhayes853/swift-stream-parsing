@@ -262,19 +262,19 @@ struct `Stream convertible tests` {
     var opaque = Opaque()
 
     Self.span("Blob") { bytes in
-      expectNoDifference(streamApply(&name, utf8: bytes), .applied)
-      expectNoDifference(streamApply(&count, utf8: bytes), .unsupported)
-      expectNoDifference(streamApply(&flag, utf8: bytes), .unsupported)
-      expectNoDifference(streamApply(&opaque, utf8: bytes), .unsupported)
+      expectNoDifference(_streamApply(&name, utf8: bytes), .applied)
+      expectNoDifference(_streamApply(&count, utf8: bytes), .unsupported)
+      expectNoDifference(_streamApply(&flag, utf8: bytes), .unsupported)
+      expectNoDifference(_streamApply(&opaque, utf8: bytes), .unsupported)
     }
     Self.span("42") { bytes in
       let info = Self.info(42, digits: 2)
-      expectNoDifference(streamApply(&name, bytes: bytes, info: info), .unsupported)
-      expectNoDifference(streamApply(&count, bytes: bytes, info: info), .applied)
-      expectNoDifference(streamApply(&opaque, bytes: bytes, info: info), .unsupported)
+      expectNoDifference(_streamApply(&name, bytes: bytes, info: info), .unsupported)
+      expectNoDifference(_streamApply(&count, bytes: bytes, info: info), .applied)
+      expectNoDifference(_streamApply(&opaque, bytes: bytes, info: info), .unsupported)
     }
-    expectNoDifference(streamApply(&flag, boolean: true), .applied)
-    expectNoDifference(streamApply(&count, boolean: true), .unsupported)
+    expectNoDifference(_streamApply(&flag, boolean: true), .applied)
+    expectNoDifference(_streamApply(&count, boolean: true), .unsupported)
 
     expectNoDifference(name, "Blob")
     expectNoDifference(count, 42)
@@ -286,8 +286,8 @@ struct `Stream convertible tests` {
   func `Null application only affects nullable destinations`() {
     var optional: Int? = 5
     var plain = 5
-    expectNoDifference(streamApplyNull(&optional), .applied)
-    expectNoDifference(streamApplyNull(&plain), .unsupported)
+    expectNoDifference(_streamApplyNull(&optional), .applied)
+    expectNoDifference(_streamApplyNull(&plain), .unsupported)
     expectNoDifference(optional, nil)
     expectNoDifference(plain, 5)
   }

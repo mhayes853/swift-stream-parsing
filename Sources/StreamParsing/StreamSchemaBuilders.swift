@@ -80,7 +80,7 @@ public func _streamObjectMemberSchema<T>(for type: T.Type) -> StreamSchema? {
 
 // Partial members are optional, so a value has to exist before it can be appended to.
 @inlinable
-public func streamApply<T: StreamStringConvertible>(
+public func _streamApply<T: StreamStringConvertible>(
   _ value: inout T?, utf8 bytes: Span<UInt8>
 ) -> StreamApplyResult {
   if value == nil { value = T.streamInitialValue() }
@@ -88,7 +88,7 @@ public func streamApply<T: StreamStringConvertible>(
 }
 
 @inlinable
-public func streamApply(
+public func _streamApply(
   _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
   if value == nil { value = StreamString() }
@@ -97,7 +97,7 @@ public func streamApply(
 }
 
 @inlinable
-public func streamApply(
+public func _streamApply(
   _ value: inout String?, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
   if value == nil { value = "" }
@@ -106,7 +106,7 @@ public func streamApply(
 }
 
 @inlinable
-public func streamApply<T: StreamNumberConvertible>(
+public func _streamApply<T: StreamNumberConvertible>(
   _ value: inout T?, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
   guard let parsed = T(streamParsing: bytes, info: info) else { return .unsupported }
@@ -115,7 +115,7 @@ public func streamApply<T: StreamNumberConvertible>(
 }
 
 @inlinable
-public func streamApply<T: StreamBooleanConvertible>(
+public func _streamApply<T: StreamBooleanConvertible>(
   _ value: inout T?, boolean: Bool
 ) -> StreamApplyResult {
   value = T(streamParsingBoolean: boolean)
@@ -138,7 +138,7 @@ func _streamApplyThroughOptional<T: StreamPartial>(
 }
 
 @inlinable
-public func streamApply<T: StreamPartial>(
+public func _streamApply<T: StreamPartial>(
   _ value: inout T??, utf8 bytes: Span<UInt8>
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) { $0.applyString($1, StreamSchema.wholeValueField, bytes) }
@@ -146,14 +146,14 @@ public func streamApply<T: StreamPartial>(
 
 // The capacity is a first-chunk hint for a `StreamString` member; a nested one goes without it.
 @inlinable
-public func streamApply<T: StreamPartial>(
+public func _streamApply<T: StreamPartial>(
   _ value: inout T??, utf8 bytes: Span<UInt8>, initialCapacity: Int
 ) -> StreamApplyResult {
-  streamApply(&value, utf8: bytes)
+  _streamApply(&value, utf8: bytes)
 }
 
 @inlinable
-public func streamApply<T: StreamPartial>(
+public func _streamApply<T: StreamPartial>(
   _ value: inout T??, bytes: Span<UInt8>, info: NumberInfo
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) {
@@ -162,7 +162,7 @@ public func streamApply<T: StreamPartial>(
 }
 
 @inlinable
-public func streamApply<T: StreamPartial>(
+public func _streamApply<T: StreamPartial>(
   _ value: inout T??, boolean: Bool
 ) -> StreamApplyResult {
   _streamApplyThroughOptional(&value) { $0.applyBoolean($1, StreamSchema.wholeValueField, boolean) }
@@ -170,7 +170,7 @@ public func streamApply<T: StreamPartial>(
 
 // MARK: - Field routes
 
-// What a member's type resolves to for the field table, by `streamApply`'s overload structure, so
+// What a member's type resolves to for the field table, by `_streamApply`'s overload structure, so
 // classification matches application. Two overloads per protocol (optional and initialised
 // modes), all taking the hoisted container schema so the macro emits one call shape. The
 // `prepare` closures capture nothing; the capacity arrives from the entry.
@@ -178,50 +178,50 @@ public func streamApply<T: StreamPartial>(
 @inlinable
 public func _streamFieldRoute<T: StreamStringConvertible>(
   _ value: inout T?, schema: StreamSchema?
-) -> StreamFieldRoute {
+) -> _StreamFieldRoute {
   _streamStringFieldRoute(T.self, optional: true)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamStringConvertible>(
   _ value: inout T, schema: StreamSchema?
-) -> StreamFieldRoute {
+) -> _StreamFieldRoute {
   _streamStringFieldRoute(T.self, optional: false)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamNumberConvertible>(
   _ value: inout T?, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(_streamNumberFieldKind(T.self), optional: true)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(_streamNumberFieldKind(T.self), optional: true)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamNumberConvertible>(
   _ value: inout T, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(_streamNumberFieldKind(T.self), optional: false)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(_streamNumberFieldKind(T.self), optional: false)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamBooleanConvertible>(
   _ value: inout T?, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: true)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: true)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamBooleanConvertible>(
   _ value: inout T, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: false)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(_streamBooleanFieldKind(T.self), optional: false)
 }
 
 @inlinable
 public func _streamFieldRoute<T: StreamParseableObject>(
   _ value: inout T?, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamObjectMemberPrepare)
   )
 }
@@ -229,8 +229,10 @@ public func _streamFieldRoute<T: StreamParseableObject>(
 @inlinable
 public func _streamFieldRoute<T: StreamParseableObject>(
   _ value: inout T, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
+    .container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare
+  )
 }
 
 // No built-in container spelling: resolve through the actual partial storage type, which covers
@@ -239,8 +241,8 @@ public func _streamFieldRoute<T: StreamParseableObject>(
 @inlinable
 public func _streamFieldRoute<T: StreamContainerPartial>(
   _ value: inout T?, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: true, schema: schema, prepare: _streamOptionalPrepare(T.self, then: T._streamObjectMemberPrepare)
   )
 }
@@ -249,21 +251,23 @@ public func _streamFieldRoute<T: StreamContainerPartial>(
 @inlinable
 public func _streamFieldRoute<T: StreamContainerPartial>(
   _ value: inout T, schema: StreamSchema?
-) -> StreamFieldRoute {
-  StreamFieldRoute(.container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
+    .container, optional: false, schema: schema, prepare: T._streamObjectMemberPrepare
+  )
 }
 
 // A type none of the protocols describe stays on the closures.
 @_disfavoredOverload
 @inlinable
-public func _streamFieldRoute<T>(_ value: inout T?, schema: StreamSchema?) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: true)
+public func _streamFieldRoute<T>(_ value: inout T?, schema: StreamSchema?) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: true)
 }
 
 @_disfavoredOverload
 @inlinable
-public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: false)
+public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: false)
 }
 
 // MARK: - Field routes with a capacity
@@ -274,22 +278,22 @@ public func _streamFieldRoute<T>(_ value: inout T, schema: StreamSchema?) -> Str
 @inlinable
 public func _streamFieldRoute(
   _ value: inout StreamString?, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.streamString, optional: true, capacity: initialCapacity)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.streamString, optional: true, capacity: initialCapacity)
 }
 
 @inlinable
 public func _streamFieldRoute(
   _ value: inout StreamString, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.streamString, optional: false, capacity: initialCapacity)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.streamString, optional: false, capacity: initialCapacity)
 }
 
 @inlinable
 public func _streamFieldRoute<Element>(
   _ value: inout StreamArray<Element>?, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: true, capacity: initialCapacity, schema: schema,
     prepare: { storage, capacity in
       let pointer = storage.assumingMemoryBound(to: StreamArray<Element>?.self)
@@ -305,8 +309,8 @@ public func _streamFieldRoute<Element>(
 @inlinable
 public func _streamFieldRoute<Element>(
   _ value: inout StreamArray<Element>, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: false, capacity: initialCapacity, schema: schema,
     prepare: { storage, capacity in
       storage.assumingMemoryBound(to: StreamArray<Element>.self).pointee
@@ -318,8 +322,8 @@ public func _streamFieldRoute<Element>(
 @inlinable
 public func _streamFieldRoute<Value>(
   _ value: inout StreamDictionary<Value>?, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: true, capacity: initialCapacity, schema: schema,
     prepare: { storage, capacity in
       let pointer = storage.assumingMemoryBound(to: StreamDictionary<Value>?.self)
@@ -335,8 +339,8 @@ public func _streamFieldRoute<Value>(
 @inlinable
 public func _streamFieldRoute<Value>(
   _ value: inout StreamDictionary<Value>, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(
     .container, optional: false, capacity: initialCapacity, schema: schema,
     prepare: { storage, capacity in
       storage.assumingMemoryBound(to: StreamDictionary<Value>.self).pointee
@@ -346,19 +350,19 @@ public func _streamFieldRoute<Value>(
 }
 
 // A `String` member has no table kind, so the hint rides on its apply closure instead (see
-// `streamApply(_:utf8:initialCapacity:)`); the route only has to stay `.custom`.
+// `_streamApply(_:utf8:initialCapacity:)`); the route only has to stay `.custom`.
 @inlinable
 public func _streamFieldRoute(
   _ value: inout String?, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: true)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: true)
 }
 
 @inlinable
 public func _streamFieldRoute(
   _ value: inout String, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: false)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: false)
 }
 
 // Overload resolution sees through aliases the macro cannot: an alias of a `StreamArray` or
@@ -371,8 +375,8 @@ public func _streamFieldRoute(
 @_disfavoredOverload
 public func _streamFieldRoute<T>(
   _ value: inout T?, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: true)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: true)
 }
 
 @available(
@@ -382,6 +386,6 @@ public func _streamFieldRoute<T>(
 @_disfavoredOverload
 public func _streamFieldRoute<T>(
   _ value: inout T, schema: StreamSchema?, initialCapacity: Int
-) -> StreamFieldRoute {
-  StreamFieldRoute(.custom, optional: false)
+) -> _StreamFieldRoute {
+  _StreamFieldRoute(.custom, optional: false)
 }

@@ -634,7 +634,7 @@ public struct StreamObjectGeneration: Sendable {
     return self.declaration(
       """
       \(self.inline)\(self.access)static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-        \(emptyGuard)switch key.paddedLeadingWord() {
+        \(emptyGuard)switch key._streamPaddedLeadingWord() {
       \(cases)
         default: return -1
         }
@@ -964,7 +964,7 @@ extension StreamObjectGeneration {
         )
       }
       if delegated {
-        // Resolved from the member's type at run time: `streamApplyNull`'s overloads cannot see
+        // Resolved from the member's type at run time: `_streamApplyNull`'s overloads cannot see
         // through a generic parameter's partial.
         result.apply[.null, default: []]
           .append("  case \(fieldID): return StreamParsingCore._streamDelegatedApplyNull(&\(target))")
@@ -976,10 +976,10 @@ extension StreamObjectGeneration {
       where !isContainer || operation == .null {
         let expression =
           switch operation {
-          case .string: "streamApply(&\(target), utf8: bytes\(capacity))"
-          case .number: "streamApply(&\(target), bytes: bytes, info: info)"
-          case .boolean: "streamApply(&\(target), boolean: value)"
-          case .null: "StreamParsing.streamApplyNull(&\(target))"
+          case .string: "_streamApply(&\(target), utf8: bytes\(capacity))"
+          case .number: "_streamApply(&\(target), bytes: bytes, info: info)"
+          case .boolean: "_streamApply(&\(target), boolean: value)"
+          case .null: "StreamParsing._streamApplyNull(&\(target))"
           }
         result.apply[operation, default: []].append("  case \(fieldID): return \(expression)")
       }

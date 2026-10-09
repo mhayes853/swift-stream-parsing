@@ -344,7 +344,7 @@ struct `Stream scanner tests` {
 struct `Key word tests` {
   private static func word(_ key: String) -> UInt64 {
     let bytes = Array(key.utf8)
-    return bytes.withUnsafeBufferPointer { Span(_unsafeElements: $0).paddedLeadingWord() }
+    return bytes.withUnsafeBufferPointer { Span(_unsafeElements: $0)._streamPaddedLeadingWord() }
   }
 
   @Test
@@ -392,7 +392,7 @@ struct `Key word tests` {
       let bytes = (0..<count).map { UInt8(truncatingIfNeeded: ($0 &* 37) ^ 0xA5 | 1) }
       for start in 0...count {
         let actual = bytes.withUnsafeBufferPointer {
-          Span(_unsafeElements: $0).paddedWord(at: start)
+          Span(_unsafeElements: $0)._streamPaddedWord(at: start)
         }
         expectNoDifference(actual, Self.referenceWord(bytes, at: start), "count \(count), start \(start)")
       }
@@ -406,22 +406,22 @@ struct `Key word tests` {
   func `Reads only within an unpadded span`() {
     var bytes: [UInt8] = [0x61, 0x62, 0x63]
     let word = bytes.withUnsafeMutableBufferPointer {
-      Span(_unsafeElements: UnsafeBufferPointer($0)).paddedLeadingWord()
+      Span(_unsafeElements: UnsafeBufferPointer($0))._streamPaddedLeadingWord()
     }
     expectNoDifference(word, 0x0000_0000_0063_6261)
   }
 
   // The other side of the same bound. A matcher reading a key's last word as
-  // `paddedWord(at: key.count - 8)` passes -6 for `"id"`, which would load six bytes early; a
-  // start past the end is not an error, just an empty word.
+  // `_streamPaddedWord(at: key.count - 8)` passes -6 for `"id"`, which would load six bytes
+  // early; a start past the end is not an error, just an empty word.
   @Test
   func `A negative start stops the program and a start past the end reads zero`() async {
     await #expect(processExitsWith: .failure) {
       let bytes: [UInt8] = [0x69, 0x64]
-      _ = bytes.withUnsafeBufferPointer { Span(_unsafeElements: $0).paddedWord(at: -6) }
+      _ = bytes.withUnsafeBufferPointer { Span(_unsafeElements: $0)._streamPaddedWord(at: -6) }
     }
     let past = [UInt8]([0x69, 0x64]).withUnsafeBufferPointer {
-      Span(_unsafeElements: $0).paddedWord(at: 5)
+      Span(_unsafeElements: $0)._streamPaddedWord(at: 5)
     }
     expectNoDifference(past, 0)
   }

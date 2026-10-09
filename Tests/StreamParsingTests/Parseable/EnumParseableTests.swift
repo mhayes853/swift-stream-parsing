@@ -554,16 +554,16 @@ struct `Enum Parseable Tests` {
 struct `Stream String Word Tests` {
   @Test
   func `Pads past the accumulated bytes`() {
-    expectNoDifference(StreamString("ab").paddedLeadingWord(), 0x0000_0000_0000_6261)
-    expectNoDifference(StreamString().paddedLeadingWord(), 0)
-    expectNoDifference(StreamString("abcdefgh").paddedLeadingWord(), 0x6867_6665_6463_6261)
+    expectNoDifference(StreamString("ab")._streamPaddedLeadingWord(), 0x0000_0000_0000_6261)
+    expectNoDifference(StreamString()._streamPaddedLeadingWord(), 0)
+    expectNoDifference(StreamString("abcdefgh")._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
   }
 
   @Test
   func `Reads the second word and past the end`() {
     let value = StreamString("abcdefghij")
-    expectNoDifference(value.paddedWord(at: 8), 0x0000_0000_0000_6A69)
-    expectNoDifference(value.paddedWord(at: 16), 0)
+    expectNoDifference(value._streamPaddedWord(at: 8), 0x0000_0000_0000_6A69)
+    expectNoDifference(value._streamPaddedWord(at: 16), 0)
   }
 
   // Crosses out of the 64-byte inline buffer into block storage, where the words come from a
@@ -572,8 +572,8 @@ struct `Stream String Word Tests` {
   func `Reads promoted storage identically`() {
     let value = StreamString(String(repeating: "abcdefgh", count: 12))
     expectNoDifference(value.utf8Count, 96)
-    expectNoDifference(value.paddedLeadingWord(), 0x6867_6665_6463_6261)
-    expectNoDifference(value.paddedWord(at: 88), 0x6867_6665_6463_6261)
+    expectNoDifference(value._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
+    expectNoDifference(value._streamPaddedWord(at: 88), 0x6867_6665_6463_6261)
   }
 
   @Test

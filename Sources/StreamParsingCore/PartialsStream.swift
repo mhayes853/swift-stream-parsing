@@ -113,7 +113,9 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     storage.initialize(to: initialValue)
     self.storage = storage
     self.parser = JSONParser(bufferCapacity: format.bufferCapacity)
-    self.sink = PartialSink(root: storage, schema: Value.Partial.streamSchema)
+    self.sink = PartialSink(
+      root: UnsafeMutableRawPointer(storage), schema: Value.Partial.streamSchema
+    )
   }
 
   deinit {

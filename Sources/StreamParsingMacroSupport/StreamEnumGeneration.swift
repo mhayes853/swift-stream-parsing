@@ -544,7 +544,7 @@ public struct StreamEnumGeneration: Sendable {
       lines.append("guard \(count) > 0 else {\n  return nil\n}")
     }
     if !exactArms.isEmpty {
-      lines.append("switch partial.paddedLeadingWord() {")
+      lines.append("switch partial._streamPaddedLeadingWord() {")
       lines.append(contentsOf: exactArms)
       lines.append("default:\n  break\n}")
     }

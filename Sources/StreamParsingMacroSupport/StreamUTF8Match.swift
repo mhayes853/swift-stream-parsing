@@ -4,7 +4,7 @@ import SwiftSyntaxBuilder
 /// A byte-exact match against the UTF-8 encoding of a string.
 ///
 /// The generated predicates expect an expression whose value provides `count`,
-/// `paddedLeadingWord()`, and `paddedWord(at:)`, such as `Span<UInt8>`.
+/// `_streamPaddedLeadingWord()`, and `_streamPaddedWord(at:)`, such as `Span<UInt8>`.
 public struct StreamUTF8Match: Hashable, Sendable {
   /// The string whose UTF-8 encoding is matched.
   public let value: String
@@ -30,8 +30,9 @@ public struct StreamUTF8Match: Hashable, Sendable {
     guard !self.value.isEmpty else { return "(\(bytes)).count == 0" }
     let remaining = streamRemainingUTF8Condition(self, matching: bytes)
     // Count comes first so an empty span short-circuits before its nil base address
-    // reaches `paddedLeadingWord()`.
-    return "\(remaining) && (\(bytes)).paddedLeadingWord() == \(streamUTF8WordLiteral(self.value, at: 0))"
+    // reaches `_streamPaddedLeadingWord()`.
+    let leading = streamUTF8WordLiteral(self.value, at: 0)
+    return "\(remaining) && (\(bytes))._streamPaddedLeadingWord() == \(leading)"
   }
 }
 

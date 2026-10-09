@@ -97,10 +97,10 @@ extension BaseTestSuite {
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-              switch key.paddedLeadingWord() {
+              switch key._streamPaddedLeadingWord() {
               case 0x0064_695F_7265_7375 where key.count == 7:
                 return Self.StreamField.userID
-              case 0x7865_745F_6C6C_7566 where key.count == 9 && key.paddedWord(at: 8) == 0x0000_0000_0000_0074:
+              case 0x7865_745F_6C6C_7566 where key.count == 9 && key._streamPaddedWord(at: 8) == 0x0000_0000_0000_0074:
                 return Self.StreamField.text
               default:
                 return -1
@@ -114,9 +114,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.userID:
-                return streamApply(&p.pointee.userID, utf8: bytes)
+                return _streamApply(&p.pointee.userID, utf8: bytes)
               case Self.StreamField.text:
-                return streamApply(&p.pointee.text, utf8: bytes)
+                return _streamApply(&p.pointee.text, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -129,9 +129,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.userID:
-                return streamApply(&p.pointee.userID, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.userID, bytes: bytes, info: info)
               case Self.StreamField.text:
-                return streamApply(&p.pointee.text, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.text, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -143,9 +143,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.userID:
-                return streamApply(&p.pointee.userID, boolean: value)
+                return _streamApply(&p.pointee.userID, boolean: value)
               case Self.StreamField.text:
-                return streamApply(&p.pointee.text, boolean: value)
+                return _streamApply(&p.pointee.text, boolean: value)
               default:
                 return .unsupported
               }
@@ -157,9 +157,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.userID:
-                return StreamParsing.streamApplyNull(&p.pointee.userID)
+                return StreamParsing._streamApplyNull(&p.pointee.userID)
               case Self.StreamField.text:
-                return StreamParsing.streamApplyNull(&p.pointee.text)
+                return StreamParsing._streamApplyNull(&p.pointee.text)
               default:
                 return .unsupported
               }
@@ -324,9 +324,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.requestID:
-                return streamApply(&p.pointee.requestID, utf8: bytes)
+                return _streamApply(&p.pointee.requestID, utf8: bytes)
               case Self.StreamField.identifier:
-                return streamApply(&p.pointee.identifier, utf8: bytes)
+                return _streamApply(&p.pointee.identifier, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -339,9 +339,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.requestID:
-                return streamApply(&p.pointee.requestID, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.requestID, bytes: bytes, info: info)
               case Self.StreamField.identifier:
-                return streamApply(&p.pointee.identifier, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.identifier, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -353,9 +353,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.requestID:
-                return streamApply(&p.pointee.requestID, boolean: value)
+                return _streamApply(&p.pointee.requestID, boolean: value)
               case Self.StreamField.identifier:
-                return streamApply(&p.pointee.identifier, boolean: value)
+                return _streamApply(&p.pointee.identifier, boolean: value)
               default:
                 return .unsupported
               }
@@ -367,9 +367,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.requestID:
-                return StreamParsing.streamApplyNull(&p.pointee.requestID)
+                return StreamParsing._streamApplyNull(&p.pointee.requestID)
               case Self.StreamField.identifier:
-                return StreamParsing.streamApplyNull(&p.pointee.identifier)
+                return StreamParsing._streamApplyNull(&p.pointee.identifier)
               default:
                 return .unsupported
               }
@@ -573,10 +573,10 @@ extension BaseTestSuite {
             }
 
             static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-              switch key.paddedLeadingWord() {
-              case 0x5F6E_776F_6E6B_6E75 where key.count == 16 && key.paddedWord(at: 8) == 0x7974_6976_6974_6361:
+              switch key._streamPaddedLeadingWord() {
+              case 0x5F6E_776F_6E6B_6E75 where key.count == 16 && key._streamPaddedWord(at: 8) == 0x7974_6976_6974_6361:
                 return Self.StreamField.unknownActivity
-              case 0x696F_6A5F_7265_7375 where key.count == 11 && key.paddedWord(at: 8) == 0x0000_0000_0064_656E:
+              case 0x696F_6A5F_7265_7375 where key.count == 11 && key._streamPaddedWord(at: 8) == 0x0000_0000_0064_656E:
                 return Self.StreamField.userJoined
               default:
                 return -1
@@ -590,9 +590,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.unknownActivity:
-                return streamApply(&p.pointee.unknownActivity, utf8: bytes)
+                return _streamApply(&p.pointee.unknownActivity, utf8: bytes)
               case Self.StreamField.userJoined:
-                return streamApply(&p.pointee.userJoined, utf8: bytes)
+                return _streamApply(&p.pointee.userJoined, utf8: bytes)
               default:
                 return .unsupported
               }
@@ -605,9 +605,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.unknownActivity:
-                return streamApply(&p.pointee.unknownActivity, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.unknownActivity, bytes: bytes, info: info)
               case Self.StreamField.userJoined:
-                return streamApply(&p.pointee.userJoined, bytes: bytes, info: info)
+                return _streamApply(&p.pointee.userJoined, bytes: bytes, info: info)
               default:
                 return .unsupported
               }
@@ -619,9 +619,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.unknownActivity:
-                return streamApply(&p.pointee.unknownActivity, boolean: value)
+                return _streamApply(&p.pointee.unknownActivity, boolean: value)
               case Self.StreamField.userJoined:
-                return streamApply(&p.pointee.userJoined, boolean: value)
+                return _streamApply(&p.pointee.userJoined, boolean: value)
               default:
                 return .unsupported
               }
@@ -633,9 +633,9 @@ extension BaseTestSuite {
               let p = storage.assumingMemoryBound(to: Self.self)
               switch field {
               case Self.StreamField.unknownActivity:
-                return StreamParsing.streamApplyNull(&p.pointee.unknownActivity)
+                return StreamParsing._streamApplyNull(&p.pointee.unknownActivity)
               case Self.StreamField.userJoined:
-                return StreamParsing.streamApplyNull(&p.pointee.userJoined)
+                return StreamParsing._streamApplyNull(&p.pointee.userJoined)
               default:
                 return .unsupported
               }
@@ -743,8 +743,8 @@ extension BaseTestSuite {
               }
 
               static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-                switch key.paddedLeadingWord() {
-                case 0x6D61_6E5F_7265_7375 where key.count == 9 && key.paddedWord(at: 8) == 0x0000_0000_0000_0065:
+                switch key._streamPaddedLeadingWord() {
+                case 0x6D61_6E5F_7265_7375 where key.count == 9 && key._streamPaddedWord(at: 8) == 0x0000_0000_0000_0065:
                   return Self.StreamField.userName
                 case 0x0000_0000_0000_315F where key.count == 2:
                   return Self.StreamField._1
@@ -760,9 +760,9 @@ extension BaseTestSuite {
                 let p = storage.assumingMemoryBound(to: Self.self)
                 switch field {
                 case Self.StreamField.userName:
-                  return streamApply(&p.pointee.userName, utf8: bytes)
+                  return _streamApply(&p.pointee.userName, utf8: bytes)
                 case Self.StreamField._1:
-                  return streamApply(&p.pointee._1, utf8: bytes)
+                  return _streamApply(&p.pointee._1, utf8: bytes)
                 default:
                   return .unsupported
                 }
@@ -775,9 +775,9 @@ extension BaseTestSuite {
                 let p = storage.assumingMemoryBound(to: Self.self)
                 switch field {
                 case Self.StreamField.userName:
-                  return streamApply(&p.pointee.userName, bytes: bytes, info: info)
+                  return _streamApply(&p.pointee.userName, bytes: bytes, info: info)
                 case Self.StreamField._1:
-                  return streamApply(&p.pointee._1, bytes: bytes, info: info)
+                  return _streamApply(&p.pointee._1, bytes: bytes, info: info)
                 default:
                   return .unsupported
                 }
@@ -789,9 +789,9 @@ extension BaseTestSuite {
                 let p = storage.assumingMemoryBound(to: Self.self)
                 switch field {
                 case Self.StreamField.userName:
-                  return streamApply(&p.pointee.userName, boolean: value)
+                  return _streamApply(&p.pointee.userName, boolean: value)
                 case Self.StreamField._1:
-                  return streamApply(&p.pointee._1, boolean: value)
+                  return _streamApply(&p.pointee._1, boolean: value)
                 default:
                   return .unsupported
                 }
@@ -803,9 +803,9 @@ extension BaseTestSuite {
                 let p = storage.assumingMemoryBound(to: Self.self)
                 switch field {
                 case Self.StreamField.userName:
-                  return StreamParsing.streamApplyNull(&p.pointee.userName)
+                  return StreamParsing._streamApplyNull(&p.pointee.userName)
                 case Self.StreamField._1:
-                  return StreamParsing.streamApplyNull(&p.pointee._1)
+                  return StreamParsing._streamApplyNull(&p.pointee._1)
                 default:
                   return .unsupported
                 }

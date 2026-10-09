@@ -80,7 +80,7 @@ extension BaseTestSuite {
             }
 
             @inlinable public static func streamMatchField(_ key: Span<UInt8>) -> Int32 {
-              switch key.paddedLeadingWord() {
+              switch key._streamPaddedLeadingWord() {
               case 0x0000_0000_656D_6974 where key.count == 4:
                 return Self.StreamField.createdAt
               case 0x0064_6574_6165_7263 where key.count == 7:

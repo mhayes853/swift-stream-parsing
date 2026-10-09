@@ -262,7 +262,8 @@ let condition = StreamUTF8MatchSet(["name", "display_name"]).condition(
 let clause = WhereClauseSyntax(condition: condition)
 ```
 
-Inputs must provide `count`, `paddedLeadingWord()`, and `paddedWord(at:)`, such as `Span<UInt8>`.
+Inputs must provide `count`, `_streamPaddedLeadingWord()`, and `_streamPaddedWord(at:)`, such as
+`Span<UInt8>`.
 The expression may be evaluated more than once; bind side-effecting input to a local first.
 Canonical Unicode equivalents remain distinct when their UTF-8 bytes differ. Word extraction,
 partial guards, dispatch strategies, and branch handlers are implementation details. Consumers

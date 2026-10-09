@@ -128,7 +128,7 @@ struct `StreamObjectGeneration validation tests` {
     let generation = try StreamObjectGeneration(fields: [self.field(name: "empty", key: "")])
     let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
     let emptyCheck = try #require(source.range(of: "guard !key.isEmpty"))
-    let load = try #require(source.range(of: "paddedLeadingWord"))
+    let load = try #require(source.range(of: "_streamPaddedLeadingWord"))
     expectNoDifference(emptyCheck.lowerBound < load.lowerBound, true)
     expectNoDifference(
       Parser.parse(source: source).hasError,

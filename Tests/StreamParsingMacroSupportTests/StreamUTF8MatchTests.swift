@@ -16,7 +16,7 @@ struct `Stream UTF8 match tests` {
     expectNoDifference(streamUTF8WordLiteral(match.value, at: 0).trimmedDescription, "0x6867_6665_6463_6261")
     expectNoDifference(
       match.condition(matching: bytes).trimmedDescription,
-      "(bytes).count == 17 && (bytes).paddedWord(at: 8) == 0x706F_6E6D_6C6B_6A69 && (bytes).paddedWord(at: 16) == 0x0000_0000_0000_0071 && (bytes).paddedLeadingWord() == 0x6867_6665_6463_6261"
+      "(bytes).count == 17 && (bytes)._streamPaddedWord(at: 8) == 0x706F_6E6D_6C6B_6A69 && (bytes)._streamPaddedWord(at: 16) == 0x0000_0000_0000_0071 && (bytes)._streamPaddedLeadingWord() == 0x6867_6665_6463_6261"
     )
   }
 
@@ -78,7 +78,7 @@ struct `Stream UTF8 match tests` {
     )
     expectNoDifference(
       StreamUTF8Match("\0").condition(matching: bytes).trimmedDescription,
-      "(bytes).count == 1 && (bytes).paddedLeadingWord() == 0x0000_0000_0000_0000"
+      "(bytes).count == 1 && (bytes)._streamPaddedLeadingWord() == 0x0000_0000_0000_0000"
     )
   }
 
@@ -89,7 +89,7 @@ struct `Stream UTF8 match tests` {
 
     expectNoDifference(
       condition,
-      "(bytes).count == 6 && (bytes).paddedLeadingWord() == 0x0000_8098_9FF0_A9C3"
+      "(bytes).count == 6 && (bytes)._streamPaddedLeadingWord() == 0x0000_8098_9FF0_A9C3"
     )
   }
 
@@ -119,10 +119,10 @@ struct `Stream UTF8 match tests` {
       .condition(matching: bytes)
       .trimmedDescription
 
-    expectNoDifference(condition.components(separatedBy: "paddedLeadingWord").count - 1, 2)
+    expectNoDifference(condition.components(separatedBy: "_streamPaddedLeadingWord").count - 1, 2)
     expectNoDifference(condition.contains("(bytes).count == 0"), true)
     expectNoDifference(condition.contains("(bytes).count == 1"), true)
-    expectNoDifference(condition.contains("paddedWord(at: 8)"), true)
+    expectNoDifference(condition.contains("_streamPaddedWord(at: 8)"), true)
   }
 
 }

@@ -203,7 +203,7 @@ public final class StreamSchema: @unchecked Sendable {
     // reaches both an object and a dictionary, every other pairing is a type mismatch. Without it a
     // scalar destination absorbs any container that reaches it, because a scalar frame ignores keys
     // and applies every token to itself.
-    public func canHold(container kind: Shape) -> Bool {
+    func canHold(container kind: Shape) -> Bool {
       switch (self, kind) {
       case (.object, .object), (.dictionary, .object), (.array, .array): true
       default: false
@@ -614,7 +614,7 @@ public protocol StreamPartial: StreamInitializable {
   /// What a whole-value `null` writes into a member of this type, or `nil` for a type that has
   /// no null of its own, whose optional member is cleared instead.
   ///
-  /// The macro decides this from a member's declared type (`streamApplyNull`'s overloads) except
+  /// The macro decides this from a member's declared type (`_streamApplyNull`'s overloads) except
   /// where that type is a generic parameter's `Partial`, which the overloads cannot see through.
   /// Defaults to ``StreamNullable/streamNullValue()`` for a nullable type, so `Box<Int?>` takes a
   /// `null` as `.some(nil)` -- a present null, as `Codable` reads it -- where a concrete `Int?`

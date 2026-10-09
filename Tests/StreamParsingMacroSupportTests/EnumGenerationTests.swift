@@ -33,11 +33,11 @@ struct `StreamEnumGeneration tests` {
         guard streamCount > 0 else {
           return nil
         }
-        switch partial.paddedLeadingWord() {
+        switch partial._streamPaddedLeadingWord() {
         case 0x0000_0000_6576_696C where streamCount == 4:
           self = .live
           return
-        case 0x6572_7473_6576_696C where streamCount == 10 && partial.paddedWord(at: 8) == 0x0000_0000_0000_6D61:
+        case 0x6572_7473_6576_696C where streamCount == 10 && partial._streamPaddedWord(at: 8) == 0x0000_0000_0000_6D61:
           self = .livestream
           return
         case 0x0000_6D61_6572_7473 where streamCount == 6:

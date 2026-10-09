@@ -82,7 +82,7 @@ struct SinkInitializedCapacityString: Equatable {
 // Optional in the source declaration, which is a different axis from the partial members mode:
 // the mode decides whether a *non*-optional property becomes optional in the `Partial`, and a
 // property that is already optional is already there. Storing both — the member as `Int??` while
-// every schema emitted for it described `Int` — meant no `streamApply` overload matched, so a
+// every schema emitted for it described `Int` — meant no `_streamApply` overload matched, so a
 // scalar was rejected as a type mismatch and a container silently dropped its contents. Only
 // `null` worked, because a double optional is still `StreamNullable`.
 @StreamParseable
