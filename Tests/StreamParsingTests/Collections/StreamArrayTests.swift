@@ -231,10 +231,10 @@ struct `Stream array tests` {
     var array = StreamArray<Int>()
     _ = array._openElement(0)
     _ = array._openElement(1)
-    array._uniqueSlotAddress(1).assumingMemoryBound(to: Int.self).pointee = 9
+    array.uniqueSlotAddress(1).assumingMemoryBound(to: Int.self).pointee = 9
 
     expectNoDifference(Array(array), [0, 9])
-    array._uniqueSlotAddress(0).assumingMemoryBound(to: Int.self).pointee = 8
+    array.uniqueSlotAddress(0).assumingMemoryBound(to: Int.self).pointee = 8
     expectNoDifference(Array(array), [8, 9])
   }
 

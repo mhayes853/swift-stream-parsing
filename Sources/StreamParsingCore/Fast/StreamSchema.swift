@@ -335,14 +335,6 @@ public final class StreamSchema: @unchecked Sendable {
   // ``elementSchema``. Dictionaries only.
   public let enterKey: @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer?
 
-  // Appends a run of numbers to an array whose elements are numbers: `(storage, batch, from, to)`
-  // appends the `number` records in `from..<to` and returns how many it took. Arrays of
-  // number-convertible elements only; nil means the batch is unrolled through `appendElement` and
-  // `applyNumber` one number at a time.
-  public let appendNumbers: (
-    @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
-  )?
-
   // Exact homogeneous operations the sink may perform without constructing a StreamFrame or
   // calling a stored closure. Hand-written schemas and unrecognized protocol conformers remain
   // `.generic`, preserving the public API's open-ended behavior.
@@ -407,7 +399,6 @@ public final class StreamSchema: @unchecked Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
-    appendNumbers: (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? = nil,
     elementSchema: StreamSchema? = nil,
     fields: [StreamField] = []
   ) {
@@ -424,7 +415,6 @@ public final class StreamSchema: @unchecked Sendable {
       enterField: enterField,
       appendElement: appendElement,
       enterKey: enterKey,
-      appendNumbers: appendNumbers,
       elementSchema: elementSchema,
       leafRoute: .generic,
       fixedElementCount: -1,
@@ -458,9 +448,6 @@ public final class StreamSchema: @unchecked Sendable {
     enterKey: @escaping @Sendable (UnsafeMutableRawPointer, Span<UInt8>) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
-    appendNumbers: (
-      @Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int
-    )? = nil,
     elementSchema: StreamSchema? = nil,
     elementStride: Int32 = 0,
     scalarKind: StreamFieldKind = .custom,
@@ -530,7 +517,6 @@ public final class StreamSchema: @unchecked Sendable {
     self.applyNull = applyNull
     self.enterField = enterField
     self.appendElement = appendElement
-    self.appendNumbers = appendNumbers
     self.enterKey = enterKey
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
@@ -560,13 +546,6 @@ public protocol StreamPartial: StreamInitializable {
     /// nested paths. The default empty list disables field observation.
     static var streamObservationFields: [PartialKeyPath<Self>] { get }
   #endif
-
-  /// Appends a run of numbers to a `StreamArray<Self>` in one call, or `nil` when `Self` is not
-  /// a number. Supplied for every ``StreamNumberConvertible`` type; the array schema carries it
-  /// as ``StreamSchema/appendNumbers`` so `PartialSink` can take a batch without routing each
-  /// number through a frame.
-  static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)? { get }
 
   /// The schema this type is written through as an array element, and the value the array opens
   /// the element's slot with. ``StreamSchema/Usage/arrayElement``.
@@ -920,7 +899,6 @@ public func _streamArraySchema<Element: StreamPartial>(
   return StreamSchema(
     shape: .array,
     appendElement: appendElement,
-    appendNumbers: Element._streamArrayNumberAppender,
     elementSchema: element,
     // Deliberately *not* guarded on `element.shape == .scalar` the way the three sibling builders are:
     // a SIMD element's schema has shape `.array`, and that guard would demote `.arraySIMD2Double` and
@@ -929,42 +907,6 @@ public func _streamArraySchema<Element: StreamPartial>(
     leafRoute: .array(element.leafRoute),
     templateOwner: owner
   )
-}
-
-extension StreamPartial {
-  @inlinable
-  public static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
-  { nil }
-}
-
-// The bulk path for arrays of numbers: no frame per element, no schema borrow, no pending swap. The
-// open element is drained first (`commit` appends past it) and the last number is left as the new
-// open element, so a snapshot between a batch and the close sees what the one-at-a-time path leaves.
-// Measured: unrolling 2/4/8 wide was monotonically worse (Mesh 323 -> 311 MB/s); keep the plain loop.
-extension StreamPartial where Self: StreamNumberConvertible {
-  @inlinable
-  public static var _streamArrayNumberAppender:
-    (@Sendable (UnsafeMutableRawPointer, borrowing StreamEventBatch, Int, Int) -> Int)?
-  {
-    { storage, batch, from, to in
-      let array = storage.assumingMemoryBound(to: StreamArray<Self>.self)
-      guard to > from else { return 0 }
-      array.pointee.drainPending()
-      var index = from
-      let last = to &- 1
-      while index < last {
-        guard let value = Self(streamParsing: batch.bytes(of: index), info: batch.info(of: index))
-        else { return index &- from }
-        array.pointee.commit(value)
-        index &+= 1
-      }
-      guard let value = Self(streamParsing: batch.bytes(of: last), info: batch.info(of: last))
-      else { return last &- from }
-      array.pointee.pending = value
-      return to &- from
-    }
-  }
 }
 
 // The schema an optional element or dictionary value is written through. Exactly two things differ
@@ -1016,8 +958,7 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     fields: base.fields,
     // `appendElement` and `enterKey` above dereference a raw template pointer the base's `templateOwner`
     // box owns, and the base can outlive this schema, so the box has to be carried. Not carried:
-    // `prepareRoot`, since an element schema is never a root; and `appendNumbers`, whose closure binds
-    // `storage` to the base's storage type, one `Optional` shallower than what it would be handed.
+    // `prepareRoot`, since an element schema is never a root.
     templateOwner: base.templateOwner,
     completedValue: base.completedValue
   )

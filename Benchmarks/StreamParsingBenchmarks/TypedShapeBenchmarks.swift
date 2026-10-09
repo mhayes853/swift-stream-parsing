@@ -25,7 +25,7 @@ enum SinkReplayPayloads {
     (0..<8).map { field in "\"\(Self.fieldNames[field])\":\(row &* 8 &+ field)" }.joined(separator: ",")
   }.utf8)
 
-  // Every value is a run of doubles into `[Double]`: the bulk `appendNumbers` route, long runs.
+  // Every value is a run of doubles into `[Double]`: the sink's `.arrayDouble` route, long runs.
   static let doubleArray = Array(
     "{\"values\":[\(Self.makeDoubles(count: 40_000).joined(separator: ","))]}".utf8
   )

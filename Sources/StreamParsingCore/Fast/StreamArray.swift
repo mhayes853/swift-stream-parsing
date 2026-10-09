@@ -614,29 +614,32 @@ extension StreamArray: StreamParseable where Element: StreamPartial {
 
 // MARK: - Parsing support
 
+// Internal, not public: each hands out an unchecked address into the array, valid only until the
+// next mutation, and only the sink and the schema builders here need one. `@inlinable` still
+// carries them into the client-module specialisations those builders produce.
 extension StreamArray {
-  /// Commits the open element and opens a new one holding `initial`, returning the address of
-  /// its slot.
-  ///
-  /// For the frame entry helpers. The pointer stays valid until the next call; the sink resolves
-  /// an element's destination once per element.
+  // Commits the open element and opens a new one holding `initial`, returning the address of
+  // its slot.
+  //
+  // For the frame entry helpers. The pointer stays valid until the next call; the sink resolves
+  // an element's destination once per element.
   @inlinable
   @inline(__always)
   @discardableResult
-  public mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
+  mutating func _openElement(_ initial: Element) -> UnsafeMutableRawPointer {
     self.drainPending()
     self.pending = initial
     return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 
-  /// Moves the closed element into its slot and copy-initialises the template into the space it
-  /// vacated: two whole-element copies (a by-value template would be a third). The optional's tag
-  /// says `.some` throughout, and nothing between the two statements can observe or throw. The
-  /// template must outlive every call: the schema's `_StreamTemplateStorage` owns it and frees it
-  /// with the schema, which outlives every parse that borrows it.
+  // Moves the closed element into its slot and copy-initialises the template into the space it
+  // vacated: two whole-element copies (a by-value template would be a third). The optional's tag
+  // says `.some` throughout, and nothing between the two statements can observe or throw. The
+  // template must outlive every call: the schema's `_StreamTemplateStorage` owns it and frees it
+  // with the schema, which outlives every parse that borrows it.
   @inlinable
   @inline(__always)
-  public mutating func _openElement(
+  mutating func _openElement(
     copying template: UnsafePointer<Element>
   ) -> UnsafeMutableRawPointer {
     guard self.pending != nil else {
@@ -656,13 +659,13 @@ extension StreamArray {
     return address
   }
 
-  /// The same open, initialising the vacated space with `initial` rather than a copy of a
-  /// template: for an element whose copy costs more than its construction
-  /// (`StreamPartial._streamOpensByConstruction`). `initial` is only evaluated once the
-  /// closed element has moved out.
+  // The same open, initialising the vacated space with `initial` rather than a copy of a
+  // template: for an element whose copy costs more than its construction
+  // (`StreamPartial._streamOpensByConstruction`). `initial` is only evaluated once the
+  // closed element has moved out.
   @inlinable
   @inline(__always)
-  public mutating func _openElement(
+  mutating func _openElement(
     constructing initial: @autoclosure () -> Element
   ) -> UnsafeMutableRawPointer {
     guard self.pending != nil else {
@@ -679,32 +682,6 @@ extension StreamArray {
     }
     self.advance()
     return address
-  }
-
-  /// The address the next appended element is initialised at, without counting it yet: for a
-  /// caller that moves a value in rather than handing one over. ``_commitAppend()`` follows.
-  @inlinable
-  public mutating func _slotForAppend() -> UnsafeMutableRawPointer {
-    UnsafeMutableRawPointer(self.nextSlot())
-  }
-
-  /// Counts the element written at ``_slotForAppend()``.
-  @inlinable
-  public mutating func _commitAppend() {
-    self.advance()
-  }
-
-  /// The address of element `position`, with the block holding it made unique first. For a
-  /// value that is written again where it already is: a dictionary's repeated key.
-  @inlinable
-  public mutating func _uniqueSlotAddress(_ position: Int) -> UnsafeMutableRawPointer {
-    self.uniqueSlotAddress(position)
-  }
-
-  /// The address of element `position`, for reading through a view: no copy is made.
-  @inlinable
-  public mutating func _elementAddress(_ position: Int) -> UnsafeMutableRawPointer {
-    self.elementAddress(position)
   }
 }
 

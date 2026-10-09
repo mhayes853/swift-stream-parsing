@@ -149,8 +149,8 @@ public struct StreamDictionary<Value> {
     // Resolved before the payload is projected: both of these mutate `storedValues`.
     let destination =
       isAppend
-      ? self.storedValues._slotForAppend()
-      : self.storedValues._uniqueSlotAddress(slot)
+      ? UnsafeMutableRawPointer(self.storedValues.nextSlot())
+      : self.storedValues.uniqueSlotAddress(slot)
     withUnsafeMutablePointer(to: &self.pendingValue) { box in
       // Moved out bitwise, not unwrapped: `unsafelyUnwrapped` is a read accessor, so it copies -- a
       // retain per reference field and a release when the optional dies, once per key. The payload
@@ -164,7 +164,7 @@ public struct StreamDictionary<Value> {
       }
       box.initialize(to: nil)
     }
-    if isAppend { self.storedValues._commitAppend() }
+    if isAppend { self.storedValues.advance() }
   }
 
   @inlinable
@@ -372,7 +372,7 @@ extension StreamDictionary where Value: StreamPartial {
                 UnsafeMutableRawPointer($0)
               }
           } else {
-            address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+            address = self.storage.pointee.storedValues.elementAddress(Int(slot))
           }
         } else {
           address = nil
@@ -422,7 +422,7 @@ extension StreamDictionary where Value: StreamPartial {
               UnsafeMutableRawPointer($0)
             }
         } else {
-          address = self.storage.pointee.storedValues._elementAddress(Int(slot))
+          address = self.storage.pointee.storedValues.elementAddress(Int(slot))
         }
       } else {
         address = nil

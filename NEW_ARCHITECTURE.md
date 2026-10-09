@@ -5464,6 +5464,12 @@ it, and its fused comma path keeps the array until the next window boundary.
 
 ## Number batching, step 2: the layer takes the batch
 
+> **Removed.** `PartialSink` stopped calling `appendNumbers` when its batch decoder went in "The
+> fusion series" (stage 4); `[Double]` and `[Int]` now take the `.arrayDouble` / `.arrayInt` leaf
+> routes. The closure outlived its caller as dead code until `StreamSchema.appendNumbers`, the
+> `_streamArrayNumberAppender` requirement and its two implementations were deleted. This section is
+> history.
+
 `StreamSchema.appendNumbers`, filled by `_streamArraySchema` from a new `StreamPartial`
 static (`_streamArrayNumberAppender`, `nil` by default and supplied for every
 `StreamNumberConvertible` element), and `PartialSink.numbers`: an array frame with an appender
