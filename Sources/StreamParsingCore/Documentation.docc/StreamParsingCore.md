@@ -290,8 +290,8 @@ and each schema holds its children, so removing them (``StreamSchemaCache/remove
 affects a stream in flight. It also frees nothing a cached parent still holds: memory is released
 along ownership, not cache boundaries.
 
-The parser borrows the schema of each container it enters rather than retaining it. A hand-written
-`enterField` that returns a ``StreamFrame`` must therefore return a schema that something else owns
-for the whole parse: a child the enclosing schema's field table or element schema holds, or one
-cached in a ``StreamSchemaCache``. A schema built inside the closure and held only by the frame is
-freed under the sink.
+The parser borrows the schema of each container it enters rather than retaining it, which that
+ownership makes sound. A hand-written `enterField` keeps to it by construction: the ``StreamFrame``
+it returns names the container's schema by position in the entering schema's
+``StreamSchema/children``, or names the entering schema itself with ``StreamFrame/reentering``, so it
+has no way to hand over a schema that nothing else owns.

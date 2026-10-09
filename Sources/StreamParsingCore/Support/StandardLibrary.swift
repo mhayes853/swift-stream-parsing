@@ -334,6 +334,10 @@ extension Optional: StreamPartial where Wrapped: StreamPartial {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterField(storage, field)
       },
+      // The frames above are `wrapped`'s, so they name its children, and a reentering one names
+      // `wrapped` rather than this schema.
+      children: wrapped.children,
+      enterFieldOwner: wrapped.enterFieldOwner ?? wrapped,
       appendElement: { storage, index in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.appendElement(storage, index)

@@ -1,24 +1,31 @@
 /// The destination a hand-written ``StreamSchema/enterField`` pushes for a container it opens: the
-/// address of the value being written, and the schema that routes tokens into it.
+/// address of the value being written, and which schema routes tokens into it.
 ///
-/// The sink borrows `schema` without retaining it, so it has to be owned by something that
-/// outlives the whole parse: the enclosing schema's field table or element schema, or a schema
-/// cached in a ``StreamSchemaCache``. A schema built inside `enterField` and held only by the frame
-/// is freed while the sink still points at it, and a release build reads it afterwards. A debug
-/// build checks this and stops with a message naming the schema.
+/// The schema is named by its position in the entering schema's ``StreamSchema/children`` rather
+/// than handed over, because the sink borrows it without retaining it: the entering schema owns
+/// its children, so a frame cannot name a schema that is freed while the parse still writes
+/// through it. ``reentering`` names the entering schema itself, for a container shaped like its
+/// parent. A position outside `children` stops the program.
 public struct StreamFrame {
   /// The address of the container being written. It must stay valid until the container closes.
   public var storage: UnsafeMutableRawPointer
-  /// The schema that routes the container's tokens. See the type's note on ownership.
-  public var schema: StreamSchema
+  /// The position of the container's schema in the entering schema's ``StreamSchema/children``,
+  /// or ``reentering``.
+  public var child: Int
   /// The field whose value is pending, or `-1`. Leave the default for a new frame.
   public var pendingField: Int32
 
-  public init(storage: UnsafeMutableRawPointer, schema: StreamSchema, pendingField: Int32 = -1) {
+  public init(storage: UnsafeMutableRawPointer, child: Int, pendingField: Int32 = -1) {
     self.storage = storage
-    self.schema = schema
+    self.child = child
     self.pendingField = pendingField
   }
+
+  /// The ``child`` that names the schema whose ``StreamSchema/enterField`` returned the frame.
+  ///
+  /// A schema cannot list itself among its own children, so a self-similar container -- a node
+  /// whose `child` member is another node -- names its schema this way.
+  public static var reentering: Int { -1 }
 }
 
 // MARK: - Closed homogeneous leaf routes
@@ -361,6 +368,19 @@ public final class StreamSchema: @unchecked Sendable {
   /// Aliases share an identifier; unknown keys are not reported. Nil incurs no hook dispatch.
   public let onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)?
 
+  // Last, after every field the sink reads per token, so adding them moved none of those: these
+  // two are read only when a hand-written `enterField` returns a frame.
+
+  /// The schemas the frames ``enterField`` returns name by position. Held here so each one
+  /// outlives every parse that enters this schema; see ``StreamFrame``.
+  public let children: [StreamSchema]
+
+  // The schema `StreamFrame.reentering` names: nil for this one, or the schema a wrapper forwards
+  // `enterField` and `children` from. Not the wrapper itself, which writes differently -- an optional
+  // wrapper materialises its storage first, and the frame's storage need not be an optional. Strong,
+  // so the wrapper owns everything its frames can name.
+  @usableFromInline let enterFieldOwner: StreamSchema?
+
 
 
   /// Describes how the parser writes into a value of one shape.
@@ -370,7 +390,9 @@ public final class StreamSchema: @unchecked Sendable {
   /// reports as a type mismatch. `fields` is the declarative way to route an object's keys, and it
   /// outranks `matchField` when both are given; a duplicate key in `fields` stops the program.
   /// The closures take raw storage: `UnsafeMutableRawPointer` is the address of the value this
-  /// schema describes, and each must write only through the type it was built for.
+  /// schema describes, and each must write only through the type it was built for. `enterField`
+  /// names the schema of each container it opens by its position in `children`; see
+  /// ``StreamFrame``.
   ///
   /// `matchField` is optional rather than defaulted so that "no matcher" is a fact the schema
   /// carries rather than one indistinguishable from a matcher that happens to answer -1.
@@ -393,6 +415,7 @@ public final class StreamSchema: @unchecked Sendable {
     },
     finishString: (@Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult)? = nil,
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
+    children: [StreamSchema] = [],
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
@@ -413,6 +436,7 @@ public final class StreamSchema: @unchecked Sendable {
       applyNull: applyNull,
       finishString: finishString,
       enterField: enterField,
+      children: children,
       appendElement: appendElement,
       enterKey: enterKey,
       elementSchema: elementSchema,
@@ -442,6 +466,8 @@ public final class StreamSchema: @unchecked Sendable {
     },
     finishString: (@Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult)? = nil,
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
+    children: [StreamSchema] = [],
+    enterFieldOwner: StreamSchema? = nil,
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer? = {
       _, _ in nil
     },
@@ -516,10 +542,25 @@ public final class StreamSchema: @unchecked Sendable {
     self.applyBoolean = applyBoolean
     self.applyNull = applyNull
     self.enterField = enterField
+    self.children = children
+    self.enterFieldOwner = enterFieldOwner
     self.appendElement = appendElement
     self.enterKey = enterKey
     self.leafRoute = leafRoute
     self.fixedElementCount = fixedElementCount
+  }
+
+  // The object address of the schema `frame` names, which the sink stores as a borrowed frame's
+  // schema: `children` and `enterFieldOwner` are the owners, so no reference is formed here.
+  func childSchemaBits(_ frame: StreamFrame) -> UnsafeRawPointer {
+    if frame.child == StreamFrame.reentering {
+      return UnsafeRawPointer(Unmanaged.passUnretained(self.enterFieldOwner ?? self).toOpaque())
+    }
+    precondition(
+      frame.child >= 0 && frame.child < self.children.count,
+      "StreamFrame.child is not a position in the entering schema's children"
+    )
+    return UnsafeRawPointer(Unmanaged.passUnretained(self.children[frame.child]).toOpaque())
   }
 }
 
@@ -935,6 +976,9 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
     },
     finishString: base.finishString,
     enterField: base.enterField,
+    // `base`'s frames, so a reentering one names `base`: see `enterFieldOwner`.
+    children: base.children,
+    enterFieldOwner: base.enterFieldOwner ?? base,
     appendElement: base.appendElement,
     enterKey: base.enterKey,
     elementSchema: base.elementSchema,

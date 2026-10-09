@@ -123,8 +123,9 @@
           if p.pointee.phoneticRepresentation == nil {
             p.pointee.phoneticRepresentation = PersonNameComponents()
           }
-          return StreamFrame(storage: storage, schema: personNamePhoneticSchema)
-        }
+          return StreamFrame(storage: storage, child: 0)
+        },
+        children: [personNamePhoneticSchema]
       )
     }
   }

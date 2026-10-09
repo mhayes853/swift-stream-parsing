@@ -64,8 +64,8 @@ private struct PartialReplayConsumer: StreamEventBatchConsumer, ~Copyable {
 // document of nested `child` keys pushes an unbounded number of *real* frames onto the sink.
 // That is the only way to reach the sink's own depth overflow -- `JSONParser` rejects the depth
 // one container earlier -- and it is exactly the shape the overflow has to get right.
-// At file scope so `enterField` can name the schema it is part of; a `static let` referencing
-// itself inside its own initializer cannot be type checked.
+// The frame names the schema it is part of with `StreamFrame.reentering`: a schema cannot list
+// itself among its own `children`.
 private let depthNodeSchema = StreamSchema(
   shape: .object,
   matchField: { key in
@@ -80,7 +80,7 @@ private let depthNodeSchema = StreamSchema(
   },
   enterField: { storage, field in
     guard field == 1 else { return nil }
-    return StreamFrame(storage: storage, schema: depthNodeSchema)
+    return StreamFrame(storage: storage, child: StreamFrame.reentering)
   }
 )
 

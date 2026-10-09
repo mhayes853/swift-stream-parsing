@@ -1,9 +1,9 @@
-// A `StreamFrame` whose schema is borrowed: the sink lowers every frame to this and never stores a
-// `StreamFrame`, so nothing it holds retains and push/pop is a store and a decrement. Sound only
-// while every schema a frame carries outlives the parse (a child the parent's field table owns,
-// a container schema's captured child, `rootSchema`, `ignoredStreamSchema`), which
-// `StreamSchemaBorrowAudit` checks in debug builds. NEW_ARCHITECTURE.md, "Routing: frames borrow
-// their schema".
+// A frame whose schema is borrowed, so nothing the sink holds retains and push/pop is a store and a
+// decrement. Sound because every schema a frame can carry is owned by one that outlives it: a child
+// the parent's field table or `children` holds, a container's element schema, a converted value's
+// source, `rootSchema`, `ignoredStreamSchema`. A `StreamFrame` names its schema by position in the
+// entering schema's `children` for exactly that reason. NEW_ARCHITECTURE.md, "Routing: frames
+// borrow their schema".
 @usableFromInline
 struct BorrowedFrame {
   @usableFromInline var storage: UnsafeMutableRawPointer
@@ -23,14 +23,6 @@ struct BorrowedFrame {
     self.storage = storage
     self.schema = schema
     self.pendingField = -1
-    self.routeBits = 0
-  }
-
-  @usableFromInline
-  init(borrowing frame: StreamFrame) {
-    self.storage = frame.storage
-    self.schema = frame.schema
-    self.pendingField = frame.pendingField
     self.routeBits = 0
   }
 
@@ -61,58 +53,6 @@ struct BorrowedFrame {
     Unmanaged<StreamSchema>.fromOpaque(self.schemaBits)._withUnsafeGuaranteedRef(body)
   }
 }
-
-// Embedded Swift has no `weak`, so the audit compiles out there along with the calls to it. That
-// is not a gap worth closing: a schema without a durable owner is a mistake a conformance makes,
-// and it is caught by any non-Embedded debug build of the same conformance.
-#if DEBUG && !hasFeature(Embedded)
-  // Whether the schemas the sink borrowed outlived their frames: one owned only by its frame (a
-  // hand-written `enterField` building it on the spot) is a use-after-free with nothing pointing at
-  // the cause. Weak, not `isKnownUniquelyReferenced` (which differs between -Onone and -O); per
-  // sink, so nothing shared races. NEW_ARCHITECTURE.md, "The tripwire".
-  @usableFromInline
-  struct StreamSchemaBorrowAudit {
-    @usableFromInline
-    struct Borrow {
-      @usableFromInline weak var schema: StreamSchema?
-      @usableFromInline let identity: ObjectIdentifier
-
-      @usableFromInline
-      init(_ schema: StreamSchema) {
-        self.schema = schema
-        self.identity = ObjectIdentifier(schema)
-      }
-    }
-
-    @usableFromInline var borrows: [Borrow] = []
-
-    @usableFromInline
-    init() {}
-
-    // One entry per distinct schema, not per frame: a document enters the same schema once per
-    // occurrence and there are only ever a handful of them.
-    @usableFromInline
-    mutating func record(_ schema: StreamSchema) {
-      let identity = ObjectIdentifier(schema)
-      guard !self.borrows.contains(where: { $0.identity == identity }) else { return }
-      self.borrows.append(Borrow(schema))
-    }
-
-    @usableFromInline
-    func verify() {
-      for borrow in self.borrows where borrow.schema == nil {
-        preconditionFailure(
-          """
-          A StreamFrame's schema was deallocated while the sink still borrowed it, which means the \
-          frame was its only owner. Schema \(borrow.identity) has to be stored somewhere that \
-          outlives the parse — the parent's field table, which owns every schema its entries \
-          carry, or a stored `let` next to the conformance that builds it.
-          """
-        )
-      }
-    }
-  }
-#endif
 
 // At file scope on purpose: nested in a generic `PartialSink`, its metadata depended on `Root` and
 // `scalarTarget = nil` lowered to a value-witness destroy (20-30% on every string element). Kept
@@ -184,20 +124,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // otherwise write an over-deep key into the parent.
   @usableFromInline var droppedFrameCount = 0
 
-  #if DEBUG && !hasFeature(Embedded)
-    @usableFromInline var audit = StreamSchemaBorrowAudit()
-  #endif
-
-  // Lowers a frame the schema handed back, recording the borrow so a debug build can tell whether
-  // the schema outlives it.
-  @usableFromInline
-  mutating func borrow(_ frame: StreamFrame) -> BorrowedFrame {
-    #if DEBUG && !hasFeature(Embedded)
-      self.audit.record(frame.schema)
-    #endif
-    return BorrowedFrame(borrowing: frame)
-  }
-
   @usableFromInline
   static var frameCapacity: Int { JSONParser.maximumDepth + 1 }
 
@@ -250,12 +176,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.scalarTarget = nil
     self.homogeneousStringStorage = nil
     self.stringResultRaw = 0
-    #if DEBUG && !hasFeature(Embedded)
-      // The borrows recorded for the previous document are over with its last frame. Keeping
-      // them would fail the tripwire during the *next* document for a schema the previous one
-      // borrowed and legitimately released after this reset.
-      self.audit = StreamSchemaBorrowAudit()
-    #endif
   }
 
   // MARK: Frame stack
@@ -267,9 +187,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   @usableFromInline
   mutating func pushFrame(_ initialFrame: BorrowedFrame) {
-    #if DEBUG && !hasFeature(Embedded)
-      self.audit.verify()
-    #endif
     guard self.frameCount < Self.frameCapacity else {
       self.pushOverflowFrame()
       return
@@ -332,9 +249,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         _StreamPendingCompletedValue(depth: self.frameCount + 1, storage: frame.storage, hooks: hooks)
       )
       frame = BorrowedFrame(storage: hooks.begin(frame.storage), schema: hooks.source)
-      #if DEBUG && !hasFeature(Embedded)
-        self.audit.record(hooks.source)
-      #endif
     }
     return frame
   }
@@ -514,7 +428,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       }
       let entered = top.pointee.withSchema { $0.enterField(top.pointee.storage, field) }
       guard let frame = entered else { return nil }
-      return self.borrow(frame)
+      var borrowed = BorrowedFrame(
+        storage: frame.storage, schemaBits: top.pointee.withSchema { $0.childSchemaBits(frame) }
+      )
+      borrowed.pendingField = frame.pendingField
+      return borrowed
     case .dictionary:
       guard let (slot, bits) = self.openElementSlot(top, dictionary: true) else { return nil }
       return BorrowedFrame(storage: slot, schemaBits: bits)
@@ -1514,9 +1432,6 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
 
   private mutating func resolveScalarTarget() -> ScalarTarget? {
-    #if DEBUG && !hasFeature(Embedded)
-      self.audit.verify()
-    #endif
     guard let top = self.topFrame else {
       // A bare scalar document never opens a container, so no frame was ever pushed and the
       // root is the destination.

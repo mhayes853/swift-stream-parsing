@@ -2459,6 +2459,11 @@ preferred the borrow by 11%. The string path is the larger of the two.
 
 ### The tripwire
 
+> **Superseded.** A `StreamFrame` no longer carries a schema: it names one of the entering schema's
+> `children` by position, and the entering schema owns them, so the mistake this tripwire caught can
+> no longer be written. `StreamSchemaBorrowAudit` and `SchemaBorrowAuditTests` are deleted. See "Frames
+> name their schema by position".
+
 `unowned(unsafe)` trades a guarantee for speed, so the violation has to be reported rather than
 discovered. `StreamSchemaBorrowAudit` holds every borrowed schema **weakly** and checks for
 deallocation at `pushFrame` and at scalar resolution. A weak reference rather than a refcount:
@@ -8623,3 +8628,51 @@ Twitter bulk discarding +0.7%, Twitter bulk −0.5%, Twitter full −1.8%, GSoC 
 −1.5%, LLM message −0.1% (16KB chunks +0.2%), Qwen structured −0.7%, CITM +1.5%, Canada −3.5% (no
 string path; placement), `String values Fields` +1.4%, `Array short` −1.5%, `Fixed array strings`
 −0.8% / −2.2%. Malloc counts identical.
+
+## Frames name their schema by position
+
+The sink borrows every schema a frame carries, and every route but one makes that sound by
+construction: a field table owns its child schemas, a container schema its element schema, a
+converted value's hooks their source. The exception was `enterField`. The `StreamFrame` it returned
+carried a strong `schema`, the sink lowered it to a `BorrowedFrame` and dropped the reference, and a
+schema built inside the closure was freed while the parse still wrote through it. A debug build
+stopped on it ("The tripwire"); a release build read freed memory. Only hand-written schemas could
+reach it: the macro routes every container through a field table and never emits `enterField`.
+
+`StreamFrame` now carries `child: Int` instead: a position in the entering schema's new `children:
+[StreamSchema]`, or `StreamFrame.reentering` (-1) for the entering schema itself, since a schema
+cannot list itself among its own children. A position outside `children` stops the program. The
+schema a frame names is therefore always owned by the schema that named it, and the debug audit -- a
+weak reference per borrowed schema, checked at every `pushFrame` and every scalar resolution -- is
+deleted along with its tests.
+
+The two wrappers that forward `enterField`, the optional root schema and
+`_streamOptionalElementSchema`, forward `children` with it and record the wrapped schema as
+`enterFieldOwner`, which is what `reentering` resolves to. Resolving it to the wrapper instead would
+be wrong whenever the frame's storage is not itself an optional: the optional root's closures
+materialise an `Optional` at the address before they delegate.
+
+What it gives up: a hand-written schema can no longer reach itself through another schema.
+`children` is fixed when the schema is built, so a `Node` whose member is `[Node]` cannot list the
+array schema whose element is `Node`'s own schema. Before, a lazily initialised global let the
+closure name it. Direct self-reentry covers the one recursive hand-written schema in the tree (the
+batching tests' depth node).
+
+Two layouts were built. With `children` and `enterFieldOwner` declared next to `enterField`, every
+field after them moved 16 bytes, which changed the displacement in the sink's `enterKey` and
+`appendElement` loads. Declared last, every function the parse runs is instruction-identical to the
+parent commit, field offsets included, except `PartialSink.valueTarget()`, and that only in its
+`enterField` branch. There the `swift_release` of the frame's schema becomes a compare against -1, a
+bounds check and a load from `children`, and the closure no longer retains a schema to hand over. The
+fields are declared last.
+
+A hand-written schema entering 100,000 nested objects through `enterField` (release, best of 60, five
+alternating runs) went from 121.0 to 113.7 ns per row, -6%: the retain and release per entry are
+gone. The macro's rows run instruction-identical code and measure that way (x86_64, pinned layout,
+best of three interleaved passes gated on an idle machine, against the parent commit): Twitter
+-0.4%, Twitter full +0.5%, GSoC -0.9%, LLM message 0.0%, Canada +1.0%, Fields per element -0.6%,
+Leaf Array Optional Int -0.6%. CITM read +2.8%, but that row is bimodal per process on this machine
+on every build (2.67 or 3.3-4.5 ms; the parent commit hit 3.62 in one of its three runs), so best of
+three is whichever runs landed fast. An earlier sweep taken while another session benchmarked on the
+same box swung single runs by up to 2.4x and is not quoted. ARM was not measured.
+
