@@ -1,0 +1,307 @@
+{
+  "version": 1,
+  "lede": [
+    "The tests are organised around what a caller of the library relies on, not around files. Each guarantee below is a property the library promises; the suites cited under it are the ones that would fail first if it stopped holding.",
+    "Most of them do not compare against a hand-written expected value. They compare the library against something that is already known to be right: the same document parsed whole, the standard library's own decoder, or the slower path a fast path replaced. That is what lets a suite sweep every split point, every alignment or every byte value instead of a handful of examples."
+  ],
+  "techniques": [
+    {
+      "id": "every-split",
+      "title": "Every split, then one byte at a time",
+      "detail": "The document is parsed whole, then cut in two at every byte and parsed again, then fed one byte per call. A token straddling a cut is the only way to reach the parser's carry-over state, and a sweep over every cut reaches it at every token.",
+      "refs": [
+        "ChunkBoundary.swift:expectChunkBoundaryEquivalence",
+        "RawSinkFeed.swift:feedByByte"
+      ]
+    },
+    {
+      "id": "differential",
+      "title": "A differential against an oracle",
+      "detail": "The answer is compared with one produced by code that is already trusted: `Double(String)` for every number in the float corpora, `String(decoding:)` for UTF-8, `JSONDecoder` and `JSONSerialization` for structure. The suite does not have to know the right answer, only that the two agree.",
+      "refs": [
+        "DoubleConversionDifferentialTests.swift:DifferentialSink",
+        "DoubleConversionDifferentialTests.swift:differentialCheck",
+        "UTF8ValidationTests.swift:oracle"
+      ]
+    },
+    {
+      "id": "reference-path",
+      "title": "The reference path switched back on",
+      "detail": "A fast path is checked against the path it replaced, on the same bytes at the same chunking. The block walk has a switch (`blockWalkEnabled`) that turns it off, and a chunk under 64 bytes can never reach it, so the scalar ladder is always available as the reference. Nothing is normalised: the raw call sequence and the error's byte must match.",
+      "refs": [
+        "StructuralBlockWalkTests.swift:expectAgreement",
+        "StructuralBlockWalkTests.swift:run"
+      ]
+    },
+    {
+      "id": "exhaustive",
+      "title": "Every value, not a sample",
+      "detail": "Where the input space is small enough, all of it is run: every byte value through a classifier, every two-byte UTF-8 sequence, every length and offset of a scanner's run. A table-driven kernel is wrong in a specific cell, and a sample is unlikely to hit it.",
+      "refs": [
+        "UTF8ValidationTests.swift:Every two byte sequence",
+        "StreamScannerTests.swift:Whitespace run scanning classifies every byte value correctly at every position"
+      ]
+    },
+    {
+      "id": "stable-snapshots",
+      "title": "Render at hand-out, compare later",
+      "detail": "Every state the stream hands out is rendered to a string at the moment it is handed out, and compared with a fresh rendering after the parse has continued. A value that shares storage with the parser fails on the byte after the one that produced it.",
+      "refs": [
+        "SnapshotStabilityTests.swift:expectStable"
+      ]
+    },
+    {
+      "id": "tripwire",
+      "title": "A tripwire that is shown to trip",
+      "detail": "A check that guards against misuse is tested by committing the misuse deliberately and asserting the check fires. A tripwire that cannot trip reads as a guarantee it does not give.",
+      "refs": [
+        "SchemaBorrowAuditTests.swift:danglingSchemaTrips"
+      ]
+    },
+    {
+      "id": "expansion-snapshot",
+      "title": "Expansions pinned as text",
+      "detail": "Each macro test states the source it applies the macro to and the exact source it must expand to, or the diagnostics it must emit. A change to generated code shows up as a diff in the test, reviewed like any other change.",
+      "refs": [
+        "BaseTestSuite.swift:assertStreamParsingMacro"
+      ]
+    }
+  ],
+  "guarantees": [
+    {
+      "id": "chunking",
+      "title": "A document means the same however it is cut",
+      "why": [
+        "Every call to `parse` gets whatever bytes have arrived, so a cut can fall anywhere: between a backslash and its selector, inside a four-byte scalar, halfway through a number. The state that resumes a cut token is state a whole-document parse never uses, which is why a parser can pass every test on complete documents and still be wrong on a live stream.",
+        "The caller does not choose where the cuts fall, so the promise is that they make no difference: the tokens, the finished value and the error a document fails with are the same at every split."
+      ],
+      "technique": ["every-split"],
+      "suites": [
+        "ChunkBoundary.swift:expectChunkBoundaryEquivalence",
+        "ChunkedContainerStateTests.swift:Chunked container state tests"
+      ],
+      "tests": [
+        "JSONChunkBoundaryTests.swift:Flat objects parse identically at every split",
+        "ChunkedContainerStateTests.swift:A document means the same at every chunk size and split",
+        "PartialSinkTests.swift:Produces the same value at every chunk size",
+        "JSONParserTests.swift:Produces the same structure at every chunk size",
+        "AdversarialConformanceTests.swift:Accepts valid UTF-8 at every split position"
+      ],
+      "showcase": "JSONChunkBoundaryTests.swift:Flat objects parse identically at every split",
+      "node": ["chunk-in", "buffering"],
+      "viz": "chunkCuts"
+    },
+    {
+      "id": "error-offsets",
+      "title": "An error names the same byte at every chunking",
+      "why": [
+        "A streaming caller reports a malformed document while it is still arriving, and the offset is how a person finds the problem. Before these tests an error reported the offset of the chunk it was thrown in, which was byte 0 for every bulk parse.",
+        "The offset is absolute and does not depend on how the input was cut, so the same document reports the same byte whether it arrived whole, in two pieces or one byte at a time."
+      ],
+      "technique": ["every-split"],
+      "suites": ["ErrorOffsetTests.swift:Error offset tests"],
+      "tests": [
+        "ErrorOffsetTests.swift:Reports invalid UTF-8 at the sequence lead at every split",
+        "ErrorOffsetTests.swift:Reports a rejected number at its own token, not the next",
+        "ErrorOffsetTests.swift:Delivers no further tokens after a rejection",
+        "DepthLimitTests.swift:The cap does not depend on chunking",
+        "BufferCapacityTests.swift:Exhaustion does not depend on chunking"
+      ],
+      "showcase": "ErrorOffsetTests.swift:Reports invalid UTF-8 at the sequence lead at every split",
+      "node": ["buffering", "state-ladder"]
+    },
+    {
+      "id": "conformance",
+      "title": "It accepts JSON and nothing else",
+      "why": [
+        "A parser that accepts a malformed document hands a destination values the producer never sent. Rejection has to hold under streaming too: a check that only fires when it sees the whole token is not a check once the token is cut.",
+        "Every case is therefore run whole and one byte per call, and the adversarial cases at every split: invalid UTF-8 cut across chunks, escapes at the start of a key, surrogate escapes that are almost pairs."
+      ],
+      "technique": ["every-split", "differential"],
+      "suites": [
+        "JSONConformanceTests.swift:JSON conformance tests",
+        "AdversarialConformanceTests.swift:Adversarial conformance tests"
+      ],
+      "tests": [
+        "JSONConformanceTests.swift:Rejects raw control bytes in strings",
+        "JSONConformanceTests.swift:Rejects trailing content",
+        "JSONConformanceTests.swift:Accepts whitespace in every position it may appear",
+        "AdversarialConformanceTests.swift:Rejects invalid UTF-8 at every split position",
+        "AdversarialConformanceTests.swift:A lone high surrogate is rejected in its own token",
+        "JSONParserTests.swift:Parses the same structure as JSONSerialization"
+      ],
+      "showcase": "AdversarialConformanceTests.swift:Rejects invalid UTF-8 at every split position",
+      "node": ["state-ladder", "utf8", "escapes"]
+    },
+    {
+      "id": "numbers",
+      "title": "Every number converts exactly as the standard library would",
+      "why": [
+        "A number reaches a `Double` through one of three kernels -- an exact path, Eisel-Lemire, or a `String` round trip -- and which one answers a token has changed twice. What may not change is the answer: every token must come back correctly rounded, bit for bit what `Double(String)` returns.",
+        "The float differential runs every number token in the float-heavy corpora through the real parser, so the `NumberInfo` under test is the one the parser produces, plus a table of the shapes the corpora lack: 17+ significant digits, subnormals, the ends of the range."
+      ],
+      "technique": ["differential", "exhaustive"],
+      "suites": [
+        "DoubleConversionDifferentialTests.swift:Double conversion differential tests",
+        "EiselLemireTests.swift:Eisel-Lemire tests"
+      ],
+      "tests": [
+        "DoubleConversionDifferentialTests.swift:Every number in a float corpus converts exactly as Double(String) does",
+        "DoubleConversionDifferentialTests.swift:Edge case tokens convert exactly as Double(String) does",
+        "FloatConversionDifferentialTests.swift:Float reaches the Eisel-Lemire kernel rather than the string fallback",
+        "EiselLemireTests.swift:Random significands and exponents across the whole table are bit exact",
+        "ShortIntegerKernelTests.swift:The kernel agrees with the scalar walk on every length and prefix",
+        "Pow10TableTests.swift:Every Entry Is The Correctly Rounded Power Of Ten"
+      ],
+      "showcase": "DoubleConversionDifferentialTests.swift:Edge case tokens convert exactly as Double(String) does",
+      "node": ["number-scan", "short-integer", "eisel-lemire"]
+    },
+    {
+      "id": "utf8",
+      "title": "UTF-8 is valid exactly when the standard library says it is",
+      "why": [
+        "Keys arrive validated and every span ends on a character boundary, so a destination never has to check. That promise is only as good as the vector validator, which is three table lookups and a correction per sixteen bytes -- and a table is wrong in a specific cell.",
+        "The validator is held to `String(decoding:)`: a byte string is valid exactly when decoding it with repair changes nothing. Both the lookup kernel and the portable one run on the same inputs, at offsets that exercise the first block, the overlapping middle blocks and the tail."
+      ],
+      "technique": ["differential", "exhaustive"],
+      "suites": ["UTF8ValidationTests.swift:UTF-8 validation tests"],
+      "tests": [
+        "UTF8ValidationTests.swift:Every two byte sequence",
+        "UTF8ValidationTests.swift:Three and four byte leads against every second byte",
+        "UTF8ValidationTests.swift:Valid text at every length and one byte corrupted at every position",
+        "UTF8ValidationTests.swift:Random byte strings",
+        "LookupTableTests.swift:Sequence Length Agrees With The Compare Ladder On Every Byte"
+      ],
+      "showcase": "UTF8ValidationTests.swift:Three and four byte leads against every second byte",
+      "node": ["utf8"]
+    },
+    {
+      "id": "fast-paths",
+      "title": "Every fast path agrees with the path it replaced",
+      "why": [
+        "Most of the parse path is a faster restatement of something simpler: the block walk restates the scalar ladder, the skip classifier restates the skip loop, `fuseNumberRun` restates the ladder's number arm, the coalescing tail restates per-fragment delivery. A restatement that drifts produces different events, or the same error at a different byte, only on the inputs that reach it.",
+        "Each is checked against its reference on the same bytes: at every alignment of a token against the 64-byte grid, at every truncation of a swept document, and on the benchmark corpora."
+      ],
+      "technique": ["reference-path", "exhaustive"],
+      "suites": [
+        "StructuralBlockWalkTests.swift:StructuralBlockWalkTests",
+        "CoalescedStringChunkTests.swift:Coalesced string chunk tests"
+      ],
+      "tests": [
+        "StructuralBlockWalkTests.swift:The block walk and the scalar ladder agree at every alignment",
+        "StructuralBlockWalkTests.swift:Number extents read from the block masks agree with the ladder",
+        "StructuralBlockWalkTests.swift:A block the walk refuses where it was signalled cannot loop",
+        "SkipBlockScanTests.swift:Block and scalar skips agree at every alignment",
+        "NumberSeparatorFusionTests.swift:Long arrays agree whether or not the block walk is signalled",
+        "CoalescedStringChunkTests.swift:Staged runs agree with the byte fed parse at every buffer seam",
+        "StreamScannerTests.swift:String run scanning reports end and UTF-8 observation at every length and offset"
+      ],
+      "showcase": "StructuralBlockWalkTests.swift:The block walk and the scalar ladder agree at every alignment",
+      "node": ["structural-blocks", "skip-blocks", "number-run", "escapes", "string-run"]
+    },
+    {
+      "id": "stable-values",
+      "title": "A value handed out does not change afterwards",
+      "why": [
+        "A partial is readable between chunks, and a caller who keeps one expects it to stay what it was. The parser writes into storage through frames that point into the value, so a kept value that shares that storage changes under the caller.",
+        "That exact bug shipped once: container elements were written through a raw pointer, which never triggers copy-on-write, and a kept `[String]` read `[\"\"]` and then `[\"a\"]` two bytes later. The differential that should have caught it compared final values, which is the one thing it could not catch."
+      ],
+      "technique": ["stable-snapshots"],
+      "suites": ["SnapshotStabilityTests.swift:Snapshot stability tests"],
+      "tests": [
+        "SnapshotStabilityTests.swift:Array states stay stable",
+        "SnapshotStabilityTests.swift:Dictionary of arrays states stay stable",
+        "StreamArrayTests.swift:A Copy Taken While An Element Is Open Is Not Written Through",
+        "StreamArrayTests.swift:Every Snapshot Kept While Parsing Stays Right",
+        "StreamViewTests.swift:A container read from a view does not change afterwards",
+        "GenericReviewTests.swift:mutatingASnapshotDoesNotChangeTheContinuingParser"
+      ],
+      "showcase": "SnapshotStabilityTests.swift:Array states stay stable",
+      "node": ["views", "collections", "partial-sink"]
+    },
+    {
+      "id": "schemas",
+      "title": "A borrowed schema outlives what borrows it",
+      "why": [
+        "Frames borrow the schema they carry rather than retaining it, which removed a retain and release per container open. It is sound only while every schema outlives the frames that reach it, and a violation is a use-after-free somewhere later rather than a crash at the mistake.",
+        "The audit turns a violation into a report, and it is tested by building the mistake on purpose. The same schemas are shared by every parse of a type, so concurrent parses of one type are run at once and compared with a serial parse."
+      ],
+      "technique": ["tripwire"],
+      "suites": [
+        "SchemaBorrowAuditTests.swift:SchemaBorrowAuditTests",
+        "ConcurrentParsingTests.swift:Concurrent parsing tests"
+      ],
+      "tests": [
+        "SchemaBorrowAuditTests.swift:danglingSchemaTrips",
+        "SchemaBorrowAuditTests.swift:durableSchemaPasses",
+        "StreamSchemaLifetimeTests.swift:Array Schema Frees Its Template When Released",
+        "SchemaCacheTests.swift:Removing Entries Mid Stream Leaves The Stream Its Schemas",
+        "ConcurrentParsingTests.swift:The same type parses correctly on many tasks at once"
+      ],
+      "showcase": "SchemaBorrowAuditTests.swift:danglingSchemaTrips",
+      "node": ["schema", "field-table"]
+    },
+    {
+      "id": "routing",
+      "title": "Values land in the members the document names",
+      "why": [
+        "The typed layer's job is to put each value where its key says, into storage of the right kind, and to refuse what does not fit. Keys are matched by comparing 64-bit words, so two keys that share their first eight bytes, or a near miss of a known key, are exactly where a match can go wrong.",
+        "A mismatch has to be reported at every chunk size and the first rejection has to be the one reported, for the same reason error offsets are: the caller sees the document while it arrives."
+      ],
+      "technique": ["every-split", "differential"],
+      "suites": [
+        "PartialSinkTests.swift:Partial sink tests",
+        "PartialSinkFailureTests.swift:Partial sink failure tests"
+      ],
+      "tests": [
+        "PartialSinkTests.swift:Routes into nested objects",
+        "PartialSinkTests.swift:Distinguishes keys sharing their first eight bytes",
+        "PartialSinkTests.swift:Rejects near misses of a known key",
+        "PartialSinkFailureTests.swift:A mismatch is reported at every chunk size",
+        "PartialSinkFailureTests.swift:The first rejection is the one reported",
+        "ContainerReentryTests.swift:A repeated array field resumes the array it already has",
+        "EnumParseableTests.swift:Agrees with JSONDecoder on the object form"
+      ],
+      "showcase": "PartialSinkTests.swift:Distinguishes keys sharing their first eight bytes",
+      "node": ["partial-sink", "keys", "field-table"]
+    },
+    {
+      "id": "skipping",
+      "title": "A skipped subtree is still checked",
+      "why": [
+        "A sink that answers `.skip` gets none of a subtree's values, and the parser scans past it at structural speed. Skipping is not permission to accept a malformed document: brackets must still match by kind, the depth cap still holds, and a raw control byte in a skipped string is still an error.",
+        "The values around a skipped subtree must also survive every chunk cut, because the skip scanner has its own carry-over state for a string or an escape cut in the middle."
+      ],
+      "technique": ["every-split"],
+      "suites": ["ContainerSkipTests.swift:ContainerSkipTests"],
+      "tests": [
+        "ContainerSkipTests.swift:Values survive around skipped subtrees at every chunk cut",
+        "ContainerSkipTests.swift:A skipped subtree still validates structure",
+        "ContainerSkipTests.swift:The depth cap holds inside a skipped subtree",
+        "ContainerSkipTests.swift:A backslash does not hide a raw control byte in a skipped string"
+      ],
+      "showcase": "ContainerSkipTests.swift:A skipped subtree still validates structure",
+      "node": ["dispositions", "skip-run", "skip-blocks"]
+    },
+    {
+      "id": "generated-code",
+      "title": "Generated code is pinned line by line",
+      "why": [
+        "Everything the typed layer knows about a user's type comes from code the macro wrote: the storage, the key matcher, the field table, the conversions. A change to the generator changes every conforming type at once, so each expansion is asserted as text and a changed expansion is a reviewed diff.",
+        "The generator is also a public library for other macros, so its own tests hold its components to the same standard without going through `@StreamParseable`, and a package outside this one builds a macro against it."
+      ],
+      "technique": ["expansion-snapshot"],
+      "suites": ["StreamParseableMacroTests.swift:StreamParseableMacro tests"],
+      "tests": [
+        "StreamParseableMacroTests.swift:Basic",
+        "StreamParseableMacroTests.swift:Duplicate Key Names",
+        "KeyDecodingStrategyMacroTests.swift:Built-In Strategy Converts Keys During Expansion",
+        "ObjectGenerationTests.swift:Partial Field Descriptors Match Generated Storage",
+        "StreamUTF8MatchTests.swift:Match Distinguishes Empty And NUL Values By Count",
+        "InlinableExpansionTests.swift:A public struct with an internal member parses and converts"
+      ],
+      "showcase": "StreamUTF8MatchTests.swift:Match Distinguishes Empty And NUL Values By Count",
+      "node": ["keys", "field-table"]
+    }
+  ]
+}

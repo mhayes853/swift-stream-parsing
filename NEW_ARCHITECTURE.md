@@ -4054,7 +4054,7 @@ At the call site the exponent arrives as `abs(exponent)`, which is enough for th
 drop the low half of the bounds check and the entire negative half of the table. The whole lookup
 becomes two instructions:
 
-```
+```asm
 cmp  w8, #0x134                  ; 308
 ldr  d1, [x9, w8, uxth #3]       ; x9 = adrp/add of the .rodata table
 ```
@@ -4479,7 +4479,7 @@ no-whitespace case for the whole of `canada` and `llm_message` and half of every
 loads the byte, tests it against `0x20`, and throws it away. `consumeStructuralRun` then reloads
 the same address to switch on it. In the release build that is nine instructions apart:
 
-```
+```asm
 be3a0  cmpb   $0x20, (%rdi,%rsi)   ; whitespace early-out
 be3a4  jbe    ...                   ; not taken on a structural byte
 be452  movzbl (%rdi,%r14), %eax     ; the same address, again
@@ -7289,6 +7289,160 @@ row had one-byte whitespace in front of strings.
 Literals needed nothing: `true`/`false`/`null` have been a 32-bit word compare inside the walk since
 "String values and literals finish inside the structural run", and the walk restates that arm.
 
+## Separators after the token: number arrays and the key's colon
+
+Three changes, 2026-09-22..28 (`1f92f5b`, `289c859`, `bda6aeb`), each taking a separator together
+with the token in front of it so that neither the ladder nor the block walk makes a trip for a byte
+that emits nothing. Harness `~/.cache/sspab/s13`. Every A/B builds both sides with
+`-align-all-functions=6`, because unrelated code in a hot module measured a 3% swing with
+byte-identical opcodes (the placement effect described under "`JSONParser`'s size is a placement
+lottery" above). Each is read as the median of five interleaved rounds, not the best round:
+best-of-p0 picked single lucky rounds, and minified rows that never enter the changed code read
++1.6% that way.
+
+The same value trees written in the three separator styles producers emit -- minified, spaced (`, `
+and `: `) and indented (newline plus two spaces a level) -- were added as benchmark rows
+(`SeparatorShapeBenchmarks.swift`, a raw and a typed row each), because a separator's path depends
+on its style and a fusion can win on one and lose on another. The corpus covers the three unevenly:
+Mesh is all `, ` before numbers, `Twitter spaced` all `, ` before strings, and nothing had an
+indented numeric array.
+
+A separator sits against the token before it in every one of those styles (`"k":`, `1,`, `},`);
+what follows it is where they differ. So fusing *token then separator* is not a bet on spacing, and
+each fused separator saves exactly one trip: round the ladder, or round the block walk's mask loop.
+
+### Landed: `fuseNumberRun`, an array's numbers taken without the ladder
+
+After a number and its `,` in an array, the ladder makes two steps before the next number: the
+comma, then the whitespace scan -- a sixteen-byte vector scan for a run that is, in Mesh, one byte
+long. `fuseNumberRun` takes the comma, one space if there is one, and the next number, and goes
+round again with the byte after it. Anything that is not a number (a bracket, a string, a control
+byte) falls out at the comma and the ladder takes it as before; what the loop accepts, the ladder
+accepted, so events, offsets and error reasons are unchanged (`NumberSeparatorFusionTests`).
+
+Where the loop lives decided the result, measured both ways with every function 64-byte aligned:
+
+| | inline in the number arm | `@inline(never)`, entered at an array's comma |
+| --- | ---: | ---: |
+| Mesh typed | +25.6% | +22.7% |
+| Mesh raw | | +19.9% |
+| Mesh dynamic | | +16.9% |
+| Canada typed | +0.7% | +2.2% |
+| Twitter escaped typed | -1.6% | >= -0.4% |
+| LLM raw | -1.8% | |
+| byte-fed number rows | -1.6..-3.0% | about 0 |
+| GSoC / Twitter escaped raw | | -2.0% / -1.1% |
+
+The inline loop is Mesh's best number and costs rows that never reach it: a loop inside the
+`@_transparent` ladder changes register allocation for every path through it, the byte-fed entry
+included (the `PartialSink` copy of the structural run +88 stack accesses). Outlined, the ladder's
+code is back to its baseline (156 stack accesses against 160) and one call per numeric run is cheap
+enough that Canada does better than inline. The rule taken from it: a new fast path inside the
+structural run goes out of line behind a cheap inline guard by default.
+
+### Landed: the key's colon, taken with the key in the block walk
+
+An in-block key used to end with `state = .afterKey` and a trip round the mask loop to the colon's
+start bit. The arm now loads the byte after the closing quote and, when it is `:`, moves to `.value`
+and clears the mask past it. `closeBit != 63` keeps the load inside the block and so inside the
+chunk; any other byte (`"k" :`, or an error) goes round the loop and the `.afterKey` arm names it
+at the offset it always did.
+
+This is the fusion "Fusing the colon after a key: measured across seven variants, and rejected"
+turned down on the ladder, and the difference is the cost it removes. On the ladder the run loop had
+already swallowed the colon, so peeking for it deleted nothing. In the walk the colon is a whole
+iteration of the mask loop -- `tzcnt`, the load, the state dispatch -- for a byte that emits nothing.
+
+Median of five rounds, typed: Twitter +5.9%, Twitter spaced +6.3%, CITM +4.5%, Twitter full +3.3%,
+GitHub +2.8%, GSoC +2.0%, separator records +3.7..+3.9%; no typed row below -0.3%. Raw costs on
+indented arrays with no keys at all: literals -4.1%, numbers -2.0%, pairs -1.9% -- the walk's other
+arms were reallocated around the new load.
+
+### Rejected: the value's comma, taken with the value in the block walk
+
+The same shape one separator later: after a string, number or literal in the walk, test the next
+byte for `,` and set `.key`/`.value` directly. Typed CITM +1.0%, strings indented +3.6%, numbers
+indented +1.4%; literals indented -1.2%, LLM -0.5%; raw literals indented +12% (recovering the
+colon's -4%). A +0.5% typed mean, for seven copies of the tail: the typed walk went from 1,344 to
+1,760 instructions and 217 to 301 stack accesses, because each copy reloads `blockEnd`, `p` and the
+`inout` depth and container pointers. The binary cost was judged larger than the gain. Patch kept at
+`~/.cache/sspab/s13/rejected_comma.patch`.
+
+It was also not the indented-array gap it was aimed at: that is +7.4 ns a number typed against the
+minified row, and the comma pass bought about 0.35 ns of it. The rest was the walk's number arm,
+which the next section replaces.
+
+### Landed: indented number arrays leave the walk for `fuseNumberRun`, with a predicted indent
+
+Per number on the `numbers-*` harness payloads (`/usr/bin/time -l`, instructions and cycles over
+the count): the walk spent ~275 instructions and 57 cycles on each number of an indented array --
+the comma's trip round the mask loop, the number arm's dispatch, a classify every three or four
+numbers -- against `fuseNumberRun`'s 196 and 37. The cost was per number, not per byte: flat across
+indent widths 1..8. A `,\n` array on the ladder, where the fusion declined at the newline, cost 367.
+
+Two changes. The walk's number arm hands an array's comma to `fuseNumberRun`, as the ladder's does,
+and continues from wherever it returns (past the block as often as not; the grid moves with it).
+And `fuseNumberRun` takes a whole whitespace run after the comma instead of at most one space.
+
+The run is where the obvious code lost. After a newline, counting the indentation with one 8-byte
+load (`word ^ 0x2020...`, trailing zero bytes) and taking the next number's address from that count
+made the number scan wait on load -> `eor` -> `clz`: `,\n` arrays went from 12.7 to 15.5 ns a number
+and IPC from 5.9 to 4.3. The vector whitespace scanner was worse (IPC 3.9). What landed *predicts*
+the indentation is the last one seen, takes the address `start + 1 + indent` from a register, and
+uses the count only to check the guess: a predicted branch, so the scan no longer depends on the
+load. The miss path must call the scanner -- a miss the compiler can fold is merged back into the
+data-dependent form by GVN.
+
+The prediction is a parser field (`numberRunIndent`), not a local. An array of arrays enters the
+loop once per inner array, and a prediction that started from zero on every call missed every time:
+indented pairs -7.2% raw / -3.1% typed. It sits in the padding byte at offset 9; anywhere earlier
+moved `literalKind`/`literalIndex` to offsets 5/6 and every `consumeStructuralRun` specialisation's
+fused halfword store went from `strh` to `sturh`.
+
+Median of five rounds against `289c859`:
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Separators numbers indented | +45.3% | +36.7% |
+| Separators number pairs indented | +6.3% | -1.1% |
+| Separators literals indented | +5.9% | +1.9% |
+| GSoC | +3.1% | |
+| other typed rows | | within -1.5% |
+
+-1.5% is the layout floor on these builds: `Qwen 3 workspace edit`, which executes none of the
+changed code, read -1.5% typed with tight rounds. The ladder is byte-identical.
+
+### Measured: the whole series against where it started
+
+The branch these landed on (`t3code/unify-parser-path`, from `c89324a`) was fast-forwarded onto
+`new-architecture` at `d8da86d`. Upstream's own commits over the same period (`2cf39d6` against
+`c89324a`) measured flat, within +-0.8%, so this is the branch's own work: the windowed deletion,
+number extents from the masks, the stateless walk signal and its fused test, escaped-string staging,
+and the three changes above. Aligned, three-way, median of five rounds:
+
+| row | raw | typed |
+| --- | ---: | ---: |
+| Mesh | +14.0% | +12.3% |
+| LLM message | | +6.7% |
+| GitHub events | +6.9% | |
+| Twitter | +6.6% | +2.1% |
+| GSoC 2018 | +5.9% | +2.3% |
+| Canada | +5.4% | -0.7% |
+| CITM catalog | +5.2% | +0.9% |
+| Twitter escaped | -5.8% | +1.7% |
+| Qwen search | | -4.6% |
+| Separators numbers indented | | +47.5% |
+| Separators literals spaced | -21.8% | -6.2% |
+| Separators literals minified | -7.7% | |
+| Separators records minified | -4.9% | |
+| Separators strings minified | | -4.8% |
+
+The separator-row losses are not attributed: no per-commit sweep was run. Typed Twitter is +2.1%
+where the colon alone was +5.9%, so the commits before this chapter cost roughly 3.5% there; the
+suspects are the stateless signal (`515429e`) for the spaced literals and the escape staging
+(`06dc4a3`) for the escaped and minified-string rows. The plan, if they come up again: build every
+source-changing commit aligned and run one interleaved pass over the ~14 affected rows.
+
 ## Design notes relocated from source comments
 
 These notes were the rationale in the source comments at their call sites, moved here when those
@@ -8189,12 +8343,13 @@ What the code does instead is keep the open element **inline, in `StreamArray.pe
 `Optional<Element>` stored in the array value itself. That makes a plain value copy of the array a
 correct snapshot with no allocation and no bookkeeping: the one piece of storage a mid-element
 snapshot has to diverge from is the one piece held by value. Closed elements still live in uniform
-power-of-two `StreamBlock`s, and a block a snapshot shares is still *written past* rather than
-copied, because each array carries its own `tailCount` and the parser only ever appends above the
-prefix every sharer captured (`StreamBlockHeader.count` is the filling array's high-water mark and
-nothing else reads it). The three headline properties of the section — storage owns its capacity,
-the template is a pointer rather than a closure, uniqueness is settled per container — are all
-still accurate; only the freeze/compact/spare chain was replaced.
+power-of-two `StreamBlock`s. Until the copy-on-write fix below, a block a snapshot shared was
+*written past* rather than copied, on the rule that each array carries its own `tailCount` and the
+parser only ever appends above the prefix every sharer captured; **that rule was unsound and the
+appends are now ordinary copy-on-write** — see "Landed: ordinary copy-on-write on the tail". The
+three headline properties of the section — storage owns its capacity, the template is a pointer
+rather than a closure, uniqueness is settled per container — are all still accurate; only the
+freeze/compact/spare chain was replaced.
 
 The trade recorded against the chain was that it cost a malloc per retained snapshot and could not
 be made to cost less. The inline slot costs one whole-element move per element instead — the
@@ -8203,6 +8358,74 @@ closed element moving into its block slot when the next one opens — which is t
 whole-value route skips the open element" below). The claim at the end of that section that "the
 stale element is destroyed by a specialised move rather than `swift_arrayDestroy`" is also inverted
 by what `StreamBlock` does today; see "Block teardown" below.
+
+#### Landed: ordinary copy-on-write on the tail
+
+The written-past rule above was not merely an optimisation, it was the correctness argument for
+sharing a block at all, and a review of the generic API broke it with three lines. After `var b =
+a`, both values hold the same tail and the same `tailCount`, so both compute the same next slot:
+starting from `[1]`, appending `2` to `a` and `3` to `b` leaves `a` reading `[1, 3]`. The rule
+assumed one writer; a value type has as many writers as it has copies. `StreamDictionary` inherited
+it through `storedValues`, a non-trivial element leaked or double-released the ownership one
+append overwrote, and two `Sendable` copies mutated on different threads raced on the elements and
+on the block header both were advancing. A high-water check would have fixed the serial case and
+none of the concurrent one, which is what ruled out repairing the rule in place.
+
+So `nextSlot` now calls `ensureUniqueTail` before it hands back an address, and the uniqueness
+check happens before the tail is bound to a local strong reference — binding first makes the check
+answer "shared" about the reference it just created. The header's initialised count is covered by
+the same rule, which is the part the old design specifically exempted. What did not change: a
+sealed block still stays shared without being copied, because nothing appends into it; growing a
+small full tail still moves its contents when uniquely owned; a shared-tail append copies only the
+initialised elements and keeps the block's capacity; and the open element is still inline in
+`pending`, so a mid-element snapshot still diverges for free.
+
+The reproductions from the review pass as ordinary regression tests, alongside interleaved
+divergent appends across the small-tail and sealed-block boundaries, weak-reference checks that
+the overwritten element is released exactly once, mutation of a retained parser snapshot, and two
+streams seeded from one nested collection. A core-only Thread Sanitizer harness — 64 workers × 16
+rounds, 300 appends and a mutated nested dictionary each, checking both the divergent results and
+the untouched seeds — emitted no report:
+
+```sh
+swift build --scratch-path .build-cow-tsan --target StreamParsingCore \
+  --sanitize=thread --disable-default-traits
+```
+
+The cost is a `swift_isUniquelyReferenced_native` call in the per-element commit path, and it is
+not free. On x86_64 the `Double` specialisation of `_streamArrayNumberAppender` grows 742 → 913
+bytes with 88 → 120 bytes of stack, the value spilled across the call and reloaded for the store;
+`PartialSink.openKnownSIMDDoubleElement` grows 1,035 → 1,151 bytes, each of its six route arms
+gaining one outlined `ensureUniqueTail` on the roomy-tail commit. Two release binaries
+(`e13ef7cd` and the fix) were run interleaved over 52 rows:
+
+| Benchmark | Before µs | CoW µs | Change | Mallocs |
+| --- | ---: | ---: | ---: | ---: |
+| Real Canada — bulk discarding | 6,021.12 | 6,901.76 | -12.8% | 1,398 → 1,398 |
+| Real Mesh — bulk discarding | 2,263.04 | 2,527.23 | -10.5% | 352 → 352 |
+| Dictionary 512 keys — discarding | 225.15 | 248.45 | -9.4% | 39 → 39 |
+| Dictionary 128 keys — discarding | 56.35 | 62.11 | -9.3% | 33 → 33 |
+| Retention 100 users — keep all | 410.88 | 478.72 | -14.2% | 28 → 122 |
+| Retention Mesh — window 16 | 153,000 | 161,000 | -5.0% | 603 → ≈70,000 |
+| Stream Array of structs — snapshot per byte | 408.83 | 411.65 | -0.7% | 26 → 26 |
+| Real Twitter — bulk discarding | 474.37 | 469.76 | +1.0% | 132 → 132 |
+| Real GitHub events — bulk discarding | 73.41 | 71.87 | +2.1% | 80 → 80 |
+
+The allocation columns say which half of the cost is which. Canada, Mesh and the discarding
+dictionary rows allocate *exactly* what they allocated before, so their 9–13% is the check, the
+spills and the code growth alone — no tail was actually copied. The retention rows are the other
+half: 28 → 122 mallocs for a hundred kept user states, and Mesh's window rows 603 → ≈70,000,
+which is a detached tail per retained snapshot. A nine-row confirmation in reverse order (CoW
+first) reproduced every one of these within half a point except the Qwen workspace row, which
+moved from -5.6% to -2.4% and should be treated as unsettled. The async rows span -1.6% to +2.3%
+and the raw-sink controls -1.0% to +4.3%, neither of which is a result from one sweep.
+
+This is measured on x86_64 Linux, on a host with no ARM Swift SDK, so the primary target's
+numbers are not in yet and no follow-up has been applied. The two worth measuring are inlining the
+uniqueness check while outlining the copy path — particularly for the SIMD opener, where the same
+check is reached six ways — and a scoped bulk-append that establishes uniqueness once per block
+rather than once per element, which is only sound if no snapshot can be taken inside the borrow.
+Neither recovers the old rule: the discarding rows show the floor an ordinary-CoW append has.
 
 #### Block teardown: `deinitialize(count:)`, not a `move()` loop
 
