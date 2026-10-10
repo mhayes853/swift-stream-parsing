@@ -8732,9 +8732,10 @@ Around the loop, two things cost as much again:
 - **The output.** `withUnsafeTemporaryAllocation` puts at most 1 KiB on the stack unconditionally;
   a 3 KiB staging block asked whether the stack had room, and on Linux that sent every block to the
   heap — 341 mallocs for the bulk row and one per chunk when streamed. An empty value (a string
-  arriving whole, or a stream's first chunk) now decodes straight into
-  `Array(unsafeUninitializedCapacity:)`. Later chunks stage 341 groups (1,023 bytes plus one) on the
-  stack and append, after reserving room for every group geometrically.
+  arriving whole, or a stream's first chunk) then decoded straight into
+  `Array(unsafeUninitializedCapacity:)`, and later chunks staged 341 groups (1,023 bytes plus one) on
+  the stack and appended, after reserving room for every group geometrically. The vector tier
+  replaced both with one direct path (below).
 - **Growth.** Before the reserve, a 1 MiB value grew through ten doublings.
 
 ### Measured
@@ -8742,7 +8743,7 @@ Around the loop, two things cost as much again:
 `Base64 1MiB` rows: one attachment, `{"name": ..., "contents": "<1.4 MB of base64>"}`. x86_64, pinned
 layout, best of three gated passes, wall p50:
 
-| row | first version | final | mallocs |
+| row | first version | scalar (a510f496) | mallocs |
 |---|---:|---:|---:|
 | `StreamBase64Data` bulk | 578.6 µs | **441.1 µs** (3,175 MB/s) | 362 → 20 |
 | `StreamBase64Data` per 1400B | 766.5 µs | **617.0 µs** (2,271 MB/s) | 1,029 → 30 |
@@ -8750,13 +8751,73 @@ layout, best of three gated passes, wall p50:
 | `JSONDecoder` decoding `Data` | | 1,956.9 µs (714 MB/s) | 30 |
 | `Data(base64Encoded:)` on the text alone | | 508.9 µs (2,751 MB/s) | 18 |
 
-Parsing the document and decoding it is faster than Foundation's decoder on the bare text, and 4.4x
-`JSONDecoder`. The decode is still three times the parse (the `StreamString` row), so the next step
-is SIMD: the Muła–Lemire decoder, NEON `tbl` inline in the shims header as the block classifiers
-are, and AVX2 out of line. It needs measuring on ARM, which this box cannot do.
+Parsing the document and decoding it was faster than Foundation's decoder on the bare text, and 4.4x
+`JSONDecoder`, but three times keeping the text (the `StreamString` row). The vector tier, below,
+took that to 1.16x.
 
 Every parser and sink function is instruction-identical to the parent commit. The only code that
 moved belongs to the benchmark module: new specializations, and LLVM's function merging regrouping
 seven enum-benchmark thunks. Real-world rows against the parent: Twitter −0.2%, Twitter full +0.2%,
 GSoC +0.4%, LLM message +0.1%, Canada −1.1%, the enum rows +0.9% / +0.6%, malloc counts identical.
 ARM was not measured.
+
+### The vector tier
+
+Muła and Lemire's decoder ("Faster Base64 Encoding and Decoding Using AVX2 Instructions", 2018)
+takes whole blocks of groups before the scalar loop: eight groups (32 characters) at a time with
+AVX2, out of line in `AVX2.c` behind `streamHasAVX2`, and sixteen (64) with NEON, inline from
+`StreamParsingShims.h`. A byte's class is two nibble lookups ANDed, zero only for the alphabet; a
+block holding anything else, `=` included, goes back whole, and the scalar loop decodes up to the
+group that holds it. So the kernels need no tail and no error position, and the scalar loop stays
+the one definition of what is accepted. Translation adds an offset per high nibble (`/` borrows
+row 1's through the compare). `AVX2.c` documents the tables.
+
+- **AVX2** packs with `vpmaddubsw`, `vpmaddwd`, `vpshufb` and `vpermd`, then stores 32 bytes for the
+  block's 24, so `decodeRun`'s output needs 8 bytes of slack past the last group (`outputSlack`),
+  not 1. Its `vpermd` indices repeat dword 6 in the two don't-care lanes: naming dwords 3 and 7, the
+  zeros the byte shuffle left, made Clang blend in a zero vector to match, one more instruction per
+  block (measured below).
+- **NEON** splits 64 characters by position in the group with `vld4q_u8`, so after the same
+  classification and translation (twelve `tbl`s a block) packing is three shift-ORs and
+  `vst3q_u8`: 57 instructions per 64 characters, every table in a register, nothing written past
+  the last group. A first port, checked from this box only: the C kernel against the scalar loop
+  under qemu-aarch64 (every length to 1,000 groups; all 256 byte values at each of the first 200
+  positions), and `StreamParsingCore` compiled for aarch64 with the loop inlined. Not yet measured
+  or tuned on ARM.
+- **The output.** Five times faster decoding left the staging copy visible: 5.6% of the
+  per-1400B row. Every chunk now decodes straight into the array's spare capacity: a private
+  `Sequence` whose `_copyContents(initializing:)` runs `decodeRun` on the buffer
+  `Array.append(contentsOf:)` hands it, after `decodeGroups` reserves room for every group plus
+  the slack. That retired the fresh-array path and the 1 KiB stack block.
+
+Kernels alone, decoding into a preallocated buffer (C harness, MB/s of text, best of 200+):
+
+| kernel | 12 KB decoded | 96 KB | 1 MiB |
+|---|---:|---:|---:|
+| scalar four-table loop | 3,104 | 3,108 | 3,096 |
+| AVX2, one block an iteration | **18,043** | **17,501** | 14,085 |
+| AVX2, four blocks, one validity branch | 16,723 | 16,436 | **15,238** |
+
+One block an iteration ships: four are 8% faster past L2, where only a string arriving whole lands,
+and 6–7% slower within it, where every streamed chunk does. Naming the zero dwords in `vpermd`'s
+indices, and so taking the blend, cost 7–9% at 12 KB.
+
+`Base64 1MiB` rows, x86_64, pinned layout, best of three gated passes, wall p50:
+
+| row | scalar (a510f496) | AVX2, staged | AVX2, direct |
+|---|---:|---:|---:|
+| `StreamBase64Data` bulk | 442.4 µs | 168.8 µs | **167.6 µs** (8,382 MB/s) |
+| `StreamBase64Data` per 1400B | 618.0 µs | 344.1 µs | **324.9 µs** (4,324 MB/s) |
+| `StreamString` keeping the text, bulk | 144.3 µs | 144.0 µs | 144.5 µs |
+
+Malloc counts are unchanged (20 and 30). Bulk is now 3.0x `Data(base64Encoded:)` on the bare text
+(508.7 µs) and 11.7x `JSONDecoder` (1,957.9 µs). Streamed in 1400-byte chunks it is still twice
+bulk. Its ten extra allocations match the doublings from 1 KiB to 1 MiB, each a copy into fresh
+pages; the gap is not broken down further here.
+
+Against a510f496 the only functions that differ are `decodeGroups`, its `Array.append`
+specialization and `_copyContents`, and the new kernel; every parser and sink function is
+instruction-identical. Real-world rows (measured with the staged variant, which differs from the
+final one only in those functions): Twitter +0.1%, Twitter full −0.2%, GSoC −0.1%, LLM message
++1.2%, LLM snapshot per 1400B +0.5%, Canada +0.3%. `Layer Twitter bulk - stream` is bimodal per
+process (about 445 or 600 µs) on both builds.

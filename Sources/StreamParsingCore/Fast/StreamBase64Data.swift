@@ -62,11 +62,9 @@ public struct StreamBase64Data: Sendable {
 
   // MARK: Decoding
 
-  // Groups staged per block when appending: 341 is 1,023 bytes, and one more for the last group's
-  // four-byte store keeps the block within the 1 KiB `withUnsafeTemporaryAllocation` always puts on
-  // the stack. At 3 KiB it asked whether the stack had room, and on Linux the answer sent every
-  // block, so every chunk of a streamed string, to the heap.
-  private static let blockGroups = 341
+  // How far `decodeRun` may write past the last group's three bytes: the AVX2 tier stores a block's
+  // 24 bytes as 32.
+  private static let outputSlack = 8
 
   // False once the string is rejected. An unfinished group or padding goes a character at a time,
   // then whole groups go four at a time until one holds a character outside the alphabet (`=`
@@ -97,57 +95,61 @@ public struct StreamBase64Data: Sendable {
   ) -> Int {
     let groups = (input.count &- start) / 4
     guard groups > 0 else { return start }
-    let source = UnsafeRawPointer(input.baseAddress.unsafelyUnwrapped + start)
 
-    // An empty value -- a string that arrived whole, or a stream's first chunk -- decodes straight
-    // into a new array of the right size: nothing staged, nothing copied.
-    if self.bytes.isEmpty {
-      var decoded = 0
-      self.bytes = [UInt8](unsafeUninitializedCapacity: groups &* 3 &+ 1) { buffer, count in
-        decoded = Self.decodeRun(
-          source, groups: groups,
-          into: UnsafeMutableRawPointer(buffer.baseAddress.unsafelyUnwrapped), tables
-        )
-        count = decoded &* 3
-      }
-      return start &+ decoded &* 4
-    }
-
-    // Otherwise a block at a time, staged on the stack and appended, with room for every group
-    // reserved first and geometrically: a value fed in small chunks grows by doubling, not by the
-    // chunk.
-    let needed = self.bytes.count &+ groups &* 3
+    // Room for every group and the slack, reserved geometrically: a value fed in small chunks
+    // grows by doubling, not by the chunk. An empty value gets exactly that.
+    let needed = self.bytes.count &+ groups &* 3 &+ Self.outputSlack
     if self.bytes.capacity < needed {
       self.bytes.reserveCapacity(Swift.max(needed, self.bytes.capacity &* 2))
     }
-    var done = 0
-    while done < groups {
-      let count = Swift.min(groups &- done, Self.blockGroups)
-      let decoded = withUnsafeTemporaryAllocation(
-        of: UInt8.self, capacity: Self.blockGroups &* 3 &+ 1
-      ) { block in
-        let decoded = Self.decodeRun(
-          source + done &* 4, groups: count,
-          into: UnsafeMutableRawPointer(block.baseAddress.unsafelyUnwrapped), tables
-        )
-        self.bytes.append(
-          contentsOf: UnsafeBufferPointer(start: block.baseAddress, count: decoded &* 3)
-        )
-        return decoded
-      }
-      done &+= decoded
-      guard decoded == count else { break }
+    let before = self.bytes.count
+    self.bytes.append(
+      contentsOf: DecodedGroups(
+        source: UnsafeRawPointer(input.baseAddress.unsafelyUnwrapped + start),
+        groups: groups,
+        tables: tables
+      )
+    )
+    return start &+ (self.bytes.count &- before) / 3 &* 4
+  }
+
+  // Whole groups, decoded straight into the spare capacity `Array.append(contentsOf:)` hands
+  // `_copyContents`: nothing staged, nothing copied. How many decode is unknown until a group is
+  // rejected, so `underestimatedCount` stays zero and the append reserves nothing itself;
+  // `decodeGroups` has. Only ever appended: iterating it yields nothing.
+  private struct DecodedGroups: Sequence {
+    let source: UnsafeRawPointer
+    let groups: Int
+    let tables: UnsafePointer<UInt32>
+
+    func makeIterator() -> EmptyCollection<UInt8>.Iterator {
+      EmptyCollection.Iterator()
     }
-    return start &+ done &* 4
+
+    __consuming func _copyContents(
+      initializing buffer: UnsafeMutableBufferPointer<UInt8>
+    ) -> (EmptyCollection<UInt8>.Iterator, Int) {
+      // The reserve leaves room for every group; were it short, the groups that fit decode and
+      // the character-at-a-time path takes the rest.
+      let fit = Swift.max(0, (buffer.count &- StreamBase64Data.outputSlack) / 3)
+      guard let output = buffer.baseAddress, fit > 0 else { return (EmptyCollection.Iterator(), 0) }
+      let decoded = StreamBase64Data.decodeRun(
+        self.source, groups: Swift.min(self.groups, fit), into: UnsafeMutableRawPointer(output),
+        self.tables
+      )
+      return (EmptyCollection.Iterator(), decoded &* 3)
+    }
   }
 
   // Decodes up to `groups` whole groups, stopping at one that holds a character outside the
-  // alphabet, and returns how many it decoded. `output` needs a byte past the last group's three.
+  // alphabet, and returns how many it decoded. `output` needs `outputSlack` bytes past the last
+  // group's three.
   //
-  // Per group: one load for the four characters, one table entry per character ORed into the
-  // three bytes (see `Base64.c`), one compare, and one four-byte store whose fourth byte the next
-  // group overwrites. 1.6x a 256-byte sextet table with shifts and three one-byte stores, on
-  // x86_64: see NEW_ARCHITECTURE.md, "`StreamBase64Data`".
+  // The vector tier takes whole blocks first; the scalar loop takes the groups left over, and finds
+  // the group a rejected block stopped on. Per group it does one load for the four characters, one
+  // table entry per character ORed into the three bytes (see `Base64.c`), one compare, and one
+  // four-byte store whose fourth byte the next group overwrites. 1.6x a 256-byte sextet table with
+  // shifts and three one-byte stores, on x86_64: see NEW_ARCHITECTURE.md, "`StreamBase64Data`".
   @inline(__always)
   private static func decodeRun(
     _ source: UnsafeRawPointer,
@@ -159,7 +161,7 @@ public struct StreamBase64Data: Sendable {
     let second = tables + 256
     let third = tables + 512
     let fourth = tables + 768
-    var group = 0
+    var group = Self.decodeBlocks(source, groups: groups, into: output)
     while group < groups {
       // Character i of the group in byte i.
       let characters = UInt32(
@@ -173,6 +175,28 @@ public struct StreamBase64Data: Sendable {
       group &+= 1
     }
     return group
+  }
+
+  // The vector tier: Muła and Lemire's decoder, a block of groups at a time, until fewer than a
+  // block remain or a block holds a character outside the alphabet. Returns how many groups it
+  // decoded. `StreamParsingShims.h` and `AVX2.c` hold the kernels.
+  @inline(__always)
+  private static func decodeBlocks(
+    _ source: UnsafeRawPointer,
+    groups: Int,
+    into output: UnsafeMutableRawPointer
+  ) -> Int {
+    #if arch(arm64)
+      return stream_parsing_base64_decode_neon(source, groups, output)
+    #elseif arch(x86_64)
+      // Out of line, as every AVX2 kernel is, and called once per chunk of a string: the feature
+      // check, a `swift_once` call and a load, is paid at that rate too. Short of one AVX2 block
+      // (eight groups) the call is skipped.
+      guard groups >= 8, streamHasAVX2 else { return 0 }
+      return stream_parsing_base64_decode_avx2(source, groups, output)
+    #else
+      return 0
+    #endif
   }
 
   // One character through the decoder, or false to reject the string. The fourth character's

@@ -62,6 +62,40 @@ struct `StreamBase64Data tests` {
     }
   }
 
+  // Lengths through several vector blocks (eight groups on x86_64, sixteen on arm64) and every
+  // count of groups left over, with each padding; whole, and split mid-block.
+  @Test(arguments: [Int.max, 33, 5])
+  func `Every length decodes, across vector blocks and the groups after them`(chunk: Int) throws {
+    let bytes = (0..<400).map { UInt8(truncatingIfNeeded: $0 &* 167 &+ 13) }
+    for count in 0...bytes.count {
+      let expected = Array(bytes.prefix(count))
+      var value = StreamBase64Data()
+      try parsePartial(#""\#(base64(expected))""#, into: &value, chunk: chunk)
+      expectNoDifference(value.bytes, expected, "\(count) bytes")
+    }
+  }
+
+  // Inside a vector block, in the groups after the last one, and in a block a chunk boundary cuts:
+  // the vector tier hands the block back and the scalar loop finds the character. `\n` is the JSON
+  // escape, which reaches the decoder as a line feed.
+  @Test(arguments: ["=", "-", " ", "@", "\u{7F}", "é", #"\n"#])
+  func `A character outside the alphabet is rejected wherever it falls`(bad: String) {
+    let text = Array(base64((0..<255).map { UInt8($0) }).utf8)
+    // `=` in the last place is the padding of a three-character group.
+    for position in 0..<(bad == "=" ? text.count - 1 : text.count) {
+      var characters = text
+      characters.replaceSubrange(position...position, with: Array(bad.utf8))
+      let document = #""\#(String(decoding: characters, as: UTF8.self))""#
+      for chunk in [Int.max, 64] {
+        expectNoDifference(
+          streamFailureReason(document, as: StreamBase64Data.self, chunk: chunk),
+          .conversionFailed,
+          "\(bad.debugDescription) at \(position), chunk \(chunk)"
+        )
+      }
+    }
+  }
+
   @Test
   func `Bits the padding leaves over are dropped, as Foundation drops them`() throws {
     var value = StreamBase64Data()
@@ -126,9 +160,26 @@ struct `StreamBase64Data tests` {
     )
   }
 
+  // Standard, padded: what the decoder accepts. Independent of Foundation, so these tests run
+  // without the trait.
+  private func base64(_ bytes: [UInt8]) -> String {
+    let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
+    var text = [UInt8]()
+    for start in stride(from: 0, to: bytes.count, by: 3) {
+      let group = bytes[start..<min(start + 3, bytes.count)]
+      let word = group.enumerated().reduce(UInt32(0)) {
+        $0 | UInt32($1.element) << (16 - 8 * $1.offset)
+      }
+      for index in 0..<4 {
+        let sextet = Int(word >> (18 - 6 * index) & 63)
+        text.append(index <= group.count ? alphabet[sextet] : UInt8(ascii: "="))
+      }
+    }
+    return String(decoding: text, as: UTF8.self)
+  }
+
   #if Foundation && canImport(Foundation)
-    // Past one block of the bulk decoder (1,024 groups), with every byte value, against
-    // Foundation's encoder.
+    // Thousands of groups, with every byte value, against Foundation's encoder.
     @Test(arguments: [Int.max, 4_099, 1_000, 7, 1])
     func `A long payload decodes as Foundation encodes it`(chunk: Int) throws {
       let bytes = (0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 8) }

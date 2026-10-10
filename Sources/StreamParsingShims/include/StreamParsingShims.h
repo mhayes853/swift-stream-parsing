@@ -394,6 +394,68 @@ stream_parsing_classify_structural_block(
   out.needs_scalar = ((control & in_string) | (~accepted & ~in_string)) != 0;
   return out;
 }
+
+// MARK: - The base64 decoder's wide tier
+//
+// `StreamBase64Data`'s on arm64, the twin of `stream_parsing_base64_decode_avx2` (AVX2.c documents
+// Muła and Lemire's three tables): whole groups of four characters, sixteen at a time, until fewer
+// than sixteen remain or a block holds a byte outside the standard alphabet (`=` included); returns
+// how many it decoded, a multiple of sixteen. `vld4q_u8` splits 64 characters into one vector per
+// position in the group, so packing is three shift-ORs and `vst3q_u8` interleaves the 48 bytes back
+// -- exactly 48: unlike the AVX2 kernel, nothing is written past the last group. A first port, not
+// yet measured or tuned on arm64.
+
+#include <stddef.h>
+
+// Class bits per character, zero for every byte of the alphabet.
+STREAM_PARSING_SIMD_SHIM uint8x16_t
+stream_parsing_base64_classes_neon(uint8x16_t text) {
+  const uint8x16_t lut_lo = {
+    0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A
+  };
+  const uint8x16_t lut_hi = {
+    0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10
+  };
+  return vandq_u8(vqtbl1q_u8(lut_lo, vandq_u8(text, vdupq_n_u8(0x0F))),
+                  vqtbl1q_u8(lut_hi, vshrq_n_u8(text, 4)));
+}
+
+// Each character's sextet; garbage wherever its class bits are not zero.
+STREAM_PARSING_SIMD_SHIM uint8x16_t
+stream_parsing_base64_sextets_neon(uint8x16_t text) {
+  // '/' + 16, '+' + 19, '0' + 4, 'A' - 65, 'P' - 65, 'a' - 71, 'p' - 71, as unsigned bytes.
+  const uint8x16_t lut_roll = { 0, 16, 19, 4, 191, 191, 185, 185, 0, 0, 0, 0, 0, 0, 0, 0 };
+  // `/` shares row 2 with `+` and takes row 1's offset: the compare's 0xFF makes its index one lower.
+  const uint8x16_t index = vaddq_u8(vshrq_n_u8(text, 4), vceqq_u8(text, vdupq_n_u8('/')));
+  return vaddq_u8(text, vqtbl1q_u8(lut_roll, index));
+}
+
+STREAM_PARSING_SIMD_SHIM ptrdiff_t
+stream_parsing_base64_decode_neon(const void *source, ptrdiff_t groups, void *output) {
+  const uint8_t *text_bytes = (const uint8_t *)source;
+  uint8_t *decoded = (uint8_t *)output;
+  ptrdiff_t group = 0;
+  for (; group + 16 <= groups; group += 16) {
+    const uint8x16x4_t text = vld4q_u8(text_bytes + group * 4);
+    const uint8x16_t classes = vorrq_u8(
+      vorrq_u8(stream_parsing_base64_classes_neon(text.val[0]),
+               stream_parsing_base64_classes_neon(text.val[1])),
+      vorrq_u8(stream_parsing_base64_classes_neon(text.val[2]),
+               stream_parsing_base64_classes_neon(text.val[3])));
+    if (vmaxvq_u8(classes) != 0) break;
+
+    const uint8x16_t a = stream_parsing_base64_sextets_neon(text.val[0]);
+    const uint8x16_t b = stream_parsing_base64_sextets_neon(text.val[1]);
+    const uint8x16_t c = stream_parsing_base64_sextets_neon(text.val[2]);
+    const uint8x16_t d = stream_parsing_base64_sextets_neon(text.val[3]);
+    uint8x16x3_t bytes;
+    bytes.val[0] = vorrq_u8(vshlq_n_u8(a, 2), vshrq_n_u8(b, 4));
+    bytes.val[1] = vorrq_u8(vshlq_n_u8(b, 4), vshrq_n_u8(c, 2));
+    bytes.val[2] = vorrq_u8(vshlq_n_u8(c, 6), d);
+    vst3q_u8(decoded + group * 3, bytes);
+  }
+  return group;
+}
 #endif
 
 // MARK: - x86: the AVX2 tier
@@ -433,6 +495,13 @@ stream_parsing_skip_classes stream_parsing_classify_skip_block(
     const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
 stream_parsing_structural_classes stream_parsing_classify_structural_block(
     const uint8_t *p, uint64_t in_string_carry, uint64_t ends_odd_carry);
+
+// The base64 decoder's wide tier (`StreamBase64Data`): decodes whole groups of four characters from
+// `source`, eight at a time, until fewer than eight remain or a block of eight holds a byte outside
+// the standard alphabet (`=` included), and returns how many it decoded, a multiple of eight. The
+// caller decodes the rest. A block stores 32 bytes for its 24, so `output` needs room for 8 bytes
+// past the last group's three. Precondition: `stream_parsing_has_avx2()`.
+ptrdiff_t stream_parsing_base64_decode_avx2(const void *source, ptrdiff_t groups, void *output);
 
 #endif  // __x86_64__
 

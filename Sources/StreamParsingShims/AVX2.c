@@ -445,6 +445,78 @@ stream_parsing_classify_structural_block(
   return out;
 }
 
+// MARK: - x86: base64 decoding
+//
+// Muła and Lemire's decoder ("Faster Base64 Encoding and Decoding Using AVX2 Instructions", 2018),
+// as aklomp/base64 spells it: 32 characters, eight groups, a block.
+//
+// Validation: a byte's class is `lut_lo[low nibble] & lut_hi[high nibble]`, zero exactly for the
+// 64 alphabet bytes. `lut_hi` gives each high-nibble row one bit (2 -> 0x01, 3 -> 0x02, 4 and 6 ->
+// 0x04, 5 and 7 -> 0x08, every other row 0x10), and `lut_lo` sets a row's bit on the low nibbles
+// that row does not accept: row 2 accepts B and F (`+`, `/`), row 3 0-9, rows 4 and 6 1-F, rows 5
+// and 7 0-A. Every low nibble carries 0x10, so control bytes, `=` (row 3, D) and every byte >= 0x80
+// are rejected.
+//
+// Translation: a sextet is its character plus one offset per high nibble (`lut_roll`), save `/`,
+// which shares row 2 with `+` and takes row 1's offset instead: `(byte == '/')` is 0xFF there,
+// which the add turns into an index one lower.
+//
+// Packing: `vpmaddubsw` joins each pair of sextets into 12 bits and `vpmaddwd` each pair of those
+// into 24, big-endian within a little-endian dword; `vpshufb` reverses each dword's three bytes and
+// packs four dwords per 128-bit half, and `vpermd` closes the gap between the halves.
+//
+// One shared mask, 0x2F: `vpshufb` reads only bits 0-3 and 7 of an index, so masking with 0x2F
+// rather than 0x0F leaves bit 5 to be ignored, and the same constant is `/` for the compare. The
+// shift is 32-bit (there is no 8-bit one), so a byte's high-nibble index also holds bits from the
+// byte above it, in bits 4-7 -- of which the mask keeps bit 5, ignored too.
+//
+// Measured against the four-table scalar loop (C, i7-10710U): 5.6-5.8x on 12 and 96 KB decoded,
+// 4.5x on 1 MiB. Four blocks an iteration with one validity branch: 8% faster on 1 MiB, 6-7% slower
+// within L2, where every chunk of a streamed string lands; kept to one. NEW_ARCHITECTURE.md,
+// "`StreamBase64Data`", has the table.
+__attribute__((target("avx2"))) ptrdiff_t
+stream_parsing_base64_decode_avx2(const void *source, ptrdiff_t groups, void *output) {
+  const uint8_t *text_bytes = (const uint8_t *)source;
+  uint8_t *decoded = (uint8_t *)output;
+  const __m256i lut_lo = _mm256_setr_epi8(
+      0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A,
+      0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A);
+  const __m256i lut_hi = _mm256_setr_epi8(
+      0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+      0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
+  // '/' + 16, '+' + 19, '0' + 4, 'A' - 65, 'P' - 65, 'a' - 71, 'p' - 71.
+  const __m256i lut_roll = _mm256_setr_epi8(
+      0, 16, 19, 4, -65, -65, -71, -71, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 16, 19, 4, -65, -65, -71, -71, 0, 0, 0, 0, 0, 0, 0, 0);
+  const __m256i mask_2f = _mm256_set1_epi8(0x2F);
+  const __m256i pack_bytes = _mm256_setr_epi8(
+      2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, -1, -1, -1, -1,
+      2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, -1, -1, -1, -1);
+  // The last two dwords are the eight bytes past the block's 24, which the next block overwrites.
+  // Dwords 3 and 7 are the zeros `pack_bytes` left; naming them made Clang blend in a zero vector
+  // to match (one more instruction a block, 7-9% at L1 sizes), so these repeat dword 6 instead.
+  const __m256i pack_lanes = _mm256_setr_epi32(0, 1, 2, 4, 5, 6, 6, 6);
+
+  ptrdiff_t group = 0;
+  for (; group + 8 <= groups; group += 8) {
+    const __m256i text = _mm256_loadu_si256((const __m256i *)(text_bytes + group * 4));
+    const __m256i hi_nibbles = _mm256_and_si256(_mm256_srli_epi32(text, 4), mask_2f);
+    const __m256i lo = _mm256_shuffle_epi8(lut_lo, _mm256_and_si256(text, mask_2f));
+    const __m256i hi = _mm256_shuffle_epi8(lut_hi, hi_nibbles);
+    if (!_mm256_testz_si256(lo, hi)) break;
+
+    const __m256i roll = _mm256_shuffle_epi8(
+        lut_roll, _mm256_add_epi8(_mm256_cmpeq_epi8(text, mask_2f), hi_nibbles));
+    const __m256i sextets = _mm256_add_epi8(text, roll);
+    const __m256i pairs = _mm256_maddubs_epi16(sextets, _mm256_set1_epi32(0x01400140));
+    const __m256i triples = _mm256_madd_epi16(pairs, _mm256_set1_epi32(0x00011000));
+    const __m256i packed =
+        _mm256_permutevar8x32_epi32(_mm256_shuffle_epi8(triples, pack_bytes), pack_lanes);
+    _mm256_storeu_si256((__m256i *)(decoded + group * 3), packed);
+  }
+  return group;
+}
+
 // MARK: - x86: feature detection
 //
 // `cpuid` by hand, not `__builtin_cpu_supports`: that builtin needs compiler-runtime symbols the
