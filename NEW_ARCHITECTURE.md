@@ -8768,22 +8768,22 @@ takes whole blocks of groups before the scalar loop: eight groups (32 characters
 AVX2, out of line in `AVX2.c` behind `streamHasAVX2`, and sixteen (64) with NEON, inline from
 `StreamParsingShims.h`. A byte's class is two nibble lookups ANDed, zero only for the alphabet; a
 block holding anything else, `=` included, goes back whole, and the scalar loop decodes up to the
-group that holds it. So the kernels need no tail and no error position, and the scalar loop stays
-the one definition of what is accepted. Translation adds an offset per high nibble (`/` borrows
+group that holds it. So the kernels need no error position, and the scalar loop stays the one
+definition of what is accepted. Both now end a run with one overlapping block instead of handing the
+last few groups to the scalar loop ("On arm64" below). Translation adds an offset per high nibble (`/` borrows
 row 1's through the compare). `AVX2.c` documents the tables.
 
 - **AVX2** packs with `vpmaddubsw`, `vpmaddwd`, `vpshufb` and `vpermd`, then stores 32 bytes for the
   block's 24, so `decodeRun`'s output needs 8 bytes of slack past the last group (`outputSlack`),
   not 1. Its `vpermd` indices repeat dword 6 in the two don't-care lanes: naming dwords 3 and 7, the
   zeros the byte shuffle left, made Clang blend in a zero vector to match, one more instruction per
-  block (measured below).
-- **NEON** splits 64 characters by position in the group with `vld4q_u8`, so after the same
-  classification and translation (twelve `tbl`s a block) packing is three shift-ORs and
-  `vst3q_u8`: 57 instructions per 64 characters, every table in a register, nothing written past
-  the last group. A first port, checked from this box only: the C kernel against the scalar loop
-  under qemu-aarch64 (every length to 1,000 groups; all 256 byte values at each of the first 200
-  positions), and `StreamParsingCore` compiled for aarch64 with the loop inlined. Not yet measured
-  or tuned on ARM.
+  block (measured below). The overlapping last block lands its 8 extra bytes past the last group
+  too, inside the same slack.
+- **NEON** splits 64 characters by position in the group with `vld4q_u8`, so packing is a few
+  shifts and `vst3q_u8`, nothing written past the last group. The first port used the same
+  classification and translation (twelve `tbl`s a block, 57 instructions per 64 characters) and was
+  checked from an x86_64 box only, under qemu-aarch64. It has since been measured and replaced on
+  an M1 Pro: see "On arm64" below.
 - **The output.** Five times faster decoding left the staging copy visible: 5.6% of the
   per-1400B row. Every chunk now decodes straight into the array's spare capacity: a private
   `Sequence` whose `_copyContents(initializing:)` runs `decodeRun` on the buffer
@@ -8821,3 +8821,80 @@ instruction-identical. Real-world rows (measured with the staged variant, which 
 final one only in those functions): Twitter +0.1%, Twitter full −0.2%, GSoC −0.1%, LLM message
 +1.2%, LLM snapshot per 1400B +0.5%, Canada +0.3%. `Layer Twitter bulk - stream` is bimodal per
 process (about 445 or 600 µs) on both builds.
+
+### On arm64
+
+The first NEON port, measured on an M1 Pro, ran 13.7 GB/s of text on the kernel alone, and the
+`vld4q_u8`/`vst3q_u8` pair was not what held it there: a loop of the load and store with one OR
+between them runs 51 GB/s. The kernel is bound by SIMD issue, so what counts is instructions on the
+four vector pipes, and Firestorm prices `tbl` by table width in a way x86's `vpshufb` has no
+counterpart for (back-to-back independent instructions, cycles each at 3.2 GHz):
+
+| instruction | cycles |
+|---|---:|
+| `add`, `sli`, one- and two-register `tbl`, one-register `tbx` | 0.26 |
+| three-register `tbl` | 0.51 |
+| four-register `tbl` | 0.78 |
+| four-register `tbx` | 1.04 |
+
+A 32-byte table costs what a 16-byte one does. So the tables are indexed by `text >> 2`: 32
+buckets of four bytes cover 0–127, and within every bucket the alphabet's characters share one
+offset to their sextets (`+` and `/` fall in buckets of their own, so the `/` compare goes). The
+same shift indexes a second table holding, per bucket, a bit for each of its four bytes that is in
+the alphabet, tested against `1 << (text & 3)`; a byte of 128 or more indexes past both tables and
+reads zero, so it has no valid bit. Seven instructions a vector against nine. Packing became two
+shifts and three `sli`s, which need no masking once every sextet is known to be below 64.
+
+Kernels alone, decoding into a preallocated buffer (C harness, MB/s of text, best of 15):
+
+| kernel | 1.4 KB | 16 KB | 128 KB | 1.4 MB |
+|---|---:|---:|---:|---:|
+| first port: nibble classes, `/` compare, shift-OR packing | 14,237 | 13,661 | 13,664 | 13,689 |
+| the same with `sli` packing | 14,913 | 14,330 | 14,373 | 14,387 |
+| `text >> 2` buckets and `sli` packing | **17,244** | **16,535** | **16,536** | **16,632** |
+| the same, two blocks an iteration, one validity branch | 17,181 | 16,727 | 16,779 | 16,811 |
+| 128-entry `tbl`/`tbx` lookup (aklomp/base64's NEON64) | 14,740 | 14,133 | 14,152 | 14,139 |
+| the load and store alone | 53,163 | 50,806 | 51,525 | 51,627 |
+
+Two blocks an iteration are 1% faster past 16 KB and slower at a 1.4 KB chunk, and would hand back
+128 characters instead of 64 on a rejection; not taken. The 128-entry lookup is aklomp's choice and
+loses here because it is all four-register `tbl` and `tbx`. Validation reduces with `uminv`, 1.7%
+faster than `umaxp` and an `fmov`.
+
+One more block covers what is left of a chunk: when fewer than sixteen groups remain after at
+least sixteen, a block ending at the last group decodes again groups already decoded, writing the
+same bytes, so the scalar loop sees only a rejected block's groups and runs of fewer than sixteen.
+Streamed in 1400-byte chunks, about 7 groups a chunk had gone to it.
+
+The loop is 49 instructions and the `ld4` per 64 characters, every table in a register. It was
+checked against a scalar reference with every byte value at each of the first 260 positions (C
+harness), and the Swift rejection test now includes `*`, `.`, `:`, `[`, `` ` `` and `{`, the
+characters that share a bucket with the alphabet.
+
+`Base64 1MiB` rows, M1 Pro, three interleaved rounds of prebuilt binaries, median wall p50:
+
+| row | first port (29d438cc) | buckets + `sli` | + tail block |
+|---|---:|---:|---:|
+| `StreamBase64Data` bulk | 162.3 µs | 143.6 µs | **143.9 µs** (9,716 MB/s) |
+| `StreamBase64Data` per 1400B | 249.6 µs | 233.2 µs | **227.3 µs** (6,151 MB/s) |
+| `StreamString` keeping the text, bulk | 106.6 µs | 106.8 µs | 105.9 µs |
+
+Bulk +12.8%, per 1400B +9.8%. Only `_copyContents` changed (122 → 158 instructions, both loops
+inlined); everything else in the benchmark binary is opcode-identical, the parser functions
+differing only in literal-pool displacements. Real-world rows within −0.7..+2.5% at p50 and
+−0.0..+0.8% at p0 (Twitter, Twitter escaped/spaced/full, Canada, CITM, GSoC, GitHub, LLM message,
+Mesh, Qwen 3), raw and typed.
+
+The AVX2 kernel took the same last block afterwards: fewer than eight groups left after at least
+eight, one block ending at the last group. Its loop is unchanged (the same 23 instructions, registers
+renumbered) and the tail is one straight-line block after it, constants as memory operands. It was
+checked under Rosetta (`ROSETTA_ADVERTISE_AVX=1`) against a scalar reference: 0–99 groups, every
+invalid class at every position, writes past the 8 bytes of slack trapped; a copy placing the block
+one group late fails it. It is not measured: there is no x86 machine here, and Rosetta timings swing
+±15% on identical code. At most seven groups ever went to the scalar loop per chunk on x86, against
+fifteen with NEON, so expect less than NEON's 2.6%.
+
+Where the bulk row goes now, by Time Profiler self time: the kernel about half, the parser's scan
+of the string (`streamStringRun` and its ASCII check) about a third. The two run one after the
+other over the same 1.4 MB: skipping the member unread takes 56 µs, decoding text already in cache
+about 85. Streamed in 1400-byte chunks, `memmove` from the array's doublings is another 11.5%.

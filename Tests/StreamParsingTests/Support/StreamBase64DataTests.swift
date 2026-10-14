@@ -77,8 +77,9 @@ struct `StreamBase64Data tests` {
 
   // Inside a vector block, in the groups after the last one, and in a block a chunk boundary cuts:
   // the vector tier hands the block back and the scalar loop finds the character. `\n` is the JSON
-  // escape, which reaches the decoder as a line feed.
-  @Test(arguments: ["=", "-", " ", "@", "\u{7F}", "é", #"\n"#])
+  // escape, which reaches the decoder as a line feed. `*`, `.`, `:`, `[`, `` ` `` and `{` each share
+  // a four-byte bucket of arm64's lookup with characters of the alphabet.
+  @Test(arguments: ["=", "-", " ", "@", "\u{7F}", "é", #"\n"#, "*", ".", ":", "[", "`", "{"])
   func `A character outside the alphabet is rejected wherever it falls`(bad: String) {
     let text = Array(base64((0..<255).map { UInt8($0) }).utf8)
     // `=` in the last place is the padding of a three-character group.

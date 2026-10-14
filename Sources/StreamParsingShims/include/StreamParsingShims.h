@@ -397,37 +397,68 @@ stream_parsing_classify_structural_block(
 
 // MARK: - The base64 decoder's wide tier
 //
-// `StreamBase64Data`'s on arm64, the twin of `stream_parsing_base64_decode_avx2` (AVX2.c documents
-// Muła and Lemire's three tables): whole groups of four characters, sixteen at a time, until fewer
-// than sixteen remain or a block holds a byte outside the standard alphabet (`=` included); returns
-// how many it decoded, a multiple of sixteen. `vld4q_u8` splits 64 characters into one vector per
-// position in the group, so packing is three shift-ORs and `vst3q_u8` interleaves the 48 bytes back
-// -- exactly 48: unlike the AVX2 kernel, nothing is written past the last group. A first port, not
-// yet measured or tuned on arm64.
+// `StreamBase64Data`'s on arm64, the twin of `stream_parsing_base64_decode_avx2`: whole groups of
+// four characters, sixteen at a time, until fewer than sixteen remain or a block holds a byte outside
+// the standard alphabet (`=` included); returns how many it decoded: a multiple of sixteen, or all of
+// them when a last, overlapping block covers the remainder.
+// `vld4q_u8` splits 64 characters into one vector per position in the group, so packing is two
+// shifts and three shift-inserts, and `vst3q_u8` interleaves the 48 bytes back -- exactly 48: unlike
+// the AVX2 kernel, nothing is written past the last group.
+//
+// Not Muła and Lemire's nibble classification, which AVX2.c uses: on Firestorm a two-register `tbl`
+// issues as fast as a one-register `tbl` (four a cycle; three- and four-register ones at half and a
+// third of that), so the tables are indexed by `text >> 2`, 32 buckets of four bytes covering 0-127.
+// Every bucket's alphabet characters share one offset to their sextets (`/` and `+` land in buckets
+// of their own), which drops the AVX2 kernel's `/` compare, and one shift indexes both the offset and
+// the bucket's mask of which of its four bytes are in the alphabet. A byte >= 128 indexes past both
+// tables and reads zero: no offset, no valid bytes. Seven instructions a vector against nine; the
+// kernel is bound by SIMD issue, 16.5 against 13.7 GB/s of text on an M1 Pro (NEW_ARCHITECTURE.md,
+// "`StreamBase64Data`").
 
 #include <stddef.h>
 
-// Class bits per character, zero for every byte of the alphabet.
+// Each character's sextet, garbage outside the alphabet, and through `valid` nonzero exactly where
+// the character is in the alphabet.
 STREAM_PARSING_SIMD_SHIM uint8x16_t
-stream_parsing_base64_classes_neon(uint8x16_t text) {
-  const uint8x16_t lut_lo = {
-    0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A
-  };
-  const uint8x16_t lut_hi = {
-    0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10
-  };
-  return vandq_u8(vqtbl1q_u8(lut_lo, vandq_u8(text, vdupq_n_u8(0x0F))),
-                  vqtbl1q_u8(lut_hi, vshrq_n_u8(text, 4)));
+stream_parsing_base64_sextets_neon(uint8x16_t text, uint8x16_t *valid) {
+  // Per bucket, sextet minus character as an unsigned byte: `+` 19, `/` 16, digits 4, `A`-`Z` -65,
+  // `a`-`z` -71.
+  const uint8x16x2_t offsets = {{
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 16, 4, 4, 4, 0 },
+    { 191, 191, 191, 191, 191, 191, 191, 0, 185, 185, 185, 185, 185, 185, 185, 0 },
+  }};
+  // Per bucket, bit `text & 3` set for each byte of the alphabet.
+  const uint8x16x2_t members = {{
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x8, 0x8, 0xF, 0xF, 0x3, 0 },
+    { 0xE, 0xF, 0xF, 0xF, 0xF, 0xF, 0x7, 0, 0xE, 0xF, 0xF, 0xF, 0xF, 0xF, 0x7, 0 },
+  }};
+  const uint8x16_t bits = { 1, 2, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  const uint8x16_t bucket = vshrq_n_u8(text, 2);
+  *valid = vandq_u8(vqtbl2q_u8(members, bucket),
+                    vqtbl1q_u8(bits, vandq_u8(text, vdupq_n_u8(3))));
+  return vaddq_u8(text, vqtbl2q_u8(offsets, bucket));
 }
 
-// Each character's sextet; garbage wherever its class bits are not zero.
-STREAM_PARSING_SIMD_SHIM uint8x16_t
-stream_parsing_base64_sextets_neon(uint8x16_t text) {
-  // '/' + 16, '+' + 19, '0' + 4, 'A' - 65, 'P' - 65, 'a' - 71, 'p' - 71, as unsigned bytes.
-  const uint8x16_t lut_roll = { 0, 16, 19, 4, 191, 191, 185, 185, 0, 0, 0, 0, 0, 0, 0, 0 };
-  // `/` shares row 2 with `+` and takes row 1's offset: the compare's 0xFF makes its index one lower.
-  const uint8x16_t index = vaddq_u8(vshrq_n_u8(text, 4), vceqq_u8(text, vdupq_n_u8('/')));
-  return vaddq_u8(text, vqtbl1q_u8(lut_roll, index));
+// One block: 64 characters to 48 bytes, or 0, writing nothing, if any character is outside the
+// alphabet.
+STREAM_PARSING_SIMD_SHIM int
+stream_parsing_base64_block_neon(const uint8_t *text_bytes, uint8_t *decoded) {
+  const uint8x16x4_t text = vld4q_u8(text_bytes);
+  uint8x16_t valid_a, valid_b, valid_c, valid_d;
+  const uint8x16_t a = stream_parsing_base64_sextets_neon(text.val[0], &valid_a);
+  const uint8x16_t b = stream_parsing_base64_sextets_neon(text.val[1], &valid_b);
+  const uint8x16_t c = stream_parsing_base64_sextets_neon(text.val[2], &valid_c);
+  const uint8x16_t d = stream_parsing_base64_sextets_neon(text.val[3], &valid_d);
+  if (vminvq_u8(vminq_u8(vminq_u8(valid_a, valid_b), vminq_u8(valid_c, valid_d))) == 0) return 0;
+
+  // Every sextet is below 64 here, so a shift-insert needs no masking: `sli` keeps the
+  // destination's bits below the shift. 5% over shift-shift-OR.
+  uint8x16x3_t bytes;
+  bytes.val[0] = vsliq_n_u8(vshrq_n_u8(b, 4), a, 2);
+  bytes.val[1] = vsliq_n_u8(vshrq_n_u8(c, 2), b, 4);
+  bytes.val[2] = vsliq_n_u8(d, c, 6);
+  vst3q_u8(decoded, bytes);
+  return 1;
 }
 
 STREAM_PARSING_SIMD_SHIM ptrdiff_t
@@ -436,23 +467,13 @@ stream_parsing_base64_decode_neon(const void *source, ptrdiff_t groups, void *ou
   uint8_t *decoded = (uint8_t *)output;
   ptrdiff_t group = 0;
   for (; group + 16 <= groups; group += 16) {
-    const uint8x16x4_t text = vld4q_u8(text_bytes + group * 4);
-    const uint8x16_t classes = vorrq_u8(
-      vorrq_u8(stream_parsing_base64_classes_neon(text.val[0]),
-               stream_parsing_base64_classes_neon(text.val[1])),
-      vorrq_u8(stream_parsing_base64_classes_neon(text.val[2]),
-               stream_parsing_base64_classes_neon(text.val[3])));
-    if (vmaxvq_u8(classes) != 0) break;
-
-    const uint8x16_t a = stream_parsing_base64_sextets_neon(text.val[0]);
-    const uint8x16_t b = stream_parsing_base64_sextets_neon(text.val[1]);
-    const uint8x16_t c = stream_parsing_base64_sextets_neon(text.val[2]);
-    const uint8x16_t d = stream_parsing_base64_sextets_neon(text.val[3]);
-    uint8x16x3_t bytes;
-    bytes.val[0] = vorrq_u8(vshlq_n_u8(a, 2), vshrq_n_u8(b, 4));
-    bytes.val[1] = vorrq_u8(vshlq_n_u8(b, 4), vshrq_n_u8(c, 2));
-    bytes.val[2] = vorrq_u8(vshlq_n_u8(c, 6), d);
-    vst3q_u8(decoded + group * 3, bytes);
+    if (!stream_parsing_base64_block_neon(text_bytes + group * 4, decoded + group * 3)) return group;
+  }
+  // Fewer than sixteen left: one more block ending at the last group, overlapping groups already
+  // decoded, which it rewrites with the same bytes.
+  if (group < groups && groups >= 16 &&
+      stream_parsing_base64_block_neon(text_bytes + (groups - 16) * 4, decoded + (groups - 16) * 3)) {
+    return groups;
   }
   return group;
 }
@@ -498,9 +519,10 @@ stream_parsing_structural_classes stream_parsing_classify_structural_block(
 
 // The base64 decoder's wide tier (`StreamBase64Data`): decodes whole groups of four characters from
 // `source`, eight at a time, until fewer than eight remain or a block of eight holds a byte outside
-// the standard alphabet (`=` included), and returns how many it decoded, a multiple of eight. The
-// caller decodes the rest. A block stores 32 bytes for its 24, so `output` needs room for 8 bytes
-// past the last group's three. Precondition: `stream_parsing_has_avx2()`.
+// the standard alphabet (`=` included), and returns how many it decoded: a multiple of eight, or all
+// of them when a last, overlapping block covers the remainder. The caller decodes the rest. A block
+// stores 32 bytes for its 24, so `output` needs room for 8 bytes past the last group's three.
+// Precondition: `stream_parsing_has_avx2()`.
 ptrdiff_t stream_parsing_base64_decode_avx2(const void *source, ptrdiff_t groups, void *output);
 
 #endif  // __x86_64__

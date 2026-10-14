@@ -474,45 +474,70 @@ stream_parsing_classify_structural_block(
 // 4.5x on 1 MiB. Four blocks an iteration with one validity branch: 8% faster on 1 MiB, 6-7% slower
 // within L2, where every chunk of a streamed string lands; kept to one. NEW_ARCHITECTURE.md,
 // "`StreamBase64Data`", has the table.
+// The tables and shuffles, built once per call and passed to every block.
+typedef struct {
+  __m256i lut_lo, lut_hi, lut_roll, mask_2f, pack_bytes, pack_lanes;
+} stream_parsing_base64_avx2_constants;
+
+// One block: 32 characters to 24 bytes stored as 32, or 0, writing nothing, if any character is
+// outside the alphabet. Inlined into the kernel below, which shares its target.
+static inline __attribute__((target("avx2"), always_inline)) int
+stream_parsing_base64_block_avx2(const uint8_t *text_bytes, uint8_t *decoded,
+                                 const stream_parsing_base64_avx2_constants *k) {
+  const __m256i text = _mm256_loadu_si256((const __m256i *)text_bytes);
+  const __m256i hi_nibbles = _mm256_and_si256(_mm256_srli_epi32(text, 4), k->mask_2f);
+  const __m256i lo = _mm256_shuffle_epi8(k->lut_lo, _mm256_and_si256(text, k->mask_2f));
+  const __m256i hi = _mm256_shuffle_epi8(k->lut_hi, hi_nibbles);
+  if (!_mm256_testz_si256(lo, hi)) return 0;
+
+  const __m256i roll = _mm256_shuffle_epi8(
+      k->lut_roll, _mm256_add_epi8(_mm256_cmpeq_epi8(text, k->mask_2f), hi_nibbles));
+  const __m256i sextets = _mm256_add_epi8(text, roll);
+  const __m256i pairs = _mm256_maddubs_epi16(sextets, _mm256_set1_epi32(0x01400140));
+  const __m256i triples = _mm256_madd_epi16(pairs, _mm256_set1_epi32(0x00011000));
+  const __m256i packed =
+      _mm256_permutevar8x32_epi32(_mm256_shuffle_epi8(triples, k->pack_bytes), k->pack_lanes);
+  _mm256_storeu_si256((__m256i *)decoded, packed);
+  return 1;
+}
+
 __attribute__((target("avx2"))) ptrdiff_t
 stream_parsing_base64_decode_avx2(const void *source, ptrdiff_t groups, void *output) {
   const uint8_t *text_bytes = (const uint8_t *)source;
   uint8_t *decoded = (uint8_t *)output;
-  const __m256i lut_lo = _mm256_setr_epi8(
+  stream_parsing_base64_avx2_constants k;
+  k.lut_lo = _mm256_setr_epi8(
       0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A,
       0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A);
-  const __m256i lut_hi = _mm256_setr_epi8(
+  k.lut_hi = _mm256_setr_epi8(
       0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
       0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
   // '/' + 16, '+' + 19, '0' + 4, 'A' - 65, 'P' - 65, 'a' - 71, 'p' - 71.
-  const __m256i lut_roll = _mm256_setr_epi8(
+  k.lut_roll = _mm256_setr_epi8(
       0, 16, 19, 4, -65, -65, -71, -71, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 16, 19, 4, -65, -65, -71, -71, 0, 0, 0, 0, 0, 0, 0, 0);
-  const __m256i mask_2f = _mm256_set1_epi8(0x2F);
-  const __m256i pack_bytes = _mm256_setr_epi8(
+  k.mask_2f = _mm256_set1_epi8(0x2F);
+  k.pack_bytes = _mm256_setr_epi8(
       2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, -1, -1, -1, -1,
       2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, -1, -1, -1, -1);
   // The last two dwords are the eight bytes past the block's 24, which the next block overwrites.
   // Dwords 3 and 7 are the zeros `pack_bytes` left; naming them made Clang blend in a zero vector
   // to match (one more instruction a block, 7-9% at L1 sizes), so these repeat dword 6 instead.
-  const __m256i pack_lanes = _mm256_setr_epi32(0, 1, 2, 4, 5, 6, 6, 6);
+  k.pack_lanes = _mm256_setr_epi32(0, 1, 2, 4, 5, 6, 6, 6);
 
   ptrdiff_t group = 0;
   for (; group + 8 <= groups; group += 8) {
-    const __m256i text = _mm256_loadu_si256((const __m256i *)(text_bytes + group * 4));
-    const __m256i hi_nibbles = _mm256_and_si256(_mm256_srli_epi32(text, 4), mask_2f);
-    const __m256i lo = _mm256_shuffle_epi8(lut_lo, _mm256_and_si256(text, mask_2f));
-    const __m256i hi = _mm256_shuffle_epi8(lut_hi, hi_nibbles);
-    if (!_mm256_testz_si256(lo, hi)) break;
-
-    const __m256i roll = _mm256_shuffle_epi8(
-        lut_roll, _mm256_add_epi8(_mm256_cmpeq_epi8(text, mask_2f), hi_nibbles));
-    const __m256i sextets = _mm256_add_epi8(text, roll);
-    const __m256i pairs = _mm256_maddubs_epi16(sextets, _mm256_set1_epi32(0x01400140));
-    const __m256i triples = _mm256_madd_epi16(pairs, _mm256_set1_epi32(0x00011000));
-    const __m256i packed =
-        _mm256_permutevar8x32_epi32(_mm256_shuffle_epi8(triples, pack_bytes), pack_lanes);
-    _mm256_storeu_si256((__m256i *)(decoded + group * 3), packed);
+    if (!stream_parsing_base64_block_avx2(text_bytes + group * 4, decoded + group * 3, &k)) {
+      return group;
+    }
+  }
+  // Fewer than eight left: one more block ending at the last group, overlapping groups already
+  // decoded, which it rewrites with the same bytes. Its eight bytes past the 24 land past the last
+  // group, inside the slack the contract already asks for.
+  if (group < groups && groups >= 8 &&
+      stream_parsing_base64_block_avx2(text_bytes + (groups - 8) * 4, decoded + (groups - 8) * 3,
+                                       &k)) {
+    return groups;
   }
   return group;
 }
