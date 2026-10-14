@@ -27,7 +27,7 @@ struct `StreamBase64Data tests` {
     for vector in Self.vectors {
       var value = StreamBase64Data()
       try parsePartial(#""\#(vector.text)""#, into: &value, chunk: chunk)
-      expectNoDifference(value.bytes, Array(vector.decoded.utf8), "\(vector.text)")
+      expectNoDifference(Array(value.bytes), Array(vector.decoded.utf8), "\(vector.text)")
       expectNoDifference(StreamBase64Data(streamPartial: value), StreamBase64Data(vector.decoded.utf8))
     }
   }
@@ -41,7 +41,7 @@ struct `StreamBase64Data tests` {
     var seen = [String]()
     for character in "Zm9vYmE=".utf8 {
       try stream.next(character)
-      seen.append(String(decoding: stream.current.bytes, as: UTF8.self))
+      seen.append(String(decoding: Array(stream.current.bytes), as: UTF8.self))
     }
     expectNoDifference(seen, ["", "", "", "foo", "foo", "foo", "foo", "fooba"])
   }
@@ -71,7 +71,7 @@ struct `StreamBase64Data tests` {
       let expected = Array(bytes.prefix(count))
       var value = StreamBase64Data()
       try parsePartial(#""\#(base64(expected))""#, into: &value, chunk: chunk)
-      expectNoDifference(value.bytes, expected, "\(count) bytes")
+      expectNoDifference(Array(value.bytes), expected, "\(count) bytes")
     }
   }
 
@@ -97,11 +97,42 @@ struct `StreamBase64Data tests` {
     }
   }
 
+  // A copy, and a `bytes` view, keep the bytes they were taken with while the value goes on
+  // decoding into storage of its own, a group at a time and a block at a time.
+  @Test
+  func `Copies keep their bytes while the value goes on decoding`() throws {
+    var stream = PartialsStream<StreamBase64Data>(from: .json())
+    try stream.next(Array(#""Zm9v"#.utf8))
+    let copy = stream.current
+    let view = stream.current.bytes
+    try stream.next(Array("YmFy".utf8))
+    let longer = stream.current
+    try stream.next(Array(String(repeating: "Zm9v", count: 40).utf8))
+    try stream.next(Array(#"""#.utf8))
+    let finished = try stream.finish()
+
+    expectNoDifference(Array(copy.bytes), Array("foo".utf8))
+    expectNoDifference(Array(view), Array("foo".utf8))
+    expectNoDifference(Array(longer.bytes), Array("foobar".utf8))
+    expectNoDifference(
+      Array(finished.bytes), Array(("foobar" + String(repeating: "foo", count: 40)).utf8)
+    )
+  }
+
+  // Past a few tens of KiB the storage grows in place (`realloc`), streamed or whole.
+  @Test(arguments: [Int.max, 1_400])
+  func `A value of hundreds of KiB decodes`(chunk: Int) throws {
+    let bytes = (0..<300_000).map { UInt8(truncatingIfNeeded: $0 &* 131 &+ $0 >> 9) }
+    var value = StreamBase64Data()
+    try parsePartial(#""\#(base64(bytes))""#, into: &value, chunk: chunk)
+    #expect(Array(value.bytes) == bytes)
+  }
+
   @Test
   func `Bits the padding leaves over are dropped, as Foundation drops them`() throws {
     var value = StreamBase64Data()
     try parsePartial(#""Zh==""#, into: &value)
-    expectNoDifference(value.bytes, Array("f".utf8))
+    expectNoDifference(Array(value.bytes), Array("f".utf8))
   }
 
   // Without its padding a string ends inside a group, which only the lenient conversion accepts.
@@ -112,7 +143,7 @@ struct `StreamBase64Data tests` {
     let partial = try stream.finishPartial()
 
     expectNoDifference(StreamBase64Data(streamPartial: partial), nil)
-    expectNoDifference(StreamBase64Data(orInitial: partial).bytes, Array("foo".utf8))
+    expectNoDifference(Array(StreamBase64Data(orInitial: partial).bytes), Array("foo".utf8))
 
     var model = PartialsStream<StreamBase64Data>(from: .json())
     try model.next(Array(#""Zm9vYg""#.utf8))
@@ -186,7 +217,7 @@ struct `StreamBase64Data tests` {
       let bytes = (0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 8) }
       var value = StreamBase64Data()
       try parsePartial(#""\#(Data(bytes).base64EncodedString())""#, into: &value, chunk: chunk)
-      expectNoDifference(value.bytes, bytes)
+      expectNoDifference(Array(value.bytes), bytes)
       expectNoDifference(value.data, Data(bytes))
     }
 

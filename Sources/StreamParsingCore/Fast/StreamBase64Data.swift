@@ -1,5 +1,21 @@
 import StreamParsingShims
 
+// `realloc` and `free` for `Storage`. Not gated on Embedded as `StreamLock`'s imports are: the type
+// runs there, and the Embedded (wasm) smoke reaches it.
+#if canImport(Darwin)
+  import Darwin
+#elseif canImport(Glibc)
+  import Glibc
+#elseif canImport(Musl)
+  import Musl
+#elseif canImport(Android)
+  import Android
+#elseif canImport(WASILibc)
+  import WASILibc
+#elseif canImport(WinSDK)
+  import WinSDK
+#endif
+
 /// Binary data a JSON string carries as base64, decoded while the string streams in.
 ///
 /// A string parses into `Data` as the UTF-8 bytes of its own text. Declare a member as
@@ -15,7 +31,7 @@ import StreamParsingShims
 ///
 /// // {"name": "logo.png", "contents": "iVBORw0KGgoAAAANSUhEUgAA..."}
 /// let attachment = try stream.finish()
-/// let png = attachment.contents.bytes
+/// let png = Array(attachment.contents.bytes)
 /// ```
 ///
 /// The string must be standard base64 (RFC 4648, section 4) with its `=` padding, as
@@ -28,12 +44,14 @@ import StreamParsingShims
 /// ``StreamParsingError/incompleteValue`` for a string that ended inside a group, an unpadded
 /// one included. ``init(orInitial:)`` keeps ``bytes`` and drops them. Equality and hashing
 /// compare ``bytes`` alone.
-public struct StreamBase64Data: Sendable {
+public struct StreamBase64Data {
   // Every stored property takes its declared default and `init()` assigns nothing, so opening a
   // member is a run of stores: see NEW_ARCHITECTURE.md, "The initialiser trap".
 
-  /// The decoded bytes.
-  public private(set) var bytes: [UInt8] = []
+  // The decoded bytes, nil until there are any. Shared by copies of the value, and by ``bytes``,
+  // until one appends: the append copies first unless this reference is the only one, as
+  // `Array`'s does.
+  @usableFromInline var storage: Storage? = nil
 
   // The unfinished group's sextets, the latest in the low six bits, and how many (0 ... 3).
   private var pendingBits: UInt32 = 0
@@ -57,7 +75,135 @@ public struct StreamBase64Data: Sendable {
 
   /// Creates a value holding `bytes`, which are already decoded.
   public init(_ bytes: some Sequence<UInt8>) {
-    self.bytes = Array(bytes)
+    let bytes = ContiguousArray(bytes)
+    guard !bytes.isEmpty else { return }
+    let storage = Storage.make(capacity: bytes.count)
+    bytes.withUnsafeBufferPointer {
+      storage.base.update(from: $0.baseAddress.unsafelyUnwrapped, count: $0.count)
+    }
+    storage.count = bytes.count
+    self.storage = storage
+  }
+
+  // MARK: Storage
+
+  // A value streamed in chunks grows by doubling, and an `Array` takes every doubling into a fresh
+  // allocation, copying what it holds and faulting in the new pages: those copies were 11.5% of the
+  // per-1400B row. Here the first bytes live in the storage object's own tail, so a string that
+  // arrives whole costs one allocation, as an array's does; the first growth moves them to a
+  // block of their own, which every later one `realloc`s. Past a few tens of KiB Darwin's
+  // allocator grows a block in place wherever the address space beside it is free (glibc remaps
+  // it), so most doublings copy nothing: per 1400B -13.8%. See NEW_ARCHITECTURE.md, "The storage".
+  @usableFromInline
+  struct StorageHeader {
+    // The storage's own tail until the bytes first outgrow it, then a block from `realloc`.
+    @usableFromInline var base: UnsafeMutablePointer<UInt8>
+    @usableFromInline var count: Int
+    @usableFromInline var capacity: Int
+
+    @usableFromInline
+    init(base: UnsafeMutablePointer<UInt8>, count: Int, capacity: Int) {
+      self.base = base
+      self.count = count
+      self.capacity = capacity
+    }
+  }
+
+  // Only ever written while the one reference to it is the value appending.
+  @usableFromInline
+  final class Storage: ManagedBuffer<StorageHeader, UInt8> {
+    static func make(capacity: Int) -> Storage {
+      let buffer = Self.create(minimumCapacity: capacity) { buffer in
+        StorageHeader(
+          base: buffer.withUnsafeMutablePointerToElements { $0 }, count: 0, capacity: capacity
+        )
+      }
+      return unsafeDowncast(buffer, to: Storage.self)
+    }
+
+    deinit {
+      let base = self.headerPointer.pointee.base
+      if base != self.tail { free(base) }
+    }
+
+    // Through the pointer, not `ManagedBuffer.header`, whose accesses are checked for exclusivity
+    // at run time: see `StreamBlock.headerPointer`.
+    @inlinable
+    var headerPointer: UnsafeMutablePointer<StorageHeader> {
+      self.withUnsafeMutablePointerToHeader { $0 }
+    }
+
+    var tail: UnsafeMutablePointer<UInt8> {
+      self.withUnsafeMutablePointerToElements { $0 }
+    }
+
+    @inlinable
+    var base: UnsafeMutablePointer<UInt8> { self.headerPointer.pointee.base }
+
+    @inlinable
+    var count: Int {
+      get { self.headerPointer.pointee.count }
+      set { self.headerPointer.pointee.count = newValue }
+    }
+
+    // Not `capacity`: `ManagedBuffer` owns that name for its `malloc_size` read.
+    var byteCapacity: Int { self.headerPointer.pointee.capacity }
+
+    // Room for `capacity` bytes, keeping those written: out of the tail into a block, or the
+    // block `realloc`ed.
+    func reallocate(capacity: Int) {
+      let header = self.headerPointer
+      let block = realloc(
+        header.pointee.base == self.tail ? nil : header.pointee.base, capacity
+      )
+      guard let block = block?.bindMemory(to: UInt8.self, capacity: capacity) else {
+        fatalError("StreamBase64Data: out of memory")
+      }
+      if header.pointee.base == self.tail {
+        block.update(from: self.tail, count: header.pointee.count)
+      }
+      header.pointee.base = block
+      header.pointee.capacity = capacity
+    }
+  }
+
+  // The header of storage this value alone holds, with room for `extra` bytes past its count. The
+  // decoding paths write at `base + count` and then advance `count`. A pointer, not the `Storage`:
+  // `self.storage` keeps the object alive, and returning the reference cost a retain and a release
+  // per chunk and per string.
+  @inline(__always)
+  private mutating func reserve(_ extra: Int) -> UnsafeMutablePointer<StorageHeader> {
+    if isKnownUniquelyReferenced(&self.storage) {
+      let header = self.storage.unsafelyUnwrapped.headerPointer
+      if header.pointee.capacity &- header.pointee.count >= extra { return header }
+    }
+    return self.grow(by: extra)
+  }
+
+  // Out of line: once per doubling, or once per append while a copy shares the bytes. An empty
+  // value gets exactly what it asked for (most strings arrive whole), at least 16 bytes. A shared
+  // one is copied into the capacity it had, doubled if that is short, as `Array` does.
+  @inline(never)
+  private mutating func grow(by extra: Int) -> UnsafeMutablePointer<StorageHeader> {
+    // Asked before `old` binds: that is a second reference, and nothing would ever be unique.
+    let unique = isKnownUniquelyReferenced(&self.storage)
+    guard let old = self.storage else {
+      let storage = Storage.make(capacity: Swift.max(extra, 16))
+      self.storage = storage
+      return storage.headerPointer
+    }
+    let needed = old.count &+ extra
+    let capacity =
+      old.byteCapacity >= needed ? old.byteCapacity : Swift.max(needed, old.byteCapacity &* 2)
+    if unique {
+      old.reallocate(capacity: capacity)
+      return old.headerPointer
+    }
+    let storage = Storage.make(capacity: capacity)
+    storage.base.update(from: old.base, count: old.count)
+    storage.count = old.count
+    self.storage = storage
+    return storage.headerPointer
   }
 
   // MARK: Decoding
@@ -96,49 +242,15 @@ public struct StreamBase64Data: Sendable {
     let groups = (input.count &- start) / 4
     guard groups > 0 else { return start }
 
-    // Room for every group and the slack, reserved geometrically: a value fed in small chunks
-    // grows by doubling, not by the chunk. An empty value gets exactly that.
-    let needed = self.bytes.count &+ groups &* 3 &+ Self.outputSlack
-    if self.bytes.capacity < needed {
-      self.bytes.reserveCapacity(Swift.max(needed, self.bytes.capacity &* 2))
-    }
-    let before = self.bytes.count
-    self.bytes.append(
-      contentsOf: DecodedGroups(
-        source: UnsafeRawPointer(input.baseAddress.unsafelyUnwrapped + start),
-        groups: groups,
-        tables: tables
-      )
+    // Room for every group and the slack, decoded straight into the storage: nothing staged,
+    // nothing copied. A value fed in small chunks grows by doubling, not by the chunk.
+    let header = self.reserve(groups &* 3 &+ Self.outputSlack)
+    let decoded = Self.decodeRun(
+      UnsafeRawPointer(input.baseAddress.unsafelyUnwrapped + start), groups: groups,
+      into: UnsafeMutableRawPointer(header.pointee.base + header.pointee.count), tables
     )
-    return start &+ (self.bytes.count &- before) / 3 &* 4
-  }
-
-  // Whole groups, decoded straight into the spare capacity `Array.append(contentsOf:)` hands
-  // `_copyContents`: nothing staged, nothing copied. How many decode is unknown until a group is
-  // rejected, so `underestimatedCount` stays zero and the append reserves nothing itself;
-  // `decodeGroups` has. Only ever appended: iterating it yields nothing.
-  private struct DecodedGroups: Sequence {
-    let source: UnsafeRawPointer
-    let groups: Int
-    let tables: UnsafePointer<UInt32>
-
-    func makeIterator() -> EmptyCollection<UInt8>.Iterator {
-      EmptyCollection.Iterator()
-    }
-
-    __consuming func _copyContents(
-      initializing buffer: UnsafeMutableBufferPointer<UInt8>
-    ) -> (EmptyCollection<UInt8>.Iterator, Int) {
-      // The reserve leaves room for every group; were it short, the groups that fit decode and
-      // the character-at-a-time path takes the rest.
-      let fit = Swift.max(0, (buffer.count &- StreamBase64Data.outputSlack) / 3)
-      guard let output = buffer.baseAddress, fit > 0 else { return (EmptyCollection.Iterator(), 0) }
-      let decoded = StreamBase64Data.decodeRun(
-        self.source, groups: Swift.min(self.groups, fit), into: UnsafeMutableRawPointer(output),
-        self.tables
-      )
-      return (EmptyCollection.Iterator(), decoded &* 3)
-    }
+    header.pointee.count &+= decoded &* 3
+    return start &+ decoded &* 4
   }
 
   // Decodes up to `groups` whole groups, stopping at one that holds a character outside the
@@ -232,9 +344,12 @@ public struct StreamBase64Data: Sendable {
 
   // Appends the leading `byteCount` bytes of the 24 the four sextets in `pendingBits` make.
   private mutating func emitPending(byteCount: Int) {
-    self.bytes.append(UInt8(truncatingIfNeeded: self.pendingBits >> 16))
-    if byteCount > 1 { self.bytes.append(UInt8(truncatingIfNeeded: self.pendingBits >> 8)) }
-    if byteCount > 2 { self.bytes.append(UInt8(truncatingIfNeeded: self.pendingBits)) }
+    let header = self.reserve(byteCount)
+    let output = header.pointee.base + header.pointee.count
+    output[0] = UInt8(truncatingIfNeeded: self.pendingBits >> 16)
+    if byteCount > 1 { output[1] = UInt8(truncatingIfNeeded: self.pendingBits >> 8) }
+    if byteCount > 2 { output[2] = UInt8(truncatingIfNeeded: self.pendingBits) }
+    header.pointee.count &+= byteCount
     self.pendingBits = 0
     self.pendingCount = 0
   }
@@ -245,6 +360,71 @@ public struct StreamBase64Data: Sendable {
     self.pendingCount == 0 && self.phase != .rejected
   }
 }
+
+// MARK: - The bytes
+
+extension StreamBase64Data {
+  /// The decoded bytes, without copying them: ``Bytes`` shares the value's storage.
+  /// `Array(value.bytes)` copies them out, as, with the `Foundation` trait, does `data`.
+  @inlinable
+  public var bytes: Bytes {
+    Bytes(storage: self.storage)
+  }
+
+  /// The decoded bytes of a ``StreamBase64Data``, as a random access collection over storage the
+  /// value shares. Holding one keeps that storage as it was: the value's next append copies it.
+  public struct Bytes: RandomAccessCollection {
+    public typealias Element = UInt8
+
+    @usableFromInline let storage: Storage?
+
+    @usableFromInline
+    init(storage: Storage?) {
+      self.storage = storage
+    }
+
+    @inlinable
+    public var startIndex: Int { 0 }
+
+    @inlinable
+    public var endIndex: Int { self.storage?.count ?? 0 }
+
+    @inlinable
+    public subscript(position: Int) -> UInt8 {
+      precondition(position >= 0 && position < self.endIndex, "Index out of range")
+      return self.storage.unsafelyUnwrapped.base[position]
+    }
+
+    /// Calls `body` with a pointer to the bytes, valid only for the duration of the call.
+    @inlinable
+    public func withUnsafeBufferPointer<R>(
+      _ body: (UnsafeBufferPointer<UInt8>) throws -> R
+    ) rethrows -> R {
+      try body(UnsafeBufferPointer(start: self.storage?.base, count: self.endIndex))
+    }
+
+    /// Calls `body` with a pointer to the bytes, valid only for the duration of the call.
+    @inlinable
+    public func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
+      try self.withUnsafeBufferPointer { try body(UnsafeRawBufferPointer($0)) }
+    }
+
+    // What `Array(_:)` and `Data(_:)` look for: a copy becomes one `memcpy` rather than a loop over
+    // the subscript.
+    @inlinable
+    public func withContiguousStorageIfAvailable<R>(
+      _ body: (UnsafeBufferPointer<UInt8>) throws -> R
+    ) rethrows -> R? {
+      try self.withUnsafeBufferPointer(body)
+    }
+  }
+}
+
+// `@unchecked` because a `ManagedBuffer` subclass cannot be `Sendable`. The storage is written only
+// while one value holds the only reference to it, so a copy sent elsewhere is never written under
+// it, as with `StreamString`.
+extension StreamBase64Data: @unchecked Sendable {}
+extension StreamBase64Data.Bytes: @unchecked Sendable {}
 
 // MARK: - Parsing conformances
 
@@ -272,14 +452,14 @@ extension StreamBase64Data: StreamParseable {
   public init?(streamPartial: StreamBase64Data) {
     guard streamPartial.isWhole else { return nil }
     self.init()
-    self.bytes = streamPartial.bytes
+    self.storage = streamPartial.storage
   }
 
   /// Creates a value from the bytes a partial has decoded, dropping any characters of an
   /// unfinished group.
   public init(orInitial partial: StreamBase64Data) {
     self.init()
-    self.bytes = partial.bytes
+    self.storage = partial.storage
   }
 }
 
@@ -289,11 +469,15 @@ extension StreamBase64Data: StreamParseable {
 // built from the same bytes are the same data.
 extension StreamBase64Data: Hashable {
   public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.bytes == rhs.bytes
+    lhs.storage === rhs.storage
+      || lhs.bytes.withUnsafeBytes { lhs in
+        rhs.bytes.withUnsafeBytes { rhs in lhs.elementsEqual(rhs) }
+      }
   }
 
   public func hash(into hasher: inout Hasher) {
-    hasher.combine(self.bytes)
+    hasher.combine(self.bytes.count)
+    self.bytes.withUnsafeBytes { hasher.combine(bytes: $0) }
   }
 }
 
@@ -301,7 +485,7 @@ extension StreamBase64Data: Hashable {
   // Otherwise a reflecting printer dumps the decoder's state beside the bytes.
   extension StreamBase64Data: CustomReflectable {
     public var customMirror: Mirror {
-      Mirror(self, children: ["bytes": self.bytes])
+      Mirror(self, children: ["bytes": Array(self.bytes)])
     }
   }
 
@@ -326,7 +510,7 @@ extension StreamBase64Data: Hashable {
         )
       }
       self.init()
-      self.bytes = value.bytes
+      self.storage = value.storage
     }
   }
 
@@ -336,15 +520,16 @@ extension StreamBase64Data: Hashable {
       let alphabet = Array(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8
       )
+      let bytes = self.bytes
       var text = [UInt8]()
-      text.reserveCapacity((self.bytes.count + 2) / 3 * 4)
+      text.reserveCapacity((bytes.count + 2) / 3 * 4)
       var index = 0
-      while index < self.bytes.count {
-        let remaining = self.bytes.count - index
+      while index < bytes.count {
+        let remaining = bytes.count - index
         let word =
-          UInt32(self.bytes[index]) << 16
-          | (remaining > 1 ? UInt32(self.bytes[index + 1]) << 8 : 0)
-          | (remaining > 2 ? UInt32(self.bytes[index + 2]) : 0)
+          UInt32(bytes[index]) << 16
+          | (remaining > 1 ? UInt32(bytes[index + 1]) << 8 : 0)
+          | (remaining > 2 ? UInt32(bytes[index + 2]) : 0)
         text.append(alphabet[Int(word >> 18 & 63)])
         text.append(alphabet[Int(word >> 12 & 63)])
         text.append(remaining > 1 ? alphabet[Int(word >> 6 & 63)] : UInt8(ascii: "="))

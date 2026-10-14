@@ -22,7 +22,7 @@
   extension StreamBase64Data {
     /// The decoded bytes, as `Data`.
     public var data: Data {
-      Data(self.bytes)
+      self.bytes.withUnsafeBytes { Data($0) }
     }
   }
 

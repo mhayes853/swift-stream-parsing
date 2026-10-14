@@ -204,7 +204,7 @@ struct Attachment {
   var contents: StreamBase64Data  // Partial: StreamBase64Data?, holding each group decoded so far
 }
 
-let png = try stream.finish().contents.bytes  // or `.data` with the Foundation trait
+let png = Array(try stream.finish().contents.bytes)  // or `.data` with the Foundation trait
 ```
 
 It reads standard, padded base64, as `Data(base64Encoded:)` does, and rejects anything else (whitespace included) as a `conversionFailed` failure. A string that ends inside a group of four characters, such as an unpadded one, does not finish into a value.

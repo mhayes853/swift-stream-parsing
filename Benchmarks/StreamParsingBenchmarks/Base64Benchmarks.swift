@@ -33,6 +33,14 @@ private enum Base64Payloads {
   }
   static let text = Data(decoded).base64EncodedString()
   static let attachment = Array(#"{"name":"blob.bin","contents":"\#(text)"}"#.utf8)
+  // 2,000 short values, 0 to 189 bytes each (95 on average): what a value's fixed costs, its
+  // allocations and first growth, come to when the decoding is small.
+  static let small: [[UInt8]] = (0..<2_000).map { index in
+    Array(decoded[(index &* 523) % 4_096..<(index &* 523) % 4_096 + (index &* 37) % 190])
+  }
+  static let smallArray = Array(
+    ("[" + small.map { #""\#(Data($0).base64EncodedString())""# }.joined(separator: ",") + "]").utf8
+  )
 }
 
 func base64Benchmarks() {
@@ -40,7 +48,7 @@ func base64Benchmarks() {
   // Validated once at registration, outside every measured region: a payload the decoder stopped
   // accepting would otherwise time a rejection.
   let parsed = expectParses { try streamBulkDiscarding(payload, as: Base64Attachment.self) }
-  precondition(parsed.contents?.bytes == Base64Payloads.decoded)
+  precondition(parsed.contents.map { Array($0.bytes) } == Base64Payloads.decoded)
 
   Benchmark("Base64 1MiB - StreamBase64Data bulk", configuration: payloadConfiguration) {
     benchmark in
@@ -55,6 +63,23 @@ func base64Benchmarks() {
       blackHole(
         expectParses {
           try streamDiscardingChunks(payload, chunk: 1_400, as: Base64Attachment.self)
+        }
+      )
+    }
+  }
+
+  let smallArray = Base64Payloads.smallArray
+  let parsedSmall = expectParses {
+    try streamBulkDiscarding(smallArray, as: StreamArray<StreamBase64Data>.self)
+  }
+  precondition(parsedSmall.map { Array($0.bytes) } == Base64Payloads.small)
+
+  Benchmark("Base64 2000 short - StreamBase64Data bulk", configuration: payloadConfiguration) {
+    benchmark in
+    measurePayloadThroughput(benchmark, payload: smallArray) {
+      blackHole(
+        expectParses {
+          try streamBulkDiscarding(smallArray, as: StreamArray<StreamBase64Data>.self)
         }
       )
     }

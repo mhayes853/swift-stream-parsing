@@ -8687,8 +8687,9 @@ same box swung single runs by up to 2.4x and is not quoted. ARM was not measured
 A base64 string decodes into `StreamBase64Data`, a type of its own, and `Data` keeps parsing a string
 as the UTF-8 bytes of its text. Base64 is how JSON spells bytes — `JSONEncoder` chooses it for `Data`
 — not something `Data` or `Codable` is, so making it `Data`'s partial would have tied a JSON
-convention to a Foundation type. The type is in the core with `bytes: [UInt8]`, so it works without
-Foundation and under Embedded; the `Foundation` trait adds `.data`.
+convention to a Foundation type. The type is in the core, so it works without Foundation and under
+Embedded; its `bytes` is a random access collection over its own storage (it was `[UInt8]` until
+"The storage" below), and the `Foundation` trait adds `.data`.
 
 It is its own partial, a `StreamStringConvertible` the macro routes like any other string member. The
 decoder's state is the open group's sextets, how many there are, and a phase: open, mid-padding,
@@ -8788,7 +8789,8 @@ row 1's through the compare). `AVX2.c` documents the tables.
   per-1400B row. Every chunk now decodes straight into the array's spare capacity: a private
   `Sequence` whose `_copyContents(initializing:)` runs `decodeRun` on the buffer
   `Array.append(contentsOf:)` hands it, after `decodeGroups` reserves room for every group plus
-  the slack. That retired the fresh-array path and the 1 KiB stack block.
+  the slack. That retired the fresh-array path and the 1 KiB stack block. The array has since gone
+  too, and chunks decode straight into the value's own buffer ("The storage" below).
 
 Kernels alone, decoding into a preallocated buffer (C harness, MB/s of text, best of 200+):
 
@@ -8898,3 +8900,64 @@ Where the bulk row goes now, by Time Profiler self time: the kernel about half, 
 of the string (`streamStringRun` and its ASCII check) about a third. The two run one after the
 other over the same 1.4 MB: skipping the member unread takes 56 µs, decoding text already in cache
 about 85. Streamed in 1400-byte chunks, `memmove` from the array's doublings is another 11.5%.
+
+### The storage
+
+The decoded bytes no longer live in `[UInt8]`. A value streamed in chunks grows by doubling, and an
+array takes every doubling into a fresh allocation, copying what it holds into pages it has not
+touched. `StreamBase64Data.Storage` is a `ManagedBuffer` whose header holds `base`, `count` and
+`capacity`. The first bytes live in its own tail, so a string that arrives whole costs one
+allocation, as an array's did. The first growth moves them to a `malloc` block, and every later one
+`realloc`s that block. `StreamBase64Data.swift` imports libc per platform for `realloc` and `free`,
+including under Embedded, where `StreamLock`'s imports are switched off; the Embedded (wasm) smoke
+builds and runs with `WASILibc`.
+
+On Darwin's allocator `realloc` grows a block in place once it is past a few tens of KiB: a C loop
+streaming 1 MiB in 1,050-byte steps moved the block at 5 of 11 doublings, all under 34 KB, and ran
+19 µs against 38 µs for malloc, copy and free. In-place growth needs free address space next to the
+block, so a busy heap gets less of it. With 300 live blocks of 64 KiB to 1 MiB held beside the
+stream, 40% of the large `realloc`s moved, and the 1400B timing barely changed (199 against 196 µs).
+glibc remaps large blocks with `mremap`; Linux is not measured.
+
+Copy-on-write is `Array`'s rule: an append first copies the storage unless `isKnownUniquelyReferenced`
+says the value holds the only reference. A copy of the value, or a `bytes` view, keeps the storage it
+was taken with. `bytes` is `StreamBase64Data.Bytes`, a `RandomAccessCollection` with
+`withUnsafeBytes` and `withContiguousStorageIfAvailable`, so `Array(value.bytes)` and
+`Data(value.bytes)` are one `memcpy`. A computed `[UInt8]` would have copied the whole value on
+every read.
+
+The candidate measured worse twice before it measured better, from three separate traps:
+
+- **Uniqueness asked after binding.** `guard let old = self.storage` takes a second reference, so
+  `isKnownUniquelyReferenced` asked after it is always false. Every doubling took the copy path and
+  `realloc` never ran: per 1400B was +18%. The answer is now read before `old` binds.
+- **Exclusivity checks.** A class's mutable stored properties get a `swift_beginAccess` call per
+  access: 5% of the per-1400B samples with a plain class holding the fields. Moving them into the
+  `ManagedBuffer` header, reached through `withUnsafeMutablePointerToHeader` as `StreamBlock` does,
+  removed the calls.
+- **Returning the reference.** `reserve` returned the `Storage`, so the benchmark build retained it
+  per chunk and released it at the end: 2,004 retains against the array's 7 for the per-1400B row,
+  and 5,386 against 2,071 for the short-values row. That ate the whole win in the benchmark binary,
+  while a standalone harness, which optimised the retain away, showed it intact. `reserve` and
+  `grow` now return the header pointer, and the counts are 6 and 2,070. The benchmark's
+  `Retains`/`Releases` rows found this; profiling the benchmark's child with `sample` returned empty
+  call graphs.
+
+A new row, `Base64 2000 short - StreamBase64Data bulk`, an array of 2,000 strings of 0 to 189 bytes
+(95 on average), prices a value's fixed costs. Two allocations per value, the object and a block,
+were 10% slower there in the harness before the tail held the first bytes.
+
+`Base64` rows, M1 Pro, three interleaved rounds of prebuilt binaries:
+
+| row | `[UInt8]` | `Storage` | median p50 / min p0 |
+|---|---:|---:|---:|
+| `StreamBase64Data` bulk | 144.1 µs | 143.7 µs | −0.3% / 0.0% |
+| `StreamBase64Data` per 1400B | 228.6 µs | **199.7 µs** (7,000 MB/s) | **−12.7% / −13.8%** |
+| `StreamBase64Data`, 2,000 short values | 368.1 µs | **314.1 µs** | **−14.7% / −14.8%** |
+| `StreamString` keeping the text, bulk | 107.1 µs | 105.2 µs | −1.9% / −0.2% |
+
+Bulk decodes into one allocation of the right size either way, so it does not move. Per 1400B is
+now 1.39x bulk, down from 1.59x. All 520 parser and sink functions in the benchmark binary are
+opcode-identical to the parent's. Real-world rows were within −0.1..+1.1% at p0 except LLM message
+(+2.3% at p0), which has no base64 and identical code: layout or noise. The code builds and runs
+under the Embedded (wasm) smoke, and passes the tests under AddressSanitizer.
