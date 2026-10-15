@@ -23,7 +23,7 @@ struct `Stream string tests` {
       while offset < buffer.count {
         let count = min(chunk, buffer.count - offset)
         let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
-        value.streamAppend(utf8: Span(_unsafeElements: slice))
+        value.streamAppend(utf8: Span(_unsafeElements: slice), info: StringInfo())
         offset += count
       }
     }
@@ -57,7 +57,7 @@ struct `Stream string tests` {
     let snapshot = value
     let tailBytes = Array("appended after the copy".utf8)
     tailBytes.withUnsafeBufferPointer { buffer in
-      value.streamAppend(utf8: Span(_unsafeElements: buffer))
+      value.streamAppend(utf8: Span(_unsafeElements: buffer), info: StringInfo())
     }
     expectNoDifference(String(snapshot), head)
     expectNoDifference(String(value), head + "appended after the copy")
@@ -72,7 +72,7 @@ struct `Stream string tests` {
     let snapshot = value
     let more = Array(repeating: UInt8(ascii: "m"), count: 2_000)
     more.withUnsafeBufferPointer { buffer in
-      value.streamAppend(utf8: Span(_unsafeElements: buffer))
+      value.streamAppend(utf8: Span(_unsafeElements: buffer), info: StringInfo())
     }
     expectNoDifference(Array(snapshot.utf8), head)
     expectNoDifference(Array(value.utf8), head + more)
@@ -435,7 +435,7 @@ func `Reserved And Incrementally Accumulated Values Compare And Hash Equally`() 
   for byte in "short value".utf8 {
     withUnsafePointer(to: byte) { pointer in
       let buffer = UnsafeBufferPointer(start: pointer, count: 1)
-      incremental.streamAppend(utf8: Span(_unsafeElements: buffer))
+      incremental.streamAppend(utf8: Span(_unsafeElements: buffer), info: StringInfo())
     }
   }
   expectNoDifference(reserved, incremental)
@@ -483,7 +483,7 @@ func `Content Growing Past The Block Cap Reads Back Whole`(chunk: Int) {
     while offset < buffer.count {
       let count = min(chunk, buffer.count - offset)
       let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
-      value.streamAppend(utf8: Span(_unsafeElements: slice))
+      value.streamAppend(utf8: Span(_unsafeElements: slice), info: StringInfo())
       offset += count
     }
   }
@@ -506,7 +506,7 @@ func `Slices And Search Cross Uneven Block Boundaries`() {
     while offset < buffer.count {
       let count = min(97, buffer.count - offset)
       let slice = UnsafeBufferPointer(start: buffer.baseAddress! + offset, count: count)
-      value.streamAppend(utf8: Span(_unsafeElements: slice))
+      value.streamAppend(utf8: Span(_unsafeElements: slice), info: StringInfo())
       offset += count
     }
   }

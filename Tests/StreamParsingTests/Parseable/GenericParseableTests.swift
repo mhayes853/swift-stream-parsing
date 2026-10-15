@@ -86,7 +86,7 @@ private struct Slug: StreamStringConvertible, StreamParseable, StreamPartial, Eq
   typealias Partial = Self
   var text = ""
   static func streamInitialValue() -> Self { Self() }
-  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+  mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
     for index in bytes.indices { self.text.unicodeScalars.append(Unicode.Scalar(bytes[index])) }
     return .applied
   }

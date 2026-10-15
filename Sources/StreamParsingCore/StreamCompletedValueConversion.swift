@@ -95,7 +95,6 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
   public private(set) var value: Strategy.Value?
   /// The original conversion error, or `nil` before conversion and after success.
   public private(set) var conversionError: Strategy.ConversionError?
-  private var stringActive = false
 
   public init() {
     self.source = Strategy.Source.streamInitialValue()
@@ -181,7 +180,6 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
     self.source = Strategy.Source.streamInitialValue()
     self.value = nil
     self.conversionError = nil
-    self.stringActive = false
   }
 
   private mutating func complete() -> StreamApplyResult {
@@ -202,18 +200,19 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
       let source = Strategy.Source.streamSchema
       return StreamSchema(
         shape: source.shape,
-        applyString: { storage, _, bytes in
+        // A string resets the source at its opening call and converts at its closing one, which
+        // for a whole string are the same call.
+        applyString: { storage, _, bytes, info in
           guard source.shape == .scalar else { return .unsupported }
           let p = storage.assumingMemoryBound(to: Self.self)
-          if !p.pointee.stringActive {
-            p.pointee.resetSource()
-            p.pointee.stringActive = true
-          }
-          return source.applyString(
+          if info.flags.contains(.begin) { p.pointee.resetSource() }
+          let result = source.applyString(
             Self.sourceAddress(storage),
             StreamSchema.wholeValueField,
-            bytes
+            bytes,
+            info
           )
+          return result == .applied && info.flags.contains(.end) ? p.pointee.complete() : result
         },
         applyNumber: { storage, _, bytes, info in
           guard source.shape == .scalar else { return .unsupported }
@@ -236,14 +235,6 @@ public struct ConvertedPartial<Strategy: StreamCompletedValueConversion>:
             StreamSchema.wholeValueField,
             value
           )
-          return result == .applied ? p.pointee.complete() : result
-        },
-        finishString: { storage, _ in
-          let p = storage.assumingMemoryBound(to: Self.self)
-          p.pointee.stringActive = false
-          let result =
-            source.finishString?(Self.sourceAddress(storage), StreamSchema.wholeValueField)
-            ?? .applied
           return result == .applied ? p.pointee.complete() : result
         },
         completedValue: source.shape == .scalar

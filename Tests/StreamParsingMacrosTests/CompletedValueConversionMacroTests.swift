@@ -92,7 +92,7 @@ extension BaseTestSuite {
 
             @inlinable public static func streamApplyString(
               _ storage: UnsafeMutableRawPointer, _ field: Int32,
-              _ bytes: Span<UInt8>
+              _ bytes: Span<UInt8>, _ info: StreamParsingCore.StringInfo
             ) -> StreamParsingCore.StreamApplyResult {
               switch field {
 

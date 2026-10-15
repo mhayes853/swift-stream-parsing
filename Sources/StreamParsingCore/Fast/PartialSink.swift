@@ -522,7 +522,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
-    let result = target.withSchema { $0.applyString(target.storage, target.field, Span()) }
+    let result = target.withSchema {
+      $0.applyString(target.storage, target.field, Span(), StringInfo(flags: .begin))
+    }
     if result != .applied {
       self.scalarTarget = nil
       self.recordFailure(Self.failureReason(for: result))
@@ -546,7 +548,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   public mutating func stringChunk(_ bytes: Span<UInt8>) {
     if let storage = self.homogeneousStringStorage {
-      storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes)
+      storage.assumingMemoryBound(to: StreamString.self).pointee.streamAppend(utf8: bytes, info: StringInfo())
       return
     }
     guard let target = self.scalarTarget else { return }
@@ -554,14 +556,17 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // (the compare kept the schema live and broke the tail call); the `max` fold is at parity, and
     // sticky since `applied` is zero. The failure surfaces at the closing quote, same token.
     // NEW_ARCHITECTURE.md, "The chunk check that cost 8.7%".
-    let result = target.withSchema { $0.applyString(target.storage, target.field, bytes) }
+    let result = target.withSchema {
+      $0.applyString(target.storage, target.field, bytes, StringInfo())
+    }
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
   public mutating func stringEnd() {
+    // The closing quote's call, which a destination that already refused a chunk does not get.
     if self.stringResultRaw == 0, let target = self.scalarTarget {
       let result = target.withSchema {
-        $0.finishString?(target.storage, target.field) ?? .applied
+        $0.applyString(target.storage, target.field, Span(), StringInfo(flags: .end))
       }
       self.stringResultRaw = result.rawValue
     }
@@ -576,9 +581,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
   }
 
-  // The whole-string form: a table entry writes the member in place, a matched field goes through
-  // the closure with the empty span settling acceptance first (a mismatch reports at the opening
-  // quote). Elements, dictionary values and roots unroll into the chunked triple.
+  // The whole-string form: a table entry writes the member in place, a matched field takes the
+  // string in one call carrying both `.begin` and `.end`. Elements, dictionary values and roots
+  // unroll into the chunked triple.
   public mutating func string(_ bytes: Span<UInt8>) {
     if self.activeElementKindBits == 0, let top = self.topFrame,
       top.pointee.schema.shape == .object
@@ -594,19 +599,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         return
       case .match:
         if field >= 0 {
-          let opened = top.pointee.schema.applyString(top.pointee.storage, field, Span())
-          if opened != .applied {
-            self.recordFailure(Self.failureReason(for: opened))
-            return
-          }
-          if bytes.count > 0 {
-            let result = top.pointee.schema.applyString(top.pointee.storage, field, bytes)
-            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
-          }
-          if self.streamFailure == nil {
-            let result = top.pointee.schema.finishString?(top.pointee.storage, field) ?? .applied
-            if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
-          }
+          let result = top.pointee.schema.applyString(
+            top.pointee.storage, field, bytes, StringInfo(flags: [.begin, .end])
+          )
+          if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
         }
         return
       default:
@@ -1311,7 +1307,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // The closure route, exactly as before the table: the empty span materialises and settles.
       let target = self.scalarTarget.unsafelyUnwrapped
       let field = entry.pointee.index
-      return target.withSchema { $0.applyString(storage, field, Span()) }
+      return target.withSchema { $0.applyString(storage, field, Span(), StringInfo(flags: .begin)) }
     default:
       return .unsupported
     }
@@ -1339,16 +1335,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       if entry.pointee.capacity > 0 {
         string.pointee.streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
       }
-      if bytes.count > 0 { string.pointee.streamAppend(utf8: bytes) }
+      if bytes.count > 0 { string.pointee.streamAppend(utf8: bytes, info: StringInfo(flags: [.begin, .end])) }
       return .applied
     case .custom:
-      let opened = frame.pointee.schema.applyString(storage, entry.pointee.index, Span())
-      if opened != .applied { return opened }
-      if bytes.count > 0 {
-        let result = frame.pointee.schema.applyString(storage, entry.pointee.index, bytes)
-        if result != .applied { return result }
-      }
-      return frame.pointee.schema.finishString?(storage, entry.pointee.index) ?? .applied
+      return frame.pointee.schema.applyString(
+        storage, entry.pointee.index, bytes, StringInfo(flags: [.begin, .end])
+      )
     default:
       return .unsupported
     }
@@ -1396,24 +1388,22 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       field: StreamSchema.wholeValueField, entry: nil
     )
     self.scalarTarget = target
-    return target.withSchema { $0.applyString(member, StreamSchema.wholeValueField, Span()) }
+    return target.withSchema {
+      $0.applyString(member, StreamSchema.wholeValueField, Span(), StringInfo(flags: .begin))
+    }
   }
 
-  // The whole-string form: open, append, finish, as `writeTableString` does for `custom`.
+  // The whole-string form: one call carrying `.begin` and `.end`, as `writeTableString` makes
+  // for `custom`.
   @inline(never)
   private static func delegateString(
     _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer,
     _ bytes: Span<UInt8>
   ) -> StreamApplyResult {
-    Self.withDelegate(entry) { child in
-      let whole = StreamSchema.wholeValueField
-      let opened = child.applyString(member, whole, Span())
-      if opened != .applied { return opened }
-      if bytes.count > 0 {
-        let result = child.applyString(member, whole, bytes)
-        if result != .applied { return result }
-      }
-      return child.finishString?(member, whole) ?? .applied
+    Self.withDelegate(entry) {
+      $0.applyString(
+        member, StreamSchema.wholeValueField, bytes, StringInfo(flags: [.begin, .end])
+      )
     }
   }
 

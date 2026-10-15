@@ -33,7 +33,7 @@ private struct CustomObservedRoot: StreamPartial, StreamParseable {
   static func streamInitialValue() -> Self { Self() }
   static let streamSchema = StreamSchema(
     shape: .object,
-    applyString: { _, _, _ in .applied },
+    applyString: { _, _, _, _ in .applied },
     fields: [
       StreamField(
         key: "registered",

@@ -648,7 +648,8 @@ public struct StreamObjectGeneration: Sendable {
   private func applyFunction(for operation: StreamApplyOperation) -> FunctionDeclSyntax {
     let (name, valueParameters) =
       switch operation {
-      case .string: ("streamApplyString", ",\n  _ bytes: Span<UInt8>")
+      case .string:
+        ("streamApplyString", ",\n  _ bytes: Span<UInt8>, _ info: StreamParsingCore.StringInfo")
       case .number:
         ("streamApplyNumber", ",\n  _ bytes: Span<UInt8>, _ info: StreamParsingCore.NumberInfo")
       case .boolean: ("streamApplyBoolean", ", _ value: Bool")
@@ -976,7 +977,7 @@ extension StreamObjectGeneration {
       where !isContainer || operation == .null {
         let expression =
           switch operation {
-          case .string: "_streamApply(&\(target), utf8: bytes\(capacity))"
+          case .string: "_streamApply(&\(target), utf8: bytes, info: info\(capacity))"
           case .number: "_streamApply(&\(target), bytes: bytes, info: info)"
           case .boolean: "_streamApply(&\(target), boolean: value)"
           case .null: "StreamParsing._streamApplyNull(&\(target))"

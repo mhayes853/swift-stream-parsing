@@ -224,17 +224,18 @@ struct ConversionSmokeSink: StreamParseSink {
   mutating func beginArray() -> StreamContainerDisposition { preconditionFailure() }
   mutating func endArray() { preconditionFailure() }
   mutating func key(_ bytes: Span<UInt8>) { preconditionFailure() }
-  // As `PartialSink` delivers a string: an empty span to settle acceptance, then the chunks.
+  // As `PartialSink` delivers a string: an empty span opening it, the chunks, an empty span
+  // closing it.
   mutating func stringBegin() {
-    record(schema.applyString(root, StreamSchema.wholeValueField, Span()))
+    record(schema.applyString(root, StreamSchema.wholeValueField, Span(), StringInfo(flags: .begin)))
   }
 
   mutating func stringChunk(_ bytes: Span<UInt8>) {
-    record(schema.applyString(root, StreamSchema.wholeValueField, bytes))
+    record(schema.applyString(root, StreamSchema.wholeValueField, bytes, StringInfo()))
   }
 
   mutating func stringEnd() {
-    record(schema.finishString?(root, StreamSchema.wholeValueField) ?? .applied)
+    record(schema.applyString(root, StreamSchema.wholeValueField, Span(), StringInfo(flags: .end)))
   }
 
   mutating func null() { preconditionFailure() }

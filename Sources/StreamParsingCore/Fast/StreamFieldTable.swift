@@ -309,9 +309,9 @@ public func _streamDelegatedMemberSchema<T: StreamPartial>(_ type: T.Type) -> St
   let base = T.streamSchema
   return StreamSchema(
     shape: .scalar,
-    applyString: { storage, field, bytes in
+    applyString: { storage, field, bytes, info in
       _streamMaterializeOptional(storage, as: T.self)
-      return base.applyString(storage, field, bytes)
+      return base.applyString(storage, field, bytes, info)
     },
     applyNumber: { storage, field, bytes, info in
       _streamMaterializeOptional(storage, as: T.self)
@@ -323,8 +323,7 @@ public func _streamDelegatedMemberSchema<T: StreamPartial>(_ type: T.Type) -> St
     },
     applyNull: { storage, _ in
       _streamDelegatedApplyNull(&storage.assumingMemoryBound(to: T?.self).pointee)
-    },
-    finishString: base.finishString
+    }
   )
 }
 

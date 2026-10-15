@@ -50,6 +50,44 @@ public struct NumberInfo: Hashable, Sendable {
   }
 }
 
+// MARK: - StringInfo
+
+/// Where a span delivered to ``StreamStringConvertible/streamAppend(utf8:info:)`` sits in its
+/// string.
+///
+/// Each string brings exactly one call carrying `.begin` and exactly one carrying `.end`, either of
+/// which may also carry bytes, or carry none: a string the parser holds whole arrives as one call
+/// with both. The calls between carry neither, and where they split the string means nothing. A
+/// repeated key writes a second string into the same value, so a value can see `.end`, then
+/// `.begin` again.
+public struct StringInfo: Hashable, Sendable {
+  /// What the call carries beyond its bytes.
+  public var flags: Flags
+
+  public struct Flags: OptionSet, Hashable, Sendable {
+    public var rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+      self.rawValue = rawValue
+    }
+
+    // Computed rather than stored, as `NumberInfo.Flags`: an immediate in a client module, not an
+    // addressor call.
+    /// The string's opening quote: the first call for this string.
+    @inlinable public static var begin: Flags { Flags(rawValue: 1 << 0) }
+    /// The string's closing quote: the last call for this string.
+    @inlinable public static var end: Flags { Flags(rawValue: 1 << 1) }
+  }
+
+  @inlinable
+  public init(flags: Flags = []) {
+    self.flags = flags
+  }
+
+  /// Whether this call is the whole string: it both opens and closes it.
+  @inlinable public var isWhole: Bool { self.flags.contains([.begin, .end]) }
+}
+
 // MARK: - StreamApplyResult
 
 // What a destination did with a token; non-exhaustive, so a rejection kind can be added later. The

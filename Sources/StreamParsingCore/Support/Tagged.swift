@@ -20,8 +20,8 @@
 
   extension Tagged: StreamStringConvertible where RawValue: StreamStringConvertible {
     @discardableResult
-    public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
-      self.rawValue.streamAppend(utf8: bytes)
+    public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
+      self.rawValue.streamAppend(utf8: bytes, info: info)
     }
   }
 

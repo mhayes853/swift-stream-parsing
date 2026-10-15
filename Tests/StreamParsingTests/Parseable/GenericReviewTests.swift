@@ -128,7 +128,7 @@ struct GenericReviewTests {
     let bytes = Array("a\u{301}".utf8) + [0xFF]
     var value = StreamString()
     bytes.withUnsafeBufferPointer { buffer in
-      value.streamAppend(utf8: Span(_unsafeElements: buffer))
+      value.streamAppend(utf8: Span(_unsafeElements: buffer), info: StringInfo())
     }
     #expect(Array(value.characters) == Array(String(value)))
   }

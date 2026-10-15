@@ -81,28 +81,28 @@ public func _streamObjectMemberSchema<T>(for type: T.Type) -> StreamSchema? {
 // Partial members are optional, so a value has to exist before it can be appended to.
 @inlinable
 public func _streamApply<T: StreamStringConvertible>(
-  _ value: inout T?, utf8 bytes: Span<UInt8>
+  _ value: inout T?, utf8 bytes: Span<UInt8>, info: StringInfo
 ) -> StreamApplyResult {
   if value == nil { value = T.streamInitialValue() }
-  return value!.streamAppend(utf8: bytes)
+  return value!.streamAppend(utf8: bytes, info: info)
 }
 
 @inlinable
 public func _streamApply(
-  _ value: inout StreamString?, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout StreamString?, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult {
   if value == nil { value = StreamString() }
-  if bytes.isEmpty { value!.streamReserve(utf8ByteCount: initialCapacity) }
-  return value!.streamAppend(utf8: bytes)
+  if info.flags.contains(.begin) { value!.streamReserve(utf8ByteCount: initialCapacity) }
+  return value!.streamAppend(utf8: bytes, info: info)
 }
 
 @inlinable
 public func _streamApply(
-  _ value: inout String?, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout String?, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult {
   if value == nil { value = "" }
-  if bytes.isEmpty { value!.reserveCapacity(initialCapacity) }
-  return value!.streamAppend(utf8: bytes)
+  if info.flags.contains(.begin) { value!.reserveCapacity(initialCapacity) }
+  return value!.streamAppend(utf8: bytes, info: info)
 }
 
 @inlinable
@@ -139,17 +139,19 @@ func _streamApplyThroughOptional<T: StreamPartial>(
 
 @inlinable
 public func _streamApply<T: StreamPartial>(
-  _ value: inout T??, utf8 bytes: Span<UInt8>
+  _ value: inout T??, utf8 bytes: Span<UInt8>, info: StringInfo
 ) -> StreamApplyResult {
-  _streamApplyThroughOptional(&value) { $0.applyString($1, StreamSchema.wholeValueField, bytes) }
+  _streamApplyThroughOptional(&value) {
+    $0.applyString($1, StreamSchema.wholeValueField, bytes, info)
+  }
 }
 
 // The capacity is a first-chunk hint for a `StreamString` member; a nested one goes without it.
 @inlinable
 public func _streamApply<T: StreamPartial>(
-  _ value: inout T??, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout T??, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult {
-  _streamApply(&value, utf8: bytes)
+  _streamApply(&value, utf8: bytes, info: info)
 }
 
 @inlinable

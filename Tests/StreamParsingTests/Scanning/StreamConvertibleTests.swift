@@ -233,15 +233,15 @@ struct `Stream convertible tests` {
   @Test
   func `String appends accumulate across calls`() {
     var value = String.streamInitialValue()
-    Self.span("Blob") { value.streamAppend(utf8: $0) }
-    Self.span(" Jr") { value.streamAppend(utf8: $0) }
+    Self.span("Blob") { value.streamAppend(utf8: $0, info: StringInfo()) }
+    Self.span(" Jr") { value.streamAppend(utf8: $0, info: StringInfo()) }
     expectNoDifference(value, "Blob Jr")
   }
 
   @Test
   func `String appends preserve multi byte UTF-8`() {
     var value = String.streamInitialValue()
-    Self.span("Aé€😀") { value.streamAppend(utf8: $0) }
+    Self.span("Aé€😀") { value.streamAppend(utf8: $0, info: StringInfo()) }
     expectNoDifference(value, "Aé€😀")
   }
 
@@ -262,10 +262,10 @@ struct `Stream convertible tests` {
     var opaque = Opaque()
 
     Self.span("Blob") { bytes in
-      expectNoDifference(_streamApply(&name, utf8: bytes), .applied)
-      expectNoDifference(_streamApply(&count, utf8: bytes), .unsupported)
-      expectNoDifference(_streamApply(&flag, utf8: bytes), .unsupported)
-      expectNoDifference(_streamApply(&opaque, utf8: bytes), .unsupported)
+      expectNoDifference(_streamApply(&name, utf8: bytes, info: StringInfo()), .applied)
+      expectNoDifference(_streamApply(&count, utf8: bytes, info: StringInfo()), .unsupported)
+      expectNoDifference(_streamApply(&flag, utf8: bytes, info: StringInfo()), .unsupported)
+      expectNoDifference(_streamApply(&opaque, utf8: bytes, info: StringInfo()), .unsupported)
     }
     Self.span("42") { bytes in
       let info = Self.info(42, digits: 2)

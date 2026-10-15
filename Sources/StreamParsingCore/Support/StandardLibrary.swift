@@ -19,8 +19,8 @@ extension String: StreamStringConvertible {
   // still gets a well-formed `String`: what the validator refuses, a sequence cut at the end
   // included, takes the repairing decode as before.
   @discardableResult
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
-    // The opening quote's empty span, sent to settle acceptance: there is nothing to append.
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
+    // The opening or closing quote's empty span: there is nothing to append.
     guard !bytes.isEmpty else { return .applied }
     if bytes.count >= 32, #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
       let isASCII = bytes.withUnsafeBufferPointer { buffer in
@@ -306,9 +306,9 @@ extension Optional: StreamPartial where Wrapped: StreamPartial {
       },
       matchField: matchField,
       onFieldRecognized: recognition,
-      applyString: { storage, field, bytes in
+      applyString: { storage, field, bytes, info in
         _streamMaterializeOptional(storage, as: Wrapped.self)
-        return wrapped.applyString(storage, field, bytes)
+        return wrapped.applyString(storage, field, bytes, info)
       },
       applyNumber: { storage, field, bytes, info in
         _streamMaterializeOptional(storage, as: Wrapped.self)
@@ -329,7 +329,6 @@ extension Optional: StreamPartial where Wrapped: StreamPartial {
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.applyNull(storage, field)
       },
-      finishString: wrapped.finishString,
       enterField: { storage, field in
         _streamMaterializeOptional(storage, as: Wrapped.self)
         return wrapped.enterField(storage, field)

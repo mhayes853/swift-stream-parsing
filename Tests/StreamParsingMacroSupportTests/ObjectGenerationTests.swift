@@ -155,7 +155,7 @@ struct `StreamObjectGeneration tests` {
     self.expectContains(source, "Self.StreamField.payload")
     self.expectContains(
       source,
-      "_streamApply(&p.pointee.payload, utf8: bytes)"
+      "_streamApply(&p.pointee.payload, utf8: bytes, info: info)"
     )
     self.expectContains(source, "enum StreamField")
     self.expectContains(source, "static var streamSchema")

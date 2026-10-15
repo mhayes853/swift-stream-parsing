@@ -8961,3 +8961,66 @@ now 1.39x bulk, down from 1.59x. All 520 parser and sink functions in the benchm
 opcode-identical to the parent's. Real-world rows were within −0.1..+1.1% at p0 except LLM message
 (+2.3% at p0), which has no base64 and identical code: layout or noise. The code builds and runs
 under the Embedded (wasm) smoke, and passes the tests under AddressSanitizer.
+
+## `StringInfo`: where a span sits in its string
+
+`StreamStringConvertible` has one requirement, `streamAppend(utf8:info:)`. `streamAppend(utf8:)`
+and `StreamSchema.finishString` are gone. `StringInfo.flags` marks the string's opening call
+(`.begin`) and closing call (`.end`). Each string brings exactly one of each, either may carry
+bytes or an empty span, and a string the sink holds whole arrives as one call carrying both. The
+calls between carry no flags, and where they split the string still means nothing. A repeated key
+writes a second string into the same value, so a value can see `.end` and then `.begin` again.
+
+Nothing in the raw parser changed. Every fact in the info is one `PartialSink` already had:
+
+| sink callback | before | now |
+|---|---|---|
+| `stringBegin` | `applyString(…, Span())` | the same call, carrying `.begin` |
+| `stringChunk` | `applyString(…, bytes)` | the same call, carrying `[]` |
+| `stringEnd` | `finishString?(…)`, nil for all ordinary storage | `applyString(…, Span(), .end)` |
+| `string(_:)`, matched field, `custom` table entry or `delegated` member | open with an empty span, the bytes, then `finishString` if set | **one call** carrying `[.begin, .end]` |
+
+`StreamString` on the table route or in a homogeneous slot is written in place and never sees the
+info. The emptiness of a span no longer means "opening quote": the `String` and `StreamString`
+capacity hints in `_streamApply` now reserve on `.begin`, or the empty `.end` call that closes a
+chunked string would reserve a second time. `ConvertedPartial` resets its source on `.begin` and
+converts on `.end`, and its `stringActive` flag went with `finishString`.
+
+The cost was meant to sit in two places. The first is the chunk path. `stringChunk` is the function
+"The chunk check that cost 8.7%" is about, and it is now opcode-identical to its parent except for a
+single `mov w4, #0`, the empty flags. The second is a `.end` call for every chunked string where
+there was none. `stringEnd` stays at 50 instructions: the call replaces the `finishString` load and
+nil test. The whole-string path is where the time went. `writeTableString` dropped from 113
+instructions, three indirect calls and three `swift_retain`/`swift_release` pairs, one around each
+closure call, to 71 instructions, one call and one pair. `delegateString` dropped from 43
+instructions to 12.
+
+Typed `discarding` rows, M1 Pro, three interleaved rounds of prebuilt binaries, min p0 / median p50:
+
+| row | before | after | change |
+|---|---:|---:|---:|
+| Twitter full `String` storage, bulk | 1,294.6 µs | **1,126.3 µs** | **−13.0% / −12.9%** |
+| Twitter full `String` storage, 16KB chunks | 1,305.4 µs | **1,136.0 µs** | **−13.0% / −12.7%** |
+| Twitter custom text, bulk | 260.5 µs | **249.1 µs** | **−4.4% / −5.7%** |
+| LLM message `String` storage, bulk | 641.8 µs | **615.5 µs** | **−4.1% / −4.8%** |
+| LLM message `String` storage, snapshot per 1400B | 1,126.4 µs | **1,090.1 µs** | **−3.2% / −3.5%** |
+| Qwen 3 workspace edit, bulk | 33.1 µs | 32.6 µs | −1.5% / −3.0% |
+| Twitter escaped, byte by byte | 5,486.0 µs | 5,413.9 µs | −1.3% / −1.6% |
+| LLM message, bulk | 390.9 µs | 393.7 µs | +0.7% / −1.2% |
+
+Across 59 rows (the bimodal Qwen 3 search bulk row left out), the mean was −0.89% at p0 and −1.75%
+at p50. No row was slower than +0.7% at p0, and the only rows to move are the ones whose strings go
+through a closure. Retains fell with the calls: Twitter custom text 952 → 392, LLM message `String`
+storage 4,132 → 2,672. LLM message `String` storage is escape-heavy, so most of its strings take the
+chunked path and pay the new `.end` call, and it still got faster. The opt-in flag held in reserve
+for that case (`streamObservesEnd`) was not needed. The three base64 rows did not move
+(−0.6..+1.2%).
+
+`StringInfoTests` holds the contract on every route: root, table `custom`, optional, matched,
+`delegated`, array element, dictionary value and a repeated key, each with whole, escaped, empty
+and multi-byte strings at chunk sizes `Int.max`, 7 and 1. Dropping `.end` from `stringEnd` fails it
+on every route. The Embedded (wasm) smoke's hand-written sink sends the same three calls.
+
+`StreamBase64Data` ignores the info, so an unpadded string still fails at `finish()`, not at its
+closing quote. Rejecting at `.end` would change what `finishPartial` and `init(orInitial:)` see. That
+behaviour change is now one line, but it is a separate decision.

@@ -11,13 +11,14 @@ public protocol StreamInitializable: SendableMetatype {
 /// A destination for JSON string tokens.
 ///
 /// The parser delivers a string as one or more spans of UTF-8, in order, each ending on a scalar
-/// boundary; where one ends carries no meaning. A conformance accumulates them.
+/// boundary; where one ends carries no meaning. A conformance accumulates them. `info` marks the
+/// string's first and last calls (see ``StringInfo``), which may carry an empty span.
 public protocol StreamStringConvertible: StreamInitializable {
   // Whether the bytes were taken. Unbounded storage answers `.applied` (folded on specialization);
   // bounded storage answers `.capacityExceeded` without taking any bytes, so a value holds exactly
   // what it accumulated up to the last append that fit.
   @discardableResult
-  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult
+  mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult
 }
 
 /// A destination for JSON number tokens.

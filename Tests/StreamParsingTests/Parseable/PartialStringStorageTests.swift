@@ -204,7 +204,7 @@ struct `Partial String Storage Tests` {
   func `A direct append of ill-formed bytes is repaired, not trusted`() {
     func appended(_ start: String, _ bytes: [UInt8]) -> String {
       var value = start
-      bytes.withUnsafeBufferPointer { value.streamAppend(utf8: Span(_unsafeElements: $0)) }
+      bytes.withUnsafeBufferPointer { value.streamAppend(utf8: Span(_unsafeElements: $0), info: StringInfo()) }
       return value
     }
     expectNoDifference(appended("a", Array("bé🙂".utf8)), "abé🙂")

@@ -321,7 +321,12 @@ public final class StreamSchema: @unchecked Sendable {
   // destination for this token kind (how the sink tells a type mismatch from an absent key),
   // `.capacityExceeded` for full bounded storage. A result rather than a throw, because the check
   // after every call is on the hottest path. `field` is `wholeValueField` for a value destination.
-  public let applyString: @Sendable (UnsafeMutableRawPointer, Int32, Span<UInt8>) -> StreamApplyResult
+  // `applyString` takes every call of a string, the empty-span opening and closing calls included,
+  // with `StringInfo` marking which (see `StreamStringConvertible`). There is no separate finish:
+  // the call carrying `.end` is it.
+  public let applyString: @Sendable (
+    UnsafeMutableRawPointer, Int32, Span<UInt8>, StringInfo
+  ) -> StreamApplyResult
   public let applyNumber: @Sendable (
     UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
   ) -> StreamApplyResult
@@ -355,10 +360,6 @@ public final class StreamSchema: @unchecked Sendable {
   // from, or nil for a schema with no template. Held only to bound the template's lifetime by the
   // schema's: the closures capture the raw pointer, never this. See `_StreamTemplateStorage`.
   @usableFromInline let templateOwner: _StreamTemplateStorage?
-
-  /// Completes a string accepted by `applyString`. Nil for ordinary incremental string storage.
-  /// The field identifier has the same meaning as in `applyString`.
-  public let finishString: (@Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult)?
 
   // A converted container borrows its source's normal schema while the sink remembers where
   // to write its completed value. Ordinary schemas carry nil; ordinary frames stay 24 bytes.
@@ -402,8 +403,8 @@ public final class StreamSchema: @unchecked Sendable {
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
     onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
-      UnsafeMutableRawPointer, Int32, Span<UInt8>
-    ) -> StreamApplyResult = { _, _, _ in .unsupported },
+      UnsafeMutableRawPointer, Int32, Span<UInt8>, StringInfo
+    ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
     applyNumber: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
     ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
@@ -413,7 +414,6 @@ public final class StreamSchema: @unchecked Sendable {
     applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult = {
       _, _ in .unsupported
     },
-    finishString: (@Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult)? = nil,
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
     children: [StreamSchema] = [],
     appendElement: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> UnsafeMutableRawPointer? = {
@@ -434,7 +434,6 @@ public final class StreamSchema: @unchecked Sendable {
       applyNumber: applyNumber,
       applyBoolean: applyBoolean,
       applyNull: applyNull,
-      finishString: finishString,
       enterField: enterField,
       children: children,
       appendElement: appendElement,
@@ -453,8 +452,8 @@ public final class StreamSchema: @unchecked Sendable {
     matchField: (@Sendable (Span<UInt8>) -> Int32)? = nil,
     onFieldRecognized: (@Sendable (UnsafeMutableRawPointer, StreamFieldID) -> Void)? = nil,
     applyString: @escaping @Sendable (
-      UnsafeMutableRawPointer, Int32, Span<UInt8>
-    ) -> StreamApplyResult = { _, _, _ in .unsupported },
+      UnsafeMutableRawPointer, Int32, Span<UInt8>, StringInfo
+    ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
     applyNumber: @escaping @Sendable (
       UnsafeMutableRawPointer, Int32, Span<UInt8>, NumberInfo
     ) -> StreamApplyResult = { _, _, _, _ in .unsupported },
@@ -464,7 +463,6 @@ public final class StreamSchema: @unchecked Sendable {
     applyNull: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult = {
       _, _ in .unsupported
     },
-    finishString: (@Sendable (UnsafeMutableRawPointer, Int32) -> StreamApplyResult)? = nil,
     enterField: @escaping @Sendable (UnsafeMutableRawPointer, Int32) -> StreamFrame? = { _, _ in nil },
     children: [StreamSchema] = [],
     enterFieldOwner: StreamSchema? = nil,
@@ -486,7 +484,6 @@ public final class StreamSchema: @unchecked Sendable {
     templateOwner: _StreamTemplateStorage? = nil,
     completedValue: _StreamCompletedValueHooks? = nil
   ) {
-    self.finishString = finishString
     self.completedValue = completedValue
     self.templateOwner = templateOwner
     self.shape = shape
@@ -747,8 +744,8 @@ public protocol StreamParseableObject: StreamContainerPartial {}
 public func _streamStringSchema<T: StreamStringConvertible>(_ type: T.Type) -> StreamSchema {
   StreamSchema(
     shape: .scalar,
-    applyString: { storage, _, bytes in
-      storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes)
+    applyString: { storage, _, bytes, info in
+      storage.assumingMemoryBound(to: T.self).pointee.streamAppend(utf8: bytes, info: info)
     },
     scalarKind: T.self == StreamString.self ? .streamString : .custom,
     leafRoute: T.self == StreamString.self ? .valueStreamString : .generic
@@ -974,7 +971,6 @@ public func _streamOptionalElementSchema<Wrapped: StreamInitializable>(
       storage.assumingMemoryBound(to: Wrapped?.self).pointee = nil
       return .applied
     },
-    finishString: base.finishString,
     enterField: base.enterField,
     // `base`'s frames, so a reentering one names `base`: see `enterFieldOwner`.
     children: base.children,

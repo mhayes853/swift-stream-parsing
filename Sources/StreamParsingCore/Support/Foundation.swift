@@ -11,7 +11,7 @@
     public static func streamInitialValue() -> Self { Data() }
 
     @discardableResult
-    public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+    public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
       bytes.withUnsafeBufferPointer { self.append($0) }
       return .applied
     }
@@ -99,15 +99,15 @@
       StreamSchema(
         shape: .object,
         matchField: streamMatchPersonNameField,
-        applyString: { storage, field, bytes in
+        applyString: { storage, field, bytes, info in
           let p = storage.assumingMemoryBound(to: PersonNameComponents.self)
           switch field {
-          case Self.StreamField.familyName: streamAppendPersonName(&p.pointee.familyName, bytes)
-          case Self.StreamField.givenName: streamAppendPersonName(&p.pointee.givenName, bytes)
-          case Self.StreamField.middleName: streamAppendPersonName(&p.pointee.middleName, bytes)
-          case Self.StreamField.namePrefix: streamAppendPersonName(&p.pointee.namePrefix, bytes)
-          case Self.StreamField.nameSuffix: streamAppendPersonName(&p.pointee.nameSuffix, bytes)
-          case Self.StreamField.nickname: streamAppendPersonName(&p.pointee.nickname, bytes)
+          case Self.StreamField.familyName: streamAppendPersonName(&p.pointee.familyName, bytes, info)
+          case Self.StreamField.givenName: streamAppendPersonName(&p.pointee.givenName, bytes, info)
+          case Self.StreamField.middleName: streamAppendPersonName(&p.pointee.middleName, bytes, info)
+          case Self.StreamField.namePrefix: streamAppendPersonName(&p.pointee.namePrefix, bytes, info)
+          case Self.StreamField.nameSuffix: streamAppendPersonName(&p.pointee.nameSuffix, bytes, info)
+          case Self.StreamField.nickname: streamAppendPersonName(&p.pointee.nickname, bytes, info)
           default: return .unsupported
           }
           return .applied
@@ -148,8 +148,8 @@
       let field = streamMatchPersonNameField(key)
       return field == PersonNameComponents.StreamField.phoneticRepresentation ? -1 : field
     },
-    applyString: { storage, field, bytes in
-      streamModifyPhonetic(storage, field) { streamAppendPersonName(&$0, bytes) }
+    applyString: { storage, field, bytes, info in
+      streamModifyPhonetic(storage, field) { streamAppendPersonName(&$0, bytes, info) }
     },
     applyNull: { storage, field in
       streamModifyPhonetic(storage, field) { $0 = nil }
@@ -188,9 +188,11 @@
     }
   }
 
-  private func streamAppendPersonName(_ value: inout String?, _ bytes: Span<UInt8>) {
+  private func streamAppendPersonName(
+    _ value: inout String?, _ bytes: Span<UInt8>, _ info: StringInfo
+  ) {
     if value == nil { value = "" }
-    value!.streamAppend(utf8: bytes)
+    value!.streamAppend(utf8: bytes, info: info)
   }
 
   private func streamModifyPhonetic(

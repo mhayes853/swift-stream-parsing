@@ -432,8 +432,8 @@ extension StreamBase64Data: StreamStringConvertible {
   public static func streamInitialValue() -> Self { Self() }
 
   @discardableResult
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
-    // The opening quote's empty span, sent to settle acceptance: there is nothing to decode.
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
+    // The opening or closing quote's empty span: there is nothing to decode.
     guard !bytes.isEmpty else { return .applied }
     let accepted = bytes.withUnsafeBufferPointer { self.decode($0) }
     return accepted ? .applied : .conversionFailed

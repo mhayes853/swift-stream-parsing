@@ -1151,7 +1151,7 @@ extension StreamString: StreamInitializable {
 extension StreamString: StreamStringConvertible {
   @discardableResult
   @inlinable
-  public mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+  public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
     bytes.withUnsafeBufferPointer { buffer in
       self.append(utf8: buffer)
     }

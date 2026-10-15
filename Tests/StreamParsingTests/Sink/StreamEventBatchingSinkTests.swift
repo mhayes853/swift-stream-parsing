@@ -74,9 +74,10 @@ private let depthNodeSchema = StreamSchema(
     if bytes == Array("child".utf8) { return 1 }
     return -1
   },
-  applyString: { storage, field, bytes in
+  applyString: { storage, field, bytes, info in
     guard field == 0 else { return .unsupported }
-    return storage.assumingMemoryBound(to: DepthNode.self).pointee.name.streamAppend(utf8: bytes)
+    return storage.assumingMemoryBound(to: DepthNode.self).pointee.name
+      .streamAppend(utf8: bytes, info: info)
   },
   enterField: { storage, field in
     guard field == 1 else { return nil }

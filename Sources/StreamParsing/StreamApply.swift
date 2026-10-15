@@ -12,42 +12,45 @@ import StreamParsingCore
 @inlinable
 @inline(__always)
 public func _streamApply<T: StreamStringConvertible>(
-  _ value: inout T, utf8 bytes: Span<UInt8>
+  _ value: inout T, utf8 bytes: Span<UInt8>, info: StringInfo
 ) -> StreamApplyResult {
-  value.streamAppend(utf8: bytes)
+  value.streamAppend(utf8: bytes, info: info)
 }
 
 @inlinable
 @inline(__always)
 public func _streamApply(
-  _ value: inout StreamString, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout StreamString, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult {
-  if bytes.isEmpty { value.streamReserve(utf8ByteCount: initialCapacity) }
-  return value.streamAppend(utf8: bytes)
+  if info.flags.contains(.begin) { value.streamReserve(utf8ByteCount: initialCapacity) }
+  return value.streamAppend(utf8: bytes, info: info)
 }
 
 // A `String` member (`partialStrings: .string`) sits on the closure route, where the opening quote
-// arrives as the empty span: that call reserves, as the table does for a `StreamString` entry.
+// arrives as the call carrying `.begin`: that call reserves, as the table does for a
+// `StreamString` entry.
 @inlinable
 @inline(__always)
 public func _streamApply(
-  _ value: inout String, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout String, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult {
-  if bytes.isEmpty { value.reserveCapacity(initialCapacity) }
-  return value.streamAppend(utf8: bytes)
+  if info.flags.contains(.begin) { value.reserveCapacity(initialCapacity) }
+  return value.streamAppend(utf8: bytes, info: info)
 }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
 public func _streamApply<T>(
-  _ value: inout T, utf8 bytes: Span<UInt8>, initialCapacity: Int
+  _ value: inout T, utf8 bytes: Span<UInt8>, info: StringInfo, initialCapacity: Int
 ) -> StreamApplyResult { .unsupported }
 
 @_disfavoredOverload
 @inlinable
 @inline(__always)
-public func _streamApply<T>(_ value: inout T, utf8 bytes: Span<UInt8>) -> StreamApplyResult {
+public func _streamApply<T>(
+  _ value: inout T, utf8 bytes: Span<UInt8>, info: StringInfo
+) -> StreamApplyResult {
   .unsupported
 }
 

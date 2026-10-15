@@ -613,8 +613,8 @@ struct BenchmarkText: StreamStringConvertible, StreamParseable, StreamPartial, E
   typealias Partial = Self
   var storage = StreamString()
   static func streamInitialValue() -> Self { Self() }
-  mutating func streamAppend(utf8 bytes: Span<UInt8>) -> StreamApplyResult {
-    self.storage.streamAppend(utf8: bytes)
+  mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
+    self.storage.streamAppend(utf8: bytes, info: info)
   }
 }
 
@@ -1025,7 +1025,7 @@ struct BenchmarkDiscardedScalar: Equatable, StreamInitializable, StreamParseable
   static var streamSchema: StreamSchema {
     StreamSchema(
       shape: .scalar,
-      applyString: { _, _, _ in .applied },
+      applyString: { _, _, _, _ in .applied },
       applyNumber: { _, _, _, _ in .applied },
       applyBoolean: { _, _, _ in .applied },
       applyNull: { _, _ in .applied }
