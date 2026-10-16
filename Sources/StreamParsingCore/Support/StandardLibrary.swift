@@ -18,30 +18,37 @@ extension String: StreamStringConvertible {
   // are checked here rather than trusted from the sink, so a caller handing over anything at all
   // still gets a well-formed `String`: what the validator refuses, a sequence cut at the end
   // included, takes the repairing decode as before. Bytes the sink marks `.validatedUTF8` skip
-  // both checks.
+  // the validator but not the ASCII scan, which the `String` needs for its ASCII flag.
   @discardableResult
   public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
     // The opening or closing quote's empty span: there is nothing to append.
     guard !bytes.isEmpty else { return .applied }
     if bytes.count >= 32, #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
-      // Bytes the parser validated (`.validatedUTF8`) go in unchecked, with neither the ASCII scan
-      // nor the validator: `String(copying:)` finds whether they are ASCII in its own one pass.
-      // Only from 32 bytes, as the rest of this branch: below the deployment target the
-      // `#available` above is a runtime check of ~10 ns per call (M1, macOS 14 target), which a
-      // span of one scalar would pay to save nothing. Taken at every length, it cost `LLM message
-      // String storage - byte by byte` 22.6%.
-      if info.flags.contains(.validatedUTF8) {
-        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes)))
-        return .applied
+      // `String(copying: UTF8Span(unchecked:))` does not look for ASCII: without `isKnownASCII` it
+      // flags the `String` non-ASCII outright, and `append` keeps that for the whole value. So this
+      // scan is what keeps an ASCII field ASCII (4 KB: `utf16.count` 0.12 µs flagged, 7.4 µs not),
+      // validated or not. It stops at the first non-ASCII byte, so LLM text, which has one early
+      // in nearly every span, pays a block or two; a full OR-scan cost LLM `String` storage ~3%,
+      // this ~1-2%. Only from 32 bytes, as the rest of this branch: below the deployment target
+      // the `#available` above is a runtime check of ~10 ns per call (M1, macOS 14 target), which
+      // a span of one scalar would pay to save nothing.
+      let isASCII = bytes.withUnsafeBytes { raw in
+        let base = raw.baseAddress!
+        let count = raw.count
+        var at = 0
+        while at &+ 16 < count {
+          if streamVectorContainsNonASCII(base.loadUnaligned(fromByteOffset: at, as: SIMD16<UInt8>.self)) {
+            return false
+          }
+          at &+= 16
+        }
+        return !streamVectorContainsNonASCII(
+          base.loadUnaligned(fromByteOffset: count &- 16, as: SIMD16<UInt8>.self)
+        )
       }
-      let isASCII = bytes.withUnsafeBufferPointer { buffer in
-        var bits: UInt8 = 0
-        for byte in buffer { bits |= byte }
-        return bits < 0x80
-      }
-      // Known ASCII also spares `String(copying:)` its own scan for the flag.
-      if isASCII {
-        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes, isKnownASCII: true)))
+      // Bytes the parser validated (`.validatedUTF8`) go in unchecked even when they are not ASCII.
+      if isASCII || info.flags.contains(.validatedUTF8) {
+        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes, isKnownASCII: isASCII)))
         return .applied
       }
       let isValid = bytes.withUnsafeBytes { raw in

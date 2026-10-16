@@ -9044,8 +9044,9 @@ always drives a `JSONParser` and passes `true`. The flags live in `PartialSink`'
 closure branch, after the `homogeneousStringStorage` exit, so the default `StreamString` route never
 runs them.
 
-`String`'s conformance is the one consumer. With the flag, a span of 32 bytes or more skips both the
-ASCII scan and the SIMD validator and goes straight to `String(copying: UTF8Span(unchecked:))`.
+`String`'s conformance is the one consumer. With the flag, a span of 32 bytes or more skips the
+SIMD validator and goes straight to `String(copying: UTF8Span(unchecked:))`. It keeps the ASCII
+scan, as the correction below explains.
 The first version took that path at every length and cost `LLM message String storage - byte by
 byte` 22.6%. The benchmark counters were identical, so the cost was instructions alone: the
 `#available` check. Below the deployment target (the benchmarks build for macOS 14) it is a runtime
@@ -9074,3 +9075,15 @@ of the code it runs changed, so that is layout.
 
 The macro test target crashes with SIGILL under AddressSanitizer. It does so on `593c9e78`, before
 `StringInfo`, as well. The runtime suites pass under ASan.
+
+**Correction: the ASCII scan stays.** The first version also dropped the ASCII scan, assuming
+`String(copying:)` looks for ASCII on its own. It doesn't. Without `isKnownASCII` it flags the
+`String` non-ASCII outright, at no cost, and `append` keeps that flag for the whole value. Every
+ASCII span of 32 bytes or more therefore made a non-ASCII `String`. On a 4 KB ASCII string,
+`utf16.count` (which `NSString` bridging and `NSRange` work rely on) took 7.4 µs instead of
+0.12 µs. Creation itself is the same speed with or without the hint, from 32 bytes to 64 KB, and
+forcing the hint on everything moved no row (geomean −0.3%). So the scan buys only the flag. A full
+OR-scan cost LLM `String` storage about 3%, since its spans are nearly all non-ASCII and the scan
+learns nothing. A NEON scan that stops at the first high byte (`ldr q`, `umaxv`, `fmov`, `tbz` per
+16 bytes, then one overlapping tail load) costs 0.5–2.1% on the LLM rows and leaves Twitter flat.
+That residue is the most a parser-supplied `.ascii` flag could win back.
