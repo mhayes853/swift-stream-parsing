@@ -1,0 +1,471 @@
+{
+  "version": 1,
+  "lede": [
+    "A type streams by conforming to `StreamParseable` with a `Partial`: a struct the sink can write into one token at a time, together with the schema that tells the sink where each key goes. Nobody writes one by hand. `@StreamParseable` generates it, and `StreamParsingMacroSupport` is the library that generation lives in.",
+    "The library is public so that other macros can produce the same `Partial` for types they describe in their own terms. The built-in macro is one client of it; a package outside this one, in `SmokeTests/MacroSupport`, is another."
+  ],
+  "why": [
+    {
+      "title": "The generated code is shaped by the runtime, and the runtime keeps changing",
+      "detail": [
+        "A `Partial` is not a plain mirror of a type's properties. Its keys are split into 64-bit words for `streamMatchField`, its members are addressed by byte offset in a field table, its schema is built once into `StreamSchemaCache`, and its view is lifetime-checked or pointer-backed depending on a package trait. Those are the parse path's decisions, made where the parser needed them.",
+        "Since the generator became its own library the generated code has changed for a schema cache, for generic types and for key decoding strategies. A macro that wrote its own `Partial` would have had to follow each change; one that calls the generator got them by rebuilding."
+      ],
+      "guide": [
+        "readme:building-compatible-macros",
+        "macro-support:describe-the-fields-and-generate-the-struct"
+      ],
+      "source": [
+        "StreamObjectGeneration.swift:structDeclarationSyntax"
+      ]
+    },
+    {
+      "title": "Another macro can make its types stream without a second description",
+      "detail": [
+        "A macro that already owns a type's declaration -- with its own attribute for keys, its own member model -- would otherwise need users to apply `@StreamParseable` as well and keep the two descriptions in step. Instead it hands the generator a list of `StreamParseableField`s and gets the `Partial`, the schema and the conversions the built-in macro would have produced.",
+        "`SupportPartialMacro` in the downstream smoke package does exactly that with a field list it builds itself, including a member read from either of two keys."
+      ],
+      "guide": [
+        "readme:building-compatible-macros"
+      ],
+      "source": [
+        "SupportMacros.swift:SupportPartialMacro"
+      ]
+    },
+    {
+      "title": "The built-in macro uses the same public API",
+      "detail": [
+        "`@StreamParseable` reads a struct's stored properties and member attributes into fields and calls `StreamObjectGeneration`, the same entry point a downstream macro calls. Every `@StreamParseable` type in the test suite is therefore also a test of the public surface, not only of an internal path the public one would have to be kept in step with."
+      ],
+      "guide": [
+        "macro-support:describe-the-fields-and-generate-the-struct"
+      ],
+      "source": [
+        "StreamParseableMacro.swift:objectGeneration"
+      ]
+    },
+    {
+      "title": "Extending the Partial does not mean rewriting it",
+      "detail": [
+        "A downstream macro usually wants its own API on the `Partial`: extra stored state, a method, a view property, a callback when a key is recognized. The generator takes these as member builders and a recognition hook, and hands out each field's `StreamFieldID` to compare against. Rewriting the generated syntax instead would make the macro responsible for its compatibility with every later change."
+      ],
+      "guide": [
+        "macro-support:add-members-and-behavior"
+      ],
+      "source": [
+        "SupportMacros.swift:SupportPartialMacro",
+        "StreamObjectGeneration.swift:fieldIdentifiers"
+      ]
+    },
+    {
+      "title": "One key conversion, linked by the macro and the runtime",
+      "detail": [
+        "`keyDecodingStrategy: .convertFromSnakeCase` is applied while the macro expands, so the keys are literals in the generated matcher and cost nothing at run time. A custom strategy is a closure, which a macro cannot run, so its keys are converted when the schema is built. The two paths must agree on every key, so both link `StreamParsingKeyDecoding`, a target with no dependencies of its own."
+      ],
+      "guide": [
+        "readme:quick-start/key-names"
+      ],
+      "source": [
+        "StreamDefaultKeyConversion.swift:StreamDefaultKeyConversion"
+      ]
+    }
+  ],
+  "chart": {
+    "id": "macro-generation",
+    "stage": "macros",
+    "title": "From an annotated type to a Partial",
+    "kicker": "compile time",
+    "why": [
+      "A macro sees syntax, not types, so everything the runtime needs has to be decided from the declaration as written and emitted as source."
+    ],
+    "prose": [
+      "Two kinds of macro reach the generator. `@StreamParseable` reads a struct or an enum; a downstream macro supplies its own field list. Both end in the same plan, which is validated before anything is emitted, and the same assembly of the `Partial`."
+    ],
+    "viz": null,
+    "evidence": {
+      "doc": [],
+      "source": [
+        "StreamParseableMacro.swift:StreamParseableMacro",
+        "StreamParseableMacro.swift:storedProperties",
+        "StreamParseableMacro.swift:objectGeneration",
+        "StreamDefaultKeyConversion.swift:StreamDefaultKeyConversion",
+        "SupportMacros.swift:SupportPartialMacro",
+        "StreamEnumGeneration.swift:StreamEnumGeneration",
+        "StreamObjectGeneration.swift:StreamObjectGeneration",
+        "StreamObjectGeneration.swift:StreamObjectGenerationError",
+        "StreamObjectGeneration.swift:structDeclarationSyntax",
+        "StreamObjectGeneration.swift:storageMembers",
+        "StreamObjectGeneration.swift:initialValueMembers",
+        "StreamObjectGeneration.swift:viewDeclaration",
+        "StreamObjectGeneration.swift:matchFieldFunction",
+        "StreamUTF8Match.swift:StreamUTF8Match",
+        "SyntaxUtilities.swift:streamWordCaseLabel",
+        "StreamObjectGeneration.swift:applyFunction",
+        "StreamObjectGeneration.swift:schemaBuild",
+        "StreamObjectConversions.swift:conversionsSyntax",
+        "StreamSchema.swift:StreamSchema"
+      ],
+      "asm": []
+    },
+    "invokes": "A macro builds a list of fields and hands it to the generator, which validates it and then emits the Partial's members in a fixed order.",
+    "ordering": "ordered",
+    "next": [],
+    "steps": [
+      {
+        "id": "expand",
+        "title": "a macro expands",
+        "kicker": "a compiler plugin",
+        "detail": "Macros run in a plugin process during compilation, over the declaration's syntax. `@StreamParseable` is two roles on one type: a member macro that adds `streamPartialValue` inside the declaration, and an extension macro that adds the conformance with everything else.",
+        "source": "StreamParseableMacro.swift:StreamParseableMacro",
+        "ordering": "unordered",
+        "next": [
+          {
+            "to": "read",
+            "kind": "branch",
+            "label": "@StreamParseable on a struct",
+            "when": "The common case: a struct's stored properties become fields."
+          },
+          {
+            "to": "enum",
+            "kind": "branch",
+            "label": "@StreamParseable on an enum",
+            "when": "The enum's spelling picks its wire form: a string or numeric raw value, or the case-keyed object `Codable` produces for an enum without one."
+          },
+          {
+            "to": "downstream",
+            "kind": "branch",
+            "label": "a downstream macro",
+            "when": "A macro in another package that depends on the `StreamParsingMacroSupport` product."
+          }
+        ]
+      },
+      {
+        "id": "read",
+        "title": "storedProperties",
+        "kicker": "syntax, not types",
+        "detail": "Every stored property with a type annotation becomes a field; static, computed and method members are skipped. `@StreamParseableMember` supplies keys, aliases and a capacity hint, `@StreamParseableIgnored` removes a member, and a missing annotation or a non-literal key is a diagnostic at the attribute rather than a failure later.",
+        "source": "StreamParseableMacro.swift:storedProperties",
+        "next": [
+          {
+            "to": "keys",
+            "kind": "step",
+            "label": "name each field's keys"
+          }
+        ]
+      },
+      {
+        "id": "keys",
+        "title": "keys, decoded now or at schema build",
+        "kicker": "StreamParsingKeyDecoding",
+        "detail": "A built-in `keyDecodingStrategy` is converted here, so `createdAt` reaches the generator as the literal key `created_at`. A custom strategy is a closure the macro cannot run; its keys are converted when the schema is built, by the same `StreamDefaultKeyConversion` for the built-in cases. A key named outright with `@StreamParseableMember` is never converted.",
+        "source": "StreamDefaultKeyConversion.swift:StreamDefaultKeyConversion",
+        "next": [
+          {
+            "to": "plan",
+            "kind": "step",
+            "label": "fields to the generator"
+          }
+        ]
+      },
+      {
+        "id": "downstream",
+        "title": "a field list of its own",
+        "kicker": "StreamParseableField",
+        "detail": "A downstream macro builds `StreamParseableField`s from whatever it reads -- its own attributes, a fixed model -- and calls the same initializer. `SupportPartialMacro` reads `name` from `customer_name` or `name`.",
+        "source": "SupportMacros.swift:SupportPartialMacro",
+        "next": [
+          {
+            "to": "plan",
+            "kind": "step",
+            "label": "fields to the generator"
+          }
+        ]
+      },
+      {
+        "id": "enum",
+        "title": "StreamEnumGeneration",
+        "kicker": "three wire forms",
+        "detail": "A raw-value enum's `Partial` is a library type -- `StreamString` for a string, the raw type for a number -- so it needs only conversions, whose string case is a switch on the same 64-bit words a key match uses. A case-keyed enum gets an object `Partial` with one member per case, and each case with associated values gets a payload `Partial` of its own; both are built by the object generator.",
+        "source": "StreamEnumGeneration.swift:StreamEnumGeneration",
+        "ordering": "ordered",
+        "next": [
+          {
+            "to": "conversions",
+            "kind": "branch",
+            "label": "a raw-value enum",
+            "when": "The `Partial` is `StreamString` or the raw type; only the conversions are generated."
+          },
+          {
+            "to": "plan",
+            "kind": "branch",
+            "label": "a case-keyed enum",
+            "when": "The top-level `Partial` and every payload are objects."
+          }
+        ]
+      },
+      {
+        "id": "plan",
+        "title": "StreamObjectGeneration(fields:)",
+        "kicker": "validate, then plan",
+        "detail": "The fields are checked before any syntax exists: two members claiming one key (compared as UTF-8 bytes, so canonically equal keys stay distinct), a converted member with no default, an inlining level the members cannot support. The plan then resolves every key and decides each member's route: a known scalar kind written straight into its slot, a container with a child schema, or a generic parameter delegated to its own schema.",
+        "source": "StreamObjectGeneration.swift:StreamObjectGeneration",
+        "ordering": "ordered",
+        "next": [
+          {
+            "to": "invalid",
+            "kind": "branch",
+            "label": "the plan is invalid",
+            "when": "Initialization throws `StreamObjectGenerationError`."
+          },
+          {
+            "to": "partial",
+            "kind": "step",
+            "label": "emit the Partial"
+          }
+        ]
+      },
+      {
+        "id": "invalid",
+        "title": "StreamObjectGenerationError",
+        "kicker": "or recovery syntax",
+        "detail": "A macro that has already emitted its own diagnostics can use `StreamObjectGeneration(diagnosedFields:)` to produce recovery syntax without repeating the validation, so one mistake does not cascade into unrelated compiler errors.",
+        "source": "StreamObjectGeneration.swift:StreamObjectGenerationError",
+        "next": []
+      },
+      {
+        "id": "partial",
+        "title": "structDeclarationSyntax",
+        "kicker": "a fixed order",
+        "detail": "Assembles the `Partial` struct from the pieces below, always in this order -- the numbers are the order they are emitted in. A downstream macro's own members and customizations are appended after them. The conversions go beside the `Partial`, in the same extension.",
+        "source": "StreamObjectGeneration.swift:structDeclarationSyntax",
+        "next": [
+          {
+            "to": "storage",
+            "kind": "detail",
+            "label": "storage and initializer"
+          },
+          {
+            "to": "template",
+            "kind": "detail",
+            "label": "initial value"
+          },
+          {
+            "to": "view",
+            "kind": "detail",
+            "label": "View"
+          },
+          {
+            "to": "match",
+            "kind": "detail",
+            "label": "key match"
+          },
+          {
+            "to": "apply",
+            "kind": "detail",
+            "label": "apply by token kind"
+          },
+          {
+            "to": "schema",
+            "kind": "detail",
+            "label": "schema entry"
+          },
+          {
+            "to": "conversions",
+            "kind": "step",
+            "label": "then, beside the Partial"
+          }
+        ],
+        "ordering": "ordered"
+      },
+      {
+        "id": "storage",
+        "title": "storage and initializer",
+        "kicker": "one optional per member",
+        "detail": "One stored property per field, of the member's own `Partial` type -- optional, or starting at its stream initial value in that mode -- and a memberwise initializer. The sink writes into these at byte offsets the field table records.",
+        "source": "StreamObjectGeneration.swift:storageMembers",
+        "next": []
+      },
+      {
+        "id": "template",
+        "title": "initial value template",
+        "kicker": "built once",
+        "detail": "`streamInitialValue()` returns a copy of a template built once, rather than constructing the value each time an element opens. Beside it, the key paths observation reports changes through, compiled out under Embedded Swift.",
+        "source": "StreamObjectGeneration.swift:initialValueMembers",
+        "next": []
+      },
+      {
+        "id": "view",
+        "title": "View",
+        "kicker": "~Copyable",
+        "detail": "A view over the `Partial`'s storage that reads one member without copying the rest. With the `LifetimeView` trait it is `~Escapable` and the compiler ties it to the stream; without it, it is pointer-backed and `@unsafe`.",
+        "source": "StreamObjectGeneration.swift:viewDeclaration",
+        "next": []
+      },
+      {
+        "id": "match",
+        "title": "streamMatchField",
+        "kicker": "a switch on words",
+        "detail": "Field identifiers, then a `switch` on the key's first eight bytes read as one little-endian word, with the length and any later words checked in the `where` clause. Each arm is written by `streamWordCaseLabel` from a `StreamUTF8Match` -- the type a downstream macro uses for predicates of its own -- so the words are computed at compile time and a key match at run time is one load and a few compares.",
+        "source": "StreamObjectGeneration.swift:matchFieldFunction",
+        "next": []
+      },
+      {
+        "id": "apply",
+        "title": "streamApply…",
+        "kicker": "one per token kind",
+        "detail": "One function each for a string, a number, a boolean and a null, switching on the field identifier and applying the token to that member's storage. A member that cannot hold the token kind answers `.unsupported`, which the sink reports as a mismatch.",
+        "source": "StreamObjectGeneration.swift:applyFunction",
+        "next": []
+      },
+      {
+        "id": "schema",
+        "title": "the schema entry",
+        "kicker": "StreamSchemaCache",
+        "detail": "The field table -- key, identifier, route and byte offset per member -- and the functions above, built into a `StreamSchema` once per type in `StreamSchemaCache` and read through a `static let` entry. A generic `Partial`, which cannot declare a stored static, reads the cache by type.",
+        "source": "StreamObjectGeneration.swift:schemaBuild",
+        "next": []
+      },
+      {
+        "id": "conversions",
+        "title": "conversionsSyntax",
+        "kicker": "both directions",
+        "detail": "`streamPartialValue` goes from the whole type to a `Partial`; `init?(streamPartial:)` goes back, failing when a required member has not arrived, and `init(orInitial:)` fills what is missing from each member's initial value. They go in an extension so the type keeps its memberwise initializer.",
+        "source": "StreamObjectConversions.swift:conversionsSyntax",
+        "next": [
+          {
+            "to": "runtime",
+            "kind": "step",
+            "label": "compiled into the program"
+          }
+        ]
+      },
+      {
+        "id": "runtime",
+        "title": "a StreamParseable type",
+        "kicker": "run time",
+        "detail": "At run time `PartialSink` reads the schema: `streamMatchField` for each key, the field table's route and offset for where the value goes, and the apply functions for the token. The parse path's typed routing stages are this code running.",
+        "source": "StreamSchema.swift:StreamSchema",
+        "next": []
+      }
+    ]
+  },
+  "regions": [
+    {
+      "id": "source",
+      "title": "the declaration as written",
+      "detail": "The type the macro was applied to, unchanged but for the member it adds.",
+      "step": "expand"
+    },
+    {
+      "id": "declaration",
+      "title": "conformance and Partial",
+      "detail": "The extension that adds `StreamParseable`, and the `Partial` struct's header, or the `typealias Partial` of a raw-value enum.",
+      "step": "partial"
+    },
+    {
+      "id": "storage",
+      "title": "storage",
+      "detail": "One stored property per member, and the memberwise initializer.",
+      "step": "storage",
+      "node": "partial-sink"
+    },
+    {
+      "id": "template",
+      "title": "initial value",
+      "detail": "The template `streamInitialValue()` copies.",
+      "step": "template",
+      "node": "schema"
+    },
+    {
+      "id": "observation",
+      "title": "observation",
+      "detail": "The key paths field observation reports changes through; compiled out under Embedded Swift.",
+      "step": "template"
+    },
+    {
+      "id": "view",
+      "title": "view",
+      "detail": "Reads a member of the partial without copying the rest.",
+      "step": "view",
+      "node": "views"
+    },
+    {
+      "id": "ids",
+      "title": "field identifiers",
+      "detail": "One `Int32` per member, shared by aliases.",
+      "step": "match",
+      "node": "field-table"
+    },
+    {
+      "id": "match",
+      "title": "key match",
+      "detail": "The key's bytes as little-endian words, compared in a switch.",
+      "step": "match",
+      "node": "keys"
+    },
+    {
+      "id": "apply",
+      "title": "apply",
+      "detail": "A token of each kind, written into the member the identifier names.",
+      "step": "apply",
+      "node": "partial-sink"
+    },
+    {
+      "id": "schema",
+      "title": "schema",
+      "detail": "The field table and the functions above, built once into the cache.",
+      "step": "schema",
+      "node": "field-table"
+    },
+    {
+      "id": "conversions",
+      "title": "conversions",
+      "detail": "Between the whole type and its partial, in both directions.",
+      "step": "conversions"
+    },
+    {
+      "id": "payload",
+      "title": "payload types",
+      "detail": "A namespace per enum case with associated values, holding the payload's `Partial` and `Value`.",
+      "step": "enum"
+    },
+    {
+      "id": "other",
+      "title": "other members",
+      "detail": "Anything else the generator or a customization added.",
+      "step": "partial"
+    }
+  ],
+  "examples": [
+    {
+      "test": "StreamParseableMacroTests.swift:Basic",
+      "title": "Two members",
+      "detail": "The smallest complete expansion: every region a struct gets, for a `String` and an `Int`."
+    },
+    {
+      "test": "StreamParseableMacroTests.swift:Custom Member Keys",
+      "title": "Keys and aliases",
+      "detail": "`name` is read from `customKeyName` or `name2`, and `nickname` from `a` or `b`. Aliases share one field identifier, and a thirteen-byte key needs a second word."
+    },
+    {
+      "test": "KeyDecodingStrategyMacroTests.swift:Built-In Strategy Converts Keys During Expansion",
+      "title": "A key decoding strategy",
+      "detail": "`convertFromSnakeCase` is applied during expansion, so the matcher compares against `user_id` and `full_text` as literal words."
+    },
+    {
+      "test": "StreamParseableMacroTests.swift:String Raw Value Enum",
+      "title": "A string raw-value enum",
+      "detail": "The `Partial` is `StreamString`. Conversion switches on the same words a key match uses, then falls back to the shortest case the bytes so far are a prefix of."
+    },
+    {
+      "test": "StreamParseableMacroTests.swift:Raw Less Enum Uses The Codable Object Form",
+      "title": "A case-keyed enum",
+      "detail": "An enum with no raw type parses the object `Codable` writes for it, so its `Partial` is an object with one member per case."
+    },
+    {
+      "test": "StreamParseableMacroTests.swift:Generic Struct",
+      "title": "A generic struct",
+      "detail": "A member whose type is a generic parameter is routed through that parameter's own schema, and the schema is read from the cache by type."
+    }
+  ]
+}
