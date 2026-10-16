@@ -141,10 +141,15 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   ///   - root: The address of an initialized value of the type `schema` describes. The sink does not
   ///     check that the two agree, and the value must stay at this address for the sink's lifetime.
   ///   - schema: How tokens are routed into the value.
-  public init(root: UnsafeMutableRawPointer, schema: StreamSchema) {
+  ///   - validatedUTF8: Whether every string span the sink receives is well-formed UTF-8 on its
+  ///     own, as ``JSONParser`` guarantees. Destinations may then skip validating it, so pass
+  ///     `true` only for a producer that does: a `String` built from bytes that are not UTF-8
+  ///     breaks its invariants.
+  public init(root: UnsafeMutableRawPointer, schema: StreamSchema, validatedUTF8: Bool = false) {
     self.root = root
     self.rootSchema = schema
     self.frames = .allocate(capacity: Self.overflowCapacity)
+    self.stringFlags = validatedUTF8 ? .validatedUTF8 : []
   }
 
   deinit {
@@ -522,9 +527,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     // The empty span both materializes the destination and settles whether it accepts strings at
     // all, so a mismatch is reported at the opening quote rather than at the first chunk.
-    let result = target.withSchema {
-      $0.applyString(target.storage, target.field, Span(), StringInfo(flags: .begin))
-    }
+    let info = StringInfo(flags: self.stringFlags.union(.begin))
+    let result = target.withSchema { $0.applyString(target.storage, target.field, Span(), info) }
     if result != .applied {
       self.scalarTarget = nil
       self.recordFailure(Self.failureReason(for: result))
@@ -556,18 +560,16 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // (the compare kept the schema live and broke the tail call); the `max` fold is at parity, and
     // sticky since `applied` is zero. The failure surfaces at the closing quote, same token.
     // NEW_ARCHITECTURE.md, "The chunk check that cost 8.7%".
-    let result = target.withSchema {
-      $0.applyString(target.storage, target.field, bytes, StringInfo())
-    }
+    let info = StringInfo(flags: self.stringFlags)
+    let result = target.withSchema { $0.applyString(target.storage, target.field, bytes, info) }
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)
   }
 
   public mutating func stringEnd() {
     // The closing quote's call, which a destination that already refused a chunk does not get.
     if self.stringResultRaw == 0, let target = self.scalarTarget {
-      let result = target.withSchema {
-        $0.applyString(target.storage, target.field, Span(), StringInfo(flags: .end))
-      }
+      let info = StringInfo(flags: self.stringFlags.union(.end))
+      let result = target.withSchema { $0.applyString(target.storage, target.field, Span(), info) }
       self.stringResultRaw = result.rawValue
     }
     self.homogeneousStringStorage = nil
@@ -600,7 +602,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       case .match:
         if field >= 0 {
           let result = top.pointee.schema.applyString(
-            top.pointee.storage, field, bytes, StringInfo(flags: [.begin, .end])
+            top.pointee.storage, field, bytes,
+            StringInfo(flags: self.stringFlags.union([.begin, .end]))
           )
           if result != .applied { self.recordFailure(Self.failureReason(for: result)) }
         }
@@ -792,6 +795,10 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // The open string value's worst result so far, as a raw value so chunks can fold into it
   // without branching. Read and reset once per value in `stringEnd`.
   @usableFromInline var stringResultRaw: UInt8 = 0
+
+  // `.validatedUTF8` when the producer vouches for its string bytes, else empty; folded into the
+  // `StringInfo` of every string call. Configuration, so `reset()` keeps it.
+  @usableFromInline var stringFlags: StringInfo.Flags = []
 
   // Kept after the existing hot fields. Ordinary parsing never allocates this stack.
   @usableFromInline var completedValues: [_StreamPendingCompletedValue] = []
@@ -1307,7 +1314,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       // The closure route, exactly as before the table: the empty span materialises and settles.
       let target = self.scalarTarget.unsafelyUnwrapped
       let field = entry.pointee.index
-      return target.withSchema { $0.applyString(storage, field, Span(), StringInfo(flags: .begin)) }
+      let info = StringInfo(flags: self.stringFlags.union(.begin))
+      return target.withSchema { $0.applyString(storage, field, Span(), info) }
     default:
       return .unsupported
     }
@@ -1324,7 +1332,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     let member = storage + Int(entry.pointee.offset)
     // See `openTableString`.
     if entry.pointee.schemaBits != nil, entry.pointee.kind == .delegated {
-      return Self.delegateString(entry, member, bytes)
+      return Self.delegateString(entry, member, bytes, self.stringFlags)
     }
     switch entry.pointee.kind {
     case .streamString:
@@ -1339,7 +1347,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return .applied
     case .custom:
       return frame.pointee.schema.applyString(
-        storage, entry.pointee.index, bytes, StringInfo(flags: [.begin, .end])
+        storage, entry.pointee.index, bytes,
+        StringInfo(flags: self.stringFlags.union([.begin, .end]))
       )
     default:
       return .unsupported
@@ -1388,9 +1397,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       field: StreamSchema.wholeValueField, entry: nil
     )
     self.scalarTarget = target
-    return target.withSchema {
-      $0.applyString(member, StreamSchema.wholeValueField, Span(), StringInfo(flags: .begin))
-    }
+    let info = StringInfo(flags: self.stringFlags.union(.begin))
+    return target.withSchema { $0.applyString(member, StreamSchema.wholeValueField, Span(), info) }
   }
 
   // The whole-string form: one call carrying `.begin` and `.end`, as `writeTableString` makes
@@ -1398,11 +1406,11 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   @inline(never)
   private static func delegateString(
     _ entry: UnsafePointer<StreamFieldEntry>, _ member: UnsafeMutableRawPointer,
-    _ bytes: Span<UInt8>
+    _ bytes: Span<UInt8>, _ flags: StringInfo.Flags
   ) -> StreamApplyResult {
     Self.withDelegate(entry) {
       $0.applyString(
-        member, StreamSchema.wholeValueField, bytes, StringInfo(flags: [.begin, .end])
+        member, StreamSchema.wholeValueField, bytes, StringInfo(flags: flags.union([.begin, .end]))
       )
     }
   }
@@ -1518,7 +1526,9 @@ extension PartialSink {
   ///
   /// `root` must point to an initialized value, which has to stay at that address for the sink's
   /// lifetime.
-  public init<Root: StreamPartial>(root: UnsafeMutablePointer<Root>) {
-    self.init(root: UnsafeMutableRawPointer(root), schema: Root.streamSchema)
+  public init<Root: StreamPartial>(root: UnsafeMutablePointer<Root>, validatedUTF8: Bool = false) {
+    self.init(
+      root: UnsafeMutableRawPointer(root), schema: Root.streamSchema, validatedUTF8: validatedUTF8
+    )
   }
 }

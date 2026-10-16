@@ -17,12 +17,23 @@ extension String: StreamStringConvertible {
   // and the LLM message's strings replayed as the sink delivers them, 814 MB/s -> 2821. The bytes
   // are checked here rather than trusted from the sink, so a caller handing over anything at all
   // still gets a well-formed `String`: what the validator refuses, a sequence cut at the end
-  // included, takes the repairing decode as before.
+  // included, takes the repairing decode as before. Bytes the sink marks `.validatedUTF8` skip
+  // both checks.
   @discardableResult
   public mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
     // The opening or closing quote's empty span: there is nothing to append.
     guard !bytes.isEmpty else { return .applied }
     if bytes.count >= 32, #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+      // Bytes the parser validated (`.validatedUTF8`) go in unchecked, with neither the ASCII scan
+      // nor the validator: `String(copying:)` finds whether they are ASCII in its own one pass.
+      // Only from 32 bytes, as the rest of this branch: below the deployment target the
+      // `#available` above is a runtime check of ~10 ns per call (M1, macOS 14 target), which a
+      // span of one scalar would pay to save nothing. Taken at every length, it cost `LLM message
+      // String storage - byte by byte` 22.6%.
+      if info.flags.contains(.validatedUTF8) {
+        self.append(contentsOf: String(copying: UTF8Span(unchecked: bytes)))
+        return .applied
+      }
       let isASCII = bytes.withUnsafeBufferPointer { buffer in
         var bits: UInt8 = 0
         for byte in buffer { bits |= byte }

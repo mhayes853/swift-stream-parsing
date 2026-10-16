@@ -9024,3 +9024,53 @@ on every route. The Embedded (wasm) smoke's hand-written sink sends the same thr
 `StreamBase64Data` ignores the info, so an unpadded string still fails at `finish()`, not at its
 closing quote. Rejecting at `.end` would change what `finishPartial` and `init(orInitial:)` see. That
 behaviour change is now one line, but it is a separate decision.
+
+### `.validatedUTF8`
+
+`StringInfo.Flags.validatedUTF8` says the span is well-formed UTF-8 on its own, so a destination may
+skip validating it. The parser already validates every byte of a string value before it hands it
+over: high surrogates wait in parser state and are never emitted, and a scalar cut by a chunk
+boundary is held and checked before it goes out. `StreamParseSink` now documents that guarantee for
+string values; it promised it only for keys. `StringUTF8GuaranteeTests` sweeps 400 generated
+documents, most of them invalid, at chunk sizes 1 to 13, whole, and byte by byte, with a 16-byte
+buffer so the escape path flushes mid-string. It checks every span delivered before the parser
+refuses the document. Removing the validation before one `stringChunk` record fails it.
+
+The sink cannot set the flag by itself, because anyone can drive a `PartialSink` by hand. It is
+opt-in, `PartialSink(root:schema:validatedUTF8:)`, which defaults to `false`. `PartialsStream`
+always drives a `JSONParser` and passes `true`. The flags live in `PartialSink`'s padding byte after
+`stringResultRaw`, so the sink did not grow. Every parser function is opcode-identical except that
+`mov w4, #0` became `ldrb w4, [sink, #0x69]` at each inlined `stringChunk`. All of those sit on the
+closure branch, after the `homogeneousStringStorage` exit, so the default `StreamString` route never
+runs them.
+
+`String`'s conformance is the one consumer. With the flag, a span of 32 bytes or more skips both the
+ASCII scan and the SIMD validator and goes straight to `String(copying: UTF8Span(unchecked:))`.
+The first version took that path at every length and cost `LLM message String storage - byte by
+byte` 22.6%. The benchmark counters were identical, so the cost was instructions alone: the
+`#available` check. Below the deployment target (the benchmarks build for macOS 14) it is a runtime
+call of about 10 ns. A standalone harness built for the host OS had folded it away and showed the
+unchecked copy no slower than the decode at every length. Rebuilt for macOS 14, the decode measured
+25.7 ns per scalar against 38.0. Caching the answer in a global does not help, because the
+`#available` must still be written at the call. The old code paid the check only from 32 bytes,
+where the validator it now skips cost the most, so the flag is read inside that branch.
+
+Typed rows, M1 Pro, three interleaved rounds against `StringInfo` without the flag, median p50 /
+best-of-3 MB/s:
+
+| row | before | after | change |
+|---|---:|---:|---:|
+| LLM message `String` storage, bulk | 1,716 | **1,988** | **+15.9% / +17.4%** |
+| LLM message `String` storage, 16KB chunks | 1,607 | **1,855** | **+15.4% / +17.0%** |
+| LLM message `String` storage, snapshot per 16384B | 1,587 | **1,866** | **+17.6% / +16.8%** |
+| LLM message `String` storage, snapshot per 1400B | 963 | **1,077** | **+11.8% / +12.3%** |
+| Twitter full `String` storage, bulk | 551 | 570 | +3.4% / +2.9% |
+| LLM message `String` storage, byte by byte | 30 | 31 | +3.3% / 0.0% |
+
+The LLM message's strings nearly all carry a non-ASCII byte, so they all took the validator before.
+Twitter's are mostly ASCII and already skipped it. Across 60 rows the geomean was +1.20% at p50 and
++1.32% best-of-3. LLM message on `StreamString` read −0.9% best-of-3 in two separate A/Bs, but none
+of the code it runs changed, so that is layout.
+
+The macro test target crashes with SIGILL under AddressSanitizer. It does so on `593c9e78`, before
+`StringInfo`, as well. The runtime suites pass under ASan.

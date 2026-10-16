@@ -34,6 +34,20 @@ private struct Recorded: StreamStringConvertible, StreamParseable, StreamPartial
   }
 }
 
+// Counts the calls that did and did not carry `.validatedUTF8`.
+private struct FlagCounting: StreamStringConvertible, StreamParseable, StreamPartial, Equatable {
+  typealias Partial = Self
+  var validated = 0
+  var unvalidated = 0
+
+  static func streamInitialValue() -> Self { Self() }
+
+  mutating func streamAppend(utf8 bytes: Span<UInt8>, info: StringInfo) -> StreamApplyResult {
+    if info.flags.contains(.validatedUTF8) { self.validated += 1 } else { self.unvalidated += 1 }
+    return .applied
+  }
+}
+
 @StreamParseable
 private struct Holder: Equatable {
   var recorded: Recorded
@@ -118,5 +132,24 @@ struct `StringInfo tests` {
     var holder = Holder.Partial()
     try parsePartial(#"{"recorded":"ab","recorded":"c\nd"}"#, into: &holder, chunk: chunk)
     expectNoDifference(holder.recorded, Recorded(strings: ["ab", "c\nd"]))
+  }
+
+  // `PartialsStream` drives a `JSONParser`, which validates every string byte, so it vouches for
+  // them on every call. A sink built by hand cannot know its producer, and says nothing.
+  @Test(arguments: [Int.max, 7, 1])
+  func `Only a sink whose producer validates marks the bytes validated`(chunk: Int) throws {
+    let json = Array(#"["abc","a\nb","é€😀 and more text past seven bytes"]"#.utf8)
+    var stream = PartialsStream<StreamArray<FlagCounting>>(from: .json())
+    var start = 0
+    while start < json.count {
+      try stream.next(Array(json[start..<min(start + chunk, json.count)]))
+      start += chunk
+    }
+    let streamed = try stream.finish()
+    #expect(streamed.allSatisfy { $0.validated >= 2 && $0.unvalidated == 0 })
+
+    var direct = StreamArray<FlagCounting>()
+    try parsePartial(String(decoding: json, as: UTF8.self), into: &direct, chunk: chunk)
+    #expect(direct.allSatisfy { $0.validated == 0 && $0.unvalidated >= 2 })
   }
 }

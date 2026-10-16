@@ -77,6 +77,12 @@ public struct StringInfo: Hashable, Sendable {
     @inlinable public static var begin: Flags { Flags(rawValue: 1 << 0) }
     /// The string's closing quote: the last call for this string.
     @inlinable public static var end: Flags { Flags(rawValue: 1 << 1) }
+    /// The bytes are well-formed UTF-8 on their own: the parser validated them, and the span
+    /// neither starts nor ends inside a scalar. A destination may then skip validating them.
+    ///
+    /// Set only by a sink whose producer guarantees it, as ``PartialsStream`` does for
+    /// ``JSONParser``. A call without it can carry anything.
+    @inlinable public static var validatedUTF8: Flags { Flags(rawValue: 1 << 2) }
   }
 
   @inlinable
@@ -312,6 +318,9 @@ public protocol StreamParseSink: ~Copyable {
 
   /// The fallback string form: a value cut by a chunk boundary or carrying escapes arrives as
   /// `stringBegin`, chunks, `stringEnd`. Mandatory for correctness on chunked input.
+  ///
+  /// ``JSONParser`` validates every byte of a string value before delivering it, and each span it
+  /// delivers is well-formed UTF-8 on its own, here and in ``string(_:)``.
   ///
   /// Chunk boundaries carry no meaning. Content before a value's first escape is a zero-copy
   /// borrow of the input; from the first escape on, decoded escapes and the runs between them are

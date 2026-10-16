@@ -113,8 +113,10 @@ public struct PartialsStream<Value: StreamParseable>: ~Copyable {
     storage.initialize(to: initialValue)
     self.storage = storage
     self.parser = JSONParser(bufferCapacity: format.bufferCapacity)
+    // The parser validates every string byte, so destinations need not do it again.
     self.sink = PartialSink(
-      root: UnsafeMutableRawPointer(storage), schema: Value.Partial.streamSchema
+      root: UnsafeMutableRawPointer(storage), schema: Value.Partial.streamSchema,
+      validatedUTF8: true
     )
   }
 
