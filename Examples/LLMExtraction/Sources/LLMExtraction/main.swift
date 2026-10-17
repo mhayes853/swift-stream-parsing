@@ -112,33 +112,37 @@ guard llama_decode(context, llama_batch_get_one(&promptTokens, promptTokenCount)
 
 print("message: \(message)\n")
 
-var stream = PartialsStream(initialValue: Extraction.Partial(), from: .json())
-var piece = [CChar](repeating: 0, count: 256)
+// Scoped in `do` so `stream` is a local: `finish()` consumes the noncopyable stream, and a
+// top-level `var` in `main.swift` is a global, which cannot be consumed.
+do {
+  var stream = PartialsStream(initialValue: Extraction.Partial(), from: .json())
+  var piece = [CChar](repeating: 0, count: 256)
 
-for _ in 0..<512 {
-  var token = llama_sampler_sample(sampler, context, -1)
-  if llama_vocab_is_eog(vocabulary, token) { break }
+  for _ in 0..<512 {
+    var token = llama_sampler_sample(sampler, context, -1)
+    if llama_vocab_is_eog(vocabulary, token) { break }
 
-  // A token is raw bytes. It can stop mid-string, mid-escape, or mid-UTF-8-scalar, so the bytes
-  // go to the parser as they are and never round-trip through `String`.
-  let length = llama_token_to_piece(vocabulary, token, &piece, Int32(piece.count), 0, false)
-  let bytes = piece[..<Int(length)].map { UInt8(bitPattern: $0) }
-  try stream.next(bytes)
+    // A token is raw bytes. It can stop mid-string, mid-escape, or mid-UTF-8-scalar, so the bytes
+    // go to the parser as they are and never round-trip through `String`.
+    let length = llama_token_to_piece(vocabulary, token, &piece, Int32(piece.count), 0, false)
+    let bytes = piece[..<Int(length)].map { UInt8(bitPattern: $0) }
+    try stream.next(bytes)
 
-  // `current` is an owned snapshot of everything parsed so far.
-  print(String(reflecting: String(decoding: bytes, as: UTF8.self)), "→", stream.current)
+    // `current` is an owned snapshot of everything parsed so far.
+    print(String(reflecting: String(decoding: bytes, as: UTF8.self)), "→", stream.current)
 
-  guard llama_decode(context, llama_batch_get_one(&token, 1)) == 0 else { fatalError("llama_decode failed") }
-}
-
-// Finishing validates that the input was one complete JSON document.
-let partial = try stream.finish()
-print()
-if let extraction = Extraction(streamPartial: partial) {
-  for event in extraction.events {
-    print("• \(event.title), \(event.date): \(event.attendees.joined(separator: ", "))")
+    guard llama_decode(context, llama_batch_get_one(&token, 1)) == 0 else { fatalError("llama_decode failed") }
   }
-} else {
-  print("The model stopped before every field was present.")
-  exit(1)
+
+  // Finishing validates that the input was one complete JSON document.
+  let partial = try stream.finish()
+  print()
+  if let extraction = Extraction(streamPartial: partial) {
+    for event in extraction.events {
+      print("• \(event.title), \(event.date): \(event.attendees.joined(separator: ", "))")
+    }
+  } else {
+    print("The model stopped before every field was present.")
+    exit(1)
+  }
 }
