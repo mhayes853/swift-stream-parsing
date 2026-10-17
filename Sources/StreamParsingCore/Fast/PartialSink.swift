@@ -197,7 +197,9 @@ public struct PartialSink: ~Copyable, StreamParseSink {
 
   @usableFromInline
   mutating func pushFrame(_ initialFrame: BorrowedFrame) {
-    guard self.frameEnd != self.frames + Self.frameCapacity else {
+    // `<`, not `!=`: once the ignored frame fills the overflow slot, `frameEnd` sits one past
+    // `frameCapacity`, and an equality test would let the next container push out of bounds.
+    guard self.frameEnd < self.frames + Self.frameCapacity else {
       self.pushOverflowFrame()
       return
     }
@@ -222,7 +224,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   @inline(never)
   mutating func pushOverflowFrame() {
     self.recordFailure(.depthExceeded)
-    guard self.frameEnd != self.frames + Self.overflowCapacity else {
+    guard self.frameEnd < self.frames + Self.overflowCapacity else {
       // Already inside an ignored subtree: the top frame discards, so deeper containers only have
       // to stay balanced against `popFrame`.
       self.droppedFrameCount &+= 1
