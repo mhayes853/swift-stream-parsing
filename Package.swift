@@ -129,6 +129,17 @@ let package = Package(
       swiftSettings: [.enableExperimentalFeature(streamParsing128BitIntegers)]
         + lifetimes + addressableTypes
     ),
+    // Behaviour-level acceptance tests over the public API, mostly against the real-world corpora
+    // in Benchmarks/StreamParsingBenchmarks/Resources. See ACCEPTANCE.md for the catalogue.
+    .testTarget(
+      name: "StreamParsingAcceptanceTests",
+      dependencies: [
+        "StreamParsing",
+        "StreamParsingCore",
+        .product(name: "CustomDump", package: "swift-custom-dump")
+      ],
+      swiftSettings: lifetimes + addressableTypes
+    ),
     .testTarget(
       name: "StreamParsingMacroSupportTests",
       dependencies: [
