@@ -115,10 +115,10 @@ struct `Stream string tests` {
     let expected = "compared against a variable"
     let value = StreamString(expected)
     let optional = StreamString?.some(value)
-    expectNoDifference(value, StreamString(expected))
-    expectNoDifference(StreamString(expected), value)
-    expectNoDifference(optional, StreamString?.some(value))
-    expectNoDifference(StreamString?.some(value), optional)
+    #expect(value == expected)
+    #expect(expected == value)
+    #expect(optional == expected)
+    #expect(expected == optional)
     expectNoDifference(value != expected + "!", true)
     expectNoDifference(StreamString?.none != expected, true)
     expectNoDifference(value, StreamString(expected[...]))
@@ -274,13 +274,6 @@ struct `Stream string tests` {
       backward.append(view[index])
     }
     expectNoDifference(backward.reversed(), Array(content.unicodeScalars))
-  }
-
-  @Test
-  func `Ill-formed bytes decode as one replacement scalar per byte`() {
-    let value = self.accumulated([0x61, 0xFF, 0x80, 0x62], chunk: .max)
-    expectNoDifference(Array(value.unicodeScalars), ["a", "\u{FFFD}", "\u{FFFD}", "b"])
-    expectNoDifference(value.unicodeScalars.index(before: 3), 2)
   }
 
   // `[E2 82]` is the start of a three-byte sequence cut short by `b`: `String` repairs it as one
@@ -532,4 +525,42 @@ func `Ordering Uses The First Difference Across SIMD And Block Boundaries`(offse
   let high = StreamString(String(decoding: highBytes, as: UTF8.self))
   expectNoDifference(low < high, true)
   expectNoDifference(!(high < low), true)
+}
+
+// MARK: - StreamString word access
+
+@Suite
+struct `Stream String Word Tests` {
+  @Test
+  func `Pads past the accumulated bytes`() {
+    expectNoDifference(StreamString("ab")._streamPaddedLeadingWord(), 0x0000_0000_0000_6261)
+    expectNoDifference(StreamString()._streamPaddedLeadingWord(), 0)
+    expectNoDifference(StreamString("abcdefgh")._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
+  }
+
+  @Test
+  func `Reads the second word and past the end`() {
+    let value = StreamString("abcdefghij")
+    expectNoDifference(value._streamPaddedWord(at: 8), 0x0000_0000_0000_6A69)
+    expectNoDifference(value._streamPaddedWord(at: 16), 0)
+  }
+
+  // Crosses out of the 64-byte inline buffer into block storage, where the words come from a
+  // different representation and have to read the same.
+  @Test
+  func `Reads promoted storage identically`() {
+    let value = StreamString(String(repeating: "abcdefgh", count: 12))
+    expectNoDifference(value.utf8Count, 96)
+    expectNoDifference(value._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
+    expectNoDifference(value._streamPaddedWord(at: 88), 0x6867_6665_6463_6261)
+  }
+
+  @Test
+  func `Answers the prefix question in the streaming direction`() {
+    expectNoDifference(StreamString("liv").isUTF8Prefix(of: "livestream"), true)
+    expectNoDifference(StreamString("livestream").isUTF8Prefix(of: "livestream"), true)
+    expectNoDifference(StreamString("livestreams").isUTF8Prefix(of: "livestream"), false)
+    expectNoDifference(StreamString("x").isUTF8Prefix(of: "livestream"), false)
+    expectNoDifference(StreamString().isUTF8Prefix(of: "livestream"), true)
+  }
 }

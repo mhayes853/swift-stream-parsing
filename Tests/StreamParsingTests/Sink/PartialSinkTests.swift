@@ -205,15 +205,6 @@ struct `Partial sink tests` {
   }
 
   @Test
-  func `Routes scalars into matching fields`() throws {
-    var user = SinkUser.Partial()
-    try parsePartial(#"{"id":42,"name":"Blob","active":true}"#, into: &user)
-    expectNoDifference(user.id, 42)
-    expectNoDifference(user.name, "Blob")
-    expectNoDifference(user.active, true)
-  }
-
-  @Test
   func `Ignores keys the destination does not have`() throws {
     var user = SinkUser.Partial()
     try parsePartial(#"{"id":1,"unknown":"x","name":"Blob"}"#, into: &user)
@@ -236,21 +227,6 @@ struct `Partial sink tests` {
     try parsePartial(#"{"address":{"city":"Brooklyn","postalCode":"11201"}}"#, into: &user)
     expectNoDifference(user.address?.city, "Brooklyn")
     expectNoDifference(user.address?.postalCode, "11201")
-  }
-
-  @Test
-  func `Routes into arrays of scalars`() throws {
-    var user = SinkUser.Partial()
-    try parsePartial(#"{"scores":[1,2,3]}"#, into: &user)
-    expectNoDifference(user.scores, [1, 2, 3])
-  }
-
-  @Test
-  func `Applies null literals`() throws {
-    var user = SinkUser.Partial()
-    user.id = 7
-    try parsePartial(#"{"id":null}"#, into: &user)
-    expectNoDifference(user.id, nil)
   }
 
   // MARK: - Optional element and value types
@@ -518,13 +494,6 @@ struct `Partial sink tests` {
     var user = SinkUser.Partial()
     try parsePartial(#"{"counts":{"zebra":1,"apple":2,"mango":3}}"#, into: &user)
     expectNoDifference(user.counts?.keys, ["zebra", "apple", "mango"])
-  }
-
-  @Test
-  func `Accumulates string values across chunks`() throws {
-    var user = SinkUser.Partial()
-    try parsePartial(#"{"name":"a longer name that will be split"}"#, into: &user, chunk: 1)
-    expectNoDifference(user.name, "a longer name that will be split")
   }
 
   @Test

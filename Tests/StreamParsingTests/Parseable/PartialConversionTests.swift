@@ -172,9 +172,9 @@ struct `Partial Conversion Tests` {
   }
 
   @Test
-  func `Declines A Partial Whose Array Element Cannot Be Described`() {
-    // A short array is a wrong answer that reads like a right one, so the element takes the
-    // whole array down with it rather than being dropped from it.
+  func `Declines A Partial Whose Enum Member Matches No Case`() {
+    // A raw value no case declares has no whole value, so the strict conversion declines the
+    // parent rather than inventing one.
     let partial = Job.Partial(stage: "nope")
 
     #expect(Job(streamPartial: partial) == nil)
@@ -321,7 +321,7 @@ struct `Partial Conversion Tests` {
   }
 
   @Test
-  func `Round Trips A Value Parsed From Bytes`() throws {
+  func `Converts A Value Parsed From Bytes`() throws {
     let json = """
       {"id":9,"body":"body","tags":["x","y"],"author":{"name":"mh"},"reactions":{"up":1}}
       """

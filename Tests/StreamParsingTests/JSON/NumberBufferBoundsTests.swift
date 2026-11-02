@@ -52,7 +52,7 @@ struct `Number buffer bounds tests` {
   }
 
   // Fed one byte at a time, so every token is reassembled in the parser's own buffer, where the
-  // sixteen byte backward read has a different origin again.
+  // short-integer kernel's eight byte backward read has a different origin again.
   @Test
   func `Byte fed decimals agree with bulk`() throws {
     for document in ["[1.5]", "[0.5,1.25]", "{\"a\":12.345,\"b\":6}", "[1234.5678]"] {

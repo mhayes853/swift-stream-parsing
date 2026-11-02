@@ -24,13 +24,6 @@ private struct ModuleQualifiedOptionalModel: Equatable {
 @Suite
 struct `Partial Members Mode Tests` {
   @Test
-  func `The two modes are distinct values`() {
-    #expect(PartialMembersMode.optional != .initialValue)
-    let modes: Set<PartialMembersMode> = [.optional, .initialValue, .optional]
-    expectNoDifference(modes.count, 2)
-  }
-
-  @Test
   func `Optional mode leaves absent members nil`() throws {
     var stream = PartialsStream(initialValue: ExplicitOptionalModel.Partial(), from: .json())
     try stream.next(Array(#"{"id":3}"#.utf8))

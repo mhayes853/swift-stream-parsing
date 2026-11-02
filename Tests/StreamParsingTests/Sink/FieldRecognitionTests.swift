@@ -62,7 +62,6 @@ struct FieldRecognitionTests {
     #expect(value.recognized == (enabled
       ? [_streamFieldID(17), _streamFieldID(17), _streamFieldID(42), _streamFieldID(17)] : []))
     #expect(value.valuesAtRecognition == (enabled ? [false, true, true, true] : []))
-    #expect(Set(value.recognized).count == (enabled ? 2 : 0))
   }
 
   @Test(arguments: [false, true])

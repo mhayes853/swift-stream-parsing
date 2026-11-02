@@ -8,21 +8,6 @@ import Testing
 @Suite
 struct `StreamObjectGeneration tests` {
   @Test
-  func `Standard Generated Names Are Available As Tokens`() {
-    expectNoDifference(TokenSyntax.streamView.text, "View")
-    expectNoDifference(TokenSyntax.streamPartial.text, "Partial")
-  }
-
-  @Test
-  func `Package Default View Mode Follows The Package Trait`() {
-    #if LifetimeView
-      expectNoDifference(StreamViewMode.packageDefault, .lifetime)
-    #else
-      expectNoDifference(StreamViewMode.packageDefault, .unsafe)
-    #endif
-  }
-
-  @Test
   func `Fields Without Keys Use Their Bare Name`() {
     let configuration = StreamGenerationConfiguration()
     expectNoDifference(
@@ -40,15 +25,6 @@ struct `StreamObjectGeneration tests` {
     expectNoDifference(
       configuration.decodedKeys(for: StreamParseableField(name: .wildcardToken(), type: TypeSyntax("Int"))),
       []
-    )
-  }
-
-  @Test
-  func `Library Protocols Are Fully Qualified`() {
-    expectNoDifference(TypeSyntax.streamParseable.description, "StreamParsingCore.StreamParseable")
-    expectNoDifference(
-      TypeSyntax.streamParseableObject.description,
-      "StreamParsingCore.StreamParseableObject"
     )
   }
 
@@ -131,34 +107,6 @@ struct `StreamObjectGeneration tests` {
       "(Schemas.cache as StreamParsingCore.StreamSchemaCache).entry(for: Self.self)"
     )
     #expect(!source.contains("StreamSchemaCache.shared"))
-  }
-
-  @Test
-  func `Concrete Type Syntax Builds A Complete Struct`() throws {
-    let payloadType = IdentifierTypeSyntax(name: TokenSyntax.identifier("Payload"))
-    let generation = try StreamObjectGeneration(
-      fields: [
-        StreamParseableField(
-          name: TokenSyntax.identifier("payload"),
-          type: payloadType,
-          explicitKeys: ["payload", "value"]
-        )
-      ]
-    )
-
-    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
-
-    expectNoDifference(
-      source.contains("var payload: Payload.Partial?"),
-      true
-    )
-    self.expectContains(source, "Self.StreamField.payload")
-    self.expectContains(
-      source,
-      "_streamApply(&p.pointee.payload, utf8: bytes, info: info)"
-    )
-    self.expectContains(source, "enum StreamField")
-    self.expectContains(source, "static var streamSchema")
   }
 
   @Test

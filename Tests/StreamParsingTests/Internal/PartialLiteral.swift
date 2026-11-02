@@ -2,8 +2,8 @@ import Foundation
 import StreamParsing
 
 // Renders a parsed value as Swift source, so a regenerated expectation stays something a reader
-// can check against the grammar rather than an opaque blob. Only used by the recording mode
-// behind STREAM_PARSING_RECORD.
+// can check against the grammar rather than an opaque blob. Used by the STREAM_PARSING_RECORD
+// recording mode, and by `ConcurrentParsingTests` to compare non-Equatable partials across tasks.
 
 func swiftLiteral(_ value: Any) -> String {
   if let optional = value as? OptionalProtocol {
@@ -13,7 +13,7 @@ func swiftLiteral(_ value: Any) -> String {
   switch value {
   case let v as String: return "\"\(v.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
   case let v as Bool: return v ? "true" : "false"
-  case let v as Double: return v == v.rounded() && v.magnitude < 1e15 ? "\(v)" : "\(v)"
+  case let v as Double: return "\(v)"
   case let v as Float: return "\(v)"
   default: break
   }

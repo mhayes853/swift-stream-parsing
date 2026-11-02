@@ -111,20 +111,17 @@ struct `Partial sink failure tests` {
 
   // MARK: - Failure propagation
 
-  @Test
-  func `The rejection surfaces as a parsing error carrying the sink failure`() throws {
+  // The first rejection is the one reported, so an error does not get overwritten by whatever
+  // the rest of the document happens to do. Both members are mismatches with the same reason, so
+  // only the offset can tell them apart: `"nope"` opens at byte 9, the `42` sits at byte 23.
+  @Test(arguments: [Int.max, 7, 1])
+  func `The first rejection is the one reported`(chunk: Int) {
     var value = StrictValues.Partial()
     let error = #expect(throws: JSONParsingError.self) {
-      try parsePartial(#"{"count":"nope"}"#, into: &value)
+      try parsePartial(#"{"count":"nope","name":42}"#, into: &value, chunk: chunk)
     }
     expectNoDifference(error?.reason, .sinkRejectedToken(StreamSinkFailure(reason: .typeMismatch)))
-  }
-
-  // The first rejection is the one reported, so an error does not get overwritten by whatever
-  // the rest of the document happens to do.
-  @Test
-  func `The first rejection is the one reported`() {
-    expectNoDifference(self.failure(#"{"count":"nope","name":42}"#), .typeMismatch)
+    #expect((error?.byteOffset ?? .max) < 23, "chunk \(chunk) reported the second rejection")
   }
 
   // MARK: - Elements and values, not just fields

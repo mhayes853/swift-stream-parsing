@@ -92,20 +92,6 @@ struct `JSONStreamParser tests` {
     }
 
     @Test
-    func `Streams JSON String With Emoji`() throws {
-      let json = "\"😀\""
-      let expected = ["", "", "", "", "😀", "😀", "😀"]
-      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
-    }
-
-    @Test
-    func `Streams JSON String With Multiple Emojis`() throws {
-      let json = "\"😀😃\""
-      let expected = ["", "", "", "", "😀", "😀", "😀", "😀", "😀😃", "😀😃", "😀😃"]
-      try expectJSONStreamedValues(json, of: SwiftStringStorage.self, initialValue: "", expected: expected)
-    }
-
-    @Test
     func `Streams JSON String With Two-Byte Character`() throws {
       let json = "\"\u{00E9}\""
       let expected = ["", "", "é", "é", "é"]
@@ -367,23 +353,8 @@ struct `JSONStreamParser tests` {
       )
     }
 
-    @Test
-    func `Matches Foundation JSONDecoder Precision`() throws {
-      let number = "3.14159265358979323846"
-      let streamValues = try number.utf8.partials(
-        initialValue: 0.0,
-        from: .json()
-      )
-      let streamValue = try #require(streamValues.last)
-
-      let foundationValue = try JSONDecoder().decode(Double.self, from: Data(number.utf8))
-
-      expectClose(streamValue, foundationValue)
-    }
-
-    // A number reports the digits seen so far, so a chunk boundary mid-token is visible as 12 on
-    // the way to 1234. Those intermediates are different numbers rather than approximations of
-    // the final one, which is what the incomplete flag on each of them says.
+    // A number contributes nothing until its token ends: `12` is not a prefix of `1234` in any
+    // useful sense, so a chunk boundary mid-token leaves the member `nil`.
     @Test
     func `A Number Split Across Chunks Reports Nothing Until It Ends`() throws {
       var stream = PartialsStream(
@@ -397,8 +368,6 @@ struct `JSONStreamParser tests` {
       let second = stream.current
       let final = try stream.finish()
 
-      // 12 is not a prefix of 1234 in any useful sense, so the open token contributes nothing
-      // until its end settles the value.
       expectNoDifference(first, IntValueContainer.Partial(value: nil))
       expectNoDifference(second, IntValueContainer.Partial(value: 1234))
       expectNoDifference(final, IntValueContainer.Partial(value: 1234))
@@ -1630,11 +1599,9 @@ extension QuadArrayOuter.Partial: Equatable {}
 struct `JSONDump tests` {
   private let url64Kb = Bundle.module.url(forResource: "64KB", withExtension: "json")!
   private let url512Kb = Bundle.module.url(forResource: "512KB", withExtension: "json")!
-  private let urlDeepNested64 = Bundle.module.url(
-    forResource: "DeepNested64",
-    withExtension: "json"
-  )!
 
+  // Both partial member modes, byte fed and chunked, encode to the same JSON once every member has
+  // arrived, so each corpus has one snapshot and every row is held to it.
   @Test
   func `Small JSON Dump Optional`() throws {
     try self.assertSnapshot(of: StreamArray<ProfileOptional.Partial>.self, from: self.url64Kb)
@@ -1673,24 +1640,10 @@ struct `JSONDump tests` {
     )
   }
 
-  // The container bitmask caps depth at 64, and this fixture nests 66 deep, so it is rejected
-  // rather than parsed. Pinned here so the cap stays a visible limit rather than a surprise, and
-  // so raising it has to change this test deliberately.
-  @Test
-  func `Nesting Beyond The Depth Cap Is Rejected`() throws {
-    let data = try Data(contentsOf: self.urlDeepNested64)
-    var stream = PartialsStream(initialValue: DeepNestedRoot.Partial(), from: .json())
-    let error = #expect(throws: JSONParsingError.self) {
-      try stream.next(Array(data))
-    }
-    expectNoDifference(error?.reason, .depthExceeded)
-  }
-
   private func assertSnapshot<Value: StreamParseable>(
     of type: Value.Type,
     from url: URL,
-    chunkSize: Int? = nil,
-    testName: String = #function
+    chunkSize: Int? = nil
   ) throws where Value.Partial: Encodable {
     let data = try Data(contentsOf: url)
     var stream = PartialsStream<Value>(from: .json())
@@ -1708,9 +1661,14 @@ struct `JSONDump tests` {
       }
     }
     let final = try stream.finishPartial()
-    SnapshotTesting.assertSnapshot(of: final, as: .json, testName: testName)
+    // Named after the corpus, not the test, so the rows share one snapshot file.
+    SnapshotTesting.assertSnapshot(
+      of: final,
+      as: .json,
+      named: url.deletingPathExtension().lastPathComponent,
+      testName: "JSON Dump"
+    )
   }
-
 }
 
 @StreamParseable

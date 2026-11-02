@@ -239,18 +239,6 @@ struct StreamFieldTableTests {
       }
     }
 
-    @Test
-    func `Scalar into a container member is a mismatch and vice versa`() throws {
-      var scalar = TableScalars.Partial()
-      #expect(throws: (any Error).self) {
-        try parsePartial(#"{"nested":5}"#, into: &scalar)
-      }
-      var container = TableScalars.Partial()
-      #expect(throws: (any Error).self) {
-        try parsePartial(#"{"count":{"a":1}}"#, into: &container)
-      }
-    }
-
     @Test(arguments: [Int.max, 7, 1])
     func `Keys longer than a word verify their tail`(chunk: Int) throws {
       var value = TableLongKeys.Partial()

@@ -23,11 +23,9 @@ struct StructCustomizationTests {
   }
 
   @Test
-  func fieldIdentifiersAndHooksComposeWithoutContextWrappers() throws {
+  func customNamesAndHooksCompose() throws {
     let generation = try self.generation()
     let identifiers = generation.fieldIdentifiers.map(\.identifier.trimmedDescription)
-    #expect(generation.configuration.names.partialType.text == "Accumulator")
-    #expect(generation.configuration.names.viewType.text == "Borrowed")
     #expect(generation.fieldIdentifiers.map(\.name.text) == ["name"])
     let declaration = generation.structDeclarationSyntax(
       in: BasicMacroExpansionContext(),

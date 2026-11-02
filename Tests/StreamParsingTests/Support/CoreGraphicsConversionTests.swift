@@ -23,7 +23,7 @@
     }
 
     @Test
-    func `CGFloat takes whole numbers from the accumulated magnitude`() throws {
+    func `CGFloat accepts integer tokens`() throws {
       var value = CoreGraphicsValues.Partial()
       try parsePartial(#"{"width":1024,"height":0}"#, into: &value)
       expectNoDifference(value.width, 1024)

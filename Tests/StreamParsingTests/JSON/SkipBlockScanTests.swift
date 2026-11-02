@@ -129,7 +129,7 @@ struct SkipBlockScanTests {
   private static func expectAgreement(
     _ bytes: [UInt8],
     _ label: @autoclosure () -> String,
-    chunks: [Int?] = [nil, 1, 7, 63, 64, 65, 66, 127, 1000, .max],
+    chunks: [Int?] = [nil, 1, 7, 64, 65, 66, 127, 1000, .max],
     depths: [Int] = [1, 2]
   ) {
     for depth in depths {

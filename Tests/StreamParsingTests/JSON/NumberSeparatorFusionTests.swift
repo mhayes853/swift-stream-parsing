@@ -132,6 +132,7 @@ struct `Number separator fusion tests` {
     "[1, 2, 3", "[1, 2,", "[1, 2, ", "[1, -", "[1,", "1", "[1]", "[-0, 0.0, -0.0e0]",
     "[1,\n  2,\n  3]", "[1,\r\n\t2,\r\n\t3]", "[1,\n\n2]", "[1, \n 2]", "[1,\n    -2.5]",
     "[\n  1,\n  2\n]", "[1,\n  2,\n  ", "[1,\n  -", "[1,\n  [2,\n  3]]",
+    "[1, 12345678901234567890123]",
   ])
   func `Fused separators produce the byte-fed call sequence`(text: String) {
     Self.expectAgreement(text)
@@ -141,7 +142,7 @@ struct `Number separator fusion tests` {
     "[1, x]", "[1,x]", "[1, -]", "[1, 2x]", "[1, 2 x]", "[1,]", "[1, ]", "[1, 01]", "[1, 1.]",
     "[1, 1e]", "[1, +2]", "[1, .5]", "[1, 2]]", "[1, 2}", "[1, 2, ]", "[1, ,2]", "[1,, 2]",
     #"{"a":1, 2}"#, #"{"a":1,2}"#, #"{"a":1, "b"}"#, "1, 2", "1,2", "[1, 2] 3", "[1, 2],",
-    "[1, -2-]", "[1, 2e5e]", "[1, 12345678901234567890123]", "[1, 2\u{0}]",
+    "[1, -2-]", "[1, 2e5e]", "[1, 2\u{0}]",
     "[1,\n  x]", "[1,\n\u{1}2]", "[1,\n  2,\n  \u{1}3]", "[1,\n  2,\n   \u{0}]", "[1,\n \u{1} 2]", "[1,\n  ]", "[1,\n  01]", "[1,\n  2x]",
     "[1,\n  1.2.3]", "[1,\n  ,2]",
   ])
@@ -185,14 +186,6 @@ struct `Number separator fusion tests` {
       return "\n  [\n\(pad)\(index).5,\n\(pad)-\(index)\n  ]"
     }.joined(separator: ",") + "\n]"
     Self.expectAgreement(nestedPairs)
-    let mixed = "[" + (0..<100).map { "\($0), \"s\($0)\"" }.joined(separator: ", ") + "]"
-    // String values are cut by the chunking, so this one compares only the chunkings that keep
-    // each string whole against the bulk parse.
-    let bytes = Array(mixed.utf8)
-    let expected = Self.run(bytes, chunk: .max)
-    for chunk in [4096, 100_000] {
-      expectNoDifference(Self.run(bytes, chunk: chunk), expected, "mixed chunk \(chunk)")
-    }
   }
 
   // A predicted indent of eight takes the hit path to `start + 9`, which is the chunk's end itself

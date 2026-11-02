@@ -97,9 +97,10 @@ struct `Stream scanner tests` {
     }
   }
 
-  // The wide tier. `streamStringRun` escalates out of the inlined SIMD16 loop once a run survives
-  // two blocks, so only runs past 32 bytes reach it -- which is exactly the population the random
-  // test above under-samples, since it stops at 80. Lengths here run past four 32 byte blocks so
+  // The wide tier, x86_64 only: there `streamStringRun` escalates out of the inlined SIMD16 loop
+  // once a run survives two blocks, so only runs past 32 bytes reach it (on arm64 the 16-byte loop
+  // simply runs to `to`). Long runs are exactly the population the random test above
+  // under-samples, since it stops at 80. Lengths here run past four 32 byte blocks so
   // the `seen` accumulator is carried across several, and the high byte is placed at every offset
   // so a flag that is set one block too early or one lane too late is caught.
   @Test
@@ -124,10 +125,10 @@ struct `Stream scanner tests` {
     }
   }
 
-  // Random adversarial data at lengths that force the wide tier, which the length-capped random
-  // test above never reaches. Held to the reference rather than to a second implementation: the
-  // SIMD16 continuation that used to sit behind the wide tier is gone, because `streamStringRun`
-  // now only escalates when the kernel is callable.
+  // Random adversarial data at lengths that reach the wide tier on x86_64 (AVX2 when available,
+  // otherwise the `streamStringRunNarrow` SIMD16 continuation) and the long tail of the 16-byte
+  // loop on arm64, which the length-capped random test above never reaches. Held to the reference
+  // rather than to a second implementation.
   @Test
   func `Long random string runs agree with the reference`() {
     var generator = SweepGenerator()
@@ -397,18 +398,6 @@ struct `Key word tests` {
         expectNoDifference(actual, Self.referenceWord(bytes, at: start), "count \(count), start \(start)")
       }
     }
-  }
-
-  // A span with no padding behind it must still be read within its own bounds. This is the case
-  // that stops the wide load from being taken unconditionally, so it is worth its own row: the
-  // last byte of the array is the last byte of the span.
-  @Test
-  func `Reads only within an unpadded span`() {
-    var bytes: [UInt8] = [0x61, 0x62, 0x63]
-    let word = bytes.withUnsafeMutableBufferPointer {
-      Span(_unsafeElements: UnsafeBufferPointer($0))._streamPaddedLeadingWord()
-    }
-    expectNoDifference(word, 0x0000_0000_0063_6261)
   }
 
   // The other side of the same bound. A matcher reading a key's last word as

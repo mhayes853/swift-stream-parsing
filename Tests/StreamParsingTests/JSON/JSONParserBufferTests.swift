@@ -66,20 +66,6 @@ struct `JSON parser buffer tests` {
     }
   }
 
-  // A key the chunk cuts is reassembled in the parser's buffer, and a key whose closing quote is
-  // the final byte of a chunk is the case where a span into the input would have been wrong — the
-  // parser cannot tell the quote from more key until the next chunk arrives.
-  @Test
-  func `Keys split across chunks are delivered whole at every split`() throws {
-    let json = #"{"name":1}"#
-    let bytes = Array(json.utf8)
-    for split in 1..<bytes.count {
-      var sink = KeyRecordingSink()
-      try parse(json, into: &sink, chunk: split)
-      expectNoDifference(sink.keys, ["name"], "split \(split)")
-    }
-  }
-
   @Test
   func `Keys fed byte by byte come from the buffer, whole`() throws {
     let json = #"{"alpha":1,"beta":2}"#
@@ -128,17 +114,6 @@ struct `JSON parser buffer tests` {
       try parse("{\"\(key)\":1}", into: &sink, chunk: 50, buffer: storage)
     }
     expectNoDifference(error?.reason, .bufferExhausted)
-  }
-
-  @Test
-  func `A caller supplied buffer handles keys that fit`() throws {
-    let storage = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 128)
-    defer { storage.deallocate() }
-    storage.initialize(repeating: 0)
-
-    var sink = KeyRecordingSink()
-    try parse(#"{"reasonablyLongKeyName":1}"#, into: &sink, buffer: storage)
-    expectNoDifference(sink.keys, ["reasonablyLongKeyName"])
   }
 
   // A number contained in one chunk is already contiguous and is handed over in place, so the

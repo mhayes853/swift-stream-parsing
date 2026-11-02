@@ -6,8 +6,9 @@ import StreamParsingCore
 
 // Scalars that reach an array element, a dictionary value, a SIMD lane or an `InlineArray` slot
 // of a kind the library knows are written by a typed store at the slot, with no schema closure
-// in between. These pin every such kind end to end, alongside the routes that still go through
-// the closures (a custom scalar), so the two agree on values, nulls and refusals.
+// in between. These pin the array, dictionary and SIMD kinds end to end (`InlineArray` slots are
+// pinned in Support/InlineArrayTests.swift), alongside the routes that still go through the
+// closures (a custom scalar), so the two agree on values, nulls and refusals.
 
 @StreamParseable
 private struct KindContainers: Equatable {

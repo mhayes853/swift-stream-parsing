@@ -23,9 +23,8 @@ extension ReentryInner.Partial: Equatable {}
 // What happens when a container is entered a second time.
 //
 // JSON allows a key to repeat, and a destination that already holds a container has to do
-// something with the second one. Nothing in the library said what, and `StreamSchema.enterField`
-// claimed to reset the container, which it has never done. These record the answer the code
-// actually gives, so that the dictionary rework has something to diverge from.
+// something with the second one. `enterField` materialises a container only when absent and never
+// resets one (see its doc comment); these pin what a repeated key does in each position.
 //
 // The answer is the same in all four places: **the second occurrence resumes the container the
 // first one built, rather than replacing it.** That is a consequence of entry materialising a
@@ -117,8 +116,8 @@ struct `Container re-entry tests` {
 
   // MARK: - Dictionary values
 
-  // The case the dictionary rework has to preserve: a repeated key resumes in the slot it already
-  // occupies, so its value continues and its position does not move.
+  // A repeated key resumes in the slot it already occupies, so its value continues and its
+  // position does not move.
   @Test(arguments: [Int.max, 7, 1])
   func `A repeated dictionary key with an array value resumes that array`(chunk: Int) throws {
     let counts = try self.parse(
@@ -173,11 +172,6 @@ struct `Container re-entry tests` {
   // scalar. Object fields remain able to ignore unknown keys: a matched scalar field has a
   // nonnegative field identifier even though `enterField` cannot return a frame for it, which
   // distinguishes it from a key the schema never matched.
-
-  @Test
-  func `A container at a scalar root is rejected`() {
-    expectNoDifference(self.failure("[1,2]", as: Int.self), .typeMismatch)
-  }
 
   @Test(arguments: [Int.max, 7, 1])
   func `A container at a scalar object field is rejected`(chunk: Int) {
@@ -249,21 +243,6 @@ struct `Container re-entry tests` {
       ),
       .typeMismatch
     )
-  }
-
-  // Unknown object keys are still ignored, including their complete subtrees.
-  @Test(arguments: [Int.max, 7, 1])
-  func `A container under an unknown key does not disturb the rest of the document`(
-    chunk: Int
-  ) throws {
-    let model = try self.parse(
-      #"{"name":"x","unknown":[1,[2],{"deep":3}],"values":[7],"counts":{"k":1}}"#,
-      as: ReentryModel.Partial.self,
-      chunk: chunk
-    )
-    expectNoDifference(model.name, "x")
-    expectNoDifference(model.values, [7], "the fields after the unknown subtree still parse")
-    expectNoDifference(model.counts, ["k": 1])
   }
 
   // MARK: - Array elements

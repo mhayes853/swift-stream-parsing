@@ -54,7 +54,7 @@ private func parse<T: StreamParseable>(_ json: String, as type: T.Type) throws -
 }
 
 @Suite
-struct `Inlinable Expansion Tests` {
+struct `Public And Package Model Tests` {
   @Test
   func `A public struct with an internal member parses and converts`() throws {
     let partial = try parse(#"{"name":"a","age":3,"tags":["x"]}"#, as: InlinablePerson.self)

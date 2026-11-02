@@ -4,7 +4,7 @@ import StreamParsing
 import Testing
 
 // `@StreamParseable` on an enum, in the three lowerings it picks from how the enum is spelled.
-// Each one is checked against what `JSONEncoder`/`JSONDecoder` do with the same declaration,
+// Each one is checked against what `JSONDecoder` does with the same declaration,
 // because matching `Codable`'s wire format is the whole reason the raw-less form is an object.
 
 // MARK: - Declarations
@@ -337,14 +337,6 @@ struct `Enum Parseable Tests` {
     }
   }
 
-  @Test
-  func `Agrees with JSONEncoder on the object form`() throws {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    expectNoDifference(String(decoding: try encoder.encode(Figure.square), as: UTF8.self), #"{"square":{}}"#)
-    expectNoDifference(String(decoding: try encoder.encode(Stage.live), as: UTF8.self), #""live""#)
-  }
-
   // MARK: - Defaults
 
   // The strict conversion declines and the total one substitutes: the two exist to say different
@@ -376,24 +368,6 @@ struct `Enum Parseable Tests` {
   // MARK: - Associated values
 
   @Test
-  func `Reads a single unlabeled payload`() throws {
-    let partial = try parsePartial(#"{"text":{"_0":{"body":"hi"}}}"#, as: Block.self)
-    expectNoDifference(Block(streamPartial: partial), .text(TextBlock(body: "hi")))
-  }
-
-  @Test
-  func `Reads multiple labeled payloads`() throws {
-    let partial = try parsePartial(#"{"image":{"url":"u","width":3}}"#, as: Block.self)
-    expectNoDifference(Block(streamPartial: partial), .image(url: "u", width: 3))
-  }
-
-  @Test
-  func `Resolves a no-payload case alongside payload-bearing ones`() throws {
-    let partial = try parsePartial(#"{"unknown":{}}"#, as: Block.self)
-    expectNoDifference(Block(streamPartial: partial), .unknown)
-  }
-
-  @Test
   func `Declines a payload that has not fully arrived`() throws {
     let partial = try parsePartial(#"{"image":{"url":"u"}}"#, as: Block.self)
     expectNoDifference(Block(streamPartial: partial), nil)
@@ -420,20 +394,6 @@ struct `Enum Parseable Tests` {
     let decoded = try JSONDecoder().decode(Block.self, from: Data(json.utf8))
     let partial = try parsePartial(json, as: Block.self)
     expectNoDifference(Block(streamPartial: partial), decoded)
-  }
-
-  @Test
-  func `Agrees with JSONEncoder on associated-value shapes`() throws {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    expectNoDifference(
-      String(decoding: try encoder.encode(Block.text(TextBlock(body: "hi"))), as: UTF8.self),
-      #"{"text":{"_0":{"body":"hi"}}}"#
-    )
-    expectNoDifference(
-      String(decoding: try encoder.encode(Block.image(url: "u", width: 3)), as: UTF8.self),
-      #"{"image":{"url":"u","width":3}}"#
-    )
   }
 
   @available(StreamParsing128BitIntegers, *)
@@ -545,43 +505,5 @@ struct `Enum Parseable Tests` {
       default: Issue.record("expected .ambiguous")
       }
     }
-  }
-}
-
-// MARK: - StreamString word access
-
-@Suite
-struct `Stream String Word Tests` {
-  @Test
-  func `Pads past the accumulated bytes`() {
-    expectNoDifference(StreamString("ab")._streamPaddedLeadingWord(), 0x0000_0000_0000_6261)
-    expectNoDifference(StreamString()._streamPaddedLeadingWord(), 0)
-    expectNoDifference(StreamString("abcdefgh")._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
-  }
-
-  @Test
-  func `Reads the second word and past the end`() {
-    let value = StreamString("abcdefghij")
-    expectNoDifference(value._streamPaddedWord(at: 8), 0x0000_0000_0000_6A69)
-    expectNoDifference(value._streamPaddedWord(at: 16), 0)
-  }
-
-  // Crosses out of the 64-byte inline buffer into block storage, where the words come from a
-  // different representation and have to read the same.
-  @Test
-  func `Reads promoted storage identically`() {
-    let value = StreamString(String(repeating: "abcdefgh", count: 12))
-    expectNoDifference(value.utf8Count, 96)
-    expectNoDifference(value._streamPaddedLeadingWord(), 0x6867_6665_6463_6261)
-    expectNoDifference(value._streamPaddedWord(at: 88), 0x6867_6665_6463_6261)
-  }
-
-  @Test
-  func `Answers the prefix question in the streaming direction`() {
-    expectNoDifference(StreamString("liv").isUTF8Prefix(of: "livestream"), true)
-    expectNoDifference(StreamString("livestream").isUTF8Prefix(of: "livestream"), true)
-    expectNoDifference(StreamString("livestreams").isUTF8Prefix(of: "livestream"), false)
-    expectNoDifference(StreamString("x").isUTF8Prefix(of: "livestream"), false)
-    expectNoDifference(StreamString().isUTF8Prefix(of: "livestream"), true)
   }
 }

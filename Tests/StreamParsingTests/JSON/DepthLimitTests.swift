@@ -8,7 +8,7 @@ import StreamParsingCore
 // both sides and in both container kinds, and makes a mixed nest worth pinning at all: an object
 // closed by `]` is only caught if the bit for that level survived everything under it.
 //
-// `DepthBenchmarks` measures the same spine; `ErrorOffsetTests` pins where the failure is
+// The `Depth` rows in `ParserShapeBenchmarks.swift` measure the same spine; `ErrorOffsetTests` pins where the failure is
 // reported. This pins what is accepted.
 @Suite
 struct `Depth limit tests` {
@@ -79,7 +79,7 @@ struct `Depth limit tests` {
   // The closing byte is checked against the bit for the level being closed, so a nest that is
   // shallow enough to be legal still has to be closed by the right kind.
   @Test
-  func `A container closed by the wrong kind is rejected at every depth`() {
+  func `A container closed by the wrong kind is rejected at the shallowest and deepest level`() {
     expectNoDifference(Self.failure(#"{"a":[1}"#)?.reason, .unexpectedToken)
     expectNoDifference(Self.failure(#"[{"a":1]"#)?.reason, .unexpectedToken)
 

@@ -157,7 +157,7 @@ struct `JSON parser tests` {
     #"  {  "a" : 1 , "b" : [ true , false ]  }  "#,
     #"{"escaped":"a\nb\tc\"d\\e\/f"}"#,
     #"{"unicode":"é€"}"#,
-    #"{"surrogate":"😀"}"#,
+    #"{"surrogate":"\ud83d\ude00"}"#,
     #"{"utf8":"Aé€😀"}"#,
     #"{"numbers":[0,-1,1.5,-98.25,1e3,1.5e-8,1E+2,123456789012345678]}"#,
     #""bare string""#,
@@ -187,15 +187,8 @@ struct `JSON parser tests` {
 
   // A number is reported exactly once, whole, at its token's end. A numeric prefix is not a
   // value prefix — 1234 passes through 1, 12 and 123 on the way — so nothing provisional is
-  // reported, and a consumer never sees a value the document does not contain.
-  @Test
-  func `Reports a number once, whole`() throws {
-    let sink = try parse("[1234]")
-    expectNoDifference(sink.numbers.map(\.magnitude), [1234])
-  }
-
-  // A token split across chunks reports the same single value, and its span stays contiguous
-  // across the boundary so a consumer that re-scans the bytes sees the whole token.
+  // reported, and a consumer never sees a value the document does not contain. A token split
+  // across chunks reports the same single value.
   @Test
   func `Reports the same single value across a chunk boundary`() throws {
     for chunk in [1, 2, 3, 5] {

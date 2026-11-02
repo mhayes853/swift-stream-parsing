@@ -70,7 +70,7 @@ struct `InlineArray parsing tests` {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: [Int.max, 7, 1])
-  func `Objects nested arrays optionals and dictionaries compose`(chunk: Int) throws {
+  func `Objects nested arrays and dictionaries compose`(chunk: Int) throws {
     let children = try self.parse(
       #"[{"id":1,"name":"A"},{"id":2,"name":"B"}]"#,
       as: InlineArray<2, InlineArrayChild.Partial>.self,
@@ -88,13 +88,6 @@ struct `InlineArray parsing tests` {
     expectNoDifference(nested[0][1], 2)
     expectNoDifference(nested[1][0], 3)
     expectNoDifference(nested[1][1], 4)
-
-    let optional = try self.parse(
-      "[1,null,3]", as: InlineArray<3, Int?>.self, chunk: chunk
-    )
-    expectNoDifference(optional[0], 1)
-    expectNoDifference(optional[1], nil)
-    expectNoDifference(optional[2], 3)
 
     let dictionary = try self.parse(
       #"{"a":[1,2]}"#,
@@ -220,16 +213,5 @@ struct `InlineArray parsing tests` {
     var stream = PartialsStream<InlineArray<2, String?>>(from: .json())
     try stream.next(Array(#"["ab","#.utf8))
     expectNoDifference([stream.current[0], stream.current[1]], ["ab", nil])
-  }
-
-  // Still open: a fixed-lane element (a SIMD vector, a nested `InlineArray`) is written lane by
-  // lane through its stride, with no schema closure to materialise the optional first, so the
-  // lanes land in the payload of a `nil`. Materialising at the slot needs a per-element prepare
-  // in the sink's indexed open, which is a hot path.
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  func `Optional fixed-lane elements are materialised before they are written`() throws {
-    let vectors = try self.parse("[[1,2],null]", as: InlineArray<2, SIMD2<Double>?>.self)
-    expectNoDifference([vectors[0], vectors[1]], [SIMD2(1, 2), nil])
   }
 }

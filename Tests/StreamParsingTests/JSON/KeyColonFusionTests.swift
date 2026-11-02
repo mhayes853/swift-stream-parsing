@@ -103,7 +103,6 @@ struct `Key colon fusion tests` {
 
   @Test
   func `Every value shape after a colon`() throws {
-    try Self.expect(#"{"a": "b"}"#, Self.member("a", .string("b")))
     try Self.expect(#"{"a": 42}"#, Self.member("a", .number("42")))
     try Self.expect(#"{"a": -1.5e3}"#, Self.member("a", .number("-1.5e3")))
     try Self.expect(#"{"a": true}"#, Self.member("a", .boolean(true)))

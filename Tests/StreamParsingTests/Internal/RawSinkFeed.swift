@@ -3,9 +3,6 @@ import StreamParsingCore
 // Drives the raw sink parser over a document in fixed size chunks, which is the loop every raw
 // sink test writes: a chunk boundary is the only way to reach the parser's carry-over buffer, so
 // the same document is usually run at several chunk sizes and at `.max`.
-//
-// The parser is created here rather than passed in: every caller wants a fresh one per run, and
-// one that is not fresh would carry state across documents.
 // There are exactly three shapes a raw sink test feeds in: fixed size chunks, a single split at a
 // chosen byte, and one byte at a time. `bufferCapacity` is the only knob any of them varies, so
 // it rides along as a default rather than as a fourth shape.

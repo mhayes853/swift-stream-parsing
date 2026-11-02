@@ -12,7 +12,6 @@
   @StreamParseable
   struct CollectionsValues: Equatable {
     var counts: [String: Int] = [:]
-    var scores: [Int] = []
   }
 
   @Suite
@@ -49,13 +48,6 @@
 
       let tree = TreeDictionary(try #require(value.counts))
       expectNoDifference(tree, ["a": 1, "b": 2])
-    }
-
-    @Test
-    func `Array members convert to a Deque after parsing`() throws {
-      var value = CollectionsValues.Partial()
-      try parsePartial(#"{"scores":[3,1,2]}"#, into: &value)
-      expectNoDifference(Deque(try #require(value.scores)), [3, 1, 2])
     }
 
     @Test

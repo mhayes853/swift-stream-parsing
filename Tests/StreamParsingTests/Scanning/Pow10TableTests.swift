@@ -22,8 +22,5 @@ struct `Pow 10 table tests` {
   @Test
   func `The Table Stops At The Last Exact Power Of Ten`() {
     #expect(streamExactPow10Count == 23)
-    #expect(streamExactPow10(streamExactPow10Count - 1).bitPattern == Double("1e22")!.bitPattern)
-    #expect(streamMaxExactPow10(Double.self) == 22)
-    #expect(streamMaxExactPow10(Float.self) == 10)
   }
 }

@@ -186,9 +186,9 @@ struct `Double conversion differential tests` {
     }
   }
 
-  // The constants the kernel is parameterised on, checked against the type rather than against
-  // the literals they are written as: a wrong one here is a silently wrong conversion in a corner
-  // the differential above may not reach. `Float`'s twin lives in the other file.
+  // The constants the kernel is parameterised on, pinned to binary64's parameters: a wrong one
+  // here is a silently wrong conversion in a corner the differential above may not reach.
+  // `Float`'s twin lives in the other file.
   @Test
   func `The Double binary format constants describe Double`() {
     #expect(Double.streamMinExponent == -1023)

@@ -87,11 +87,12 @@ struct `Snapshot stability tests` {
     )
   }
 
-  // Enough elements to cross a block boundary, so the states span a seal.
+  // Enough elements to cross a block boundary, so the states span a seal. A `String` element's
+  // block holds 32 (an `Int` block holds 256, which would make this document far longer).
   @Test
   func `Array states stay stable across a block boundary`() throws {
-    let json = "[" + (0..<40).map(String.init).joined(separator: ",") + "]"
-    try self.expectStable(json, as: StreamArray<Int>.self)
+    let json = "[" + (0..<40).map { "\"\($0)\"" }.joined(separator: ",") + "]"
+    try self.expectStable(json, as: StreamArray<String>.self)
   }
 
   // MARK: - Dictionaries

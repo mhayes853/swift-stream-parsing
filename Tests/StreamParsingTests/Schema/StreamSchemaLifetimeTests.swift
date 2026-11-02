@@ -13,27 +13,6 @@ import Testing
 // the whole schema -- field table, closure contexts, template -- used to be rebuilt per init.
 @Suite
 struct `Stream Schema Lifetime Tests` {
-  #if canImport(Dispatch) && !hasFeature(Embedded)
-    @Test
-    func `Stream Lock Protects Generic State Across Threads`() {
-      let iterations = 10_000
-      let value = _StreamLock(0)
-
-      DispatchQueue.concurrentPerform(iterations: iterations) { _ in
-        value.withLock { $0 += 1 }
-      }
-
-      #expect(value.withLock { $0 } == iterations)
-    }
-  #endif
-
-  @Test
-  func `Container Root Schema Is Built Once Per Element Type`() {
-    #expect(StreamArray<Int>.streamSchema === StreamArray<Int>.streamSchema)
-    #expect(StreamDictionary<Int>.streamSchema === StreamDictionary<Int>.streamSchema)
-    #expect(Int?.streamSchema === Int?.streamSchema)
-  }
-
   @Test
   func `Distinct Element Types Get Distinct Schemas`() {
     #expect(StreamArray<Int>.streamSchema !== StreamArray<Double>.streamSchema)
@@ -107,13 +86,22 @@ struct `Stream Schema Lifetime Tests` {
     #expect(arrayBox == nil)
     #expect(dictionaryBox == nil)
   }
+}
 
-  @Test
-  func `Cached Container Root Still Parses`() throws {
-    var stream = PartialsStream(initialValue: StreamDictionary<Int>(), from: .json())
-    try stream.next(Array(#"{"a":1,"b":2}"#.utf8))
-    let value = try stream.finish()
-    #expect(value["a"] == 1)
-    #expect(value["b"] == 2)
-  }
+// `_StreamLock` guards the generic schema caches above, so it is pinned alongside them.
+@Suite
+struct `Stream Lock Tests` {
+  #if canImport(Dispatch) && !hasFeature(Embedded)
+    @Test
+    func `Stream Lock Protects Generic State Across Threads`() {
+      let iterations = 10_000
+      let value = _StreamLock(0)
+
+      DispatchQueue.concurrentPerform(iterations: iterations) { _ in
+        value.withLock { $0 += 1 }
+      }
+
+      #expect(value.withLock { $0 } == iterations)
+    }
+  #endif
 }

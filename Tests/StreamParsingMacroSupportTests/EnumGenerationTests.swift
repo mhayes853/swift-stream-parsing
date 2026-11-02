@@ -238,25 +238,6 @@ struct `StreamEnumGeneration tests` {
   }
 
   @Test
-  func `Payload Info Accepts Caller Supplied Descriptors`() {
-    let descriptor = StreamPartialFieldDescriptor(
-      memberName: .identifier("custom"),
-      unescapedName: "custom",
-      storageType: TypeSyntax("Custom.Partial?"),
-      keys: [StreamDecodedKey(knownKey: "wireKey")]
-    )
-    let info = StreamEnumPayloadInfo(
-      caseName: .identifier("event"),
-      payloadTypeName: .identifier("EventArguments"),
-      fields: [],
-      partialFields: [descriptor]
-    )
-    #expect(info.partialFields[0].memberName.text == "custom")
-    #expect(info.partialFields[0].storageType.trimmedDescription == "Custom.Partial?")
-    #expect(info.partialFields[0].keys.map(\.knownKey) == ["wireKey"])
-  }
-
-  @Test
   func `Payload Declaration Can Be Replaced`() throws {
     let generation = try self.eventGeneration()
     let source = try generation.partialSyntax(

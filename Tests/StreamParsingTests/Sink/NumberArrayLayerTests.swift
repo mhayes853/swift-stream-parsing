@@ -70,10 +70,6 @@ struct `Number array layer tests` {
       e.map { Array($0) },
       (0..<300).map { [Double($0) + 0.5, -Double($0) * 100, Double($0)] }
     )
-
-    let optionals = "[1,null,3,null,5]"
-    let g = try Self.parse(optionals, as: StreamArray<Int?>.self)
-    expectNoDifference(Array(g), [1, nil, 3, nil, 5])
   }
 
   @Test
@@ -86,7 +82,7 @@ struct `Number array layer tests` {
   }
 
   @Test
-  func `Rejections surface at the element that causes them`() {
+  func `Integer arrays reject a fraction and an overflow past the block walk`() {
     // An integer array refusing a fraction.
     let mixed = "[" + (0..<100).map { "\($0)" }.joined(separator: ",") + ",4.5,6]"
     #expect(Self.failure(mixed, as: StreamArray<Int>.self) != nil)

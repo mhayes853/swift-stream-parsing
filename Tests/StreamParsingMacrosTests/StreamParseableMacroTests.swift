@@ -1092,6 +1092,10 @@ extension BaseTestSuite {
         }
         """#
       }
+    }
+
+    @Test
+    func `Spelled Out Optional Member`() {
       assertStreamParsingMacro {
         """
         @StreamParseable
@@ -2667,61 +2671,6 @@ extension BaseTestSuite {
         ╰─ 🛑 @StreamParseable can only be applied to struct or enum declarations.
         actor Person {
           var name: String
-        }
-        """
-      }
-    }
-
-    @Test
-    func `Does Not Override Existing Partial Inner Type`() {
-      assertStreamParsingMacro {
-        """
-        @StreamParseable
-        struct Person {
-          var name: String
-          var age: Int
-
-          struct Partial {}
-        }
-        """
-      } expansion: {
-        """
-        struct Person {
-          var name: String
-          var age: Int
-
-          struct Partial {}
-
-          var streamPartialValue: Partial {
-            Partial(
-              name: self.name.streamPartialValue,
-              age: self.age.streamPartialValue
-            )
-          }
-        }
-
-        extension Person: StreamParsingCore.StreamParseable {
-          init?(streamPartial partial: Partial) {
-            guard
-              let streamValue_name = Self._streamValue({ $0.name
-              }, partial.name),
-              let streamValue_age = Self._streamValue({ $0.age
-              }, partial.age)
-            else {
-              return nil
-            }
-            self.name = streamValue_name
-            self.age = streamValue_age
-          }
-
-          init(orInitial partial: Partial) {
-            self.name = Self._streamValueOrInitial({
-                $0.name
-              }, partial.name)
-            self.age = Self._streamValueOrInitial({
-                $0.age
-              }, partial.age)
-          }
         }
         """
       }
@@ -5758,7 +5707,7 @@ extension BaseTestSuite {
     }
 
     @Test
-    func `Existing Partial And Stated Conformance`() {
+    func `Existing Partial Inner Type And Stated Conformance`() {
       assertStreamParsingMacro {
         """
         @StreamParseable

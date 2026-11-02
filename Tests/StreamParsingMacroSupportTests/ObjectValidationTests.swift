@@ -94,7 +94,7 @@ struct `StreamObjectGeneration validation tests` {
   }
 
   @Test
-  func `Concrete Capacity And Conversion Nodes Need No Wrapping`() {
+  func `Capacity With A Completed Conversion Is Rejected`() {
     let field = StreamParseableField(
       name: TokenSyntax.identifier("value"),
       type: IdentifierTypeSyntax(name: TokenSyntax.identifier("Date")),
@@ -151,20 +151,6 @@ struct `StreamObjectGeneration validation tests` {
         }
       }
     expectNoDifference(comments.isEmpty, true)
-  }
-
-  @Test
-  func `Renaming A Complete Partial Updates Its Storage References`() throws {
-    let generation = try StreamObjectGeneration(
-      fields: [self.field(name: "value", key: "value")],
-      configuration: StreamGenerationConfiguration(
-        names: StreamGeneratedNames(partialType: .identifier("Storage"))
-      )
-    )
-    let source = try generation.structDeclarationSyntax(in: BasicMacroExpansionContext()).description
-    expectNoDifference(source.contains("struct Storage:"), true)
-    expectNoDifference(source.contains("UnsafeMutablePointer<Storage>"), true)
-    expectNoDifference(Parser.parse(source: source).hasError, false)
   }
 
   private func field(name: String, key: String) -> StreamParseableField {

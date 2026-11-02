@@ -38,8 +38,8 @@ struct `Error offset tests` {
 
   // MARK: - The offset does not depend on feed granularity
 
-  // Sink-rejection offsets are exempt by design: a sink records its failure and the parser reads
-  // it once per state machine step, so where it surfaces tracks the step, not the token.
+  // Sink rejections are not in this table; they are pinned per token kind under "Sink rejections"
+  // below.
   @Test(arguments: [
     "[1, x]",
     #"{"a":}"#,
@@ -124,7 +124,7 @@ struct `Error offset tests` {
   // second document as an unexpected token. Long whitespace runs reach the block walk's twin arm.
   @Test(arguments: [
     ("1 2", 2), ("1,", 1), ("1]", 1), ("1}", 1), (#""a" "b""#, 4), ("true false", 5),
-    ("null}", 4), ("-1.5e3 [", 7), ("1" + String(repeating: " ", count: 80) + "2", 81),
+    ("null}", 4), ("true]", 4), (#""value"]"#, 7), ("-1.5e3 [", 7), ("1" + String(repeating: " ", count: 80) + "2", 81),
   ])
   func `A root scalar's trailing bytes report trailing content`(json: String, offset: Int) {
     let bytes = Array(json.utf8)

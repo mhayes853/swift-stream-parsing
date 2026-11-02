@@ -51,18 +51,6 @@ struct `PartialsStream Tests` {
     }
   }
 
-  // The sink holds pointers into the value, and the value lives in its own allocation so those
-  // survive the stream being moved. Nesting is where a stale pointer would show up.
-  @Test
-  func `Deeply Nested Values Update Across Bytes`() throws {
-    var stream = PartialsStream(initialValue: StreamArray<StreamArray<Int>>(), from: .json())
-    for byte in "[[1],[2,3]]".utf8 {
-      try stream.next(byte)
-    }
-    let finished = try stream.finish()
-    expectNoDifference(finished, [[1], [2, 3]])
-  }
-
   @Test
   func `Finish Value Moves The Final Value Out`() throws {
     var stream = PartialsStream(initialValue: StreamArray<StreamArray<Int>>(), from: .json())

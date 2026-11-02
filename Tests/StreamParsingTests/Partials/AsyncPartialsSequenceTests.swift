@@ -36,21 +36,6 @@ struct `AsyncPartialsSequence Tests` {
   }
 
   @Test
-  func `Emits Same Partial When No Reduction Occurs For An Async Byte`() async throws {
-    let byteStream = AsyncStream<UInt8> { continuation in
-      for byte in #""ab""#.utf8 { continuation.yield(byte) }
-      continuation.finish()
-    }
-
-    var partials = [String]()
-    for try await partial in byteStream.partials(of: SwiftStringStorage.self, from: .json()) {
-      partials.append(partial)
-    }
-
-    expectNoDifference(partials, ["", "a", "ab", "ab", "ab"])
-  }
-
-  @Test
   func `Emits A Number Finalized At End Of Input`() async throws {
     let byteStream = AsyncStream<UInt8> { continuation in
       continuation.yield(0x31)

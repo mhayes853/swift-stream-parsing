@@ -1,19 +1,11 @@
 import StreamParsingCore
 import Testing
 
-// Regressions and remaining Unicode reproductions from GENERIC_API_REVIEW.md.
-@Suite
-struct GenericReviewTests {
-  @Test
-  func appendingToBothArrayCopies() {
-    var first = StreamArray([1])
-    var second = first
-    first.append(2)
-    second.append(3)
-    #expect(Array(first) == [1, 2])
-    #expect(Array(second) == [1, 3])
-  }
-
+// Copies of the stream collections share storage until one of them is written, so every write has
+// to notice the share: copies diverge, the seed a stream starts from is never written into, and
+// elements dropped by one copy are released while the other still holds its own.
+@Suite("Stream collection copy-on-write tests")
+struct StreamCollectionCopyOnWriteTests {
   @Test
   func appendingToBothDictionaryCopies() {
     var first = StreamDictionary(["a": 1])
@@ -76,18 +68,6 @@ struct GenericReviewTests {
   }
 
   @Test
-  func streamsSeededFromTheSameNestedCollectionsDiverge() throws {
-    let seed = StreamDictionary(["values": StreamArray([1])])
-    var first = PartialsStream(initialValue: seed, from: .json())
-    var second = PartialsStream(initialValue: seed, from: .json())
-    try first.next("{\"values\":[2,3]}".utf8)
-    try second.next("{\"values\":[4,5]}".utf8)
-    #expect(Array(try first.finish()["values"]!) == [1, 2, 3])
-    #expect(Array(try second.finish()["values"]!) == [1, 4, 5])
-    #expect(Array(seed["values"]!) == [1])
-  }
-
-  @Test
   func copiesCanBeMutatedOnIndependentTasks() async {
     let seed = StreamArray(0..<7)
     let dictionarySeed = StreamDictionary(["seed": seed])
@@ -111,26 +91,6 @@ struct GenericReviewTests {
     #expect(Array(seed) == Array(0..<7))
     #expect(dictionarySeed.count == 1)
     #expect(Array(dictionarySeed["seed"]!) == Array(0..<7))
-  }
-
-  @Test
-  func dictionaryKeyLookupDoesNotDependOnPendingState() throws {
-    var stream = PartialsStream<StreamDictionary<Int>>(from: .json())
-    try stream.next("{\"é\":1,".utf8)
-    let pending = stream.current["e\u{301}"]
-    try stream.next("\"other\":2}".utf8)
-    let closed = try stream.finish()["e\u{301}"]
-    #expect(pending == closed)
-  }
-
-  @Test
-  func repairedCharacterTraversalDoesNotRepeatCombiningMarks() {
-    let bytes = Array("a\u{301}".utf8) + [0xFF]
-    var value = StreamString()
-    bytes.withUnsafeBufferPointer { buffer in
-      value.streamAppend(utf8: Span(_unsafeElements: buffer), info: StringInfo())
-    }
-    #expect(Array(value.characters) == Array(String(value)))
   }
 }
 

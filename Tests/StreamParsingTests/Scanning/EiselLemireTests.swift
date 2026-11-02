@@ -10,8 +10,8 @@ import StreamParsing
 // so declines are counted rather than ignored -- a change that silently started declining
 // everything would still pass a "no mismatches" assertion.
 //
-// Exponent ranges are read from the table's own bounds rather than written as literals, so the
-// suite holds whichever extent is built without pretending to cover one that is not there.
+// The sweeps read the table's bounds rather than literals; `Full Double exponent range stays on
+// the kernel` pins that the built extent is -342...308.
 @Suite
 struct `Eisel-Lemire tests` {
   private struct Outcome {

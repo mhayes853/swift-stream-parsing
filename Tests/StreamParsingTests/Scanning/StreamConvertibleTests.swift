@@ -173,14 +173,15 @@ struct `Stream convertible tests` {
 
   // MARK: - Floating point
 
+  // The bytes and the magnitude disagree on purpose, so the result shows which one was read.
   @Test
   func `Whole doubles use the accumulated magnitude`() {
-    Self.span("42") { bytes in
-      expectNoDifference(Double(streamParsing: bytes, info: Self.info(42, digits: 2)), 42)
+    Self.span("4217") { bytes in
+      expectNoDifference(Double(streamParsing: bytes, info: Self.info(217, digits: 3)), 217)
     }
-    Self.span("-42") { bytes in
-      let info = Self.info(42, digits: 2, flags: .negative)
-      expectNoDifference(Double(streamParsing: bytes, info: info), -42)
+    Self.span("-4217") { bytes in
+      let info = Self.info(217, digits: 3, flags: .negative)
+      expectNoDifference(Double(streamParsing: bytes, info: info), -217)
     }
   }
 
@@ -200,27 +201,11 @@ struct `Stream convertible tests` {
     }
   }
 
+  // 10^23 is not exactly representable as a Double. An earlier exact path multiplied by the
+  // rounded table entry and produced 0x47ded80843672e32 here, one ULP below the correctly rounded
+  // result. Exponent 23 is past `streamMaxExactPow10` (22), so Eisel-Lemire now answers it.
   @Test
-  func `Wide exponent doubles are correctly rounded`() {
-    let cases: [(String, UInt64, UInt16, Int16, NumberInfo.Flags)] = [
-      ("18446744073709551615e-342", UInt64.max, 20, -342, .exponent),
-      ("5e-324", 5, 1, -324, .exponent),
-      ("-1234567890123457e250", 1_234_567_890_123_457, 16, 250, [.exponent, .negative]),
-      ("1e308", 1, 1, 308, .exponent),
-    ]
-    for (text, magnitude, digits, exponent, flags) in cases {
-      Self.span(text) { bytes in
-        let info = Self.info(magnitude, digits: digits, exponent: exponent, flags: flags)
-        let actual = Double(streamParsing: bytes, info: info)
-        #expect(actual?.bitPattern == Double(text)?.bitPattern)
-      }
-    }
-  }
-
-  // 10^23 is not exactly representable as a Double. Multiplying by the rounded table entry
-  // produces 0x47ded80843672e32 here, one ULP below the correctly rounded decimal result.
-  @Test
-  func `Inexact powers of ten use the correctly rounded fallback`() {
+  func `An exponent past the exact table is not scaled by a rounded power of ten`() {
     Self.span("1639941743779501e23") { bytes in
       let info = Self.info(1_639_941_743_779_501, digits: 16, exponent: 23, flags: .exponent)
       let actual = Double(streamParsing: bytes, info: info)

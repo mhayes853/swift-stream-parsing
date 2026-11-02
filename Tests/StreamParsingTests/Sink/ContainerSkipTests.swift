@@ -214,26 +214,6 @@ struct ContainerSkipTests {
     )
   }
 
-  // The advisory half of the contract: through the batching adapter the skip cannot be
-  // honored, the interior is delivered into the sink's ignored frame, and the value comes out
-  // the same.
-  @Test
-  func `The batching adapter delivers a skipped-eligible subtree and agrees`() throws {
-    let json = #"{"id":7,"unknown":{"a":[1,{"b":"c"}],"d":"é \n tail"},"name":"row","after":true}"#
-    let payload = Array(json.utf8)
-    var value = SkipRow.Partial.streamInitialValue()
-    try withUnsafeMutablePointer(to: &value) { pointer in
-      var parser = JSONParser()
-      var sink = StreamEventBatchingSink(consumer: SkipReplayConsumer(sink: PartialSink(root: pointer)))
-      try payload.withUnsafeBufferPointer { try parser.parse($0, into: &sink) }
-      try parser.finish(into: &sink)
-      sink.commit()
-    }
-    expectNoDifference(value.id, 7)
-    expectNoDifference(value.name, "row")
-    expectNoDifference(value.after, true)
-  }
-
   // A sink other than PartialSink skipping at the root: the open and the matching close are
   // the only structural calls it sees, and nothing in between.
   @Test
@@ -254,14 +234,6 @@ struct ContainerSkipTests {
       try parser.finish(into: &sink)
       expectNoDifference(sink.calls, ["beginObject", "endObject"], "chunk \(chunk)")
     }
-  }
-}
-
-private struct SkipReplayConsumer: StreamEventBatchConsumer, ~Copyable {
-  var sink: PartialSink
-  var streamFailure: StreamSinkFailure? { self.sink.streamFailure }
-  mutating func events(_ batch: borrowing StreamEventBatch) -> Int {
-    batch.replay(into: &self.sink)
   }
 }
 

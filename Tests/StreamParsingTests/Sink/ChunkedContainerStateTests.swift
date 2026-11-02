@@ -130,7 +130,7 @@ struct `Chunked container state tests` {
   // MARK: - The reported case
 
   @Test
-  func `An escaped value after a closed array fuses the key that follows as a key`() {
+  func `An escaped value after a closed array leaves the next key a key`() {
     let bytes = Array(#"{"a":[true,"b"],"s":"x\ny","t":1}"#.utf8)
     let expected = TreeSink.Node.object([
       ("a", .array([.boolean(true), .string("b")])),
@@ -212,7 +212,6 @@ struct `Chunked container state tests` {
         + String(repeating: "\\u00e9x", count: 12) + "\",\"n\":[1,2]}"
     ),
     ("surrogate pairs", #"[{"a":"😀"},["😀",1],{"b":["𝄞"],"c":2}]"#),
-    ("number for a key", #"{"a":["q","b"],"s":"x\ny",1}"#),
     ("string for an element", #"{"o":{"b":"c"},"l":["x\ny","z"}"#),
     ("close mismatch after escape", #"{"a":[1,"b"],"s":"x\ny"]"#),
   ]

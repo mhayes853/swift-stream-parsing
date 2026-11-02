@@ -170,9 +170,6 @@ struct StreamEventBatchingSinkTests {
             try parser.parse(
               UnsafeBufferPointer(rebasing: input[index..<end]), into: &sink
             )
-            // The parser does not call `commit` yet (that is the fusion stage); the driver
-            // stands in for it at every point borrowed memory goes away.
-            sink.commit()
             index = end
           }
         }
@@ -180,10 +177,6 @@ struct StreamEventBatchingSinkTests {
       } catch let error as JSONParsingError {
         outcome.parserError = error.reason
       } catch {}
-      // Committed on the error path too: the recorded transport delivers events *before* it
-      // throws, so the sink's state reflects everything ahead of the error. The fused loop owes
-      // the same ordering — commit before propagating — and the driver stands in for it here.
-      sink.commit()
       outcome.failureReason = sink.streamFailure?.reason
     }
     Self.snapshot(value, into: &outcome)
@@ -213,7 +206,8 @@ struct StreamEventBatchingSinkTests {
       #"""
       {"rows":[
         {"count":42,"ratio":-0.5,"label":"a","live":true,"maybe":7},
-        {"count":9,"ratio":1.5e3,"label":"héllo ✓","live":false,"maybe":null,"unknown":[1,2]}
+        {"count":9,"ratio":1.5e3,"label":"héllo ✓","live":false,"maybe":null,
+         "unknown":{"a":[1,{"b":"c"}],"d":"é \n tail"}}
       ],"values":[1.5,-2.25,3e-2]}
       """#
     )

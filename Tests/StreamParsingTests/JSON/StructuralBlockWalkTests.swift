@@ -103,12 +103,13 @@ struct StructuralBlockWalkTests {
     return outcome
   }
 
-  // The block path off is the oracle, at the same chunking, plus the sub-block chunkings that
-  // cannot reach it either way.
+  // The block path off is the oracle, at the same chunking. Only chunkings of at least 64 bytes
+  // can reach the walk (`consumeStructuralRun` gates on `to - from >= 64`), so a smaller one would
+  // run identical code on both sides and could never disagree.
   private static func expectAgreement(
     _ bytes: [UInt8],
     _ label: @autoclosure () -> String,
-    chunks: [Int?] = [nil, 1, 7, 63, 64, 100, 127, 4096, .max]
+    chunks: [Int?] = [64, 100, 127, 4096, .max]
   ) {
     for chunk in chunks {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
@@ -119,10 +120,6 @@ struct StructuralBlockWalkTests {
         )
       }
     }
-    // The per-byte ladder at chunk 63 is also the oracle for every wider chunking: the document's
-    // meaning does not depend on how it is cut. Strings are the one exception (their `stringChunk`
-    // calls follow the cuts), so this holds only where the run is clean, which the corpus rows
-    // below exercise through the `blocks`-off comparison instead.
   }
 
   // MARK: - Hand-written shapes
@@ -239,7 +236,7 @@ struct StructuralBlockWalkTests {
             + Array("{\"\(body)\":\"\(body)\",\"k\":[\"\(body)\",1]}".utf8)
           Self.expectAgreement(
             document, "length \(length) suffix \(suffix) pad \(pad)",
-            chunks: [63, 64, 100, 4096, .max]
+            chunks: [64, 100, 4096, .max]
           )
         }
       }
@@ -253,10 +250,10 @@ struct StructuralBlockWalkTests {
       let spaces = Array(repeating: UInt8(0x20), count: pad)
       for body in [
         "[12345678901234567890,1]", "[true,false,null]", "[-0.5e-12]", "[1234,5678]",
-        "[truX]", "[12abc]", "[1e]", "[nul]",
+        "[1e]", "[nul]",
       ] {
         Self.expectAgreement(
-          spaces + Array(body.utf8), "\(body) pad \(pad)", chunks: [63, 64, 100, 4096, .max]
+          spaces + Array(body.utf8), "\(body) pad \(pad)", chunks: [64, 100, 4096, .max]
         )
       }
     }
@@ -295,7 +292,7 @@ struct StructuralBlockWalkTests {
       let spaces = Array(repeating: UInt8(0x20), count: pad)
       for body in bodies {
         Self.expectAgreement(
-          spaces + Array(body.utf8) + tail, "\(body.debugDescription) pad \(pad)", chunks: [63, 64, 100, 4096, .max]
+          spaces + Array(body.utf8) + tail, "\(body.debugDescription) pad \(pad)", chunks: [64, 100, 4096, .max]
         )
       }
     }
@@ -365,7 +362,7 @@ struct StructuralBlockWalkTests {
           Array(repeating: UInt8(0x20), count: pad)
           + Array(String(repeating: "[", count: opens).utf8)
           + Array(String(repeating: "]", count: opens).utf8)
-        Self.expectAgreement(document, "opens \(opens) pad \(pad)", chunks: [63, 64, 4096, .max])
+        Self.expectAgreement(document, "opens \(opens) pad \(pad)", chunks: [64, 4096, .max])
       }
     }
   }
@@ -445,7 +442,7 @@ struct StructuralBlockWalkTests {
   )
   func `Benchmark corpora parse identically on both paths`(name: String) throws {
     let bytes = try #require(streamBenchmarkCorpus(name))
-    for chunk in [64, 100, 4096, Int.max] {
+    for chunk in [64, 100, 320, 4096, Int.max] {
       let expected = Self.run(bytes, chunk: chunk, blocks: false)
       // Agreement alone is not enough: a scalar oracle that fails agrees with a walk that fails
       // the same way, which is how both paths failing `twitter` at 4096 once passed here.
@@ -461,36 +458,11 @@ struct StructuralBlockWalkTests {
     }
   }
 
-  // The same corpora at small chunkings, so every hand-off between the ladder and the walk also
-  // meets a chunk edge.
-  @Test(
-    arguments: [
-      "canada", "citm_catalog", "github_events", "gsoc-2018", "llm_message", "mesh", "twitter",
-      "twitterescaped", "twitterspaced",
-    ]
-  )
-  func `Benchmark corpora agree at small chunkings`(name: String) throws {
-    let bytes = try #require(streamBenchmarkCorpus(name))
-    for chunk in [320, 4096] {
-      let expected = Self.run(bytes, chunk: chunk, blocks: false)
-      #expect(expected.errorReason == nil, "\(name) chunk \(chunk) oracle failed at \(String(describing: expected.errorOffset))")
-      let actual = Self.run(bytes, chunk: chunk, blocks: true)
-      #expect(actual.errorReason == expected.errorReason, "\(name) chunk \(chunk)")
-      #expect(actual.errorOffset == expected.errorOffset, "\(name) chunk \(chunk)")
-      #expect(actual.calls.count == expected.calls.count, "\(name) chunk \(chunk)")
-      if actual.calls != expected.calls {
-        let first = zip(actual.calls, expected.calls).enumerated()
-          .first { $0.element.0 != $0.element.1 }
-        Issue.record("\(name) chunk \(chunk) first difference at \(String(describing: first))")
-      }
-    }
-  }
-
-  // The skip that happens *inside* a block (`skipWithinBlock`): every hand-written shape above,
-  // at every offset of the 64-byte grid, with a sink that skips from each depth in turn. The
-  // scalar ladder -- which always hands a skipped subtree to `consumeSkipRun` -- is the oracle,
-  // so this pins the fused skip to the scanner's own contract: the same calls, the matching close
-  // delivered at the same byte, the same error reason at the same offset.
+  // A skipping sink: the walk leaves the block at the open whose disposition was `.skip` and hands
+  // the subtree to `consumeSkipRun` with the skip end depth the ladder would have recorded. Every
+  // hand-written shape above, at every offset of the 64-byte grid, skipping from each depth in
+  // turn; the ladder (blocks off) is the oracle -- the same calls, the matching close delivered at
+  // the same byte, the same error reason at the same offset.
   @Test(arguments: Array(Self.documents.indices))
   func `A skipping sink agrees at every alignment`(index: Int) {
     let document = Self.documents[index]

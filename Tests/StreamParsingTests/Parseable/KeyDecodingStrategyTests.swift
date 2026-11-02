@@ -146,12 +146,6 @@ struct `Key Decoding Strategy Tests` {
   }
 
   @Test
-  func `Custom strategies run their closure`() {
-    let strategy = StreamKeyDecodingStrategy.custom { "k_" + $0 }
-    #expect(strategy.key(for: "name") == "k_name")
-  }
-
-  @Test
   func `Snake case reads converted keys and leaves written keys alone`() throws {
     let json = """
       {"user_id":1,"screen_name":"swift","profile_image_url":"https://a","full_text":"hi",\

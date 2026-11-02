@@ -76,15 +76,6 @@ struct `Stream dictionary tests` {
   }
 
   @Test
-  func `Equality is order sensitive`() {
-    let first: StreamDictionary<Int> = ["a": 1, "b": 2]
-    let second: StreamDictionary<Int> = ["b": 2, "a": 1]
-    let third: StreamDictionary<Int> = ["a": 1, "b": 2]
-    expectNoDifference(first != second, true)
-    expectNoDifference(first, third)
-  }
-
-  @Test
   func `Bridges to and from Dictionary`() {
     let stream: StreamDictionary<Int> = ["a": 1, "b": 2, "c": 3]
     let plain = Dictionary(stream)

@@ -1,5 +1,6 @@
 import CustomDump
 import StreamParsing
+import StreamParsingCore
 import Testing
 
 @Suite
@@ -13,30 +14,19 @@ struct `PartialsSequence Tests` {
   }
 
   @Test
-  func `Emits Partial For Each Byte`() throws {
-    let byteStream = Array("[1,2,3]".utf8)
-
-    let partials = try byteStream.partials(initialValue: StreamArray<Int>(), from: .json())
-    expectNoDifference(
-      partials,
-      [[], [], [1], [1], [1, 2], [1, 2], [1, 2, 3], [1, 2, 3]]
-    )
-  }
-
-  // A digit does not produce a value until the token ends, so the states either side of it are
-  // the same. This is the shape callers see when rendering a stream as it arrives.
-  @Test
-  func `Emits Same Partial When No Reduction Occurs For Byte`() throws {
-    let byteStream = Array(#""ab""#.utf8)
-
-    let partials = try byteStream.partials(of: SwiftStringStorage.self, from: .json())
-    expectNoDifference(partials, ["", "a", "ab", "ab", "ab"])
-  }
-
-  @Test
   func `Collects Partials For A Parseable Type`() throws {
     let partials = try Array(#"{"id":1}"#.utf8).partials(of: SequenceModel.self, from: .json())
     expectNoDifference(partials.last?.id, 1)
+  }
+
+  // `partials(of:from:)` has one overload constrained to `StreamParseable` and one to
+  // `StreamParseableRoot`, and nothing orders them for a type that conforms to both --
+  // `StreamEmptyObject` does, and so does any macro `Partial` that is itself `StreamParseable`.
+  // This fails to compile if the ordering is ever lost.
+  @Test
+  func `Partials resolves for a type that is both StreamParseable and a root`() throws {
+    let partials = try Array("{}".utf8).partials(of: StreamEmptyObject.self, from: .json())
+    expectNoDifference(partials, [StreamEmptyObject(), StreamEmptyObject(), StreamEmptyObject()])
   }
 }
 

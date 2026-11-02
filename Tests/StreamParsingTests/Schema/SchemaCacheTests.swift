@@ -242,6 +242,8 @@ struct `Schema Cache Tests` {
     let array = StreamArray<Int>.streamSchema
     #expect(StreamSchemaCache.shared.contains(StreamArray<Int>.self))
     #expect(StreamSchemaCache.shared.schema(for: StreamArray<Int>.self) { fatalError() } === array)
+    #expect(StreamDictionary<Int>.streamSchema === StreamDictionary<Int>.streamSchema)
+    #expect(Int?.streamSchema === Int?.streamSchema)
 
     if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
       #expect(InlineArray<3, Int>.streamSchema === InlineArray<3, Int>.streamSchema)

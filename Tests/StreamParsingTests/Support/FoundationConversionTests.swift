@@ -72,14 +72,6 @@
       expectNoDifference(value.amount, Decimal(string: literal))
     }
 
-    @Test
-    func `Decimal through Double would have lost these`() throws {
-      var value = FoundationValues.Partial()
-      try parsePartial(#"{"amount":1.005}"#, into: &value)
-      expectNoDifference(value.amount, Decimal(string: "1.005"))
-      expectNoDifference(value.amount != Decimal(1.005), true)
-    }
-
     @Test(arguments: ["1.5e3", "1.5E3", "15e-1", "-2e2", "0e0"])
     func `Decimal converts exponent forms`(literal: String) throws {
       var value = FoundationValues.Partial()

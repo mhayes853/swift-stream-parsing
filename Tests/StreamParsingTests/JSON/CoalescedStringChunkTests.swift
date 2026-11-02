@@ -329,10 +329,13 @@ struct `Coalesced string chunk tests` {
   }
 
   // The tail's scan stages each run into the buffer as it reads it, sixteen bytes a store, for as
-  // long as a whole block fits; the rest of a run goes through `bufferStringRun`. Small buffers
-  // put that seam, and the flush behind it, inside every run length from zero to five blocks, with
-  // the run's terminator on every lane. The oracle is byte fed with the default buffer.
-  @Test(arguments: [16, 17, 24, 31, 32, 33, 47, 48, 64, 100])
+  // long as a whole block fits; the rest of a run goes through `bufferStringRun`. The smallest
+  // buffer `JSONParser(bufferCapacity:)` builds puts that seam, and the flush behind it, inside
+  // every run length from zero to five blocks, with the run's terminator on every lane. Capacities
+  // are floored at 64, so only 64 and above are distinct runs here (a smaller seam is reachable
+  // only through a caller-supplied `JSONParser(buffer:)`). The oracle is byte fed with the default
+  // buffer.
+  @Test(arguments: [64, 100])
   func `Staged runs agree with the byte fed parse at every buffer seam`(bufferCapacity: Int) {
     var json = "[\"lead"
     for length in 0...80 {
@@ -351,7 +354,7 @@ struct `Coalesced string chunk tests` {
   // sequence inside a run that was already stored fails with the byte fed parse's error, and
   // nothing of the stored block leaks out. (Content coalesced ahead of a throw is dropped, as it
   // always was -- only non-throwing exits flush -- so delivery is a prefix, not an equal.)
-  @Test(arguments: [24, 4096])
+  @Test(arguments: [64, 4096])
   func `A staged run that fails delivers nothing the byte fed parse did not`(bufferCapacity: Int) {
     let documents: [(String, [UInt8])] = [
       ("control byte", Array("[\"ab\\n0123456789abcdef0123".utf8) + [0x01] + Array("tail\"]".utf8)),

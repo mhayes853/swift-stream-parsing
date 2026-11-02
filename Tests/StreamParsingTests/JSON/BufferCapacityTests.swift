@@ -7,7 +7,8 @@ import StreamParsingCore
 // The parser's buffer holds one token at a time — a key, a number, or the decoded body of an
 // escaped string — so `bufferCapacity` is the longest single token a document may contain, not
 // the longest document. That distinction is the whole of the setting, and it was pinned only for
-// one caller-supplied case. `BufferCapacityBenchmarks` measures the same axis.
+// one caller-supplied case. The `Buffer …B` rows in `ParserShapeBenchmarks.swift` measure the same
+// axis.
 //
 // A token that fits entirely inside one chunk is emitted from the input directly and never
 // reaches the buffer, so every case here also has to be fed in pieces to mean anything.
@@ -31,7 +32,7 @@ struct `Buffer capacity tests` {
 
   // The initializer floors capacity at 64, so a request below that is not a way to make the
   // buffer smaller than the parser needs to function.
-  @Test(arguments: [0, 1, 16, 63, 64])
+  @Test(arguments: [0, 1, 16, 63])
   func `Capacity is floored at sixty four bytes`(capacity: Int) throws {
     let key = String(repeating: "k", count: 48)
     try Self.parse("{\"\(key)\":1}", capacity: capacity, chunk: 1)
@@ -43,13 +44,8 @@ struct `Buffer capacity tests` {
     try Self.parse("{\"\(key)\":1}", capacity: capacity, chunk: 1)
   }
 
-  // Each of the three token kinds that buffer, past a capacity that cannot hold it.
-  @Test
-  func `A key longer than capacity is rejected`() {
-    let key = String(repeating: "k", count: 4_096)
-    expectNoDifference(Self.failure("{\"\(key)\":1}", capacity: 64, chunk: 1)?.reason, .bufferExhausted)
-  }
-
+  // The two token kinds that buffer whole, past a capacity that cannot hold them. A key is pinned
+  // by `Exhaustion does not depend on chunking` below, at every chunking including byte by byte.
   @Test
   func `A number longer than capacity is rejected`() {
     let number = String(repeating: "9", count: 4_096)

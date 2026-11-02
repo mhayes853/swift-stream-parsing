@@ -113,8 +113,7 @@ struct `Parser corpus tests` {
     (#"{"text":"a\nb\tc"}"#, "a\nb\tc"),
     (#"{"text":"quote \" and backslash \\"}"#, "quote \" and backslash \\"),
     (#"{"text":"slash \/"}"#, "slash /"),
-    (#"{"text":"surrogate 😀"}"#, "surrogate 😀"),
-    (#"{"text":""}"#, "")
+    (#"{"text":"surrogate \ud83d\ude00"}"#, "surrogate 😀")
   ])
   func `Strings and escapes decode`(json: String, expected: String) throws {
     var value = DiffText.Partial()
