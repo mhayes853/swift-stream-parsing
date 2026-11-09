@@ -1,0 +1,26 @@
+#!/bin/bash
+# Rebuilds Web/generated/ from the two places evidence is written: NEW_ARCHITECTURE.md and the
+# source comments. Everything under Web/generated/ is derived and committed.
+#
+#   ./Web/generate            # content + traces + assembly
+#   ./Web/generate content    # doc sections, source declarations, reference validation
+#   ./Web/generate traces     # replay the shipped kernels
+#   ./Web/generate asm        # pin disassembly (needs ./Benchmarks/bench build first)
+#
+# `content` fails on a dangling reference in pipeline.json, which is what stops a renamed kernel
+# or a retitled chapter from silently rotting the site.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+MODE="${1:-all}"
+
+# Assembly first: reference validation in the `content` pass warns about symbols with no pinned
+# listing, so pinning them beforehand keeps a from-scratch run quiet.
+if [ "$MODE" = "all" ] || [ "$MODE" = "asm" ]; then
+  python3 "$ROOT/Scripts/extract_assembly.py"
+fi
+
+if [ "$MODE" != "asm" ]; then
+  swift build --package-path "$ROOT" --product StreamParsingSiteTool
+  "$ROOT/.build/debug/StreamParsingSiteTool" "$ROOT" "$MODE"
+fi
