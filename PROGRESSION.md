@@ -5344,3 +5344,32 @@ Linux (ARM unmeasured); typed rows below. A focused repeat put GSoC back near ba
 | Mesh | 294 | 291 | -1.1% |
 | Twitter | 1348 | 1349 | +0.1% |
 | Twitter full | 457 | 461 | +0.8% |
+
+## Landed: a chunk-cut number hands the rest of its array back to `fuseNumberRun`
+
+*Recorded 2026-11-09.*
+
+`Real Mesh - 16KB chunks` ran 15% behind `Real Mesh - bulk`, raw and typed, and no other corpus
+showed a chunking gap. A number the chunk cuts resumes in `.number`, and `consumeNumber` finished
+it with `fuseAfterValue`, which sends the next number back to `.number` through the dispatcher —
+one dispatch and one 16-byte whitespace scan per number, for the rest of the array. Mesh's arrays
+hold 10–33K numbers, so every chunk boundary lands inside one and the whole remainder of the chunk
+ran that way. `consumeNumber` now calls `fuseNumberRun` at an array's comma when two more bytes
+are in the chunk, as the structural run's number arm does. Byte-fed input never has the two bytes
+and takes `fuseAfterValue` as before.
+
+Aligned builds, 3 interleaved rounds, median p0 (machine under build load, floor about ±2%):
+
+| Row | Change |
+| --- | ---: |
+| Real Mesh - 16KB chunks | +16.3% |
+| Real Mesh - 16KB chunks discarding | +16.3% |
+| Real Mesh - bulk | -0.1% |
+| Real Mesh - bulk discarding | -1.4% |
+| Real Canada - 16KB chunks / discarding | -0.2% / -0.2% |
+| Real Twitter - 16KB chunks / discarding | -0.3% / -0.1% |
+| Real CITM catalog - 16KB chunks / discarding | -0.3% / -1.2% |
+| Real Twitter escaped - byte by byte / discarding | -0.2% / -0.9% |
+| Real LLM message - byte by byte / discarding | -1.6% / -0.0% |
+| Fast Literals / Pretty printed users - byte by byte | +2.2% / +2.3% |
+| Fast Escaped string / Long string - byte by byte | -1.5% / +0.0% |

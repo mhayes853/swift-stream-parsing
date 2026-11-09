@@ -1407,6 +1407,24 @@ public struct JSONParser: ~Copyable {
       try self.emitBufferedNumber(into: &sink, reportAt: end)
     }
     self.state = .afterValue
+    // An array's `,` with more of the chunk behind it: the numbers that follow are
+    // `fuseNumberRun`'s, as they are after a number the structural run emitted. Without this a
+    // number the chunk cut left the rest of its array to `fuseAfterValue`, which hands each
+    // number back to `.number` through the dispatcher with a vector whitespace scan in between
+    // -- measured on Mesh (arrays of 10-33K numbers, so every chunk boundary lands in one) as
+    // `16KB chunks` 15% behind `bulk`. Byte-fed input never has the two bytes and is unchanged.
+    if end &+ 1 < to, self.depth > 0,
+      base.load(fromByteOffset: end, as: UInt8.self) == .asciiComma, !self.topIsObject
+    {
+      let resume = try self.fuseNumberRun(base: base, comma: end, to: to, into: &sink)
+      // A number the chunk cut, already reset: `.number` buffers it from its first byte.
+      guard resume >= 0 else {
+        self.state = .number
+        return ~resume
+      }
+      // Numbers were taken: the structural run resumes behind the last, in `.afterValue`.
+      if resume != end { return resume }
+    }
     return try self.fuseAfterValue(base: base, from: end, to: to, into: &sink)
   }
 

@@ -2687,7 +2687,8 @@
           "numbers-whole-greedy-scan-structured-parse/digit-block-width",
           "inter-block-ilp-on-arm64-reduction-removal-pays-latency-removal-does-not/landed-the-arm64-movemask-and-the-lane-the-mask-already-held",
           "cheap-first-tiers-one-of-three-landed-and-the-census-said-which/rejected-a-bitmap-peel-in-front-of-the-number-scanner",
-          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/number-extents-from-the-block-masks"
+          "one-parse-path-windowed-mode-removed-number-extents-from-the-block-masks/number-extents-from-the-block-masks",
+          "landed-a-chunk-cut-number-hands-the-rest-of-its-array-back-to-fusenumberrun"
         ],
         "source": [
           "StreamScanners.swift:streamNumberRunEnd",
@@ -2861,7 +2862,8 @@
           "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-fusenumberrun-an-array-s-numbers-taken-without-the-ladder",
           "separators-after-the-token-number-arrays-and-the-key-s-colon/landed-indented-number-arrays-leave-the-walk-for-fusenumberrun-with-a-predicted-indent",
           "separators-after-the-token-number-arrays-and-the-key-s-colon/measured-the-whole-series-against-where-it-started",
-          "separators-after-the-token-number-arrays-and-the-key-s-colon"
+          "separators-after-the-token-number-arrays-and-the-key-s-colon",
+          "landed-a-chunk-cut-number-hands-the-rest-of-its-array-back-to-fusenumberrun"
         ],
         "source": [
           "JSONParser.swift:fuseNumberRun",
