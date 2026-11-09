@@ -3243,12 +3243,12 @@
       "viz": null,
       "why": [
         "The parser does not know what type a number is going to. It emits the digits as a 64-bit magnitude and a power-of-ten exponent, and the destination converts them. When the destination is a `Double` or a `Float`, the conversion has to produce the correctly rounded binary value, the same one `Double(\"…\")` would produce. In float-heavy payloads like canada.json it runs once per coordinate.",
-        "The conversion is tiered. When the magnitude and the power of ten are both exactly representable, one multiply or divide gives the exact answer. Past that, Eisel–Lemire computes the result with 128-bit arithmetic against a table of powers of ten. Only an input it cannot decide, or one with more than nineteen digits, falls back to parsing a `String`."
+        "The conversion is tiered. When the magnitude and the power of ten are both exactly representable, one multiply or divide gives the exact answer. Past that, Eisel–Lemire computes the result with 128-bit arithmetic against a table of powers of ten; a type that conforms to `StreamFastFloatConvertible` can supply its own conversion for this tier, and the default is the same kernel. Only an input the tier cannot decide, or one with more than nineteen digits, falls back to parsing a `String`."
       ],
       "prose": [
         "A census of canada.json found 91% of its numbers were building a Swift `String` per `Double` to parse them. Replacing that with Eisel-Lemire measured 3.15× on the path. The same census found the corpus contains zero exponents, which bounds what further work here can be worth.",
         "The power-of-ten table lives in C, not Swift. A Swift array global is not a constant expression, so every read routes through a lazy-initialisation accessor — a call, on a path that is otherwise branch-free. Moving the table into a C translation unit is what removed it.",
-        "The conversion is generic over the destination, and `Float` is not narrowed from `Double`: decimal to `Double` to `Float` rounds twice and is not correctly rounded in general. The kernel is parameterised on the binary format the way fast_float's is, so every constant folds to an immediate once the type is known and the `Double` specialisation is the hand-written kernel instruction for instruction."
+        "The conversion is generic over the destination, and `Float` is not narrowed from `Double`: decimal to `Double` to `Float` rounds twice and is not correctly rounded in general. The kernel is written against `BinaryFloatingPoint`, with the format constants (exponent bias, the round-to-even window, the subnormal cutoff) derived from `significandBitCount` and `exponentBitCount` in an extension on that protocol, so every constant folds to an immediate once the type is known. The same kernel covers `Float16`, `Float`, `Double` and `Float80`; formats with 62 or 63 significand bits take a 192-bit product instead."
       ],
       "evidence": {
         "doc": [
@@ -3257,17 +3257,23 @@
           "the-power-of-ten-table-what-a-swift-array-global-actually-cost/follow-up-the-eisel-lemire-table-covers-all-of-double",
           "the-number-kernel-lab-interleaving-single-pass-validation-and-where-the-cycles-are/the-third-number-path-landed",
           "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/three-init-exactly-calls-and-what-they-actually-lowered-to",
-          "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/streameisellemireany-a-guarded-bridge-not-map"
+          "design-notes-relocated-from-source-comments/typed-layer-partialsink-schemas-sinks-conversions/streameisellemireany-a-guarded-bridge-not-map",
+          "design-notes-relocated-from-source-comments/public-api/extensible-fast-decimal-conversion"
         ],
         "source": [
           "StreamParsingShims.h:stream_parsing_pow10_128",
           "StreamParsingShims.h:stream_parsing_pow10_double",
           "JSONParser.swift:emitNumber",
           "StreamConvertible.swift:BinaryFloatingPoint",
-          "StreamConvertible.swift:streamEiselLemireAny",
+          "StreamConvertible.swift:streamParseFloatingPoint",
+          "StreamConvertible.swift:streamParseFloatingPointFallback",
+          "StreamFastFloatConvertible.swift:StreamFastFloatConvertible",
           "EiselLemire.swift:streamEiselLemire",
-          "EiselLemire.swift:StreamBinaryFormat",
-          "Pow10.swift:streamMaxExactPow10"
+          "EiselLemire.swift:BinaryFloatingPoint",
+          "EiselLemire.swift:streamPow10Product",
+          "EiselLemire.swift:streamEiselLemireWide",
+          "Pow10.swift:streamMaxExactPow10",
+          "Pow10.swift:streamMaxExactMagnitude"
         ],
         "asm": []
       },
@@ -3277,8 +3283,8 @@
           "id": "info",
           "title": "emitNumber already holds the inputs",
           "kicker": "no re-walk",
-          "detail": "`NumberInfo` carries the digits with the dot removed and the power of ten they are scaled by, which is exactly the form the kernel wants — so nothing re-walks the token. The float conversion reads it for any `BinaryFloatingPoint` destination.",
-          "source": "StreamConvertible.swift:BinaryFloatingPoint",
+          "detail": "`NumberInfo` carries the digits with the dot removed and the power of ten they are scaled by, which is exactly the form the kernel wants — so nothing re-walks the token. `streamParseFloatingPoint` reads it for any `BinaryFloatingPoint` destination, after sending a token with more than nineteen digits, whose magnitude may have wrapped, straight to the `String` fallback.",
+          "source": "StreamConvertible.swift:streamParseFloatingPoint",
           "ordering": "ordered",
           "next": [
             {
@@ -3320,14 +3326,44 @@
         {
           "id": "lemire",
           "title": "normalize, then one 64×64 multiply",
-          "kicker": "Double and Float",
-          "detail": "`streamEiselLemireAny` asks `T.self == Double.self` and `T.self == Float.self`, both constants on specialisation, and bridges back with an `unsafeBitCast` on the only branch that can reach it; any other type declines to the `String` fallback. The significand is shifted up by its leading zeros so the product's top bits carry the mantissa. `Float` used to fall back to `String` parsing for 91% of Canada.",
-          "source": "StreamConvertible.swift:streamEiselLemireAny",
+          "kicker": "generic over the format",
+          "detail": "The decimal tier is a closure `streamParseFloatingPoint` takes and inlines, so it is a static choice rather than a stored callback. `Float16`, `Float`, `Double` and, on x86, `Float80` conform to `StreamFastFloatConvertible`, whose default `streamConvertDecimal(magnitude:exponent:negative:)` is `streamEiselLemire`; a conforming type can supply its own, and a `BinaryFloatingPoint` type that does not conform calls `streamEiselLemire` directly. A zero magnitude or an exponent outside the table's 10^-342 … 10^308 is settled before any multiply. The significand is shifted up by its leading zeros so the product's top bits carry the mantissa.",
+          "source": "EiselLemire.swift:streamEiselLemire",
           "next": [
             {
+              "to": "wide",
+              "kind": "branch",
+              "label": "62 or 63 significand bits",
+              "when": "`Float80`'s mantissa plus the three rounding bits does not fit one word, so it keeps all three words of the product. The check is on a constant and folds away for every other format."
+            },
+            {
               "to": "table",
-              "kind": "step",
-              "label": "index the power of ten"
+              "kind": "branch",
+              "label": "every narrower format",
+              "when": "`Float16`, `Float` and `Double`: the mantissa and its rounding bits fit the product's high word."
+            }
+          ],
+          "ordering": "ordered"
+        },
+        {
+          "id": "wide",
+          "title": "a 64×128 product, both ends rounded",
+          "kicker": "Float80",
+          "detail": "`streamEiselLemireWide` multiplies by both table words and keeps the bottom word too. Outside rows 0…55, which are exact, the table entry is truncated, so the kernel rounds both ends of the interval the true product lies in and accepts only when they agree. A subnormal result is left to the fallback.",
+          "source": "EiselLemire.swift:streamEiselLemireWide",
+          "ordering": "ordered",
+          "next": [
+            {
+              "to": "answer",
+              "kind": "branch",
+              "label": "both ends round alike",
+              "when": "The truncation in the table cannot change the result."
+            },
+            {
+              "to": "decline",
+              "kind": "branch",
+              "label": "they differ, or the result is subnormal",
+              "when": "The kernel cannot tell which way the true value rounds."
             }
           ]
         },
@@ -3336,7 +3372,7 @@
           "title": "stream_parsing_pow10_128",
           "kicker": "C, .rodata",
           "detail": "A Swift array global is not a constant expression, so every read routes through a lazy-initialisation accessor — a call, on a path that is otherwise branch-free. In a C translation unit the accessor returns the address of static `.rodata`, and unsafe unwrapping keeps even the null check out.",
-          "source": "EiselLemire.swift:streamEiselLemire",
+          "source": "EiselLemire.swift:streamPow10Product",
           "ordering": "ordered",
           "next": [
             {
@@ -3349,7 +3385,7 @@
               "to": "round",
               "kind": "branch",
               "label": "the first product decides",
-              "when": "The high word's low nine bits are not all ones, so the approximation already separates the two candidates."
+              "when": "The high word's unused low bits (nine for `Double`) are not all ones, so the approximation already separates the two candidates."
             }
           ]
         },
@@ -3369,7 +3405,7 @@
         },
         {
           "id": "round",
-          "title": "round to 53 bits, assemble the exponent",
+          "title": "round to the format's precision, assemble the exponent",
           "kicker": "no division",
           "detail": "`((152170 + 65536) * q) >> 16` is floor(q·log₂10) over the table's range. The subnormal branch is kept behind a per-format cutoff — `exponent <= -308` for `Double`, `-38` for `Float` — so ordinary exponents keep the short dependency chain.",
           "source": "EiselLemire.swift:streamEiselLemire",
@@ -3401,8 +3437,8 @@
           "id": "decline",
           "title": "return nil",
           "kicker": "never a guess",
-          "detail": "The function declines rather than guesses, and the caller's existing `String` fallback settles what it declined.",
-          "source": "StreamConvertible.swift:BinaryFloatingPoint",
+          "detail": "The kernel declines rather than guesses, and `streamParseFloatingPoint` hands what it declined to `streamParseFloatingPointFallback`, which builds the token's `String` and parses it.",
+          "source": "StreamConvertible.swift:streamParseFloatingPointFallback",
           "next": []
         }
       ]
@@ -4659,13 +4695,15 @@
           "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/the-census",
           "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/the-change",
           "the-allocation-the-census-found-streamstring-s-bookkeeping-not-its-blocks/measured-3-clean-interleaved-rounds-best-of-3-p0-median-p50",
-          "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamstring-the-first-overflow-append-sizes-the-schedule-from-the-whole-byte-count"
+          "design-notes-relocated-from-source-comments/streaming-collections-streamarray-streamdictionary-streamstring-streamblock/streamstring-the-first-overflow-append-sizes-the-schedule-from-the-whole-byte-count",
+          "streamstring-holds-one-reference/the-layout",
+          "streamstring-holds-one-reference/streaminlinestring-removed"
         ],
         "source": [
           "StreamString.swift:StreamString",
-          "StreamInlineString.swift:StreamInlineString",
-          "StreamString.swift:paddedWord",
-          "StreamString.swift:isPrefix"
+          "StreamString.swift:sealTail",
+          "StreamString.swift:_streamPaddedWord",
+          "StreamString.swift:isUTF8Prefix"
         ],
         "asm": []
       },
@@ -4683,7 +4721,7 @@
           "id": "inline",
           "title": "up to 64 bytes live in the value",
           "kicker": "no allocation",
-          "detail": "Eight `UInt64`s held directly, so a copied short string copies bytes and needs no reference counting. That covers the short keys and values which previously fit `String`'s small representation, without charging every non-empty partial string a tail allocation.",
+          "detail": "Eight `UInt64`s held directly, beside one optional `tail` reference that stays `nil` until the value outgrows them, so the inline test is `tail == nil` and a short string needs no allocation. That covers the short keys and values which previously fit `String`'s small representation, without charging every non-empty partial string a tail allocation.",
           "source": "StreamString.swift:StreamString",
           "ordering": "ordered",
           "next": [
@@ -4698,11 +4736,6 @@
               "kind": "branch",
               "label": "it overflows",
               "when": "The value passed 64 bytes, which is where inline storage stops and the block schedule begins."
-            },
-            {
-              "to": "inlinestr",
-              "kind": "detail",
-              "label": "the fixed-capacity variant"
             }
           ]
         },
@@ -4712,14 +4745,6 @@
           "kicker": "~7× under append",
           "detail": "`String.streamAppend` is `self += String(decoding:)` — a whole intermediate `String` built and destroyed per chunk, re-validating UTF-8 the parser already validated, ~61 ns per content byte under byte-fed input.",
           "source": "StreamString.swift:StreamString",
-          "next": []
-        },
-        {
-          "id": "inlinestr",
-          "title": "StreamInlineString",
-          "kicker": "declared capacity",
-          "detail": "A fixed-capacity string whose storage the parser appends into directly, for a member that declares its own ceiling.",
-          "source": "StreamInlineString.swift:StreamInlineString",
           "next": []
         },
         {
@@ -4776,8 +4801,8 @@
           "id": "seal",
           "title": "blocks.append(tail); capacity <<= 1",
           "kicker": "≤ 8 KiB",
-          "detail": "Doubling, capped at 8 KiB. `blocks` reserves four up front, because it grew by doubling from its first append and a three-block value paid two array reallocations for a spine that was the *other* larger half of the census.",
-          "source": "StreamString.swift:StreamString",
+          "detail": "Doubling, capped at 8 KiB. The sealed blocks are a list in the tail chunk's header, moved into the next tail at every seal, so the value itself holds one reference. The list reserves four up front, because it grew by doubling from its first append and a three-block value paid two array reallocations for a spine that was the *other* larger half of the census.",
+          "source": "StreamString.swift:sealTail",
           "ordering": "ordered",
           "next": [
             {
@@ -4817,10 +4842,10 @@
         },
         {
           "id": "match",
-          "title": "paddedWord, then isPrefix",
+          "title": "_streamPaddedWord, then isUTF8Prefix",
           "kicker": "the read side of the key encoding",
-          "detail": "The same little-endian, zero-padded eight-byte encoding a key span produces, read back out of the accumulated bytes — so a generated matcher compares an accumulated value against a compile-time literal with the identical codegen it already uses for object keys: a `switch` on the leading word, a count check, then any remaining words. The count check is not optional, because an accumulated value may hold a decoded NUL and the padding is otherwise indistinguishable from one. Unlike a key span, whose bytes are a borrow into the document with more document behind them, an accumulated value's last block ends where the value does, so the window is clamped rather than overread. `isPrefix(of:)` is the direction a *streaming* match needs and the mirror of `hasPrefix`: whether what has arrived so far is still consistent with a case name, not whether the name has already arrived. A matcher walks its cases shortest-first asking it, and declines outright on zero bytes — an empty accumulation is a prefix of every case, so answering would be a definite answer on no evidence that then changes as the real bytes land.",
-          "source": "StreamString.swift:paddedWord",
+          "detail": "The same little-endian, zero-padded eight-byte encoding a key span produces, read back out of the accumulated bytes — so a generated matcher compares an accumulated value against a compile-time literal with the identical codegen it already uses for object keys: a `switch` on the leading word, a count check, then any remaining words. The count check is not optional, because an accumulated value may hold a decoded NUL and the padding is otherwise indistinguishable from one. Unlike a key span, whose bytes are a borrow into the document with more document behind them, an accumulated value's last block ends where the value does, so the window is clamped rather than overread. `isUTF8Prefix(of:)` compares bytes, unlike `==`, which follows `String`'s canonical equivalence; it is the direction a *streaming* match needs and the mirror of `hasUTF8Prefix`: whether what has arrived so far is still consistent with a case name, not whether the name has already arrived. A matcher walks its cases shortest-first asking it, and declines outright on zero bytes — an empty accumulation is a prefix of every case, so answering would be a definite answer on no evidence that then changes as the real bytes land.",
+          "source": "StreamString.swift:_streamPaddedWord",
           "next": []
         }
       ]

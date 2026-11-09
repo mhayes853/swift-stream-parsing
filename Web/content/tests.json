@@ -55,7 +55,7 @@
       "title": "A tripwire that is shown to trip",
       "detail": "A check that guards against misuse is tested by committing the misuse deliberately and asserting the check fires. A tripwire that cannot trip reads as a guarantee it does not give.",
       "refs": [
-        "SchemaBorrowAuditTests.swift:danglingSchemaTrips"
+        "StreamFrameTests.swift:A frame naming a child the schema does not have stops the program"
       ]
     },
     {
@@ -214,7 +214,7 @@
         "StreamArrayTests.swift:A Copy Taken While An Element Is Open Is Not Written Through",
         "StreamArrayTests.swift:Every Snapshot Kept While Parsing Stays Right",
         "StreamViewTests.swift:A container read from a view does not change afterwards",
-        "GenericReviewTests.swift:mutatingASnapshotDoesNotChangeTheContinuingParser"
+        "StreamCollectionCopyOnWriteTests.swift:mutatingASnapshotDoesNotChangeTheContinuingParser"
       ],
       "showcase": "SnapshotStabilityTests.swift:Array states stay stable",
       "node": ["views", "collections", "partial-sink"]
@@ -223,22 +223,23 @@
       "id": "schemas",
       "title": "A borrowed schema outlives what borrows it",
       "why": [
-        "Frames borrow the schema they carry rather than retaining it, which removed a retain and release per container open. It is sound only while every schema outlives the frames that reach it, and a violation is a use-after-free somewhere later rather than a crash at the mistake.",
-        "The audit turns a violation into a report, and it is tested by building the mistake on purpose. The same schemas are shared by every parse of a type, so concurrent parses of one type are run at once and compared with a serial parse."
+        "The sink borrows the schema a frame names rather than retaining it, which removed a retain and release per container open. It is sound only while every schema outlives the frames that reach it, and a violation is a use-after-free somewhere later rather than a crash at the mistake.",
+        "A frame names its schema by position in the entering schema's `children`, which that schema owns, so a schema built inside a hand-written `enterField` cannot die under the sink. A position outside `children` stops the program, and that is tested by naming a child the schema does not have. The same schemas are shared by every parse of a type, so concurrent parses of one type are run at once and compared with a serial parse."
       ],
       "technique": ["tripwire"],
       "suites": [
-        "SchemaBorrowAuditTests.swift:SchemaBorrowAuditTests",
+        "StreamFrameTests.swift:StreamFrameTests",
         "ConcurrentParsingTests.swift:Concurrent parsing tests"
       ],
       "tests": [
-        "SchemaBorrowAuditTests.swift:danglingSchemaTrips",
-        "SchemaBorrowAuditTests.swift:durableSchemaPasses",
+        "StreamFrameTests.swift:A frame writes through a child its parent owns",
+        "StreamFrameTests.swift:A frame naming a child the schema does not have stops the program",
+        "StreamFrameTests.swift:A reentering frame writes through the schema that returned it",
         "StreamSchemaLifetimeTests.swift:Array Schema Frees Its Template When Released",
         "SchemaCacheTests.swift:Removing Entries Mid Stream Leaves The Stream Its Schemas",
         "ConcurrentParsingTests.swift:The same type parses correctly on many tasks at once"
       ],
-      "showcase": "SchemaBorrowAuditTests.swift:danglingSchemaTrips",
+      "showcase": "StreamFrameTests.swift:A frame writes through a child its parent owns",
       "node": ["schema", "field-table"]
     },
     {
@@ -298,7 +299,7 @@
         "KeyDecodingStrategyMacroTests.swift:Built-In Strategy Converts Keys During Expansion",
         "ObjectGenerationTests.swift:Partial Field Descriptors Match Generated Storage",
         "StreamUTF8MatchTests.swift:Match Distinguishes Empty And NUL Values By Count",
-        "InlinableExpansionTests.swift:A public struct with an internal member parses and converts"
+        "PublicAndPackageModelTests.swift:A public struct with an internal member parses and converts"
       ],
       "showcase": "StreamUTF8MatchTests.swift:Match Distinguishes Empty And NUL Values By Count",
       "node": ["keys", "field-table"]

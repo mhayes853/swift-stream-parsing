@@ -2778,7 +2778,7 @@
             "keyLength" : 7,
             "keyWord" : "0x0073736572646461",
             "kind" : "container",
-            "offset" : 104,
+            "offset" : 96,
             "wordBytes" : [
               97,
               100,
@@ -2798,7 +2798,7 @@
             "keyLength" : 5,
             "keyWord" : "0x00000065726F6373",
             "kind" : "double",
-            "offset" : 200,
+            "offset" : 184,
             "wordBytes" : [
               115,
               99,
@@ -3953,19 +3953,19 @@
         "name" : "name",
         "offset" : 16,
         "schema" : 0,
-        "size" : 88
+        "size" : 80
       },
       {
         "kind" : "container",
         "name" : "address",
-        "offset" : 104,
+        "offset" : 96,
         "schema" : 0,
-        "size" : 96
+        "size" : 88
       },
       {
         "kind" : "double",
         "name" : "score",
-        "offset" : 200,
+        "offset" : 184,
         "schema" : 0,
         "size" : 8
       },
@@ -3974,18 +3974,18 @@
         "name" : "city",
         "offset" : 0,
         "schema" : 1,
-        "size" : 88
+        "size" : 80
       },
       {
         "kind" : "int",
         "name" : "zip",
-        "offset" : 88,
+        "offset" : 80,
         "schema" : 1,
         "size" : 8
       }
     ],
     "result" : "TracePerson(id: 7, active: true, name: \"Ada\", address: TraceAddress(city: \"Cairo\", zip: 11511), score: 1.5)",
-    "rootSize" : 208,
+    "rootSize" : 192,
     "sample" : "{\"id\":7,\"active\":true,\"name\":\"Ada\",\"address\":{\"city\":\"Cairo\",\"zip\":11511},\"score\":1.5}",
     "schemas" : [
       {
@@ -4133,7 +4133,7 @@
           {
             "pendingField" : -1,
             "schema" : 1,
-            "storageOffset" : 104
+            "storageOffset" : 96
           }
         ],
         "index" : 8
@@ -4151,7 +4151,7 @@
             "field" : "city",
             "pendingField" : 0,
             "schema" : 1,
-            "storageOffset" : 104
+            "storageOffset" : 96
           }
         ],
         "index" : 9,
@@ -4172,7 +4172,7 @@
             "field" : "city",
             "pendingField" : 0,
             "schema" : 1,
-            "storageOffset" : 104
+            "storageOffset" : 96
           }
         ],
         "index" : 10,
@@ -4194,7 +4194,7 @@
             "field" : "zip",
             "pendingField" : 1,
             "schema" : 1,
-            "storageOffset" : 104
+            "storageOffset" : 96
           }
         ],
         "index" : 11,
@@ -4215,7 +4215,7 @@
             "field" : "zip",
             "pendingField" : 1,
             "schema" : 1,
-            "storageOffset" : 104
+            "storageOffset" : 96
           }
         ],
         "index" : 12,
@@ -4277,7 +4277,7 @@
     ],
     "verified" : true
   },
-  "generatedAt" : "2026-09-28T22:31:18Z",
+  "generatedAt" : "2026-11-09T23:55:25Z",
   "number" : {
     "cases" : [
       {
@@ -11020,28 +11020,28 @@
         "kind" : "streamString",
         "name" : "name",
         "offset" : 16,
-        "size" : 88,
+        "size" : 80,
         "value" : "\"Ada\""
       },
       {
         "indirect" : false,
         "kind" : "container",
         "name" : "address",
-        "offset" : 104,
-        "size" : 96,
+        "offset" : 96,
+        "size" : 88,
         "value" : "TraceAddress(city: \"Cairo\", zip: 11511)"
       },
       {
         "indirect" : false,
         "kind" : "double",
         "name" : "score",
-        "offset" : 200,
+        "offset" : 184,
         "size" : 8,
         "value" : "1.5"
       }
     ],
-    "size" : 208,
-    "stride" : 208,
+    "size" : 192,
+    "stride" : 192,
     "typeName" : "TracePerson",
     "verified" : true
   },

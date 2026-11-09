@@ -44,7 +44,10 @@ if only == "all" || only == "content" {
   }
   let dated = doc.sections.filter { $0.history != nil }.count
   if dated < doc.sections.count && !history.history.isEmpty {
-    docWarnings.append("\(doc.sections.count - dated) section(s) carry no date")
+    // Named, so the warning says which heading to look at rather than only that one exists.
+    let undated = doc.sections.filter { $0.history == nil }.map(\.path)
+    docWarnings.append(
+      "\(undated.count) section(s) carry no date: \(undated.joined(separator: ", "))")
   }
 
   // The macro targets are indexed with the library: the Macros view's chart cites the generator

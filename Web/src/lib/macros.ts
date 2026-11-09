@@ -183,8 +183,10 @@ export interface WordMatch {
   key: string;
 }
 
-const CASE = /case (0x[0-9A-Fa-f_]+) where \w+(?:\.count)? == (\d+)((?:\s*&&\s*\w+\.paddedWord\(at: \d+\) == 0x[0-9A-Fa-f_]+)*)/;
-const LATER = /paddedWord\(at: (\d+)\) == (0x[0-9A-Fa-f_]+)/g;
+// The generator spells the later-word accessor `_streamPaddedWord(at:)` (it was `paddedWord(at:)`
+// before the generated-code-only symbols were underscored); both spellings decode.
+const CASE = /case (0x[0-9A-Fa-f_]+) where \w+(?:\.count)? == (\d+)((?:\s*&&\s*\w+\.(?:_streamP|p)addedWord\(at: \d+\) == 0x[0-9A-Fa-f_]+)*)/;
+const LATER = /(?:_streamP|p)addedWord\(at: (\d+)\) == (0x[0-9A-Fa-f_]+)/g;
 
 /** The eight bytes of a padded word, lowest address first: the literal is little-endian. */
 export function wordBytes(literal: string): number[] {

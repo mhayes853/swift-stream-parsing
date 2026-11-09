@@ -63,7 +63,7 @@
         "`keyDecodingStrategy: .convertFromSnakeCase` is applied while the macro expands, so the keys are literals in the generated matcher and cost nothing at run time. A custom strategy is a closure, which a macro cannot run, so its keys are converted when the schema is built. The two paths must agree on every key, so both link `StreamParsingKeyDecoding`, a target with no dependencies of its own."
       ],
       "guide": [
-        "readme:quick-start/key-names"
+        "readme:streaming-into-a-type/key-names"
       ],
       "source": [
         "StreamDefaultKeyConversion.swift:StreamDefaultKeyConversion"
