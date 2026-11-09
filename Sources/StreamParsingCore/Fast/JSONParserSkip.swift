@@ -4,7 +4,7 @@ import StreamParsingShims
 // only event it delivers. Structural only: brackets matched, depth cap held, strings still reject
 // control bytes and invalid UTF-8; token interiors are not checked (the `.skip` contract). The
 // per-byte loop is the block path's reference (`SkipBlockScanTests`) and its fallback, keeping
-// error offsets byte-identical to a byte-fed parse. NEW_ARCHITECTURE.md, "The skip block scanner".
+// error offsets byte-identical to a byte-fed parse. PROGRESSION.md, "The skip block scanner".
 extension JSONParser {
   // One run, from wherever the skip stands (mid-interior, mid-string, after a cut backslash) to
   // the matching close or the chunk's end. Out of line like the structural run.

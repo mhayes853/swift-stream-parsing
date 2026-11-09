@@ -6,7 +6,7 @@ import StreamParsingCore
 // This file used to carry six prototype tables — a materialising scan, a span scan, a leading
 // word scan, a hash scan, a `Dictionary` index and a chained bucket index — measured against each
 // other to choose an implementation. That choice shipped as `StreamDictionary`'s open addressed
-// table, so the losers are archaeology and the tables they produced live in NEW_ARCHITECTURE.md.
+// table, so the losers are archaeology and the tables they produced live in PROGRESSION.md.
 // What remains measures the real type through both of its entry points.
 //
 // The span route is what the parser takes: `_openValue(forKey:)` matches the span against the

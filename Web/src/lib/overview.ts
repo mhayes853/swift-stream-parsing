@@ -61,7 +61,7 @@ export function citations(
         kind: "doc",
         id: slug,
         label: section.title,
-        href: repoURL("NEW_ARCHITECTURE.md", section.line)
+        href: repoURL("PROGRESSION.md", section.line)
       });
     }
   }

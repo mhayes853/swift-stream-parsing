@@ -109,7 +109,7 @@ Under `prefers-reduced-motion` the phases still differ; they simply stop animati
 
 | What | Lives in | Written by |
 | --- | --- | --- |
-| Prose, measurements, verdicts | `NEW_ARCHITECTURE.md` | you, as you work |
+| Prose, measurements, verdicts | `PROGRESSION.md` | you, as you work |
 | Why a kernel is shaped that way | the source comments | you, as you work |
 | Node graph, teaching prose, evidence references | `Web/content/pipeline.json` | **hand-authored** |
 | When an experiment happened | the log's git history | nobody — `HistoryExtractor` recovers it |
@@ -124,7 +124,7 @@ assembly symbols.
 
 Every section carries the date **and time** it was written, and the date it was last rewritten.
 None of it is typed into the document: an experiment's date is the commit that recorded the
-experiment, so `HistoryExtractor` walks every revision of `NEW_ARCHITECTURE.md` in order, re-runs
+experiment, so `HistoryExtractor` walks every revision of `PROGRESSION.md` in order, re-runs
 `DocumentExtractor.walk` over each one, and records for each heading path the commit it first
 appeared in and the last commit whose body differed from the revision before. That is one git walk
 for the whole file rather than a `git log -L` per heading, and it costs about four seconds.
@@ -217,8 +217,9 @@ rather than truncated, because a cut-off symbol reads as a *different* symbol.
 
 ## Adding a step, or attaching a new experiment
 
-1. Write the experiment in `NEW_ARCHITECTURE.md` as usual. Put the verdict in the heading
-   (`Landed: …` / `Rejected: …`) so the extractor classifies it.
+1. Write the experiment in `PROGRESSION.md` as usual, with a `*Recorded YYYY-MM-DD.*` line under
+   its heading. Put the verdict in the heading (`Landed: …` / `Rejected: …`) so the extractor
+   classifies it.
 2. Add its section path to the relevant node's `evidence.doc` in `pipeline.json`. The path is
    `chapter-slug/section-slug`, scoped rather than document-global so that inserting a section
    elsewhere never renumbers it.

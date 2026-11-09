@@ -5,7 +5,7 @@ import StreamParsingCore
 // `StreamString` as many short values: the per-value costs (opening a member or element, the
 // inline-test append, teardown) that the real-world rows bury under parsing. These were the
 // `Inline string ... StreamString` rows, kept when `StreamInlineString` was removed; see
-// NEW_ARCHITECTURE.md, "`StreamString` holds one reference".
+// PROGRESSION.md, "`StreamString` holds one reference".
 private enum StringValuePayloads {
   static let count = 2_048
 

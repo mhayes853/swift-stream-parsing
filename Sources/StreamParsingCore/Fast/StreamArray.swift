@@ -2,7 +2,7 @@
 // the elements. The open element lives inline in `pending`, so a value copy diverges it for free;
 // closed elements live in power-of-two blocks, shared until a mutation needs to copy a block.
 // Appending into a shared tail copies that tail first, so both copies can continue independently.
-// `pending`'s address never moves while blocks seal. See NEW_ARCHITECTURE.md, "The open element
+// `pending`'s address never moves while blocks seal. See PROGRESSION.md, "The open element
 // moves into the storage".
 public struct StreamArray<Element> {
   // Sealed; written again only through the checked subscript, which copies a shared block first.
@@ -50,7 +50,7 @@ public struct StreamArray<Element> {
 
   // The byte target (2 KB) a small trivial element's block aims at instead of 32 elements: `Double`
   // gets 256-element blocks, `SIMD2<Double>` 128. Measured: at 32, `prepareSlot` was 4.0% of typed
-  // Mesh; a 64-byte element ceiling instead of 16 cost CITM 1.2%. See NEW_ARCHITECTURE.md.
+  // Mesh; a 64-byte element ceiling instead of 16 cost CITM 1.2%. See PROGRESSION.md.
   @usableFromInline static var blockByteShift: Int { 11 }
 
   @usableFromInline static var defaultBlockCapacity: Int { 1 &<< Self.defaultBlockShift }
@@ -180,7 +180,7 @@ public struct StreamArray<Element> {
   }
 
   // Forced inline. Measured: otherwise it stays an outlined call inside larger loops, which hid
-  // two-thirds of the double-array win. See NEW_ARCHITECTURE.md.
+  // two-thirds of the double-array win. See PROGRESSION.md.
   @inlinable
   @inline(__always)
   mutating func commit(_ element: Element) {
@@ -463,7 +463,7 @@ where Element: StreamPartial {
   // `@inlinable` so a client rooting a parse here builds the schema, and the `appendElement`
   // closure in it, where `Element` is concrete. Measured: generic, ~2.9% of the parse in
   // `swift_getGenericMetadata`. Cached because `PartialsStream.init` reads this computed property;
-  // the closure still forms at the use site. See NEW_ARCHITECTURE.md.
+  // the closure still forms at the use site. See PROGRESSION.md.
   @inlinable
   public static var streamSchema: StreamSchema {
     StreamSchemaCache.shared.schema(for: Self.self) {

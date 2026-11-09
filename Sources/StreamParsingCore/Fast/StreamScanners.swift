@@ -4,7 +4,7 @@ import StreamParsingShims
 
 // MARK: - Whitespace and string runs
 
-// SIMD16 beat scalar, SWAR and SIMD32 at every run length on arm64 (table in NEW_ARCHITECTURE.md):
+// SIMD16 beat scalar, SWAR and SIMD32 at every run length on arm64 (table in PROGRESSION.md):
 // NEON registers are 128 bits, so SIMD32 lowers to two operations plus a recombine.
 
 @inlinable package var streamScannerVectorWidth: Int { 16 }

@@ -175,7 +175,7 @@ function SectionCard({ section, defaultOpen = false }: { section: DocSection; de
             <RecordedDetail history={section.history} />
           </p>
         )}
-        <RepoLink href={repoURL("NEW_ARCHITECTURE.md", section.line)} />
+        <RepoLink href={repoURL("PROGRESSION.md", section.line)} />
       </div>
     </details>
   );

@@ -75,9 +75,9 @@ describe("tallies", () => {
 
 describe("locations", () => {
   it("says where a section is, and how many tables it has", () => {
-    expect(sectionWhere({ ...context, line: 12, tables: [] })).toBe("NEW_ARCHITECTURE.md:12");
+    expect(sectionWhere({ ...context, line: 12, tables: [] })).toBe("PROGRESSION.md:12");
     expect(sectionWhere({ ...landed, chapter: "Numbers", line: 40, tables: [{ headers: [], rows: [] }] })).toBe(
-      "NEW_ARCHITECTURE.md:40 · Numbers · 1 table"
+      "PROGRESSION.md:40 · Numbers · 1 table"
     );
   });
 

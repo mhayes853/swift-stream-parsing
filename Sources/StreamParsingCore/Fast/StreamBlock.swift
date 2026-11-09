@@ -1,7 +1,7 @@
 // A block of elements a `StreamArray` fills and seals. A `ManagedBuffer`, so one allocation, not
 // two; a reference type, so copying the array is one retain per block; and a non-generic header,
 // which would otherwise make the element offset a metadata lookup wherever the block is reached
-// unspecialized. See NEW_ARCHITECTURE.md, "The open element moves into the storage".
+// unspecialized. See PROGRESSION.md, "The open element moves into the storage".
 @usableFromInline
 struct StreamBlockHeader {
   // The number of initialised slots and the count `deinit` destroys. The owning array makes the
@@ -38,7 +38,7 @@ final class StreamBlock<Element>: ManagedBuffer<StreamBlockHeader, Element> {
   // Destroys the elements in place. A generic class's `deinit` is emitted once, generically, so
   // this runs through value witnesses however it is written. Measured: a `move()` loop lowered to
   // an alloca + take + destroy per element, 1.19 MB of memmove per Twitter full parse; keep the
-  // counted form (one `swift_arrayDestroy`). See NEW_ARCHITECTURE.md.
+  // counted form (one `swift_arrayDestroy`). See PROGRESSION.md.
   @inlinable
   static func destroy(_ elements: UnsafeMutablePointer<Element>, count: Int) {
     // Measured: destroying unconditionally cost the homogeneous double array 10%.

@@ -1,6 +1,6 @@
 // The emission layer: direct calls into the sink's per-token methods at the lex points. A rejected
 // token throws at the byte after it, a rejected whole string at its content start. The batching
-// recorder this replaced lost on every route (NEW_ARCHITECTURE.md, "The fusion series"). The
+// recorder this replaced lost on every route (PROGRESSION.md, "The fusion series"). The
 // `record` names and shapes survive on purpose: every layout decision was measured against call
 // sites of this shape, and a constant `kind` folds each to one primitive call.
 extension JSONParser {
@@ -149,7 +149,7 @@ extension JSONParser {
 
   // A chunk of at most four bytes (a decoded escape, a rejoined UTF-8 sequence), stored whole into
   // the reserved scratch. Measured: a `withUnsafeBytes(of: &word)` closure instead cost -10%
-  // escape-heavy / -14% byte-fed; see NEW_ARCHITECTURE.md, "The escape scratch".
+  // escape-heavy / -14% byte-fed; see PROGRESSION.md, "The escape scratch".
   @inlinable
   @inline(__always)
   mutating func recordInlineChunk<Sink: StreamParseSink & ~Copyable>(

@@ -391,7 +391,7 @@ public struct JSONParser: ~Copyable {
   // The structural run: one call per run of structural bytes, `state`/`depth`/`containers` in
   // locals written back on every exit; `checkEmission` still runs per token (`ErrorOffsetTests`).
   // Two loop copies (`blocks` a literal at both sites), body `@_transparent`. Measured: one shared
-  // loop cost Mesh -7.3%, an `@inline(__always)` body -4.0% (NEW_ARCHITECTURE.md, "Two copies").
+  // loop cost Mesh -7.3%, an `@inline(__always)` body -4.0% (PROGRESSION.md, "Two copies").
   @inlinable
   @inline(never)
   mutating func consumeStructuralRun<Sink: StreamParseSink & ~Copyable>(
@@ -1385,7 +1385,7 @@ public struct JSONParser: ~Copyable {
   }
 
   // The scan is greedy over the number byte class and the parse is one structured walk over the
-  // whole token at its end, so a number is reported exactly once, complete. See NEW_ARCHITECTURE.md.
+  // whole token at its end, so a number is reported exactly once, complete. See PROGRESSION.md.
   @inlinable
   mutating func consumeNumber<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer,

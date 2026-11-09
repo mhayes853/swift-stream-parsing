@@ -2,7 +2,7 @@
 // decrement. Sound because every schema a frame can carry is owned by one that outlives it: a child
 // the parent's field table or `children` holds, a container's element schema, a converted value's
 // source, `rootSchema`, `ignoredStreamSchema`. A `StreamFrame` names its schema by position in the
-// entering schema's `children` for exactly that reason. NEW_ARCHITECTURE.md, "Routing: frames
+// entering schema's `children` for exactly that reason. PROGRESSION.md, "Routing: frames
 // borrow their schema".
 @usableFromInline
 struct BorrowedFrame {
@@ -571,7 +571,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // Deliberately not a branch. Measured: checking the result here cost Twitter discarding 8.7%
     // (the compare kept the schema live and broke the tail call); the `max` fold is at parity, and
     // sticky since `applied` is zero. The failure surfaces at the closing quote, same token.
-    // NEW_ARCHITECTURE.md, "The chunk check that cost 8.7%".
+    // PROGRESSION.md, "The chunk check that cost 8.7%".
     let info = StringInfo(flags: self.stringFlags)
     let result = target.withSchema { $0.applyString(target.storage, target.field, bytes, info) }
     self.stringResultRaw = max(self.stringResultRaw, result.rawValue)

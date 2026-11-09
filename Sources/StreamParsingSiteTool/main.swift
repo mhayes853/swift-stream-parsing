@@ -1,6 +1,6 @@
 import Foundation
 
-// Builds `Web/generated/` from the two places evidence is actually written: `NEW_ARCHITECTURE.md`
+// Builds `Web/generated/` from the two places evidence is actually written: `PROGRESSION.md`
 // and the source comments. Run through `./Web/generate`.
 
 func fail(_ message: String) -> Never {
@@ -28,15 +28,16 @@ try FileManager.default.createDirectory(
 // MARK: - Content
 
 if only == "all" || only == "content" {
-  let docPath = path("NEW_ARCHITECTURE.md")
+  let docPath = path("PROGRESSION.md")
   guard let docText = try? String(contentsOfFile: docPath, encoding: .utf8) else {
     fail("cannot read \(docPath)")
   }
-  var (doc, docWarnings) = DocumentExtractor(path: "NEW_ARCHITECTURE.md", text: docText).extract()
+  var (doc, docWarnings) = DocumentExtractor(path: "PROGRESSION.md", text: docText).extract()
 
   // Dates come from the document's own history rather than from anything written in it, so an
   // experiment is dated by the commit that recorded it and nobody has to maintain a date line.
-  let history = HistoryExtractor(root: root, file: "NEW_ARCHITECTURE.md").extract()
+  let history = HistoryExtractor(
+    root: root, file: "PROGRESSION.md", formerNames: ["NEW_ARCHITECTURE.md"]).extract()
   docWarnings += history.warnings
   for index in doc.sections.indices {
     doc.sections[index].history = history.history[doc.sections[index].path]

@@ -6,7 +6,7 @@ import StreamParsingCore
 
 // A schema is a shared reference rather than a value, which is what took the array-of-structs
 // parse from 251 µs to 79 µs. The cost of that choice is that every concurrent parse of the same
-// type touches one refcount on one cache line — named in NEW_ARCHITECTURE.md's known gaps. This
+// type touches one refcount on one cache line — named in PROGRESSION.md's known gaps. This
 // suite pins correctness; nothing measures the contention.
 //
 // This is the test half. It cannot prove the absence of a race, but it does put many parses of

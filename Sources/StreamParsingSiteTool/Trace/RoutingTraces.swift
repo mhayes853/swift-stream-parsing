@@ -56,7 +56,7 @@ enum RoutingModel {
         offset: _streamFieldOffset(&root.pointee.name, in: root)),
       StreamField(
         key: "address", index: 3,
-        route: StreamFieldRoute(.container, optional: false, schema: RoutingModel.address),
+        route: _StreamFieldRoute(.container, optional: false, schema: RoutingModel.address),
         offset: _streamFieldOffset(&root.pointee.address, in: root)),
       StreamField(
         key: "score", index: 4, kind: .double, optional: false,
@@ -227,7 +227,6 @@ enum RoutingTraces {
     case .float: "float"
     case .bool: "bool"
     case .streamString: "streamString"
-    case .inlineString: "inlineString"
     case .container: "container"
     case .delegated: "delegated"
     }

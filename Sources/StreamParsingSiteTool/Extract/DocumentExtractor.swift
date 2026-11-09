@@ -1,6 +1,6 @@
 import Foundation
 
-/// Slices `NEW_ARCHITECTURE.md` into addressable sections.
+/// Slices `PROGRESSION.md` into addressable sections.
 ///
 /// The document is an engineering log ordered by when things were tried, so nothing here tries to
 /// impose an architectural order on it -- that is `pipeline.json`'s job. This only makes every

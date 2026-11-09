@@ -472,7 +472,7 @@ stream_parsing_classify_structural_block(
 //
 // Measured against the four-table scalar loop (C, i7-10710U): 5.6-5.8x on 12 and 96 KB decoded,
 // 4.5x on 1 MiB. Four blocks an iteration with one validity branch: 8% faster on 1 MiB, 6-7% slower
-// within L2, where every chunk of a streamed string lands; kept to one. NEW_ARCHITECTURE.md,
+// within L2, where every chunk of a streamed string lands; kept to one. PROGRESSION.md,
 // "`StreamBase64Data`", has the table.
 // The tables and shuffles, built once per call and passed to every block.
 typedef struct {

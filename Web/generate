@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuilds Web/generated/ from the two places evidence is written: NEW_ARCHITECTURE.md and the
+# Rebuilds Web/generated/ from the two places evidence is written: PROGRESSION.md and the
 # source comments. Everything under Web/generated/ is derived and committed.
 #
 #   ./Web/generate            # content + traces + assembly

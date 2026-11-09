@@ -124,7 +124,7 @@ func streamEiselLemire<T: BinaryFloatingPoint>(
 
   // Unreachable above the cutoff (even `1e-307` is normal), and guarding it keeps the power
   // calculation off ordinary exponents' dependency chain. Measured: recovered half of Canada's 2%
-  // full-table regression; out of line was worse. See NEW_ARCHITECTURE.md.
+  // full-table regression; out of line was worse. See PROGRESSION.md.
   if exponent <= T.streamSubnormalCutoff {
     let subnormalPower2 =
       streamPowerOfTwoExponent(exponent) &+ upperBit &- leadingZeros &- T.streamMinExponent

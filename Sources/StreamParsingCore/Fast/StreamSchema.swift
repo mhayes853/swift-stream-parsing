@@ -591,7 +591,7 @@ public protocol StreamPartial: StreamInitializable {
   /// These differ from ``streamSchema`` and ``StreamInitializable/streamInitialValue()`` only for
   /// `Optional`: an array owns the slot it hands out and can open it already materialised, so an
   /// optional element never checks for `nil` before a write, where a bare optional *root* must.
-  /// Worth 2.4x on `[Int?]` (NEW_ARCHITECTURE.md, "The optional seam"). The defaults are the root
+  /// Worth 2.4x on `[Int?]` (PROGRESSION.md, "The optional seam"). The defaults are the root
   /// forms, so every type but `Optional` conforms without saying anything.
   static var streamArrayElementSchema: StreamSchema { get }
 

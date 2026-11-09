@@ -58,7 +58,7 @@ export function repoURL(path: string, from?: number, to?: number): string {
 export function sectionWhere(section: DocSection): string {
   const tables = section.tables.length;
   return [
-    `NEW_ARCHITECTURE.md:${section.line}`,
+    `PROGRESSION.md:${section.line}`,
     section.chapter !== section.title && section.chapter,
     tables > 0 && `${tables} table${tables === 1 ? "" : "s"}`
   ]

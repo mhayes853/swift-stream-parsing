@@ -120,7 +120,7 @@ export function App() {
             <Why overview={pipeline.overview} sections={sections} nodes={pipeline.nodes} />
 
             <p className="viz-note">
-              Generated from <code>NEW_ARCHITECTURE.md</code> and the source comments by{" "}
+              Generated from <code>PROGRESSION.md</code> and the source comments by{" "}
               <code>./Web/generate</code>
               {content ? ` on ${content.generatedAt.slice(0, 10)}` : ""}. The prose per step is in{" "}
               <code>Web/content/pipeline.json</code>; everything under it resolves out of the

@@ -28,7 +28,7 @@ describe("citations", () => {
         kind: "doc",
         id: runs.path,
         label: "Runs, not bytes",
-        href: "https://github.com/mhayes853/swift-stream-parsing/blob/main/NEW_ARCHITECTURE.md#L58"
+        href: "https://github.com/mhayes853/swift-stream-parsing/blob/main/PROGRESSION.md#L58"
       }
     ]);
   });

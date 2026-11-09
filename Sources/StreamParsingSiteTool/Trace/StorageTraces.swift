@@ -14,9 +14,16 @@ enum StorageTraces {
 
   /// A real `StreamString` fed chunks the size the parser feeds them, read back after each one.
   ///
-  /// `streamAppend(utf8:)` is the same entry point `PartialSink` uses for a `.streamString`
+  /// `streamAppend(utf8:info:)` is the same entry point `PartialSink` uses for a `.streamString`
   /// member, so the ramp recorded here is the ramp a parse produces.
   static func streamString(chunks: [String]) -> StreamStringTrace {
+    // The value holds one reference, the tail, and the tail's header carries the sealed blocks;
+    // both are absent while the bytes are inline. Read off the shipped storage, not mirrored.
+    func sealedBlocks(_ value: StreamString) -> [StreamStringChunk] {
+      value.tail?.headerPointer.pointee.blocks ?? []
+    }
+    func tailCount(_ value: StreamString) -> Int { value.tail?.count ?? 0 }
+
     var value = StreamString()
     var steps: [StreamStringTrace.Step] = []
     var written: [UInt8] = []
@@ -26,14 +33,14 @@ enum StorageTraces {
     steps.append(
       StreamStringTrace.Step(
         chunk: "", chunkBytes: 0, inlineCount: value.inlineCount, blocks: [],
-        tailCount: value.tail.count, tailCapacity: value.tailBlockCapacity,
+        tailCount: tailCount(value), tailCapacity: value.tailBlockCapacity,
         utf8Count: value.utf8Count, event: "inline"))
 
     for chunk in chunks {
       let bytes = Array(chunk.utf8)
-      let blocksBefore = value.blocks.count
+      let blocksBefore = sealedBlocks(value).count
       let inlineBefore = value.usesInlineStorage
-      bytes.withUnsafeBufferPointer { buffer in _ = value.streamAppend(utf8: buffer.span) }
+      bytes.withUnsafeBufferPointer { buffer in _ = value.streamAppend(utf8: buffer.span, info: StringInfo()) }
       written.append(contentsOf: bytes)
 
       // Which of the four things this append did, decided by what changed rather than by the size
@@ -41,7 +48,7 @@ enum StorageTraces {
       let event: String
       if inlineBefore && !value.usesInlineStorage {
         event = "promote"
-      } else if value.blocks.count > blocksBefore {
+      } else if sealedBlocks(value).count > blocksBefore {
         event = "seal"
       } else if value.usesInlineStorage {
         event = "inline"
@@ -53,7 +60,7 @@ enum StorageTraces {
         StreamStringTrace.Step(
           chunk: chunk, chunkBytes: bytes.count,
           inlineCount: value.usesInlineStorage ? value.inlineCount : 0,
-          blocks: value.blocks.map(\.count), tailCount: value.tail.count,
+          blocks: sealedBlocks(value).map(\.count), tailCount: tailCount(value),
           tailCapacity: value.tailBlockCapacity, utf8Count: value.utf8Count, event: event))
     }
 
@@ -66,7 +73,7 @@ enum StorageTraces {
       if position >= sealed {
         locate.append(
           StreamStringTrace.Locate(
-            position: position, block: value.blocks.count, offset: position - sealed,
+            position: position, block: sealedBlocks(value).count, offset: position - sealed,
             byte: value.utf8[position], region: "tail"))
       } else {
         let found = value.sealedPosition(of: position)
@@ -83,7 +90,7 @@ enum StorageTraces {
       value.utf8Count == written.count
       && written.indices.allSatisfy { value.utf8[$0] == written[$0] }
       && locate.filter { $0.region == "sealed" }.allSatisfy {
-        value.blocks[$0.block][$0.offset] == $0.byte
+        sealedBlocks(value)[$0.block].buffer[$0.offset] == $0.byte
       }
 
     return StreamStringTrace(

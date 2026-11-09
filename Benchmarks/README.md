@@ -20,7 +20,7 @@ rebuilding the table.
 ## What is measured, and what is not
 
 Everything here runs against shipped code. Strategy comparisons that chose an implementation are
-recorded in `NEW_ARCHITECTURE.md` with their tables and then deleted, because a prototype kept
+recorded in `PROGRESSION.md` with their tables and then deleted, because a prototype kept
 past its decision drifts away from the thing it was supposed to be a control for. For example,
 `NumberParseBenchmarks.swift` held six private re-implementations of the number parse, none of
 which called the shipped scanners by the time it was removed, and the original key lookup suite

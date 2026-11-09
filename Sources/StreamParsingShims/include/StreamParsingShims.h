@@ -13,7 +13,7 @@
 // Escaped positions: bit i set iff byte i follows an odd-length backslash run. `prev_ends_odd`
 // carries "the previous block ended inside an odd run" in and out.
 // Measured: NEON shapes cost +7..+31% per block and a `bs_bits == 0` early-out +0.7..+17.6%;
-// keep it scalar (NEW_ARCHITECTURE.md, "find_escaped stays scalar").
+// keep it scalar (PROGRESSION.md, "find_escaped stays scalar").
 static inline uint64_t stream_parsing_find_escaped(uint64_t bs_bits, uint64_t *prev_ends_odd) {
   const uint64_t even_bits = 0x5555555555555555ULL;
   const uint64_t odd_bits = ~even_bits;
@@ -412,7 +412,7 @@ stream_parsing_classify_structural_block(
 // of their own), which drops the AVX2 kernel's `/` compare, and one shift indexes both the offset and
 // the bucket's mask of which of its four bytes are in the alphabet. A byte >= 128 indexes past both
 // tables and reads zero: no offset, no valid bytes. Seven instructions a vector against nine; the
-// kernel is bound by SIMD issue, 16.5 against 13.7 GB/s of text on an M1 Pro (NEW_ARCHITECTURE.md,
+// kernel is bound by SIMD issue, 16.5 against 13.7 GB/s of text on an M1 Pro (PROGRESSION.md,
 // "`StreamBase64Data`").
 
 #include <stddef.h>

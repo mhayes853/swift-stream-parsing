@@ -2,7 +2,7 @@
 // matches the key and, for every kind with a known layout, does a typed store at `storage +
 // offset` with no call; closures remain only for `custom` and container entry. Replaced two
 // generated `switch`es behind closures, 21 ns and a retain/release pair per integer member
-// (NEW_ARCHITECTURE.md, "The field table").
+// (PROGRESSION.md, "The field table").
 
 // MARK: - StreamFieldKind
 
@@ -346,7 +346,7 @@ public func _streamDelegatedApplyNull<T: StreamPartial>(_ value: inout T) -> Str
 /// Materialises an optional member, then runs `inner` over the payload: a container's own prepare
 /// (`nil` for every type but `Optional`), or a delegated member's `prepareRoot`. Runs once per
 /// schema, so the template and inner prepare are resolved here, not per occurrence (measured: CITM
-/// +39.6%, see NEW_ARCHITECTURE.md). The template is already `.some` and is copy-initialised over
+/// +39.6%, see PROGRESSION.md). The template is already `.some` and is copy-initialised over
 /// the `nil`, which owns nothing, rather than assigned.
 @inlinable
 public func _streamOptionalPrepare<T: StreamPartial>(

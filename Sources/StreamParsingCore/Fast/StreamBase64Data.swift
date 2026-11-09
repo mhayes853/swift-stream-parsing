@@ -46,7 +46,7 @@ import StreamParsingShims
 /// compare ``bytes`` alone.
 public struct StreamBase64Data {
   // Every stored property takes its declared default and `init()` assigns nothing, so opening a
-  // member is a run of stores: see NEW_ARCHITECTURE.md, "The initialiser trap".
+  // member is a run of stores: see PROGRESSION.md, "The initialiser trap".
 
   // The decoded bytes, nil until there are any. Shared by copies of the value, and by ``bytes``,
   // until one appends: the append copies first unless this reference is the only one, as
@@ -93,7 +93,7 @@ public struct StreamBase64Data {
   // arrives whole costs one allocation, as an array's does; the first growth moves them to a
   // block of their own, which every later one `realloc`s. Past a few tens of KiB Darwin's
   // allocator grows a block in place wherever the address space beside it is free (glibc remaps
-  // it), so most doublings copy nothing: per 1400B -13.8%. See NEW_ARCHITECTURE.md, "The storage".
+  // it), so most doublings copy nothing: per 1400B -13.8%. See PROGRESSION.md, "The storage".
   @usableFromInline
   struct StorageHeader {
     // The storage's own tail until the bytes first outgrow it, then a block from `realloc`.
@@ -261,7 +261,7 @@ public struct StreamBase64Data {
   // the group a rejected block stopped on. Per group it does one load for the four characters, one
   // table entry per character ORed into the three bytes (see `Base64.c`), one compare, and one
   // four-byte store whose fourth byte the next group overwrites. 1.6x a 256-byte sextet table with
-  // shifts and three one-byte stores, on x86_64: see NEW_ARCHITECTURE.md, "`StreamBase64Data`".
+  // shifts and three one-byte stores, on x86_64: see PROGRESSION.md, "`StreamBase64Data`".
   @inline(__always)
   private static func decodeRun(
     _ source: UnsafeRawPointer,

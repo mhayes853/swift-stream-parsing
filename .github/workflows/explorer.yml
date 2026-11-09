@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # HistoryExtractor dates every section by walking each revision of NEW_ARCHITECTURE.md,
+          # HistoryExtractor dates every section by walking each revision of PROGRESSION.md,
           # so a shallow clone would date nothing. And on a pull request the default ref is the
           # synthetic merge with the base branch, whose history is not the one the bundle was
           # generated from -- check out the branch head instead.

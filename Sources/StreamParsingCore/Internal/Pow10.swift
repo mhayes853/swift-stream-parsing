@@ -3,7 +3,7 @@ import StreamParsingShims
 // The exact powers of ten 10^0 ... 10^22 as `Double` (5^22 is the largest odd factor that fits 53
 // bits): `stream_parsing_pow10_double_storage` in `Pow10_Double.c`. Must stay a C `.rodata` table,
 // not a Swift `[Double]` global, which costs an addressor, one-time init and signed bounds checks.
-// See NEW_ARCHITECTURE.md, "The power-of-ten table".
+// See PROGRESSION.md, "The power-of-ten table".
 
 // 23: `10^0 ... 10^22`.
 @inlinable

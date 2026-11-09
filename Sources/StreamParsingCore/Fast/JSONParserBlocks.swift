@@ -5,7 +5,7 @@
   // of `stream_parsing_classify_structural_block` (NEON inlined; the AVX2 twin is a call per
   // block). Every arm restates its `consumeStructural` arm -- same events, spans, failure offsets
   // and error reasons; anything the masks cannot settle goes back to the scalar loop at the byte it
-  // starts on. See NEW_ARCHITECTURE.md, "The structural block walk".
+  // starts on. See PROGRESSION.md, "The structural block walk".
   extension JSONParser {
     // Entered with a structural state, no token in flight and a whole block ahead. Returns where
     // the scalar loop resumes, `state`/`depth`/`containers` written back. Out of line like `consumeSkipBlocks`: the classifier's hoisted constants would put a d8
@@ -211,7 +211,7 @@
               Self.pushContainer(object: true, depth: &depth, containers: &containers)
               // The skip scanner owns the subtree from here; the dispatcher re-enters it. Measured:
               // skipping in place here lost where subtrees outlive the block (sweep mean +4.07% vs
-              // +5.24%) -- see NEW_ARCHITECTURE.md, "Skipping a subtree inside the block walk".
+              // +5.24%) -- see PROGRESSION.md, "Skipping a subtree inside the block walk".
               if disposition != .stream {
                 self.skipEndDepth = UInt8(truncatingIfNeeded: depth &- 1)
                 state = .skipping

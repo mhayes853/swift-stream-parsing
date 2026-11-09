@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The dates are not hand-authored and could not be: an experiment's date is the commit that wrote
 /// the experiment down, so the only place that knows it is the document's own history. This walks
-/// every revision of `NEW_ARCHITECTURE.md` in order, re-runs `DocumentExtractor.walk` over each
+/// every revision of `PROGRESSION.md` in order, re-runs `DocumentExtractor.walk` over each
 /// one, and records for every heading path the commit it first appeared in and the last commit
 /// whose body differed from the revision before it.
 ///
@@ -13,9 +13,17 @@ import Foundation
 /// is what the commit witnesses. And a revision that only moved a section down the file changes no
 /// body and does not count as a revision, which is the behaviour that makes the "last revised"
 /// date mean something in a document that grows at the bottom.
+///
+/// The log has been renamed once (`NEW_ARCHITECTURE.md` became `PROGRESSION.md`), and a rename
+/// must not re-date every section to the commit that did it. So the walk covers every name the
+/// file has had: `formerNames` lists them, the log asks git for commits touching any of them, and
+/// each revision is read under the current name first and a former one otherwise. That is
+/// explicit rather than `--follow`, whose rename detection is a similarity guess that a large
+/// enough edit in the renaming commit would defeat.
 struct HistoryExtractor {
   var root: String
   var file: String
+  var formerNames: [String] = []
 
   struct Revision {
     var sha: String
@@ -27,7 +35,7 @@ struct HistoryExtractor {
     guard
       let log = self.git([
         "log", "--reverse", "--date-order", "--format=%H%x1f%aI%x1f%s", "--", self.file
-      ])
+      ] + self.formerNames)
     else {
       return (
         [:], [],
@@ -50,7 +58,7 @@ struct HistoryExtractor {
     var history: [String: DocHistory] = [:]
 
     for revision in revisions {
-      guard let text = self.git(["show", "\(revision.sha):\(self.file)"]) else { continue }
+      guard let text = self.text(at: revision.sha) else { continue }
       let walk = DocumentExtractor.walk(lines: text.components(separatedBy: "\n"))
       var current: [String: String] = [:]
       current.reserveCapacity(walk.entries.count)
@@ -76,6 +84,14 @@ struct HistoryExtractor {
     }
 
     return (history, revisions, [])
+  }
+
+  /// The document as it stood at `sha`, under whichever of its names it had then.
+  private func text(at sha: String) -> String? {
+    for name in [self.file] + self.formerNames {
+      if let text = self.git(["show", "\(sha):\(name)"]) { return text }
+    }
+    return nil
   }
 
   private func git(_ arguments: [String]) -> String? {

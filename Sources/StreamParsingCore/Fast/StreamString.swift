@@ -247,7 +247,7 @@ public struct StreamString {
   // The first overflow append sizes the schedule from the *whole* byte count in hand (a reservation
   // uses half), so one big span lands in one block. Never lowers a reserved shift. Measured: LLM
   // bulk +73.7%, GSoC +11.6%; `@inline(never)` because inlined into every `stringChunk` site it
-  // flips the parse loop's inlining. See NEW_ARCHITECTURE.md.
+  // flips the parse loop's inlining. See PROGRESSION.md.
   @inlinable
   @inline(never)
   mutating func promoteSizedInlineStorage(reserving needed: Int) {

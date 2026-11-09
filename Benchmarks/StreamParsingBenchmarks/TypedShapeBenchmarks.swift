@@ -8,7 +8,7 @@ import StreamParsingCore
 // `PartialSink`. The pair's delta is what routing and storing a value costs on that shape, with
 // the lexing held identical -- which is the only way to tell a parser cost from a sink cost.
 //
-// These rows began as the fused-slice experiment's control halves (NEW_ARCHITECTURE.md, "The
+// These rows began as the fused-slice experiment's control halves (PROGRESSION.md, "The
 // fused slice"). The slice is gone -- its findings shipped in the fusion series -- and what it
 // leaves behind is this decomposition, which is worth keeping on its own terms: the four shapes
 // isolate a homogeneous number run, a matched object member, a missed object member and a

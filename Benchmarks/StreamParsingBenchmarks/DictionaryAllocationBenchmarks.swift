@@ -34,7 +34,7 @@ private struct SpanDictionaryAllocationSink: StreamParseSink {
 
 // The materialising comparison sink this file used to carry has been removed: it was a prototype
 // of what the parser would cost without `_openValue`, and that comparison is settled and recorded
-// in NEW_ARCHITECTURE.md. The span row below is kept as a malloc-count regression guard on the
+// in PROGRESSION.md. The span row below is kept as a malloc-count regression guard on the
 // shipped path — a repeated long key must not allocate per occurrence.
 func dictionaryAllocationBenchmarks() {
   var configuration = Benchmark.defaultConfiguration
