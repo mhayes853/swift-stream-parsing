@@ -907,16 +907,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     // `simd2Double ... simd4Double` are contiguous, and the arity is the distance from two below.
     let lane = route.rawValue &- _StreamLeafRoute.simd2Double.rawValue
     if lane < 3 {
-      if let value = streamParseDoubleExact(info), let top = self.topFrame {
-        let index = top.pointee.pendingField
-        if index < Int32(lane) &+ 2 {
-          top.pointee.pendingField = index &+ 1
-          (top.pointee.storage + Int(index) &* MemoryLayout<Double>.stride)
-            .assumingMemoryBound(to: Double.self).pointee = value
-          return
-        }
-      }
-      self.storeSIMDDoubleLane(bytes, info: info)
+      self.storeSIMDDoubleLaneByKernel(bytes, info: info)
       return
     }
     // SIMD lanes included: the frame carries the lane kind and the schema the lane stride.
@@ -925,6 +916,25 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       return
     }
     self.numberRouted(bytes, info: info)
+  }
+
+  // A SIMD lane, converted by Eisel-Lemire first rather than after Clinger's `<= 2^53` test: the
+  // lanes are coordinates, and in Canada 9% of them are exact at random positions, so that test
+  // mispredicted on the way to the kernel 91% of them need anyway. Call-free when the kernel answers
+  // and the lane is inside the arity; anything else is a tail call into the full lane path.
+  @inline(never)
+  private mutating func storeSIMDDoubleLaneByKernel(_ bytes: Span<UInt8>, info: NumberInfo) {
+    let lanes = Int32(self.activeLeafRoute.rawValue &- _StreamLeafRoute.simd2Double.rawValue) &+ 2
+    if let value = streamParseDoubleKernel(info), let top = self.topFrame {
+      let index = top.pointee.pendingField
+      if index < lanes {
+        top.pointee.pendingField = index &+ 1
+        (top.pointee.storage + Int(index) &* MemoryLayout<Double>.stride)
+          .assumingMemoryBound(to: Double.self).pointee = value
+        return
+      }
+    }
+    self.storeSIMDDoubleLane(bytes, info: info)
   }
 
   // The object and closure number routes, outlined so `number` is entered with no frame: inline,

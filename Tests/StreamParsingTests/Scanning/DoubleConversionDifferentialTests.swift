@@ -88,6 +88,13 @@ struct DifferentialSink<T: StreamDifferentialFloat>: StreamParseSink {
       if !agrees, self.mismatches.count < 16 {
         self.mismatches.append("\(text): streamParseDoubleInline disagrees with the initializer")
       }
+      // The SIMD lane route asks Eisel-Lemire first, exact-tier tokens included: whenever the
+      // kernel answers, the answer must be the initializer's.
+      if let kernel = streamParseDoubleKernel(info),
+        kernel.bitPattern != (value as! Double?)?.bitPattern, self.mismatches.count < 16
+      {
+        self.mismatches.append("\(text): streamParseDoubleKernel disagrees with the initializer")
+      }
     }
     switch (value, oracle) {
     case (nil, nil):

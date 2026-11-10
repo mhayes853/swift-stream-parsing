@@ -208,6 +208,23 @@ func streamParseIntExact(_ info: NumberInfo) -> Int? {
   return Int(truncatingIfNeeded: magnitude)
 }
 
+// Eisel-Lemire alone, for every token whose accumulator held: it is correctly rounded on the exact
+// tier's inputs too, so a caller can skip Clinger's `<= 2^53` test -- the branch Canada's
+// coordinates mispredict, 9% of them being exact at random positions. nil to say "ask the rest"
+// (an overflowed accumulator, an exponent past the table, an unseparable halfway value). Call-free.
+// `@_transparent`: as `@inline(__always)` it was left a call in the sink's frameless entry, which
+// then needed a frame again.
+@usableFromInline
+@_transparent
+func streamParseDoubleKernel(_ info: NumberInfo) -> Double? {
+  let flags = info.flags.rawValue
+  guard flags & NumberInfo.Flags.overflowed.rawValue == 0 else { return nil }
+  return streamEiselLemire(
+    magnitude: info.magnitude, exponent: Int(info.exponent),
+    negative: flags & NumberInfo.Flags.negative.rawValue != 0, as: Double.self
+  )
+}
+
 // What the exact path declines: Eisel-Lemire, then the complete-token fallback. Inline as well:
 // its callers are the sink's outlined full paths, so the kernel runs in their frame rather than
 // two more.
