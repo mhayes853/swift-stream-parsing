@@ -73002,6 +73002,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 5909,
         "markdown" : "*Recorded 2026-11-10.*\n\n`twitterescaped` holds 31,818 `\\u` escapes in 1,715 runs (mean run 18.5) and 1,228 simple\nescapes; 31,770 of the `\\u` escapes are three-byte scalars, 28 two-byte, and 10 are surrogate\npairs. The coalescing tail answered each one by decoding it, scanning a zero-length run, reading\nthe next backslash and calling back in.\n\n- `coalescedUnicodeEscapeEnd` keeps decoding while the next bytes are another escape it can take\n  whole (a `\\uXXXX`, a surrogate pair, or a simple escape), with the buffer's fill count held in a\n  register, and returns where the first escape it cannot take starts. Which escapes fall back to\n  the per-byte states, and every error offset, are unchanged. The unbuffered arm (a key's escape)\n  keeps `fusedUnicodeEscapeEnd`, one escape per call.\n- `streamHexQuad` validates and decodes four digits with SWAR range tests in one 32-bit register\n  instead of SIMD4, whose result crossed from a vector register (`uminv` + `fmov`, `addv` + `fmov`).\n\nProfile of raw Twitter escaped with v3: the tail 17% → 3.6%, the staging scan 8.2% → 2.2%, the\nescape function 29% (it absorbs `bufferStringScratch`). New tests: the hex quad against a\nper-character decode on every byte in every lane, a `\\u` run cut at every offset with 64- and\n4096-byte buffers, a run delivered as one chunk.",
@@ -73022,6 +73031,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 5931,
         "markdown" : "*Recorded 2026-11-10.*\n\nVariants against 312c63d1, aligned, 3 rounds, median p0. v0 is the SWAR hex quad alone, v1 the run\nloop with the SIMD4 quad, v2 the loop with the SWAR quad, v3 adds simple escapes inside the run\n(landed), v5 decodes two escapes a step (below).\n\n| Row | v0 | v1 | v2 | v3 | v5 |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| Twitter escaped - bulk (raw) | +0.8% | +14.8% | +29.8% | +29.4% | +34.9% |\n| Twitter escaped - bulk discarding (typed) | +1.5% | +14.9% | +14.9% | +16.9% | +18.6% |\n| Fast Unicode escaped string - bulk | +5.4% | +35.7% | +95.0% | +90.3% | +54.4% |\n\nGate, v3 against 312c63d1 (load 30–130): Twitter escaped +33.0% [+29.6 .. +33.4] raw, +22.0%\n[+17.1 .. +22.1] typed. No other row was beyond -2.5% in more than one gate (GitHub raw -4.0% here,\n+1.0% in another; GSoC typed -3.1% here, +5.6% in the other).",
@@ -73300,6 +73318,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 5949,
         "markdown" : "*Recorded 2026-11-10.*\n\nWith the unescape kernel in place the run loop sees only the escapes the kernel hands back. 9e1e98dc\nagainst 9e1e98dc plus this change, aligned, 3 rounds, median p0 [per-round range]:\n\n| Row | Change |\n| --- | ---: |\n| Real Twitter escaped - bulk | +5.5% [+5.5 .. +6.0] |\n| Real Twitter escaped - bulk discarding | +3.8% [+3.7 .. +5.1] |\n| Real Twitter escaped - byte by byte | +9.1% [+9.0 .. +13.2] |\n| Real Twitter escaped - byte by byte discarding | +0.1% [-0.1 .. +4.2] |\n| Fast Unicode escaped string - bulk | +57.3% [+53.6 .. +58.5] |\n| Fast Escaped string - bulk | -1.8% [-2.7 .. +0.0] |\n| Real GitHub events - bulk | -1.7% [-5.7 .. -0.2] |\n| Real GitHub events - bulk discarding | -1.9% [-4.6 .. -0.2] |\n| Real GSoC 2018 - bulk / discarding | -0.3% [-5.8 .. +0.1] / -0.0% [-5.6 .. +0.4] |\n| Real LLM message - bulk / discarding | -0.6% [-5.2 .. +0.5] / +0.0% [-5.3 .. +1.6] |\n| Real LLM message - byte by byte / discarding | +0.6% [-3.4 .. +2.5] / +0.1% [-4.1 .. +0.1] |\n| Real Twitter - bulk / discarding | -0.2% [-1.2 .. -0.2] / -0.1% [-1.0 .. -0.1] |\n\nThe byte-by-byte path cannot reach the run loop, which needs the escape's six bytes in the chunk;\nthe same row read +8.6% to +9.1% in three other gates this session whose changes did not touch it\n(see \"Rejected: six reworks of the structural block walk\").",
@@ -73584,6 +73611,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 5975,
         "markdown" : "*Recorded 2026-11-10.*\n\nv5 decodes two `\\u` escapes a step (`streamHexQuadPair`, a 64-bit SWAR word) and breaks on any\nsurrogate. v6 also takes a scalar then a surrogate singly and a pair whole; the compiler\nif-converted `utf8Word` to `csel`, so the fill count depended on the decode. v7 takes a pair as one\n12-byte unit with its own four-byte encoder. Against 312c63d1, 3 rounds (two passes where two\nnumbers are given):\n\n| Row | v3 | v5 | v6 | v7 |\n| --- | ---: | ---: | ---: | ---: |\n| Twitter escaped - bulk (raw) | +29.4% | +36.2% / +34.6% | +28.0% | +32.4% |\n| Twitter escaped - bulk discarding (typed) | +16.9% / +16.8% | +19.2% / +18.9% | +14.8% | +17.1% |\n| Fast Unicode escaped string - bulk | +90.0% / +91.3% | +53.5% / +53.5% | +58.3% | +96.2% |\n| GSoC 2018 - bulk | -0.2% | -0.2% | | -2.2% |\n\nv7 against v5: Twitter escaped -1.6% / -1.5%, the synthetic row +27.9%. v3 landed.",
@@ -73873,6 +73909,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 5994,
         "markdown" : "*Recorded 2026-11-10.*\n\n`stream_parsing_classify_skip_block` loads its block with `vld4q_u8`, so vector j lane i holds byte\n4i + j, and builds each of its five masks with `stream_parsing_movemask4_deinterleaved`: three\nshift-right-inserts stack the four vectors' top bits into one lane's high nibble, a fourth copies\nthe nibble down, and `shrn #4` packs the word. That replaces four `and`s and three `addp`s per mask.\nOnly bit 7 of each lane is read, so the bracket class, which is bit 7 of the class byte, needs no\ntest, and the accepted test lowers to one `cmtst` instead of `and` / `cmeq` / `bic`. The skip loop\nadvances by 64 whatever the masks say, so it runs at the kernel's throughput and the extra latency\nof `ld4` is hidden.\n\nThe kernel alone, ns per 64-byte block, min of 30 repetitions (load about 100). The dependent\ncolumn chains each block's quote mask into the next address:\n\n| Variant | Twitter | CITM | GSoC | LLM | Twitter, dependent |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| four loads, `movemask4` (base) | 8.56 | 8.03 | 6.73 | 4.97 | 16.01 |\n| `ld4` + shift-insert | 7.93 | 7.05 | 6.85 | 5.22 | 17.77 |\n| `ld4` + shift-insert, brackets from bit 7 (landed) | 7.61 | 6.75 | 6.74 | 5.20 | 17.60 |\n| `uzp`, brackets from bit 7 | 7.87 | 6.92 | 6.94 | 5.42 | |\n\nGSoC and LLM blocks are mostly inside strings, where the kernel returns after two masks; `ld4`\ngains nothing there. Every corpus at 64 phases under zero and chained carries, 1 MB of random bytes,\nand every byte value at every position classify identically. `BlockClassifierTests` holds both\nclassifiers, field by field, to a byte-at-a-time restatement; swapping one shift-insert's operands\nfails it.",
@@ -74184,6 +74229,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6023,
         "markdown" : "*Recorded 2026-11-10.*\n\nAgainst 9e1e98dc, aligned, 3 rounds, median p0:\n\n| Row | Change |\n| --- | ---: |\n| Twitter, typed | +2.7% [+2.7 .. +3.9] |\n| Twitter 16KB, typed | +2.3% |\n| GitHub events, typed | +2.1% |\n| Qwen 3 structured response, typed | +1.6% |\n| Twitter escaped, typed | +1.4% |\n| Twitter spaced, typed | +1.3% |\n| GitHub events, raw | -2.2% [-2.4 .. 0.0] |\n| Qwen 3 structured response, raw | -2.3% [-2.3 .. 0.0] |\n| Canada 16KB, typed | -1.7% [-1.7 .. +0.2] |\n| GSoC 2018 16KB, typed | -1.3% |\n| Twitter escaped byte by byte, raw | +9.1% |\n\nRaw rows never skip; their kernel is unchanged.",
@@ -74454,6 +74508,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6045,
         "markdown" : "*Recorded 2026-11-10.*\n\nThe kernel alone, ns per block:\n\n| Variant | Throughput | Dependent |\n| --- | ---: | ---: |\n| four loads, `movemask4` (base) | 9.99 | 15.77 |\n| `ld4` + shift-insert | 8.57 | 16.86 |\n| four loads, eight `uzp`, shift-insert | 8.89 | 17.40 |\n| four loads, pairs sharing the last `addp` | 9.80 | 16.93 |\n| `addp` for the backslash and quote masks, `ld4` for the rest | 9.22 | 16.30 |\n| the same with whitespace on plain loads too | 9.30 | 15.11 |\n| an opaque barrier keeping `cmtst` + `and` | 9.18 (against 9.44) | equal |\n\nFrom the load to the quote mask to the next address: 25.4 cycles with `addp`, 30.1 with `ld4` and\nshift-insert, 26.6 with plain loads and shift-insert, 29.7 with `ld4` and `addp`. The block walk\nre-anchors on tokens and waits on `starts`. With `ld4` + shift-insert in both classifiers, against\nthe skip change alone: raw Twitter -4.8% [-5.3 .. -4.6], Twitter 16KB -4.7%, CITM -4.3%, GitHub\n-4.3%, Twitter spaced -3.4%, GSoC -2.8%, Fast Pretty printed -4.9%; typed CITM +1.4%, Twitter full\n+0.9%, Twitter spaced +0.6%, Twitter +0.2%. The structural classifier keeps plain loads, and its\ncomment says why.",
@@ -74617,6 +74680,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6069,
         "markdown" : "*Recorded 2026-11-10.*\n\nThree changes on the typed layer's key and open paths.\n\n- **`key`.** It saved six register pairs per key (236 instructions): the table scan called\n  `streamFieldTailMatches` from inside its loop and kept nine values live across the call. The scan\n  (`matchTableKey`) now stops at the first entry whose first word and length match; a key of at\n  most a word is stored there, and a longer one tail-calls `matchTableKeyTail` (linear and indexed\n  forms), a leaf with the tail compare inline. The dictionary and closure arms are tail-called\n  helpers (`dictionaryKey`, `closureKey`). `key` is frameless, 116 instructions, and\n  `@inline(never)`: at that size the walk inlined it, `consumeStructuralBlocks<PartialSink>` grew\n  1383 → 1550 instructions and `consumeStructuralRun` 1919 → 1973, and typed Twitter, GitHub and\n  Qwen structured lost 2.0–3.7%.\n- **String element and dictionary-value opens.** `_openElement(_:)` drained the closed element,\n  re-marked the box `nil`, then assigned over it, destroying that `nil` out of line through the\n  optional's metadata (`getEnumTagSinglePayload` and a mangled-name lookup) per element.\n  `StreamString` and `StreamString?` elements open with `_openElement(constructing:)` and the\n  dictionary string routes with `_openValue(forKey:constructingSome:)`. The destroy is left only on\n  an array's first open.\n- **Template copies of 128 to 1024 bytes.** `_streamCopyInitialize` copies through `_streamCopyOut`,\n  an unspecialised function (`@_semantics(\"optimize.sil.specialize.generic.never\")`) that is six\n  instructions: a tail call into `T`'s `initializeWithCopy` witness writing the indirect result. The\n  caller moves the result into the slot with one `memcpy`. `initialize(from:count:)` reached the same\n  witness through `swift_arrayInitWithCopy` and a type-descriptor lookup. Above 1024 bytes the runtime\n  path stays; Embedded Swift keeps it throughout.",
@@ -74637,6 +74709,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6097,
         "markdown" : "*Recorded 2026-11-10.*\n\nTyped rows, 3 rounds, median p0. v1c is the frameless `key` without `@inline(never)`, v2 adds the\nuncapped copy-out, v3 the constructed opens, v4 `@inline(never)` on `key`, v5 the 1024-byte cap\n(landed).\n\n| Step | Effect |\n| --- | --- |\n| base → v1c (load about 4) | Twitter -2%, GitHub -2.6%, Qwen structured -3.7%, GSoC -1.1%, CITM +1.2% |\n| v1c → v2 | LLM +1.0%, Qwen edit +1.7%, Qwen structured +1.0%, Twitter spaced +1.0%, CITM +0.5%, Twitter +0.4%, Twitter full -3.8% |\n| v2 → v3 | Qwen structured +2.4% .. +3.2%, Dictionary 128 +0.6% .. +1.0%, Qwen edit +0.4% .. +1.2%, rest flat |\n| v3 → v4 | Twitter +3.2%, Twitter escaped +3.1%, Twitter spaced +3.1%, GitHub +3.7%, Qwen structured +3.7%, Qwen edit +2.3% .. +4.2%, Twitter full +2.2%, GSoC +0.2% .. +1.4%, CITM 0 |\n| v4 → v5 | Twitter full +4.6% .. +5.2%; against uncapped, Qwen edit -1.6% .. +0.4%, LLM -0.5% .. -0.9% |\n\nTwitter full's partials are 11,376 B (`TweetFull`), 5,688 (`RetweetedStatusFull`), 2,302\n(`UserFull`), 2,172 (`Entities`) and 1,168 (`Media`). Attribution in one order (frameless `key`,\nthen constructed opens, then the copy): `key` alone Twitter +1.0%, Twitter escaped +1.0%, Twitter\nspaced +1.1%, CITM +1.3%, Qwen structured +1.6%, Qwen edit +2.4%, LLM +1.0%, Twitter full +0.7%;\nthe opens on top Twitter escaped -2.7%, Qwen edit -3.6%, GSoC -1.0%, LLM -0.9%; the copy on top\nrecovered them (Twitter escaped +3.1%, Qwen edit +5.2%). In the other order the opens read Qwen\nstructured +2.7%, Qwen edit +0.8%, Twitter escaped +0.3%. Twitter escaped has no string arrays, so\nthe per-commit numbers look like placement; the set is what was measured.",
@@ -74726,6 +74807,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6122,
         "markdown" : "*Recorded 2026-11-10.*\n\nv1a outlined only the dictionary and closure arms: still six pairs, Twitter -2.5% .. -3% in the\nclean rounds. v1b sent keys longer than a word to an outlined copy of the old match: `key`\nframeless, Twitter -1.0% [-1.4 .. -0.9], Qwen structured +1.5%. In v1a and v1c the walk inlined\n`key`.",
@@ -74747,6 +74837,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6131,
         "markdown" : "*Recorded 2026-11-10.*\n\nRejected on the disassembly, not measured. `slot.initialize(to: template.pointee)` in an\nunspecialised helper stages the value (an alloca, a witness copy into it, a call to the standard\nlibrary's `initialize(to:)`, which is a witness take); without the semantics attribute\ncross-module optimisation specialises it in the client, which is two staged `memcpy`s and an\noutlined copy again; `initialize(repeating:count: 1)` is a witness copy to a temporary, a call and a\ndestroy.",
@@ -74768,6 +74867,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6142,
         "markdown" : "*Recorded 2026-11-10.*\n\nThe three changes against 9e1e98dc, aligned, 3 rounds, load about 4:\n\n| Row | Change |\n| --- | ---: |\n| Qwen 3 structured response, typed | +4.3% |\n| Qwen 3 workspace edit, typed | +4.2% [+2.1 .. +4.4] |\n| GitHub events, typed | +2.0% |\n| Twitter, typed bulk / 16KB | +1.7% / +1.4% |\n| Twitter spaced, typed | +1.7% |\n| CITM catalog, typed bulk / 16KB | +1.6% / +1.7% |\n| LLM message, typed bulk / 16KB | +0.9% / +1.5% |\n| Twitter escaped, typed | +1.1% |\n| Twitter full, bulk / 16KB | +0.9% / +1.1% |\n| GSoC 2018, typed bulk / 16KB | -0.5% [-1.0 .. -0.3] / +0.2% |\n| Canada, Mesh, typed | 0 |\n| LLM message, raw bulk / 16KB | -0.7% / -0.6% |\n| Twitter escaped byte by byte, raw | +8.9% |\n\nThe raw code is unchanged.",
@@ -75080,6 +75188,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6166,
         "markdown" : "*Recorded 2026-11-10.*\n\nCensus: Canada's 111,126 numbers are 101,338 past Clinger's tier (91%), 9,742 exact and 46\nintegers, with 17,775 transitions between those classes; Mesh's 73,014 are 40,614\nintegers and 32,400 exact, none past Clinger. `number` saved twelve registers (342 instructions)\nfor every `[Double]` / `[Int]` element and SIMD lane because the object-table arm was inlined into\nit, and each `Double` went through two more frames, the generic initializer and an outlined\nEisel–Lemire.\n\n- **A frameless `number`.** The three homogeneous routes finish with no call when the token\n  converts on the exact tier (`streamParseDoubleExact`, `streamParseIntExact`) and the slot is\n  ready: `StreamArray.appendClosedIfReady` (no open element, room in a tail already proved unique)\n  or a lane inside the arity. Every miss tail-calls the outlined full path\n  (`appendHomogeneousDouble` / `Int`, `storeSIMDDoubleLane`), the typed slots tail-call\n  `applyKnownNumber`, and the object and closure routes tail-call `numberRouted`.\n  `streamEiselLemire` is forced inline, so the full paths hold the kernel in their own frame.\n  `number` was then 128 instructions and saved no registers; a `[Double]` hit is about 40\n  instructions ending in `ret`. A first version that outlined only the default arm kept five pairs: any call in\n  the function keeps the frame. It was not measured.\n- **SIMD elements open and close without a call.** `beginArray` opens a non-optional\n  `SIMD2/3/4<Double>` element itself when nothing needs a call\n  (`openSIMDDoubleElementIfReady`: `StreamArray.openElementIfReady`, the frame pushed inline, the\n  schema from the parent's element schema so the global's lazy accessor stays off the path). The\n  full open (`openKnownSIMDDoubleElement`) is tail-called and pushes through `pushSIMDDoubleFrame`,\n  with the route word and cursor written as constants. `endArray` closes a lane frame with the\n  arity from the route and the pop inline, framelessly; anything else tail-calls `endArrayRouted`.\n- **Lanes ask Eisel–Lemire first.** In the profile of the two changes above, the hottest instruction\n  in `number` (4.6% of typed Canada's samples) followed Clinger's `<= 2^53` branch: 9% of Canada's\n  coordinates are exact at random positions. A lane now tail-calls `storeSIMDDoubleLaneByKernel`,\n  which converts with `streamParseDoubleKernel` (`@_transparent`; as `@inline(__always)` it stayed a\n  call) and stores with no frame; a decline or an arity overflow tail-calls the full lane path.\n  Every tier is correctly rounded, so values are unchanged. Lanes that are short exact decimals\n  (Mesh's influences) now pay the kernel instead of an `fdiv`.\n\nIn typed Canada the sink's share went from 31.1% (`number` 4.4, the initializer 7.4, Eisel–Lemire\n10.5, `openKnownSIMDDoubleElement` 3.5, `endArray` 2.9, `pushFrame` 2.4) to 26.8%\n(`storeSIMDDoubleLane` 12.4, `number` 8.5, `beginArray` 3.6, `endArray` 2.3) before the third\nchange. `HomogeneousNumberRouteTests` pins the routes' values and refusals at every chunk size; the\nfloat differential pins `streamParseDoubleInline` to the initializer on both corpora, the edge\ntokens and 20,000 seeded random decimals, and the kernel alone on every token.",
@@ -75100,6 +75217,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6209,
         "markdown" : "*Recorded 2026-11-10.*\n\nTyped rows against 9e1e98dc, aligned, 5 rounds, load 4–6. v6 is the frameless `number` and the\nSIMD opens; v8 adds the lanes' Eisel–Lemire first. Both include the count-store change below.\n\n| Row | v6 | v8 | v8 against v6 |\n| --- | ---: | ---: | ---: |\n| Canada, bulk / 16KB | +4.9% / +4.8% | +12.0% / +11.8% | +6.7% / +6.7% |\n| Mesh, bulk / 16KB | +7.2% / +7.2% | +6.3% / +6.2% | -0.8% / -1.0% |\n| Separators numbers (two rows) | +13.3% / +15.3% | +12.3% / +13.6% | -0.9% / -1.5% |\n| CITM catalog | -0.3% | -0.8% | -0.5% |\n| Twitter | +0.3% | -0.1% | -0.4% |\n| GitHub events | -0.3% | -0.8% | |\n| Fixed array composite | -1.1% | -1.6% | |\n\nEvery round had the same sign in the v8-against-v6 column. The Eisel–Lemire-first step trades\nCanada +6.7% for Mesh -0.8%, and was kept.",
@@ -75434,6 +75560,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6229,
         "markdown" : "*Recorded 2026-11-10.*\n\n`advance()` skipped the block header's count store for POD elements, with a `sealedCount` for the\nreaders of sealed blocks. v6 against v6 without it, 5 rounds: Canada -0.6%, Mesh +0.2%, Separators\nnumbers -0.6% / -0.8%, Fixed array +0.5% / +1.1%. A wash, and it broke a white-box test\n(`StreamArrayTests`, \"Appending detaches a shared tail\").",
@@ -75455,6 +75590,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6238,
         "markdown" : "*Recorded 2026-11-10.*\n\nThe landed three against 9e1e98dc, aligned, 3 rounds, load 3–9, typed rows:\n\n| Row | Change |\n| --- | ---: |\n| Canada, bulk / 16KB | +12.2% / +12.1% |\n| Canada streamInitialValue | +12.2% |\n| Separators numbers | +12.9% .. +14.8% |\n| Mesh, bulk / 16KB | +5.9% / +5.8% |\n| Mesh dynamic influences | +3.2% |\n| Mesh capacity hint | +2.9% |\n| Twitter full | +1.4% |\n| Twitter spaced | +1.0% |\n| Canada dynamic coordinates / capacity hint | ~0 |\n| CITM catalog, bulk / 16KB | -0.9% / -0.8% (every round) |\n| Fixed array composite | -1.5% (every round) |\n| Qwen 3 structured response | -0.4% (mixed) |\n| Every raw row | 0.0% ± 0.3% |\n\nCanada's dynamic rows parse `[[[Double]]]`, whose pairs miss the fast path.",
@@ -75735,6 +75879,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6262,
         "markdown" : "*Recorded 2026-11-10.*\n\nThe kernel alone over every escaped tail took 166.5 µs on Twitter escaped (52.7 ns a block, 5.2 ns\na `\\u`), against 169.5 on LLM message and 220 on GSoC. 85% of `twitterescaped`'s escapes are in runs\nof eight or more three-byte scalars.\n\n- `stream_parsing_unescape_bmp_run` (out of line, entered from the block walk when the bytes 6 and 18\n  past the escape's backslash are backslashes too) checks the shape of four escapes with NEON and, when all four are\n  three-byte non-surrogate scalars, writes their twelve UTF-8 bytes from two `tbl` gathers and two\n  per-lane shifts (`stream_parsing_unescape_four_bmp`); then two more for a run's remainder. A run\n  may continue past its block as far as the chunk's and the buffer's slack allow. It first turns\n  away an escape whose digits, or the next one's, begin with `0` or `d`/`D`.\n- A surrogate pair inside a block is decoded as two six-byte escapes, so a decode never edits the\n  walk's escape mask. Taking twelve bytes made the walk clear the partner's bit with a `csel` on\n  `taken`, which put the decode on the path to the next escape's position.\n- The kernel keeps its own copy of the three UTF-8 tables; `EscapedTailBlockTests` holds them to the\n  Swift ones through `stream_parsing_unescape_utf8_table`. Its callers, out-of-module sink\n  specialisations, called three getters per entry.\n- The run's branch is marked unlikely so LLVM saves the vector registers around the call rather\n  than at every entry to the walk.\n\nThe kernel alone on Twitter escaped:\n\n| Step | µs |\n| --- | ---: |\n| pairs as two escapes (v1) | 161.7 → 149.5 |\n| four at a time, inline, constants hoisted into d8–d15 (v2) | 85 |\n| the run out of line (v3) | 87.5 |\n| the run past its block (v5; bounded to the block's slack, 85.2) | 70.2 |\n| the two-escape remainder (v8) | 69.0–70.7 → 62.9–65.8 |\n\nOn `Fast Unicode escaped string` (two-byte scalars and surrogate pairs) the kernel alone took 4.9 µs\nbefore this, 13.6 with the shape check unguarded and 8.8 with the lead-digit test. Twelve mutations\nof the shape check, the pair rules, the run advance and the remainder were each caught by the new\ntests.",
@@ -75830,6 +75983,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6300,
         "markdown" : "*Recorded 2026-11-10.*\n\nAgainst 9e1e98dc plus the `\\u` run loop, aligned, 3 rounds, quiet machine: Twitter escaped bulk\n+19.3% [+19.2 .. +20.6] raw, +12.6% [+12.5 .. +12.7] typed; byte by byte +0.1% / 0.0%; the other\n41 rows within -0.8% .. +1.2%.",
@@ -75851,6 +76013,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6308,
         "markdown" : "*Recorded 2026-11-10.*\n\nWithout validation the kernel took LLM 169.5 → 134.0 µs (validation is 21%) and GSoC 220 → 213.\n`stream_parsing_utf8_validate_neon` over the source at the kernel's exit, when an accumulator saw a\nhigh byte, in place of the per-block vectors: LLM 214.5 µs (+26%), GSoC 213.5, Twitter escaped\n162.9. It runs about 5 ns per 64 bytes over every byte of a tail with any non-ASCII, and every LLM\ntail has some; the per-block placement validates one vector a block. A post-pass over flagged\nblocks (5,080 blocks × 4 vectors) was estimated at the same 35 µs and not built.\n`__builtin_expect(validating > 0, 1)` was noise.",
@@ -75872,6 +76043,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6320,
         "markdown" : "*Recorded 2026-11-10.*\n\nEvery escape decoded independently with a `csel` UTF-8 encode: Twitter escaped 336 µs (2× the\nbaseline), LLM 218. It is instruction-bound, and the baseline's branches predict on uniform text.",
@@ -75893,6 +76073,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6327,
         "markdown" : "*Recorded 2026-11-10.*\n\nWithout the test (v8), against 9e1e98dc: Fast Unicode escaped string -59.5% [-61.1 .. -59.5], every\nescape entering the run and failing. With the test in the walk at the call (v10), against 9e1e98dc\nplus the run loop: Twitter escaped +19.8% / +12.6%, LLM bulk -3.0% [-3.1 .. -2.9], typed -1.7%,\n16KB -3.1% / -1.9%, Fast Escaped string -11.6% [-12.3 .. -11.6], GSoC -0.9%. The extra loads and\ncompares raised register pressure in a loop with a call, and the kernel spilled `wide` (the\nvalidation state) with a store and a reload per validated block. The test moved inside\n`stream_parsing_unescape_bmp_run`.",
@@ -75914,6 +76103,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6339,
         "markdown" : "*Recorded 2026-11-10.*\n\nv11 inlined the run with its fourteen constants in a table behind a pointer made opaque by an empty\n`asm`: the block loop was spill-free and the kernel alone as fast as the out-of-line run (also at\n`-Os`, which SwiftPM uses for C). Raw Twitter escaped read +6.2% [+4.7 .. +6.3] against 9e1e98dc plus\nthe run loop where the out-of-line form read +20.8% [+20.3 .. +20.9] in the same rounds (1679 against\n1916 MB/s). The cause was not identified.",
@@ -75935,6 +76133,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6349,
         "markdown" : "*Recorded 2026-11-10.*\n\nLLM's escaped tails have a median of 1,870 bytes, under the 4,096-byte buffer, so each value is\nflushed once, whole. `memmove` is 6.2% of typed LLM: 1 MB copied at about 55 GB/s. Only decoding\ninto `StreamString`'s storage would remove it, which is the lend measured and rejected earlier. Not\nbuilt.",
@@ -75956,6 +76163,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6358,
         "markdown" : "*Recorded 2026-11-10.*\n\nThirteen variants of `consumeStructuralBlocks` were built and none landed. The tests written for\nthem did (`StructuralBlockWalkTests`: strings crossing a block edge with every kind of byte at every\nposition on both sides, closing at every distance past the edge, and cut by the chunk anywhere).\n\nIn the baseline `FastCountingSink` walk (1,184 instructions) `state` is loaded from `[x3]` at 14\nsites, `depth` through a pointer in a callee-saved register, and the container stack through a\nstack slot holding its address. x19–x28 are all in use and six caller-saved values are reloaded\nafter every call. A control build of the baseline in the experiment's worktree had byte-identical\nhot symbols and read 0.0% ± 0.2% on every row.",
@@ -75976,6 +76192,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6372,
         "markdown" : "*Recorded 2026-11-10.*\n\nFour forms, all against 9e1e98dc, 3 rounds (v7a and v7b in a run with one round disturbed by\noutside load):\n\n| Form | Code | Result |\n| --- | --- | --- |\n| v1: `state`, `depth`, `containers` as locals, written back by `defer` | 1,184 → 1,328 instructions; `state` in a caller-saved register, rematerialised after calls; `depth` spilled around them | CITM -2.1% raw / -2.4% typed (every round), GitHub -1.0% / -1.2%, LLM -2.7% / -1.8%, GSoC raw -1.4%, Twitter raw -1.2% |\n| v5: `state` alone as a local | | measured only in a run discarded for outside load |\n| v7a: the fields read directly, no `inout` parameters | frame 0x160 → 0x120, stack loads 77 → 45 | -0.5% .. -1.8% on most rows (GitHub typed -1.4%, Twitter -1.4% / -0.9%, CITM raw -1.8%) |\n| v7b: v7a with `state` in a callee-saved register | | raw -1% .. -2%, typed ±0.5% |\n\nIn the profile of v7b the sample cluster at `ldrb w8, [x3]` (10.4%) moved to the byte load before it:\nit is the dispatch branch resolving, not the state load.",
@@ -76078,6 +76303,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6389,
         "markdown" : "*Recorded 2026-11-10.*\n\nFor a string that does not close in its block, the scan starts at\n`p + tzcnt(backslash & ~consumed)` (64 when there is none) seeded with the block's non-ASCII flag\n(K2a), instead of at the opening quote. For a string with an escape in the block, the run up to the\nfirst backslash is read off the mask with no scan (K2b). The pair measured positive; each half alone\ndid not. 5 rounds, load 2.5–5, median p0 [range] against 9e1e98dc:\n\n| Row | K2a + K2b | K2a | K2b |\n| --- | ---: | ---: | ---: |\n| CITM, typed | +1.5% [+1.2 .. +1.7] | -1.6% [-1.8 .. -1.3] | -1.0% [-1.1 .. -0.8] |\n| Twitter, typed | +0.8% [+0.6 .. +1.0] | -0.5% [-1.4 .. -0.4] | -0.7% [-1.0 .. -0.4] |\n| Twitter spaced, typed | +1.3% [+1.2 .. +1.5] | -0.7% [-0.9 .. -0.3] | -0.5% [-0.7 .. -0.3] |\n| Twitter full, typed | +1.0% [+0.7 .. +1.7] | -0.1% | -0.2% |\n| GitHub, typed | +0.6% | -0.1% | -0.9% |\n| CITM, raw | -0.7% | -2.2% [-2.2 .. -2.2] | -0.3% |\n| Twitter, raw | -0.7% | -0.5% | -0.3% |\n| Pretty printed - bulk | -3.6% [-4.3 .. -1.5] | -5.7% [-6.4 .. -2.9] | -0.8% |\n| Twitter escaped - byte by byte | +8.7% [+8.6 .. +8.8] | 0.0% | +3.2% [+3.0 .. +3.3] |\n| LLM - byte by byte, typed | -3.3% [-3.4 .. -3.2] | +0.2% | +0.2% |\n\nCITM has no escapes and K2b touches only the escape arm, yet K2b alone moved typed CITM -1.0%. The\npair's typed gain is the code placement of that exact source, the best of thirteen variants, not the\nmechanism; it was not expected to survive next to other changes in the module. The Pretty printed\nloss follows K2a.",
@@ -76628,6 +76862,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6417,
         "markdown" : "*Recorded 2026-11-10.*\n\n`tbz` on the quote mask's bit, then the state compare, instead of a byte load. Built on K2 and the\nmask advance below; 5 rounds, load 3–5, against 9e1e98dc: raw GitHub +4.0%, Twitter +2.6%; typed CITM\n-1.9% [-2.7 .. -1.6], CITM 16KB -1.5%, Twitter -1.0%, Twitter escaped -0.9%, Twitter spaced -0.9%,\nTwitter full -0.8%, GitHub -1.0%, every round. Its own share: raw +1.3% .. +1.9%, typed -0.6% ..\n-2.6%.",
@@ -76649,6 +76892,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6427,
         "markdown" : "*Recorded 2026-11-10.*\n\nFor an in-block string or key, the mask is advanced past the token before the emit (a two-shift\n`rest`), with no re-anchor branch. On v7b (v8b) against 9e1e98dc, 3 rounds with one disturbed by\noutside load: GitHub +1.6% / +1.4%, CITM typed +1.7%, GSoC raw -1.2%, about +1.5% raw over v7b. On\nthe original calling convention with K2 (v10), 5 rounds: raw GitHub +2.7%, Twitter +0.7%; typed\nCITM +0.7%, Twitter -0.4%, Twitter full -0.5%, LLM -1.9%, GSoC -0.4%. Its own share: raw +1.4% ..\n+2%, typed about -1%.",
@@ -76670,6 +76922,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6438,
         "markdown" : "*Recorded 2026-11-10.*\n\nOn top of the quote decision (v12 over v11): typed +0.4% .. +1.3%, raw +0.6% .. +0.9%. In the\noriginal loop shape with K2 (v13), 5 rounds: typed Twitter +1.2%, CITM +0.9%, raw CITM -2.9% (-2.2%\nagainst K2 alone). The value's comma was rejected in the walk before\n(\"Rejected: the value's comma, taken with the value in the block walk\").",
@@ -76691,6 +76952,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6447,
         "markdown" : "*Recorded 2026-11-10.*\n\nv12 is K2, the mask advance, the quote decision and the comma together. Gate against 9e1e98dc, 3\nrounds, load 3–6:\n\n| Row | Raw | Typed |\n| --- | ---: | ---: |\n| GitHub events | +4.9% [+4.3 .. +5.1] | -0.2% |\n| Twitter spaced | +4.0% | +0.4% |\n| Twitter, bulk / 16KB | +3.1% / +3.1% | -0.7% / -0.3% |\n| GSoC 2018, bulk / 16KB | +2.0% / +2.0% | 0.0% / -0.1% |\n| Pretty printed users, bulk | +2.3% | |\n| Separators literals indented | +2.7% | -1.4% [-3.2 .. -1.2] |\n| CITM catalog, bulk / 16KB | +0.3% / +0.2% | -0.6% / -0.9% |\n| Twitter full, bulk / 16KB | | -0.2% / +0.1% |\n| Twitter escaped - byte by byte | +8.6% | +0.1% |\n\nTyped rows decide; the walk's `PartialSink` copy is a different register allocation, and typed\nTwitter spends 20% of its time in `consumeSkipBlocks`.",
@@ -77017,6 +77287,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 3,
         "line" : 6469,
         "markdown" : "*Recorded 2026-11-10.*\n\nRaw Twitter escaped byte by byte read +8.6% to +9.1% in the walk gates (K2, v12), the skip\nclassifier's gate, the key and copy gate, and the `\\u` loop measured on top of the kernel; Pretty\nprinted byte by byte +3.3% to +3.7%, typed LLM byte by byte -3.4%. Those rows never run the block\nwalk, and `parse`, `consumeStringRun` and `consumeStructuralRun` were opcode-identical. K2b alone puts\n`parse`, `consumeStringRun`, `consumeStructuralRun` and `coalescedEscapedStringTail` at the same\naddresses as the K2 pair and reads +3.2% / +0.2% where the pair reads +8.7% / -3.3%, so 128-byte\nalignment of those functions does not explain it. The mechanism was not identified. Against the\nsession's start the row reads +0.3%.",
@@ -77038,6 +77317,15 @@
         "codeBlocks" : [
 
         ],
+        "history" : {
+          "recorded" : "2026-11-10T03:51:51-08:00",
+          "recordedCommit" : "699939eba",
+          "recordedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revised" : "2026-11-10T03:51:51-08:00",
+          "revisedCommit" : "699939eba",
+          "revisedSubject" : "Log the session's round-two changes and the rejected walk reworks",
+          "revisions" : 1
+        },
         "level" : 2,
         "line" : 6482,
         "markdown" : "*Recorded 2026-11-10.*\n\na266c77f against 5a61414f: every change logged from \"Landed: the sink's array appends prove the tail\nunique once per parse call\" to here, and the chunk-cut number change (312c63d1). Aligned builds, 3\ninterleaved rounds, quiet machine (load 4–6), median p0 [per-round range]. The Mesh 16KB rows include\nthe chunk-cut change.\n\n| Row | Change |\n| --- | ---: |\n| Real CITM catalog - 16KB chunks | +0.9% [+0.8 .. +0.9] |\n| Real CITM catalog - 16KB chunks discarding | +28.2% [+28.0 .. +28.3] |\n| Real CITM catalog - bulk | +0.9% [+0.8 .. +0.9] |\n| Real CITM catalog - bulk discarding | +28.1% [+28.0 .. +29.4] |\n| Real Canada - 16KB chunks | +13.5% [+13.5 .. +13.6] |\n| Real Canada - 16KB chunks discarding | +20.0% [+19.9 .. +20.1] |\n| Real Canada - bulk | +13.4% [+13.3 .. +13.4] |\n| Real Canada - bulk discarding | +20.0% [+20.0 .. +20.1] |\n| Real GSoC 2018 - 16KB chunks | +1.1% [+1.0 .. +1.3] |\n| Real GSoC 2018 - 16KB chunks discarding | +10.1% [+9.9 .. +10.5] |\n| Real GSoC 2018 - bulk | +0.1% [-0.1 .. +0.2] |\n| Real GSoC 2018 - bulk discarding | +9.8% [+9.6 .. +9.9] |\n| Real GitHub events - bulk | +1.4% [+1.2 .. +1.6] |\n| Real GitHub events - bulk discarding | +20.2% [+17.7 .. +21.1] |\n| Real LLM message - 16KB chunks | +44.2% [+43.7 .. +44.9] |\n| Real LLM message - 16KB chunks discarding | +26.7% [+26.6 .. +27.0] |\n| Real LLM message - bulk | +43.7% [+43.5 .. +43.7] |\n| Real LLM message - bulk discarding | +27.5% [+27.4 .. +27.8] |\n| Real LLM message - byte by byte | +0.1% [+0.1 .. +0.1] |\n| Real LLM message - byte by byte discarding | -0.1% [-0.1 .. -0.0] |\n| Real Mesh - 16KB chunks | +17.5% [+17.4 .. +17.7] |\n| Real Mesh - 16KB chunks discarding | +42.9% [+42.9 .. +43.0] |\n| Real Mesh - bulk | +0.8% [+0.8 .. +0.9] |\n| Real Mesh - bulk discarding | +23.2% [+23.2 .. +23.3] |\n| Real Qwen 3 structured response - bulk | +0.0% [+0.0 .. +3.2] |\n| Real Qwen 3 structured response - bulk discarding | +17.4% [+17.0 .. +17.6] |\n| Real Qwen 3 workspace edit tool call - bulk | +3.9% [+3.5 .. +4.3] |\n| Real Qwen 3 workspace edit tool call - bulk discarding | +5.1% [+4.5 .. +5.2] |\n| Real Twitter - 16KB chunks | +3.2% [+3.1 .. +3.4] |\n| Real Twitter - 16KB chunks discarding | +9.9% [+9.8 .. +9.9] |\n| Real Twitter - bulk | +3.1% [+3.0 .. +3.2] |\n| Real Twitter - bulk discarding | +9.4% [+9.4 .. +9.7] |\n| Real Twitter escaped - bulk | +42.4% [+40.7 .. +43.3] |\n| Real Twitter escaped - bulk discarding | +26.3% [+26.3 .. +26.6] |\n| Real Twitter escaped - byte by byte | +0.3% [+0.3 .. +0.4] |\n| Real Twitter escaped - byte by byte discarding | +0.1% [+0.1 .. +0.2] |\n| Real Twitter full - 16KB chunks discarding | +20.7% [+20.7 .. +20.7] |\n| Real Twitter full - bulk discarding | +20.6% [+20.5 .. +20.7] |\n| Real Twitter spaced - bulk | +5.1% [+4.8 .. +5.2] |\n| Real Twitter spaced - bulk discarding | +10.2% [+10.1 .. +10.4] |\n\nBest of the three rounds, bulk p0, MB/s, start → end:\n\n| Payload | Raw | Typed |\n| --- | ---: | ---: |\n| CITM catalog | 2780 → 2805 | 911 → 1167 |\n| Canada | 1160 → 1315 | 732 → 879 |\n| GSoC 2018 | 4986 → 4983 | 1488 → 1635 |\n| GitHub events | 2709 → 2747 | 1563 → 1892 |\n| LLM message | 3779 → 5425 | 2713 → 3462 |\n| Mesh | 988 → 996 | 675 → 831 |\n| Qwen 3 structured response | 2253 → 2253 | 478 → 562 |\n| Qwen 3 workspace edit tool call | 2125 → 2209 | 712 → 748 |\n| Twitter | 2319 → 2389 | 2645 → 2897 |\n| Twitter escaped | 1347 → 1908 | 1872 → 2365 |\n| Twitter full | | 841 → 1013 |\n| Twitter spaced | 1946 → 2042 | 2222 → 2449 |",
@@ -78387,17 +78675,17 @@
     ],
     "title" : "Progression"
   },
-  "generatedAt" : "2026-11-10T11:50:01Z",
+  "generatedAt" : "2026-11-10T11:52:02Z",
   "sources" : {
 
   },
   "stats" : {
     "codeBlockCount" : 1,
-    "datedSections" : 398,
+    "datedSections" : 430,
     "declCount" : 2207,
     "fileCount" : 73,
     "firstRecorded" : "2026-08-11T21:38:05-07:00",
-    "lastRecorded" : "2026-11-09T21:20:08-08:00",
+    "lastRecorded" : "2026-11-10T03:51:51-08:00",
     "sectionCount" : 430,
     "tableCount" : 226,
     "verdictCounts" : {

@@ -1805,7 +1805,7 @@
       "symbol" : "oracle"
     }
   },
-  "generatedAt" : "2026-11-10T11:50:01Z",
+  "generatedAt" : "2026-11-10T11:52:02Z",
   "guides" : {
     "macro-support" : {
       "path" : "Sources/StreamParsingMacroSupport/Documentation.docc/StreamParsingMacroSupport.md",
