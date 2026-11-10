@@ -609,6 +609,56 @@ stream_parsing_base64_decode_neon(const void *source, ptrdiff_t groups, void *ou
   }
   return group;
 }
+
+// MARK: - The escaped string tail's block kernel (Unescape.c)
+
+// Why the kernel returned. `POSITIONAL`: the source or the target ran out of slack, mid-content.
+// `STOP`: `source[consumed]` is a quote, a control byte, or the backslash of an escape with a
+// diagnostic (an unknown selector, bad hex, a surrogate without its pair). `INVALID`: the block at `source[consumed]` failed the UTF-8 check, which covers
+// all 64 of its bytes and so says only that the caller must look for itself. `QUIET`: mid-content
+// again, after `STREAM_PARSING_UNESCAPE_QUIET_RUN` blocks without an escape -- text the caller's
+// own scan is faster on.
+#define STREAM_PARSING_UNESCAPE_POSITIONAL 0u
+#define STREAM_PARSING_UNESCAPE_STOP 1u
+#define STREAM_PARSING_UNESCAPE_INVALID 2u
+#define STREAM_PARSING_UNESCAPE_QUIET 3u
+
+// A block is taken only while this many source bytes are readable and this many target bytes
+// writable from the cursors: the block, a surrogate pair begun on its last byte (eleven more),
+// and the 64-byte recopy that follows an escape. An escape decoded at position 64, which is how
+// an absent one is spelled, reads less: its selector is byte 65 and its recopy starts at byte 66.
+#define STREAM_PARSING_UNESCAPE_SOURCE_SLACK 140
+#define STREAM_PARSING_UNESCAPE_TARGET_SLACK 140
+
+// The four bytes in front of `source` must be readable too: the UTF-8 check loads them.
+#define STREAM_PARSING_UNESCAPE_SOURCE_LEAD 4
+
+// How many blocks are validated from one that holds a non-ASCII byte, itself included.
+#define STREAM_PARSING_UNESCAPE_VALIDATION_RUN 16
+
+// How many blocks in a row without an escape end the call.
+#define STREAM_PARSING_UNESCAPE_QUIET_RUN 16
+
+// Two words, so the result comes back in registers. Measured on values that end inside their
+// first block (`Qwen 3 workspace edit`, 96 of them): returned through a pointer, the caller's
+// reload sat behind the kernel's store and its frame grew a stack protector for the
+// address-taken local, 3.0% of the typed parse in the caller alone.
+typedef struct {
+  // Source bytes taken.
+  ptrdiff_t consumed;
+  // Bytes written, shifted left two, with the reason in the low two bits. The two counts differ
+  // by what the escapes decoded removed.
+  ptrdiff_t produced_and_reason;
+} stream_parsing_unescape_result;
+
+// Copies string content from `source` to `target` in whole 64-byte blocks, decoding escapes
+// (`\uXXXX` and surrogate pairs included) and validating UTF-8 (with `stream_parsing_utf8_block_errors` and the caller's three
+// tables). Nothing past `count` is read and nothing past `room` written; bytes past `produced` in
+// the target are junk. Everything up to `consumed` is valid UTF-8 ending on a sequence boundary.
+stream_parsing_unescape_result stream_parsing_unescape_blocks(
+    const uint8_t *source, ptrdiff_t count, uint8_t *target, ptrdiff_t room,
+    stream_parsing_u8x16 utf8_previous_high, stream_parsing_u8x16 utf8_previous_low,
+    stream_parsing_u8x16 utf8_current_high);
 #endif
 
 // MARK: - x86: the AVX2 tier

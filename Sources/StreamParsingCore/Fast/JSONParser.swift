@@ -1,3 +1,5 @@
+import StreamParsingShims
+
 // MARK: - Error
 
 /// Why the parser rejected its input, and where.
@@ -1057,7 +1059,20 @@ public struct JSONParser: ~Copyable {
       return i
     }
     i = fused
+    #if arch(arm64)
+      var blockwise = true
+    #endif
     while true {
+      #if arch(arm64)
+        // Whole blocks first, wherever there is room for them. What follows is the loop for what
+        // the block path leaves -- the end of the value, the end of the chunk, anything with a
+        // diagnostic, the rest of a run too long for a block to pay -- and it turns the block path
+        // back on after a run of 64 bytes or more, which is the end of the long run it was handed.
+        if blockwise {
+          blockwise = false
+          i = try self.coalescedEscapedBlocks(base: base, from: i, to: to, into: &sink)
+        }
+      #endif
       // The scan stores each block it reads behind `bufferCount`, so a run is in the buffer by the
       // time its end is known (`streamStringRunStaging`). Staged bytes count for nothing until
       // `bufferCount` moves over them, which is after the checks that can throw. Staging stops
@@ -1081,6 +1096,9 @@ public struct JSONParser: ~Copyable {
             base: base, from: i, to: emitEnd, containsNonASCII: run.containsNonASCII, reportAt: nil
           )
           let count = emitEnd &- i
+          #if arch(arm64)
+            blockwise = count >= 64
+          #endif
           let staged = Swift.min(scan.staged, count)
           self.bufferCount &+= UInt32(staged)
           if staged < count {
@@ -1127,6 +1145,51 @@ public struct JSONParser: ~Copyable {
       }
     }
   }
+
+  #if arch(arm64)
+    // The tail's content taken 64 bytes at a time by `stream_parsing_unescape_blocks` (Unescape.c),
+    // which copies into the coalescing buffer, decodes escapes and validates UTF-8 in one pass.
+    // Returns where the per-run loop takes over: at the closing quote, at anything with a
+    // diagnostic, within 139 bytes of the chunk end, or a kilobyte into a run with no escape at
+    // all (the kernel's own call: the loop's scan is the faster one there). That loop is also the
+    // fallback for everything this declines, which is why nothing here reports an error of its
+    // own: a block the kernel will not vouch for is read again by the loop that knows which byte
+    // to name.
+    //
+    // Out of line: it is entered once per value, or once per change of texture within one, and
+    // inlined it would put the kernel's bookkeeping in the per-run loop's registers.
+    @inlinable
+    @inline(never)
+    mutating func coalescedEscapedBlocks<Sink: StreamParseSink & ~Copyable>(
+      base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
+    ) throws(JSONParsingError) -> Int {
+      var i = from
+      guard self.highSurrogate == 0, i >= Int(STREAM_PARSING_UNESCAPE_SOURCE_LEAD) else { return i }
+      while to &- i >= Int(STREAM_PARSING_UNESCAPE_SOURCE_SLACK) {
+        var at = Int(self.bufferCount)
+        let capacity = Int(self.bufferCapacity)
+        if capacity &- at < Int(STREAM_PARSING_UNESCAPE_TARGET_SLACK) {
+          // Too little room for a block: hand over what is buffered, unless the buffer is a
+          // caller's small one that could never hold a block.
+          guard capacity >= Int(STREAM_PARSING_UNESCAPE_TARGET_SLACK) else { break }
+          try self.flushStringBuffer(into: &sink, end: i)
+          at = 0
+        }
+        let result = stream_parsing_unescape_blocks(
+          base.advanced(by: i).assumingMemoryBound(to: UInt8.self), to &- i,
+          self.bufferBase + at, capacity &- at,
+          streamUTF8PreviousHighTable, streamUTF8PreviousLowTable, streamUTF8CurrentHighTable
+        )
+        self.bufferCount = UInt32(truncatingIfNeeded: at &+ (result.produced_and_reason &>> 2))
+        i &+= result.consumed
+        // Out of source or target slack: flush or leave, as the two tests above decide.
+        guard result.produced_and_reason & 3 == Int(STREAM_PARSING_UNESCAPE_POSITIONAL) else {
+          break
+        }
+      }
+      return i
+    }
+  #endif
 
   // A string value whose scan stopped on a backslash with the closing quote in the chunk, done
   // here instead of handed back (out of line by force); what it cannot finish it leaves in
