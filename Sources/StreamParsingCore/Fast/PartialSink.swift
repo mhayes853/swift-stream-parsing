@@ -112,6 +112,17 @@ public struct PartialSink: ~Copyable, StreamParseSink {
   // dictionary schema's `elementSchema`. Consumed by the value that follows.
   @usableFromInline var pendingDictionaryStorage: UnsafeMutableRawPointer?
 
+  // The address of a `StreamArray` tail block this parse call has already proved unique, so the
+  // number and fixed-width element appends skip the runtime uniqueness call on it; see
+  // `StreamArray.nextSlot(knownUniqueTail:)` for why that holds within a call. Forgotten by
+  // `commit()` -- the end of every parse call, and so before any copy a caller can take -- and
+  // by `reset()`. A driver that feeds this sink without a parser must call `commit()` before
+  // copying the destination.
+  @usableFromInline var knownUniqueTail: UInt = PartialSink.noKnownUniqueTail
+
+  // Never an object address, and never equal to the zero a missing tail reads as.
+  @usableFromInline static var noKnownUniqueTail: UInt { 1 }
+
   // The frame stack: one fixed allocation (the parser caps depth), sparing `key(_:)` the uniqueness
   // and bounds checks an `Array` charged per key. Capacity is the cap plus one: the cap is checked
   // *after* the sink is told a container opened, so the rejected depth's frame arrives first.
@@ -186,6 +197,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     self.scalarTarget = nil
     self.homogeneousStringStorage = nil
     self.stringResultRaw = 0
+    self.knownUniqueTail = Self.noKnownUniqueTail
+  }
+
+  /// Marks the end of a parse call. The sink forgets the storage it proved unique during the call,
+  /// so a copy of the destination taken after this is never written into.
+  public mutating func commit() {
+    self.knownUniqueTail = Self.noKnownUniqueTail
   }
 
   // MARK: Frame stack
@@ -932,32 +950,32 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     case .arraySIMD2Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD2<Double>>.self
-      ).pointee._openElement(.zero)
+      ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
     case .arraySIMD3Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD3<Double>>.self
-      ).pointee._openElement(.zero)
+      ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
     case .arraySIMD4Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD4<Double>>.self
-      ).pointee._openElement(.zero)
+      ).pointee.openElement(.zero, knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
     case .arrayOptionalSIMD2Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD2<Double>?>.self
-      ).pointee._openElement(.some(.zero))
+      ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD2DoubleSchema))
     case .arrayOptionalSIMD3Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD3<Double>?>.self
-      ).pointee._openElement(.some(.zero))
+      ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD3DoubleSchema))
     case .arrayOptionalSIMD4Double:
       let storage = top.pointee.storage.assumingMemoryBound(
         to: StreamArray<SIMD4<Double>?>.self
-      ).pointee._openElement(.some(.zero))
+      ).pointee.openElement(.some(.zero), knownUniqueTail: &self.knownUniqueTail)
       self.pushFrame(BorrowedFrame(storage: storage, schema: _streamSIMD4DoubleSchema))
     default:
       preconditionFailure("A non-SIMD-array route reached the closed SIMD element opener")
@@ -974,10 +992,13 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     guard let top = self.topFrame else { return }
     top.pointee.storage.assumingMemoryBound(to: StreamArray<Double>.self).pointee
-      ._appendClosed(value)
+      .appendClosed(value, knownUniqueTail: &self.knownUniqueTail)
   }
 
-  @inline(__always)
+  // `@_transparent`, not `@inline(__always)`: once the append carried `knownUniqueTail`, the
+  // attribute stopped holding here and `number` tail-called an outlined copy with its own
+  // five-pair prologue. Measured inline again: Mesh typed +1.0%, CITM typed +1.1%.
+  @_transparent
   private mutating func appendHomogeneousInt(_ bytes: Span<UInt8>, info: NumberInfo) {
     guard let value = Int(streamParsing: bytes, info: info) else {
       self.recordFailure(.typeMismatch)
@@ -985,7 +1006,7 @@ public struct PartialSink: ~Copyable, StreamParseSink {
     }
     guard let top = self.topFrame else { return }
     top.pointee.storage.assumingMemoryBound(to: StreamArray<Int>.self).pointee
-      ._appendClosed(value)
+      .appendClosed(value, knownUniqueTail: &self.knownUniqueTail)
   }
 
   // The lane store for a `SIMD2/3/4<Double>` frame (Canada's coordinates). These routes exist only

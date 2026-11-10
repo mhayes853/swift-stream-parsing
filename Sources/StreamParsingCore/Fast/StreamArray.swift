@@ -134,7 +134,10 @@ public struct StreamArray<Element> {
   @inline(__always)
   mutating func nextSlot() -> UnsafeMutablePointer<Element> {
     if self.tail != nil, self.tailCount < self.tail.unsafelyUnwrapped.slotCapacity {
-      self.ensureUniqueTail()
+      // Only the test is inline; the copy a shared tail needs is out of line. Measured: as a call
+      // to an outlined `ensureUniqueTail`, its frame was 4.6% of typed Mesh on top of the runtime
+      // call itself.
+      if _slowPath(!isKnownUniquelyReferenced(&self.tail)) { self.copySharedTail() }
       return self.tail.unsafelyUnwrapped.base + self.tailCount
     }
     return self.prepareSlot()
@@ -195,7 +198,13 @@ public struct StreamArray<Element> {
   @inline(__always)
   mutating func drainPending() {
     guard self.pending != nil else { return }
-    let slot = self.nextSlot()
+    self.movePending(to: self.nextSlot())
+  }
+
+  // `drainPending`'s move and count, for a slot already chosen.
+  @inlinable
+  @inline(__always)
+  mutating func movePending(to slot: UnsafeMutablePointer<Element>) {
     withUnsafeMutablePointer(to: &self.pending) { box in
       slot.moveInitialize(
         from: UnsafeMutableRawPointer(box).assumingMemoryBound(to: Element.self),
@@ -234,6 +243,13 @@ public struct StreamArray<Element> {
   @inlinable
   mutating func ensureUniqueTail() {
     guard self.tail != nil, !isKnownUniquelyReferenced(&self.tail) else { return }
+    self.copySharedTail()
+  }
+
+  // Replaces a shared, non-nil tail with a copy of its initialized elements.
+  @inlinable
+  @inline(never)
+  mutating func copySharedTail() {
     let old = self.tail.unsafelyUnwrapped
     self.tail = old.copy(count: self.tailCount, capacity: old.slotCapacity)
   }
@@ -697,5 +713,63 @@ extension StreamArray {
   public mutating func _appendClosed(_ element: Element) {
     // `appendSealed` is `@inline(__always)` for this call site; see its note.
     self.appendSealed(element)
+  }
+}
+
+// MARK: - Appends into a tail the sink already proved unique
+
+// A tail stays unique until something copies the array, and nothing can between two tokens of one
+// parse call: no caller code runs inside the call, and the sink never copies a destination
+// (template copies are made *from* storage no append targets; closed elements move). So the sink
+// proves a tail unique once per call and remembers the block's address in `known`;
+// `PartialSink.commit()` and `reset()` forget it, which is where a caller can copy again.
+// Measured: the per-element `swift_isUniquelyReferenced_native` call, through a dyld stub, was ~9%
+// of typed Mesh. PROGRESSION.md, "Landed: ordinary copy-on-write on streaming collection tails",
+// names this as a follow-up.
+extension StreamArray {
+  // The tail's object address as a word, read off the stored optional with no reference formed;
+  // zero for no tail.
+  @inlinable
+  @inline(__always)
+  var tailBits: UInt {
+    mutating get {
+      withUnsafeMutablePointer(to: &self.tail) { UnsafeRawPointer($0).load(as: UInt.self) }
+    }
+  }
+
+  // `nextSlot` against a remembered unique tail. `known` is never zero (the sink's empty value is
+  // `PartialSink.noKnownUniqueTail`), so a hit implies a tail exists. A miss runs the ordinary
+  // path, and whatever tail that leaves -- checked, copied or freshly allocated -- is unique.
+  @inlinable
+  @inline(__always)
+  mutating func nextSlot(knownUniqueTail known: inout UInt) -> UnsafeMutablePointer<Element> {
+    if self.tailBits == known, self.tailCount < self.tail.unsafelyUnwrapped.slotCapacity {
+      // Debug builds ask the runtime anyway, so every test that appends checks the claim.
+      assert(isKnownUniquelyReferenced(&self.tail), "A remembered unique tail is shared")
+      return self.tail.unsafelyUnwrapped.base + self.tailCount
+    }
+    let slot = self.nextSlot()
+    known = self.tailBits
+    return slot
+  }
+
+  // `_appendClosed` for the sink's homogeneous number routes.
+  @inlinable
+  @inline(__always)
+  mutating func appendClosed(_ element: Element, knownUniqueTail known: inout UInt) {
+    if self.pending != nil { self.movePending(to: self.nextSlot(knownUniqueTail: &known)) }
+    self.nextSlot(knownUniqueTail: &known).initialize(to: element)
+    self.advance()
+  }
+
+  // `_openElement(_:)` for the sink's fixed-width element opens.
+  @inlinable
+  @inline(__always)
+  mutating func openElement(
+    _ initial: Element, knownUniqueTail known: inout UInt
+  ) -> UnsafeMutableRawPointer {
+    if self.pending != nil { self.movePending(to: self.nextSlot(knownUniqueTail: &known)) }
+    self.pending = initial
+    return withUnsafeMutablePointer(to: &self.pending) { UnsafeMutableRawPointer($0) }
   }
 }
