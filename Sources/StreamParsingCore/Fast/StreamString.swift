@@ -69,6 +69,55 @@ final class StreamStringChunk: ManagedBuffer<StreamStringChunkHeader, UInt8> {
   }
 }
 
+// Copies `count` bytes, 0...64, between two non-overlapping ranges without a `memmove` call:
+// overlapping 16-byte moves from both ends at 16...64 (two pairs past 32), and an 8/4/2/1 ladder
+// below. Every load stays inside `[source, source + count)` -- a span is exact, so nothing past its
+// end is known to be readable -- and every store inside `[destination, destination + count)`.
+// Each size class loads before it stores.
+@inlinable
+@inline(__always)
+func streamCopyShortBytes(
+  _ destination: UnsafeMutableRawPointer, _ source: UnsafeRawPointer, count: Int
+) {
+  if count >= 16 {
+    let head0 = source.loadUnaligned(as: UInt64.self)
+    let head1 = source.loadUnaligned(fromByteOffset: 8, as: UInt64.self)
+    let tail0 = source.loadUnaligned(fromByteOffset: count &- 16, as: UInt64.self)
+    let tail1 = source.loadUnaligned(fromByteOffset: count &- 8, as: UInt64.self)
+    if count > 32 {
+      let second0 = source.loadUnaligned(fromByteOffset: 16, as: UInt64.self)
+      let second1 = source.loadUnaligned(fromByteOffset: 24, as: UInt64.self)
+      let third0 = source.loadUnaligned(fromByteOffset: count &- 32, as: UInt64.self)
+      let third1 = source.loadUnaligned(fromByteOffset: count &- 24, as: UInt64.self)
+      destination.storeBytes(of: second0, toByteOffset: 16, as: UInt64.self)
+      destination.storeBytes(of: second1, toByteOffset: 24, as: UInt64.self)
+      destination.storeBytes(of: third0, toByteOffset: count &- 32, as: UInt64.self)
+      destination.storeBytes(of: third1, toByteOffset: count &- 24, as: UInt64.self)
+    }
+    destination.storeBytes(of: head0, as: UInt64.self)
+    destination.storeBytes(of: head1, toByteOffset: 8, as: UInt64.self)
+    destination.storeBytes(of: tail0, toByteOffset: count &- 16, as: UInt64.self)
+    destination.storeBytes(of: tail1, toByteOffset: count &- 8, as: UInt64.self)
+  } else if count >= 8 {
+    let head = source.loadUnaligned(as: UInt64.self)
+    let tail = source.loadUnaligned(fromByteOffset: count &- 8, as: UInt64.self)
+    destination.storeBytes(of: head, as: UInt64.self)
+    destination.storeBytes(of: tail, toByteOffset: count &- 8, as: UInt64.self)
+  } else if count >= 4 {
+    let head = source.loadUnaligned(as: UInt32.self)
+    let tail = source.loadUnaligned(fromByteOffset: count &- 4, as: UInt32.self)
+    destination.storeBytes(of: head, as: UInt32.self)
+    destination.storeBytes(of: tail, toByteOffset: count &- 4, as: UInt32.self)
+  } else if count >= 2 {
+    let head = source.loadUnaligned(as: UInt16.self)
+    let tail = source.loadUnaligned(fromByteOffset: count &- 2, as: UInt16.self)
+    destination.storeBytes(of: head, as: UInt16.self)
+    destination.storeBytes(of: tail, toByteOffset: count &- 2, as: UInt16.self)
+  } else if count == 1 {
+    destination.storeBytes(of: source.load(as: UInt8.self), as: UInt8.self)
+  }
+}
+
 /// String storage a parser appends raw UTF-8 to, decoding once when it is read.
 ///
 /// This is what a `String` member of a `@StreamParseable` type is stored as in its `Partial`.
@@ -256,6 +305,58 @@ public struct StreamString {
       self.setStartBlockShift(min(desiredShift, Self.maximumBlockShift))
     }
     self.promoteInlineStorage(reserving: needed)
+  }
+
+  // A whole string in one call -- `PartialSink.writeTableString`, the table's string member -- as
+  // `append(utf8:)` does it, with neither copy a `memmove` call. A short value takes the overlapping
+  // word copy (the call, through its stub and `memmove`'s size and overlap dispatch, cost more than
+  // the copy); a long one, landing on an empty value, takes one exact allocation and one copy in
+  // `promoteWholeInlineStorage`.
+  //
+  // A separate entry rather than a change to `append(utf8:)`, which the chunk path inlines all the
+  // way into `JSONParser.parse`: there a byte-fed chunk's constant length of one folds the
+  // `memmove` to a single `strb`, and either an outlined or an inlined ladder in its place cost
+  // typed LLM byte by byte 7-11% (outlined, a call per byte; inlined, `appendBlocked` stopped
+  // inlining into `parse`).
+  @inline(__always)
+  mutating func appendWhole(utf8 bytes: Span<UInt8>) {
+    bytes.withUnsafeBufferPointer { buffer in
+      guard let base = buffer.baseAddress, !buffer.isEmpty else { return }
+      guard self.usesInlineStorage else { return self.appendBlocked(buffer) }
+      let inlineCount = self.inlineCount
+      let needed = inlineCount &+ buffer.count
+      guard needed <= Self.inlineCapacity else { return self.promoteWholeInlineStorage(buffer) }
+      withUnsafeMutableBytes(of: &self.inlineBytes) { destination in
+        streamCopyShortBytes(
+          destination.baseAddress.unsafelyUnwrapped + inlineCount, UnsafeRawPointer(base),
+          count: buffer.count
+        )
+      }
+      self.inlineCount = needed
+    }
+  }
+
+  // `promoteSizedInlineStorage` followed by the append, for `appendWhole`. A value still empty
+  // whose bytes fit its first block without filling it -- nearly every whole string past the
+  // inline form -- is one exact allocation and one copy, skipping `appendBlocked`'s uniqueness
+  // call and loop over a chunk made a moment ago; that leaves the state `appendBlocked` would.
+  @inline(never)
+  mutating func promoteWholeInlineStorage(_ buffer: UnsafeBufferPointer<UInt8>) {
+    let count = self.inlineCount
+    let needed = count &+ buffer.count
+    let desiredShift = Int.bitWidth &- (needed &- 1).leadingZeroBitCount
+    if desiredShift > self.startBlockShift {
+      self.setStartBlockShift(min(desiredShift, Self.maximumBlockShift))
+    }
+    if count == 0, needed < self.startBlockCapacity {
+      let chunk = StreamStringChunk.make(capacity: needed, blocks: [])
+      chunk.bytes.initialize(from: buffer.baseAddress.unsafelyUnwrapped, count: needed)
+      chunk.count = needed
+      self.tail = chunk
+      return
+    }
+    self.promoteInlineStorage(reserving: needed)
+    self.appendBlocked(buffer)
   }
 
   @inlinable

@@ -3,7 +3,7 @@ import CustomDump
 import Testing
 
 import StreamParsing
-import StreamParsingCore
+@testable import StreamParsingCore
 
 @StreamParseable
 private struct StringFieldModel: Equatable {
@@ -562,5 +562,55 @@ struct `Stream String Word Tests` {
     expectNoDifference(StreamString("livestreams").isUTF8Prefix(of: "livestream"), false)
     expectNoDifference(StreamString("x").isUTF8Prefix(of: "livestream"), false)
     expectNoDifference(StreamString().isUTF8Prefix(of: "livestream"), true)
+  }
+
+  // A whole string (`appendWhole`, the table's string member) copies 64 bytes or fewer with
+  // overlapping words from both ends rather than `memmove`, and promotes an empty value with one
+  // exact allocation. Every length at every starting count -- inline up to the promotion, blocked
+  // across a seal -- with each source allocated at exactly its length so a read past the span has
+  // nothing to land on and a misplaced store shows up as a wrong byte; then a chunked append after
+  // it, which must find the storage `appendBlocked` would have left.
+  @Test
+  func `Whole appends land every byte at every length and offset`() {
+    func withExact(_ bytes: ArraySlice<UInt8>, _ body: (Span<UInt8>) -> Void) {
+      let exact = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: bytes.count)
+      defer { exact.deallocate() }
+      _ = exact.initialize(from: bytes)
+      body(Span(_unsafeElements: UnsafeBufferPointer(exact)))
+    }
+    let source = (0..<4_700).map { UInt8(truncatingIfNeeded: $0 &* 131 &+ 7) | 0x01 }
+    // Inline starts 0...64, then blocked starts on both sides of the first seal at 512.
+    let starts = Array(0...64) + [65, 100, 447, 448, 460, 500, 511]
+    let lengths = Array(1...70) + [100, 511, 512, 513, 1_023, 1_024, 2_000, 4_096]
+    for start in starts {
+      for length in lengths {
+        var value = StreamString()
+        if start > 0 {
+          withExact(source[0..<start]) { value.streamAppend(utf8: $0, info: StringInfo()) }
+        }
+        withExact(source[start..<(start + length)]) { value.appendWhole(utf8: $0) }
+        withExact(source[(start + length)..<(start + length + 70)]) {
+          value.streamAppend(utf8: $0, info: StringInfo())
+        }
+        let expected = Array(source[0..<(start + length + 70)])
+        guard Array(value.utf8) == expected else {
+          Issue.record("start \(start), length \(length)")
+          return
+        }
+      }
+    }
+  }
+
+  // The same through the parser: a string member the table writes whole, at every length across
+  // the inline limit and the first block.
+  @Test
+  func `Table string members round-trip at every length`() throws {
+    for length in Array(0...140) + [511, 512, 513, 1_024, 3_000] {
+      let text = String((0..<length).map { Character(Unicode.Scalar(UInt8(97 + $0 % 26))) })
+      var value = StringFieldModel.Partial()
+      try parsePartial(#"{"title":"\#(text)","body":"x"}"#, into: &value)
+      #expect(value.title.map(String.init) == text, "length \(length)")
+      #expect(value.body.map(String.init) == "x")
+    }
   }
 }

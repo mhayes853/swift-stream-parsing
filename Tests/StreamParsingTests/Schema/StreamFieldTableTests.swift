@@ -249,6 +249,43 @@ struct StreamFieldTableTests {
       expectNoDifference(value.one, 1)
       expectNoDifference(value.two, 2)
     }
+
+    // The tail compare reads words, the last one overlapping from the key's end, so every length
+    // past a word and every byte of its tail is a separate case: a key differing only at byte `i`
+    // must miss, and the span is allocated at exactly the key's length so nothing past it exists
+    // to be read. Run over a scanned table and an indexed one (past `indexThreshold`).
+    @Test(arguments: [false, true])
+    func `Long-key tail compare checks every byte at every length`(indexed: Bool) {
+      for length in 9...40 {
+        let key = (0..<length).map { UInt8(ascii: "a") + UInt8($0 % 26) }
+        var fields = [
+          StreamField(
+            key: String(decoding: key, as: UTF8.self), index: 7, kind: .int, optional: false,
+            offset: 0
+          )
+        ]
+        if indexed {
+          for filler in 0..<StreamFieldTable.indexThreshold {
+            fields.append(
+              StreamField(key: "f\(filler)", index: Int32(filler), kind: .int, optional: false, offset: 0)
+            )
+          }
+        }
+        let table = StreamFieldTable(fields)
+        func identifier(_ bytes: [UInt8]) -> Int32 {
+          let exact = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: bytes.count)
+          defer { exact.deallocate() }
+          _ = exact.initialize(from: bytes)
+          return table.fieldIdentifier(for: Span(_unsafeElements: UnsafeBufferPointer(exact)))
+        }
+        #expect(identifier(key) == 7, "length \(length)")
+        for position in 8..<length {
+          var changed = key
+          changed[position] ^= 0x20
+          #expect(identifier(changed) == -1, "length \(length), byte \(position)")
+        }
+      }
+    }
 }
 
 @StreamParseable

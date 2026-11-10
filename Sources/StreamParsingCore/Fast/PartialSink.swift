@@ -1384,7 +1384,8 @@ public struct PartialSink: ~Copyable, StreamParseSink {
       if entry.pointee.capacity > 0 {
         string.pointee.streamReserve(utf8ByteCount: Int(entry.pointee.capacity))
       }
-      if bytes.count > 0 { string.pointee.streamAppend(utf8: bytes, info: StringInfo(flags: [.begin, .end])) }
+      // `appendWhole`, not `streamAppend`: the whole-string append without `memmove` calls.
+      string.pointee.appendWhole(utf8: bytes)
       return .applied
     case .custom:
       return frame.pointee.schema.applyString(

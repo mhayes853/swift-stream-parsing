@@ -551,37 +551,34 @@ func streamMatchFieldIndexed(
   }
 }
 
+// Outlined on purpose. Measured inlined (`@inline(__always)`): `PartialSink.key` dropped from 12
+// callee-saved registers to 6, but the linear scan then stayed out of line as a call to
+// `streamMatchField`, and typed Twitter / Twitter escaped lost 5-6%.
 @usableFromInline
 @inline(never)
 func streamFieldTailMatches(
   _ entry: UnsafePointer<StreamFieldEntry>, keyBytes: UnsafePointer<UInt8>, _ key: Span<UInt8>
 ) -> Bool {
   key.withUnsafeBufferPointer { buffer in
-    let stored = UnsafeRawPointer(keyBytes + Int(entry.pointee.keyStart) + 8)
-    let given = UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped + 8)
-    return streamFieldKeyBytesEqual(stored, given, count: buffer.count &- 8)
-  }
-}
-
-@usableFromInline
-@inline(__always)
-func streamFieldKeyBytesEqual(_ a: UnsafeRawPointer, _ b: UnsafeRawPointer, count: Int) -> Bool {
-  var offset = 0
-  while offset &+ 8 <= count {
-    if a.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
-      != b.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
-    {
-      return false
+    // The first word already matched, and the key is longer than a word, so `count - 8` is a
+    // byte offset of both keys (the stored one has the same length) and the last word read from
+    // it ends exactly at their ends: words from 8 while one fits short of it, then that last
+    // word, overlapping what came before. No byte loop and no read past either key.
+    let stored = UnsafeRawPointer(keyBytes + Int(entry.pointee.keyStart))
+    let given = UnsafeRawPointer(buffer.baseAddress.unsafelyUnwrapped)
+    let last = buffer.count &- 8
+    var offset = 8
+    while offset < last {
+      if stored.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
+        != given.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
+      {
+        return false
+      }
+      offset &+= 8
     }
-    offset &+= 8
+    return stored.loadUnaligned(fromByteOffset: last, as: UInt64.self)
+      == given.loadUnaligned(fromByteOffset: last, as: UInt64.self)
   }
-  while offset < count {
-    if a.load(fromByteOffset: offset, as: UInt8.self) != b.load(fromByteOffset: offset, as: UInt8.self) {
-      return false
-    }
-    offset &+= 1
-  }
-  return true
 }
 
 // MARK: - Offsets
