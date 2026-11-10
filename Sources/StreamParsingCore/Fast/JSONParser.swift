@@ -1302,28 +1302,85 @@ public struct JSONParser: ~Copyable {
   mutating func fusedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
-    try self.unicodeEscapeEnd(base: base, from: from, to: to, coalescing: false, into: &sink)
+    try self.unicodeEscapeEnd(base: base, from: from, to: to, into: &sink)
   }
 
+  // A run of `\uXXXX` escapes, decoded in one call. Text written as escapes is rarely one escape:
+  // the escaped corpus averages eighteen in a row. Each one the loop takes is one the tail would
+  // otherwise have answered by scanning a zero-length run, reading the backslash and calling back
+  // in here; and the buffer's fill count stays in a register for the run rather than being stored
+  // and reloaded per escape. The loop stops at the first byte that is not an escape it can take
+  // whole -- past the chunk, bad hex, a lone or unpaired surrogate, an unknown selector, or no
+  // backslash at all -- and returns where that starts, so the tail meets it exactly as it would
+  // have: which escapes fall back to the per-byte states, and where anything reports, is unchanged.
   @inlinable
   @inline(never)
   mutating func coalescedUnicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
     base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
-    try self.unicodeEscapeEnd(base: base, from: from, to: to, coalescing: true, into: &sink)
+    guard var escape = Self.unicodeEscape(base: base, from: from, to: to) else { return nil }
+    // The escape's backslash: a flush delivers everything buffered ahead of it, so it reports one
+    // past that chunk's last content byte, as `bufferStringRun` does.
+    var backslash = from &- 1
+    var count = Int(self.bufferCount)
+    var end: Int
+    while true {
+      let encoded = Self.utf8Word(escape.value)
+      if count &+ encoded.count > Int(self.bufferCapacity) {
+        self.bufferCount = UInt32(truncatingIfNeeded: count)
+        try self.flushStringBuffer(into: &sink, end: backslash)
+        count = 0
+      }
+      // The whole scratch word in one unaligned store, as `bufferStringScratch` does: after the
+      // check `count` is at most `capacity - 1`, and `scratchByteCount` sits behind the buffer.
+      UnsafeMutableRawPointer(self.bufferBase + count).storeBytes(of: encoded.word, as: UInt64.self)
+      count &+= encoded.count
+      end = escape.end
+      // The next escape, if one starts here: another `\u`, or a simple escape inside the run
+      // (a newline between two lines of escaped text), which `fusedEscapeEnd` would have
+      // buffered the same way.
+      guard end &+ 2 <= to else { break }
+      let pair = UInt16(littleEndian: base.loadUnaligned(fromByteOffset: end, as: UInt16.self))
+      if pair == streamUnicodeEscapePrefix {
+        guard let next = Self.unicodeEscape(base: base, from: end &+ 1, to: to) else { break }
+        escape = next
+      } else {
+        guard UInt8(truncatingIfNeeded: pair) == .asciiBackslash,
+          let decoded = streamDecodeSimpleEscape(UInt8(truncatingIfNeeded: pair &>> 8))
+        else { break }
+        escape = (UInt32(decoded), end &+ 2)
+      }
+      backslash = end
+    }
+    self.bufferCount = UInt32(truncatingIfNeeded: count)
+    return end
   }
 
+  // The unbuffered arm: a key's escape, or a string value's outside the coalescing tail.
   @inlinable
   @inline(__always)
   mutating func unicodeEscapeEnd<Sink: StreamParseSink & ~Copyable>(
-    base: UnsafeRawPointer, from: Int, to: Int, coalescing: Bool, into sink: inout Sink
+    base: UnsafeRawPointer, from: Int, to: Int, into sink: inout Sink
   ) throws(JSONParsingError) -> Int? {
+    guard let escape = Self.unicodeEscape(base: base, from: from, to: to) else { return nil }
+    // `emitScratch` reports at `reportAt &+ 1`, so `reportAt` must be the escape's *last* byte
+    // -- `end &- 1` for a single escape and a surrogate pair alike; `from` reported 4 (10) early.
+    try self.emitScalar(escape.value, into: &sink, reportAt: escape.end &- 1)
+    return escape.end
+  }
+
+  // The escape whose `u` is at `from`, decoded, with the offset one past it; nil when it carries a
+  // diagnostic: past the chunk, a bad hex digit, a lone low surrogate, or a high surrogate not
+  // followed by a whole low one. Static, so asking does not copy the parser.
+  @inlinable
+  @inline(__always)
+  static func unicodeEscape(
+    base: UnsafeRawPointer, from: Int, to: Int
+  ) -> (value: UInt32, end: Int)? {
     guard from &+ 5 <= to, let scalar = streamHexQuad(base: base, from: from &+ 1) else {
       return nil
     }
-    var value = scalar
-    var end = from &+ 5
-
+    let end = from &+ 5
     if scalar >= .highSurrogateFloor, scalar <= .highSurrogateCeiling {
       // A pair is twelve bytes and must be complete and well formed to fuse; anything else is a
       // diagnostic for the per-byte path. The bounds test is first, so the load stays in the chunk.
@@ -1335,26 +1392,15 @@ public struct JSONParser: ~Copyable {
       else {
         return nil
       }
-      value =
+      let value =
         .utf8ThreeByteCeiling &+ ((scalar &- .highSurrogateFloor) << 10)
         &+ (low &- .lowSurrogateFloor)
-      end &+= 6
+      return (value, end &+ 6)
     } else if scalar >= .lowSurrogateFloor, scalar <= .lowSurrogateCeiling {
       // A lone low surrogate is a diagnostic, so it goes to the per-byte path.
       return nil
     }
-
-    if coalescing {
-      // A flush here delivers everything buffered ahead of this escape, so it reports one past
-      // that chunk's last content byte: the backslash, `from &- 1` (as `bufferStringRun` does).
-      let encoded = Self.utf8Word(value)
-      try self.bufferStringScratch(encoded.word, count: encoded.count, into: &sink, reportAt: from &- 1)
-    } else {
-      // `emitScratch` reports at `reportAt &+ 1`, so `reportAt` must be the escape's *last* byte
-      // -- `end &- 1` for a single escape and a surrogate pair alike; `from` reported 4 (10) early.
-      try self.emitScalar(value, into: &sink, reportAt: end &- 1)
-    }
-    return end
+    return (scalar, end)
   }
 
   @inlinable

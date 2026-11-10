@@ -40,4 +40,45 @@ struct `Lookup table tests` {
     let values = UInt8.min...UInt8.max
     expectNoDifference(values.map(JSONParser.sequenceLength), values.map(ladder))
   }
+
+  // `streamHexQuad` validates and decodes four digits arithmetically in one register, where a
+  // byte at or above 0x80 can carry into its neighbour. Every byte value is tried in every lane,
+  // with the other three lanes a valid digit, a lower and an upper case letter, against a
+  // per-character oracle.
+  @Test
+  func `Hex Quad Agrees With A Per Character Decode On Every Byte In Every Lane`() {
+    func nibble(_ byte: UInt8) -> UInt32? {
+      switch byte {
+      case UInt8(ascii: "0")...UInt8(ascii: "9"): UInt32(byte - UInt8(ascii: "0"))
+      case UInt8(ascii: "a")...UInt8(ascii: "f"): UInt32(byte - UInt8(ascii: "a") + 10)
+      case UInt8(ascii: "A")...UInt8(ascii: "F"): UInt32(byte - UInt8(ascii: "A") + 10)
+      default: nil
+      }
+    }
+    func oracle(_ quad: [UInt8]) -> UInt32? {
+      var value: UInt32 = 0
+      for byte in quad {
+        guard let digit = nibble(byte) else { return nil }
+        value = value << 4 | digit
+      }
+      return value
+    }
+    let fillers: [[UInt8]] = [Array("7aF0".utf8), Array("Fe9d".utf8), Array("0000".utf8)]
+    var mismatches: [String] = []
+    for filler in fillers {
+      for lane in 0..<4 {
+        for byte in UInt8.min...UInt8.max {
+          var quad = filler
+          quad[lane] = byte
+          // Padded on both sides, so the decode reads at an unaligned offset of a larger buffer.
+          let padded: [UInt8] = [0x5C, 0x75] + quad + [0x5C, 0x75]
+          let actual = padded.withUnsafeBytes { streamHexQuad(base: $0.baseAddress!, from: 2) }
+          if actual != oracle(quad) {
+            mismatches.append("\(quad): \(String(describing: actual)) vs \(String(describing: oracle(quad)))")
+          }
+        }
+      }
+    }
+    expectNoDifference(mismatches, [])
+  }
 }

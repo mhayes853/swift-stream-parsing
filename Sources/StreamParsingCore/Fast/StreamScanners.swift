@@ -898,25 +898,29 @@ package var streamUnicodeEscapePrefix: UInt16 {
   UInt16(UInt8.asciiBackslash) | (UInt16(UInt8.asciiLowerU) << 8)
 }
 
-// Four hex digits in one shot: fold case with the 0x20 bit (which digits already carry), test the
-// digit and letter ranges together, select the nibbles from whichever matched, and weight them by
-// place value. Returns nil unless all four are hex, so the caller can fall back rather than having
+// Four hex digits in one general-purpose register, so the result never crosses from a vector
+// register. Each byte's range is tested by adding a bias that carries into its top bit exactly when
+// the byte is at or past a bound -- no carry leaves a byte below 0x80, and a byte at or above 0x80
+// fails on its own top bit whatever it carried into its neighbour. The 0x20 bit folds case for the
+// letter test only (digits already carry it, and folding them would admit 0x10...0x19). A digit's
+// nibble is its low four bits; a letter's is its low four bits plus nine, and bit 6 is set on
+// letters only. Returns nil unless all four are hex, so the caller can fall back rather than having
 // to report which one was not.
 @inlinable
 @inline(__always)
 package func streamHexQuad(base: UnsafeRawPointer, from: Int) -> UInt32? {
-  let bytes = base.loadUnaligned(fromByteOffset: from, as: SIMD4<UInt8>.self)
-  let digits = bytes &- SIMD4<UInt8>(repeating: .asciiZero)
-  let letters = (bytes | SIMD4<UInt8>(repeating: 0x20)) &- SIMD4<UInt8>(repeating: .asciiLowerA)
-  let isDigit = digits .< SIMD4<UInt8>(repeating: 10)
-  let isLetter = letters .< SIMD4<UInt8>(repeating: 6)
-  guard all(isDigit .| isLetter) else { return nil }
-  let nibbles = SIMD4<UInt8>.zero
-    .replacing(with: digits, where: isDigit)
-    .replacing(with: letters &+ SIMD4<UInt8>(repeating: 10), where: isLetter)
-  let weighted =
-    SIMD4<UInt16>(truncatingIfNeeded: nibbles) &* SIMD4<UInt16>(0x1000, 0x100, 0x10, 1)
-  return UInt32(weighted.wrappedSum())
+  let bytes = UInt32(littleEndian: base.loadUnaligned(fromByteOffset: from, as: UInt32.self))
+  let tops: UInt32 = 0x8080_8080
+  let folded = bytes | 0x2020_2020
+  // `b + 0x50` reaches 0x80 at '0'; `b + 0x46` at ':'. `f + 0x1F` at 'a'; `f + 0x19` at 'g'.
+  let digit = (bytes &+ 0x5050_5050) & ~(bytes &+ 0x4646_4646)
+  let letter = (folded &+ 0x1F1F_1F1F) & ~(folded &+ 0x1919_1919)
+  guard (digit | letter) & ~bytes & tops == tops else { return nil }
+  let nibbles = (bytes & 0x0F0F_0F0F) &+ ((bytes >> 6) & 0x0101_0101) &* 9
+  // First character is the low byte and the most significant digit: pair each even byte with
+  // the odd byte above it, then put the two pairs in order.
+  let pairs = (nibbles << 4) | (nibbles >> 8)
+  return ((pairs & 0xFF) << 8) | ((pairs >> 16) & 0xFF)
 }
 
 // A direct byte-to-byte map for JSON's eight simple escapes; the parser handles `u` first. Zero means

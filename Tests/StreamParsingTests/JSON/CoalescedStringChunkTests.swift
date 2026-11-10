@@ -380,6 +380,111 @@ struct `Coalesced string chunk tests` {
     }
   }
 
+  // The document in two parse calls cut at `cut`, so call 0 holds bytes `0..<cut`.
+  static func recordSplit(
+    _ bytes: [UInt8], at cut: Int, bufferCapacity: Int
+  ) -> (events: [Tagged], error: JSONParsingError?) {
+    var sink = RecordingSink()
+    var parser = JSONParser(bufferCapacity: bufferCapacity)
+    var error: JSONParsingError?
+    do {
+      try bytes.withUnsafeBufferPointer { input throws(JSONParsingError) in
+        for (index, range) in [0..<cut, cut..<input.count].enumerated() where !range.isEmpty {
+          sink.call = index
+          try parser.parse(UnsafeBufferPointer(rebasing: input[range]), into: &sink)
+        }
+      }
+      sink.call = .max
+      try parser.finish(into: &sink)
+    } catch let caught {
+      error = caught
+    }
+    return (sink.events, error)
+  }
+
+  // A run of `~uXXXX` escapes is decoded inside one call (`coalescedUnicodeEscapeEnd`), which
+  // stops at the first escape it cannot take whole and leaves that one to the tail and, past it,
+  // the per-byte states. Every cut lands somewhere in a run -- inside a hex quad, between the two
+  // halves of a surrogate pair, on a backslash -- and must deliver what the byte fed parse does,
+  // fail where it fails, and with a 64-byte buffer flush mid-run at every seam as well.
+  //
+  // The documents spell each backslash `~`, swapped in by `escaped`: a unicode escape typed
+  // literally into this file is too easily stored decoded, which would test nothing.
+  static func escaped(_ text: String) -> String {
+    String(text.map { $0 == "~" ? Character(UnicodeScalar(0x5C)) : $0 })
+  }
+
+  static let unicodeRuns: [(String, String)] = [
+    (
+      "mixed widths",
+      #"["~u65E5~u672c~u8A9e~u0041~u00E9~u00e9~uD83D~uDE00~u20AC~n~u3042~u3044~"x~u3046~ud83d~ude00~u007F~u0080~u07FF~u0800~uFFFF~uDBFF~uDFFF~uD800~uDC00"]"#
+    ),
+    ("ends on the quote", #"{"k": "~u3042~u3044~u3046", "n": 1}"#),
+    ("ends on a plain byte", #"["~u3042~u3044zz~u3046"]"#),
+    ("bad hex mid-run", #"["~u3042~u3044~u30zz~u3046"]"#),
+    ("bad hex below a digit", #"["~u3042~u00/0"]"#),
+    ("bad hex above a digit", #"["~u3042~u00:0"]"#),
+    ("bad hex below a letter", #"["~u3042~u00@0"]"#),
+    ("bad hex above a letter", #"["~u3042~u00G0~u3042~u00g0"]"#),
+    ("non-ascii in a hex quad", "[\"~u3042~u00\u{E9}0\"]"),
+    ("lone low surrogate mid-run", #"["~u3042~uDC00~u3044"]"#),
+    ("high surrogate then a scalar", #"["~u3042~uD83D~u3044"]"#),
+    ("high surrogate then a high", #"["~u3042~uD83D~uD83D~uDE00"]"#),
+    ("high surrogate then a simple escape", #"["~u3042~uD83D~n"]"#),
+    ("high surrogate then the quote", #"["~u3042~uD83D"]"#),
+    ("high surrogate then a plain byte", #"["~u3042~uD83Dx~uDE00"]"#),
+    ("upper case selector", #"["~u3042~U3044"]"#),
+    ("truncated run", #"["~u3042~u30"#),
+    ("escaped key run", #"{"~u3042~u3044~uD83D~uDE00": "~u3046~u3048"}"#),
+    (
+      "long run without a break",
+      "[\"" + String(repeating: #"~u3042~u00E9~u0041~u30A2~u0800"#, count: 15) + #"~uFFFF"]"#
+    ),
+    (
+      "long run",
+      "[\"" + String(repeating: #"~u65E5~u672C~uD83D~uDE00~u00E9a~u0041~n"#, count: 24) + "\"]"
+    )
+  ].map { ($0.0, Self.escaped($0.1)) }
+
+  @Test(arguments: unicodeRuns)
+  func `A unicode escape run cut at every offset agrees with the byte fed parse`(
+    label: String, json: String
+  ) {
+    let bytes = Array(json.utf8)
+    #expect(!bytes.contains(UInt8(ascii: "~")))
+    let byteFed = Self.record(bytes, chunk: 1)
+    for bufferCapacity in [64, 4096] {
+      for cut in 0...bytes.count {
+        let chunked = Self.recordSplit(bytes, at: cut, bufferCapacity: bufferCapacity)
+        let coalesced = Outcome(events: Self.folding(chunked.events), error: chunked.error)
+        let fragmented = Outcome(
+          events: Self.folding(byteFed.events) { $0 < cut ? 0 : 1 }, error: byteFed.error
+        )
+        if coalesced != fragmented {
+          Issue.record("\(label): cut \(cut), buffer \(bufferCapacity) diverges")
+          return
+        }
+      }
+    }
+  }
+
+  @Test
+  func `A unicode escape run is one chunk`() {
+    let json = Self.escaped(#"["~u65E5~u672C~u8A9E~uD83D~uDE00~u00E9~n~u0041"]"#)
+    #expect(json.utf8.count == 48)
+    let decoded = String(
+      String.UnicodeScalarView(
+        [0x65E5, 0x672C, 0x8A9E, 0x1F600, 0xE9, 0x0A, 0x41].map { UnicodeScalar($0)! }
+      )
+    )
+    #expect(Self.chunks(json) == [Self.chunk(0, decoded)])
+    // A run stopped by an escape it cannot fuse flushes what it decoded, then the per-byte states
+    // take the unpaired high surrogate and report it where the byte fed parse does.
+    let stopped = Array(Self.escaped(#"["~u3042~u3044~uD83D~u3046"]"#).utf8)
+    #expect(Self.record(stopped, chunk: .max).error == Self.record(stopped, chunk: 1).error)
+    #expect(Self.record(stopped, chunk: .max).error != nil)
+  }
+
   @Test
   func `A chunk rejection reports at the flush`() {
     // `["ab\ncd"]`: the coalesced chunk `\ncd` is flushed at the closing quote (offset 8), so a
