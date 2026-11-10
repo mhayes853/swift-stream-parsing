@@ -168,6 +168,18 @@ struct StructuralBlockWalkTests {
     add("key then double colon", #"{"a"::1}"#)
     add("key colon close", #"{"a":}"#)
     add("key spaced colon", "{\"a\" :1,\"b\"\n:\"x\",\"c\"\t: true}")
+    // A string value's closing quote followed by a comma, and by everything that is not one.
+    add("string then comma", #"["a","b",{"c":"d","e":"f"},["g","h"]]"#)
+    add("string then spaced comma", "[\"a\" ,\"b\"\n,\"c\"\t, \"d\"]")
+    add("string then trailing comma", #"["a",]"#)
+    add("string then trailing comma in object", #"{"a":"b",}"#)
+    add("string then double comma", #"["a",,"b"]"#)
+    add("root string then comma", #""a","#)
+    add("root string then comma and value", #""a","b""#)
+    add("string then comma then colon", #"{"a":"b",:"c"}"#)
+    add("string then comma then value in object", #"{"a":"b",1}"#)
+    add("string then comma then close", #"["a",}"#)
+    add("string then wrong close", #"{"a":"b"]"#)
     add("bad number", #"[1.2.3]"#)
     add("leading zero", #"[01]"#)
     add("control in string", Array(#"{"a":"x"#.utf8) + [0x01] + Array(#"y"}"#.utf8))
@@ -237,6 +249,104 @@ struct StructuralBlockWalkTests {
           Self.expectAgreement(
             document, "length \(length) suffix \(suffix) pad \(pad)",
             chunks: [64, 100, 4096, .max]
+          )
+        }
+      }
+    }
+  }
+
+  // A string that does not close in the block it opens in is scanned from the block's edge, not
+  // from its opening quote, when the classifier saw no backslash in the rest of the block. So
+  // every byte that could matter is put at every position on both sides of that edge: a
+  // non-ASCII scalar (valid, and invalid), an escape, an escaped quote, a control byte, and
+  // nothing at all -- as a key and as a value, behind a non-ASCII string that sets the block's
+  // flag for an ASCII one, and with the opening quote at every offset of the grid.
+  private static let edgeFeatures: [(name: String, bytes: [UInt8])] = [
+    ("plain", []),
+    ("non-ASCII", Array("é".utf8)),
+    ("three-byte", Array("✓".utf8)),
+    ("escape", Array("\\n".utf8)),
+    ("escaped quote", Array("\\\"".utf8)),
+    ("escaped backslash", Array("\\\\".utf8)),
+    ("unicode escape", Array("\\u00e9".utf8)),
+    ("control", [0x01]),
+    ("invalid UTF-8", [0xC0, 0x80]),
+    ("truncated UTF-8", [0xE2, 0x28]),
+  ]
+
+  private static func edgeBody(length: Int, feature: [UInt8], at position: Int) -> [UInt8] {
+    var body = [UInt8](repeating: UInt8(ascii: "s"), count: length)
+    body.insert(contentsOf: feature, at: Swift.min(position, length))
+    return body
+  }
+
+  private static func edgeDocument(pad: Int, body: [UInt8], shape: Int) -> [UInt8] {
+    let spaces = [UInt8](repeating: 0x20, count: pad)
+    let quote: [UInt8] = [0x22]
+    switch shape {
+    case 0:
+      // A value, then a second one so the walk has to carry on correctly past the first.
+      return spaces + Array("[".utf8) + quote + body + quote + Array(", \"t\", 1]".utf8)
+    case 1:
+      // A key and its value.
+      return spaces + Array("{".utf8) + quote + body + quote + Array(": ".utf8) + quote + body
+        + quote + Array("}".utf8)
+    default:
+      // A non-ASCII string in front, so the block's flag is set for the string behind it.
+      return spaces + Array("[\"é\", ".utf8) + quote + body + quote + Array("]".utf8)
+    }
+  }
+
+  @Test(arguments: Self.edgeFeatures.indices)
+  func `A string crossing a block edge agrees wherever its bytes fall`(index: Int) {
+    let feature = Self.edgeFeatures[index]
+    for pad in [0, 1, 2, 3, 15, 16, 17, 31, 47, 48, 56, 60, 61, 62, 63, 64, 65] {
+      for length in [70, 150] {
+        for position in 0...length where length == 70 || position % 7 == 0 || position > 140 {
+          let body = Self.edgeBody(length: length, feature: feature.bytes, at: position)
+          for shape in 0..<3 {
+            Self.expectAgreement(
+              Self.edgeDocument(pad: pad, body: body, shape: shape),
+              "\(feature.name) at \(position) of \(length) pad \(pad) shape \(shape)",
+              chunks: [64, 100, .max]
+            )
+          }
+        }
+      }
+    }
+  }
+
+  // The opening quote at every offset of the block and the closing quote at every distance past
+  // the edge, including on it and directly after it.
+  @Test
+  func `A string closing at every distance past the block edge agrees`() {
+    for pad in 0..<66 {
+      for length in 0..<140 {
+        for feature in [[], Array("é".utf8)] as [[UInt8]] {
+          let body = Self.edgeBody(length: length, feature: feature, at: length)
+          Self.expectAgreement(
+            Self.edgeDocument(pad: pad, body: body, shape: 0),
+            "length \(length) pad \(pad) feature \(feature.count)", chunks: [.max]
+          )
+        }
+      }
+    }
+  }
+
+  // The same strings with the chunk ending at every byte from the first block's edge on: the
+  // edge scan starts at `p + 64`, which is the chunk end when the chunk is exactly one block, and
+  // a string the chunk cuts has to reach `consumeStringRun` exactly as the ladder hands it over.
+  @Test(arguments: Self.edgeFeatures.indices)
+  func `A string crossing a block edge agrees when the chunk cuts it anywhere`(index: Int) {
+    let feature = Self.edgeFeatures[index]
+    for pad in [0, 2, 17, 61, 62, 63] {
+      for position in [0, 30, 58, 59, 60, 61, 62, 63, 64, 65, 66, 100] {
+        let body = Self.edgeBody(length: 100, feature: feature.bytes, at: position)
+        for shape in 0..<3 {
+          Self.expectAgreement(
+            Self.edgeDocument(pad: pad, body: body, shape: shape),
+            "\(feature.name) at \(position) pad \(pad) shape \(shape)",
+            chunks: Array(64...190)
           )
         }
       }
