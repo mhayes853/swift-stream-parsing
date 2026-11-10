@@ -449,8 +449,12 @@ public struct PartialSink: ~Copyable, StreamParseSink {
         if let bits = entry.pointee.schemaBits {
           let member = top.pointee.storage + Int(entry.pointee.offset)
           if entry.pointee.hasPrepare {
-            let prepare = top.pointee.schema.fieldPrepares.unsafelyUnwrapped + Int(field)
-            prepare.pointee.unsafelyUnwrapped(member, entry.pointee.capacity)
+            // Through a guaranteed reference to the box: a closure loaded out of the table's
+            // memory was a copy, a retain/release around every call. See `_StreamFieldPrepareBox`.
+            let box = top.pointee.schema.fieldPrepares.unsafelyUnwrapped[Int(field)].unsafelyUnwrapped
+            Unmanaged<_StreamFieldPrepareBox>.fromOpaque(box)._withUnsafeGuaranteedRef {
+              $0.body(member, entry.pointee.capacity)
+            }
           }
           return BorrowedFrame(storage: member, schemaBits: bits)
         }

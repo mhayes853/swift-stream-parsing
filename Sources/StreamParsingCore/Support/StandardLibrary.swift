@@ -162,6 +162,18 @@ where Value: StreamPartial {
       _streamDictionarySchema(Value.self, value: Value.streamDictionaryValueSchema)
     }
   }
+
+  // Constructed, not copied: see `StreamArray._streamOpensByConstruction` below.
+  @inlinable
+  public static var _streamOpensByConstruction: Bool { true }
+}
+
+// A bound generic struct, so a template copy was the generic value witness walking every field --
+// the blocks array, the optional tail, the generic `pending` -- through metadata, on every
+// optional array member and every array-of-arrays element opened. `init()` is a few inline stores.
+extension StreamArray where Element: StreamPartial {
+  @inlinable
+  public static var _streamOpensByConstruction: Bool { true }
 }
 
 // A value wider than the `UInt64` accumulator arrives flagged as overflowed with nothing usable,

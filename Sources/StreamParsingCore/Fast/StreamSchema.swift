@@ -272,7 +272,7 @@ public final class StreamSchema: @unchecked Sendable {
   @usableFromInline let fieldEntries: UnsafePointer<StreamFieldEntry>?
   @usableFromInline let fieldCount: Int
   @usableFromInline let fieldKeyBytes: UnsafePointer<UInt8>?
-  @usableFromInline let fieldPrepares: UnsafePointer<StreamFieldPrepare?>?
+  @usableFromInline let fieldPrepares: UnsafePointer<UnsafeRawPointer?>?
   // The open-addressed index over `fields`, or nil below `StreamFieldTable.indexThreshold`.
   @usableFromInline let fieldIndex: UnsafePointer<Int32>?
   @usableFromInline let fieldIndexMask: Int
@@ -621,8 +621,8 @@ public protocol StreamPartial: StreamInitializable {
   /// Whether a container opens a slot of this type by constructing ``streamInitialValue()``
   /// rather than copying the template its schema hoisted.
   ///
-  /// True for the `Partial` the macro generates for a generic struct, and `false` for everything
-  /// else. A bound generic struct's copy is not emitted field by field: it fetches the type's
+  /// True for the `Partial` the macro generates for a generic struct and for `StreamArray` and
+  /// `StreamDictionary`, and `false` for everything else. A bound generic struct's copy is not emitted field by field: it fetches the type's
   /// metadata and calls its value witness, which walks the fields through metadata too. Measured
   /// on the matched Twitter model, one generic level cost 1.5% per element opened that way, while
   /// constructing is the specialised `init`'s inline stores. A concrete `Partial` keeps the

@@ -57,6 +57,7 @@ public struct StreamDictionary<Value> {
 
   @usableFromInline static var indexThreshold: Int { 8 }
 
+  @inlinable
   public init() {
     self.entries = ContiguousArray<StreamDictionaryEntry>()
     self.storedValues = StreamArray<Value>()
@@ -487,7 +488,7 @@ extension StreamDictionary {
       return withUnsafeMutablePointer(to: &self.pendingValue) { UnsafeMutableRawPointer($0) }
     }
     return withUnsafeMutablePointer(to: &self.pendingValue) { box in
-      _streamCopyInitialize(box, from: template)
+      _streamCopyInitializeSome(box, from: template)
       return UnsafeMutableRawPointer(box)
     }
   }
@@ -636,6 +637,7 @@ extension Dictionary where Key == String {
 }
 
 extension StreamDictionary: StreamInitializable {
+  @inlinable
   public static func streamInitialValue() -> Self { Self() }
 }
 

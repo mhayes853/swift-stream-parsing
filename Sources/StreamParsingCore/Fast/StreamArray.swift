@@ -68,6 +68,7 @@ public struct StreamArray<Element> {
     )
   }
 
+  @inlinable
   public init() {
     self.blocks = []
     self.tail = nil
@@ -471,6 +472,7 @@ extension Array {
 }
 
 extension StreamArray: StreamInitializable {
+  @inlinable
   public static func streamInitialValue() -> Self { Self() }
 }
 

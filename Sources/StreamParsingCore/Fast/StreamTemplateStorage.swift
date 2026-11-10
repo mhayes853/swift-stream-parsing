@@ -77,3 +77,27 @@ extension _StreamTemplateStorage {
   /// Templates currently allocated, and templates allocated since process start. Debug only.
   public var _streamTemplateStorageCounts: (live: Int, total: Int) { _streamTemplateCounters.value }
 #endif
+
+/// One field table entry's ``StreamFieldPrepare``, held as a `let` so the sink can call it through
+/// a guaranteed reference.
+///
+/// The table stores the box's address, retained once, rather than the closure: a closure loaded
+/// out of pointer memory is a copy, so every container member open retained and released its
+/// context, and since the memory was typed by a generic `Pointee` the closure was stored at maximal
+/// abstraction, so the call also went through a reabstraction thunk with both arguments spilled.
+/// The same pair `_withUnsafeGuaranteedRef` removed from the schema's own closures (PROGRESSION.md,
+/// "The last closure pairs").
+@usableFromInline
+final class _StreamFieldPrepareBox: @unchecked Sendable {
+  @usableFromInline let body: StreamFieldPrepare
+
+  init(_ body: @escaping StreamFieldPrepare) { self.body = body }
+
+  static func retained(_ body: @escaping StreamFieldPrepare) -> UnsafeRawPointer {
+    UnsafeRawPointer(Unmanaged.passRetained(_StreamFieldPrepareBox(body)).toOpaque())
+  }
+
+  static func release(_ bits: UnsafeRawPointer) {
+    Unmanaged<_StreamFieldPrepareBox>.fromOpaque(bits).release()
+  }
+}

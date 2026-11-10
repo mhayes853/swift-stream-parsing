@@ -363,7 +363,7 @@ public func _streamOptionalPrepare<T: StreamPartial>(
       if T._streamOpensByConstruction {
         pointer.initialize(to: T.streamInitialValue())
       } else {
-        _streamCopyInitialize(pointer, from: template)
+        _streamCopyInitializeSome(pointer, from: template)
       }
     }
     inner?(storage, 0)
@@ -381,8 +381,9 @@ final class StreamFieldTable: @unchecked Sendable {
   @usableFromInline let entries: UnsafeMutablePointer<StreamFieldEntry>
   @usableFromInline let count: Int
   @usableFromInline let keyBytes: UnsafeMutablePointer<UInt8>
-  // Parallel to `entries`, off the entry so the match's stride stays forty bytes.
-  @usableFromInline let prepares: UnsafeMutablePointer<StreamFieldPrepare?>
+  // Parallel to `entries`, off the entry so the match's stride stays forty bytes: each a +1
+  // `_StreamFieldPrepareBox` address, or nil. See `_StreamFieldPrepareBox`.
+  @usableFromInline let prepares: UnsafeMutablePointer<UnsafeRawPointer?>
   // The members as declared: the owners of every schema an entry points at unowned, and what
   // tests read a generated table back from.
   @usableFromInline let declared: [StreamField]
@@ -431,7 +432,7 @@ final class StreamFieldTable: @unchecked Sendable {
         (self.keyBytes + keyStart).update(from: base, count: buffer.count)
       }
       (self.entries + index).initialize(to: StreamFieldEntry(field, keyStart: keyStart))
-      (self.prepares + index).initialize(to: field.prepare)
+      (self.prepares + index).initialize(to: field.prepare.map(_StreamFieldPrepareBox.retained))
       keyStart &+= field.key.count
     }
   }
@@ -469,7 +470,9 @@ final class StreamFieldTable: @unchecked Sendable {
   deinit {
     self.entries.deinitialize(count: self.count)
     self.entries.deallocate()
-    self.prepares.deinitialize(count: self.count)
+    for index in 0..<self.count {
+      if let box = self.prepares[index] { _StreamFieldPrepareBox.release(box) }
+    }
     self.prepares.deallocate()
     self.keyBytes.deallocate()
     self.index?.deallocate()
